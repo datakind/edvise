@@ -5,7 +5,7 @@ import sys
 import importlib
 
 from .. import targets as _targets  # assumes targets/__init__.py imports the modules
-from shared.shared import read_config
+from src.utils._get_spark_session import read_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

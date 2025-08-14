@@ -12,7 +12,7 @@ from .. import feature_generation
 from feature_generation._standardizer import (
     BaseStandardizer
 )
-from src.utils._get_spark_session import read_config
+from src.utils._databricks import read_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

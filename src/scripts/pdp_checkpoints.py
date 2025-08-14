@@ -5,7 +5,7 @@ import sys
 import importlib
 
 from .. import checkpoints
-from shared.shared import read_config
+from src.utils._databricks import read_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
