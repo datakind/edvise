@@ -8,7 +8,7 @@ import pandas as pd
 from pandas.core.groupby import DataFrameGroupBy
 
 from .... import utils
-from . import _constants
+from . import constants
 
 LOGGER = logging.getLogger(__name__)
 
@@ -24,12 +24,12 @@ def add_features(
     num_course_cols = [
         col
         for col in df.columns
-        if col.startswith(f"{_constants.NUM_COURSE_FEATURE_COL_PREFIX}_")
+        if col.startswith(f"{constants.NUM_COURSE_FEATURE_COL_PREFIX}_")
     ]
     dummy_course_cols = [
         col
         for col in df.columns
-        if col.startswith(f"{_constants.DUMMY_COURSE_FEATURE_COL_PREFIX}_")
+        if col.startswith(f"{constants.DUMMY_COURSE_FEATURE_COL_PREFIX}_")
     ]
     df_expanding_agg = (
         expanding_agg_features(
@@ -51,7 +51,7 @@ def add_features(
                 ("student_pass_rate_above_sections_avg", "sum"),
                 ("student_completion_rate_above_sections_avg", "sum"),
             ],
-            credits=_constants.DEFAULT_COURSE_CREDIT_CHECK,
+            credits=constants.DEFAULT_COURSE_CREDIT_CHECK,
         )
         # rename/dtype special cols for clarity in downstream calcs
         .astype(
@@ -100,7 +100,7 @@ def expanding_agg_features(
     *,
     num_course_cols: list[str],
     col_aggs: list[tuple[str, str | list[str]]],
-    credits: t.Optional[int] = _constants.DEFAULT_COURSE_CREDIT_CHECK,
+    credits: t.Optional[int] = constants.DEFAULT_COURSE_CREDIT_CHECK,
     dummy_course_cols: t.Optional[list[str]] = None,
 ) -> pd.DataFrame:
     """
@@ -136,7 +136,7 @@ def expanding_agg_features(
         col
         for col in df_cumaggs.columns
         if (
-            col.startswith(f"cumsum_{_constants.NUM_COURSE_FEATURE_COL_PREFIX}_")
+            col.startswith(f"cumsum_{constants.NUM_COURSE_FEATURE_COL_PREFIX}_")
             and col != "cumsum_num_courses"  # HACK
         )
     ]

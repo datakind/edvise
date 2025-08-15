@@ -9,10 +9,10 @@ import typing as t
 
 from .. import utils
 from .. import feature_generation
-from feature_generation._standardizer import (
+from src.feature_generation.standardizer import (
     BaseStandardizer
 )
-from src.utils._databricks import read_config
+from src.utils.databricks import read_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -65,35 +65,35 @@ class CustomFeatureGenerationTask:
         df_cohort: pd.DataFrame,
         df_course: pd.DataFrame,
         *,
-        min_passing_grade: float = feature_generation._constants.DEFAULT_MIN_PASSING_GRADE,
-        min_num_credits_full_time: float = feature_generation._constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
-        course_level_pattern: str = feature_generation._constants.DEFAULT_COURSE_LEVEL_PATTERN,
-        core_terms: set[str] = feature_generation._constants.DEFAULT_CORE_TERMS,
-        peak_covid_terms: set[tuple[str, str]] = feature_generation._constants.DEFAULT_PEAK_COVID_TERMS,
+        min_passing_grade: float = feature_generation.constants.DEFAULT_MIN_PASSING_GRADE,
+        min_num_credits_full_time: float = feature_generation.constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
+        course_level_pattern: str = feature_generation.constants.DEFAULT_COURSE_LEVEL_PATTERN,
+        core_terms: set[str] = feature_generation.constants.DEFAULT_CORE_TERMS,
+        peak_covid_terms: set[tuple[str, str]] = feature_generation.constants.DEFAULT_PEAK_COVID_TERMS,
         key_course_subject_areas: t.Optional[list[str]] = None,
         key_course_ids: t.Optional[list[str]] = None,
     ) -> pd.DataFrame:
         """Main feature generation pipeline."""
         first_term = self.course_std.infer_first_term_of_year(df_course["academic_term"])
 
-        df_students = df_cohort.pipe(feature_generation._student.add_features, 
+        df_students = df_cohort.pipe(feature_generation.student.add_features, 
                                      first_term_of_year=first_term)
 
         df_courses_plus = (
             df_course
-            .pipe(feature_generation._course.add_features,
+            .pipe(feature_generation.course.add_features,
                   min_passing_grade=min_passing_grade,
                   course_level_pattern=course_level_pattern)
-            .pipe(feature_generation._term.add_features,
+            .pipe(feature_generation.term.add_features,
                   first_term_of_year=first_term,
                   core_terms=core_terms,
                   peak_covid_terms=peak_covid_terms)
-            .pipe(feature_generation._section.add_features,
+            .pipe(feature_generation.section.add_features,
                   section_id_cols=["term_id", "course_id", "section_id"])
         )
 
         df_student_terms = (
-            feature_generation._student_term.aggregate_from_course_level_features(
+            feature_generation.student_term.aggregate_from_course_level_features(
                 df_courses_plus,
                 student_term_id_cols=["student_id", "term_id"],
                 min_passing_grade=min_passing_grade,
@@ -101,12 +101,12 @@ class CustomFeatureGenerationTask:
                 key_course_ids=key_course_ids,
             )
             .merge(df_students, how="inner", on=["institution_id", "student_id"])
-            .pipe(feature_generation._student_term.add_features,
+            .pipe(feature_generation.student_term.add_features,
                   min_num_credits_full_time=min_num_credits_full_time)
         )
 
         df_student_terms_plus = (
-            feature_generation._cumulative.add_features(
+            feature_generation.cumulative.add_features(
                 df_student_terms,
                 student_id_cols=["institution_id", "student_id"],
                 sort_cols=["academic_year", "academic_term"]

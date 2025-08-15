@@ -6,7 +6,7 @@ from collections.abc import Collection
 import pandas as pd
 
 from ....utils import types
-from . import _constants, _shared
+from . import constants, shared
 
 LOGGER = logging.getLogger(__name__)
 
@@ -14,9 +14,9 @@ LOGGER = logging.getLogger(__name__)
 def add_features(
     df: pd.DataFrame,
     *,
-    first_term_of_year: types.TermType = _constants.DEFAULT_FIRST_TERM_OF_YEAR,  # type: ignore
-    core_terms: set[types.TermType] = _constants.DEFAULT_CORE_TERMS,  # type: ignore
-    peak_covid_terms: set[tuple[str, str]] = _constants.DEFAULT_PEAK_COVID_TERMS,
+    first_term_of_year: types.TermType = constants.DEFAULT_FIRST_TERM_OF_YEAR,  # type: ignore
+    core_terms: set[types.TermType] = constants.DEFAULT_CORE_TERMS,  # type: ignore
+    peak_covid_terms: set[tuple[str, str]] = constants.DEFAULT_PEAK_COVID_TERMS,
     year_col: str = "academic_year",
     term_col: str = "academic_term",
 ) -> pd.DataFrame:
@@ -42,9 +42,9 @@ def add_features(
         # only need to compute features on unique terms, rather than at course-level
         # merging back into `df` afterwards ensures all rows have correct values
         .assign(
-            term_id=ft.partial(_shared.year_term, year_col=year_col, term_col=term_col),
+            term_id=ft.partial(shared.year_term, year_col=year_col, term_col=term_col),
             term_start_dt=ft.partial(
-                _shared.year_term_dt,
+                shared.year_term_dt,
                 col="term_id",
                 bound="start",
                 first_term_of_year=first_term_of_year,

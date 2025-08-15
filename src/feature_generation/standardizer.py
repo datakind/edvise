@@ -7,7 +7,7 @@ import re
 LOGGER = logging.getLogger(__name__)
 
 from .. import utils
-from src.utils._drop_columns_safely import drop_columns_safely
+from src.utils.drop_columns_safely import drop_columns_safely
 
 #TODO think of a better name than standardizer
 

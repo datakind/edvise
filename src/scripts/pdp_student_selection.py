@@ -5,7 +5,7 @@ import sys
 import importlib
 
 from .. import student_selection
-from src.utils._get_spark_session import read_config
+from src.utils.databricks import read_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -29,7 +29,7 @@ class StudentSelectionTask:
         student_id_col = self.cfg.student_id_col
 
         # Select students
-        df_selected_students = student_selection._select_students_attributes.select_students_by_attributes(
+        df_selected_students = student_selection.select_students_attributes.select_students_by_attributes(
             df_student_terms,
             student_id_cols=student_id_col,
             **student_criteria,

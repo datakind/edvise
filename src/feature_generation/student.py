@@ -4,7 +4,7 @@ import logging
 import pandas as pd
 
 from ....utils import types
-from . import _constants, _shared
+from . import constants, shared
 
 LOGGER = logging.getLogger(__name__)
 
@@ -12,7 +12,7 @@ LOGGER = logging.getLogger(__name__)
 def add_features(
     df: pd.DataFrame,
     *,
-    first_term_of_year: types.TermType = _constants.DEFAULT_FIRST_TERM_OF_YEAR,  # type: ignore
+    first_term_of_year: types.TermType = constants.DEFAULT_FIRST_TERM_OF_YEAR,  # type: ignore
 ) -> pd.DataFrame:
     """
     Compute student-level features from a standardized cohort dataset,
@@ -29,10 +29,10 @@ def add_features(
     ]
     return df.assign(
         cohort_id=ft.partial(
-            _shared.year_term, year_col="cohort", term_col="cohort_term"
+            shared.year_term, year_col="cohort", term_col="cohort_term"
         ),
         cohort_start_dt=ft.partial(
-            _shared.year_term_dt,
+            shared.year_term_dt,
             col="cohort_id",
             bound="start",
             first_term_of_year=first_term_of_year,
@@ -57,7 +57,7 @@ def add_features(
         diff_gpa_term_1_to_year_1=diff_gpa_term_1_to_year_1,
         **{
             f"frac_credits_earned_year_{yr}": ft.partial(
-                _shared.frac_credits_earned,
+                shared.frac_credits_earned,
                 earned_col=f"number_of_credits_earned_year_{yr}",
                 attempted_col=f"number_of_credits_attempted_year_{yr}",
             )
@@ -67,7 +67,7 @@ def add_features(
 
 
 def student_program_of_study_area(df: pd.DataFrame, *, col: str) -> pd.Series:
-    return _shared.extract_short_cip_code(df[col])
+    return shared.extract_short_cip_code(df[col])
 
 
 def student_program_of_study_changed_term_1_to_year_1(

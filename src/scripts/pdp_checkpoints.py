@@ -5,7 +5,7 @@ import sys
 import importlib
 
 from .. import checkpoints
-from src.utils._databricks import read_config
+from src.utils.databricks import read_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -46,7 +46,7 @@ class PDPCheckpointsTask:
 
         # Set up dictionary of checkpoint functions
         checkpoint_functions = {
-            "nth": lambda: checkpoints._nth_student_terms.nth_student_terms(
+            "nth": lambda: checkpoints.nth_student_terms.nth_student_terms(
                 df_student_terms,
                 n=n,
                 sort_cols=sort_cols,
@@ -55,33 +55,33 @@ class PDPCheckpointsTask:
                 enrollment_year_col=enrollment_year_col,
                 valid_enrollment_year=valid_enrollment_year,
             ),
-            "first": lambda: checkpoints._nth_student_terms.first_student_terms(
+            "first": lambda: checkpoints.nth_student_terms.first_student_terms(
                 df_student_terms,
                 sort_cols=sort_cols,
                 include_cols=include_cols,
                 student_id_cols=student_id_col,
             ),
-            "last": lambda: checkpoints._nth_student_terms.last_student_terms_in_enrollment_year(
+            "last": lambda: checkpoints.nth_student_terms.last_student_terms_in_enrollment_year(
                 df_student_terms,
                 sort_cols=sort_cols,
                 include_cols=include_cols,
                 student_id_cols=student_id_col,
             ),
-            "first_at_num_credits_earned": lambda: checkpoints._nth_student_terms.first_student_terms_at_num_credits_earned(
+            "first_at_num_credits_earned": lambda: checkpoints.nth_student_terms.first_student_terms_at_num_credits_earned(
                 df_student_terms,
                 min_num_credits=min_num_credits,
                 sort_cols=sort_cols,
                 include_cols=include_cols,
                 student_id_cols=student_id_col,
             ),
-            "first_within_cohort": lambda: checkpoints._nth_student_terms.first_student_terms_within_cohort(
+            "first_within_cohort": lambda: checkpoints.nth_student_terms.first_student_terms_within_cohort(
                 df_student_terms,
                 term_is_pre_cohort_col=term_is_pre_cohort_col,
                 sort_cols=sort_cols,
                 include_cols=include_cols,
                 student_id_cols=student_id_col,
             ),
-            "last_in_enrollment_year": lambda: checkpoints._nth_student_terms.last_student_terms_in_enrollment_year(
+            "last_in_enrollment_year": lambda: checkpoints.nth_student_terms.last_student_terms_in_enrollment_year(
                 df_student_terms,
                 enrollment_year=enrollment_year,
                 enrollment_year_col=enrollment_year_col,

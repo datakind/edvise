@@ -4,7 +4,7 @@ import typing as t
 
 import pandas as pd
 
-from shared._databricks import get_experiment_name
+from src.shared.databricks import get_experiment_name
 
 LOGGER = logging.getLogger(__name__)
 

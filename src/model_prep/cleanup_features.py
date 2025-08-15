@@ -5,7 +5,7 @@ import re
 
 LOGGER = logging.getLogger(__name__)
 
-from src.utils._drop_columns_safely import drop_columns_safely
+from src.utils.drop_columns_safely import drop_columns_safely
 
 class PDPCleanup:
     def clean_up_labeled_dataset_cols_and_vals(

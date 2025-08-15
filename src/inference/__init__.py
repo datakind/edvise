@@ -1,1 +1,1 @@
-from . import _prediction
+from . import prediction

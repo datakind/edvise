@@ -1,1 +1,1 @@
-from . import _select_students_attributes
+from . import select_students_attributes

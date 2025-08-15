@@ -5,7 +5,7 @@ import typing as t
 import numpy as np
 import pandas as pd
 
-from . import _constants, _shared
+from . import constants, shared
 
 LOGGER = logging.getLogger(__name__)
 
@@ -14,7 +14,7 @@ def aggregate_from_course_level_features(
     df: pd.DataFrame,
     *,
     student_term_id_cols: list[str],
-    min_passing_grade: float = _constants.DEFAULT_MIN_PASSING_GRADE,
+    min_passing_grade: float = constants.DEFAULT_MIN_PASSING_GRADE,
     key_course_subject_areas: t.Optional[list[str]] = None,
     key_course_ids: t.Optional[list[str]] = None,
 ) -> pd.DataFrame:
@@ -119,7 +119,7 @@ def aggregate_from_course_level_features(
     df_grade_aggs = multicol_grade_aggs_by_group(
         df, min_passing_grade=min_passing_grade, grp_cols=student_term_id_cols
     )
-    return _shared.merge_many_dataframes(
+    return shared.merge_many_dataframes(
         [
             df_passthrough,
             df_aggs,
@@ -135,7 +135,7 @@ def aggregate_from_course_level_features(
 def add_features(
     df: pd.DataFrame,
     *,
-    min_num_credits_full_time: float = _constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
+    min_num_credits_full_time: float = constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
 ) -> pd.DataFrame:
     """
     Compute various student-term-level features from aggregated course-level features
@@ -151,8 +151,8 @@ def add_features(
         - :func:`aggregate_from_course_level_features()`
     """
     LOGGER.info("adding student-term features ...")
-    nc_prefix = _constants.NUM_COURSE_FEATURE_COL_PREFIX
-    fc_prefix = _constants.FRAC_COURSE_FEATURE_COL_PREFIX
+    nc_prefix = constants.NUM_COURSE_FEATURE_COL_PREFIX
+    fc_prefix = constants.FRAC_COURSE_FEATURE_COL_PREFIX
     _num_course_cols = (
         [col for col in df.columns if col.startswith(f"{nc_prefix}_")]
         +
@@ -178,7 +178,7 @@ def add_features(
             "term_is_pre_cohort": term_is_pre_cohort,
             "term_is_while_student_enrolled_at_other_inst": term_is_while_student_enrolled_at_other_inst,
             "term_program_of_study_area": term_program_of_study_area,
-            "frac_credits_earned": _shared.frac_credits_earned,
+            "frac_credits_earned": shared.frac_credits_earned,
             "student_term_enrollment_intensity": ft.partial(
                 student_term_enrollment_intensity,
                 min_num_credits_full_time=min_num_credits_full_time,
@@ -268,7 +268,7 @@ def term_is_while_student_enrolled_at_other_inst(
 def term_program_of_study_area(
     df: pd.DataFrame, *, col: str = "term_program_of_study"
 ) -> pd.Series:
-    return _shared.extract_short_cip_code(df[col])
+    return shared.extract_short_cip_code(df[col])
 
 
 def num_courses_in_study_area(
@@ -474,12 +474,12 @@ def equal_cols_by_group(
         df
         grp_cols
     """
-    num_prefix = _constants.NUM_COURSE_FEATURE_COL_PREFIX
-    dummy_prefix = _constants.DUMMY_COURSE_FEATURE_COL_PREFIX
+    num_prefix = constants.NUM_COURSE_FEATURE_COL_PREFIX
+    dummy_prefix = constants.DUMMY_COURSE_FEATURE_COL_PREFIX
 
     course_subject_prefixes = [
-        _constants.NUM_COURSE_FEATURE_COL_PREFIX + "_course_id",
-        _constants.NUM_COURSE_FEATURE_COL_PREFIX + "_course_subject_area",
+        constants.NUM_COURSE_FEATURE_COL_PREFIX + "_course_id",
+        constants.NUM_COURSE_FEATURE_COL_PREFIX + "_course_subject_area",
     ]
 
     dummy_cols = {
@@ -514,7 +514,7 @@ def sum_val_equal_cols_by_group(
             if isinstance(val, list)
             else f"{col}_{val}"
         )
-        temp_col_series[temp_col] = _shared.compute_values_equal(df[col], val)
+        temp_col_series[temp_col] = shared.compute_values_equal(df[col], val)
     return (
         df.assign(**temp_col_series)
         .reindex(columns=grp_cols + list(temp_col_series.keys()))
@@ -526,7 +526,7 @@ def sum_val_equal_cols_by_group(
 
 
 def _rename_sum_by_group_col(col: str) -> str:
-    return f"{_constants.NUM_COURSE_FEATURE_COL_PREFIX}_{col}"
+    return f"{constants.NUM_COURSE_FEATURE_COL_PREFIX}_{col}"
 
 
 def multicol_grade_aggs_by_group(

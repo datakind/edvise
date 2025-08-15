@@ -18,7 +18,7 @@ class TrainingTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = dataio._read_write.read_PDP_config(self.args.toml_file_path)
+        self.cfg = dataio.read_write.read_PDP_config(self.args.toml_file_path)
 
     def feature_selection(self, df_preprocessed: pd.DataFrame) -> pd.Series:
         """
@@ -29,7 +29,7 @@ class TrainingTask:
 
         mlflow.autolog(disable=True)
 
-        df_selected = modeling._feature_selection.select_features(
+        df_selected = modeling.feature_selection.select_features(
             (df_preprocessed.loc[df_preprocessed[self.cfg.split_col].eq("train"), :] if self.cfg.split_col else df_preprocessed),
             **selection_params,
         )
@@ -41,7 +41,7 @@ class TrainingTask:
     def train_model(self, df_modeling: pd.DataFrame) -> None:
         mlflow.autolog(disable=False)
         # Get job run id for automl run
-        job_run_id = utils._databricks.get_db_widget_param("job_run_id", default="interactive")
+        job_run_id = utils.databricks.get_db_widget_param("job_run_id", default="interactive")
         training_params = {
             "job_run_id": job_run_id,
             "institution_id": self.cfg.institution_id,
@@ -57,7 +57,7 @@ class TrainingTask:
             ),
         }
 
-        summary = modeling._training.run_automl_classification(df_modeling, **training_params)
+        summary = modeling.training.run_automl_classification(df_modeling, **training_params)
 
         experiment_id = summary.experiment.experiment_id
         run_id = summary.best_trial.mlflow_run_id
@@ -81,10 +81,10 @@ class TrainingTask:
         if evaluate_model_bias:
             df_features = df_modeling.drop(columns=self.cfg.non_feature_cols)
         else:
-            df_features = modeling._evaluation.extract_training_data_from_model(experiment_id)
+            df_features = modeling.evaluation.extract_training_data_from_model(experiment_id)
 
         # Get top runs from experiment for evaluation
-        top_runs = modeling._evaluation.get_top_runs(
+        top_runs = modeling.evaluation.get_top_runs(
             experiment_id,
             optimization_metrics=[
                 "test_recall_score",
@@ -108,7 +108,7 @@ class TrainingTask:
                 df_pred = df_modeling.assign(
                     **{
                         self.cfg.pred_col: model.predict(df_features),
-                        self.cfg.pred_prob_col: inference._prediction.predict_probs(
+                        self.cfg.pred_prob_col: inference.prediction.predict_probs(
                             df_features,
                             model,
                             feature_names=list(df_features.columns),
@@ -116,16 +116,16 @@ class TrainingTask:
                         ),
                     }
                 )
-                model_comp_fig = modeling._evaluation.plot_trained_models_comparison(
+                model_comp_fig = modeling.evaluation.plot_trained_models_comparison(
                     experiment_id, self.cfg.modeling.training.primary_metric
                 )
-                modeling._evaluation.evaluate_performance(
+                modeling.evaluation.evaluate_performance(
                     df_pred,
                     target_col=self.cfg.target_col,
                     pos_label=self.cfg.pos_label,
                 )
                 if evaluate_model_bias:
-                    modeling._bias_detection.evaluate_bias(
+                    modeling.bias_detection.evaluate_bias(
                         df_pred,
                         student_group_cols=self.cfg.student_group_cols,
                         target_col=self.cfg.target_col,
@@ -136,7 +136,7 @@ class TrainingTask:
 
     def select_model(self, experiment_id: str) -> None:
         # Rank top runs again after evaluation for model selection
-        selected_runs = modeling._evaluation.get_top_runs(
+        selected_runs = modeling.evaluation.get_top_runs(
             experiment_id,
             optimization_metrics=[
                 "test_recall_score",
@@ -153,7 +153,7 @@ class TrainingTask:
         logging.info(f"Selected top run: {top_run_name} & {top_run_id}")
 
         # Update config with run and experiment ids
-        utils._update_run_metadata_in_toml(
+        utils.update_run_metadata_in_toml(
             config_path="./config.toml",
             run_id=top_run_id,
             experiment_id=experiment_id,

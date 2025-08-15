@@ -3,7 +3,7 @@ import logging
 
 import pandas as pd
 
-from . import _constants, _shared
+from . import constants, shared
 
 LOGGER = logging.getLogger(__name__)
 
@@ -15,8 +15,8 @@ NON_COMPLETE_GRADES = {"I", "W"}
 def add_features(
     df: pd.DataFrame,
     *,
-    min_passing_grade: float = _constants.DEFAULT_MIN_PASSING_GRADE,
-    course_level_pattern: str = _constants.DEFAULT_COURSE_LEVEL_PATTERN,
+    min_passing_grade: float = constants.DEFAULT_MIN_PASSING_GRADE,
+    course_level_pattern: str = constants.DEFAULT_COURSE_LEVEL_PATTERN,
 ) -> pd.DataFrame:
     """
     Compute course-level features from a pdp course dataset,
@@ -55,7 +55,7 @@ def course_id(
 
 
 def course_subject_area(df: pd.DataFrame, *, col: str = "course_cip") -> pd.Series:
-    return _shared.extract_short_cip_code(df[col])
+    return shared.extract_short_cip_code(df[col])
 
 
 def course_passed(
