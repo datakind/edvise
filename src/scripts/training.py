@@ -18,7 +18,7 @@ class TrainingTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = dataio.read_write.read_PDP_config(self.args.toml_file_path)
+        self.cfg = dataio.read.read_PDP_config(self.args.toml_file_path)
 
     def feature_selection(self, df_preprocessed: pd.DataFrame) -> pd.Series:
         """
