@@ -9,7 +9,7 @@ import typing as t
 
 from .. import utils
 from .. import feature_generation
-from src.feature_generation.standardizer import (
+from src.data_audit.standardizer import (
     BaseStandardizer
 )
 from src.utils.databricks import read_config
