@@ -1,9 +1,13 @@
 import pandas as pd
+import numpy as np
+import logging
 import re
 import typing as t
 from collections.abc import Iterable
 
 from . import types
+
+LOGGER = logging.getLogger(__name__)
 
 RE_VARIOUS_PUNCTS = re.compile(r"[!()*+\,\-./:;<=>?[\]^_{|}~]")
 RE_QUOTATION_MARKS = re.compile(r"[\'\"\`]")
@@ -94,3 +98,189 @@ def cast_to_bool_via_int(df: pd.DataFrame, *, col: str) -> pd.Series:
 
 def strip_upper_strings_to_cats(series: pd.Series) -> pd.Series:
     return series.str.strip().str.upper().astype("category")
+
+def drop_course_rows_missing_identifiers(self, df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Drop rows from raw course dataset missing key course identifiers,
+    specifically course prefix and number, which supposedly are partial records
+    from students' enrollments at *other* institutions -- not wanted here!
+    """
+    num_rows_before = len(df)
+
+    # Identify rows missing either identifier
+    id_cols = ["course_prefix", "course_number"]
+    present_mask = df[id_cols].notna().all(axis=1)
+    drop_mask = ~present_mask
+    num_dropped = int(drop_mask.sum())
+
+    if num_dropped > 0:
+        # Breakdown by enrolled_at_other_institution_s within the dropped set
+        if "enrolled_at_other_institution_s" in df.columns:
+            dropped = df.loc[drop_mask, "enrolled_at_other_institution_s"].astype("string").str.upper()
+            count_y = int((dropped == "Y").sum())
+            count_not_y = num_dropped - count_y
+            pct_y = 100.0 * count_y / num_dropped
+            pct_not_y = 100.0 * count_not_y / num_dropped
+
+            LOGGER.warning(
+                "Dropped %s rows from course dataset due to missing identifiers. "
+                "Of these, %s (%.1f%%) had 'Y' in enrolled_at_other_institution_s; "
+                "%s (%.1f%%) did not.",
+                num_dropped, count_y, pct_y, count_not_y, pct_not_y,
+            )
+        else:
+            LOGGER.warning(
+                "Dropped %s rows from course dataset due to missing identifiers. "
+                "Column 'enrolled_at_other_institution_s' not found; cannot compute alignment breakdown.",
+                num_dropped,
+            )
+
+    # Keep only rows with both identifiers present
+    df = df.loc[present_mask].reset_index(drop=True)
+    num_rows_after = len(df)
+    return df
+
+def remove_pre_cohort_courses(
+    df_course: pd.DataFrame, df_cohort: pd.DataFrame, student_id_col: str
+) -> pd.DataFrame:
+    """
+    Removes any course records that occur before a student's cohort start term.
+
+    This ensures that any pre-cohort course records are excluded before generating any features
+    in our `student_term_df`. These records can otherwise introduce inconsistencies in
+    cumulative features. For example, in retention models, we observed mismatches
+    between `cumulative_credits_earned` and `number_of_credits_earned` when using the
+    first cohort term as the checkpoint because pre-cohort courses were
+    still included in the data when generating these features. To avoid this, we drop all records that occurred
+    prior to the student's official cohort start term before feature generation.
+
+    Please rememeber to check with your respective schools during the data assessment call how they would like pre-cohort course records to be handled and if this function needs to be called or not.
+
+    Args:
+        df_course
+        df_cohort
+        student_id_col
+
+    Returns:
+        pd.DataFrame: Filtered DataFrame excluding pre-cohort course records.
+    """
+    df_course = df_course.drop(columns=["cohort", "cohort_term"], errors="ignore")
+    df_course_merged = df_course.merge(
+        df_cohort[[student_id_col, "cohort", "cohort_term"]],
+        on=student_id_col,
+        how="left",
+    )
+    df_course = df_course_merged[
+        (df_course_merged["academic_year"] > df_course_merged["cohort"])
+        | (
+            (df_course_merged["academic_year"] == df_course_merged["cohort"])
+            & (df_course_merged["academic_term"] >= df_course_merged["cohort_term"])
+        )
+    ]
+    return df_course
+
+def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
+    if "pell_status_first_year" in df_cohort.columns:
+        na_pell = (df["pell_status_first_year"] == "UK").sum()
+        # pre schema validation, this column has UK instead of NaN
+        df_cohort["pell_status_first_year"] = df_cohort["pell_status_first_year"].replace("UK", np.nan)
+        df_cohort["pell_status_first_year"] = df_cohort["pell_status_first_year"].fillna("N")
+        LOGGER.info('Filled %s NAs in "pell_status_first_year" to "N".', int(na_pell))
+        df_cohort["pell_status_first_year"] = df["pell_status_first_year"].fillna("N")
+    else:
+        LOGGER.warning('Column "pell_status_first_year" not found; skipping Pell status NA replacement.')
+    if "first_gen" in df_cohort.columns:
+        na_first = df_cohort["first_gen"].isna().sum()
+        df_cohort["first_gen"] = df_cohort["first_gen"].fillna("N")
+        LOGGER.info('Filled %s NAs in "first_gen" with "N".', int(na_first))
+    else:
+        LOGGER.warning('Column "first_gen" not found; skipping first-gen NA replacement.')
+    return df_cohort
+
+def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
+    for col in ["course_number", "course_cip"]:
+        if col in df_course.columns:
+            df_course[col] = df_course[col].astype("string")
+            pre_truncated = df_course[col].copy()
+            df_course[col] = df_course[col].str.rstrip(".0")
+            truncated = (pre_truncated != df_course[col]).sum(min_count=1)
+            LOGGER.info('Stripped trailing ".0" in %s rows for column "%s".', int(truncated or 0), col)
+        else:
+            LOGGER.warning('Column "%s" not found', col)
+    return df_course
+
+def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
+    """
+    Dropping duplicate course records, except:
+    - if duplicate-key rows all share the SAME course_name, keep them and
+      suffix course_number with -01, -02, ... instead of dropping.
+    """
+    unique_cols = [
+        "study_id", "academic_year", "academic_term",
+        "course_prefix", "course_number", "section_id"
+    ]
+
+    dup_mask = df_course.duplicated(unique_cols, keep=False)
+    if dup_mask.any() and "course_name" in df_course.columns and "course_number" in df_course.columns:
+        same_name_idx = []
+        for _, idx in df_course.loc[dup_mask].groupby(unique_cols, dropna=False).groups.items():
+            idx = list(idx)
+            if len(idx) <= 1:
+                continue
+            names = df_course.loc[idx, "course_name"]
+            if names.nunique(dropna=False) == 1:
+                same_name_idx.extend(idx)
+
+        if same_name_idx:
+            deduped_course_numbers = (
+                df_course.loc[dup_mask, :]
+                .sort_values(
+                    by=unique_cols + ["number_of_credits_attempted"],
+                    ascending=False,
+                    ignore_index=False,
+                )
+                .assign(
+                    grp_num=lambda d: d.groupby(unique_cols)["course_number"].transform("cumcount") + 1,
+                    course_number=lambda d: d["course_number"].astype("string").str.cat(
+                        d["grp_num"].astype(int).map("{:02d}".format), sep="-"
+                    ),
+                )
+                .loc[:, ["course_number"]]
+            )
+            to_apply = deduped_course_numbers.reindex(same_name_idx).dropna(how="all")
+            df_course.loc[to_apply.index, "course_number"] = to_apply["course_number"]
+
+    dupe_rows = df.loc[
+        df.duplicated(unique_cols, keep=False), :
+    ].sort_values(
+        by=unique_cols + ["number_of_credits_attempted"],
+        ascending=False,
+        ignore_index=True,
+    )
+    LOGGER.warning("%s duplicate rows found & dropped", int(len(dupe_rows) / 2))
+
+    df = df.drop_duplicates(subset=unique_cols, keep="first").sort_values(
+        by=unique_cols + ["number_of_credits_attempted"],
+        ascending=False,
+        ignore_index=True,
+    )
+    return df
+
+def compute_gateway_course_ids(df_course: pd.DataFrame) -> List[str]:
+    """
+    Build a list of course IDs for Math/English gateway courses.
+    Filter: math_or_english_gateway in {"M", "E"}
+    ID format: "<course_prefix><course_number>" (both coerced to strings, trimmed)
+    """
+    if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(df_course.columns):
+        LOGGER.warning("Cannot compute key_course_ids: required columns missing.")
+        return []
+
+    mask = df_course["math_or_english_gateway"].astype("string").isin({"M", "E"})
+    ids = (df_course.loc[mask, "course_prefix"].fillna("")
+             + df_course.loc[mask, "course_number"].fillna(""))
+
+    # Drop NaNs, blanks, and ensure uniqueness
+    # edit this to auto populate the config 
+    ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")]
+    return ids.drop_duplicates().tolist()

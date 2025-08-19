@@ -8,6 +8,7 @@ LOGGER = logging.getLogger(__name__)
 
 from .. import utils
 from src.utils.drop_columns_safely import drop_columns_safely
+from src.utils.data_cleaning import drop_course_rows_missing_identifiers, strip_trailing_decimal_strings, handling_duplicates, replace_na_firstgen_and_pell, compute_gateway_course_ids
 
 #TODO think of a better name than standardizer
 
@@ -123,8 +124,8 @@ class PDPCohortStandardizer(BaseStandardizer):
             "first_year_to_associates_at_other_inst": (None, "Int8"),
             "first_year_to_certificate_at_other_inst": (None, "Int8"),
         }
-
         df = drop_columns_safely(df, cols_to_drop)
+        df = replace_na_firstgen_and_pell(df)
         df = self.add_empty_columns_if_missing(df, col_val_dtypes)
         return df
 
@@ -137,7 +138,9 @@ class PDPCourseStandardizer(BaseStandardizer):
         Args:
             df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
         """
-        df = self.drop_course_rows_missing_identifiers(df)
+        df = strip_trailing_decimal_strings(df)
+        df = drop_course_rows_missing_identifiers(df)
+        df = handling_duplicates(df)
 
         cols_to_drop = [
                     # student demographics found in raw cohort dataset
@@ -159,22 +162,7 @@ class PDPCourseStandardizer(BaseStandardizer):
                 ]
         df = drop_columns_safely(df, cols_to_drop)
         df = self.add_empty_columns_if_missing(df, {"term_program_of_study": (None, "string")})
-        return df
-
-    def drop_course_rows_missing_identifiers(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Drop rows from raw course dataset missing key course identifiers,
-        specifically course prefix and number, which supposedly are partial records
-        from students' enrollments at *other* institutions -- not wanted here!
-        """
-        num_rows_before = len(df)
-        df = df.loc[df[["course_prefix", "course_number"]].notna().all(axis=1)].reset_index(drop=True)
-        num_rows_after = len(df)
-
-        if num_rows_after < num_rows_before:
-            LOGGER.warning(
-                "Dropped %s rows from course dataset due to missing identifiers",
-                num_rows_before - num_rows_after,
-            )
+        gateway_course_ids = compute_gateway_course_ids(df)
+        LOGGER.info("Math and English Gateway Courses Identified:", gateway_course_ids)
         return df
 
