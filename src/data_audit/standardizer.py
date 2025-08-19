@@ -127,6 +127,7 @@ class PDPCohortStandardizer(BaseStandardizer):
         df = drop_columns_safely(df, cols_to_drop)
         df = replace_na_firstgen_and_pell(df)
         df = self.add_empty_columns_if_missing(df, col_val_dtypes)
+
         return df
 
 
@@ -165,4 +166,5 @@ class PDPCourseStandardizer(BaseStandardizer):
         gateway_course_ids = compute_gateway_course_ids(df)
         LOGGER.info("Math and English Gateway Courses Identified:", gateway_course_ids)
         return df
+    
 
