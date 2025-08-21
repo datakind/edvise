@@ -8,7 +8,7 @@ LOGGER = logging.getLogger(__name__)
 
 from .. import utils
 from src.utils.drop_columns_safely import drop_columns_safely
-from src.utils.data_cleaning import drop_course_rows_missing_identifiers, strip_trailing_decimal_strings, handling_duplicates, replace_na_firstgen_and_pell, compute_gateway_course_ids
+from src.utils.data_cleaning import drop_course_rows_missing_identifiers, strip_trailing_decimal_strings, handling_duplicates, replace_na_firstgen_and_pell, compute_gateway_course_ids, remove_pre_cohort_courses
 
 #TODO think of a better name than standardizer
 
@@ -161,6 +161,7 @@ class PDPCourseStandardizer(BaseStandardizer):
                     "enrollment_record_at_other_institution_s_carnegie_s",
                     "enrollment_record_at_other_institution_s_locale_s",
                 ]
+        df = remove_pre_cohort_courses(df)
         df = drop_columns_safely(df, cols_to_drop)
         df = self.add_empty_columns_if_missing(df, {"term_program_of_study": (None, "string")})
         gateway_course_ids = compute_gateway_course_ids(df)
