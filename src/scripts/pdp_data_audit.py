@@ -5,7 +5,7 @@ import sys
 import pandas as pd
 import typing as t
 
-from .. import utils
+from .. import utils, dataio 
 from .. import feature_generation
 from src.data_audit.standardizer import (
     PDPCohortStandardizer,
@@ -43,15 +43,32 @@ class PDPDataAuditTask:
         key_course_ids = features_cfg.key_course_ids
 
         # --- Load datasets ---
-        df_course = pd.read_parquet(f"{self.args.course_dataset_validated_path}/df_cohort.parquet")
-        df_cohort = pd.read_parquet(f"{self.args.cohort_dataset_validated_path}/df_course.parquet")
+        df_course_raw = pd.read_csv(f"{self.args.course_dataset_raw_path}/df_cohort_raw.csv")
+        df_cohort_raw = pd.read_csv(f"{self.args.cohort_dataset_raw_path}/df_course_raw.csv")
 
         ###DATA AUDIT STEPS##
-        # Call the standardizers # 
+        # Standardize cohort data
+        df_cohort_validated = self.cohort_std.standardize(df_cohort_raw)
+        
+        # Check it passes schema
+        df_cohort_validated = dataio.pdp.read_raw_cohort_data(
+            df_cohort_validated,
+            schema=dataio.schemas.pdp.RawPDPCohortDataSchema,
+        )
+         
+        # Standardize course data
+        df_course_validated = self.course_std.standardize(df_course_raw)
+
+        # Check it passes schema
+        df_course_validated = dataio.pdp.read_raw_cohort_data(
+            df_course_validated,
+            schema=dataio.schemas.pdp.RawPDPCourseDataSchema,
+            dttm_format="%Y%m%d.0",
+        )
 
         # --- Write results ---
-        df_course = pd.to_parquet(f"{self.args.course_dataset_validated_path}/df_cohort.parquet")
-        df_cohort = pd.to_parquet(f"{self.args.cohort_dataset_validated_path}/df_course.parquet")
+        df_course = pd.to_parquet(f"{self.args.course_dataset_validated_path}/df_cohort_validated.parquet")
+        df_cohort = pd.to_parquet(f"{self.args.cohort_dataset_validated_path}/df_course_validated.parquet")
 
 
 def parse_arguments() -> argparse.Namespace:

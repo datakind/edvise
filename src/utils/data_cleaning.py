@@ -158,33 +158,32 @@ def remove_pre_cohort_courses(
 
     Args:
         df_course
-        df_cohort
-        student_id_col
 
     Returns:
         pd.DataFrame: Filtered DataFrame excluding pre-cohort course records.
     """
-    df_course = df_course.drop(columns=["cohort", "cohort_term"], errors="ignore")
-    df_course_merged = df_course.merge(
-        df_cohort[[student_id_col, "cohort", "cohort_term"]],
-        on=student_id_col,
-        how="left",
+    # HACK: infer the correct student id col in raw data from the data itself
+    student_id_col = (
+        "student_guid"
+        if "student_guid" in df_course.columns
+        else "study_id"
+        if "study_id" in df_course.columns
+        else "student_id"
     )
-    df_course = df_course_merged[
-        (df_course_merged["academic_year"] > df_course_merged["cohort"])
-        | (
-            (df_course_merged["academic_year"] == df_course_merged["cohort"])
-            & (df_course_merged["academic_term"] >= df_course_merged["cohort_term"])
-        )
-    ]
-    return df_course
+    df_course = (
+        df_course
+        .groupby(student_id_col, group_keys=False)
+        .apply(lambda df_course: df_course[
+            (df_course["academic_year"] > df_course["cohort"]) |
+            ((df_course["academic_year"] == df_course["cohort"]) &
+            (df_course["academic_term"] >= df_course["cohort_term"]))
+        ])
+    )
 
 def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
     if "pell_status_first_year" in df_cohort.columns:
-        na_pell = (df["pell_status_first_year"] == "UK").sum()
-        # pre schema validation, this column has UK instead of NaN
-        df_cohort["pell_status_first_year"] = df_cohort["pell_status_first_year"].replace("UK", np.nan)
-        df_cohort["pell_status_first_year"] = df_cohort["pell_status_first_year"].fillna("N")
+        na_pell = (df_cohort["pell_status_first_year"] == "UK").sum()
+        df_cohort["pell_status_first_year"] = df_cohort["pell_status_first_year"].replace("UK", "N")
         LOGGER.info('Filled %s NAs in "pell_status_first_year" to "N".', int(na_pell))
         df_cohort["pell_status_first_year"] = df_cohort["pell_status_first_year"].fillna("N")
     else:
