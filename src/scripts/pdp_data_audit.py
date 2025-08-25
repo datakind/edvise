@@ -3,16 +3,19 @@ import importlib
 import logging
 import sys
 import pandas as pd
-import typing as t
 
-from .. import utils, dataio 
-from .. import feature_generation
 from src.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
-    StudentTermStandardizer,
 )
-from src.utils.databricks import read_config
+from src.utils.databricks import get_spark_session
+from src.dataio.read import (
+    read_config, 
+    read_raw_pdp_cohort_data, 
+    read_raw_pdp_course_data,
+)
+from src.dataio.write import write_parquet
+import src.data_audit as data_audit
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,76 +26,103 @@ LOGGER = logging.getLogger(__name__)
 class PDPDataAuditTask:
     """Encapsulates the data preprocessing logic for the SST pipeline."""
 
-    def __init__(self, args: argparse.Namespace):
+    def __init__(
+            self, 
+            args: argparse.Namespace,         
+            course_converter_func=None,
+            cohort_converter_func=None,
+    ):
         self.args = args
-        self.cfg = read_config(self.args.toml_file_path)
+        self.cfg = read_config(self.args.config_file_path)
+        self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
-        self.student_term_std = StudentTermStandardizer()
+        self.course_converter_func = course_converter_func
+        self.cohort_converter_func = cohort_converter_func
 
     def run(self):
         """Executes the data preprocessing pipeline."""
-        
-        # --- Unpack config ---
-        features_cfg = self.cfg.preprocessing.features
-        min_passing_grade = features_cfg.min_passing_grade
-        min_num_credits_full_time = features_cfg.min_num_credits_full_time
-        course_level_pattern = features_cfg.course_level_pattern
-        core_terms = features_cfg.core_terms
-        key_course_subject_areas = features_cfg.key_course_subject_areas
-        key_course_ids = features_cfg.key_course_ids
+        cohort_dataset_raw_path = self.cfg.datasets.bronze.raw_cohort
+        course_dataset_raw_path = self.cfg.datasets.bronze.raw_course
 
         # --- Load datasets ---
-        df_course_raw = pd.read_csv(f"{self.args.course_dataset_raw_path}/df_cohort_raw.csv")
-        df_cohort_raw = pd.read_csv(f"{self.args.cohort_dataset_raw_path}/df_course_raw.csv")
-
-        ###DATA AUDIT STEPS##
+        # Cohort
+        df_cohort_raw = read_raw_pdp_cohort_data(
+            file_path=cohort_dataset_raw_path,
+            schema=data_audit.schemas.RawPDPCohortDataSchema,
+            converter_func=self.cohort_converter_func,
+        )
+        LOGGER.info("Cohort data read and schema validated.")
+        
         # Standardize cohort data
         df_cohort_validated = self.cohort_std.standardize(df_cohort_raw)
         
-        # Check it passes schema
-        df_cohort_validated = dataio.pdp.read_raw_cohort_data(
-            df_cohort_validated,
-            schema=dataio.schemas.pdp.RawPDPCohortDataSchema,
-        )
-         
+        # Course
+        dttm_formats = ["ISO8601", "%Y%m%d.0"]
+
+        for fmt in dttm_formats:
+            try:
+                df_course_raw = read_raw_pdp_course_data(
+                    file_path=course_dataset_raw_path,
+                    schema=data_audit.schemas.RawPDPCourseDataSchema,
+                    dttm_format=fmt,
+                    converter_func=self.course_converter_func,
+                )
+                break  # success — exit loop
+            except ValueError:
+                continue  # try next format
+        else:
+            raise ValueError("Failed to parse course data with all known datetime formats.")
+
         # Standardize course data
         df_course_validated = self.course_std.standardize(df_course_raw)
 
-        # Check it passes schema
-        df_course_validated = dataio.pdp.read_raw_cohort_data(
-            df_course_validated,
-            schema=dataio.schemas.pdp.RawPDPCourseDataSchema,
-            dttm_format="%Y%m%d.0",
-        )
+        LOGGER.info("Course data read and schema validated.")
 
         # --- Write results ---
-        df_course = pd.to_parquet(f"{self.args.course_dataset_validated_path}/df_cohort_validated.parquet")
-        df_cohort = pd.to_parquet(f"{self.args.cohort_dataset_validated_path}/df_course_validated.parquet")
+        write_parquet(df_cohort_validated, f"{self.args.silver_volume_path}/df_cohort_validated.parquet")
+        write_parquet(df_course_validated, f"{self.args.silver_volume_path}/df_course_validated.parquet")
 
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Data preprocessing for inference in the SST pipeline.")
-    parser.add_argument("--cohort_dataset_validated_path", type=str, required=True)
-    parser.add_argument("--course_dataset_validated_path", type=str, required=True)
-    parser.add_argument("--toml_file_path", type=str, required=True)
-    parser.add_argument("--custom_schemas_path", required=False)
-    parser.add_argument("--student_term_path", required=False)
+    parser.add_argument("--silver_volume_path", type=str, required=True)
+    parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument("--DB_workspace", type=str, required=True)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
+    if args.gold_volume_path:
+        sys.path.append(args.gold_volume_path)
     try:
-        sys.path.append(args.custom_schemas_path)
-        sys.path.append(
-            f"/Volumes/staging_sst_01/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
-        )
-        schemas = importlib.import_module("schemas")
-        logging.info("Running task with custom schema")
-    except Exception:
-        from dataio.schemas import pdp as schemas
-        logging.info("Running task with default schema")
+        converter_func = importlib.import_module("dataio")
+        cohort_converter_func = converter_func.converter_func_cohort
+        LOGGER.info("Running task with custom cohort converter func")
+    except Exception as e:
+        cohort_converter_func = None
+        LOGGER.info("Running task with default cohort converter func")
+        LOGGER.warning(f"Failed to load custom converter functions: {e}")
+    try:
+        converter_func = importlib.import_module("dataio")
+        course_converter_func = converter_func.converter_func_course
+        LOGGER.info("Running task with custom course converter func")
+    except Exception as e:
+        course_converter_func = None
+        LOGGER.info("Running task default course converter func")
+        LOGGER.warning(f"Failed to load custom converter functions: {e}")
+    # try:
+    #     schemas = importlib.import_module("schemas")
+    #     LOGGER.info("Running task with custom schema")
+    # except Exception as e:
+    #     from data_audit import schemas as schemas
+    #     LOGGER.info("Running task with default schema")
+    #     LOGGER.warning(f"Failed to load custom schema: {e}")
 
-    task = PDPFeatureGenerationTask(args)
+    task = PDPDataAuditTask(
+        args,         
+        cohort_converter_func=cohort_converter_func,
+        course_converter_func=course_converter_func,
+        )
     task.run()

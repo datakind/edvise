@@ -8,7 +8,14 @@ LOGGER = logging.getLogger(__name__)
 
 from .. import utils
 from src.utils.drop_columns_safely import drop_columns_safely
-from src.utils.data_cleaning import drop_course_rows_missing_identifiers, strip_trailing_decimal_strings, handling_duplicates, replace_na_firstgen_and_pell, compute_gateway_course_ids, remove_pre_cohort_courses
+from src.utils.data_cleaning import (
+    drop_course_rows_missing_identifiers, 
+    strip_trailing_decimal_strings, 
+    handling_duplicates, 
+    replace_na_firstgen_and_pell, 
+    compute_gateway_course_ids, 
+    remove_pre_cohort_courses
+)
 
 #TODO think of a better name than standardizer
 
@@ -26,7 +33,7 @@ class BaseStandardizer:
             }
         )
     
-    #these two may be better in utils - we will see
+    #these two may be better in utils or shared - we will see
     def infer_first_term_of_year(self, s: pd.Series) -> utils.types.TermType:
         """
         Infer the first term of the (academic) year by the ordering of its categorical values.
@@ -141,7 +148,7 @@ class PDPCourseStandardizer(BaseStandardizer):
         """
         df = strip_trailing_decimal_strings(df)
         df = drop_course_rows_missing_identifiers(df)
-        df = handling_duplicates(df)
+        # df = handling_duplicates(df) # I think this will be pre-ingestion
 
         cols_to_drop = [
                     # student demographics found in raw cohort dataset

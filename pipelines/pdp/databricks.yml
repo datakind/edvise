@@ -1,6 +1,6 @@
 # This is the pipeline to run the pdp training
 bundle:
-  name: SST Inference demo pipeline
+  name: Edvise pdp training pipeline
   uuid: 99992898-07ae-4641-b086-dd3ba80ffc2f
     
 include:
@@ -10,23 +10,19 @@ include:
 variables:
   DB_workspace:
     description: "Databricks workspace"
-  pipeline_sa_email:
-    description: "Ingestion pipeline SA"
   datakind_notification_email:
     description: "Datakind address used for email notifications"
-  end_user_notification_email:
-    description: "End user address used for email notifications"
-  datakind_group_to_manage_workflow:
-    description: "Group with permissions to manage the job"
-  service_account_executer:
-    description: "Service account to execute the pipeline"
-  service_principal_run_as:
-    description: "Account to run the pipeline"
-  custom_schemas_path:
-    description: "Path to custom schemas"
+  ds_run_as:
+    description: "User to run as"
+  databricks_institution_name:
+    description: "Institution ID to use for the pdp training"
+  config_file_name:
+    description: "Name of the config file to use for the pdp training"
+    default: "config.toml"
+
 
 run_as:
-  service_principal_name: ${var.service_principal_run_as}
+  service_principal_name: ${var.ds_run_as}
     
 targets:
   dev:
