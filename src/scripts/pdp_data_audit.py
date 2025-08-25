@@ -34,7 +34,7 @@ class PDPDataAuditTask:
             cohort_converter_func=None,
     ):
         self.args = args
-        self.cfg = read_config(self.args.config_file_path, configs.pdp.PDPProjectConfig)
+        self.cfg = read_config(file_path=self.args.config_file_path, schema=configs.pdp.PDPProjectConfig)
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
