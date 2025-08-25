@@ -5,7 +5,6 @@ bundle:
     
 include:
   - resources/github_pdp_training.yml
-  - resources/github_pdp_inference.yml
 
 variables:
   DB_workspace:
