@@ -21,7 +21,7 @@ variables:
 
 
 run_as:
-  service_principal_name: ${var.ds_run_as}
+  user_name: ${var.ds_run_as}
     
 targets:
   dev:
@@ -34,6 +34,6 @@ targets:
   prod:
     mode: production
     workspace:
-      root_path: /Workspace/Users/kayla@datakind.org/.bundle/${bundle.name}/${bundle.target}
+      root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
 
 

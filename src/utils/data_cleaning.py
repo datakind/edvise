@@ -4,6 +4,7 @@ import logging
 import re
 import typing as t
 from collections.abc import Iterable
+from typing import List
 
 from . import types
 
