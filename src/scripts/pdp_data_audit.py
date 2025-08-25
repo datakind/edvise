@@ -87,6 +87,7 @@ class PDPDataAuditTask:
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Data preprocessing for inference in the SST pipeline.")
     parser.add_argument("--silver_volume_path", type=str, required=True)
+    parser.add_argument("--gold_volume_path", type=str, required=False, default=None)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--DB_workspace", type=str, required=True)
     return parser.parse_args()

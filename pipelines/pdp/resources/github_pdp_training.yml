@@ -11,6 +11,8 @@ resources:
             parameters:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/{{job.parameters.databricks_institution_name}}_silver_file_volume"
+              - --gold_volume_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/{{job.parameters.databricks_institution_name}}_gold_volume"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --config_file_path 
