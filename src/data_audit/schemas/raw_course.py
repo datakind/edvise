@@ -6,16 +6,18 @@ import typing as t
 
 import pandas as pd
 
-try:
-    import pandera as pda
-    import pandera.typing as pt
-except ModuleNotFoundError:
-    from ... import utils
+# try:
+#     import pandera as pda
+#     import pandera.typing as pt
+# except ModuleNotFoundError:
+    
+    
+import src.utils as utils
 
-    utils.databricks.mock_pandera()
+utils.databricks.mock_pandera()
 
-    import pandera as pda
-    import pandera.typing as pt
+import pandera as pda
+import pandera.typing as pt
 
 LOGGER = logging.getLogger(__name__)
 
