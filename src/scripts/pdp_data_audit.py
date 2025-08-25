@@ -52,6 +52,7 @@ class PDPDataAuditTask:
             file_path=cohort_dataset_raw_path,
             schema=data_audit.schemas.RawPDPCohortDataSchema,
             converter_func=self.cohort_converter_func,
+            spark_session=self.spark
         )
         LOGGER.info("Cohort data read and schema validated.")
         
@@ -68,6 +69,7 @@ class PDPDataAuditTask:
                     schema=data_audit.schemas.RawPDPCourseDataSchema,
                     dttm_format=fmt,
                     converter_func=self.course_converter_func,
+                    spark_session=self.spark
                 )
                 break  # success — exit loop
             except ValueError:
