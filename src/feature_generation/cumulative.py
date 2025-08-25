@@ -7,7 +7,7 @@ import typing as t
 import pandas as pd
 from pandas.core.groupby import DataFrameGroupBy
 
-from .... import utils
+import src.utils as utils
 from . import constants
 
 LOGGER = logging.getLogger(__name__)
