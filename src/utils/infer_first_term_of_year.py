@@ -2,6 +2,7 @@ import pandas as pd
 import logging
 
 LOGGER = logging.getLogger(__name__)
+from .. import utils
 
 
 def infer_first_term_of_year(s: pd.Series) -> utils.types.TermType:
