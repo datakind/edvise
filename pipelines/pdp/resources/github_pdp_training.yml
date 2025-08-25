@@ -16,7 +16,7 @@ resources:
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --config_file_path 
-              - "/Volumes/sst_dev/{{job.parameters.databricks_institution_name}}_gold/{{job.parameters.databricks_institution_name}}_gold_volume/{{job.parameters.config_file_name}}"
+              - "/Volumes/sst_dev/{{job.parameters.databricks_institution_name}}_gold/gold_volume/{{job.parameters.config_file_name}}"
           existing_cluster_id: 0820-211818-kbva16ea
           libraries:
             - pypi:
