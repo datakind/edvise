@@ -142,8 +142,7 @@ def drop_course_rows_missing_identifiers(self, df: pd.DataFrame) -> pd.DataFrame
     return df
 
 def remove_pre_cohort_courses(
-    df_course: pd.DataFrame, df_cohort: pd.DataFrame, student_id_col: str
-) -> pd.DataFrame:
+    df_course: pd.DataFrame) -> pd.DataFrame:
     """
     Removes any course records that occur before a student's cohort start term.
 
