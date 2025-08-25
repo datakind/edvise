@@ -8,6 +8,7 @@ from src.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
+import src.data_audit.configs as configs
 from src.utils.databricks import get_spark_session
 from src.dataio.read import (
     read_config, 
@@ -33,7 +34,7 @@ class PDPDataAuditTask:
             cohort_converter_func=None,
     ):
         self.args = args
-        self.cfg = read_config(self.args.config_file_path)
+        self.cfg = read_config(self.args.config_file_path, configs.PDPProjectConfig)
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
