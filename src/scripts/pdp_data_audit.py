@@ -43,8 +43,8 @@ class PDPDataAuditTask:
 
     def run(self):
         """Executes the data preprocessing pipeline."""
-        cohort_dataset_raw_path = self.cfg.datasets.bronze.raw_cohort
-        course_dataset_raw_path = self.cfg.datasets.bronze.raw_course
+        cohort_dataset_raw_path = self.cfg.datasets.bronze.raw_cohort.file_path
+        course_dataset_raw_path = self.cfg.datasets.bronze.raw_course.file_path
 
         # --- Load datasets ---
         # Cohort
