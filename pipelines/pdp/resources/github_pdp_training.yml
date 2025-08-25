@@ -27,6 +27,12 @@ resources:
                 package: scikit-learn==1.5.2
             - pypi:
                 package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub

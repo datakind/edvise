@@ -12,7 +12,7 @@ try:
 except ImportError:
     import tomli as tomllib # noqa
 
-import utils
+import src.utils as utils
 
 LOGGER = logging.getLogger(__name__)
 
