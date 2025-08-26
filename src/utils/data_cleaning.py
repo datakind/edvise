@@ -100,7 +100,7 @@ def cast_to_bool_via_int(df: pd.DataFrame, *, col: str) -> pd.Series:
 def strip_upper_strings_to_cats(series: pd.Series) -> pd.Series:
     return series.str.strip().str.upper().astype("category")
 
-def drop_course_rows_missing_identifiers(self, df: pd.DataFrame) -> pd.DataFrame:
+def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     """
     Drop rows from raw course dataset missing key course identifiers,
     specifically course prefix and number, which supposedly are partial records
