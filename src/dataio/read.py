@@ -4,6 +4,7 @@ import pandas as pd
 import typing as t
 import pydantic as pyd
 import pandera as pda
+from pandera.errors import SchemaErrors
 import pyspark.sql
 import functools as ft
 import pathlib
@@ -310,11 +311,6 @@ def _maybe_convert_maybe_validate_data(
     converter_func: t.Optional[t.Callable[[pd.DataFrame], pd.DataFrame]] = None,
     schema: t.Optional[type[pda.DataFrameModel]] = None,
 ) -> pd.DataFrame:
-    # HACK: we're hiding this pandera import here so databricks doesn't know about it
-    # pandera v0.23+ pulls in pandas v2.1+ while databricks runtimes are stuck in v1.5
-    # resulting in super dumb dependency errors when loading automl trained models
-    import pandera.errors
-
     if converter_func is not None:
         LOGGER.info("applying %s converter to raw data", converter_func)
         df = converter_func(df)
@@ -325,8 +321,7 @@ def _maybe_convert_maybe_validate_data(
             df_validated = schema.validate(df, lazy=True)
             assert isinstance(df_validated, pd.DataFrame)
             return df_validated
-        except pandera.errors.SchemaErrors:
+        except SchemaErrors:
             LOGGER.error("unable to parse/validate raw data")
             raise
-
 

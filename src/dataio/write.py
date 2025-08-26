@@ -5,7 +5,7 @@ import pandas as pd
 import pyspark.sql
 import pathlib
 
-from .. import utils
+import src.utils as utils
 
 LOGGER = logging.getLogger(__name__)
 
