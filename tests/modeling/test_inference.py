@@ -6,7 +6,7 @@ import pytest
 from pandas.api.types import is_numeric_dtype
 from unittest.mock import patch
 
-from student_success_tool.modeling.inference import (
+from src.modeling.prediction import (
     _get_mapped_feature_name,
     calculate_shap_values,
     calculate_shap_values_spark_udf,

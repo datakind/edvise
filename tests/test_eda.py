@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from student_success_tool import eda
+from src import data_audit
 
 
 @pytest.mark.parametrize(
@@ -72,7 +72,7 @@ from student_success_tool import eda
     ],
 )
 def test_compute_pairwise_associations(df, ref_col, exclude_cols, exp):
-    obs = eda.compute_pairwise_associations(
+    obs = data_audit.eda.compute_pairwise_associations(
         df, ref_col=ref_col, exclude_cols=exclude_cols
     )
     assert isinstance(obs, pd.DataFrame)

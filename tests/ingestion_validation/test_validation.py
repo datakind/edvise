@@ -4,7 +4,7 @@ import pytest
 import uuid
 import os
 
-from student_success_tool.ingestion_validation.validation import (
+from src.data_audit.schemas.validation import (
     normalize_col,
     load_json,
     merge_model_columns,
@@ -12,7 +12,7 @@ from student_success_tool.ingestion_validation.validation import (
     validate_dataset,
     HardValidationError,
 )
-from student_success_tool.ingestion_validation.logger import SimpleLogger
+from src.shared.logger import SimpleLogger
 
 
 @pytest.fixture

@@ -3,5 +3,6 @@ from . import (
     evaluation,
     feature_selection,
     registration,
-    training
+    training,
+    prediction
 )

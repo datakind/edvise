@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from student_success_tool.modeling import bias_detection
+from src.modeling import bias_detection
 
 np.random.seed(42)
 

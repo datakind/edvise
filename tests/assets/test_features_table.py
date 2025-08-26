@@ -1,8 +1,8 @@
 import pytest
 import os
-from student_success_tool.dataio.read import from_toml_file
+from src.dataio.read import from_toml_file
 import re
-from student_success_tool.modeling.inference import _get_mapped_feature_name
+from src.modeling.prediction import _get_mapped_feature_name
 
 
 @pytest.fixture

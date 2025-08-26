@@ -2,9 +2,9 @@ import pytest
 import pandas as pd
 import re
 from unittest.mock import patch
-from student_success_tool.reporting.model_card.base import ModelCard
-from student_success_tool.reporting.model_card.pdp import PDPModelCard
-from student_success_tool.configs.pdp import PDPProjectConfig
+from src.reporting.model_card.base import ModelCard
+from src.reporting.model_card.pdp import PDPModelCard
+from src.configs.pdp import PDPProjectConfig
 
 
 class DummyTrainingConfig:

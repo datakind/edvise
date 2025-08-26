@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import Mock
 import mlflow
-from student_success_tool.modeling.registration import register_mlflow_model
+from src.modeling.registration import register_mlflow_model
 
 
 @pytest.fixture

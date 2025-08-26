@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import MagicMock
 import pandas as pd
-from student_success_tool.reporting.sections.registry import SectionRegistry
-from student_success_tool.reporting.sections.data_sections import register_data_sections
+from src.reporting.sections.registry import SectionRegistry
+from src.reporting.sections.data_sections import register_data_sections
 
 
 @pytest.fixture

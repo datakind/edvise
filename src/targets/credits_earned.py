@@ -5,7 +5,7 @@ import pandas as pd
 
 from .... import utils
 from ... import checkpoints
-from . import _shared
+from . import shared
 
 
 def compute_target(
@@ -111,7 +111,7 @@ def compute_target(
     )
     # get all students for which a target label can accurately be computed
     # i.e. the data in df covers their last "on-time" graduation term
-    df_labelable_students = _shared.get_students_with_max_target_term_in_dataset(
+    df_labelable_students = shared.get_students_with_max_target_term_in_dataset(
         df,
         checkpoint=df_ckpt,
         intensity_time_limits=intensity_time_limits,

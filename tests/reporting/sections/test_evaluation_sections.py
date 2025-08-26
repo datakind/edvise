@@ -1,11 +1,11 @@
 import pytest
 import pandas as pd
 from unittest.mock import MagicMock, patch
-from student_success_tool.reporting.sections.registry import SectionRegistry
-from student_success_tool.reporting.sections.evaluation_sections import (
+from src.reporting.sections.registry import SectionRegistry
+from src.reporting.sections.evaluation_sections import (
     register_evaluation_sections,
 )
-from student_success_tool.reporting.utils.formatting import Formatting
+from src.reporting.utils.formatting import Formatting
 
 
 @pytest.fixture
@@ -18,10 +18,10 @@ def mock_card(tmp_path):
 
 
 @patch(
-    "student_success_tool.reporting.sections.evaluation_sections.utils.list_paths_in_directory"
+    "src.reporting.sections.evaluation_sections.utils.list_paths_in_directory"
 )
 @patch(
-    "student_success_tool.reporting.sections.evaluation_sections.utils.download_artifact"
+    "src.reporting.sections.evaluation_sections.utils.download_artifact"
 )
 def test_register_evaluation_sections_success(
     mock_download, mock_list_paths, mock_card, tmp_path
@@ -49,10 +49,10 @@ def test_register_evaluation_sections_success(
 
 
 @patch(
-    "student_success_tool.reporting.sections.evaluation_sections.utils.list_paths_in_directory"
+    "src.reporting.sections.evaluation_sections.utils.list_paths_in_directory"
 )
 @patch(
-    "student_success_tool.reporting.sections.evaluation_sections.utils.download_artifact"
+    "src.reporting.sections.evaluation_sections.utils.download_artifact"
 )
 def test_register_evaluation_sections_failure(
     mock_download, mock_list_paths, mock_card

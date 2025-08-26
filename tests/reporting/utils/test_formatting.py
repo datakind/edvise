@@ -1,5 +1,5 @@
 import pytest
-from student_success_tool.reporting.utils.formatting import Formatting
+from src.reporting.utils.formatting import Formatting
 
 
 @pytest.fixture

@@ -4,7 +4,7 @@ from contextlib import nullcontext as does_not_raise
 import pydantic as pyd
 import pytest
 
-from student_success_tool import dataio
+from src import dataio
 
 try:
     import tomllib  # noqa
@@ -30,7 +30,7 @@ class BadProjectConfig(pyd.BaseModel):
 def test_load_config(file_name, schema, context):
     file_path = os.path.join(FIXTURES_PATH, file_name)
     with context:
-        result = dataio.read_config(file_path, schema=schema)
+        result = dataio.read.read_config(file_path, schema=schema)
         assert isinstance(result, pyd.BaseModel)
 
 
@@ -74,7 +74,7 @@ def test_read_features_table(tmpdir, toml_content, expected_output, expect_excep
     else:
         file_path = "non_existent_path/features_table.toml"
     with expect_exception:
-        features_table = dataio.read_features_table(file_path)
+        features_table = dataio.read.read_features_table(file_path)
         if expect_exception is does_not_raise():
             assert isinstance(features_table, dict)
             assert features_table == expected_output

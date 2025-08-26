@@ -1,10 +1,10 @@
 import pytest
 from unittest.mock import MagicMock
-from student_success_tool.reporting.sections.registry import SectionRegistry
-from student_success_tool.reporting.sections.pdp import (
+from src.reporting.sections.registry import SectionRegistry
+from src.reporting.sections.pdp import (
     attribute_sections as pdp_attribute_sections,
 )
-from student_success_tool.reporting.utils.formatting import Formatting
+from src.reporting.utils.formatting import Formatting
 
 
 @pytest.fixture

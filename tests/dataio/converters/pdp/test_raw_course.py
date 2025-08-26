@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from student_success_tool.dataio.converters import pdp
+from src.dataio import pdp_course_converters
 
 
 @pytest.fixture(scope="module")
@@ -52,6 +52,6 @@ def df_test():
     ],
 )
 def test_dedupe_by_renumbering_courses(df_test, exp):
-    obs = pdp.dedupe_by_renumbering_courses(df_test)
+    obs = pdp_course_converters.dedupe_by_renumbering_courses(df_test)
     assert isinstance(obs, pd.DataFrame)
     assert pd.testing.assert_frame_equal(obs, exp) is None

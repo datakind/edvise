@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from student_success_tool.modeling import training
+from src.modeling import training
 
 
 def test_run_automl_classification_uses_correct_args_and_format():

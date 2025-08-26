@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from student_success_tool.modeling import utils
+from src.modeling import utils
 
 
 @pytest.mark.parametrize(

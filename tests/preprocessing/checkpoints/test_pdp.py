@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from student_success_tool.preprocessing.checkpoints import pdp
+from src.checkpoints import nth_student_terms
 
 
 @pytest.fixture(scope="module")
@@ -276,9 +276,7 @@ def test_nth_student_terms(
     valid_enrollment_year,
     exp,
 ):
-    from student_success_tool.preprocessing.checkpoints import pdp
-
-    obs = pdp.nth_student_terms(
+    obs = nth_student_terms(
         df_test,
         n=n,
         student_id_cols="student_id",
@@ -328,7 +326,7 @@ def test_nth_student_terms(
 def test_first_student_terms(
     df_test, include_cols, exclude_pre_cohort_terms, exclude_non_core_terms, exp
 ):
-    obs = pdp.first_student_terms(
+    obs = nth_student_terms.first_student_terms(
         df_test,
         student_id_cols="student_id",
         sort_cols="term_rank",
@@ -371,7 +369,7 @@ def test_first_student_terms(
 def test_last_student_terms(
     df_test, include_cols, exclude_pre_cohort_terms, exclude_non_core_terms, exp
 ):
-    obs = pdp.last_student_terms(
+    obs = nth_student_terms.last_student_terms(
         df_test,
         student_id_cols="student_id",
         sort_cols="term_rank",
@@ -419,7 +417,7 @@ def test_last_student_terms(
 def test_first_student_terms_at_num_credits_earned(
     df_test, min_num_credits, include_cols, exp
 ):
-    obs = pdp.first_student_terms_at_num_credits_earned(
+    obs = nth_student_terms.first_student_terms_at_num_credits_earned(
         df_test,
         min_num_credits=min_num_credits,
         num_credits_col="num_credits_earned",
@@ -450,7 +448,7 @@ def test_first_student_terms_at_num_credits_earned(
     ],
 )
 def test_first_student_terms_within_cohort(df_test, include_cols, exp):
-    obs = pdp.first_student_terms_within_cohort(
+    obs = nth_student_terms.first_student_terms_within_cohort(
         df_test,
         term_is_pre_cohort_col="term_is_pre_cohort",
         student_id_cols="student_id",
@@ -495,7 +493,7 @@ def test_first_student_terms_within_cohort(df_test, include_cols, exp):
 def test_last_student_terms_in_enrollment_year(
     df_test, enrollment_year, include_cols, exp
 ):
-    obs = pdp.last_student_terms_in_enrollment_year(
+    obs = nth_student_terms.last_student_terms_in_enrollment_year(
         df_test,
         enrollment_year=enrollment_year,
         enrollment_year_col="enrollment_year",

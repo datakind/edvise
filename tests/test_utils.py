@@ -2,7 +2,7 @@ from collections.abc import Iterable
 
 import pytest
 
-from student_success_tool import utils
+from src import utils
 
 
 @pytest.mark.parametrize(
@@ -45,7 +45,7 @@ def test_is_collection_but_not_string(value, exp):
     ],
 )
 def test_unique_elements_in_order(eles, exp):
-    obs = utils.misc.unique_elements_in_order(eles)
+    obs = utils.data_cleaning.unique_elements_in_order(eles)
     assert isinstance(obs, Iterable)
     assert list(obs) == exp
 
@@ -60,5 +60,5 @@ def test_unique_elements_in_order(eles, exp):
     ],
 )
 def test_convert_to_snake_case(val, exp):
-    obs = utils.misc.convert_to_snake_case(val)
+    obs = utils.data_cleaning.convert_to_snake_case(val)
     assert obs == exp

@@ -28,9 +28,9 @@ class PDPTargetsTask:
 
         # Map target type from config to appropriate module
         target_modules = {
-            "credits_earned": _targets._credits_earned,
-            "graduation": _targets._graduation,
-            "retention": _targets._retention,
+            "credits_earned": _targets.credits_earned,
+            "graduation": _targets.graduation,
+            "retention": _targets.retention,
         }
 
         if target_type not in target_modules:

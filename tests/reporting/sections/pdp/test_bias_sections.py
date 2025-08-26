@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
-from student_success_tool.reporting.sections.registry import SectionRegistry
-from student_success_tool.reporting.sections.pdp import (
+from src.reporting.sections.registry import SectionRegistry
+from src.reporting.sections.pdp import (
     bias_sections as pdp_bias_sections,
 )
 

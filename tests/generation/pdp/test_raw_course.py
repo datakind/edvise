@@ -2,8 +2,8 @@ import faker
 import pandas as pd
 import pytest
 
-from student_success_tool.dataio.schemas.pdp import RawPDPCourseDataSchema
-from student_success_tool.generation.pdp import raw_course
+from src.data_audit.schemas import RawPDPCourseDataSchema
+from src.synth_generation.pdp import raw_course
 
 FAKER = faker.Faker()
 FAKER.add_provider(raw_course.Provider)

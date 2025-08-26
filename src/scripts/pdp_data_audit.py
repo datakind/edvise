@@ -8,7 +8,7 @@ from src.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
-import src.data_audit.configs as configs
+import src.configs as configs
 from src.utils.databricks import get_spark_session
 from src.dataio.read import (
     read_config, 

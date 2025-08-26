@@ -3,7 +3,7 @@ import typing as t
 import pandas as pd
 
 from .... import utils
-from . import _shared
+from . import shared
 
 
 def compute_target(
@@ -51,7 +51,7 @@ def compute_target(
     )
     # get subset of students for which a target label can accurately be computed
     # i.e. the data in df covers their second year of enrollment
-    df_labelable_students = _shared.get_students_with_second_year_in_dataset(
+    df_labelable_students = shared.get_students_with_second_year_in_dataset(
         df,
         max_academic_year=max_academic_year,
         student_id_cols=student_id_cols,
