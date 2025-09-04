@@ -77,7 +77,6 @@ if __name__ == "__main__":
         schemas = importlib.import_module("schemas")
         logging.info("Using custom schema")
     except Exception:
-
         logging.info("Using default schema")
 
     task = StudentSelectionTask(args)
