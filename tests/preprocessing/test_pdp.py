@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from student_success_tool import dataio, preprocessing
+from edvise import dataio, utils, model_prep, feature_generation
 
 SYNTHETIC_DATA_PATH = "synthetic-data/pdp"
 
@@ -29,7 +29,7 @@ SYNTHETIC_DATA_PATH = "synthetic-data/pdp"
     ],
 )
 def test_infer_first_term_of_year(series, exp):
-    obs = preprocessing.pdp.infer_first_term_of_year(series)
+    obs = utils.infer_first_term_of_year(series)
     assert obs == exp
 
 
@@ -41,7 +41,7 @@ def test_infer_first_term_of_year(series, exp):
     ],
 )
 def test_infer_num_terms_in_year(series, exp):
-    obs = preprocessing.pdp.infer_num_terms_in_year(series)
+    obs = utils.infer_num_terms_in_year(series)
     assert obs == exp
 
 
@@ -100,7 +100,7 @@ def test_infer_num_terms_in_year(series, exp):
     ],
 )
 def test_standardize_cohort_dataset(df, exp):
-    obs = preprocessing.pdp.standardize_cohort_dataset(df)
+    obs = utils.standardize_cohort_dataset(df)
     assert isinstance(obs, pd.DataFrame) and not obs.empty
     assert obs.equals(exp) or obs.compare(exp).empty
 
@@ -161,7 +161,7 @@ def test_standardize_cohort_dataset(df, exp):
     ],
 )
 def test_standardize_course_dataset(df, exp):
-    obs = preprocessing.pdp.standardize_course_dataset(df)
+    obs = utils.standardize_course_dataset(df)
     assert isinstance(obs, pd.DataFrame) and not obs.empty
     assert obs.equals(exp) or obs.compare(exp).empty
 
@@ -191,7 +191,7 @@ def test_standardize_course_dataset(df, exp):
     ],
 )
 def test_add_empty_cols_if_missing(df, col_val_dtypes, exp):
-    obs = preprocessing.pdp.add_empty_cols_if_missing(df, col_val_dtypes=col_val_dtypes)
+    obs = utils.add_empty_cols_if_missing(df, col_val_dtypes=col_val_dtypes)
     assert pd.testing.assert_frame_equal(obs, exp) is None
 
 
@@ -341,7 +341,7 @@ def test_add_empty_cols_if_missing(df, col_val_dtypes, exp):
     ],
 )
 def test_clean_up_labeled_dataset_cols_and_vals(df, exp):
-    obs = preprocessing.pdp.clean_up_labeled_dataset_cols_and_vals(df)
+    obs = model_prep.clean_up_labeled_dataset_cols_and_vals(df)
     assert isinstance(obs, pd.DataFrame) and not obs.empty
     print("observed cols", obs.columns)
     print("expected cols", exp.columns)
@@ -376,6 +376,6 @@ def test_make_student_term_dataset_against_checked_in_sample(
     )
     assert isinstance(course, pd.DataFrame)
     assert not course.empty
-    df = preprocessing.pdp.make_student_term_dataset(cohort, course)
+    df = feature_generation.make_student_term_dataset(cohort, course)
     assert isinstance(df, pd.DataFrame)
     assert not df.empty
