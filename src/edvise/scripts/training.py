@@ -66,8 +66,10 @@ class TrainingTask:
         if modeling_cfg is None or modeling_cfg.training is None:
             raise ValueError("modeling.training must be configured in the TOML.")
 
-        job_run_id = t.cast(str, utils.databricks.get_db_widget_param("job_run_id", default="interactive"))
-
+        job_run_id = t.cast(
+            str,
+            utils.databricks.get_db_widget_param("job_run_id", default="interactive"),
+        )
 
         # Coerce pos_label to expected type (bool | str | None)
         pos_label_cfg = self.cfg.pos_label

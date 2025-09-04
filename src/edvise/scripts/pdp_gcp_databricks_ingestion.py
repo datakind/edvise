@@ -11,6 +11,7 @@ Databricks utilities for job task values, and Spark session management.
 This is a POC script, it is advised to review and tests before using in production.
 """
 
+import typing as t
 import logging
 import os
 import argparse
@@ -22,11 +23,15 @@ from google.cloud import storage
 import utils
 import dataio
 import importlib
+import pandas as pd
 
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)  # Ignore Databricks logger
+
+# Create callable type
+ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
 
 
 class DataIngestionTask:
@@ -37,8 +42,8 @@ class DataIngestionTask:
     def __init__(
         self,
         args: argparse.Namespace,
-        course_converter_func=None,
-        cohort_converter_func=None,
+        course_converter_func: t.Optional[ConverterFunc] = None,
+        cohort_converter_func: t.Optional[ConverterFunc] = None,
     ):
         """
         Initializes the DataIngestionTask with parsed arguments.
@@ -49,8 +54,8 @@ class DataIngestionTask:
         self.args = args
         self.storage_client = storage.Client()
         self.bucket = self.storage_client.bucket(self.args.gcp_bucket_name)
-        self.course_converter_func = course_converter_func
-        self.cohort_converter_func = cohort_converter_func
+        self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
+        self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
     def download_data_from_gcs(self, internal_pipeline_path: str) -> tuple[str, str]:
         """
@@ -83,7 +88,9 @@ class DataIngestionTask:
             logging.error(f"GCS download error: {e}")
             raise
 
-    def read_and_validate_data(self, fpath_course: str, fpath_cohort: str):
+    def read_and_validate_data(
+        self, fpath_course: str, fpath_cohort: str
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
         # -> tuple[raw_course.RawPDPCourseDataSchema, raw_cohort.RawPDPCohortDataSchema]:
         """
         Reads course and cohort data from CSV files and validates their schemas.
