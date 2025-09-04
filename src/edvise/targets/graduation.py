@@ -6,7 +6,7 @@ import pandas as pd
 
 from .. import utils
 from .. import checkpoints
-from .. import shared
+from . import shared
 
 
 def compute_target(
@@ -58,7 +58,7 @@ def compute_target(
 
     See Also:
         - :func:`shared.get_students_with_max_target_term_in_dataset()`
-        - :func:`checkpoints.pdp.first_student_terms_within_cohort()`
+        - :func:`checkpoints.nth_student_terms.first_student_terms_within_cohort()`
     """
     student_id_cols = utils.types.to_list(student_id_cols)
     # we want a target for every student in input df; this will ensure it
@@ -116,7 +116,7 @@ def compute_target(
     df_labelable_students = shared.get_students_with_max_target_term_in_dataset(
         df,
         checkpoint=ft.partial(
-            checkpoints.pdp.first_student_terms_within_cohort,
+            checkpoints.nth_student_terms.first_student_terms_within_cohort,
             term_is_pre_cohort_col=term_is_pre_cohort_col,
             student_id_cols=student_id_cols,
             sort_cols=term_rank_col,

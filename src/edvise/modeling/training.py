@@ -92,37 +92,3 @@ def run_automl_classification(
         **kwargs,
     )
     return summary
-
-
-def get_experiment_name(
-    *,
-    institution_id: str,
-    job_run_id: str,
-    primary_metric: str,
-    timeout_minutes: int,
-    exclude_frameworks: t.Optional[list[str]] = None,
-) -> str:
-    """
-    Get a descriptive experiment name based on more important input parameters.
-
-    See Also:
-        - :func:`run_automl_classification()`
-
-    References:
-        - https://docs.databricks.com/en/machine-learning/automl/automl-api-reference.html#classify
-    """
-    name_components = [
-        institution_id,
-        f"{job_run_id=}",
-        f"{primary_metric=}",
-        f"{timeout_minutes=}",
-    ]
-    if exclude_frameworks:
-        name_components.append(f"exclude_frameworks={','.join(exclude_frameworks)}")
-    name_components.append(time.strftime("%Y-%m-%dT%H:%M:%S"))
-
-    name = "__".join(name_components)
-    if len(name) > 500:
-        LOGGER.warning("truncating long experiment name '%s' to first 500 chars", name)
-        name = name[:500]
-    return name
