@@ -57,10 +57,10 @@ class ModelCard(t.Generic[C]):
         self.assets_folder = assets_path or self.DEFAULT_ASSETS_FOLDER
         self.output_path = self._build_output_path()
         self.template_path = self._resolve(
-            "student_success_tool.reporting.template", self.TEMPLATE_FILENAME
+            "edvise.reporting.template", self.TEMPLATE_FILENAME
         )
         self.logo_path = self._resolve(
-            "student_success_tool.reporting.template.assets", self.LOGO_FILENAME
+            "edvise.reporting.template.assets", self.LOGO_FILENAME
         )
 
     def build(self):
@@ -289,7 +289,7 @@ class ModelCard(t.Generic[C]):
 
         # Load CSS from external file
         css_path = self._resolve(
-            "student_success_tool.reporting.template.styles", "model_card.css"
+            "edvise.reporting.template.styles", "model_card.css"
         )
         with open(css_path, "r") as f:
             style = f"<style>\n{f.read()}\n</style>"
