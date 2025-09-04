@@ -84,7 +84,7 @@ class DataIngestionTask:
             raise
 
     def read_and_validate_data(self, fpath_course: str, fpath_cohort: str):
-        # -> tuple[schemas.RawPDPCourseDataSchema, schemas.RawPDPCohortDataSchema]:
+        # -> tuple[raw_course.RawPDPCourseDataSchema, raw_cohort.RawPDPCohortDataSchema]:
         """
         Reads course and cohort data from CSV files and validates their schemas.
 
@@ -93,7 +93,7 @@ class DataIngestionTask:
             fpath_cohort (str): Path to the cohort data file.
 
         Returns:
-            tuple[schemas.RawPDPCourseDataSchema, schemas.RawPDPCohortDataSchema]:
+            tuple[raw_course.RawPDPCourseDataSchema, raw_cohort.RawPDPCohortDataSchema]:
                 Validated course and cohort data.
         """
 
@@ -104,7 +104,7 @@ class DataIngestionTask:
             try:
                 df_course = dataio.read.read_raw_pdp_course_data(
                     file_path=fpath_course,
-                    schema=schemas.RawPDPCourseDataSchema,
+                    schema=raw_course.RawPDPCourseDataSchema,
                     dttm_format=fmt,
                     converter_func=self.course_converter_func,
                 )
@@ -119,7 +119,7 @@ class DataIngestionTask:
         logging.info("Course data read and schema validated.")
         df_cohort = dataio.read.read_raw_pdp_cohort_data(
             file_path=fpath_cohort,
-            schema=schemas.RawPDPCohortDataSchema,
+            schema=raw_cohort.RawPDPCohortDataSchema,
             converter_func=self.cohort_converter_func,
         )
         logging.info("Cohort data read and schema validated.")
@@ -134,8 +134,8 @@ class DataIngestionTask:
         Writes the validated DataFrames to Delta Lake tables in Unity Catalog.
 
         Args:
-            df_course (schemas.RawPDPCourseDataSchema): Validated course data.
-            df_cohort (schemas.RawPDPCohortDataSchema): Validated cohort data.
+            df_course (raw_course.RawPDPCourseDataSchema): Validated course data.
+            df_cohort (raw_cohort.RawPDPCohortDataSchema): Validated cohort data.
         """
 
         catalog = self.args.DB_workspace
@@ -183,7 +183,7 @@ class DataIngestionTask:
         Verifies the Delta Lake write by reading the data back from the tables.
         """
         try:
-            df_course_from_catalog = schemas.RawPDPCourseDataSchema(
+            df_course_from_catalog = raw_course.RawPDPCourseDataSchema(
                 dataio.from_delta_table(
                     course_dataset_validated_path,
                     spark_session=self.spark_session,
@@ -193,7 +193,7 @@ class DataIngestionTask:
                 "Course DataFrame shape from catalog: %s", df_course_from_catalog.shape
             )
 
-            df_cohort_from_catalog = schemas.RawPDPCohortDataSchema(
+            df_cohort_from_catalog = raw_cohort.RawPDPCohortDataSchema(
                 dataio.from_delta_table(
                     cohort_dataset_validated_path,
                     spark_session=self.spark_session,
@@ -302,7 +302,7 @@ if __name__ == "__main__":
         schemas = importlib.import_module("schemas")
         logging.info("Running task with custom schema")
     except Exception:
-        from edvise.dataio.schemas import pdp as schemas
+        from edvise.data_audit.schemas import raw_course, raw_cohort
 
         logging.info("Running task with default schema")
 
