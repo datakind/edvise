@@ -302,7 +302,7 @@ if __name__ == "__main__":
         schemas = importlib.import_module("schemas")
         logging.info("Running task with custom schema")
     except Exception:
-        from student_success_tool.dataio.schemas import pdp as schemas
+        from edvise.dataio.schemas import pdp as schemas
 
         logging.info("Running task with default schema")
 
