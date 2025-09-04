@@ -4,9 +4,9 @@ import typing as t
 import numpy as np
 import pandas as pd
 
-from .... import utils
-from ... import checkpoints
-from . import shared
+from .. import utils
+from .. import checkpoints
+from .. import shared
 
 
 def compute_target(

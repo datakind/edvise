@@ -2,8 +2,8 @@ import typing as t
 
 import pandas as pd
 
-from .... import utils
-from . import shared
+from .. import utils
+from .. import shared
 
 
 def compute_target(

@@ -3,8 +3,8 @@ import functools as ft
 import pandas as pd
 import pytest
 
-from student_success_tool.preprocessing import checkpoints
-from student_success_tool.preprocessing.targets.pdp import credits_earned
+from edvise import checkpoints
+from edvise.targets import credits_earned
 
 
 @pytest.mark.parametrize(
@@ -91,7 +91,7 @@ from student_success_tool.preprocessing.targets.pdp import credits_earned
             60.0,
             # first term as checkpoint via callable
             ft.partial(
-                checkpoints.pdp.first_student_terms,
+                checkpoints.nth_student_terms.first_student_terms,
                 student_id_cols="student_id",
                 sort_cols="term_rank",
                 include_cols=["enrollment_intensity", "num_credits"],
