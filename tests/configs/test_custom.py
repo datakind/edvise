@@ -10,7 +10,7 @@ import pytest
 from edvise.configs import custom
 
 
-SRC_ROOT = pathlib.Path(__file__).parents[2] / "pipelines" / "custom" / "institution_id"
+SRC_ROOT = pathlib.Path(__file__).parents[2] / "configs" / "custom"
 
 
 @pytest.fixture(scope="module")

@@ -316,7 +316,8 @@ def test_infer_num_terms_in_year(series, exp):
     ],
 )
 def test_clean_up_labeled_dataset_cols_and_vals(df, exp):
-    obs = model_prep.clean_up_labeled_dataset_cols_and_vals(df)
+    pdp_cleanup = model_prep.cleanup_features.PDPCleanup()
+    obs = pdp_cleanup.clean_up_labeled_dataset_cols_and_vals(df)
     assert isinstance(obs, pd.DataFrame) and not obs.empty
     print("observed cols", obs.columns)
     print("expected cols", exp.columns)
