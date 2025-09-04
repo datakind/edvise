@@ -97,7 +97,6 @@ if __name__ == "__main__":
             schemas = importlib.import_module("schemas")
             logging.info("Using custom schemas")
     except Exception:
-
         logging.info("Using default schemas")
 
     task = PDPTargetsTask(args)
