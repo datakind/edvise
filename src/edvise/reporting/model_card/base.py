@@ -298,9 +298,7 @@ class ModelCard(t.Generic[C]):
         )
 
         # Load CSS from external file
-        css_path = self._resolve(
-            "edvise.reporting.template.styles", "model_card.css"
-        )
+        css_path = self._resolve("edvise.reporting.template.styles", "model_card.css")
         with open(css_path, "r") as f:
             style = f"<style>\n{f.read()}\n</style>"
 

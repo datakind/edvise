@@ -34,9 +34,7 @@ def mock_card_without_aliases(tmp_path):
 @patch(
     "edvise.reporting.sections.custom.evaluation_sections.utils.list_paths_in_directory"
 )
-@patch(
-    "edvise.reporting.sections.custom.evaluation_sections.utils.download_artifact"
-)
+@patch("edvise.reporting.sections.custom.evaluation_sections.utils.download_artifact")
 def test_register_evaluation_sections_with_aliases(
     mock_download, mock_list_paths, mock_card_with_aliases, tmp_path
 ):
@@ -67,9 +65,7 @@ def test_register_evaluation_sections_with_aliases(
 @patch(
     "edvise.reporting.sections.custom.evaluation_sections.utils.list_paths_in_directory"
 )
-@patch(
-    "edvise.reporting.sections.custom.evaluation_sections.utils.download_artifact"
-)
+@patch("edvise.reporting.sections.custom.evaluation_sections.utils.download_artifact")
 def test_register_evaluation_sections_fallback_to_friendly_case(
     mock_download, mock_list_paths, mock_card_without_aliases, tmp_path
 ):
@@ -96,9 +92,7 @@ def test_register_evaluation_sections_fallback_to_friendly_case(
 @patch(
     "edvise.reporting.sections.custom.evaluation_sections.utils.list_paths_in_directory"
 )
-@patch(
-    "edvise.reporting.sections.custom.evaluation_sections.utils.download_artifact"
-)
+@patch("edvise.reporting.sections.custom.evaluation_sections.utils.download_artifact")
 def test_register_evaluation_sections_handles_download_failure(
     mock_download, mock_list_paths, mock_card_with_aliases
 ):

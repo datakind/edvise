@@ -1,10 +1,9 @@
-import os
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from edvise import dataio, data_audit, utils, model_prep, feature_generation
+from edvise import utils, model_prep
 
 # SYNTHETIC_DATA_PATH = "synthetic-data/pdp"
 
@@ -325,7 +324,7 @@ def test_clean_up_labeled_dataset_cols_and_vals(df, exp):
 
 
 # NOTE: removing unit test since we aren't carrying over the synthetic
-# data, and using real synthetic data instead 
+# data, and using real synthetic data instead
 # @pytest.mark.parametrize(
 #     ["cohort_file_name", "course_file_name"],
 #     [
