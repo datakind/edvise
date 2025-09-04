@@ -7,7 +7,8 @@ import mlflow.tracking
 
 LOGGER = logging.getLogger(__name__)
 
-#TODO: Check with Vish these are Databricks specific or just  mlflow?
+
+# TODO: Check with Vish these are Databricks specific or just  mlflow?
 def get_model_name(
     *,
     institution_id: str,

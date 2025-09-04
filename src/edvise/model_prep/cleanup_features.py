@@ -7,6 +7,7 @@ LOGGER = logging.getLogger(__name__)
 
 from edvise.utils.drop_columns_safely import drop_columns_safely
 
+
 class PDPCleanup:
     def clean_up_labeled_dataset_cols_and_vals(
         self,
@@ -29,7 +30,8 @@ class PDPCleanup:
                 df[col] = df[col].mask(df[num_credits_col] < num_credit_check)
 
         # Drop columns not needed for modeling
-        df = drop_columns_safely(df, 
+        df = drop_columns_safely(
+            df,
             cols_to_drop=[
                 # metadata
                 "institution_id",
@@ -82,14 +84,18 @@ class PDPCleanup:
                 # years of last enrollment
                 "years_of_last_enrollment_at_cohort_institution",
                 "years_of_last_enrollment_at_other_institution",
-            ]
+            ],
         )
 
         # Mask columns
         df = df.assign(
             **{
                 col: ft.partial(self.mask_year_values_based_on_enrollment_year, col=col)
-                for col in df.columns[df.columns.str.contains(r"^(?:first_year_to_certificate|years_to_latest_certificate)")]
+                for col in df.columns[
+                    df.columns.str.contains(
+                        r"^(?:first_year_to_certificate|years_to_latest_certificate)"
+                    )
+                ]
             },
             **{
                 col: ft.partial(self.mask_year_column_based_on_enrollment_year, col=col)
@@ -102,14 +108,22 @@ class PDPCleanup:
         )
 
         return df
-    
+
     def mask_year_values_based_on_enrollment_year(
-        self, df: pd.DataFrame, *, col: str, enrollment_year_col: str = "year_of_enrollment_at_cohort_inst"
+        self,
+        df: pd.DataFrame,
+        *,
+        col: str,
+        enrollment_year_col: str = "year_of_enrollment_at_cohort_inst",
     ) -> pd.Series:
         return df[col].mask(df[col].ge(df[enrollment_year_col]), other=pd.NA)
 
     def mask_year_column_based_on_enrollment_year(
-        self, df: pd.DataFrame, *, col: str, enrollment_year_col: str = "year_of_enrollment_at_cohort_inst"
+        self,
+        df: pd.DataFrame,
+        *,
+        col: str,
+        enrollment_year_col: str = "year_of_enrollment_at_cohort_inst",
     ) -> pd.Series:
         if match := re.search(r"_year_(?P<yr>\d)$", col):
             col_year = int(match.group("yr"))
@@ -118,7 +132,11 @@ class PDPCleanup:
         return df[col].mask(df[enrollment_year_col].le(col_year), other=pd.NA)
 
     def mask_term_column_based_on_enrollment_term(
-        self, df: pd.DataFrame, *, col: str, enrollment_term_col: str = "cumnum_terms_enrolled"
+        self,
+        df: pd.DataFrame,
+        *,
+        col: str,
+        enrollment_term_col: str = "cumnum_terms_enrolled",
     ) -> pd.Series:
         if match := re.search(r"_term_(?P<num>\d)$", col):
             col_term = int(match.group("num"))

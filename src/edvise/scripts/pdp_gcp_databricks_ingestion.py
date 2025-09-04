@@ -52,7 +52,6 @@ class DataIngestionTask:
         self.course_converter_func = course_converter_func
         self.cohort_converter_func = cohort_converter_func
 
-
     def download_data_from_gcs(self, internal_pipeline_path: str) -> tuple[str, str]:
         """
         Downloads course and cohort data from GCS to the internal pipeline directory.
@@ -113,7 +112,9 @@ class DataIngestionTask:
             except ValueError:
                 continue  # try next format
         else:
-            raise ValueError("Failed to parse course data with all known datetime formats.")
+            raise ValueError(
+                "Failed to parse course data with all known datetime formats."
+            )
 
         logging.info("Course data read and schema validated.")
         df_cohort = dataio.read.read_raw_pdp_cohort_data(
@@ -311,4 +312,3 @@ if __name__ == "__main__":
         course_converter_func=course_converter_func,
     )
     task.run()
-

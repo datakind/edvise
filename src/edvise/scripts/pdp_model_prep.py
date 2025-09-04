@@ -5,7 +5,7 @@ import pandas as pd
 import logging
 import pathlib
 
-#TODO fix imports
+# TODO fix imports
 from shared.shared import read_config
 from preprocessing import _cleanup_features as cleanup
 from edvise.scripts.training import _training_params as training_params
@@ -21,7 +21,10 @@ class ModelPrepTask:
         self.cfg = read_config(args.toml_file_path)
 
     def merge_data(
-        self, checkpoint_df: pd.DataFrame, target_df: pd.DataFrame, selected_students: pd.DataFrame
+        self,
+        checkpoint_df: pd.DataFrame,
+        target_df: pd.DataFrame,
+        selected_students: pd.DataFrame,
     ) -> pd.DataFrame:
         student_id_col = self.cfg.student_id_col
         df_labeled = pd.merge(
@@ -48,7 +51,10 @@ class ModelPrepTask:
         df[split_col] = training_params.compute_dataset_splits(
             df, splits=splits, seed=self.cfg.random_state
         )
-        logger.info("Dataset split distribution:\n%s", df[split_col].value_counts(normalize=True))
+        logger.info(
+            "Dataset split distribution:\n%s",
+            df[split_col].value_counts(normalize=True),
+        )
         return df
 
     def apply_sample_weights(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -64,14 +70,19 @@ class ModelPrepTask:
             target_col=self.cfg.target_col,
             class_weight=sample_class_weight,
         )
-        logger.info("Sample weight distribution:\n%s", df[sample_weight_col].value_counts(normalize=True))
+        logger.info(
+            "Sample weight distribution:\n%s",
+            df[sample_weight_col].value_counts(normalize=True),
+        )
         return df
 
     def run(self):
         # Read inputs using custom function
         checkpoint_df = read_parquet(f"{self.args.checkpoint_path}/checkpoint.parquet")
         target_df = read_parquet(f"{self.args.target_path}/target.parquet")
-        selected_students = read_parquet(f"{self.args.selection_path}/selected_students.parquet")
+        selected_students = read_parquet(
+            f"{self.args.selection_path}/selected_students.parquet"
+        )
 
         df_labeled = self.merge_data(checkpoint_df, target_df, selected_students)
         df_preprocessed = self.cleanup_features(df_labeled)
@@ -89,13 +100,29 @@ class ModelPrepTask:
 
 
 def parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Model preparation task for SST pipeline.")
-    parser.add_argument("--toml_file_path", type=str, required=True, help="Path to config TOML file")
-    parser.add_argument("--checkpoint_path", type=str, required=True, help="Path to checkpoint data")
-    parser.add_argument("--target_path", type=str, required=True, help="Path to target data")
-    parser.add_argument("--selection_path", type=str, required=True, help="Path to selected students")
-    parser.add_argument("--output_path", type=str, required=True, help="Path to write preprocessed dataset")
+    parser = argparse.ArgumentParser(
+        description="Model preparation task for SST pipeline."
+    )
+    parser.add_argument(
+        "--toml_file_path", type=str, required=True, help="Path to config TOML file"
+    )
+    parser.add_argument(
+        "--checkpoint_path", type=str, required=True, help="Path to checkpoint data"
+    )
+    parser.add_argument(
+        "--target_path", type=str, required=True, help="Path to target data"
+    )
+    parser.add_argument(
+        "--selection_path", type=str, required=True, help="Path to selected students"
+    )
+    parser.add_argument(
+        "--output_path",
+        type=str,
+        required=True,
+        help="Path to write preprocessed dataset",
+    )
     return parser.parse_args()
+
 
 if __name__ == "__main__":
     args = parse_arguments()

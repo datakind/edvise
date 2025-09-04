@@ -11,10 +11,10 @@ def feature_table_data():
     toml_path = os.path.join(
         project_root,
         "src",
-        "student_success_tool",
+        "edvise",
+        "shared",
         "assets",
-        "pdp",
-        "features_table.toml",
+        "pdp_features_table.toml",
     )
     return from_toml_file(toml_path)
 

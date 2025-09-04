@@ -32,7 +32,7 @@ class PDPFeatureGenerationTask:
 
     def run(self):
         """Executes the data preprocessing pipeline."""
-        
+
         # --- Unpack config ---
         features_cfg = self.cfg.preprocessing.features
         min_passing_grade = features_cfg.min_passing_grade
@@ -43,8 +43,12 @@ class PDPFeatureGenerationTask:
         key_course_ids = features_cfg.key_course_ids
 
         # --- Load datasets ---
-        df_course = pd.read_parquet(f"{self.args.course_dataset_validated_path}/df_cohort.parquet")
-        df_cohort = pd.read_parquet(f"{self.args.cohort_dataset_validated_path}/df_course.parquet")
+        df_course = pd.read_parquet(
+            f"{self.args.course_dataset_validated_path}/df_cohort.parquet"
+        )
+        df_cohort = pd.read_parquet(
+            f"{self.args.cohort_dataset_validated_path}/df_course.parquet"
+        )
 
         # --- Generate student-term dataset ---
         df_student_terms = self.make_student_term_dataset(
@@ -55,12 +59,13 @@ class PDPFeatureGenerationTask:
             course_level_pattern=course_level_pattern,
             core_terms=core_terms,
             key_course_subject_areas=key_course_subject_areas,
-            key_course_ids=key_course_ids
+            key_course_ids=key_course_ids,
         )
 
         # --- Write result ---
-        df_student_terms.to_parquet(f"{self.args.student_term_path}/student_terms.parquet", index=False)
-
+        df_student_terms.to_parquet(
+            f"{self.args.student_term_path}/student_terms.parquet", index=False
+        )
 
     def make_student_term_dataset(
         self,
@@ -71,27 +76,37 @@ class PDPFeatureGenerationTask:
         min_num_credits_full_time: float = feature_generation.constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
         course_level_pattern: str = feature_generation.constants.DEFAULT_COURSE_LEVEL_PATTERN,
         core_terms: set[str] = feature_generation.constants.DEFAULT_CORE_TERMS,
-        peak_covid_terms: set[tuple[str, str]] = feature_generation.constants.DEFAULT_PEAK_COVID_TERMS,
+        peak_covid_terms: set[
+            tuple[str, str]
+        ] = feature_generation.constants.DEFAULT_PEAK_COVID_TERMS,
         key_course_subject_areas: t.Optional[list[str]] = None,
         key_course_ids: t.Optional[list[str]] = None,
     ) -> pd.DataFrame:
         """Main feature generation pipeline."""
-        first_term = self.course_std.infer_first_term_of_year(df_course["academic_term"])
+        first_term = self.course_std.infer_first_term_of_year(
+            df_course["academic_term"]
+        )
 
-        df_students = df_cohort.pipe(feature_generation.student.add_features, 
-                                     first_term_of_year=first_term)
+        df_students = df_cohort.pipe(
+            feature_generation.student.add_features, first_term_of_year=first_term
+        )
 
         df_courses_plus = (
-            df_course
-            .pipe(feature_generation.course.add_features,
-                  min_passing_grade=min_passing_grade,
-                  course_level_pattern=course_level_pattern)
-            .pipe(feature_generation.term.add_features,
-                  first_term_of_year=first_term,
-                  core_terms=core_terms,
-                  peak_covid_terms=peak_covid_terms)
-            .pipe(feature_generation.section.add_features,
-                  section_id_cols=["term_id", "course_id", "section_id"])
+            df_course.pipe(
+                feature_generation.course.add_features,
+                min_passing_grade=min_passing_grade,
+                course_level_pattern=course_level_pattern,
+            )
+            .pipe(
+                feature_generation.term.add_features,
+                first_term_of_year=first_term,
+                core_terms=core_terms,
+                peak_covid_terms=peak_covid_terms,
+            )
+            .pipe(
+                feature_generation.section.add_features,
+                section_id_cols=["term_id", "course_id", "section_id"],
+            )
         )
 
         df_student_terms = (
@@ -103,24 +118,25 @@ class PDPFeatureGenerationTask:
                 key_course_ids=key_course_ids,
             )
             .merge(df_students, how="inner", on=["institution_id", "student_id"])
-            .pipe(feature_generation.student_term.add_features,
-                  min_num_credits_full_time=min_num_credits_full_time)
+            .pipe(
+                feature_generation.student_term.add_features,
+                min_num_credits_full_time=min_num_credits_full_time,
+            )
         )
 
-        df_student_terms_plus = (
-            feature_generation.cumulative.add_features(
-                df_student_terms,
-                student_id_cols=["institution_id", "student_id"],
-                sort_cols=["academic_year", "academic_term"]
-            )
-            .rename(columns=utils.misc.convert_to_snake_case)
-        )
+        df_student_terms_plus = feature_generation.cumulative.add_features(
+            df_student_terms,
+            student_id_cols=["institution_id", "student_id"],
+            sort_cols=["academic_year", "academic_term"],
+        ).rename(columns=utils.misc.convert_to_snake_case)
 
         return df_student_terms_plus
 
 
 def parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Data preprocessing for inference in the SST pipeline.")
+    parser = argparse.ArgumentParser(
+        description="Data preprocessing for inference in the SST pipeline."
+    )
     parser.add_argument("--cohort_dataset_validated_path", type=str, required=True)
     parser.add_argument("--course_dataset_validated_path", type=str, required=True)
     parser.add_argument("--toml_file_path", type=str, required=True)
@@ -140,6 +156,7 @@ if __name__ == "__main__":
         logging.info("Running task with custom schema")
     except Exception:
         from dataio.schemas import pdp as schemas
+
         logging.info("Running task with default schema")
 
     task = PDPFeatureGenerationTask(args)

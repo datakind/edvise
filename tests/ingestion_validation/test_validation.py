@@ -175,7 +175,7 @@ def test_validate_dataset_extra_columns(
         }
     )
     monkeypatch.setattr(
-        "student_success_tool.ingestion_validation.validation.load_json",
+        "edvise.data_audit.schemas.validation.load_json",
         lambda path: json.load(open(base_schema_file)),
     )
     with pytest.raises(HardValidationError) as exc:
@@ -193,7 +193,7 @@ def test_validate_dataset_extra_columns(
 def test_validate_dataset_missing_required(monkeypatch, base_schema_file, test_logger):
     df = pd.DataFrame({"age": ["21+"], "disability_status": ["Y"]})
     monkeypatch.setattr(
-        "student_success_tool.ingestion_validation.validation.load_json",
+        "edvise.data_audit.schemas.validation.load_json",
         lambda path: json.load(open(base_schema_file)),
     )
     with pytest.raises(HardValidationError) as exc:
@@ -216,7 +216,7 @@ def test_validate_dataset_schema_errors(monkeypatch, base_schema_file, test_logg
         }
     )
     monkeypatch.setattr(
-        "student_success_tool.ingestion_validation.validation.load_json",
+        "edvise.data_audit.schemas.validation.load_json",
         lambda path: json.load(open(base_schema_file)),
     )
     with pytest.raises(HardValidationError) as exc:
@@ -247,12 +247,12 @@ def test_validate_dataset_soft_pass(
 
     # Patch both `load_json` and `os.path.exists` to simulate presence of extension schema
     monkeypatch.setattr(
-        "student_success_tool.ingestion_validation.validation.load_json",
+        "edvise.data_audit.schemas.validation.load_json",
         mocked_load_json,
     )
 
     monkeypatch.setattr(
-        "student_success_tool.ingestion_validation.validation.os.path.exists",
+        "edvise.data_audit.schemas.validation.os.path.exists",
         lambda path: True if "schema_extension.json" in path else os.path.exists(path),
     )
 
@@ -277,7 +277,7 @@ def test_validate_dataset_csv_input(
     df.to_csv(csv, index=False)
 
     monkeypatch.setattr(
-        "student_success_tool.ingestion_validation.validation.load_json",
+        "edvise.data_audit.schemas.validation.load_json",
         lambda path: json.load(open(base_schema_file)),
     )
     result = validate_dataset(

@@ -43,21 +43,27 @@ class PDPTargetsTask:
         target_series = compute_func(df_student_terms, **self.cfg.preprocessing.target)
 
         if not isinstance(target_series, pd.Series):
-            raise TypeError(f"Expected pd.Series from compute_target, got {type(target_series)}")
+            raise TypeError(
+                f"Expected pd.Series from compute_target, got {type(target_series)}"
+            )
 
         return target_series
 
     def run(self):
         """Executes the target computation pipeline and saves result."""
         logging.info("Loading student-terms data...")
-        df_student_terms = pd.read_parquet(f"{self.args.student_term_path}/student_terms.parquet")
+        df_student_terms = pd.read_parquet(
+            f"{self.args.student_term_path}/student_terms.parquet"
+        )
 
         logging.info("Generating target labels...")
         target_series = self.target_generation(df_student_terms)
 
         logging.info("Saving target data...")
         # Convert Series to DataFrame for saving
-        df_target = target_series.reset_index().rename(columns={target_series.name: "target"})
+        df_target = target_series.reset_index().rename(
+            columns={target_series.name: "target"}
+        )
         df_target.to_parquet(f"{self.args.target_path}/target.parquet", index=False)
         logging.info(f"Target file saved to {self.args.target_path}/target.parquet")
 
@@ -65,10 +71,21 @@ class PDPTargetsTask:
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(description="Target generation for SST pipeline.")
-    parser.add_argument("--toml_file_path", type=str, required=True, help="Path to config file")
-    parser.add_argument("--custom_schemas_path", required=False, help="Path to custom schemas")
-    parser.add_argument("--student_term_path", type=str, required=True, help="Path to student term parquet")
-    parser.add_argument("--target_path", type=str, required=True, help="Path to output target parquet")
+    parser.add_argument(
+        "--toml_file_path", type=str, required=True, help="Path to config file"
+    )
+    parser.add_argument(
+        "--custom_schemas_path", required=False, help="Path to custom schemas"
+    )
+    parser.add_argument(
+        "--student_term_path",
+        type=str,
+        required=True,
+        help="Path to student term parquet",
+    )
+    parser.add_argument(
+        "--target_path", type=str, required=True, help="Path to output target parquet"
+    )
     return parser.parse_args()
 
 
@@ -81,6 +98,7 @@ if __name__ == "__main__":
             logging.info("Using custom schemas")
     except Exception:
         from dataio.schemas import pdp as schemas
+
         logging.info("Using default schemas")
 
     task = PDPTargetsTask(args)

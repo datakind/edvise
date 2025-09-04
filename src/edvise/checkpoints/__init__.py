@@ -1,3 +1,1 @@
-from . import (
-    nth_student_terms
-)
+from . import nth_student_terms

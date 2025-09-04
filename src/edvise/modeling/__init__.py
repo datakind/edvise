@@ -4,5 +4,5 @@ from . import (
     feature_selection,
     registration,
     training,
-    prediction
+    prediction,
 )

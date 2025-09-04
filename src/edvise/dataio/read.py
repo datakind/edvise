@@ -8,10 +8,11 @@ from pandera.errors import SchemaErrors
 import pyspark.sql
 import functools as ft
 import pathlib
+
 try:
     import tomllib  # type: ignore
 except ImportError:
-    import tomli as tomllib # noqa
+    import tomli as tomllib  # noqa
 
 import edvise.utils as utils
 
@@ -41,6 +42,7 @@ def read_config(file_path: str, *, schema: type[S]) -> S:
     except Exception as e:
         LOGGER.error("Error reading configuration file: %s", e)
         raise
+
 
 def from_csv_file(
     file_path: str,
@@ -73,6 +75,7 @@ def from_csv_file(
     LOGGER.info("loaded rows x cols = %s from '%s'", df.shape, file_path)
     return df
 
+
 def from_delta_table(
     table_path: str, spark_session: pyspark.sql.SparkSession
 ) -> pd.DataFrame:
@@ -93,6 +96,7 @@ def from_delta_table(
     LOGGER.info("loaded rows x cols = %s of data from '%s'", df.shape, table_path)
     return df
 
+
 def from_toml_file(file_path: str) -> dict[str, object]:
     """
     Read data from ``file_path`` and return it as a dict.
@@ -107,6 +111,7 @@ def from_toml_file(file_path: str) -> dict[str, object]:
     assert isinstance(data, dict)  # type guard
     return data
 
+
 def read_features_table(file_path: str) -> dict[str, dict[str, str]]:
     """
     Read a features table mapping columns to readable names and (optionally) descriptions
@@ -120,7 +125,7 @@ def read_features_table(file_path: str) -> dict[str, dict[str, str]]:
     pkg_root_dir = next(
         p
         for p in pathlib.Path(__file__).parents
-        if p.parts[-1] == "student_success_tool"
+        if p.parts[-1] == "edvise"
     )
     fpath = (
         pathlib.Path(file_path)
@@ -131,6 +136,7 @@ def read_features_table(file_path: str) -> dict[str, dict[str, str]]:
     LOGGER.info("loaded features table from '%s'", fpath)
     return features_table  # type: ignore
 
+
 def read_parquet(path: str, dtype: dict = None, verbose: bool = False) -> pd.DataFrame:
     df = pd.read_parquet(path)
     if dtype:
@@ -138,6 +144,7 @@ def read_parquet(path: str, dtype: dict = None, verbose: bool = False) -> pd.Dat
     if verbose:
         print(f"Read {df.shape[0]} rows from {path}")
     return df
+
 
 def _read_and_prepare_pdp_data(
     *,
@@ -192,6 +199,7 @@ def _read_and_prepare_pdp_data(
         df = df.assign(**transformations)
 
     return _maybe_convert_maybe_validate_data(df, converter_func, schema)
+
 
 def read_raw_pdp_course_data(
     *,
@@ -248,6 +256,7 @@ def read_raw_pdp_course_data(
         datetime_cols=("course_begin_date", "course_end_date"),
         **kwargs,
     )
+
 
 def read_raw_pdp_cohort_data(
     *,
@@ -306,6 +315,7 @@ def read_raw_pdp_cohort_data(
         **kwargs,
     )
 
+
 def _maybe_convert_maybe_validate_data(
     df: pd.DataFrame,
     converter_func: t.Optional[t.Callable[[pd.DataFrame], pd.DataFrame]] = None,
@@ -324,4 +334,3 @@ def _maybe_convert_maybe_validate_data(
         except SchemaErrors:
             LOGGER.error("unable to parse/validate raw data")
             raise
-

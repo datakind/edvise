@@ -92,5 +92,3 @@ def run_automl_classification(
         **kwargs,
     )
     return summary
-
-

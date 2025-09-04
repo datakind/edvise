@@ -7,6 +7,7 @@ from tomlkit.items import Table
 
 LOGGER = logging.getLogger(__name__)
 
+
 def update_run_metadata_in_toml(
     config_path: str, run_id: str, experiment_id: str
 ) -> None:

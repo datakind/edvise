@@ -6,6 +6,7 @@ import typing as t
 
 import pandas as pd
 import edvise.utils as utils
+
 try:
     import pandera as pda
     import pandera.typing as pt
@@ -126,11 +127,15 @@ class RawPDPCourseDataSchema(pda.DataFrameModel):
 
     @pda.parser("math_or_english_gateway")
     def set_math_or_english_gateway_categories(cls, series):
-        return utils.data_cleaning.strip_upper_strings_to_cats(series).cat.set_categories(["E", "M", "NA"])
+        return utils.data_cleaning.strip_upper_strings_to_cats(
+            series
+        ).cat.set_categories(["E", "M", "NA"])
 
     @pda.parser("core_competency_completed")
     def set_core_competency_completed_categories(cls, series):
-        return utils.data_cleaning.strip_upper_strings_to_cats(series).cat.set_categories(["Y", "N"])
+        return utils.data_cleaning.strip_upper_strings_to_cats(
+            series
+        ).cat.set_categories(["Y", "N"])
 
     @pda.parser("course_instructor_rank")
     def set_course_instructor_rank_categories(cls, series):
@@ -161,5 +166,3 @@ class RawPDPCourseDataSchema(pda.DataFrameModel):
             "course_number",
             "section_id",
         ]
-
-

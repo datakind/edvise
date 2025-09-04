@@ -11,8 +11,8 @@ from edvise.data_audit.standardizer import (
 import edvise.configs as configs
 from edvise.utils.databricks import get_spark_session
 from edvise.dataio.read import (
-    read_config, 
-    read_raw_pdp_cohort_data, 
+    read_config,
+    read_raw_pdp_cohort_data,
     read_raw_pdp_course_data,
 )
 from edvise.dataio.write import write_parquet
@@ -28,13 +28,15 @@ class PDPDataAuditTask:
     """Encapsulates the data preprocessing logic for the SST pipeline."""
 
     def __init__(
-            self, 
-            args: argparse.Namespace,         
-            course_converter_func=None,
-            cohort_converter_func=None,
+        self,
+        args: argparse.Namespace,
+        course_converter_func=None,
+        cohort_converter_func=None,
     ):
         self.args = args
-        self.cfg = read_config(file_path=self.args.config_file_path, schema=configs.pdp.PDPProjectConfig)
+        self.cfg = read_config(
+            file_path=self.args.config_file_path, schema=configs.pdp.PDPProjectConfig
+        )
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
@@ -52,13 +54,13 @@ class PDPDataAuditTask:
             file_path=cohort_dataset_raw_path,
             schema=data_audit.schemas.RawPDPCohortDataSchema,
             converter_func=self.cohort_converter_func,
-            spark_session=self.spark
+            spark_session=self.spark,
         )
         LOGGER.info("Cohort data read and schema validated.")
-        
+
         # Standardize cohort data
         df_cohort_validated = self.cohort_std.standardize(df_cohort_raw)
-        
+
         # Course
         dttm_formats = ["ISO8601", "%Y%m%d.0"]
 
@@ -69,13 +71,15 @@ class PDPDataAuditTask:
                     schema=data_audit.schemas.RawPDPCourseDataSchema,
                     dttm_format=fmt,
                     converter_func=self.course_converter_func,
-                    spark_session=self.spark
+                    spark_session=self.spark,
                 )
                 break  # success — exit loop
             except ValueError:
                 continue  # try next format
         else:
-            raise ValueError("Failed to parse course data with all known datetime formats.")
+            raise ValueError(
+                "Failed to parse course data with all known datetime formats."
+            )
 
         # Standardize course data
         df_course_validated = self.course_std.standardize(df_course_raw)
@@ -83,12 +87,20 @@ class PDPDataAuditTask:
         LOGGER.info("Course data read and schema validated.")
 
         # --- Write results ---
-        write_parquet(df_cohort_validated, f"{self.args.silver_volume_path}/df_cohort_validated.parquet")
-        write_parquet(df_course_validated, f"{self.args.silver_volume_path}/df_course_validated.parquet")
+        write_parquet(
+            df_cohort_validated,
+            f"{self.args.silver_volume_path}/df_cohort_validated.parquet",
+        )
+        write_parquet(
+            df_course_validated,
+            f"{self.args.silver_volume_path}/df_course_validated.parquet",
+        )
 
 
 def parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Data preprocessing for inference in the SST pipeline.")
+    parser = argparse.ArgumentParser(
+        description="Data preprocessing for inference in the SST pipeline."
+    )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--gold_volume_path", type=str, required=False, default=None)
     parser.add_argument("--config_file_path", type=str, required=True)
@@ -125,8 +137,8 @@ if __name__ == "__main__":
     #     LOGGER.warning(f"Failed to load custom schema: {e}")
 
     task = PDPDataAuditTask(
-        args,         
+        args,
         cohort_converter_func=cohort_converter_func,
         course_converter_func=course_converter_func,
-        )
+    )
     task.run()

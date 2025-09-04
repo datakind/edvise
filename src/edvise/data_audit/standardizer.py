@@ -9,15 +9,16 @@ LOGGER = logging.getLogger(__name__)
 from .. import utils
 from edvise.utils.drop_columns_safely import drop_columns_safely
 from edvise.utils.data_cleaning import (
-    drop_course_rows_missing_identifiers, 
-    strip_trailing_decimal_strings, 
-    handling_duplicates, 
-    replace_na_firstgen_and_pell, 
-    compute_gateway_course_ids, 
-    remove_pre_cohort_courses
+    drop_course_rows_missing_identifiers,
+    strip_trailing_decimal_strings,
+    handling_duplicates,
+    replace_na_firstgen_and_pell,
+    compute_gateway_course_ids,
+    remove_pre_cohort_courses,
 )
 
-#TODO think of a better name than standardizer
+# TODO think of a better name than standardizer
+
 
 class BaseStandardizer:
     def add_empty_columns_if_missing(
@@ -32,8 +33,8 @@ class BaseStandardizer:
                 if col not in df.columns
             }
         )
-    
-    #these two may be better in utils or shared - we will see
+
+    # these two may be better in utils or shared - we will see
     def infer_first_term_of_year(self, s: pd.Series) -> utils.types.TermType:
         """
         Infer the first term of the (academic) year by the ordering of its categorical values.
@@ -43,7 +44,9 @@ class BaseStandardizer:
         """
         if isinstance(s.dtype, pd.CategoricalDtype) and s.cat.ordered is True:
             first_term_of_year = s.cat.categories[0]
-            LOGGER.info("'%s' inferred as the first term of the year", first_term_of_year)
+            LOGGER.info(
+                "'%s' inferred as the first term of the year", first_term_of_year
+            )
             assert isinstance(first_term_of_year, str)  # type guard
             return first_term_of_year  # type: ignore
         else:
@@ -62,7 +65,9 @@ class BaseStandardizer:
         """
         if isinstance(s.dtype, pd.CategoricalDtype):
             num_terms_in_year = len(s.cat.categories)
-            LOGGER.info("%s inferred as the number of term in the year", num_terms_in_year)
+            LOGGER.info(
+                "%s inferred as the number of term in the year", num_terms_in_year
+            )
             return num_terms_in_year
         else:
             raise ValueError(
@@ -151,28 +156,28 @@ class PDPCourseStandardizer(BaseStandardizer):
         # df = handling_duplicates(df) # I think this will be pre-ingestion
 
         cols_to_drop = [
-                    # student demographics found in raw cohort dataset
-                    "cohort",
-                    "cohort_term",
-                    "student_age",
-                    "race",
-                    "ethnicity",
-                    "gender",
-                    # course name and aspects of core-ness not needed
-                    "course_name",
-                    "core_course_type",
-                    "core_competency_completed",
-                    "credential_engine_identifier",
-                    # enrollment record at other insts not needed
-                    "enrollment_record_at_other_institution_s_state_s",
-                    "enrollment_record_at_other_institution_s_carnegie_s",
-                    "enrollment_record_at_other_institution_s_locale_s",
-                ]
+            # student demographics found in raw cohort dataset
+            "cohort",
+            "cohort_term",
+            "student_age",
+            "race",
+            "ethnicity",
+            "gender",
+            # course name and aspects of core-ness not needed
+            "course_name",
+            "core_course_type",
+            "core_competency_completed",
+            "credential_engine_identifier",
+            # enrollment record at other insts not needed
+            "enrollment_record_at_other_institution_s_state_s",
+            "enrollment_record_at_other_institution_s_carnegie_s",
+            "enrollment_record_at_other_institution_s_locale_s",
+        ]
         # df = remove_pre_cohort_courses(df)
         df = drop_columns_safely(df, cols_to_drop)
-        df = self.add_empty_columns_if_missing(df, {"term_program_of_study": (None, "string")})
+        df = self.add_empty_columns_if_missing(
+            df, {"term_program_of_study": (None, "string")}
+        )
         gateway_course_ids = compute_gateway_course_ids(df)
         LOGGER.info("Math and English Gateway Courses Identified:", gateway_course_ids)
         return df
-    
-

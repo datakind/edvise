@@ -24,10 +24,8 @@ class PDPCheckpointsTask:
         """
         self.args = args
         self.cfg = read_config(self.args.toml_file_path)
-    
-    def checkpoint_generation(
-        self, df_student_terms: pd.DataFrame
-    ) -> pd.DataFrame:
+
+    def checkpoint_generation(self, df_student_terms: pd.DataFrame) -> pd.DataFrame:
         """
         Inputs: df_student_terms
         Outputs: df_student_terms parquet file
@@ -35,13 +33,15 @@ class PDPCheckpointsTask:
         # Read preprocessing features from config (could move to own fn but maybe later)
         checkpoint_type = self.cfg.preprocessing.checkpoint.type_
         student_id_col = self.cfg.student_id_col
-        n=self.cfg.preprocessing.checkpoint.n
-        sort_cols=self.cfg.preprocessing.checkpoint.sort_cols
-        include_cols=self.cfg.preprocessing.checkpoint.include_cols
-        enrollment_year=self.cfg.preprocessing.checkpoint.enrollment_year
-        enrollment_year_col=self.cfg.preprocessing.checkpoint.enrollment_year_col
-        min_num_credits=self.cfg.preprocessing.checkpoint.min_num_credits
-        term_is_pre_cohort_col=self.cfg.preprocessing.checkpoint.term_is_pre_cohort_col
+        n = self.cfg.preprocessing.checkpoint.n
+        sort_cols = self.cfg.preprocessing.checkpoint.sort_cols
+        include_cols = self.cfg.preprocessing.checkpoint.include_cols
+        enrollment_year = self.cfg.preprocessing.checkpoint.enrollment_year
+        enrollment_year_col = self.cfg.preprocessing.checkpoint.enrollment_year_col
+        min_num_credits = self.cfg.preprocessing.checkpoint.min_num_credits
+        term_is_pre_cohort_col = (
+            self.cfg.preprocessing.checkpoint.term_is_pre_cohort_col
+        )
         valid_enrollment_year = self.cfg.preprocessing.checkpoint.valid_enrollment_year
 
         # Set up dictionary of checkpoint functions
@@ -101,9 +101,13 @@ class PDPCheckpointsTask:
 
     def run(self):
         """Executes the data preprocessing pipeline."""
-        df_student_terms = pd.read_parquet(f"{self.args.student_term_path}/student_terms.parquet")
+        df_student_terms = pd.read_parquet(
+            f"{self.args.student_term_path}/student_terms.parquet"
+        )
         df_ckpt = self.checkpoint_generation(df_student_terms)
-        df_ckpt.to_parquet(f"{self.args.checkpoint_path}/checkpoint.parquet", index=False)
+        df_ckpt.to_parquet(
+            f"{self.args.checkpoint_path}/checkpoint.parquet", index=False
+        )
 
 
 def parse_arguments() -> argparse.Namespace:
