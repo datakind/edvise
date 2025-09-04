@@ -5,9 +5,8 @@ import pandas as pd
 import logging
 
 # TODO fix imports
-from shared.shared import read_config
-from preprocessing import _cleanup_features as cleanup
-from edvise.scripts.training import _training_params as training_params
+from ..shared.shared import read_config
+from ..model_prep import cleanup_features as cleanup, training_params
 from dataio import read_parquet, write_parquet
 
 logging.basicConfig(level=logging.INFO)
@@ -48,7 +47,7 @@ class ModelPrepTask:
             split_col = "split"
 
         df[split_col] = training_params.compute_dataset_splits(
-            df, splits=splits, seed=self.cfg.random_state
+            df, label_fracs=splits, seed=self.cfg.random_state
         )
         logger.info(
             "Dataset split distribution:\n%s",
