@@ -5,7 +5,7 @@ from collections.abc import Collection
 
 import pandas as pd
 
-from src.utils import types
+from edvise.utils import types
 from . import constants, shared
 
 LOGGER = logging.getLogger(__name__)

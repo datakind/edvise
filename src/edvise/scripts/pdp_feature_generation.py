@@ -1,5 +1,3 @@
-### THIS IS A DRAFT POC SCRIPT
-
 import argparse
 import importlib
 import logging
@@ -9,10 +7,12 @@ import typing as t
 
 from .. import utils
 from .. import feature_generation
-from src.data_audit.standardizer import (
-    BaseStandardizer
+from edvise.data_audit.standardizer import (
+    PDPCohortStandardizer,
+    PDPCourseStandardizer,
+    StudentTermStandardizer,
 )
-from src.utils.databricks import read_config
+from edvise.utils.databricks import read_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,13 +20,15 @@ logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
 
-class CustomFeatureGenerationTask:
+class PDPFeatureGenerationTask:
     """Encapsulates the data preprocessing logic for the SST pipeline."""
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.cfg = read_config(self.args.toml_file_path)
-        self.base_std = BaseStandardizer()
+        self.cohort_std = PDPCohortStandardizer()
+        self.course_std = PDPCourseStandardizer()
+        self.student_term_std = StudentTermStandardizer()
 
     def run(self):
         """Executes the data preprocessing pipeline."""

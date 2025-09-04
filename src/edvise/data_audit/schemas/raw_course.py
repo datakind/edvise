@@ -5,7 +5,7 @@ import logging
 import typing as t
 
 import pandas as pd
-import src.utils as utils
+import edvise.utils as utils
 try:
     import pandera as pda
     import pandera.typing as pt

@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.checkpoints import nth_student_terms
+from edvise.checkpoints import nth_student_terms
 
 
 @pytest.fixture(scope="module")

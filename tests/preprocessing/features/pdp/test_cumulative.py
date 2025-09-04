@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.feature_generation import cumulative
+from edvise.feature_generation import cumulative
 
 
 @pytest.fixture(scope="module")

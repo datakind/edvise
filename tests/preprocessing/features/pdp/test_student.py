@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.feature_generation import student
+from edvise.feature_generation import student
 
 
 @pytest.mark.parametrize(
