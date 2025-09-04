@@ -1,8 +1,6 @@
 import pandas as pd
 import logging
-import functools as ft
 import typing as t
-import re
 
 LOGGER = logging.getLogger(__name__)
 
@@ -11,10 +9,8 @@ from edvise.utils.drop_columns_safely import drop_columns_safely
 from edvise.utils.data_cleaning import (
     drop_course_rows_missing_identifiers,
     strip_trailing_decimal_strings,
-    handling_duplicates,
     replace_na_firstgen_and_pell,
     compute_gateway_course_ids,
-    remove_pre_cohort_courses,
 )
 
 # TODO think of a better name than standardizer
