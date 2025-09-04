@@ -12,7 +12,7 @@ class PDPCleanup:
     def clean_up_labeled_dataset_cols_and_vals(
         self,
         df: pd.DataFrame,
-        num_credits_col: str = "num_credits_earned_cumsum",
+        num_credits_col: str = "cumsum_num_credits_earned",
         num_credit_check: int = 12,
     ) -> pd.DataFrame:
         """
