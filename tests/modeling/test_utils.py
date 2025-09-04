@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.modeling import utils
+from edvise.modeling import utils
 
 
 @pytest.mark.parametrize(

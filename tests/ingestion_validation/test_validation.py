@@ -4,7 +4,7 @@ import pytest
 import uuid
 import os
 
-from src.data_audit.schemas.validation import (
+from edvise.data_audit.schemas.validation import (
     normalize_col,
     load_json,
     merge_model_columns,
@@ -12,7 +12,7 @@ from src.data_audit.schemas.validation import (
     validate_dataset,
     HardValidationError,
 )
-from src.shared.logger import SimpleLogger
+from edvise.shared.logger import SimpleLogger
 
 
 @pytest.fixture

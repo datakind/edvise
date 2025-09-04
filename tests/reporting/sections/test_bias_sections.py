@@ -1,9 +1,9 @@
 import pytest
 import pandas as pd
 from unittest.mock import MagicMock, patch
-from src.reporting.sections.registry import SectionRegistry
-from src.reporting.sections.bias_sections import register_bias_sections
-from src.reporting.utils.formatting import Formatting
+from edvise.reporting.sections.registry import SectionRegistry
+from edvise.reporting.sections.bias_sections import register_bias_sections
+from edvise.reporting.utils.formatting import Formatting
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def mock_card(tmp_path):
     return card
 
 
-@patch("src.reporting.sections.bias_sections.utils.download_artifact")
+@patch("edvise.reporting.sections.bias_sections.utils.download_artifact")
 def test_register_bias_sections_with_data(mock_download, mock_card, tmp_path):
     # Create mock bias CSV
     bias_csv = tmp_path / "high_bias_flags.csv"
@@ -50,7 +50,7 @@ def test_register_bias_sections_with_data(mock_download, mock_card, tmp_path):
     assert "plot.png" in rendered["bias_summary_section"]
 
 
-@patch("src.reporting.sections.bias_sections.utils.download_artifact")
+@patch("edvise.reporting.sections.bias_sections.utils.download_artifact")
 def test_register_bias_sections_no_data(mock_download, mock_card):
     mock_download.side_effect = Exception("No bias data")
 

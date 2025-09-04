@@ -8,7 +8,7 @@ import pathlib
 #TODO fix imports
 from shared.shared import read_config
 from preprocessing import _cleanup_features as cleanup
-from src.scripts.training import _training_params as training_params
+from edvise.scripts.training import _training_params as training_params
 from dataio import read_parquet, write_parquet
 
 logging.basicConfig(level=logging.INFO)

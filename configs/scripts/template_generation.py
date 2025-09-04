@@ -7,7 +7,7 @@ import pydantic
 import tomlkit
 from pydantic import BaseModel, Field
 
-from src.config_validation import (
+from edvise.config_validation import (
     TargetGraduationConfig,
     TargetRetentionConfig,
     TargetCreditsEarnedConfig,

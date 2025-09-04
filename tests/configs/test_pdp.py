@@ -7,7 +7,7 @@ import pydantic as pyd
 import pathlib
 import pytest
 
-from src.configs import pdp
+from edvise.configs import pdp
 
 SRC_ROOT = pathlib.Path(__file__).parents[2] / "pipelines" / "pdp" / "institution_id"
 

@@ -5,7 +5,7 @@ import sys
 import importlib
 
 from .. import student_selection
-from src.utils.databricks import read_config
+from edvise.utils.databricks import read_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

@@ -1,8 +1,8 @@
 import pytest
 import os
-from src.dataio.read import from_toml_file
+from edvise.dataio.read import from_toml_file
 import re
-from src.modeling.prediction import _get_mapped_feature_name
+from edvise.modeling.prediction import _get_mapped_feature_name
 
 
 @pytest.fixture
