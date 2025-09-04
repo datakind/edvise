@@ -131,6 +131,11 @@ class ModelCard(t.Generic[C]):
         )
         self.training_data = self.modeling_data
         if self.cfg.split_col:
+            if self.cfg.split_col not in self.modeling_data.columns:
+                raise ValueError(
+                    f"Configured split_col '{self.cfg.split_col}' is not present in modeling data columns: "
+                    f"{list(self.modeling_data.columns)}"
+                )
             self.training_data = self.modeling_data[
                 self.modeling_data[self.cfg.split_col] == "train"
             ]
@@ -184,6 +189,11 @@ class ModelCard(t.Generic[C]):
             A dictionary with the keys as the variable names that will be called
             dynamically in template with values for each variable.
         """
+
+        def as_percent(val: float | int) -> str:
+            val = float(val) * 100
+            return str(int(val) if val.is_integer() else round(val, 2))
+
         feature_count = len(
             self.model.named_steps["column_selector"].get_params()["cols"]
         )
@@ -198,7 +208,7 @@ class ModelCard(t.Generic[C]):
             "number_of_features": str(feature_count),
             "collinearity_threshold": str(fs_cfg.collinear_threshold),
             "low_variance_threshold": str(fs_cfg.low_variance_threshold),
-            "incomplete_threshold": str(fs_cfg.incomplete_threshold),
+            "incomplete_threshold": as_percent(fs_cfg.incomplete_threshold),
         }
 
     def get_model_plots(self) -> dict[str, str]:
@@ -317,8 +327,12 @@ class ModelCard(t.Generic[C]):
         except Exception as e:
             raise RuntimeError(f"Failed to create PDF: {e}")
 
-        # Log card as an ML artifact
-        utils.log_card(local_path=self.pdf_path, run_id=self.run_id)
+        # Save model card into gold volume for access web app compatibility
+        utils.save_card_to_gold_volume(
+            filename=self.pdf_path,
+            catalog=self.catalog,
+            institution_id=self.cfg.institution_id,
+        )
 
     def _build_output_path(self) -> str:
         """

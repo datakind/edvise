@@ -128,11 +128,11 @@ def make_pdp_config() -> PDPProjectConfig:
 
 
 @pytest.mark.parametrize("card_class", [ModelCard, PDPModelCard])
-@patch("student_success_tool.reporting.sections.registry.SectionRegistry.render_all")
-@patch("student_success_tool.reporting.model_card.base.ModelCard.collect_metadata")
-@patch("student_success_tool.reporting.model_card.base.ModelCard.load_model")
-@patch("student_success_tool.reporting.model_card.base.ModelCard.extract_training_data")
-@patch("student_success_tool.reporting.model_card.base.ModelCard.find_model_version")
+@patch("edvise.reporting.sections.registry.SectionRegistry.render_all")
+@patch("edvise.reporting.model_card.base.ModelCard.collect_metadata")
+@patch("edvise.reporting.model_card.base.ModelCard.load_model")
+@patch("edvise.reporting.model_card.base.ModelCard.extract_training_data")
+@patch("edvise.reporting.model_card.base.ModelCard.find_model_version")
 def test_template_placeholders_are_in_context(
     mock_find_version,
     mock_extract_data,
