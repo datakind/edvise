@@ -8,6 +8,16 @@ from .. import checkpoints
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.dataio.read import read_config
 
+from edvise.configs.pdp import (
+    PDPProjectConfig,
+    CheckpointNthConfig,
+    CheckpointFirstConfig,
+    CheckpointLastConfig,
+    CheckpointFirstAtNumCreditsEarnedConfig,
+    CheckpointFirstWithinCohortConfig,
+    CheckpointLastInEnrollmentYearConfig,
+)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)  # Ignore Databricks logger
@@ -31,75 +41,76 @@ class PDPCheckpointsTask:
         Inputs: df_student_terms
         Outputs: df_student_terms parquet file
         """
-        # Read preprocessing features from config (could move to own fn but maybe later)
-        checkpoint_type = self.cfg.preprocessing.checkpoint.type_
-        student_id_col = self.cfg.student_id_col
-        n = self.cfg.preprocessing.checkpoint.n
-        sort_cols = self.cfg.preprocessing.checkpoint.sort_cols
-        include_cols = self.cfg.preprocessing.checkpoint.include_cols
-        enrollment_year = self.cfg.preprocessing.checkpoint.enrollment_year
-        enrollment_year_col = self.cfg.preprocessing.checkpoint.enrollment_year_col
-        min_num_credits = self.cfg.preprocessing.checkpoint.min_num_credits
+        preprocessing_cfg = self.cfg.preprocessing
+        if preprocessing_cfg is None or preprocessing_cfg.checkpoint is None:
+            raise ValueError("cfg.preprocessing.checkpoint must be configured.")
 
-        term_is_pre_cohort_col = (
-            self.cfg.preprocessing.checkpoint.term_is_pre_cohort_col
-        )
-        valid_enrollment_year = self.cfg.preprocessing.checkpoint.valid_enrollment_year
+        cp = preprocessing_cfg.checkpoint
+        student_id_col: str = self.cfg.student_id_col
 
-        # Set up dictionary of checkpoint functions
-        checkpoint_functions = {
-            "nth": lambda: checkpoints.nth_student_terms.nth_student_terms(
-                df_student_terms,
-                n=n,
-                sort_cols=sort_cols,
-                include_cols=include_cols,
-                student_id_cols=student_id_col,
-                enrollment_year_col=enrollment_year_col,
-                valid_enrollment_year=valid_enrollment_year,
-            ),
-            "first": lambda: checkpoints.nth_student_terms.first_student_terms(
-                df_student_terms,
-                sort_cols=sort_cols,
-                include_cols=include_cols,
-                student_id_cols=student_id_col,
-            ),
-            "last": lambda: checkpoints.nth_student_terms.last_student_terms_in_enrollment_year(
-                df_student_terms,
-                sort_cols=sort_cols,
-                include_cols=include_cols,
-                student_id_cols=student_id_col,
-            ),
-            "first_at_num_credits_earned": lambda: checkpoints.nth_student_terms.first_student_terms_at_num_credits_earned(
-                df_student_terms,
-                min_num_credits=min_num_credits,
-                sort_cols=sort_cols,
-                include_cols=include_cols,
-                student_id_cols=student_id_col,
-            ),
-            "first_within_cohort": lambda: checkpoints.nth_student_terms.first_student_terms_within_cohort(
-                df_student_terms,
-                term_is_pre_cohort_col=term_is_pre_cohort_col,
-                sort_cols=sort_cols,
-                include_cols=include_cols,
-                student_id_cols=student_id_col,
-            ),
-            "last_in_enrollment_year": lambda: checkpoints.nth_student_terms.last_student_terms_in_enrollment_year(
-                df_student_terms,
-                enrollment_year=enrollment_year,
-                enrollment_year_col=enrollment_year_col,
-                sort_cols=sort_cols,
-                include_cols=include_cols,
-                student_id_cols=student_id_col,
-            ),
-        }
+        # sort_cols: str | list[str] in schema; most functions accept list[str] or str.
+        sort_cols = cp.sort_cols
+        include_cols = cp.include_cols or []
 
-        if checkpoint_type not in checkpoint_functions:
-            raise ValueError(f"Unknown checkpoint type: {checkpoint_type}")
-        logging.info(f"Checkpoint type: {checkpoint_type}")
+        # Prefer isinstance() to narrow the union:
+        if isinstance(cp, CheckpointNthConfig):
+            return checkpoints.nth_student_terms.nth_student_terms(
+                df_student_terms,
+                n=cp.n,
+                sort_cols=sort_cols,
+                include_cols=include_cols,
+                student_id_cols=student_id_col,
+                enrollment_year_col=cp.enrollment_year_col,
+                valid_enrollment_year=cp.valid_enrollment_year,
+            )
 
-        df_ckpt = checkpoint_functions[checkpoint_type]()
+        if isinstance(cp, CheckpointFirstConfig):
+            return checkpoints.nth_student_terms.first_student_terms(
+                df_student_terms,
+                sort_cols=sort_cols,
+                include_cols=include_cols,
+                student_id_cols=student_id_col,
+            )
 
-        return df_ckpt
+        if isinstance(cp, CheckpointLastConfig):
+            return checkpoints.nth_student_terms.last_student_terms(
+                df_student_terms,
+                sort_cols=sort_cols,
+                include_cols=include_cols,
+                student_id_cols=student_id_col,
+            )
+
+        if isinstance(cp, CheckpointFirstAtNumCreditsEarnedConfig):
+            return checkpoints.nth_student_terms.first_student_terms_at_num_credits_earned(
+                df_student_terms,
+                min_num_credits=cp.min_num_credits,
+                sort_cols=sort_cols,
+                include_cols=include_cols,
+                student_id_cols=student_id_col,
+            )
+
+        if isinstance(cp, CheckpointFirstWithinCohortConfig):
+            # Schema guarantees str default, so this is already str
+            return checkpoints.nth_student_terms.first_student_terms_within_cohort(
+                df_student_terms,
+                term_is_pre_cohort_col=cp.term_is_pre_cohort_col,
+                sort_cols=sort_cols,
+                include_cols=include_cols,
+                student_id_cols=student_id_col,
+            )
+
+        if isinstance(cp, CheckpointLastInEnrollmentYearConfig):
+            # enrollment_year is float in schema; function expects int → coerce
+            return checkpoints.nth_student_terms.last_student_terms_in_enrollment_year(
+                df_student_terms,
+                enrollment_year=int(cp.enrollment_year),
+                enrollment_year_col=cp.enrollment_year_col,  # str in schema
+                sort_cols=sort_cols,
+                include_cols=include_cols,
+                student_id_cols=student_id_col,
+            )
+
+        raise ValueError(f"Unknown checkpoint type: {cp.type_}")
 
     def run(self):
         """Executes the data preprocessing pipeline."""
