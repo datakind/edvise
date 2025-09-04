@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from edvise import dataio, utils, model_prep, feature_generation
+from edvise import dataio, data_audit, utils, model_prep, feature_generation
 
-SYNTHETIC_DATA_PATH = "synthetic-data/pdp"
+# SYNTHETIC_DATA_PATH = "synthetic-data/pdp"
 
 
 @pytest.mark.parametrize(
@@ -324,34 +324,36 @@ def test_clean_up_labeled_dataset_cols_and_vals(df, exp):
     assert obs.equals(exp) or obs.compare(exp).empty
 
 
-@pytest.mark.parametrize(
-    ["cohort_file_name", "course_file_name"],
-    [
-        (
-            "INSTXYZ_STUDENT_SEMESTER_AR_DEIDENTIFIED.csv",
-            "INSTXYZ_COURSE_LEVEL_AR_DEID.csv",
-        ),
-    ],
-)
-def test_make_student_term_dataset_against_checked_in_sample(
-    cohort_file_name, course_file_name
-):
-    full_cohort_file_path = os.path.join(SYNTHETIC_DATA_PATH, cohort_file_name)
-    cohort = dataio.pdp.read_raw_cohort_data(
-        file_path=full_cohort_file_path,
-        schema=dataio.schemas.pdp.RawPDPCohortDataSchema,
-    )
-    assert isinstance(cohort, pd.DataFrame)
-    assert not cohort.empty
+# NOTE: removing unit test since we aren't carrying over the synthetic
+# data, and using real synthetic data instead 
+# @pytest.mark.parametrize(
+#     ["cohort_file_name", "course_file_name"],
+#     [
+#         (
+#             "INSTXYZ_STUDENT_SEMESTER_AR_DEIDENTIFIED.csv",
+#             "INSTXYZ_COURSE_LEVEL_AR_DEID.csv",
+#         ),
+#     ],
+# )
+# def test_make_student_term_dataset_against_checked_in_sample(
+#     cohort_file_name, course_file_name
+# ):
+#     full_cohort_file_path = os.path.join(SYNTHETIC_DATA_PATH, cohort_file_name)
+#     cohort = dataio.read.read_raw_pdp_cohort_data(
+#         file_path=full_cohort_file_path,
+#         schema=data_audit.schemas.raw_cohort.RawPDPCohortDataSchema,
+#     )
+#     assert isinstance(cohort, pd.DataFrame)
+#     assert not cohort.empty
 
-    full_course_file_path = os.path.join(SYNTHETIC_DATA_PATH, course_file_name)
-    course = dataio.pdp.read_raw_course_data(
-        file_path=full_course_file_path,
-        schema=dataio.schemas.pdp.RawPDPCourseDataSchema,
-        dttm_format="%Y-%m-%d",
-    )
-    assert isinstance(course, pd.DataFrame)
-    assert not course.empty
-    df = feature_generation.make_student_term_dataset(cohort, course)
-    assert isinstance(df, pd.DataFrame)
-    assert not df.empty
+#     full_course_file_path = os.path.join(SYNTHETIC_DATA_PATH, course_file_name)
+#     course = dataio.read.read_raw_pdp_course_data(
+#         file_path=full_course_file_path,
+#         schema=data_audit.schemas.raw_course.RawPDPCourseDataSchema,
+#         dttm_format="%Y-%m-%d",
+#     )
+#     assert isinstance(course, pd.DataFrame)
+#     assert not course.empty
+#     df = feature_generation.make_student_term_dataset(cohort, course)
+#     assert isinstance(df, pd.DataFrame)
+#     assert not df.empty
