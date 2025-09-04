@@ -124,7 +124,7 @@ class CustomFeatureGenerationTask:
             df_student_terms,
             student_id_cols=["institution_id", "student_id"],
             sort_cols=["academic_year", "academic_term"],
-        ).rename(columns=utils.misc.convert_to_snake_case)
+        ).rename(columns=utils.data_cleaning.convert_to_snake_case)
 
         return df_student_terms_plus
 

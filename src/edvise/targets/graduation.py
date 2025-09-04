@@ -86,7 +86,7 @@ def compute_target(
         on=student_id_cols,
     )
     # convert from term limits to year limits, as needed
-    intensity_num_years = utils.misc.convert_intensity_time_limits(
+    intensity_num_years = utils.data_cleaning.convert_intensity_time_limits(
         "year", intensity_time_limits, num_terms_in_year=num_terms_in_year
     )
     # compute all intensity/year boolean arrays separately

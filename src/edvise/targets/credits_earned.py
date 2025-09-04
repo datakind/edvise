@@ -80,7 +80,7 @@ def compute_target(
         suffixes=("_ckpt", "_tgt"),
     )
     # convert from year limits to term limits, as needed
-    intensity_num_terms = utils.misc.convert_intensity_time_limits(
+    intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
         "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
     )
     # compute all intensity/term boolean arrays separately
