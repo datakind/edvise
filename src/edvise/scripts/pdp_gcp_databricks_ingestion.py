@@ -16,11 +16,11 @@ import os
 import argparse
 import sys
 
-from databricks.connect import DatabricksSession
 from databricks.sdk.runtime import dbutils
 from google.cloud import storage
 
-import utils, dataio
+import utils
+import dataio
 import importlib
 
 

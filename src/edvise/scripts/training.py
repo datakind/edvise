@@ -230,7 +230,6 @@ if __name__ == "__main__":
             schemas = importlib.import_module("schemas")
             logging.info("Using custom schemas")
     except Exception:
-        from dataio.schemas import pdp as schemas
 
         logging.info("Using default schemas")
 

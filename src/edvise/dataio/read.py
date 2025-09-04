@@ -6,7 +6,6 @@ import pydantic as pyd
 import pandera as pda
 from pandera.errors import SchemaErrors
 import pyspark.sql
-import functools as ft
 import pathlib
 
 try:
@@ -123,9 +122,7 @@ def read_features_table(file_path: str) -> dict[str, dict[str, str]]:
             for example: "assets/pdp/features_table.toml" or "/path/to/features_table.toml".
     """
     pkg_root_dir = next(
-        p
-        for p in pathlib.Path(__file__).parents
-        if p.parts[-1] == "edvise"
+        p for p in pathlib.Path(__file__).parents if p.parts[-1] == "edvise"
     )
     fpath = (
         pathlib.Path(file_path)

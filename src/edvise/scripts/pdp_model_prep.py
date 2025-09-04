@@ -3,7 +3,6 @@
 import argparse
 import pandas as pd
 import logging
-import pathlib
 
 # TODO fix imports
 from shared.shared import read_config

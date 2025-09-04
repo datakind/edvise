@@ -151,7 +151,6 @@ if __name__ == "__main__":
         schemas = importlib.import_module("schemas")
         logging.info("Running task with custom schema")
     except Exception:
-        from dataio.schemas import pdp as schemas
 
         logging.info("Running task with default schema")
 

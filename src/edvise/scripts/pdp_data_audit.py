@@ -2,7 +2,6 @@ import argparse
 import importlib
 import logging
 import sys
-import pandas as pd
 
 from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
