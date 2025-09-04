@@ -269,7 +269,7 @@ def _get_included_cols(
         df.columns.tolist()
         if include_cols is None
         else list(
-            utils.misc.unique_elements_in_order(
+            utils.data_cleaning.unique_elements_in_order(
                 student_id_cols + sort_cols + include_cols
             )
         )

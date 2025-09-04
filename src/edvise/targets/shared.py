@@ -63,7 +63,7 @@ def get_students_with_max_target_term_in_dataset(
     if df_ckpt.groupby(by=student_id_cols).size().gt(1).any():
         raise ValueError("checkpoint df must include exactly 1 row per student")
 
-    intensity_num_terms = utils.misc.convert_intensity_time_limits(
+    intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
         "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
     )
     if "*" in intensity_num_terms:
