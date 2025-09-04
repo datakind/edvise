@@ -6,6 +6,7 @@ import importlib
 
 from .. import targets as _targets  # assumes targets/__init__.py imports the modules
 from edvise.dataio.read import read_config
+from edvise.configs.pdp import PDPProjectConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -17,37 +18,35 @@ class PDPTargetsTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(self.args.toml_file_path)
+        self.cfg = read_config(self.args.toml_file_path, schema=PDPProjectConfig)
 
     def target_generation(self, df_student_terms: pd.DataFrame) -> pd.Series:
         """
-        Computes the target variable based on the method specified in the config.
+        Computes the target variable based on config.
         Returns a Series indexed by student ID(s) with boolean values.
         """
-        target_type = self.cfg.preprocessing.target.type_
+        preproc = self.cfg.preprocessing
+        if preproc is None or preproc.target is None:
+            raise ValueError("cfg.preprocessing.target must be configured.")
 
-        # Map target type from config to appropriate module
+        target_cfg = preproc.target
+        target_type = target_cfg.type_
+
         target_modules = {
             "credits_earned": _targets.credits_earned,
             "graduation": _targets.graduation,
             "retention": _targets.retention,
         }
-
         if target_type not in target_modules:
             raise ValueError(f"Unknown target type: {target_type}")
 
-        logging.info(f"Computing target using method: {target_type}")
         compute_func = target_modules[target_type].compute_target
+        kwargs = target_cfg.model_dump()
 
-        # Call compute_target with the student-term dataframe and kwargs from config
-        target_series = compute_func(df_student_terms, **self.cfg.preprocessing.target)
-
-        if not isinstance(target_series, pd.Series):
-            raise TypeError(
-                f"Expected pd.Series from compute_target, got {type(target_series)}"
-            )
-
-        return target_series
+        s = compute_func(df_student_terms, **kwargs)
+        if not isinstance(s, pd.Series):
+            raise TypeError(f"compute_target must return pd.Series, got {type(s)}")
+        return s.astype(bool) if s.dtype != "bool" else s
 
     def run(self):
         """Executes the target computation pipeline and saves result."""

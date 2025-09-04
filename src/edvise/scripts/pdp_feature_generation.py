@@ -6,13 +6,15 @@ import pandas as pd
 import typing as t
 
 from .. import utils
+
 from .. import feature_generation
 from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
-    StudentTermStandardizer,
+    # StudentTermStandardizer, # NOTE: FILL IN ONCE READY
 )
 from edvise.dataio.read import read_config
+from edvise.configs.pdp import PDPProjectConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -25,10 +27,10 @@ class PDPFeatureGenerationTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(self.args.toml_file_path)
+        self.cfg = read_config(self.args.toml_file_path, schema=PDPProjectConfig)
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
-        self.student_term_std = StudentTermStandardizer()
+        # self.student_term_std = StudentTermStandardizer() # NOTE: FILL IN ONCE READY
 
     def run(self):
         """Executes the data preprocessing pipeline."""

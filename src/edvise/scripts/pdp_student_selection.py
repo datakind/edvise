@@ -6,6 +6,8 @@ import importlib
 
 from .. import student_selection
 from edvise.dataio.read import read_config
+from edvise.configs.pdp import PDPProjectConfig
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -17,7 +19,7 @@ class StudentSelectionTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(self.args.toml_file_path)
+        self.cfg = read_config(self.args.toml_file_path, schema=PDPProjectConfig)
 
     def run(self):
         """Execute the student selection task."""

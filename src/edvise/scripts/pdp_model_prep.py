@@ -4,10 +4,11 @@ import argparse
 import pandas as pd
 import logging
 
-# TODO fix imports
-from ..shared.shared import read_config
 from ..model_prep import cleanup_features as cleanup, training_params
-from dataio import read_parquet, write_parquet
+from dataio.read import read_parquet, read_config
+from dataio.write import write_parquet
+from edvise.configs.pdp import PDPProjectConfig
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 class ModelPrepTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(args.toml_file_path)
+        self.cfg = read_config(args.toml_file_path, schema=PDPProjectConfig)
 
     def merge_data(
         self,

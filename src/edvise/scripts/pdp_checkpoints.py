@@ -9,7 +9,6 @@ from edvise.configs.pdp import PDPProjectConfig
 from edvise.dataio.read import read_config
 
 from edvise.configs.pdp import (
-    PDPProjectConfig,
     CheckpointNthConfig,
     CheckpointFirstConfig,
     CheckpointLastConfig,
@@ -34,7 +33,9 @@ class PDPCheckpointsTask:
             args: The parsed command-line arguments.
         """
         self.args = args
-        self.cfg: PDPProjectConfig = read_config(self.args.toml_file_path, schema=PDPProjectConfig)
+        self.cfg: PDPProjectConfig = read_config(
+            self.args.toml_file_path, schema=PDPProjectConfig
+        )
 
     def checkpoint_generation(self, df_student_terms: pd.DataFrame) -> pd.DataFrame:
         """
@@ -81,12 +82,14 @@ class PDPCheckpointsTask:
             )
 
         if isinstance(cp, CheckpointFirstAtNumCreditsEarnedConfig):
-            return checkpoints.nth_student_terms.first_student_terms_at_num_credits_earned(
-                df_student_terms,
-                min_num_credits=cp.min_num_credits,
-                sort_cols=sort_cols,
-                include_cols=include_cols,
-                student_id_cols=student_id_col,
+            return (
+                checkpoints.nth_student_terms.first_student_terms_at_num_credits_earned(
+                    df_student_terms,
+                    min_num_credits=cp.min_num_credits,
+                    sort_cols=sort_cols,
+                    include_cols=include_cols,
+                    student_id_cols=student_id_col,
+                )
             )
 
         if isinstance(cp, CheckpointFirstWithinCohortConfig):

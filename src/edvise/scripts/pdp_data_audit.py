@@ -1,8 +1,11 @@
 import argparse
 import importlib
 import logging
+import typing as t
 import sys
+import pandas as pd
 
+from edvise.configs.pdp import PDPProjectConfig
 from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
@@ -21,6 +24,9 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
+# Create callable type
+ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
+
 
 class PDPDataAuditTask:
     """Encapsulates the data preprocessing logic for the SST pipeline."""
@@ -28,16 +34,18 @@ class PDPDataAuditTask:
     def __init__(
         self,
         args: argparse.Namespace,
-        course_converter_func=None,
-        cohort_converter_func=None,
+        course_converter_func: t.Optional[ConverterFunc] = None,
+        cohort_converter_func: t.Optional[ConverterFunc] = None,
     ):
         self.args = args
-        self.cfg = read_config(file_path=self.args.config_file_path)
+        self.cfg = read_config(
+            file_path=self.args.config_file_path, schema=PDPProjectConfig
+        )
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
-        self.course_converter_func = course_converter_func
-        self.cohort_converter_func = cohort_converter_func
+        self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
+        self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
     def run(self):
         """Executes the data preprocessing pipeline."""
