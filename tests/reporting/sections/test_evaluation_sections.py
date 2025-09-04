@@ -1,11 +1,11 @@
 import pytest
 import pandas as pd
 from unittest.mock import MagicMock, patch
-from src.reporting.sections.registry import SectionRegistry
-from src.reporting.sections.evaluation_sections import (
+from edvise.reporting.sections.registry import SectionRegistry
+from edvise.reporting.sections.evaluation_sections import (
     register_evaluation_sections,
 )
-from src.reporting.utils.formatting import Formatting
+from edvise.reporting.utils.formatting import Formatting
 
 
 @pytest.fixture
@@ -17,12 +17,8 @@ def mock_card(tmp_path):
     return card
 
 
-@patch(
-    "src.reporting.sections.evaluation_sections.utils.list_paths_in_directory"
-)
-@patch(
-    "src.reporting.sections.evaluation_sections.utils.download_artifact"
-)
+@patch("edvise.reporting.sections.evaluation_sections.utils.list_paths_in_directory")
+@patch("edvise.reporting.sections.evaluation_sections.utils.download_artifact")
 def test_register_evaluation_sections_success(
     mock_download, mock_list_paths, mock_card, tmp_path
 ):
@@ -48,12 +44,8 @@ def test_register_evaluation_sections_success(
     assert "| Accuracy | 0.9 |" in rendered["evaluation_by_group_section"]
 
 
-@patch(
-    "src.reporting.sections.evaluation_sections.utils.list_paths_in_directory"
-)
-@patch(
-    "src.reporting.sections.evaluation_sections.utils.download_artifact"
-)
+@patch("edvise.reporting.sections.evaluation_sections.utils.list_paths_in_directory")
+@patch("edvise.reporting.sections.evaluation_sections.utils.download_artifact")
 def test_register_evaluation_sections_failure(
     mock_download, mock_list_paths, mock_card
 ):

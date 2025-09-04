@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from student_success_tool.preprocessing.selection import pdp
+from edvise import student_selection
 
 
 @pytest.fixture(scope="module")
@@ -145,7 +145,7 @@ def df_test():
     ],
 )
 def test_select_students_by_attributes(df_test, criteria, exp):
-    obs = pdp.select_students_by_attributes(
+    obs = student_selection.select_students_attributes.select_students_by_attributes(
         df_test, student_id_cols="student_id", **criteria
     )
     assert isinstance(obs, pd.DataFrame)

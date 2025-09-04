@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 import pandas as pd
 
-from src.reporting.model_card.base import ModelCard
+from edvise.reporting.model_card.base import ModelCard
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ def test_init_defaults(mock_config, mock_client):
     assert isinstance(card.context, dict)
 
 
-@patch("student_success_tool.reporting.model_card.base.dataio.models.load_mlflow_model")
+@patch("edvise.reporting.model_card.base.dataio.models.load_mlflow_model")
 def test_load_model_success(mock_load_model, mock_config, mock_client):
     card = ModelCard(
         config=mock_config,
@@ -93,9 +93,11 @@ def test_get_feature_metadata_success(mock_config, mock_client):
     metadata = card.get_feature_metadata()
     assert metadata["number_of_features"] == "3"
     assert metadata["collinearity_threshold"] == "0.9"
+    assert metadata["low_variance_threshold"] == "0.01"
+    assert metadata["incomplete_threshold"] == "5"
 
 
-@patch("student_success_tool.reporting.model_card.base.utils.download_static_asset")
+@patch("edvise.reporting.model_card.base.utils.download_static_asset")
 def test_get_basic_context(mock_download, mock_config, mock_client):
     mock_download.return_value = "<img>Logo</img>"
     card = ModelCard(
@@ -139,11 +141,11 @@ def test_build_calls_all_steps(mock_config, mock_client):
         method.assert_called_once()
 
 
-@patch("student_success_tool.reporting.model_card.base.utils.safe_count_runs")
+@patch("edvise.reporting.model_card.base.utils.safe_count_runs")
 @patch(
-    "student_success_tool.reporting.model_card.base.modeling.evaluation.extract_training_data_from_model"
+    "edvise.reporting.model_card.base.modeling.evaluation.extract_training_data_from_model"
 )
-@patch("student_success_tool.reporting.model_card.base.dataio.models.load_mlflow_model")
+@patch("edvise.reporting.model_card.base.dataio.models.load_mlflow_model")
 def test_extract_training_data_with_split_call_load_model(
     mock_load_model, mock_extract_data, mock_safe_count, mock_config, mock_client
 ):

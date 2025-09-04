@@ -1,8 +1,8 @@
 import pytest
 import os
-from src.dataio.read import from_toml_file
+from edvise.dataio.read import from_toml_file
 import re
-from src.modeling.prediction import _get_mapped_feature_name
+from edvise.modeling.prediction import _get_mapped_feature_name
 
 
 @pytest.fixture
@@ -11,10 +11,10 @@ def feature_table_data():
     toml_path = os.path.join(
         project_root,
         "src",
-        "student_success_tool",
+        "edvise",
+        "shared",
         "assets",
-        "pdp",
-        "features_table.toml",
+        "pdp_features_table.toml",
     )
     return from_toml_file(toml_path)
 

@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.dataio import pdp_cohort_converters
+from edvise.dataio import pdp_cohort_converters
 
 
 @pytest.fixture(scope="module")
@@ -53,6 +53,8 @@ def df_test():
     ],
 )
 def test_rename_mangled_column_names(df_test, overrides, exp):
-    obs = pdp_cohort_converters.rename_mangled_column_names(df_test, overrides=overrides)
+    obs = pdp_cohort_converters.rename_mangled_column_names(
+        df_test, overrides=overrides
+    )
     assert isinstance(obs, pd.DataFrame)
     assert pd.testing.assert_frame_equal(obs, exp) is None

@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.dataio import pdp_course_converters
+from edvise.dataio import pdp_course_converters
 
 
 @pytest.fixture(scope="module")

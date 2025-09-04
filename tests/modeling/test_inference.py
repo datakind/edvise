@@ -6,7 +6,7 @@ import pytest
 from pandas.api.types import is_numeric_dtype
 from unittest.mock import patch
 
-from src.modeling.prediction import (
+from edvise.modeling.prediction import (
     _get_mapped_feature_name,
     calculate_shap_values,
     calculate_shap_values_spark_udf,
@@ -495,7 +495,7 @@ def test_empty_input():
         top_shap_features(features, unique_ids, shap_values)
 
 
-@patch("student_success_tool.modeling.inference.select_top_features_for_display")
+@patch("edvise.modeling.inference.select_top_features_for_display")
 @pytest.mark.parametrize(
     [
         "features",

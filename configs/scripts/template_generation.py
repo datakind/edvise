@@ -1,13 +1,11 @@
-import inspect
-import os
 import typing as t
 from pathlib import Path
 
 import pydantic
 import tomlkit
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
-from src.config_validation import (
+from edvise.config_validation import (
     TargetGraduationConfig,
     TargetRetentionConfig,
     TargetCreditsEarnedConfig,
@@ -18,6 +16,7 @@ from src.config_validation import (
     CheckpointFirstWithinCohortConfig,
     CheckpointLastInEnrollmentYearConfig,
 )
+
 
 def generate_template_dict(model_cls: t.Type[BaseModel]) -> dict:
     result = {}
