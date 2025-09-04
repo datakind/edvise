@@ -16,19 +16,21 @@ mlflow.autolog(disable=True)
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)  # Ignore Databricks logger
 
+
 def get_spark_session() -> DatabricksSession | None:
-        """
-        Attempts to create a Spark session.
-        Returns:
-            DatabricksSession | None: A Spark session if successful, None otherwise.
-        """
-        try:
-            spark_session = DatabricksSession.builder.getOrCreate()
-            logging.info("Spark session created successfully.")
-            return spark_session
-        except Exception:
-            logging.error("Unable to create Spark session.")
-            raise
+    """
+    Attempts to create a Spark session.
+    Returns:
+        DatabricksSession | None: A Spark session if successful, None otherwise.
+    """
+    try:
+        spark_session = DatabricksSession.builder.getOrCreate()
+        logging.info("Spark session created successfully.")
+        return spark_session
+    except Exception:
+        logging.error("Unable to create Spark session.")
+        raise
+
 
 import logging
 import typing as t
@@ -114,5 +116,3 @@ def mock_pandera():
 
     sys.modules[m1.__name__] = m1
     sys.modules[m2.__name__] = m2
-
-

@@ -3,6 +3,7 @@ import logging
 
 LOGGER = logging.getLogger(__name__)
 
+
 def infer_num_terms_in_year(s: pd.Series) -> int:
     """
     Infer the number of terms in the (academic) year by the number of its categorical values.

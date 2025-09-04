@@ -21,27 +21,31 @@ class TrainingTask:
         self.cfg = dataio.read.read_PDP_config(self.args.toml_file_path)
 
     def feature_selection(self, df_preprocessed: pd.DataFrame) -> pd.Series:
-        """
-        
-        """
+        """ """
         selection_params = self.cfg.modeling.feature_selection.model_dump()
         selection_params["non_feature_cols"] = self.cfg.non_feature_cols
 
         mlflow.autolog(disable=True)
 
         df_selected = modeling.feature_selection.select_features(
-            (df_preprocessed.loc[df_preprocessed[self.cfg.split_col].eq("train"), :] if self.cfg.split_col else df_preprocessed),
+            (
+                df_preprocessed.loc[df_preprocessed[self.cfg.split_col].eq("train"), :]
+                if self.cfg.split_col
+                else df_preprocessed
+            ),
             **selection_params,
         )
-        
+
         df_modeling = df_preprocessed.loc[:, df_selected.columns]
 
         return df_modeling
-    
+
     def train_model(self, df_modeling: pd.DataFrame) -> None:
         mlflow.autolog(disable=False)
         # Get job run id for automl run
-        job_run_id = utils.databricks.get_db_widget_param("job_run_id", default="interactive")
+        job_run_id = utils.databricks.get_db_widget_param(
+            "job_run_id", default="interactive"
+        )
         training_params = {
             "job_run_id": job_run_id,
             "institution_id": self.cfg.institution_id,
@@ -53,11 +57,16 @@ class TrainingTask:
             "timeout_minutes": self.cfg.modeling.training.timeout_minutes,
             "exclude_frameworks": self.cfg.modeling.training.exclude_frameworks,
             "exclude_cols": sorted(
-                set((self.cfg.modeling.training.exclude_cols or []) + (self.cfg.student_group_cols or []))
+                set(
+                    (self.cfg.modeling.training.exclude_cols or [])
+                    + (self.cfg.student_group_cols or [])
+                )
             ),
         }
 
-        summary = modeling.training.run_automl_classification(df_modeling, **training_params)
+        summary = modeling.training.run_automl_classification(
+            df_modeling, **training_params
+        )
 
         experiment_id = summary.experiment.experiment_id
         run_id = summary.best_trial.mlflow_run_id
@@ -81,7 +90,9 @@ class TrainingTask:
         if evaluate_model_bias:
             df_features = df_modeling.drop(columns=self.cfg.non_feature_cols)
         else:
-            df_features = modeling.evaluation.extract_training_data_from_model(experiment_id)
+            df_features = modeling.evaluation.extract_training_data_from_model(
+                experiment_id
+            )
 
         # Get top runs from experiment for evaluation
         top_runs = modeling.evaluation.get_top_runs(
@@ -162,18 +173,26 @@ class TrainingTask:
     def run(self):
         """Executes the target computation pipeline and saves result."""
         logging.info("Loading preprocessed data")
-        df_preprocessed = pd.read_parquet(f"{self.args.student_term_path}/preprocessed.parquet")
+        df_preprocessed = pd.read_parquet(
+            f"{self.args.student_term_path}/preprocessed.parquet"
+        )
 
         logging.info("Selecting features")
         df_modeling = self.feature_selection(df_preprocessed)
 
         logging.info("Saving modeling data")
-        df_modeling.to_parquet(f"{self.args.modeling_path}/modeling.parquet", index=False)
-        logging.info(f"Modeling file saved to {self.args.modeling_path}/modeling.parquet")
+        df_modeling.to_parquet(
+            f"{self.args.modeling_path}/modeling.parquet", index=False
+        )
+        logging.info(
+            f"Modeling file saved to {self.args.modeling_path}/modeling.parquet"
+        )
 
         logging.info("Training model")
         experiment_id, run_id = self.train_model(df_modeling)
-        logging.info(f"Model trained with experiment_id={experiment_id}, run_id={run_id}")
+        logging.info(
+            f"Model trained with experiment_id={experiment_id}, run_id={run_id}"
+        )
 
         logging.info("Evaluating models")
         self.evaluate_models(df_modeling, experiment_id)
@@ -181,13 +200,25 @@ class TrainingTask:
         logging.info("Selecting best model")
         self.select_model(experiment_id)
 
+
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(description="Target generation for SST pipeline.")
-    parser.add_argument("--toml_file_path", type=str, required=True, help="Path to config file")
-    parser.add_argument("--custom_schemas_path", required=False, help="Path to custom schemas")
-    parser.add_argument("--student_term_path", type=str, required=True, help="Path to student term parquet")
-    parser.add_argument("--target_path", type=str, required=True, help="Path to output target parquet")
+    parser.add_argument(
+        "--toml_file_path", type=str, required=True, help="Path to config file"
+    )
+    parser.add_argument(
+        "--custom_schemas_path", required=False, help="Path to custom schemas"
+    )
+    parser.add_argument(
+        "--student_term_path",
+        type=str,
+        required=True,
+        help="Path to student term parquet",
+    )
+    parser.add_argument(
+        "--target_path", type=str, required=True, help="Path to output target parquet"
+    )
     return parser.parse_args()
 
 
@@ -200,6 +231,7 @@ if __name__ == "__main__":
             logging.info("Using custom schemas")
     except Exception:
         from dataio.schemas import pdp as schemas
+
         logging.info("Using default schemas")
 
     task = TrainingTask(args)

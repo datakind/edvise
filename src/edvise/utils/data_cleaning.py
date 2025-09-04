@@ -66,6 +66,7 @@ def convert_intensity_time_limits(
         }
     return intensity_nums
 
+
 def parse_dttm_values(df: pd.DataFrame, *, col: str, fmt: str) -> pd.Series:
     return pd.to_datetime(df[col], format=fmt)
 
@@ -97,8 +98,10 @@ def cast_to_bool_via_int(df: pd.DataFrame, *, col: str) -> pd.Series:
         .astype("boolean")
     )
 
+
 def strip_upper_strings_to_cats(series: pd.Series) -> pd.Series:
     return series.str.strip().str.upper().astype("category")
+
 
 def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -117,7 +120,11 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     if num_dropped > 0:
         # Breakdown by enrolled_at_other_institution_s within the dropped set
         if "enrolled_at_other_institution_s" in df.columns:
-            dropped = df.loc[drop_mask, "enrolled_at_other_institution_s"].astype("string").str.upper()
+            dropped = (
+                df.loc[drop_mask, "enrolled_at_other_institution_s"]
+                .astype("string")
+                .str.upper()
+            )
             count_y = int((dropped == "Y").sum())
             count_not_y = num_dropped - count_y
             pct_y = 100.0 * count_y / num_dropped
@@ -127,7 +134,11 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
                 "Dropped %s rows from course dataset due to missing identifiers. "
                 "Of these, %s (%.1f%%) had 'Y' in enrolled_at_other_institution_s; "
                 "%s (%.1f%%) did not.",
-                num_dropped, count_y, pct_y, count_not_y, pct_not_y,
+                num_dropped,
+                count_y,
+                pct_y,
+                count_not_y,
+                pct_not_y,
             )
         else:
             LOGGER.warning(
@@ -141,8 +152,8 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     num_rows_after = len(df)
     return df
 
-def remove_pre_cohort_courses(
-    df_course: pd.DataFrame) -> pd.DataFrame:
+
+def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
     """
     Removes any course records that occur before a student's cohort start term.
 
@@ -170,31 +181,41 @@ def remove_pre_cohort_courses(
         if "study_id" in df_course.columns
         else "student_id"
     )
-    df_course = (
-        df_course
-        .groupby(student_id_col, group_keys=False)
-        .apply(lambda df_course: df_course[
-            (df_course["academic_year"] > df_course["cohort"]) |
-            ((df_course["academic_year"] == df_course["cohort"]) &
-            (df_course["academic_term"] >= df_course["cohort_term"]))
-        ])
+    df_course = df_course.groupby(student_id_col, group_keys=False).apply(
+        lambda df_course: df_course[
+            (df_course["academic_year"] > df_course["cohort"])
+            | (
+                (df_course["academic_year"] == df_course["cohort"])
+                & (df_course["academic_term"] >= df_course["cohort_term"])
+            )
+        ]
     )
+
 
 def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
     if "pell_status_first_year" in df_cohort.columns:
         na_pell = (df_cohort["pell_status_first_year"] == "UK").sum()
-        df_cohort["pell_status_first_year"] = df_cohort["pell_status_first_year"].replace("UK", "N")
+        df_cohort["pell_status_first_year"] = df_cohort[
+            "pell_status_first_year"
+        ].replace("UK", "N")
         LOGGER.info('Filled %s NAs in "pell_status_first_year" to "N".', int(na_pell))
-        df_cohort["pell_status_first_year"] = df_cohort["pell_status_first_year"].fillna("N")
+        df_cohort["pell_status_first_year"] = df_cohort[
+            "pell_status_first_year"
+        ].fillna("N")
     else:
-        LOGGER.warning('Column "pell_status_first_year" not found; skipping Pell status NA replacement.')
+        LOGGER.warning(
+            'Column "pell_status_first_year" not found; skipping Pell status NA replacement.'
+        )
     if "first_gen" in df_cohort.columns:
         na_first = df_cohort["first_gen"].isna().sum()
         df_cohort["first_gen"] = df_cohort["first_gen"].fillna("N")
         LOGGER.info('Filled %s NAs in "first_gen" with "N".', int(na_first))
     else:
-        LOGGER.warning('Column "first_gen" not found; skipping first-gen NA replacement.')
+        LOGGER.warning(
+            'Column "first_gen" not found; skipping first-gen NA replacement.'
+        )
     return df_cohort
+
 
 def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
     for col in ["course_number", "course_cip"]:
@@ -203,10 +224,15 @@ def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
             pre_truncated = df_course[col].copy()
             df_course[col] = df_course[col].str.rstrip(".0")
             truncated = (pre_truncated != df_course[col]).sum(min_count=1)
-            LOGGER.info('Stripped trailing ".0" in %s rows for column "%s".', int(truncated or 0), col)
+            LOGGER.info(
+                'Stripped trailing ".0" in %s rows for column "%s".',
+                int(truncated or 0),
+                col,
+            )
         else:
             LOGGER.warning('Column "%s" not found', col)
     return df_course
+
 
 def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
     """
@@ -215,14 +241,24 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
       suffix course_number with -01, -02, ... instead of dropping.
     """
     unique_cols = [
-        "study_id", "academic_year", "academic_term",
-        "course_prefix", "course_number", "section_id"
+        "study_id",
+        "academic_year",
+        "academic_term",
+        "course_prefix",
+        "course_number",
+        "section_id",
     ]
 
     dup_mask = df_course.duplicated(unique_cols, keep=False)
-    if dup_mask.any() and "course_name" in df_course.columns and "course_number" in df_course.columns:
+    if (
+        dup_mask.any()
+        and "course_name" in df_course.columns
+        and "course_number" in df_course.columns
+    ):
         same_name_idx = []
-        for _, idx in df_course.loc[dup_mask].groupby(unique_cols, dropna=False).groups.items():
+        for _, idx in (
+            df_course.loc[dup_mask].groupby(unique_cols, dropna=False).groups.items()
+        ):
             idx = list(idx)
             if len(idx) <= 1:
                 continue
@@ -239,19 +275,20 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
                     ignore_index=False,
                 )
                 .assign(
-                    grp_num=lambda d: d.groupby(unique_cols)["course_number"].transform("cumcount") + 1,
-                    course_number=lambda d: d["course_number"].astype("string").str.cat(
-                        d["grp_num"].astype(int).map("{:02d}".format), sep="-"
-                    ),
+                    grp_num=lambda d: d.groupby(unique_cols)["course_number"].transform(
+                        "cumcount"
+                    )
+                    + 1,
+                    course_number=lambda d: d["course_number"]
+                    .astype("string")
+                    .str.cat(d["grp_num"].astype(int).map("{:02d}".format), sep="-"),
                 )
                 .loc[:, ["course_number"]]
             )
             to_apply = deduped_course_numbers.reindex(same_name_idx).dropna(how="all")
             df_course.loc[to_apply.index, "course_number"] = to_apply["course_number"]
 
-    dupe_rows = df.loc[
-        df.duplicated(unique_cols, keep=False), :
-    ].sort_values(
+    dupe_rows = df.loc[df.duplicated(unique_cols, keep=False), :].sort_values(
         by=unique_cols + ["number_of_credits_attempted"],
         ascending=False,
         ignore_index=True,
@@ -265,21 +302,25 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
     )
     return df
 
+
 def compute_gateway_course_ids(df_course: pd.DataFrame) -> List[str]:
     """
     Build a list of course IDs for Math/English gateway courses.
     Filter: math_or_english_gateway in {"M", "E"}
     ID format: "<course_prefix><course_number>" (both coerced to strings, trimmed)
     """
-    if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(df_course.columns):
+    if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(
+        df_course.columns
+    ):
         LOGGER.warning("Cannot compute key_course_ids: required columns missing.")
         return []
 
     mask = df_course["math_or_english_gateway"].astype("string").isin({"M", "E"})
-    ids = (df_course.loc[mask, "course_prefix"].fillna("")
-             + df_course.loc[mask, "course_number"].fillna(""))
+    ids = df_course.loc[mask, "course_prefix"].fillna("") + df_course.loc[
+        mask, "course_number"
+    ].fillna("")
 
     # Drop NaNs, blanks, and ensure uniqueness
-    # edit this to auto populate the config 
+    # edit this to auto populate the config
     ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")]
     return ids.drop_duplicates().tolist()

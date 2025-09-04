@@ -19,6 +19,7 @@ from edvise.config_validation import (
     CheckpointLastInEnrollmentYearConfig,
 )
 
+
 def generate_template_dict(model_cls: t.Type[BaseModel]) -> dict:
     result = {}
     for name, field in model_cls.model_fields.items():

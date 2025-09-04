@@ -72,4 +72,3 @@ def register_mlflow_model(
     if model_alias:
         mlflow_client.set_registered_model_alias(model_path, model_alias, mv.version)
         LOGGER.info("Set alias '%s' to version %s", model_alias, mv.version)
-

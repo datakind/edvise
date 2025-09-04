@@ -17,12 +17,8 @@ def mock_card(tmp_path):
     return card
 
 
-@patch(
-    "edvise.reporting.sections.evaluation_sections.utils.list_paths_in_directory"
-)
-@patch(
-    "edvise.reporting.sections.evaluation_sections.utils.download_artifact"
-)
+@patch("edvise.reporting.sections.evaluation_sections.utils.list_paths_in_directory")
+@patch("edvise.reporting.sections.evaluation_sections.utils.download_artifact")
 def test_register_evaluation_sections_success(
     mock_download, mock_list_paths, mock_card, tmp_path
 ):
@@ -48,12 +44,8 @@ def test_register_evaluation_sections_success(
     assert "| Accuracy | 0.9 |" in rendered["evaluation_by_group_section"]
 
 
-@patch(
-    "edvise.reporting.sections.evaluation_sections.utils.list_paths_in_directory"
-)
-@patch(
-    "edvise.reporting.sections.evaluation_sections.utils.download_artifact"
-)
+@patch("edvise.reporting.sections.evaluation_sections.utils.list_paths_in_directory")
+@patch("edvise.reporting.sections.evaluation_sections.utils.download_artifact")
 def test_register_evaluation_sections_failure(
     mock_download, mock_list_paths, mock_card
 ):

@@ -51,7 +51,6 @@ def to_delta_table(
     LOGGER.info("data saved to %s (v%s) in %s seconds", table_path, verno, run_time)
 
 
-
 def write_parquet(
     df: pd.DataFrame,
     file_path: str,

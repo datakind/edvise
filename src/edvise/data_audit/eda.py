@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats as ss
 
-from src import utils
+from edvise import utils
 
 LOGGER = logging.getLogger(__name__)
 
