@@ -5,7 +5,7 @@ import pandas as pd
 
 from .. import utils
 from .. import checkpoints
-from .. import shared
+from . import shared
 
 
 def compute_target(
@@ -64,7 +64,7 @@ def compute_target(
     if df_ckpt.groupby(by=student_id_cols).size().gt(1).any():
         raise ValueError("checkpoint df must include exactly 1 row per student")
 
-    df_tgt = checkpoints.pdp.first_student_terms_at_num_credits_earned(
+    df_tgt = checkpoints.nth_student_terms.first_student_terms_at_num_credits_earned(
         df,
         min_num_credits=min_num_credits,
         student_id_cols=student_id_cols,
