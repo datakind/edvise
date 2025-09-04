@@ -12,7 +12,7 @@ from edvise.data_audit.standardizer import (
     PDPCourseStandardizer,
     StudentTermStandardizer,
 )
-from edvise.utils.databricks import read_config
+from edvise.dataio.read import read_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

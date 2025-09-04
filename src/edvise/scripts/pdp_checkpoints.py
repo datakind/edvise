@@ -5,7 +5,8 @@ import sys
 import importlib
 
 from .. import checkpoints
-from edvise.utils.databricks import read_config
+from edvise.configs.pdp import PDPProjectConfig
+from edvise.dataio.read import read_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -23,7 +24,7 @@ class PDPCheckpointsTask:
             args: The parsed command-line arguments.
         """
         self.args = args
-        self.cfg = read_config(self.args.toml_file_path)
+        self.cfg: PDPProjectConfig = read_config(self.args.toml_file_path, schema=PDPProjectConfig)
 
     def checkpoint_generation(self, df_student_terms: pd.DataFrame) -> pd.DataFrame:
         """
@@ -39,6 +40,7 @@ class PDPCheckpointsTask:
         enrollment_year = self.cfg.preprocessing.checkpoint.enrollment_year
         enrollment_year_col = self.cfg.preprocessing.checkpoint.enrollment_year_col
         min_num_credits = self.cfg.preprocessing.checkpoint.min_num_credits
+
         term_is_pre_cohort_col = (
             self.cfg.preprocessing.checkpoint.term_is_pre_cohort_col
         )

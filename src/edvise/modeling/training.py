@@ -1,8 +1,10 @@
 import logging
+import typing as t
 
 import pandas as pd
 
 from edvise.shared.databricks import get_experiment_name
+from edvise.modeling.training_types import AutoMLSummaryType
 
 LOGGER = logging.getLogger(__name__)
 
@@ -16,7 +18,7 @@ def run_automl_classification(
     job_run_id: str,
     student_id_col: str,
     **kwargs: object,
-) -> object:
+) -> AutoMLSummaryType:
     """
     Wrap :func:`databricks.automl.classify()` to allow testing and ensure that
     our parameters are used properly.
@@ -89,4 +91,4 @@ def run_automl_classification(
         exclude_cols=exclude_cols,
         **kwargs,
     )
-    return summary
+    return t.cast(AutoMLSummaryType, summary)

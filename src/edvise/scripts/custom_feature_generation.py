@@ -10,7 +10,7 @@ import typing as t
 from .. import utils
 from .. import feature_generation
 from edvise.data_audit.standardizer import BaseStandardizer
-from edvise.utils.databricks import read_config
+from edvise.dataio.read import read_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

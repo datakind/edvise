@@ -7,7 +7,6 @@ from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
-import edvise.configs as configs
 from edvise.utils.databricks import get_spark_session
 from edvise.dataio.read import (
     read_config,
@@ -33,9 +32,7 @@ class PDPDataAuditTask:
         cohort_converter_func=None,
     ):
         self.args = args
-        self.cfg = read_config(
-            file_path=self.args.config_file_path, schema=configs.pdp.PDPProjectConfig
-        )
+        self.cfg = read_config(file_path=self.args.config_file_path)
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()

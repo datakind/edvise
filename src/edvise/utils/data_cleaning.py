@@ -287,22 +287,24 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
             to_apply = deduped_course_numbers.reindex(same_name_idx).dropna(how="all")
             df_course.loc[to_apply.index, "course_number"] = to_apply["course_number"]
 
-    dupe_rows = df.loc[df.duplicated(unique_cols, keep=False), :].sort_values(
+    dupe_rows = df_course.loc[
+        df_course.duplicated(unique_cols, keep=False), :
+    ].sort_values(
         by=unique_cols + ["number_of_credits_attempted"],
         ascending=False,
         ignore_index=True,
     )
     LOGGER.warning("%s duplicate rows found & dropped", int(len(dupe_rows) / 2))
 
-    df = df.drop_duplicates(subset=unique_cols, keep="first").sort_values(
+    df_course = df_course.drop_duplicates(subset=unique_cols, keep="first").sort_values(
         by=unique_cols + ["number_of_credits_attempted"],
         ascending=False,
         ignore_index=True,
     )
-    return df
+    return df_course
 
 
-def compute_gateway_course_ids(df_course: pd.DataFrame) -> List[str]:
+def compute_gateway_course_ids(df_course: pd.DataFrame) -> List[t.Any]:
     """
     Build a list of course IDs for Math/English gateway courses.
     Filter: math_or_english_gateway in {"M", "E"}
@@ -322,4 +324,4 @@ def compute_gateway_course_ids(df_course: pd.DataFrame) -> List[str]:
     # Drop NaNs, blanks, and ensure uniqueness
     # edit this to auto populate the config
     ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")]
-    return ids.drop_duplicates().tolist()
+    return list(ids.drop_duplicates())
