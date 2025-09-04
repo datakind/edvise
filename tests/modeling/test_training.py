@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from edvise.modeling import training
-import edvise.shared as shared
+from edvise.shared.databricks import get_experiment_name
 
 
 def test_run_automl_classification_uses_correct_args_and_format():
@@ -64,6 +64,6 @@ def test_run_automl_classification_uses_correct_args_and_format():
     ],
 )
 def test_get_experiment_name(params, exp_prefix):
-    obs = shared.get_experiment_name(**params)
+    obs = get_experiment_name(**params)
     assert isinstance(obs, str)
     assert obs.startswith(exp_prefix)
