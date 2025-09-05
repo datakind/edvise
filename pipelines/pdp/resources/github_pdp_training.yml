@@ -61,3 +61,5 @@ resources:
       permissions:
         - user_name: ${var.ds_run_as}
           level: CAN_MANAGE_RUN
+        - user_name: noreen@datakindo365.onmicrosoft.com
+          level: CAN_MANAGE_RUN
