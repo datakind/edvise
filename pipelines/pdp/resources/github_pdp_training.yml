@@ -60,6 +60,6 @@ resources:
           default: ${var.datakind_notification_email}
       permissions:
         - user_name: ${var.ds_run_as}
-          level: CAN_MANAGE_RUN
+          level: IS_OWNER
         - user_name: noreen@datakindo365.onmicrosoft.com
-          level: CAN_MANAGE_RUN
+          level: IS_OWNER
