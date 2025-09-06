@@ -702,7 +702,7 @@ requires-dist = [
     { name = "markdown", specifier = "~=3.5" },
     { name = "matplotlib", specifier = "~=3.7" },
     { name = "missingno", specifier = "~=0.5" },
-    { name = "mlflow", specifier = "~=2.13" },
+    { name = "mlflow", specifier = "~=2.22" },
     { name = "numpy", specifier = "~=1.26" },
     { name = "pandas", specifier = "~=2.0" },
     { name = "pandera", specifier = "~=0.23.0" },
