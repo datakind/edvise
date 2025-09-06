@@ -10,13 +10,13 @@ resources:
             source: GIT
             parameters:
               - --silver_volume_path
-              - "/Volumes/sst_dev/{{job.parameters.databricks_institution_name}}_silver/{{job.parameters.databricks_institution_name}}_silver_file_volume"
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --gold_volume_path
-              - "/Volumes/sst_dev/{{job.parameters.databricks_institution_name}}_gold/gold_volume"
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_gold/gold_volume"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --config_file_path 
-              - "/Volumes/sst_dev/{{job.parameters.databricks_institution_name}}_gold/gold_volume/{{job.parameters.config_file_name}}"
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_gold/gold_volume/training_inputs/{{job.parameters.config_file_name}}"
           existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
