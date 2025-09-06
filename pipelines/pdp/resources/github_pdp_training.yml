@@ -6,7 +6,7 @@ resources:
       tasks:
         - task_key: data_audit
           spark_python_task:
-            python_file: src/scripts/pdp_data_audit.py
+            python_file: src/edvise/scripts/pdp_data_audit.py
             source: GIT
             parameters:
               - --silver_volume_path
@@ -17,7 +17,7 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --config_file_path 
               - "/Volumes/sst_dev/{{job.parameters.databricks_institution_name}}_gold/gold_volume/{{job.parameters.config_file_name}}"
-          existing_cluster_id: 0820-211818-kbva16ea
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
