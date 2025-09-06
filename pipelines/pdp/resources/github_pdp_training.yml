@@ -61,5 +61,4 @@ resources:
       permissions:
         - user_name: ${var.ds_run_as}
           level: IS_OWNER
-        - user_name: noreen@datakindo365.onmicrosoft.com
-          level: IS_OWNER
+
