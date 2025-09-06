@@ -5,18 +5,18 @@ import typing as t
 import sys
 import pandas as pd
 
-from edvise.data_audit.standardizer import (
+from src.edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
-from edvise.utils.databricks import get_spark_session
-from edvise.dataio.read import (
+from src.edvise.utils.databricks import get_spark_session
+from src.edvise.dataio.read import (
     read_config,
     read_raw_pdp_cohort_data,
     read_raw_pdp_course_data,
 )
-from edvise.dataio.write import write_parquet
-from edvise.configs.pdp import PDPProjectConfig
+from src.edvise.dataio.write import write_parquet
+from src.edvise.configs.pdp import PDPProjectConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
