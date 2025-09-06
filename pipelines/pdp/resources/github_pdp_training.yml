@@ -35,6 +35,8 @@ resources:
                 package: tomlkit==0.13.3
             - pypi:
                 package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
