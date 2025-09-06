@@ -7,7 +7,7 @@ import pandas as pd
 import os
 
 # Add 'src' to sys.path if not already there
-repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0]))))
 src_path = os.path.join(repo_root, "src")
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
