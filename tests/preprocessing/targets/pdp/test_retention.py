@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from edvise.targets import retention
+from src.edvise.targets import retention
 
 
 @pytest.mark.parametrize(

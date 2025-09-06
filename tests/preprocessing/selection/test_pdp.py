@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from edvise import student_selection
+from src.edvise import student_selection
 
 
 @pytest.fixture(scope="module")

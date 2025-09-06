@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import MagicMock
 import pandas as pd
-from edvise.reporting.sections.registry import SectionRegistry
-from edvise.reporting.sections.data_sections import register_data_sections
+from src.edvise.reporting.sections.registry import SectionRegistry
+from src.edvise.reporting.sections.data_sections import register_data_sections
 
 
 @pytest.fixture

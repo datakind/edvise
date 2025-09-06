@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from pandera.errors import SchemaErrors
 
-from edvise import dataio, data_audit, utils
+from src.edvise import dataio, data_audit, utils
 
 FIXTURES_PATH = "tests/fixtures"
 

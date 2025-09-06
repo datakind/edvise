@@ -2,9 +2,9 @@ import pytest
 import pandas as pd
 import re
 from unittest.mock import patch
-from edvise.reporting.model_card.base import ModelCard
-from edvise.reporting.model_card.pdp import PDPModelCard
-from edvise.configs.pdp import PDPProjectConfig
+from src.edvise.reporting.model_card.base import ModelCard
+from src.edvise.reporting.model_card.pdp import PDPModelCard
+from src.edvise.configs.pdp import PDPProjectConfig
 
 
 class DummyTrainingConfig:

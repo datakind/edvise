@@ -3,8 +3,8 @@ import typing as t
 
 import pandas as pd
 
-from edvise.shared.databricks import get_experiment_name
-from edvise.modeling.training_types import AutoMLSummaryType
+from src.edvise.shared.databricks import get_experiment_name
+from src.edvise.modeling.training_types import AutoMLSummaryType
 
 LOGGER = logging.getLogger(__name__)
 

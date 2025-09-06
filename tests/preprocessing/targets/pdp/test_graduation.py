@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from edvise.targets import graduation
+from src.edvise.targets import graduation
 
 
 @pytest.mark.parametrize(

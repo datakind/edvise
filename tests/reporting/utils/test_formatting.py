@@ -1,5 +1,5 @@
 import pytest
-from edvise.reporting.utils.formatting import Formatting
+from src.edvise.reporting.utils.formatting import Formatting
 
 
 @pytest.fixture

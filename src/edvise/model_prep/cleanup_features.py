@@ -5,7 +5,7 @@ import re
 
 LOGGER = logging.getLogger(__name__)
 
-from edvise.utils.drop_columns_safely import drop_columns_safely
+from src.edvise.utils.drop_columns_safely import drop_columns_safely
 
 
 class PDPCleanup:

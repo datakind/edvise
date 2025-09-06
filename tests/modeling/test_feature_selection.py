@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from edvise.modeling import feature_selection as fs
+from src.edvise.modeling import feature_selection as fs
 
 
 @pytest.fixture(scope="module")

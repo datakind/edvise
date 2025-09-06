@@ -7,7 +7,7 @@ import logging
 from ..model_prep import cleanup_features as cleanup, training_params
 from dataio.read import read_parquet, read_config
 from dataio.write import write_parquet
-from edvise.configs.pdp import PDPProjectConfig
+from src.edvise.configs.pdp import PDPProjectConfig
 
 
 logging.basicConfig(level=logging.INFO)

@@ -17,7 +17,7 @@ for unit testing and to scale our model card for our institution and organizatio
 - Since the markdown is available locally, the user has an option to edit the markdown, add information, etc. via the text editor in DB.
 - Once the markdown is finalized, we then reload the markdown, convert to HTML, and then produce a PDF as an MLflow artifact.
 ```
-from edvise.reporting.model_card.pdp import PDPModelCard
+from src.edvise.reporting.model_card.pdp import PDPModelCard
 
 # Initialize card
 card = PDPModelCard(config=cfg, catalog=catalog, model_name=model_name)

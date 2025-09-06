@@ -7,7 +7,7 @@ import pydantic as pyd
 import pathlib
 import pytest
 
-from edvise.configs import custom
+from src.edvise.configs import custom
 
 
 SRC_ROOT = pathlib.Path(__file__).parents[2] / "configs" / "custom"

@@ -13,7 +13,7 @@ try:
 except ImportError:
     import tomli as tomllib  # noqa
 
-import edvise.utils as utils
+import src.edvise.utils as utils
 
 LOGGER = logging.getLogger(__name__)
 

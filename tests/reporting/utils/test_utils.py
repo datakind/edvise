@@ -1,6 +1,6 @@
 from unittest.mock import patch, MagicMock
-from edvise.reporting.utils import utils
-from edvise.reporting.utils.utils import safe_count_runs
+from src.edvise.reporting.utils import utils
+from src.edvise.reporting.utils.utils import safe_count_runs
 
 
 @patch("edvise.reporting.utils.utils.mlflow.artifacts.download_artifacts")

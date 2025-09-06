@@ -2,7 +2,7 @@ from collections.abc import Iterable
 
 import pytest
 
-from edvise import utils
+from src.edvise import utils
 
 
 @pytest.mark.parametrize(

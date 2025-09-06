@@ -1,11 +1,11 @@
 import pytest
 import pandas as pd
 from unittest.mock import MagicMock, patch
-from edvise.reporting.sections.registry import SectionRegistry
-from edvise.reporting.sections.custom import (
+from src.edvise.reporting.sections.registry import SectionRegistry
+from src.edvise.reporting.sections.custom import (
     evaluation_sections as custom_evaluation_sections,
 )
-from edvise.reporting.utils.formatting import Formatting
+from src.edvise.reporting.utils.formatting import Formatting
 
 
 @pytest.fixture

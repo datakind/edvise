@@ -5,7 +5,7 @@ import pandas as pd
 import pyspark.sql
 import pathlib
 
-import edvise.utils as utils
+import src.edvise.utils as utils
 
 LOGGER = logging.getLogger(__name__)
 

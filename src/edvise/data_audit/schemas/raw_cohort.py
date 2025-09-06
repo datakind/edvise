@@ -5,7 +5,7 @@ import logging
 import typing as t
 
 import pandas as pd
-import edvise.utils as utils
+import src.edvise.utils as utils
 
 try:
     import pandera as pda

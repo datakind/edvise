@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
-from edvise.reporting.sections.registry import SectionRegistry
-from edvise.reporting.sections.pdp import (
+from src.edvise.reporting.sections.registry import SectionRegistry
+from src.edvise.reporting.sections.pdp import (
     bias_sections as pdp_bias_sections,
 )
 

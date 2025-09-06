@@ -4,8 +4,8 @@ import typing as t
 import pydantic as pyd
 
 # TODO: set field defaults using literals here instead?
-from edvise.feature_generation import constants
-from edvise.utils import types
+from src.edvise.feature_generation import constants
+from src.edvise.utils import types
 
 
 class PDPProjectConfig(pyd.BaseModel):

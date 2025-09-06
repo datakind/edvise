@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from edvise.modeling import training
-from edvise.shared.databricks import get_experiment_name
+from src.edvise.modeling import training
+from src.edvise.shared.databricks import get_experiment_name
 
 
 def test_run_automl_classification_uses_correct_args_and_format():

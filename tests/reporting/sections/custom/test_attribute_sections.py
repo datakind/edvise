@@ -1,10 +1,10 @@
 import pytest
 from unittest.mock import MagicMock
-from edvise.reporting.sections.registry import SectionRegistry
-from edvise.reporting.sections.custom import (
+from src.edvise.reporting.sections.registry import SectionRegistry
+from src.edvise.reporting.sections.custom import (
     attribute_sections as custom_attribute_sections,
 )
-from edvise.reporting.utils.formatting import Formatting
+from src.edvise.reporting.utils.formatting import Formatting
 
 
 @pytest.fixture
