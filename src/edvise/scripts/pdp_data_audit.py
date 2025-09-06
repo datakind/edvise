@@ -5,7 +5,6 @@ import typing as t
 import sys
 import pandas as pd
 
-from configs.pdp import PDPProjectConfig
 from data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
@@ -17,7 +16,7 @@ from dataio.read import (
     read_raw_pdp_course_data,
 )
 from dataio.write import write_parquet
-
+from edvise.configs.pdp import PDPProjectConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
