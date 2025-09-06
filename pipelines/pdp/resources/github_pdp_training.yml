@@ -6,7 +6,7 @@ resources:
       tasks:
         - task_key: data_audit
           spark_python_task:
-            python_file: src/edvise/scripts/pdp_data_audit.py
+            python_file: edvise/scripts/pdp_data_audit.py
             source: GIT
             parameters:
               - --silver_volume_path

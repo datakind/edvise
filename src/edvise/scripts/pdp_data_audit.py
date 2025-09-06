@@ -4,19 +4,26 @@ import logging
 import typing as t
 import sys
 import pandas as pd
+import os
 
-from src.edvise.data_audit.standardizer import (
+# Add 'src' to sys.path if not already there
+repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+src_path = os.path.join(repo_root, "src")
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
-from src.edvise.utils.databricks import get_spark_session
-from src.edvise.dataio.read import (
+from edvise.utils.databricks import get_spark_session
+from edvise.dataio.read import (
     read_config,
     read_raw_pdp_cohort_data,
     read_raw_pdp_course_data,
 )
-from src.edvise.dataio.write import write_parquet
-from src.edvise.configs.pdp import PDPProjectConfig
+from edvise.dataio.write import write_parquet
+from edvise.configs.pdp import PDPProjectConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
