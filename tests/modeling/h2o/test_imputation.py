@@ -3,7 +3,7 @@ import numpy as np
 import os
 import pytest
 from unittest import mock
-from src.edvise.modeling.h2o import imputation
+from src.edvise.modeling.h2o_ml import imputation
 from sklearn.pipeline import Pipeline
 
 

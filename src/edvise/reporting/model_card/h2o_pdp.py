@@ -2,7 +2,7 @@ import typing as t
 from mlflow.tracking import MlflowClient
 
 # internal SST modules
-from src.edvise.modeling import h2o
+from src.edvise.modeling import h2o_ml
 from src.edvise.configs.custom import PDPProjectConfig
 from src.edvise.reporting.model_card.base import ModelCard
 from src.edvise.reporting.sections.custom import register_sections as register_pdp_sections
@@ -42,7 +42,7 @@ class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
                 f"URI, run_id, or experiment_id missing."
             )
 
-        self.model = h2o.utils.load_h2o_model(model_cfg.run_id)
+        self.model = h2o_ml.utils.load_h2o_model(model_cfg.run_id)
         self.run_id = model_cfg.run_id
         self.experiment_id = model_cfg.experiment_id
 
@@ -50,7 +50,7 @@ class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
         """
         Extracts the training data from the MLflow run utilizing SST internal subpackages (modeling).
         """
-        self.modeling_data = h2o.evaluation.extract_training_data_from_model(
+        self.modeling_data = h2o_ml.evaluation.extract_training_data_from_model(
             self.experiment_id
         )
         self.training_data = self.modeling_data
@@ -65,7 +65,7 @@ class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
             ]
         self.context["training_dataset_size"] = self.training_data.shape[0]
         self.context["num_runs_in_experiment"] = (
-            h2o.evaluation.extract_number_of_runs_from_model_training(
+            h2o_ml.evaluation.extract_number_of_runs_from_model_training(
                 self.experiment_id
             )
         )
@@ -84,7 +84,7 @@ class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
             val = float(val) * 100
             return str(int(val) if val.is_integer() else round(val, 2))
 
-        feature_count = len(h2o.inference.get_h2o_used_features(self.model))
+        feature_count = len(h2o_ml.inference.get_h2o_used_features(self.model))
         if not self.cfg.modeling or not self.cfg.modeling.feature_selection:
             raise ValueError(
                 "Modeling configuration or feature selection config is missing."

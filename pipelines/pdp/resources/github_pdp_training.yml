@@ -229,6 +229,8 @@ resources:
                 package: pandera==0.23.0
             - pypi:
                 package: pydantic~=2.10
+            - pypi:
+                package: h2o==3.46.0.7
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub

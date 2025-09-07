@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import pytest
 from unittest import mock
-from src.edvise.modeling.h2o import inference
+from src.edvise.modeling.h2o_ml import inference
 
 
 # Existing SHAP grouping test

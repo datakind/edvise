@@ -10,7 +10,7 @@ import os
 from mlflow.tracking import MlflowClient
 
 from src.edvise import modeling, dataio, configs
-from src.edvise.modeling.h2o import utils as h2o_utils
+from src.edvise.modeling.h2o_ml import utils as h2o_utils
 from src.edvise import utils as edvise_utils
 
 # Configure logging
@@ -109,7 +109,7 @@ class TrainingTask:
             "seed": self.cfg.random_state
         }
         experiment_id, *_ = (
-            modeling.h2o.training.run_h2o_automl_classification(
+            modeling.h2o_ml.training.run_h2o_automl_classification(
                 df=df_modeling,
                 **training_params,
                 client=self.client,
@@ -150,13 +150,13 @@ class TrainingTask:
                     " and bias assessment",
                 )
                 df_features_imp = (
-                    modeling.h2o.imputation.SklearnImputerWrapper.load_and_transform(
+                    modeling.h2o_ml.imputation.SklearnImputerWrapper.load_and_transform(
                         df=df_features,
                         run_id=run_id,
                     )
                 )
                 model = h2o_utils.load_h2o_model(run_id=run_id)
-                labels, probs = modeling.h2o.inference.predict_h2o(
+                labels, probs = modeling.h2o_ml.inference.predict_h2o(
                     features=df_features_imp,
                     model=model,
                     pos_label=self.cfg.pos_label,

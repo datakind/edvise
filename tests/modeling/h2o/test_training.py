@@ -4,7 +4,7 @@ from pandas.testing import assert_frame_equal
 import unittest.mock as mock
 
 
-from src.edvise.modeling.h2o import training
+from src.edvise.modeling.h2o_ml import training
 
 
 @pytest.fixture

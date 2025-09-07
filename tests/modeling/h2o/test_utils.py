@@ -3,7 +3,7 @@ import unittest.mock as mock
 import pandas as pd
 import pytest
 
-from src.edvise.modeling.h2o import utils
+from src.edvise.modeling.h2o_ml import utils
 
 
 @mock.patch("src.edvise.modeling.h2o.utils.mlflow.log_param")
