@@ -81,7 +81,7 @@ class TrainingTask:
         db_run_id = self.args.db_run_id
 
         #Assert this is a boolean - KAYLA to double check with VISH this is true 
-        if isinstance(self.cfg.pos_label, bool)==False:
+        if not isinstance(self.cfg.pos_label, bool):
             raise ValueError("POSITIVE LABEL MUST BE BOOLEAN IN THE CONFIG, PLEASE ADD")
 
         timeout_minutes = modeling_cfg.training.timeout_minutes
@@ -108,7 +108,7 @@ class TrainingTask:
             "workspace_path": workspace_path,
             "seed": self.cfg.random_state
         }
-        experiment_id, aml, train, valid, test = (
+        experiment_id, *_ = (
             modeling.h2o.training.run_h2o_automl_classification(
                 df=df_modeling,
                 **training_params,
@@ -124,11 +124,10 @@ class TrainingTask:
         else:
             raise ValueError("SPLIT COL DOES NOT EXIST IN THE CONFIG, PLEASE ADD")
         
+        topn = 10
         if self.cfg.modeling is not None and self.cfg.modeling.evaluation is not None:
             modeling_cfg = self.cfg.modeling
             topn = modeling_cfg.evaluation.topn_runs_included
-
-        topn = 10
 
         top_runs = modeling.evaluation.get_top_runs(
             experiment_id,
@@ -180,7 +179,6 @@ class TrainingTask:
                     pos_label=self.cfg.pos_label,
                 )
                 logging.info("Run %s: Completed", run_id)
-        mlflow.end_run()
 
     def select_model(self, experiment_id: str) -> None:
         if self.cfg.modeling is not None and self.cfg.modeling.evaluation is not None:
