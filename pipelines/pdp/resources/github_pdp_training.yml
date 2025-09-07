@@ -9,7 +9,7 @@ resources:
             python_file: src/edvise/scripts/pdp_data_audit.py
             source: GIT
             parameters:
-              - bronze_volume_path
+              - --bronze_volume_path
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume"
               - --silver_volume_path
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
