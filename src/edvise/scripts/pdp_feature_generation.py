@@ -36,10 +36,10 @@ class PDPFeatureGenerationTask:
 
         # --- Load datasets ---
         df_course = pd.read_parquet(
-            f"{self.args.silver_volume_path}/df_cohort_validated.parquet"
+            f"{self.args.silver_volume_path}/df_course_validated.parquet"
         )
         df_cohort = pd.read_parquet(
-            f"{self.args.silver_volume_path}/df_course_validated.parquet"
+            f"{self.args.silver_volume_path}/df_cohort_validated.parquet"
         )
 
         # --- Generate student-term dataset ---
@@ -127,7 +127,7 @@ class PDPFeatureGenerationTask:
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Data preprocessing for inference in the SST pipeline."
+        description="Feature generation in the Edvise pipeline."
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)

@@ -34,7 +34,7 @@ class PDPCheckpointsTask:
         """
         self.args = args
         self.cfg: PDPProjectConfig = read_config(
-            self.args.toml_file_path, schema=PDPProjectConfig
+            self.args.config_file_path, schema=PDPProjectConfig
         )
 
     def checkpoint_generation(self, df_student_terms: pd.DataFrame) -> pd.DataFrame:
@@ -118,11 +118,11 @@ class PDPCheckpointsTask:
     def run(self):
         """Executes the data preprocessing pipeline."""
         df_student_terms = pd.read_parquet(
-            f"{self.args.student_term_path}/student_terms.parquet"
+            f"{self.args.silver_volume_path}/student_terms.parquet"
         )
         df_ckpt = self.checkpoint_generation(df_student_terms)
         df_ckpt.to_parquet(
-            f"{self.args.checkpoint_path}/checkpoint.parquet", index=False
+            f"{self.args.silver_volume_path}/checkpoint.parquet", index=False
         )
 
 
@@ -131,37 +131,24 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Data preprocessing for inference in the SST pipeline."
     )
-    parser.add_argument(
-        "--toml_file_path", type=str, required=True, help="Path to configuration file"
-    )
-    parser.add_argument(
-        "--custom_schemas_path",
-        required=False,
-        help="Folder path to store custom schemas folders",
-    )
-    parser.add_argument(
-        "--student_term_path",
-        required=False,
-        help="Folder path to store student term file",
-    )
-    parser.add_argument(
-        "--checkpoint_path",
-        required=False,
-        help="Folder path to store checkpoint file",
-    )
+    parser.add_argument("--silver_volume_path", type=str, required=True)
+    parser.add_argument("--config_file_path", type=str, required=True)
+
+
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
-    try:
-        sys.path.append(args.custom_schemas_path)
-        sys.path.append(
-            f"/Volumes/staging_sst_01/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
-        )
-        schemas = importlib.import_module("schemas")
-        logging.info("Running task with custom schema")
-    except Exception:
-        logging.info("Running task with default schema")
+    #again no school has a custom schema for pdp , but add in iff needed
+    # try:
+    #     sys.path.append(args.custom_schemas_path)
+    #     sys.path.append(
+    #         f"/Volumes/staging_sst_01/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
+    #     )
+    #     schemas = importlib.import_module("schemas")
+    #     logging.info("Running task with custom schema")
+    # except Exception:
+    #     logging.info("Running task with default schema")
     task = PDPCheckpointsTask(args)
     task.run()
