@@ -4,10 +4,10 @@ import argparse
 import pandas as pd
 import logging
 
-from src.edvise.model_prep import cleanup_features as cleanup, training_params
-from src.edvise.dataio.read import read_parquet, read_config
-from src.edvise.dataio.write import write_parquet
-from src.edvise.configs.pdp import PDPProjectConfig
+from edvise.model_prep import cleanup_features as cleanup, training_params
+from edvise.dataio.read import read_parquet, read_config
+from edvise.dataio.write import write_parquet
+from edvise.configs.pdp import PDPProjectConfig
 
 
 logging.basicConfig(level=logging.INFO)

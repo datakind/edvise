@@ -2,11 +2,11 @@ import typing as t
 from mlflow.tracking import MlflowClient
 
 # internal SST modules
-from src.edvise.modeling import h2o_ml
-from src.edvise.configs.custom import PDPProjectConfig
-from src.edvise.reporting.model_card.base import ModelCard
-from src.edvise.reporting.sections.custom import register_sections as register_pdp_sections
-import src.edvise.reporting.utils as utils
+from edvise.modeling import h2o_ml
+from edvise.configs.custom import PDPProjectConfig
+from edvise.reporting.model_card.base import ModelCard
+from edvise.reporting.sections.custom import register_sections as register_pdp_sections
+import edvise.reporting.utils as utils
 
 
 class H2OPDPModelCard(ModelCard[PDPProjectConfig]):

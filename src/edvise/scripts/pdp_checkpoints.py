@@ -4,11 +4,11 @@ import pandas as pd
 import sys
 import importlib
 
-from src.edvise import checkpoints
-from src.edvise.configs.pdp import PDPProjectConfig
-from src.edvise.dataio.read import read_config
+from edvise import checkpoints
+from edvise.configs.pdp import PDPProjectConfig
+from edvise.dataio.read import read_config
 
-from src.edvise.configs.pdp import (
+from edvise.configs.pdp import (
     CheckpointNthConfig,
     CheckpointFirstConfig,
     CheckpointLastConfig,

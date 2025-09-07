@@ -4,8 +4,8 @@ import typing as t
 import pydantic as pyd
 
 # TODO: set field defaults using literals here instead?
-from src.edvise.feature_generation import constants
-from src.edvise.utils import types
+from edvise.feature_generation import constants
+from edvise.utils import types
 
 
 # allowed primary metrics by framework

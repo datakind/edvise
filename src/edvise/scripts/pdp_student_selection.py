@@ -4,9 +4,9 @@ import pandas as pd
 import sys
 import importlib
 
-from src.edvise import student_selection
-from src.edvise.dataio.read import read_config
-from src.edvise.configs.pdp import PDPProjectConfig
+from edvise import student_selection
+from edvise.dataio.read import read_config
+from edvise.configs.pdp import PDPProjectConfig
 
 
 # Configure logging

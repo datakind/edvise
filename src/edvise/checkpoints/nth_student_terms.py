@@ -3,7 +3,7 @@ import typing as t
 
 import pandas as pd
 
-from src.edvise import utils
+from edvise import utils
 
 LOGGER = logging.getLogger(__name__)
 

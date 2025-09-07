@@ -9,9 +9,9 @@ import typing as t
 
 from .. import utils
 from .. import feature_generation
-from src.edvise.data_audit.standardizer import BaseStandardizer
-from src.edvise.dataio.read import read_config
-from src.edvise.configs.pdp import PDPProjectConfig
+from edvise.data_audit.standardizer import BaseStandardizer
+from edvise.dataio.read import read_config
+from edvise.configs.pdp import PDPProjectConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

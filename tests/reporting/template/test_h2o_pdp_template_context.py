@@ -2,8 +2,8 @@ import pytest
 import pandas as pd
 import re
 from unittest.mock import patch
-from src.edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
-from src.edvise.configs.pdp import PDPProjectConfig
+from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
+from edvise.configs.pdp import PDPProjectConfig
 
 
 class DummyTrainingConfig:
@@ -127,16 +127,16 @@ def make_pdp_config() -> PDPProjectConfig:
 
 
 @pytest.mark.parametrize("card_class", [H2OPDPModelCard])
-@patch("src.edvise.reporting.sections.registry.SectionRegistry.render_all")
+@patch("edvise.reporting.sections.registry.SectionRegistry.render_all")
 @patch(
-    "src.edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.collect_metadata"
+    "edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.collect_metadata"
 )
-@patch("src.edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.load_model")
+@patch("edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.load_model")
 @patch(
-    "src.edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.extract_training_data"
+    "edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.extract_training_data"
 )
 @patch(
-    "src.edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.find_model_version"
+    "edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.find_model_version"
 )
 def test_template_placeholders_are_in_context(
     mock_find_version,

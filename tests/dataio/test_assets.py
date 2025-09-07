@@ -4,7 +4,7 @@ from contextlib import nullcontext as does_not_raise
 import pydantic as pyd
 import pytest
 
-from src.edvise import dataio
+from edvise import dataio
 
 try:
     import tomllib  # noqa

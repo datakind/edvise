@@ -2,8 +2,8 @@ import pytest
 import pandas as pd
 import re
 from unittest.mock import patch
-from src.edvise.reporting.model_card.h2o_custom import H2OCustomModelCard
-from src.edvise.configs.custom import CustomProjectConfig
+from edvise.reporting.model_card.h2o_custom import H2OCustomModelCard
+from edvise.configs.custom import CustomProjectConfig
 
 
 class DummyTrainingConfig:
@@ -168,18 +168,18 @@ def dummy_custom_config():
     return make_custom_project_config()
 
 
-@patch("src.edvise.reporting.sections.registry.SectionRegistry.render_all")
+@patch("edvise.reporting.sections.registry.SectionRegistry.render_all")
 @patch(
-    "src.edvise.reporting.model_card.h2o_custom.H2OCustomModelCard.collect_metadata"
+    "edvise.reporting.model_card.h2o_custom.H2OCustomModelCard.collect_metadata"
 )
 @patch(
-    "src.edvise.reporting.model_card.h2o_custom.H2OCustomModelCard.load_model"
+    "edvise.reporting.model_card.h2o_custom.H2OCustomModelCard.load_model"
 )
 @patch(
-    "src.edvise.reporting.model_card.h2o_custom.H2OCustomModelCard.extract_training_data"
+    "edvise.reporting.model_card.h2o_custom.H2OCustomModelCard.extract_training_data"
 )
 @patch(
-    "src.edvise.reporting.model_card.h2o_custom.H2OCustomModelCard.find_model_version"
+    "edvise.reporting.model_card.h2o_custom.H2OCustomModelCard.find_model_version"
 )
 def test_custom_school_model_card_template_placeholders_filled(
     mock_find_version,

@@ -9,9 +9,9 @@ import os
 
 from mlflow.tracking import MlflowClient
 
-from src.edvise import modeling, dataio, configs
-from src.edvise.modeling.h2o_ml import utils as h2o_utils
-from src.edvise import utils as edvise_utils
+from edvise import modeling, dataio, configs
+from edvise.modeling.h2o_ml import utils as h2o_utils
+from edvise import utils as edvise_utils
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

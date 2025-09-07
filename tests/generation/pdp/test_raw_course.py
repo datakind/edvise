@@ -2,8 +2,8 @@ import faker
 import pandas as pd
 import pytest
 
-from src.edvise.data_audit.schemas import RawPDPCourseDataSchema
-from src.edvise.synth_generation.pdp import raw_course
+from edvise.data_audit.schemas import RawPDPCourseDataSchema
+from edvise.synth_generation.pdp import raw_course
 
 FAKER = faker.Faker()
 FAKER.add_provider(raw_course.Provider)

@@ -5,9 +5,9 @@ import sys
 import pandas as pd
 import typing as t
 
-from src.edvise import feature_generation, utils
-from src.edvise.dataio.read import read_config
-from src.edvise.configs.pdp import PDPProjectConfig
+from edvise import feature_generation, utils
+from edvise.dataio.read import read_config
+from edvise.configs.pdp import PDPProjectConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

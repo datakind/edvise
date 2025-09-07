@@ -4,7 +4,7 @@ import matplotlib
 matplotlib.use("Agg")  # headless test env
 import pytest
 
-from src.edvise.modeling.h2o_ml import evaluation, training
+from edvise.modeling.h2o_ml import evaluation, training
 
 
 def test_create_and_log_h2o_model_comparison(monkeypatch, tmp_path):
