@@ -101,7 +101,7 @@ resources:
                 package: pydantic~=2.10
         - task_key: student_selection
           depends_on:
-            - task_key: checkpoint
+            - task_key: feature_generation
           spark_python_task:
             python_file: src/edvise/scripts/pdp_student_selection.py
             source: GIT
@@ -132,7 +132,7 @@ resources:
                 package: pydantic~=2.10
         - task_key: targets
           depends_on:
-            - task_key: student_selection
+            - task_key: feature_generation
           spark_python_task:
             python_file: src/edvise/scripts/pdp_targets.py
             source: GIT
@@ -163,6 +163,8 @@ resources:
                 package: pydantic~=2.10
         - task_key: model_prep
           depends_on:
+            - task_key: checkpoint
+            - task_key: student_selection
             - task_key: targets
           spark_python_task:
             python_file: src/edvise/scripts/pdp_model_prep.py

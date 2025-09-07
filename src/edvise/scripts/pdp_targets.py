@@ -42,6 +42,8 @@ class PDPTargetsTask:
 
         compute_func = target_modules[target_type].compute_target
         kwargs = target_cfg.model_dump()
+        kwargs.pop("name", None)
+        kwargs.pop("type_", None)
 
         s = compute_func(df_student_terms, **kwargs)
         if not isinstance(s, pd.Series):
