@@ -5,14 +5,7 @@ import sys
 import pandas as pd
 import typing as t
 
-from .. import utils
-
-from .. import feature_generation
-from src.edvise.data_audit.standardizer import (
-    PDPCohortStandardizer,
-    PDPCourseStandardizer,
-    # StudentTermStandardizer, # NOTE: FILL IN ONCE READY
-)
+from src.edvise import feature_generation, utils
 from src.edvise.dataio.read import read_config
 from src.edvise.configs.pdp import PDPProjectConfig
 
@@ -23,17 +16,14 @@ LOGGER = logging.getLogger(__name__)
 
 
 class PDPFeatureGenerationTask:
-    """Encapsulates the data preprocessing logic for the SST pipeline."""
+    """Encapsulates the  feature generationlogic for the SST pipeline."""
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(self.args.toml_file_path, schema=PDPProjectConfig)
-        self.cohort_std = PDPCohortStandardizer()
-        self.course_std = PDPCourseStandardizer()
-        # self.student_term_std = StudentTermStandardizer() # NOTE: FILL IN ONCE READY
+        self.cfg = read_config(self.args.config_file_path, schema=PDPProjectConfig)
 
     def run(self):
-        """Executes the data preprocessing pipeline."""
+        """Executes the data feature generation."""
 
         # --- Unpack config ---
         features_cfg = self.cfg.preprocessing.features
@@ -46,10 +36,10 @@ class PDPFeatureGenerationTask:
 
         # --- Load datasets ---
         df_course = pd.read_parquet(
-            f"{self.args.course_dataset_validated_path}/df_cohort.parquet"
+            f"{self.args.silver_volume_path}/df_cohort_validated.parquet"
         )
         df_cohort = pd.read_parquet(
-            f"{self.args.cohort_dataset_validated_path}/df_course.parquet"
+            f"{self.args.silver_volume_path}/df_course_validated.parquet"
         )
 
         # --- Generate student-term dataset ---
@@ -66,7 +56,7 @@ class PDPFeatureGenerationTask:
 
         # --- Write result ---
         df_student_terms.to_parquet(
-            f"{self.args.student_term_path}/student_terms.parquet", index=False
+            f"{self.args.silver_volume_path}/student_terms.parquet", index=False
         )
 
     def make_student_term_dataset(
@@ -85,7 +75,7 @@ class PDPFeatureGenerationTask:
         key_course_ids: t.Optional[list[str]] = None,
     ) -> pd.DataFrame:
         """Main feature generation pipeline."""
-        first_term = self.course_std.infer_first_term_of_year(
+        first_term = utils.infer_first_term_of_year(
             df_course["academic_term"]
         )
 
@@ -139,25 +129,24 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Data preprocessing for inference in the SST pipeline."
     )
-    parser.add_argument("--cohort_dataset_validated_path", type=str, required=True)
-    parser.add_argument("--course_dataset_validated_path", type=str, required=True)
-    parser.add_argument("--toml_file_path", type=str, required=True)
-    parser.add_argument("--custom_schemas_path", required=False)
-    parser.add_argument("--student_term_path", required=False)
+    parser.add_argument("--silver_volume_path", type=str, required=True)
+    parser.add_argument("--config_file_path", type=str, required=True)
+
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
-    try:
-        sys.path.append(args.custom_schemas_path)
-        sys.path.append(
-            f"/Volumes/staging_sst_01/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
-        )
-        schemas = importlib.import_module("schemas")
-        logging.info("Running task with custom schema")
-    except Exception:
-        logging.info("Running task with default schema")
+    #no school use a custom schema for now remove and add back in iff needed
+    # try:
+    #     sys.path.append(args.custom_schemas_path)
+    #     sys.path.append(
+    #         f"/Volumes/staging_sst_01/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
+    #     )
+    #     schemas = importlib.import_module("schemas")
+    #     logging.info("Running task with custom schema")
+    # except Exception:
+    #     logging.info("Running task with default schema")
 
     task = PDPFeatureGenerationTask(args)
     task.run()
