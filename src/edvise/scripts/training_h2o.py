@@ -211,19 +211,18 @@ class TrainingTask:
         """Executes the target computation pipeline and saves result."""
         logging.info("Loading preprocessed data")
         df_preprocessed = pd.read_parquet(
-            f"{self.args.student_term_path}/preprocessed.parquet"
+            f"{self.args.silver_volume_path}/preprocessed.parquet"
         )
         logging.info("Selecting features")
         df_modeling = self.feature_selection(df_preprocessed)
 
         logging.info("Saving modeling data")
         df_modeling.to_parquet(
-            f"{self.args.modeling_path}/modeling.parquet", index=False
+            f"{self.args.silver_volume_path}/modeling.parquet", index=False
         )
         logging.info(
-            f"Modeling file saved to {self.args.modeling_path}/modeling.parquet"
+            f"Modeling file saved to {self.args.silver_volume_path}/modeling.parquet"
         )
-
         logging.info("Training model")
         experiment_id = self.train_model(df_modeling)
 
