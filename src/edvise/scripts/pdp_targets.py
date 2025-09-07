@@ -18,7 +18,7 @@ class PDPTargetsTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(self.args.toml_file_path, schema=PDPProjectConfig)
+        self.cfg = read_config(self.args.config_file_path, schema=PDPProjectConfig)
 
     def target_generation(self, df_student_terms: pd.DataFrame) -> pd.Series:
         """
@@ -52,7 +52,7 @@ class PDPTargetsTask:
         """Executes the target computation pipeline and saves result."""
         logging.info("Loading student-terms data...")
         df_student_terms = pd.read_parquet(
-            f"{self.args.student_term_path}/student_terms.parquet"
+            f"{self.args.silver_volume_path}/student_terms.parquet"
         )
 
         logging.info("Generating target labels...")
@@ -63,40 +63,27 @@ class PDPTargetsTask:
         df_target = target_series.reset_index().rename(
             columns={target_series.name: "target"}
         )
-        df_target.to_parquet(f"{self.args.target_path}/target.parquet", index=False)
-        logging.info(f"Target file saved to {self.args.target_path}/target.parquet")
+        df_target.to_parquet(f"{self.args.silver_volume_path}/target.parquet", index=False)
+        logging.info(f"Target file saved to {self.args.silver_volume_path}/target.parquet")
 
 
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(description="Target generation for SST pipeline.")
-    parser.add_argument(
-        "--toml_file_path", type=str, required=True, help="Path to config file"
-    )
-    parser.add_argument(
-        "--custom_schemas_path", required=False, help="Path to custom schemas"
-    )
-    parser.add_argument(
-        "--student_term_path",
-        type=str,
-        required=True,
-        help="Path to student term parquet",
-    )
-    parser.add_argument(
-        "--target_path", type=str, required=True, help="Path to output target parquet"
-    )
+    parser.add_argument("--silver_volume_path", type=str, required=True)
+    parser.add_argument("--config_file_path", type=str, required=True)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
-    try:
-        if args.custom_schemas_path:
-            sys.path.append(args.custom_schemas_path)
-            schemas = importlib.import_module("schemas")
-            logging.info("Using custom schemas")
-    except Exception:
-        logging.info("Using default schemas")
+    # try:
+    #     if args.custom_schemas_path:
+    #         sys.path.append(args.custom_schemas_path)
+    #         schemas = importlib.import_module("schemas")
+    #         logging.info("Using custom schemas")
+    # except Exception:
+    #     logging.info("Using default schemas")
 
     task = PDPTargetsTask(args)
     task.run()

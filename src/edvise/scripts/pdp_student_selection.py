@@ -19,13 +19,13 @@ class StudentSelectionTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(self.args.toml_file_path, schema=PDPProjectConfig)
+        self.cfg = read_config(self.args.config_file_path, schema=PDPProjectConfig)
 
     def run(self):
         """Execute the student selection task."""
         # Load the student-term data
         df_student_terms = pd.read_parquet(
-            f"{self.args.student_term_path}/student_terms.parquet"
+            f"{self.args.silver_volume_path}/student_terms.parquet"
         )
 
         # Pull selection criteria and ID column(s)
@@ -43,7 +43,7 @@ class StudentSelectionTask:
 
         # Save to parquet
         df_selected_students.to_parquet(
-            f"{self.args.selection_path}/selected_students.parquet", index=True
+            f"{self.args.silver_volume_path}/selected_students.parquet", index=True
         )
         logging.info(f"Saved {len(df_selected_students)} selected students.")
 
@@ -52,34 +52,20 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Student selection based on configured attributes."
     )
-    parser.add_argument(
-        "--toml_file_path", type=str, required=True, help="Path to the TOML config file"
-    )
-    parser.add_argument(
-        "--custom_schemas_path",
-        required=False,
-        help="Path to custom schema directory if applicable",
-    )
-    parser.add_argument(
-        "--student_term_path", required=True, help="Path to input student_terms.parquet"
-    )
-    parser.add_argument(
-        "--selection_path",
-        required=True,
-        help="Path to write selected_students.parquet",
-    )
+    parser.add_argument("--silver_volume_path", type=str, required=True)
+    parser.add_argument("--config_file_path", type=str, required=True)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
 
-    try:
-        sys.path.append(args.custom_schemas_path)
-        schemas = importlib.import_module("schemas")
-        logging.info("Using custom schema")
-    except Exception:
-        logging.info("Using default schema")
+    # try:
+    #     sys.path.append(args.custom_schemas_path)
+    #     schemas = importlib.import_module("schemas")
+    #     logging.info("Using custom schema")
+    # except Exception:
+    #     logging.info("Using default schema")
 
     task = StudentSelectionTask(args)
     task.run()
