@@ -120,10 +120,17 @@ class PDPCheckpointsTask:
         df_student_terms = pd.read_parquet(
             f"{self.args.silver_volume_path}/student_terms.parquet"
         )
+
+        # Confirm that 'year_of_enrollment_at_cohort_inst' is in df_student_terms
+        if 'year_of_enrollment_at_cohort_inst' not in df_student_terms.columns:
+            raise ValueError("Column 'year_of_enrollment_at_cohort_inst' not found in student terms data.")
+
         df_ckpt = self.checkpoint_generation(df_student_terms)
+
         df_ckpt.to_parquet(
             f"{self.args.silver_volume_path}/checkpoint.parquet", index=False
         )
+
 
 
 def parse_arguments() -> argparse.Namespace:

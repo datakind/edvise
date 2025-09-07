@@ -3,7 +3,7 @@ import typing as t
 
 import pandas as pd
 
-from .. import utils
+from src.edvise import utils
 
 LOGGER = logging.getLogger(__name__)
 
@@ -64,6 +64,7 @@ def nth_student_terms(
         if enrollment_year_col not in df.columns:
             raise KeyError(f"'{enrollment_year_col}' is not in the DataFrame.")
         df_nth = df_nth[df_nth[enrollment_year_col] == valid_enrollment_year]
+    assert isinstance(df_nth, pd.DataFrame)
     return df_nth
 
 
@@ -153,7 +154,7 @@ def first_student_terms_at_num_credits_earned(
     df: pd.DataFrame,
     *,
     min_num_credits: float,
-    num_credits_col: str = "num_credits_earned_cumsum",
+    num_credits_col: str = "cumsum_num_credits_earned",
     student_id_cols: str | list[str] = "student_id",
     sort_cols: str | list[str] = "term_rank",
     include_cols: t.Optional[list[str]] = None,

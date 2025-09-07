@@ -130,6 +130,37 @@ resources:
         #         package: pandera==0.23.0
         #     - pypi:
         #         package: pydantic~=2.10
+        # - task_key: targets
+        #   depends_on:
+        #     - task_key: student_selection
+        #   spark_python_task:
+        #     python_file: src/edvise/scripts/pdp_targets.py
+        #     source: GIT
+        #     parameters:
+        #       - --silver_volume_path
+        #       - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+        #       - --config_file_path 
+        #       - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+        #   existing_cluster_id: 5507-145238-6we6v2w3
+        #   libraries:
+        #     - pypi:
+        #         package: pandas==2.2.3
+        #     - pypi:
+        #         package: faker==33.1.0
+        #     - pypi:
+        #         package: google-cloud-storage==2.19.0
+        #     - pypi:
+        #         package: scikit-learn==1.5.2
+        #     - pypi:
+        #         package: missingno==0.5.2
+        #     - pypi:
+        #         package: tomli==2.2.1
+        #     - pypi:
+        #         package: tomlkit==0.13.3
+        #     - pypi:
+        #         package: pandera==0.23.0
+        #     - pypi:
+        #         package: pydantic~=2.10
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
