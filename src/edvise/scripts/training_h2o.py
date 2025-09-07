@@ -6,6 +6,12 @@ import sys
 import importlib
 import mlflow
 import dbutils
+import os
+
+from mlflow.tracking import MlflowClient
+from databricks.connect import DatabricksSession
+from databricks.sdk.runtime import dbutils
+from pyspark.dbutils import DBUtils
 
 from src.edvise import modeling, utils, dataio, configs
 
@@ -23,8 +29,12 @@ class TrainingParams(t.TypedDict, total=False):
     pos_label: t.Optional[str | bool]
     primary_metric: str
     timeout_minutes: int
-    exclude_frameworks: t.Optional[t.List[str]]
     exclude_cols: t.List[str]
+    target_name: str
+    checkpoint_name: str
+    workspace_path: str
+    seed: int
+
 
 
 class TrainingTask:
@@ -36,6 +46,10 @@ class TrainingTask:
             self.args.toml_file_path,
             schema=configs.pdp.PDPProjectConfig,
         )
+        self.client = MlflowClient()
+        self.dbutils = DBUtils(spark)
+        modeling.h2o.utils.safe_h2o_init()
+        os.environ["MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR"] = "false"
 
     def feature_selection(self, df_preprocessed: pd.DataFrame) -> pd.DataFrame:
         modeling_cfg = self.cfg.modeling
@@ -92,61 +106,52 @@ class TrainingTask:
             "pos_label": pos_label,
             "primary_metric": modeling_cfg.training.primary_metric,
             "timeout_minutes": timeout_minutes,
-            "exclude_frameworks": modeling_cfg.training.exclude_frameworks,
             "exclude_cols": sorted(
                 set(
                     (modeling_cfg.training.exclude_cols or [])
                     + (self.cfg.student_group_cols or [])
                 )
             ),
+            "target_name": self.cfg.preprocessing.target.name,
+            "checkpoint_name": self.cfg.preprocessing.checkpoint.name,
+            "workspace_path": modeling_cfg,
+            "seed": self.cfg.random_state
         }
-
-        summary = modeling.training.run_automl_classification(
-            df_modeling,  # 1st positional arg
-            **training_params,  # kwargs now precisely typed
+        experiment_id, aml, train, valid, test = (
+            modeling.h2o.training.run_h2o_automl_classification(
+                df=df_modeling,
+                **training_params,
+                client=self.client,
+            )
         )
 
-        experiment_id = summary.experiment.experiment_id
-        run_id = summary.best_trial.mlflow_run_id
-        logging.info(
-            f"experiment_id: {experiment_id}"
-            f"\nbest trial run_id: {run_id}"
-            f"\n{training_params['primary_metric']} metric distribution = {summary.metric_distribution}"
-        )
-
-        dbutils.jobs.taskValues.set(key="experiment_id", value=experiment_id)
-        dbutils.jobs.taskValues.set(key="run_id", value=run_id)
-        return experiment_id, run_id
+        return experiment_id, aml, train, valid, test
 
     def evaluate_models(self, df_modeling: pd.DataFrame, experiment_id: str) -> None:
-        split_col = self.cfg.split_col or "_automl_split_col_0000"
-        evaluate_model_bias = split_col is not None
-
-        if evaluate_model_bias:
+        if self.cfg.split_col is not None:
             df_features = df_modeling.drop(columns=self.cfg.non_feature_cols)
         else:
-            df_features = modeling.evaluation.extract_training_data_from_model(
-                experiment_id
-            )
+            raise ValueError("Expected 'split_col' is missing, please add.")
 
         modeling_cfg = self.cfg.modeling
         topn = 10
         if modeling_cfg is not None and modeling_cfg.evaluation is not None:
             topn = modeling_cfg.evaluation.topn_runs_included
 
-        top_runs = modeling.evaluation.get_top_runs(
+        #Kayla TODO: should this be the same evaluation or new one?
+        top_runs = modeling.automl.evaluation.get_top_runs(
             experiment_id,
             optimization_metrics=[
-                "test_recall_score",
+                "test_recall",
                 "test_roc_auc",
                 "test_log_loss",
-                "test_f1_score",
-                "val_log_loss",
+                "test_f1",
+                "validate_log_loss",
             ],
             topn_runs_included=topn,
         )
         logging.info("top run ids = %s", top_runs)
-
+        # KAYLA TO PICK UP HERE 
         for run_id in top_runs.values():
             with mlflow.start_run(run_id=run_id):
                 logging.info(
@@ -206,6 +211,7 @@ class TrainingTask:
                 logging.info("Run %s: Completed", run_id)
         mlflow.end_run()
 
+    ##KAYLA: already edited this fn other than the update metadata function
     def select_model(self, experiment_id: str) -> None:
         modeling_cfg = self.cfg.modeling
         topn = 10
@@ -215,7 +221,7 @@ class TrainingTask:
         selected_runs = modeling.evaluation.get_top_runs(
             experiment_id,
             optimization_metrics=[
-                "test_recall_score",
+                "test_recall",
                 "test_roc_auc",
                 "test_log_loss",
                 "test_bias_score_mean",
@@ -227,6 +233,7 @@ class TrainingTask:
         top_run_name, top_run_id = next(iter(selected_runs.items()))
         logging.info(f"Selected top run: {top_run_name} & {top_run_id}")
 
+        ##KAYLA TO LOOK AT THIS
         utils.update_run_metadata_in_toml.update_run_metadata_in_toml(
             config_path="./config.toml",
             run_id=top_run_id,
@@ -267,7 +274,7 @@ class TrainingTask:
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(description="H2o training for pipeline.")
-
+    #KAYLA ADD ARGS
     return parser.parse_args()
 
 
