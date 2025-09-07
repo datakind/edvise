@@ -4,7 +4,7 @@ import pandas as pd
 import sys
 import importlib
 
-from .. import student_selection
+from src.edvise import student_selection
 from src.edvise.dataio.read import read_config
 from src.edvise.configs.pdp import PDPProjectConfig
 

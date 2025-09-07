@@ -4,9 +4,9 @@ import argparse
 import pandas as pd
 import logging
 
-from ..model_prep import cleanup_features as cleanup, training_params
-from dataio.read import read_parquet, read_config
-from dataio.write import write_parquet
+from src.edvise.model_prep import cleanup_features as cleanup, training_params
+from src.edvise.dataio.read import read_parquet, read_config
+from src.edvise.dataio.write import write_parquet
 from src.edvise.configs.pdp import PDPProjectConfig
 
 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class ModelPrepTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(args.toml_file_path, schema=PDPProjectConfig)
+        self.cfg = read_config(args.config_file_path, schema=PDPProjectConfig)
 
     def merge_data(
         self,
@@ -77,10 +77,10 @@ class ModelPrepTask:
 
     def run(self):
         # Read inputs using custom function
-        checkpoint_df = read_parquet(f"{self.args.checkpoint_path}/checkpoint.parquet")
-        target_df = read_parquet(f"{self.args.target_path}/target.parquet")
+        checkpoint_df = read_parquet(f"{self.args.silver_volume_path}/checkpoint.parquet")
+        target_df = read_parquet(f"{self.args.silver_volume_path}/target.parquet")
         selected_students = read_parquet(
-            f"{self.args.selection_path}/selected_students.parquet"
+            f"{self.args.silver_volume_path}/selected_students.parquet"
         )
 
         df_labeled = self.merge_data(checkpoint_df, target_df, selected_students)
@@ -91,7 +91,7 @@ class ModelPrepTask:
         # Write output using custom function
         write_parquet(
             df_preprocessed,
-            file_path=f"{self.args.output_path}/preprocessed.parquet",
+            file_path=f"{self.args.silver_volume_path}/preprocessed.parquet",
             index=False,
             overwrite=True,
             verbose=True,
@@ -102,24 +102,8 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Model preparation task for SST pipeline."
     )
-    parser.add_argument(
-        "--toml_file_path", type=str, required=True, help="Path to config TOML file"
-    )
-    parser.add_argument(
-        "--checkpoint_path", type=str, required=True, help="Path to checkpoint data"
-    )
-    parser.add_argument(
-        "--target_path", type=str, required=True, help="Path to target data"
-    )
-    parser.add_argument(
-        "--selection_path", type=str, required=True, help="Path to selected students"
-    )
-    parser.add_argument(
-        "--output_path",
-        type=str,
-        required=True,
-        help="Path to write preprocessed dataset",
-    )
+    parser.add_argument("--silver_volume_path", type=str, required=True)
+    parser.add_argument("--config_file_path", type=str, required=True)
     return parser.parse_args()
 
 
