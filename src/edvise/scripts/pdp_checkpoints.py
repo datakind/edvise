@@ -51,7 +51,7 @@ class PDPCheckpointsTask:
 
         # sort_cols: str | list[str] in schema; most functions accept list[str] or str.
         sort_cols = cp.sort_cols
-        include_cols = cp.include_cols or []
+        include_cols = cp.include_cols
 
         # Prefer isinstance() to narrow the union:
         if isinstance(cp, CheckpointNthConfig):
@@ -120,10 +120,6 @@ class PDPCheckpointsTask:
         df_student_terms = pd.read_parquet(
             f"{self.args.silver_volume_path}/student_terms.parquet"
         )
-
-        # Confirm that 'year_of_enrollment_at_cohort_inst' is in df_student_terms
-        if 'year_of_enrollment_at_cohort_inst' not in df_student_terms.columns:
-            raise ValueError("Column 'year_of_enrollment_at_cohort_inst' not found in student terms data.")
 
         df_ckpt = self.checkpoint_generation(df_student_terms)
 
