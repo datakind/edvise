@@ -266,34 +266,20 @@ class TrainingTask:
 
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
-    parser = argparse.ArgumentParser(description="Target generation for SST pipeline.")
-    parser.add_argument(
-        "--toml_file_path", type=str, required=True, help="Path to config file"
-    )
-    parser.add_argument(
-        "--custom_schemas_path", required=False, help="Path to custom schemas"
-    )
-    parser.add_argument(
-        "--student_term_path",
-        type=str,
-        required=True,
-        help="Path to student term parquet",
-    )
-    parser.add_argument(
-        "--target_path", type=str, required=True, help="Path to output target parquet"
-    )
+    parser = argparse.ArgumentParser(description="H2o training for pipeline.")
+
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
-    try:
-        if args.custom_schemas_path:
-            sys.path.append(args.custom_schemas_path)
-            schemas = importlib.import_module("schemas")
-            logging.info("Using custom schemas")
-    except Exception:
-        logging.info("Using default schemas")
+    # try:
+    #     if args.custom_schemas_path:
+    #         sys.path.append(args.custom_schemas_path)
+    #         schemas = importlib.import_module("schemas")
+    #         logging.info("Using custom schemas")
+    # except Exception:
+    #     logging.info("Using default schemas")
 
     task = TrainingTask(args)
     task.run()
