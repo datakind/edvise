@@ -4,7 +4,7 @@ import pandas as pd
 import sys
 import importlib
 
-from .. import checkpoints
+from src.edvise import checkpoints
 from src.edvise.configs.pdp import PDPProjectConfig
 from src.edvise.dataio.read import read_config
 
