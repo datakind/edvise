@@ -2,7 +2,7 @@ import mlflow.tracking
 import pandas as pd
 import pytest
 
-from src.edvise.modeling import evaluation
+from src.edvise.modeling.automl import evaluation
 
 
 @pytest.fixture
