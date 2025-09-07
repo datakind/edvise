@@ -75,7 +75,7 @@ class PDPFeatureGenerationTask:
         key_course_ids: t.Optional[list[str]] = None,
     ) -> pd.DataFrame:
         """Main feature generation pipeline."""
-        first_term = utils.infer_first_term_of_year(
+        first_term = utils.infer_data_terms.infer_first_term_of_year(
             df_course["academic_term"]
         )
 
