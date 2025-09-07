@@ -11,7 +11,7 @@ import scipy.stats as st
 import seaborn as sns
 import sklearn.metrics
 
-from .automl import evaluation
+from . import evaluation
 
 LOGGER = logging.getLogger(__name__)
 

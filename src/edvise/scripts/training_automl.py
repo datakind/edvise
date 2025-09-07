@@ -227,7 +227,7 @@ class TrainingTask:
         top_run_name, top_run_id = next(iter(selected_runs.items()))
         logging.info(f"Selected top run: {top_run_name} & {top_run_id}")
 
-        utils.update_run_metadata_in_toml.update_run_metadata_in_toml(
+        utils.update_config.update_run_metadata_in_toml(
             config_path="./config.toml",
             run_id=top_run_id,
             experiment_id=experiment_id,

@@ -5,15 +5,13 @@ import pandas as pd
 import sys
 import importlib
 import mlflow
-import dbutils
 import os
 
 from mlflow.tracking import MlflowClient
-from databricks.connect import DatabricksSession
-from databricks.sdk.runtime import dbutils
-from pyspark.dbutils import DBUtils
 
-from src.edvise import modeling, utils, dataio, configs
+from src.edvise import modeling, dataio, configs
+from src.edvise.modeling.h2o import utils as h2o_utils
+from src.edvise import utils as edvise_utils
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,7 +19,7 @@ logging.getLogger("py4j").setLevel(logging.WARNING)
 
 
 class TrainingParams(t.TypedDict, total=False):
-    job_run_id: str
+    db_run_id: str
     institution_id: str
     student_id_col: str
     target_col: str
@@ -36,27 +34,24 @@ class TrainingParams(t.TypedDict, total=False):
     seed: int
 
 
-
 class TrainingTask:
     """Performs feature selection and training the model for the pipeline."""
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.cfg = dataio.read.read_config(
-            self.args.toml_file_path,
+            self.args.config_file_path,
             schema=configs.pdp.PDPProjectConfig,
         )
         self.client = MlflowClient()
-        self.dbutils = DBUtils(spark)
-        modeling.h2o.utils.safe_h2o_init()
+        h2o_utils.safe_h2o_init()
         os.environ["MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR"] = "false"
 
     def feature_selection(self, df_preprocessed: pd.DataFrame) -> pd.DataFrame:
+        if self.cfg.modeling is None or self.cfg.modeling.feature_selection is None:
+            raise ValueError("FEATURE SELECTION SECTION OF MODELING DOES NOT EXIST IN THE CONFIG, PLEASE ADD")
+        
         modeling_cfg = self.cfg.modeling
-        if modeling_cfg is None or modeling_cfg.feature_selection is None:
-            # No feature-selection configured: pass-through
-            return df_preprocessed
-
         selection_params = modeling_cfg.feature_selection.model_dump()
         selection_params["non_feature_cols"] = self.cfg.non_feature_cols
 
@@ -75,35 +70,31 @@ class TrainingTask:
 
     def train_model(self, df_modeling: pd.DataFrame) -> tuple[str, str]:
         mlflow.autolog(disable=False)
-
+        #KAYLA TODO: figure out how we want to create this - create a user email field in yml to deploy?
+        # Use run as for now - this will work until we set this as a service account
+        workspace_path = f"/Users/{self.args.ds_run_as}"
+       
+        if self.cfg.modeling is None or self.cfg.modeling.training is None:
+            raise ValueError("TRAINING SECTION OF MODELING DOES NOT EXIST IN THE CONFIG, PLEASE ADD")
+        
         modeling_cfg = self.cfg.modeling
-        if modeling_cfg is None or modeling_cfg.training is None:
-            raise ValueError("modeling.training must be configured in the TOML.")
+        db_run_id = self.args.db_run_id
 
-        job_run_id = t.cast(
-            str,
-            utils.databricks.get_db_widget_param("job_run_id", default="interactive"),
-        )
-
-        # Coerce pos_label to expected type (bool | str | None)
-        pos_label_cfg = self.cfg.pos_label
-        if isinstance(pos_label_cfg, int):
-            # If you truly mean “positive class is 1”, convert 0/1 -> False/True
-            pos_label: t.Optional[bool | str] = bool(pos_label_cfg)
-        else:
-            pos_label = t.cast(t.Optional[bool | str], pos_label_cfg)
+        #Assert this is a boolean - KAYLA to double check with VISH this is true 
+        if isinstance(self.cfg.pos_label, bool)==False:
+            raise ValueError("POSITIVE LABEL MUST BE BOOLEAN IN THE CONFIG, PLEASE ADD")
 
         timeout_minutes = modeling_cfg.training.timeout_minutes
         if timeout_minutes is None:
             timeout_minutes = 10
 
         training_params: TrainingParams = {
-            "job_run_id": job_run_id,
+            "db_run_id": db_run_id,
             "institution_id": self.cfg.institution_id,
             "student_id_col": self.cfg.student_id_col,
             "target_col": self.cfg.target_col,
             "split_col": self.cfg.split_col,
-            "pos_label": pos_label,
+            "pos_label": self.cfg.pos_label,
             "primary_metric": modeling_cfg.training.primary_metric,
             "timeout_minutes": timeout_minutes,
             "exclude_cols": sorted(
@@ -114,7 +105,7 @@ class TrainingTask:
             ),
             "target_name": self.cfg.preprocessing.target.name,
             "checkpoint_name": self.cfg.preprocessing.checkpoint.name,
-            "workspace_path": modeling_cfg,
+            "workspace_path": workspace_path,
             "seed": self.cfg.random_state
         }
         experiment_id, aml, train, valid, test = (
@@ -125,21 +116,21 @@ class TrainingTask:
             )
         )
 
-        return experiment_id, aml, train, valid, test
+        return experiment_id
 
     def evaluate_models(self, df_modeling: pd.DataFrame, experiment_id: str) -> None:
         if self.cfg.split_col is not None:
             df_features = df_modeling.drop(columns=self.cfg.non_feature_cols)
         else:
-            raise ValueError("Expected 'split_col' is missing, please add.")
-
-        modeling_cfg = self.cfg.modeling
-        topn = 10
-        if modeling_cfg is not None and modeling_cfg.evaluation is not None:
+            raise ValueError("SPLIT COL DOES NOT EXIST IN THE CONFIG, PLEASE ADD")
+        
+        if self.cfg.modeling is not None and self.cfg.modeling.evaluation is not None:
+            modeling_cfg = self.cfg.modeling
             topn = modeling_cfg.evaluation.topn_runs_included
 
-        #Kayla TODO: should this be the same evaluation or new one?
-        top_runs = modeling.automl.evaluation.get_top_runs(
+        topn = 10
+
+        top_runs = modeling.evaluation.get_top_runs(
             experiment_id,
             optimization_metrics=[
                 "test_recall",
@@ -151,73 +142,52 @@ class TrainingTask:
             topn_runs_included=topn,
         )
         logging.info("top run ids = %s", top_runs)
-        # KAYLA TO PICK UP HERE 
+
         for run_id in top_runs.values():
             with mlflow.start_run(run_id=run_id):
                 logging.info(
                     "Run %s: Starting performance evaluation%s",
                     run_id,
-                    " and bias assessment" if evaluate_model_bias else "",
+                    " and bias assessment",
                 )
-                model = mlflow.sklearn.load_model(f"runs:/{run_id}/model")
+                df_features_imp = (
+                    modeling.h2o.imputation.SklearnImputerWrapper.load_and_transform(
+                        df=df_features,
+                        run_id=run_id,
+                    )
+                )
+                model = h2o_utils.load_h2o_model(run_id=run_id)
+                labels, probs = modeling.h2o.inference.predict_h2o(
+                    features=df_features_imp,
+                    model=model,
+                    pos_label=self.cfg.pos_label,
+                )
                 df_pred = df_modeling.assign(
                     **{
-                        self.cfg.pred_col: model.predict(df_features),
-                        self.cfg.pred_prob_col: modeling.prediction.predict_probs(
-                            df_features,
-                            model,
-                            feature_names=list(df_features.columns),
-                            pos_label=t.cast(
-                                t.Optional[bool | str],
-                                self.cfg.pos_label
-                                if not isinstance(self.cfg.pos_label, int)
-                                else bool(self.cfg.pos_label),
-                            ),
-                        ),
+                        self.cfg.pred_col: labels,
+                        self.cfg.pred_prob_col: probs,
                     }
-                )
-                modeling.evaluation.plot_trained_models_comparison(
-                    experiment_id,
-                    t.cast(str, modeling_cfg.training.primary_metric)
-                    if (modeling_cfg and modeling_cfg.training)
-                    else "test_roc_auc",
                 )
                 modeling.evaluation.evaluate_performance(
                     df_pred,
                     target_col=self.cfg.target_col,
-                    pos_label=t.cast(
-                        t.Optional[bool | str],
-                        self.cfg.pos_label
-                        if not isinstance(self.cfg.pos_label, int)
-                        else bool(self.cfg.pos_label),
-                    ),
+                    pos_label=self.cfg.pos_label
                 )
-                if evaluate_model_bias:
-                    # evaluate_bias expects list[Any]; give it a list (possibly empty) and cast
-                    group_cols_any: t.List[t.Any] = t.cast(
-                        t.List[t.Any], self.cfg.student_group_cols or []
-                    )
-                    modeling.bias_detection.evaluate_bias(
-                        df_pred,
-                        student_group_cols=group_cols_any,
-                        target_col=self.cfg.target_col,
-                        pos_label=t.cast(
-                            t.Optional[bool | str],
-                            self.cfg.pos_label
-                            if not isinstance(self.cfg.pos_label, int)
-                            else bool(self.cfg.pos_label),
-                        ),
-                    )
+                modeling.bias_detection.evaluate_bias(
+                    df_pred,
+                    student_group_cols=self.cfg.student_group_cols,
+                    target_col=self.cfg.target_col,
+                    pos_label=self.cfg.pos_label,
+                )
                 logging.info("Run %s: Completed", run_id)
         mlflow.end_run()
 
-    ##KAYLA: already edited this fn other than the update metadata function
     def select_model(self, experiment_id: str) -> None:
-        modeling_cfg = self.cfg.modeling
-        topn = 10
-        if modeling_cfg is not None and modeling_cfg.evaluation is not None:
-            topn = modeling_cfg.evaluation.topn_runs_included
+        if self.cfg.modeling is not None and self.cfg.modeling.evaluation is not None:
+                    modeling_cfg = self.cfg.modeling
+                    topn = modeling_cfg.evaluation.topn_runs_included
 
+        topn = 10
         selected_runs = modeling.evaluation.get_top_runs(
             experiment_id,
             optimization_metrics=[
@@ -233,9 +203,8 @@ class TrainingTask:
         top_run_name, top_run_id = next(iter(selected_runs.items()))
         logging.info(f"Selected top run: {top_run_name} & {top_run_id}")
 
-        ##KAYLA TO LOOK AT THIS
-        utils.update_run_metadata_in_toml.update_run_metadata_in_toml(
-            config_path="./config.toml",
+        edvise_utils.update_config.update_run_metadata(
+            config_path=self.args.config_file_path,
             run_id=top_run_id,
             experiment_id=experiment_id,
         )
@@ -246,7 +215,6 @@ class TrainingTask:
         df_preprocessed = pd.read_parquet(
             f"{self.args.student_term_path}/preprocessed.parquet"
         )
-
         logging.info("Selecting features")
         df_modeling = self.feature_selection(df_preprocessed)
 
@@ -259,10 +227,7 @@ class TrainingTask:
         )
 
         logging.info("Training model")
-        experiment_id, run_id = self.train_model(df_modeling)
-        logging.info(
-            f"Model trained with experiment_id={experiment_id}, run_id={run_id}"
-        )
+        experiment_id = self.train_model(df_modeling)
 
         logging.info("Evaluating models")
         self.evaluate_models(df_modeling, experiment_id)
@@ -274,7 +239,10 @@ class TrainingTask:
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(description="H2o training for pipeline.")
-    #KAYLA ADD ARGS
+    parser.add_argument("--silver_volume_path", type=str, required=True)
+    parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument("--db_run_id", type=str, required=False)
+    parser.add_argument("--ds_run_as", type=str, required=False)
     return parser.parse_args()
 
 
