@@ -1,3 +1,4 @@
+import typing as t
 import logging
 import argparse
 import pandas as pd
@@ -6,11 +7,24 @@ import importlib
 import mlflow
 import dbutils
 
-from .. import modeling, utils, dataio, inference
+from edvise import modeling, utils, dataio, configs
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)
+
+
+class TrainingParams(t.TypedDict, total=False):
+    job_run_id: str
+    institution_id: str
+    student_id_col: str
+    target_col: str
+    split_col: t.Optional[str]
+    pos_label: t.Optional[str | bool]
+    primary_metric: str
+    timeout_minutes: int
+    exclude_frameworks: t.Optional[t.List[str]]
+    exclude_cols: t.List[str]
 
 
 class TrainingTask:
@@ -18,11 +32,18 @@ class TrainingTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = dataio.read.read_PDP_config(self.args.toml_file_path)
+        self.cfg = dataio.read.read_config(
+            self.args.toml_file_path,
+            schema=configs.pdp.PDPProjectConfig,
+        )
 
-    def feature_selection(self, df_preprocessed: pd.DataFrame) -> pd.Series:
-        """ """
-        selection_params = self.cfg.modeling.feature_selection.model_dump()
+    def feature_selection(self, df_preprocessed: pd.DataFrame) -> pd.DataFrame:
+        modeling_cfg = self.cfg.modeling
+        if modeling_cfg is None or modeling_cfg.feature_selection is None:
+            # No feature-selection configured: pass-through
+            return df_preprocessed
+
+        selection_params = modeling_cfg.feature_selection.model_dump()
         selection_params["non_feature_cols"] = self.cfg.non_feature_cols
 
         mlflow.autolog(disable=True)
@@ -35,37 +56,54 @@ class TrainingTask:
             ),
             **selection_params,
         )
-
         df_modeling = df_preprocessed.loc[:, df_selected.columns]
-
         return df_modeling
 
-    def train_model(self, df_modeling: pd.DataFrame) -> None:
+    def train_model(self, df_modeling: pd.DataFrame) -> tuple[str, str]:
         mlflow.autolog(disable=False)
-        # Get job run id for automl run
-        job_run_id = utils.databricks.get_db_widget_param(
-            "job_run_id", default="interactive"
+
+        modeling_cfg = self.cfg.modeling
+        if modeling_cfg is None or modeling_cfg.training is None:
+            raise ValueError("modeling.training must be configured in the TOML.")
+
+        job_run_id = t.cast(
+            str,
+            utils.databricks.get_db_widget_param("job_run_id", default="interactive"),
         )
-        training_params = {
+
+        # Coerce pos_label to expected type (bool | str | None)
+        pos_label_cfg = self.cfg.pos_label
+        if isinstance(pos_label_cfg, int):
+            # If you truly mean “positive class is 1”, convert 0/1 -> False/True
+            pos_label: t.Optional[bool | str] = bool(pos_label_cfg)
+        else:
+            pos_label = t.cast(t.Optional[bool | str], pos_label_cfg)
+
+        timeout_minutes = modeling_cfg.training.timeout_minutes
+        if timeout_minutes is None:
+            timeout_minutes = 10
+
+        training_params: TrainingParams = {
             "job_run_id": job_run_id,
             "institution_id": self.cfg.institution_id,
             "student_id_col": self.cfg.student_id_col,
             "target_col": self.cfg.target_col,
             "split_col": self.cfg.split_col,
-            "pos_label": self.cfg.pos_label,
-            "primary_metric": self.cfg.modeling.training.primary_metric,
-            "timeout_minutes": self.cfg.modeling.training.timeout_minutes,
-            "exclude_frameworks": self.cfg.modeling.training.exclude_frameworks,
+            "pos_label": pos_label,
+            "primary_metric": modeling_cfg.training.primary_metric,
+            "timeout_minutes": timeout_minutes,
+            "exclude_frameworks": modeling_cfg.training.exclude_frameworks,
             "exclude_cols": sorted(
                 set(
-                    (self.cfg.modeling.training.exclude_cols or [])
+                    (modeling_cfg.training.exclude_cols or [])
                     + (self.cfg.student_group_cols or [])
                 )
             ),
         }
 
-        summary = modeling.training.run_automl_classification(
-            df_modeling, **training_params
+        summary: t.Any = modeling.automl.training.run_automl_classification(  # type: ignore
+            df_modeling,  # 1st positional arg
+            **training_params,  # kwargs now precisely typed
         )
 
         experiment_id = summary.experiment.experiment_id
@@ -82,9 +120,6 @@ class TrainingTask:
 
     def evaluate_models(self, df_modeling: pd.DataFrame, experiment_id: str) -> None:
         split_col = self.cfg.split_col or "_automl_split_col_0000"
-
-        # only possible to do bias evaluation if you specify a split col for train/test/validate
-        # AutoML doesn't preserve student ids the training set, which we need for [reasons]
         evaluate_model_bias = split_col is not None
 
         if evaluate_model_bias:
@@ -94,7 +129,11 @@ class TrainingTask:
                 experiment_id
             )
 
-        # Get top runs from experiment for evaluation
+        modeling_cfg = self.cfg.modeling
+        topn = 5
+        if (mc := self.cfg.modeling) is not None and (ev := mc.evaluation) is not None:
+            topn = ev.topn_runs_included
+
         top_runs = modeling.evaluation.get_top_runs(
             experiment_id,
             optimization_metrics=[
@@ -104,12 +143,12 @@ class TrainingTask:
                 "test_f1_score",
                 "val_log_loss",
             ],
-            topn_runs_included=self.cfg.modeling.evaluation.topn_runs_included,
+            topn_runs_included=topn,
         )
         logging.info("top run ids = %s", top_runs)
 
         for run_id in top_runs.values():
-            with mlflow.start_run(run_id=run_id) as run:
+            with mlflow.start_run(run_id=run_id):
                 logging.info(
                     "Run %s: Starting performance evaluation%s",
                     run_id,
@@ -119,34 +158,59 @@ class TrainingTask:
                 df_pred = df_modeling.assign(
                     **{
                         self.cfg.pred_col: model.predict(df_features),
-                        self.cfg.pred_prob_col: inference.prediction.predict_probs(
+                        self.cfg.pred_prob_col: modeling.automl.inference.predict_probs(  # type: ignore
                             df_features,
                             model,
                             feature_names=list(df_features.columns),
-                            pos_label=self.cfg.pos_label,
+                            pos_label=t.cast(
+                                t.Optional[bool | str],
+                                self.cfg.pos_label
+                                if not isinstance(self.cfg.pos_label, int)
+                                else bool(self.cfg.pos_label),
+                            ),
                         ),
                     }
                 )
-                model_comp_fig = modeling.evaluation.plot_trained_models_comparison(
-                    experiment_id, self.cfg.modeling.training.primary_metric
+                modeling.evaluation.plot_trained_models_comparison(
+                    experiment_id,
+                    t.cast(str, modeling_cfg.training.primary_metric)
+                    if (modeling_cfg and modeling_cfg.training)
+                    else "test_roc_auc",
                 )
                 modeling.evaluation.evaluate_performance(
                     df_pred,
                     target_col=self.cfg.target_col,
-                    pos_label=self.cfg.pos_label,
+                    pos_label=t.cast(
+                        t.Optional[bool | str],
+                        self.cfg.pos_label
+                        if not isinstance(self.cfg.pos_label, int)
+                        else bool(self.cfg.pos_label),
+                    ),
                 )
                 if evaluate_model_bias:
+                    # evaluate_bias expects list[Any]; give it a list (possibly empty) and cast
+                    group_cols_any: t.List[t.Any] = t.cast(
+                        t.List[t.Any], self.cfg.student_group_cols or []
+                    )
                     modeling.bias_detection.evaluate_bias(
                         df_pred,
-                        student_group_cols=self.cfg.student_group_cols,
+                        student_group_cols=group_cols_any,
                         target_col=self.cfg.target_col,
-                        pos_label=self.cfg.pos_label,
+                        pos_label=t.cast(
+                            t.Optional[bool | str],
+                            self.cfg.pos_label
+                            if not isinstance(self.cfg.pos_label, int)
+                            else bool(self.cfg.pos_label),
+                        ),
                     )
                 logging.info("Run %s: Completed", run_id)
         mlflow.end_run()
 
     def select_model(self, experiment_id: str) -> None:
-        # Rank top runs again after evaluation for model selection
+        topn = 5
+        if (mc := self.cfg.modeling) is not None and (ev := mc.evaluation) is not None:
+            topn = ev.topn_runs_included
+
         selected_runs = modeling.evaluation.get_top_runs(
             experiment_id,
             optimization_metrics=[
@@ -155,16 +219,14 @@ class TrainingTask:
                 "test_log_loss",
                 "test_bias_score_mean",
             ],
-            topn_runs_included=self.cfg.modeling.evaluation.topn_runs_included,
+            topn_runs_included=topn,
         )
         logging.info("top run ids for model selection = %s", selected_runs)
 
-        # Extract the top run
         top_run_name, top_run_id = next(iter(selected_runs.items()))
         logging.info(f"Selected top run: {top_run_name} & {top_run_id}")
 
-        # Update config with run and experiment ids
-        utils.update_run_metadata_in_toml(
+        utils.update_config.update_run_metadata(
             config_path="./config.toml",
             run_id=top_run_id,
             experiment_id=experiment_id,

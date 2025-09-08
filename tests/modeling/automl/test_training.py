@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from edvise.modeling import training
+from edvise.modeling.automl import training
 from edvise.shared.databricks import get_experiment_name
 
 
