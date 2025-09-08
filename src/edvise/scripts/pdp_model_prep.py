@@ -1,5 +1,6 @@
 ## TODO : edit so it works for training or inference (with and without targets)
 
+import typing as t
 import argparse
 import pandas as pd
 import logging
@@ -42,10 +43,13 @@ class ModelPrepTask:
 
     def apply_dataset_splits(self, df: pd.DataFrame) -> pd.DataFrame:
         preprocessing_cfg = self.cfg.preprocessing
-        if preprocessing_cfg is not None:
-            splits = preprocessing_cfg.splits
+        splits: t.Dict[str, float]
+
+        if preprocessing_cfg is not None and preprocessing_cfg.splits is not None:
+            splits = t.cast(t.Dict[str, float], preprocessing_cfg.splits)
         else:
             splits = {"train": 0.6, "test": 0.2, "validate": 0.2}
+
 
         if self.cfg.split_col is not None:
             split_col = self.cfg.split_col
@@ -53,7 +57,7 @@ class ModelPrepTask:
             split_col = "split"
 
         df[split_col] = training_params.compute_dataset_splits(
-            df, label_fracs=splits, seed=self.cfg.random_state
+            df, label_fracs=splits, seed=self.cfg.random_state, stratify_col=self.cfg.target_col,
         )
         logger.info(
             "Dataset split distribution:\n%s",
@@ -62,8 +66,10 @@ class ModelPrepTask:
         return df
 
     def apply_sample_weights(self, df: pd.DataFrame) -> pd.DataFrame:
-        if self.cfg.preprocessing.sample_class_weight is not None:
-            sample_class_weight = self.cfg.preprocessing.sample_class_weight
+        prep = self.cfg.preprocessing
+        sample_class_weight = None
+        if prep is not None and prep.sample_class_weight is not None:
+            sample_class_weight = prep.sample_class_weight
         else:
             sample_class_weight = "balanced"
         if self.cfg.sample_weight_col is not None:

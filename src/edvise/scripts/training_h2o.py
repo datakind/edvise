@@ -54,7 +54,8 @@ class TrainingTask:
             )
 
         modeling_cfg = self.cfg.modeling
-        selection_params = modeling_cfg.feature_selection.model_dump()
+        fs = modeling_cfg.feature_selection
+        selection_params: t.Dict[str, t.Any] = fs.model_dump() if fs is not None else {}
         selection_params["non_feature_cols"] = self.cfg.non_feature_cols
 
         mlflow.autolog(disable=True)
@@ -70,7 +71,7 @@ class TrainingTask:
         df_modeling = df_preprocessed.loc[:, df_selected.columns]
         return df_modeling
 
-    def train_model(self, df_modeling: pd.DataFrame) -> tuple[str, str]:
+    def train_model(self, df_modeling: pd.DataFrame) -> str:
         mlflow.autolog(disable=False)
 
         # KAYLA TODO: figure out how we want to create this - create a user email field in yml to deploy?
@@ -88,10 +89,7 @@ class TrainingTask:
         if self.cfg.pos_label is None:
             raise ValueError("Missing 'pos_label' in config.")
 
-        # Assert this is a boolean - KAYLA to double check with VISH this is true
-        if not isinstance(self.cfg.pos_label, bool):
-            raise ValueError("`pos_label` must be a boolean in the config.")
-        pos_label: bool = self.cfg.pos_label
+        pos_label = self.cfg.pos_label
 
         modeling_cfg = self.cfg.modeling
         training_cfg = modeling_cfg.training
@@ -136,10 +134,9 @@ class TrainingTask:
         else:
             raise ValueError("SPLIT COL DOES NOT EXIST IN THE CONFIG, PLEASE ADD")
 
-        topn = 10
-        if self.cfg.modeling is not None and self.cfg.modeling.evaluation is not None:
-            modeling_cfg = self.cfg.modeling
-            topn = modeling_cfg.evaluation.topn_runs_included
+        topn = 5
+        if (mc := self.cfg.modeling) is not None and (ev := mc.evaluation) is not None:
+            topn = ev.topn_runs_included
 
         top_runs = modeling.evaluation.get_top_runs(
             experiment_id,
@@ -193,11 +190,9 @@ class TrainingTask:
                 logging.info("Run %s: Completed", run_id)
 
     def select_model(self, experiment_id: str) -> None:
-        if self.cfg.modeling is not None and self.cfg.modeling.evaluation is not None:
-            modeling_cfg = self.cfg.modeling
-            topn = modeling_cfg.evaluation.topn_runs_included
-        else:
-            topn = 10
+        topn = 5
+        if (mc := self.cfg.modeling) is not None and (ev := mc.evaluation) is not None:
+            topn = ev.topn_runs_included
         selected_runs = modeling.evaluation.get_top_runs(
             experiment_id,
             optimization_metrics=[
