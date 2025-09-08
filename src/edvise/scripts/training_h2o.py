@@ -1,5 +1,6 @@
 import typing as t
 import logging
+from dataclasses import dataclass
 import argparse
 import pandas as pd
 import mlflow
@@ -9,7 +10,10 @@ from mlflow.tracking import MlflowClient
 
 from edvise import modeling, dataio, configs
 from edvise.modeling.h2o_ml import utils as h2o_utils
+from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise import utils as edvise_utils
+
+from .predictions_h2o import PredConfig, PredPaths, RunType, run_predictions
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +48,7 @@ class TrainingTask:
             schema=configs.pdp.PDPProjectConfig,
         )
         self.client = MlflowClient()
+        self.features_table_path = "shared/assets/pdp_features_table.toml"
         h2o_utils.safe_h2o_init()
         os.environ["MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR"] = "false"
 
@@ -217,146 +222,99 @@ class TrainingTask:
             run_id=top_run_id,
             experiment_id=experiment_id,
         )
+
     def make_predictions(self):
-        model = h2o_utils.load_h2o_model(self.cfg.model.run_id)
-        model_feature_names = modeling.h2o_ml.inference.get_h2o_used_features(model)
-        
-        logging.info(
-            "model uses %s features: %s", len(model_feature_names), model_feature_names
-        )
-
-        # Extract training data (all splits)
-        df = modeling.h2o_ml.evaluation.extract_training_data_from_model(
-            self.cfg.model.experiment_id
-        )
-        if self.cfg.split_col:
-            df_train = df_train.loc[df_train[self.cfg.split_col].eq("train"), :]
-            df_test = df.loc[df[self.cfg.split_col].eq("test"), :]
-
-        # Need only a sample to produce SHAP plot for training
-        df_test = df_test.sample(n=min(200, len(df_test)), random_state=self.cfg.random_state)
-
-        # Load and transform using sklearn imputer
-        imputer = modeling.h2o_ml.imputation.SklearnImputerWrapper.load(run_id=self.cfg.model.run_id)
-        df_test = imputer.transform(df_test)
-
-        # Extract features & unique ids
-        features_df = df_test.loc[:, model_feature_names]
-        unique_ids = df_test[self.cfg.student_id_col]
-
-        # Generate predictions
-        _, pred_probs = modeling.h2o_ml.inference.predict_h2o(
-            features_df,
-            model=model,
-            feature_names=model_feature_names,
+        cfg = PredConfig(
+            model_run_id=self.cfg.model.run_id,
+            experiment_id=self.cfg.model.experiment_id,
+            split_col=self.cfg.split_col,
+            student_id_col=self.cfg.student_id_col,
             pos_label=self.cfg.pos_label,
-        )
-
-        # Sample background data for performance optimization
-        df_bd = df_train.sample(
-            n=min(self.cfg.inference.background_data_sample, len(df_test)),
+            min_prob_pos_label=self.cfg.inference.min_prob_pos_label,
+            background_data_sample=self.cfg.inference.background_data_sample,
+            cfg_inference_params=self.cfg.inference.dict(),
             random_state=self.cfg.random_state,
         )
-
-        contribs_df = modeling.h2o_ml.inference.compute_h2o_shap_contributions(
-            model=model,
-            df=features_df,
-            background_data=df_bd,
+        paths = PredPaths(
+            silver_modeling_path=self.cfg.datasets.silver.modeling.table_path,
+            features_table_path="shared/assets/pdp_features_table.toml",
         )
 
-        # Group one-hot encoding and missing value flags
-        grouped_contribs_df = modeling.h2o_ml.inference.group_shap_values(contribs_df)
-        grouped_features = modeling.h2o_ml.inference.group_feature_values(features_df)
+        try:
+            out = run_predictions(cfg, paths, run_type=RunType.TRAIN)
 
-        if mlflow.active_run():
-            mlflow.end_run()
-
-        with mlflow.start_run(run_id=self.cfg.model.run_id):
-            # Create & log SHAP summary plot (default to group missing flags)
-            modeling.h2o_ml.inference.plot_grouped_shap(
-                contribs_df=contribs_df,
-                features_df=features_df,
-                original_dtypes=imputer.input_dtypes,
+            # write the artifacts that are specific to *training* outputs
+            dataio.write.write_parquet(
+                out.top_features_result,
+                self.cfg.datasets.gold.advisor_output.table_path,
             )
 
-        # Provide output using top features, SHAP values, and support scores
-        result = modeling.inference.select_top_features_for_display(
-            grouped_features,
-            unique_ids,
-            pred_probs,
-            grouped_contribs_df.to_numpy(),
-            n_features=10,
-            features_table=features_table,
-            needs_support_threshold_prob=self.cfg.inference.min_prob_pos_label,
-        )
-
-        # save sample advisor output dataset
-        dataio.write.to_delta_table(
-            result, self.cfg.datasets.gold.advisor_output.table_path, spark_session=spark
-        )
-
-        # Log MLFlow confusion matrix & roc table figures in silver schema
-        with mlflow.start_run(run_id=self.cfg.model.run_id) as run:
-            confusion_matrix = modeling.evaluation.log_confusion_matrix(
-                institution_id=self.cfg.institution_id,
-                automl_run_id=self.cfg.model.run_id,
-            )
-
-            # Log roc curve table for front-end
-            roc_logs = modeling.h2o_ml.evaluation.log_roc_table(
-                institution_id=self.cfg.institution_id,
-                automl_run_id=self.cfg.model.run_id,
-                modeling_dataset_name=self.cfg.datasets.silver.modeling.table_path,
-            )
-
-        shap_feature_importance = modeling.inference.generate_ranked_feature_table(
-            features=grouped_features,
-            shap_values=grouped_contribs_df.to_numpy(),
-            features_table=features_table,
-        )
-        if shap_feature_importance is not None and features_table is not None:
-            shap_feature_importance[
-                ["readable_feature_name", "short_feature_desc", "long_feature_desc"]
-            ] = shap_feature_importance["Feature Name"].apply(
-                lambda feature: pd.Series(
-                    modeling.inference._get_mapped_feature_name(
-                        feature, features_table, metadata=True
-                    )
+            if out.shap_feature_importance is not None:
+                dataio.write.write_parquet(
+                    out.shap_feature_importance,
+                    f"{self.args.silver_volume_path}.training_{self.cfg.model.run_id}_shap_feature_importance.parquet",
                 )
+
+            dataio.write.write_parquet(
+                out.support_score_distribution,
+                f"{self.args.silver_volume_path}.training_{self.cfg.model.run_id}_support_overview.parquet",
             )
-            shap_feature_importance.columns = shap_feature_importance.columns.str.replace(
-                " ", "_"
-            ).str.lower()
 
+            # training-only logging
+            if mlflow.active_run():
+                mlflow.end_run()
+            with mlflow.start_run(run_id=self.cfg.model.run_id):
+                _ = modeling.evaluation.log_confusion_matrix(
+                    institution_id=self.cfg.institution_id,
+                    automl_run_id=self.cfg.model.run_id,
+                )
+                _ = modeling.h2o_ml.evaluation.log_roc_table(
+                    institution_id=self.cfg.institution_id,
+                    automl_run_id=self.cfg.model.run_id,
+                    modeling_dataset_name=self.cfg.datasets.silver.modeling.table_path,
+                )
 
-        # save sample advisor output dataset
-        dataio.write.to_delta_table(
-            shap_feature_importance,
-            f"{self.args.silver_volume_path}.training_{self.cfg.model.run_id}_shap_feature_importance",
-            spark_session=spark,
+        finally:
+            if mlflow.active_run():
+                try:
+                    mlflow.end_run()
+                except Exception:
+                    pass
+
+    def register_model(self):
+        model_name = modeling.registration.get_model_name(
+            institution_id=self.cfg.institution_id,
+            target=self.cfg.preprocessing.target.name,
+            checkpoint=self.cfg.preprocessing.checkpoint.name,
         )
+        try:
+            modeling.registration.register_mlflow_model(
+                model_name,
+                self.cfg.institution_id,
+                run_id=self.cfg.model.run_id,
+                catalog=self.args.catalog,
+                registry_uri="databricks-uc",
+                mlflow_client=self.client,
+            )
+        except Exception as e:
+            logging.warning("Failed to register model: %s", e)
 
-        support_score_distribution = modeling.inference.support_score_distribution_table(
-            df_serving=grouped_features,
-            unique_ids=unique_ids,
-            pred_probs=pred_probs,
-            shap_values=grouped_contribs_df,
-            inference_params=cfg.inference.dict(),
+        return model_name
+
+    def create_model_card(self, model_name):
+        # Initialize card
+        card = H2OPDPModelCard(
+            config=self.cfg,
+            catalog=self.args.catalog,
+            model_name=model_name,
+            mlflow_client=self.client,
         )
+        # Build context and download artifacts
+        card.build()
 
-        # save sample advisor output dataset
-        dataio.write.to_delta_table(
-            support_score_distribution,
-            f"{self.args.silver_volume_path}.training_{cfg.model.run_id}_support_overview",
-            spark_session=spark,
-        )
-        dataio.write.write_parquet(
-            support_score_distribution,
-            file_path=f"{self.args.silver_volume_path}.training_{cfg.model.run_id}_support_overview",
-        )
-
-
-
+        # Reload & publish
+        card.reload_card()
+        card.export_to_pdf()
 
     def run(self):
         """Executes the target computation pipeline and saves result."""
@@ -383,10 +341,20 @@ class TrainingTask:
         logging.info("Selecting best model")
         self.select_model(experiment_id)
 
+        logging.info("Generating training predictions & SHAP values")
+        self.make_predictions()
+
+        logging.info("Registering model in UC gold volume")
+        model_name = self.register_model()
+
+        logging.info("Generating model card")
+        self.create_model_card(model_name)
+
 
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(description="H2o training for pipeline.")
+    parser.add_argument("--catalog", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
