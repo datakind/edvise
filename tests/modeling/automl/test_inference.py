@@ -495,7 +495,7 @@ def test_empty_input():
         top_shap_features(features, unique_ids, shap_values)
 
 
-@patch("edvise.modeling.inference.select_top_features_for_display")
+@patch("edvise.modeling.automl.inference.select_top_features_for_display")
 @pytest.mark.parametrize(
     [
         "features",
