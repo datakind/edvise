@@ -6,14 +6,12 @@ import sys
 import pandas as pd
 import os
 
-# Add 'src' to sys.path if not already there
-current_file = os.path.abspath(__file__)
-repo_root = os.path.abspath(os.path.join(current_file, "..", "..", ".."))
+# Assumes current working directory is the repo root when using `source: GIT`
+repo_root = os.getcwd()
 src_path = os.path.join(repo_root, "src")
 
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
-
 
 from edvise import data_audit
 from edvise.data_audit.standardizer import (
