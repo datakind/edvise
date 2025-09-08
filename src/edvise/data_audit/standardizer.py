@@ -12,7 +12,7 @@ from edvise.utils.data_cleaning import (
     handling_duplicates,
     remove_pre_cohort_courses,
 )
-from eda import compute_gateway_course_ids_and_cips
+from eda import compute_gateway_course_ids_and_cips, log_high_null_columns
 
 # TODO think of a better name than standardizer
 
@@ -91,6 +91,7 @@ class PDPCohortStandardizer(BaseStandardizer):
             "first_year_to_associates_at_other_inst": (None, "Int8"),
             "first_year_to_certificate_at_other_inst": (None, "Int8"),
         }
+        df = log_high_null_columns(df)
         df = drop_columns_safely(df, cols_to_drop)
         df = replace_na_firstgen_and_pell(df)
         df = self.add_empty_columns_if_missing(df, col_val_dtypes)
@@ -129,6 +130,7 @@ class PDPCourseStandardizer(BaseStandardizer):
             "enrollment_record_at_other_institution_s_carnegie_s",
             "enrollment_record_at_other_institution_s_locale_s",
         ]
+        df = log_high_null_columns(df)
         # df = remove_pre_cohort_courses(df)
         df = drop_columns_safely(df, cols_to_drop)
         df = self.add_empty_columns_if_missing(
