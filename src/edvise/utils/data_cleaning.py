@@ -302,12 +302,12 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
     )
     LOGGER.warning("%s duplicate rows found & dropped", int(len(dupe_rows) / 2))
 
-    df = df.drop_duplicates(subset=unique_cols, keep="first").sort_values(
+    df_course = df_course.drop_duplicates(subset=unique_cols, keep="first").sort_values(
         by=unique_cols + ["number_of_credits_attempted"],
         ascending=False,
         ignore_index=True,
     )
-    return df
+    return df_course
 
 
 def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
