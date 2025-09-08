@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import pytest
 from unittest import mock
-from src.edvise.modeling.h2o_ml import inference
+from edvise.modeling.h2o_ml import inference
 
 
 # Existing SHAP grouping test
@@ -72,8 +72,8 @@ def test_create_color_hint_features_mixed_types():
     assert result["opted_in"].tolist() == [1, 0]
 
 
-@mock.patch("src.edvise.modeling.h2o.inference.mlflow.log_figure")
-@mock.patch("src.edvise.modeling.h2o.inference.shap.summary_plot")
+@mock.patch("edvise.modeling.h2o_ml.inference.mlflow.log_figure")
+@mock.patch("edvise.modeling.h2o_ml.inference.shap.summary_plot")
 def test_plot_grouped_shap_calls_summary_plot(mock_summary_plot, mock_log_figure):
     contribs_df = pd.DataFrame(
         {"feature.X.1": [0.1, 0.2], "feature.X.2": [0.2, 0.3], "feature.Y": [0.3, 0.1]}
@@ -83,15 +83,13 @@ def test_plot_grouped_shap_calls_summary_plot(mock_summary_plot, mock_log_figure
     mock_summary_plot.assert_called_once()
 
 
-@mock.patch("src.edvise.modeling.h2o.utils._to_pandas")
+@mock.patch("edvise.modeling.h2o_ml.utils._to_pandas")
+@mock.patch("edvise.modeling.h2o_ml.inference.predict_contribs_batched")
 @mock.patch(
-    "src.edvise.modeling.h2o.inference.predict_contribs_batched"
-)
-@mock.patch(
-    "src.edvise.modeling.h2o.inference.get_h2o_used_features",
+    "edvise.modeling.h2o_ml.inference.get_h2o_used_features",
     return_value=["feature1", "feature2"],
 )
-@mock.patch("src.edvise.modeling.h2o.utils._to_h2o")
+@mock.patch("edvise.modeling.h2o_ml.utils._to_h2o")
 def test_compute_h2o_shap_contributions_with_bias_drop(
     mock_to_h2o,
     mock_get_used,
@@ -221,8 +219,8 @@ def test_create_color_hint_features_keeps_missing_flags_numeric():
     assert list(result["gpa_missing_flag"]) == [1, 0]
 
 
-@mock.patch("src.edvise.modeling.h2o.inference.mlflow.log_figure")
-@mock.patch("src.edvise.modeling.h2o.inference.shap.summary_plot")
+@mock.patch("edvise.modeling.h2o_ml.inference.mlflow.log_figure")
+@mock.patch("edvise.modeling.h2o_ml.inference.shap.summary_plot")
 def test_plot_grouped_shap_works_without_original_dtypes(
     mock_summary_plot, mock_log_figure
 ):
@@ -262,10 +260,8 @@ def test_plot_grouped_shap_works_without_original_dtypes(
 # -------------------------------
 
 
-@mock.patch("src.edvise.modeling.h2o.utils._to_pandas")
-@mock.patch(
-    "src.edvise.modeling.h2o.utils._to_h2o", return_value="hf"
-)
+@mock.patch("edvise.modeling.h2o_ml.utils._to_pandas")
+@mock.patch("edvise.modeling.h2o_ml.utils._to_h2o", return_value="hf")
 def test_predict_h2o_with_dataframe(mock_to_h2o, mock_to_pandas):
     df = pd.DataFrame({"a": [1, 2], "b_missing_flag": [0, 1]})
     mock_model = mock.MagicMock()
@@ -280,10 +276,8 @@ def test_predict_h2o_with_dataframe(mock_to_h2o, mock_to_pandas):
     np.testing.assert_array_equal(probs, np.array([0.8]))
 
 
-@mock.patch("src.edvise.modeling.h2o.utils._to_pandas")
-@mock.patch(
-    "src.edvise.modeling.h2o.utils._to_h2o", return_value="hf"
-)
+@mock.patch("edvise.modeling.h2o_ml.utils._to_pandas")
+@mock.patch("edvise.modeling.h2o_ml.utils._to_h2o", return_value="hf")
 def test_predict_h2o_with_ndarray_and_feature_names(mock_to_h2o, mock_to_pandas):
     arr = np.array([[1, 2], [3, 4]])
     feature_names = ["x", "y_missing_flag"]
@@ -311,10 +305,8 @@ def test_predict_h2o_with_ndarray_missing_feature_names_raises():
 # -------------------------------
 
 
-@mock.patch("src.edvise.modeling.h2o.utils._to_pandas")
-@mock.patch(
-    "src.edvise.modeling.h2o.utils._to_h2o", return_value="hf"
-)
+@mock.patch("edvise.modeling.h2o_ml.utils._to_pandas")
+@mock.patch("edvise.modeling.h2o_ml.utils._to_h2o", return_value="hf")
 def test_predict_h2o_returns_labels_and_probs(mock_to_h2o, mock_to_pandas):
     df = pd.DataFrame({"f1": [1], "f2_missing_flag": [0]})
     mock_model = mock.MagicMock()
@@ -334,10 +326,8 @@ def test_predict_h2o_returns_labels_and_probs(mock_to_h2o, mock_to_pandas):
     mock_to_pandas.assert_called_once_with("raw_pred")
 
 
-@mock.patch("src.edvise.modeling.h2o.utils._to_pandas")
-@mock.patch(
-    "src.edvise.modeling.h2o.utils._to_h2o", return_value="hf"
-)
+@mock.patch("edvise.modeling.h2o_ml.utils._to_pandas")
+@mock.patch("edvise.modeling.h2o_ml.utils._to_h2o", return_value="hf")
 def test_predict_h2o_with_pos_label(mock_to_h2o, mock_to_pandas):
     df = pd.DataFrame({"f1": [1], "f2": [2]})
     mock_model = mock.MagicMock()
@@ -353,10 +343,8 @@ def test_predict_h2o_with_pos_label(mock_to_h2o, mock_to_pandas):
     np.testing.assert_array_equal(probs, np.array([0.9]))
 
 
-@mock.patch("src.edvise.modeling.h2o.utils._to_pandas")
-@mock.patch(
-    "src.edvise.modeling.h2o.utils._to_h2o", return_value="hf"
-)
+@mock.patch("edvise.modeling.h2o_ml.utils._to_pandas")
+@mock.patch("edvise.modeling.h2o_ml.utils._to_h2o", return_value="hf")
 def test_predict_h2o_with_missing_pos_label_raises(mock_to_h2o, mock_to_pandas):
     df = pd.DataFrame({"f1": [1]})
     mock_model = mock.MagicMock()

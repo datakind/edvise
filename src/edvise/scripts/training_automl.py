@@ -7,7 +7,7 @@ import importlib
 import mlflow
 import dbutils
 
-from .. import modeling, utils, dataio, configs
+from edvise import modeling, utils, dataio, configs
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -101,7 +101,7 @@ class TrainingTask:
             ),
         }
 
-        summary = modeling.training.run_automl_classification(
+        summary: t.Any = modeling.automl.training.run_automl_classification(  # type: ignore
             df_modeling,  # 1st positional arg
             **training_params,  # kwargs now precisely typed
         )
@@ -130,9 +130,9 @@ class TrainingTask:
             )
 
         modeling_cfg = self.cfg.modeling
-        topn = 10
-        if modeling_cfg is not None and modeling_cfg.evaluation is not None:
-            topn = modeling_cfg.evaluation.topn_runs_included
+        topn = 5
+        if (mc := self.cfg.modeling) is not None and (ev := mc.evaluation) is not None:
+            topn = ev.topn_runs_included
 
         top_runs = modeling.evaluation.get_top_runs(
             experiment_id,
@@ -158,7 +158,7 @@ class TrainingTask:
                 df_pred = df_modeling.assign(
                     **{
                         self.cfg.pred_col: model.predict(df_features),
-                        self.cfg.pred_prob_col: modeling.prediction.predict_probs(
+                        self.cfg.pred_prob_col: modeling.automl.inference.predict_probs(  # type: ignore
                             df_features,
                             model,
                             feature_names=list(df_features.columns),
@@ -207,10 +207,9 @@ class TrainingTask:
         mlflow.end_run()
 
     def select_model(self, experiment_id: str) -> None:
-        modeling_cfg = self.cfg.modeling
-        topn = 10
-        if modeling_cfg is not None and modeling_cfg.evaluation is not None:
-            topn = modeling_cfg.evaluation.topn_runs_included
+        topn = 5
+        if (mc := self.cfg.modeling) is not None and (ev := mc.evaluation) is not None:
+            topn = ev.topn_runs_included
 
         selected_runs = modeling.evaluation.get_top_runs(
             experiment_id,
@@ -227,7 +226,7 @@ class TrainingTask:
         top_run_name, top_run_id = next(iter(selected_runs.items()))
         logging.info(f"Selected top run: {top_run_name} & {top_run_id}")
 
-        utils.update_config.update_run_metadata_in_toml(
+        utils.update_config.update_run_metadata(
             config_path="./config.toml",
             run_id=top_run_id,
             experiment_id=experiment_id,

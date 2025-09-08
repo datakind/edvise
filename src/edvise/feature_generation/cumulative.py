@@ -7,7 +7,7 @@ import typing as t
 import pandas as pd
 from pandas.core.groupby import DataFrameGroupBy
 
-import src.edvise.utils as utils
+import edvise.utils as utils
 from . import constants
 
 LOGGER = logging.getLogger(__name__)

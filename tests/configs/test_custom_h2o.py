@@ -7,16 +7,9 @@ import pydantic as pyd
 import pathlib
 import pytest
 
-from src.edvise.configs import custom
+from edvise.configs import custom
 
-
-SRC_ROOT = (
-    pathlib.Path(__file__).parents[2]
-    / "pipelines"
-    / "custom"
-    / "institution_id"
-    / "h2o"
-)
+SRC_ROOT = pathlib.Path(__file__).parents[2] / "configs" / "custom_h2o"
 
 
 @pytest.fixture(scope="module")

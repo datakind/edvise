@@ -1,14 +1,12 @@
 import logging
 import argparse
 import pandas as pd
-import sys
-import importlib
 
-from src.edvise import checkpoints
-from src.edvise.configs.pdp import PDPProjectConfig
-from src.edvise.dataio.read import read_config
+from edvise import checkpoints
+from edvise.configs.pdp import PDPProjectConfig
+from edvise.dataio.read import read_config
 
-from src.edvise.configs.pdp import (
+from edvise.configs.pdp import (
     CheckpointNthConfig,
     CheckpointFirstConfig,
     CheckpointLastConfig,
@@ -128,7 +126,6 @@ class PDPCheckpointsTask:
         )
 
 
-
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(
@@ -137,13 +134,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
 
-
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
-    #again no school has a custom schema for pdp , but add in iff needed
+    # again no school has a custom schema for pdp , but add in iff needed
     # try:
     #     sys.path.append(args.custom_schemas_path)
     #     sys.path.append(

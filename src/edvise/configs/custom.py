@@ -49,7 +49,7 @@ class CustomProjectConfig(pyd.BaseModel):
     )
     pred_col: str = "pred"
     pred_prob_col: str = "pred_prob"
-    pos_label: t.Optional[int | bool | str] = True
+    pos_label: t.Optional[bool | str] = True
     random_state: t.Optional[int] = 12345
 
     # key artifacts produced by project pipeline

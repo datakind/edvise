@@ -6,25 +6,33 @@ import sys
 import pandas as pd
 import os
 
-# Add 'src' to sys.path if not already there
-repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0]))))
+# Go up 3 levels from the current file's directory to reach repo root
+script_dir = os.getcwd()
+repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
 src_path = os.path.join(repo_root, "src")
-if src_path not in sys.path:
+
+if os.path.isdir(src_path) and src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-from src.edvise import data_audit
-from src.edvise.data_audit.standardizer import (
+# Debug info
+print("Script dir:", script_dir)
+print("Repo root:", repo_root)
+print("src_path:", src_path)
+print("sys.path:", sys.path)
+
+from edvise import data_audit
+from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
-from src.edvise.utils.databricks import get_spark_session
-from src.edvise.dataio.read import (
+from edvise.utils.databricks import get_spark_session
+from edvise.dataio.read import (
     read_config,
     read_raw_pdp_cohort_data,
     read_raw_pdp_course_data,
 )
-from src.edvise.dataio.write import write_parquet
-from src.edvise.configs.pdp import PDPProjectConfig
+from edvise.dataio.write import write_parquet
+from edvise.configs.pdp import PDPProjectConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -122,7 +130,7 @@ def parse_arguments() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_arguments()
     if args.bronze_volume_path:
-        sys.path.append(f'{args.bronze_volume_path}/training_inputs')
+        sys.path.append(f"{args.bronze_volume_path}/training_inputs")
     try:
         converter_func = importlib.import_module("dataio")
         cohort_converter_func = converter_func.converter_func_cohort

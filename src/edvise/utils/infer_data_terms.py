@@ -24,6 +24,7 @@ def infer_first_term_of_year(s: pd.Series) -> utils.types.TermType:
             "Update the raw course data schema to properly order its categories!"
         )
 
+
 def infer_num_terms_in_year(s: pd.Series) -> int:
     """
     Infer the number of terms in the (academic) year by the number of its categorical values.

@@ -3,7 +3,7 @@ import typing as t
 
 import pandas as pd
 
-from src.edvise import utils
+from edvise import utils
 
 LOGGER = logging.getLogger(__name__)
 
@@ -258,6 +258,7 @@ def last_student_terms_in_enrollment_year(
         sort_cols=sort_cols,
         include_cols=include_cols,
     )
+
 
 def _get_included_cols(
     df: pd.DataFrame,

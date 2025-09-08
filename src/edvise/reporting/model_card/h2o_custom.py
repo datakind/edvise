@@ -2,11 +2,13 @@ import typing as t
 from mlflow.tracking import MlflowClient
 
 # internal SST modules
-from src.edvise.modeling import h2o_ml
-from src.edvise.configs.custom import CustomProjectConfig
-from src.edvise.reporting.model_card.base import ModelCard
-from src.edvise.reporting.sections.custom import register_sections as register_custom_sections
-import src.edvise.reporting.utils as utils
+from edvise.modeling import h2o_ml
+from edvise.configs.custom import CustomProjectConfig
+from edvise.reporting.model_card.base import ModelCard
+from edvise.reporting.sections.custom import (
+    register_sections as register_custom_sections,
+)
+import edvise.reporting.utils as reporting_utils
 
 
 class H2OCustomModelCard(ModelCard[CustomProjectConfig]):
@@ -142,7 +144,7 @@ class H2OCustomModelCard(ModelCard[CustomProjectConfig]):
             ),
         }
         return {
-            key: utils.download_artifact(
+            key: reporting_utils.utils.download_artifact(
                 run_id=self.run_id,
                 description=description,
                 artifact_path=path,
