@@ -68,47 +68,60 @@ class TrainingTask:
         )
         df_modeling = df_preprocessed.loc[:, df_selected.columns]
         return df_modeling
-
+    
     def train_model(self, df_modeling: pd.DataFrame) -> tuple[str, str]:
         mlflow.autolog(disable=False)
+
         #KAYLA TODO: figure out how we want to create this - create a user email field in yml to deploy?
         # Use run as for now - this will work until we set this as a service account
         workspace_path = f"/Users/{self.args.ds_run_as}"
-       
-        if self.cfg.modeling is None or self.cfg.modeling.training is None:
-            raise ValueError("TRAINING SECTION OF MODELING DOES NOT EXIST IN THE CONFIG, PLEASE ADD")
-        
-        modeling_cfg = self.cfg.modeling
-        db_run_id = self.args.db_run_id
 
+        if self.cfg.modeling is None or self.cfg.modeling.training is None:
+            raise ValueError("Missing section of the config: modeling.training")
+        if self.cfg.preprocessing is None:
+            raise ValueError("Missing 'preprocessing' section in config.")
+        if self.cfg.preprocessing.target is None:
+            raise ValueError("Missing 'preprocessing.target' section in config.")
+        if self.cfg.preprocessing.checkpoint is None:
+            raise ValueError("Missing 'preprocessing.checkpoint' section in config.")
+        if self.cfg.pos_label is None:
+            raise ValueError("Missing 'pos_label' in config.")
+        
         #Assert this is a boolean - KAYLA to double check with VISH this is true 
         if not isinstance(self.cfg.pos_label, bool):
-            raise ValueError("POSITIVE LABEL MUST BE BOOLEAN IN THE CONFIG, PLEASE ADD")
+            raise ValueError("`pos_label` must be a boolean in the config.")
+        pos_label: bool = self.cfg.pos_label
 
-        timeout_minutes = modeling_cfg.training.timeout_minutes
-        if timeout_minutes is None:
-            timeout_minutes = 10
+        modeling_cfg = self.cfg.modeling
+        training_cfg = modeling_cfg.training
+        preprocessing_cfg = self.cfg.preprocessing
+
+        db_run_id = self.args.db_run_id or ""
+
+        timeout_minutes = training_cfg.timeout_minutes or 10
+        split_col = self.cfg.split_col or "split"
+
+        exclude_cols = list(set(
+            (training_cfg.exclude_cols or []) +
+            (self.cfg.student_group_cols or [])
+        ))
 
         training_params: TrainingParams = {
             "db_run_id": db_run_id,
             "institution_id": self.cfg.institution_id,
             "student_id_col": self.cfg.student_id_col,
             "target_col": self.cfg.target_col,
-            "split_col": self.cfg.split_col,
-            "pos_label": self.cfg.pos_label,
-            "primary_metric": modeling_cfg.training.primary_metric,
+            "split_col": split_col,
+            "pos_label": pos_label,
+            "primary_metric": training_cfg.primary_metric,
             "timeout_minutes": timeout_minutes,
-            "exclude_cols": sorted(
-                set(
-                    (modeling_cfg.training.exclude_cols or [])
-                    + (self.cfg.student_group_cols or [])
-                )
-            ),
-            "target_name": self.cfg.preprocessing.target.name,
-            "checkpoint_name": self.cfg.preprocessing.checkpoint.name,
+            "exclude_cols": sorted(exclude_cols),
+            "target_name": preprocessing_cfg.target.name,
+            "checkpoint_name": preprocessing_cfg.checkpoint.name,
             "workspace_path": workspace_path,
-            "seed": self.cfg.random_state
+            "seed": self.cfg.random_state or 42,  # fallback to ensure it's an int
         }
+
         experiment_id, *_ = (
             modeling.h2o_ml.training.run_h2o_automl_classification(
                 df=df_modeling,
@@ -118,6 +131,7 @@ class TrainingTask:
         )
 
         return experiment_id
+
 
     def evaluate_models(self, df_modeling: pd.DataFrame, experiment_id: str) -> None:
         if self.cfg.split_col is not None:
