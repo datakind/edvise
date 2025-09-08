@@ -302,11 +302,12 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def compute_gateway_course_ids(df_course: pd.DataFrame) -> List[str]:
+def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     """
-    Build a list of course IDs for Math/English gateway courses.
+    Build a list of course IDs and CIP codes for Math/English gateway courses.
     Filter: math_or_english_gateway in {"M", "E"}
     ID format: "<course_prefix><course_number>" (both coerced to strings, trimmed)
+    CIP codes taken from 'course_cip' column
     """
     if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(
         df_course.columns
@@ -318,8 +319,19 @@ def compute_gateway_course_ids(df_course: pd.DataFrame) -> List[str]:
     ids = df_course.loc[mask, "course_prefix"].fillna("") + df_course.loc[
         mask, "course_number"
     ].fillna("")
+    
+    cips = (
+        df_course.loc[mask, "course_cip"]
+        .astype(str)
+        .fillna("")
+        .str.strip()
+    )
 
-    # Drop NaNs, blanks, and ensure uniqueness
     # edit this to auto populate the config
-    ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")]
-    return ids.drop_duplicates().tolist()
+    cips = cips[cips.ne("") & cips.str.lower().ne("nan")].drop_duplicates()
+    ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")].drop_duplicates()
+    
+    LOGGER.info(f"Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
+    LOGGER.info(f"Identified {len(cips)} unique CIP codes: {cips.tolist()}")
+
+    return [ids.tolist(), cips.tolist()]

@@ -10,7 +10,7 @@ from edvise.utils.data_cleaning import (
     drop_course_rows_missing_identifiers,
     strip_trailing_decimal_strings,
     replace_na_firstgen_and_pell,
-    compute_gateway_course_ids,
+    compute_gateway_course_ids_and_cips,
 )
 
 # TODO think of a better name than standardizer
@@ -174,6 +174,6 @@ class PDPCourseStandardizer(BaseStandardizer):
         df = self.add_empty_columns_if_missing(
             df, {"term_program_of_study": (None, "string")}
         )
-        gateway_course_ids = compute_gateway_course_ids(df)
+        gateway_course_ids = compute_gateway_course_ids_and_cips(df)
         LOGGER.info("Math and English Gateway Courses Identified:", gateway_course_ids)
         return df
