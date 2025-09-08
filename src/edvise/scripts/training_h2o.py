@@ -2,20 +2,20 @@ import typing as t
 import logging
 import argparse
 import pandas as pd
-import sys
-import importlib
 import mlflow
 import os
 
 from mlflow.tracking import MlflowClient
 
-from src.edvise import modeling, dataio, configs
-from src.edvise.modeling.h2o_ml import utils as h2o_utils
-from src.edvise import utils as edvise_utils
+from edvise import modeling, dataio, configs
+from edvise.modeling.h2o_ml import utils as h2o_utils
+from edvise import utils as edvise_utils
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)
+
+# comment to test
 
 
 class TrainingParams(t.TypedDict, total=False):
@@ -49,10 +49,13 @@ class TrainingTask:
 
     def feature_selection(self, df_preprocessed: pd.DataFrame) -> pd.DataFrame:
         if self.cfg.modeling is None or self.cfg.modeling.feature_selection is None:
-            raise ValueError("FEATURE SELECTION SECTION OF MODELING DOES NOT EXIST IN THE CONFIG, PLEASE ADD")
-        
+            raise ValueError(
+                "FEATURE SELECTION SECTION OF MODELING DOES NOT EXIST IN THE CONFIG, PLEASE ADD"
+            )
+
         modeling_cfg = self.cfg.modeling
-        selection_params = modeling_cfg.feature_selection.model_dump()
+        fs = modeling_cfg.feature_selection
+        selection_params: t.Dict[str, t.Any] = fs.model_dump() if fs is not None else {}
         selection_params["non_feature_cols"] = self.cfg.non_feature_cols
 
         mlflow.autolog(disable=True)
@@ -68,66 +71,76 @@ class TrainingTask:
         df_modeling = df_preprocessed.loc[:, df_selected.columns]
         return df_modeling
 
-    def train_model(self, df_modeling: pd.DataFrame) -> tuple[str, str]:
+    def train_model(self, df_modeling: pd.DataFrame) -> str:
         mlflow.autolog(disable=False)
-        #KAYLA TODO: figure out how we want to create this - create a user email field in yml to deploy?
+
+        # KAYLA TODO: figure out how we want to create this - create a user email field in yml to deploy?
         # Use run as for now - this will work until we set this as a service account
         workspace_path = f"/Users/{self.args.ds_run_as}"
-       
+
         if self.cfg.modeling is None or self.cfg.modeling.training is None:
-            raise ValueError("TRAINING SECTION OF MODELING DOES NOT EXIST IN THE CONFIG, PLEASE ADD")
-        
+            raise ValueError("Missing section of the config: modeling.training")
+        if self.cfg.preprocessing is None:
+            raise ValueError("Missing 'preprocessing' section in config.")
+        if self.cfg.preprocessing.target is None:
+            raise ValueError("Missing 'preprocessing.target' section in config.")
+        if self.cfg.preprocessing.checkpoint is None:
+            raise ValueError("Missing 'preprocessing.checkpoint' section in config.")
+        if self.cfg.pos_label is None:
+            raise ValueError("Missing 'pos_label' in config.")
+
+        pos_label = self.cfg.pos_label
+
         modeling_cfg = self.cfg.modeling
-        db_run_id = self.args.db_run_id
+        training_cfg = modeling_cfg.training
+        preprocessing_cfg = self.cfg.preprocessing
 
-        #Assert this is a boolean - KAYLA to double check with VISH this is true 
-        if not isinstance(self.cfg.pos_label, bool):
-            raise ValueError("POSITIVE LABEL MUST BE BOOLEAN IN THE CONFIG, PLEASE ADD")
+        db_run_id = self.args.db_run_id or ""
 
-        timeout_minutes = modeling_cfg.training.timeout_minutes
-        if timeout_minutes is None:
-            timeout_minutes = 10
+        timeout_minutes = training_cfg.timeout_minutes or 10
+        split_col = self.cfg.split_col or "split"
+
+        exclude_cols = list(
+            set((training_cfg.exclude_cols or []) + (self.cfg.student_group_cols or []))
+        )
 
         training_params: TrainingParams = {
             "db_run_id": db_run_id,
             "institution_id": self.cfg.institution_id,
             "student_id_col": self.cfg.student_id_col,
             "target_col": self.cfg.target_col,
-            "split_col": self.cfg.split_col,
-            "pos_label": self.cfg.pos_label,
-            "primary_metric": modeling_cfg.training.primary_metric,
+            "split_col": split_col,
+            "pos_label": pos_label,
+            "primary_metric": training_cfg.primary_metric,
             "timeout_minutes": timeout_minutes,
-            "exclude_cols": sorted(
-                set(
-                    (modeling_cfg.training.exclude_cols or [])
-                    + (self.cfg.student_group_cols or [])
-                )
-            ),
-            "target_name": self.cfg.preprocessing.target.name,
-            "checkpoint_name": self.cfg.preprocessing.checkpoint.name,
+            "exclude_cols": sorted(exclude_cols),
+            "target_name": preprocessing_cfg.target.name,
+            "checkpoint_name": preprocessing_cfg.checkpoint.name,
             "workspace_path": workspace_path,
-            "seed": self.cfg.random_state
+            "seed": self.cfg.random_state or 42,  # fallback to ensure it's an int
         }
-        experiment_id, *_ = (
-            modeling.h2o_ml.training.run_h2o_automl_classification(
-                df=df_modeling,
-                **training_params,
-                client=self.client,
-            )
+
+        experiment_id, *_ = modeling.h2o_ml.training.run_h2o_automl_classification(
+            df=df_modeling,
+            **training_params,
+            client=self.client,
         )
 
         return experiment_id
 
     def evaluate_models(self, df_modeling: pd.DataFrame, experiment_id: str) -> None:
+        student_group_cols: t.List[str] = t.cast(
+            t.List[str], self.cfg.student_group_cols or []
+        )
+
         if self.cfg.split_col is not None:
             df_features = df_modeling.drop(columns=self.cfg.non_feature_cols)
         else:
             raise ValueError("SPLIT COL DOES NOT EXIST IN THE CONFIG, PLEASE ADD")
-        
-        topn = 10
-        if self.cfg.modeling is not None and self.cfg.modeling.evaluation is not None:
-            modeling_cfg = self.cfg.modeling
-            topn = modeling_cfg.evaluation.topn_runs_included
+
+        topn = 5
+        if (mc := self.cfg.modeling) is not None and (ev := mc.evaluation) is not None:
+            topn = ev.topn_runs_included
 
         top_runs = modeling.evaluation.get_top_runs(
             experiment_id,
@@ -170,22 +183,20 @@ class TrainingTask:
                 modeling.evaluation.evaluate_performance(
                     df_pred,
                     target_col=self.cfg.target_col,
-                    pos_label=self.cfg.pos_label
+                    pos_label=self.cfg.pos_label,
                 )
                 modeling.bias_detection.evaluate_bias(
                     df_pred,
-                    student_group_cols=self.cfg.student_group_cols,
+                    student_group_cols=student_group_cols,
                     target_col=self.cfg.target_col,
                     pos_label=self.cfg.pos_label,
                 )
                 logging.info("Run %s: Completed", run_id)
 
     def select_model(self, experiment_id: str) -> None:
-        if self.cfg.modeling is not None and self.cfg.modeling.evaluation is not None:
-                    modeling_cfg = self.cfg.modeling
-                    topn = modeling_cfg.evaluation.topn_runs_included
-
-        topn = 10
+        topn = 5
+        if (mc := self.cfg.modeling) is not None and (ev := mc.evaluation) is not None:
+            topn = ev.topn_runs_included
         selected_runs = modeling.evaluation.get_top_runs(
             experiment_id,
             optimization_metrics=[

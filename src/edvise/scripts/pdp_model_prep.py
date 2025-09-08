@@ -1,13 +1,14 @@
 ## TODO : edit so it works for training or inference (with and without targets)
 
+import typing as t
 import argparse
 import pandas as pd
 import logging
 
-from src.edvise.model_prep import cleanup_features as cleanup, training_params
-from src.edvise.dataio.read import read_parquet, read_config
-from src.edvise.dataio.write import write_parquet
-from src.edvise.configs.pdp import PDPProjectConfig
+from edvise.model_prep import cleanup_features as cleanup, training_params
+from edvise.dataio.read import read_parquet, read_config
+from edvise.dataio.write import write_parquet
+from edvise.configs.pdp import PDPProjectConfig
 
 
 logging.basicConfig(level=logging.INFO)
@@ -25,6 +26,7 @@ class ModelPrepTask:
         target_df: pd.DataFrame,
         selected_students: pd.DataFrame,
     ) -> pd.DataFrame:
+        # student id col is reqd in config
         student_id_col = self.cfg.student_id_col
         df_labeled = pd.merge(
             checkpoint_df,
@@ -40,15 +42,24 @@ class ModelPrepTask:
         return cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled)
 
     def apply_dataset_splits(self, df: pd.DataFrame) -> pd.DataFrame:
-        try:
-            splits = self.cfg.preprocessing.splits
-            split_col = self.cfg.split_col
-        except AttributeError:
+        preprocessing_cfg = self.cfg.preprocessing
+        splits: t.Dict[str, float]
+
+        if preprocessing_cfg is not None and preprocessing_cfg.splits is not None:
+            splits = t.cast(t.Dict[str, float], preprocessing_cfg.splits)
+        else:
             splits = {"train": 0.6, "test": 0.2, "validate": 0.2}
+
+        if self.cfg.split_col is not None:
+            split_col = self.cfg.split_col
+        else:
             split_col = "split"
 
         df[split_col] = training_params.compute_dataset_splits(
-            df, label_fracs=splits, seed=self.cfg.random_state
+            df,
+            label_fracs=splits,
+            seed=self.cfg.random_state,
+            stratify_col=self.cfg.target_col,
         )
         logger.info(
             "Dataset split distribution:\n%s",
@@ -57,11 +68,15 @@ class ModelPrepTask:
         return df
 
     def apply_sample_weights(self, df: pd.DataFrame) -> pd.DataFrame:
-        try:
-            sample_class_weight = self.cfg.preprocessing.sample_class_weight
-            sample_weight_col = self.cfg.sample_weight_col
-        except AttributeError:
+        prep = self.cfg.preprocessing
+        sample_class_weight = None
+        if prep is not None and prep.sample_class_weight is not None:
+            sample_class_weight = prep.sample_class_weight
+        else:
             sample_class_weight = "balanced"
+        if self.cfg.sample_weight_col is not None:
+            sample_weight_col = self.cfg.sample_weight_col
+        else:
             sample_weight_col = "sample_weight"
 
         df[sample_weight_col] = training_params.compute_sample_weights(
@@ -77,7 +92,9 @@ class ModelPrepTask:
 
     def run(self):
         # Read inputs using custom function
-        checkpoint_df = read_parquet(f"{self.args.silver_volume_path}/checkpoint.parquet")
+        checkpoint_df = read_parquet(
+            f"{self.args.silver_volume_path}/checkpoint.parquet"
+        )
         target_df = read_parquet(f"{self.args.silver_volume_path}/target.parquet")
         selected_students = read_parquet(
             f"{self.args.silver_volume_path}/selected_students.parquet"

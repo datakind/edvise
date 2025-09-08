@@ -5,7 +5,7 @@ import typing as t
 from collections.abc import Iterable
 from typing import List
 
-from src.edvise.utils import types
+from edvise.utils import types
 
 LOGGER = logging.getLogger(__name__)
 

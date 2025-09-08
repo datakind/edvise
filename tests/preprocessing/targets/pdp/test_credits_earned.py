@@ -3,8 +3,8 @@ import functools as ft
 import pandas as pd
 import pytest
 
-from src.edvise import checkpoints
-from src.edvise.targets import credits_earned
+from edvise import checkpoints
+from edvise.targets import credits_earned
 
 
 @pytest.mark.parametrize(

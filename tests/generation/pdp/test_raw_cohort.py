@@ -2,8 +2,8 @@ import faker
 import pandas as pd
 import pytest
 
-from src.edvise.data_audit.schemas import RawPDPCohortDataSchema
-from src.edvise.synth_generation.pdp import raw_cohort
+from edvise.data_audit.schemas import RawPDPCohortDataSchema
+from edvise.synth_generation.pdp import raw_cohort
 
 FAKER = faker.Faker()
 FAKER.add_provider(raw_cohort.Provider)

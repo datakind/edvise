@@ -2,8 +2,8 @@ import pytest
 import pandas as pd
 import re
 from unittest.mock import patch
-from src.edvise.reporting.model_card.custom import CustomModelCard
-from src.edvise.configs.custom import CustomProjectConfig
+from edvise.reporting.model_card.custom import CustomModelCard
+from edvise.configs.custom import CustomProjectConfig
 
 
 class DummyTrainingConfig:

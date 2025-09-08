@@ -7,11 +7,11 @@ import sys
 import pandas as pd
 import typing as t
 
-from .. import utils
-from .. import feature_generation
-from src.edvise.data_audit.standardizer import BaseStandardizer
-from src.edvise.dataio.read import read_config
-from src.edvise.configs.pdp import PDPProjectConfig
+from edvise import utils as edvise_utils
+from edvise import feature_generation
+from edvise.data_audit.standardizer import BaseStandardizer
+from edvise.dataio.read import read_config
+from edvise.configs.pdp import PDPProjectConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -80,7 +80,9 @@ class CustomFeatureGenerationTask:
         key_course_ids: t.Optional[list[str]] = None,
     ) -> pd.DataFrame:
         """Main feature generation pipeline."""
-        first_term = self.base_std.infer_first_term_of_year(df_course["academic_term"])
+        first_term = edvise_utils.infer_data_terms.infer_first_term_of_year(
+            df_course["academic_term"]
+        )
 
         df_students = df_cohort.pipe(
             feature_generation.student.add_features, first_term_of_year=first_term
@@ -123,7 +125,7 @@ class CustomFeatureGenerationTask:
             df_student_terms,
             student_id_cols=["institution_id", "student_id"],
             sort_cols=["academic_year", "academic_term"],
-        ).rename(columns=utils.data_cleaning.convert_to_snake_case)
+        ).rename(columns=edvise_utils.data_cleaning.convert_to_snake_case)
 
         return df_student_terms_plus
 

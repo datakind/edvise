@@ -309,7 +309,7 @@ if __name__ == "__main__":
         schemas = importlib.import_module("schemas")
         logging.info("Running task with custom schema")
     except Exception:
-        from src.edvise.data_audit.schemas import raw_course, raw_cohort
+        from edvise.data_audit.schemas import raw_course, raw_cohort
 
         logging.info("Running task with default schema")
 

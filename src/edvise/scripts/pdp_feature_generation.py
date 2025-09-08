@@ -1,13 +1,11 @@
 import argparse
-import importlib
 import logging
-import sys
 import pandas as pd
 import typing as t
 
-from src.edvise import feature_generation, utils
-from src.edvise.dataio.read import read_config
-from src.edvise.configs.pdp import PDPProjectConfig
+from edvise import feature_generation, utils
+from edvise.dataio.read import read_config
+from edvise.configs.pdp import PDPProjectConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -137,7 +135,7 @@ def parse_arguments() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_arguments()
-    #no school use a custom schema for now remove and add back in iff needed
+    # no school use a custom schema for now remove and add back in iff needed
     # try:
     #     sys.path.append(args.custom_schemas_path)
     #     sys.path.append(

@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 import pandas as pd
 
-from src.edvise.reporting.model_card.base import ModelCard
+from edvise.reporting.model_card.base import ModelCard
 
 
 @pytest.fixture

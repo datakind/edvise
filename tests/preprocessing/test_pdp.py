@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.edvise import utils, model_prep
+from edvise import utils, model_prep
 
 # SYNTHETIC_DATA_PATH = "synthetic-data/pdp"
 

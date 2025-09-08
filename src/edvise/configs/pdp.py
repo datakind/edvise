@@ -4,8 +4,8 @@ import typing as t
 import pydantic as pyd
 
 # TODO: set field defaults using literals here instead?
-from src.edvise.feature_generation import constants
-from src.edvise.utils import types
+from edvise.feature_generation import constants
+from edvise.utils import types
 
 
 # allowed primary metrics by framework
@@ -47,7 +47,7 @@ class PDPProjectConfig(pyd.BaseModel):
     )
     pred_col: str = "pred"
     pred_prob_col: str = "pred_prob"
-    pos_label: t.Optional[int | bool | str] = True
+    pos_label: t.Optional[bool | str] = True
     random_state: t.Optional[int] = None
 
     # key artifacts produced by project pipeline

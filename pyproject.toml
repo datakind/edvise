@@ -89,6 +89,7 @@ testpaths = ["tests"]
 
 [tool.mypy]
 files = ["src"]
+mypy_path = "src"
 python_version = "3.10"
 pretty = true
 allow_redefinition = true

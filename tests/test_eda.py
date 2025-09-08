@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from src.edvise import data_audit
+from edvise import data_audit
 
 
 @pytest.mark.parametrize(
