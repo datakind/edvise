@@ -7,11 +7,16 @@ import pandas as pd
 import os
 
 # Assumes current working directory is the repo root when using `source: GIT`
-repo_root = os.getcwd()
-src_path = os.path.join(repo_root, "src")
+script_dir = os.getcwd()
+src_path = os.path.join(script_dir, "src")
 
-if src_path not in sys.path:
+if os.path.isdir(src_path) and src_path not in sys.path:
     sys.path.insert(0, src_path)
+
+# debug prints (remove after testing)
+print("sys.path:", sys.path)
+print("CWD:", script_dir)
+print("src_path added:", src_path in sys.path)
 
 from edvise import data_audit
 from edvise.data_audit.standardizer import (
