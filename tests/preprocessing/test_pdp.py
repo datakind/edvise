@@ -27,7 +27,7 @@ from edvise import utils, model_prep
     ],
 )
 def test_infer_first_term_of_year(series, exp):
-    obs = utils.infer_first_term_of_year.infer_first_term_of_year(series)
+    obs = utils.infer_data_terms.infer_first_term_of_year(series)
     assert obs == exp
 
 
@@ -39,7 +39,7 @@ def test_infer_first_term_of_year(series, exp):
     ],
 )
 def test_infer_num_terms_in_year(series, exp):
-    obs = utils.infer_num_terms_in_year.infer_num_terms_in_year(series)
+    obs = utils.infer_data_terms.infer_num_terms_in_year(series)
     assert obs == exp
 
 

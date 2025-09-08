@@ -1,13 +1,30 @@
 import argparse
 import importlib
 import logging
+import typing as t
 import sys
+import pandas as pd
+import os
 
+# Go up 3 levels from the current file's directory to reach repo root
+script_dir = os.getcwd()
+repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
+src_path = os.path.join(repo_root, "src")
+
+if os.path.isdir(src_path) and src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+# Debug info
+print("Script dir:", script_dir)
+print("Repo root:", repo_root)
+print("src_path:", src_path)
+print("sys.path:", sys.path)
+
+from edvise import data_audit
 from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
-import edvise.configs as configs
 from edvise.utils.databricks import get_spark_session
 from edvise.dataio.read import (
     read_config,
@@ -15,12 +32,15 @@ from edvise.dataio.read import (
     read_raw_pdp_course_data,
 )
 from edvise.dataio.write import write_parquet
-import edvise.data_audit as data_audit
+from edvise.configs.pdp import PDPProjectConfig
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
+
+# Create callable type
+ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
 
 
 class PDPDataAuditTask:
@@ -29,18 +49,18 @@ class PDPDataAuditTask:
     def __init__(
         self,
         args: argparse.Namespace,
-        course_converter_func=None,
-        cohort_converter_func=None,
+        course_converter_func: t.Optional[ConverterFunc] = None,
+        cohort_converter_func: t.Optional[ConverterFunc] = None,
     ):
         self.args = args
         self.cfg = read_config(
-            file_path=self.args.config_file_path, schema=configs.pdp.PDPProjectConfig
+            file_path=self.args.config_file_path, schema=PDPProjectConfig
         )
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
-        self.course_converter_func = course_converter_func
-        self.cohort_converter_func = cohort_converter_func
+        self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
+        self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
     def run(self):
         """Executes the data preprocessing pipeline."""
@@ -101,7 +121,7 @@ def parse_arguments() -> argparse.Namespace:
         description="Data preprocessing for inference in the SST pipeline."
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
-    parser.add_argument("--gold_volume_path", type=str, required=False, default=None)
+    parser.add_argument("--bronze_volume_path", type=str, required=False)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--DB_workspace", type=str, required=True)
     return parser.parse_args()
@@ -109,8 +129,8 @@ def parse_arguments() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_arguments()
-    if args.gold_volume_path:
-        sys.path.append(args.gold_volume_path)
+    if args.bronze_volume_path:
+        sys.path.append(f"{args.bronze_volume_path}/training_inputs")
     try:
         converter_func = importlib.import_module("dataio")
         cohort_converter_func = converter_func.converter_func_cohort

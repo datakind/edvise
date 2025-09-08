@@ -134,7 +134,9 @@ def read_features_table(file_path: str) -> dict[str, dict[str, str]]:
     return features_table  # type: ignore
 
 
-def read_parquet(path: str, dtype: dict = None, verbose: bool = False) -> pd.DataFrame:
+def read_parquet(
+    path: str, dtype: t.Optional[dict] = None, verbose: bool = False
+) -> pd.DataFrame:
     df = pd.read_parquet(path)
     if dtype:
         df = df.astype(dtype)
@@ -251,7 +253,7 @@ def read_raw_pdp_course_data(
         dttm_format=dttm_format,
         string_cols_to_uppercase=("academic_term",),
         datetime_cols=("course_begin_date", "course_end_date"),
-        **kwargs,
+        **kwargs,  # type: ignore
     )
 
 
@@ -309,7 +311,7 @@ def read_raw_pdp_cohort_data(
             "gpa_group_year_1": "UK",
         },
         bool_cols=("retention", "persistence"),
-        **kwargs,
+        **kwargs,  # type: ignore
     )
 
 

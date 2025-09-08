@@ -5,7 +5,7 @@ import typing as t
 from collections.abc import Iterable
 from typing import List
 
-from . import types
+from edvise.utils import types
 
 LOGGER = logging.getLogger(__name__)
 
@@ -310,6 +310,7 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+<<<<<<< HEAD
 def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     """
     Build a list of course IDs and CIP codes for Math/English gateway courses.
@@ -336,6 +337,7 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     )
 
     # edit this to auto populate the config
+<<<<<<< HEAD
     cips = cips[cips.ne("") & cips.str.lower().ne("nan")].drop_duplicates()
     ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")].drop_duplicates()
     

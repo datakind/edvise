@@ -26,7 +26,7 @@ def get_spark_session() -> DatabricksSession | None:
     try:
         spark_session = DatabricksSession.builder.getOrCreate()
         logging.info("Spark session created successfully.")
-        return spark_session
+        return t.cast(DatabricksSession, spark_session)
     except Exception:
         logging.error("Unable to create Spark session.")
         raise
