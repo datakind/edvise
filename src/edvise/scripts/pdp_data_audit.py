@@ -7,10 +7,13 @@ import pandas as pd
 import os
 
 # Add 'src' to sys.path if not already there
-repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[0]))))
+current_file = os.path.abspath(__file__)
+repo_root = os.path.abspath(os.path.join(current_file, "..", "..", ".."))
 src_path = os.path.join(repo_root, "src")
+
 if src_path not in sys.path:
     sys.path.insert(0, src_path)
+
 
 from edvise import data_audit
 from edvise.data_audit.standardizer import (
