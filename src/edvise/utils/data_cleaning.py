@@ -295,7 +295,7 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
             to_apply = deduped_course_numbers.reindex(same_name_idx).dropna(how="all")
             df_course.loc[to_apply.index, "course_number"] = to_apply["course_number"]
 
-    dupe_rows = df.loc[df.duplicated(unique_cols, keep=False), :].sort_values(
+    dupe_rows = df_course.loc[df.duplicated(unique_cols, keep=False), :].sort_values(
         by=unique_cols + ["number_of_credits_attempted"],
         ascending=False,
         ignore_index=True,
