@@ -3,7 +3,7 @@ import pytest
 import tomlkit
 import numpy as np
 
-from edvise.model_prep import training_params   
+from edvise.model_prep import training_params
 
 
 @pytest.mark.parametrize(

@@ -129,6 +129,10 @@ class TrainingTask:
         return experiment_id
 
     def evaluate_models(self, df_modeling: pd.DataFrame, experiment_id: str) -> None:
+        student_group_cols: t.List[str] = t.cast(
+            t.List[str], self.cfg.student_group_cols or []
+        )
+
         if self.cfg.split_col is not None:
             df_features = df_modeling.drop(columns=self.cfg.non_feature_cols)
         else:
@@ -183,7 +187,7 @@ class TrainingTask:
                 )
                 modeling.bias_detection.evaluate_bias(
                     df_pred,
-                    student_group_cols=self.cfg.student_group_cols,
+                    student_group_cols=student_group_cols,
                     target_col=self.cfg.target_col,
                     pos_label=self.cfg.pos_label,
                 )

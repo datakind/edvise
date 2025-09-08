@@ -50,14 +50,16 @@ class ModelPrepTask:
         else:
             splits = {"train": 0.6, "test": 0.2, "validate": 0.2}
 
-
         if self.cfg.split_col is not None:
             split_col = self.cfg.split_col
         else:
             split_col = "split"
 
         df[split_col] = training_params.compute_dataset_splits(
-            df, label_fracs=splits, seed=self.cfg.random_state, stratify_col=self.cfg.target_col,
+            df,
+            label_fracs=splits,
+            seed=self.cfg.random_state,
+            stratify_col=self.cfg.target_col,
         )
         logger.info(
             "Dataset split distribution:\n%s",

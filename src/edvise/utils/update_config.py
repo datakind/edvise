@@ -1,8 +1,7 @@
 import pathlib
 import typing as t
-from typing import cast
+from typing import cast, MutableMapping, Any
 from tomlkit import parse, dumps, table, TOMLDocument
-from tomlkit.container import Container
 from tomlkit.items import Table
 import logging
 
@@ -14,23 +13,23 @@ class TomlConfigEditor:
         self.path = pathlib.Path(config_path).resolve()
         self._doc: TOMLDocument = parse(self.path.read_text())
 
-    def update_field(self, key_path: list[str], value: t.Any) -> None:
+    def update_field(self, key_path: list[str], value: Any) -> None:
         """
         Update a nested field in the TOML config given a key path.
         """
-        # Traverse as a generic Container; TOMLDocument is a Container at runtime.
-        current: Container = cast(Container, self._doc)
+        # Work with dict-like interface; TOMLDocument/Table implement MutableMapping.
+        current: MutableMapping[str, Any] = cast(MutableMapping[str, Any], self._doc)
 
         # Walk down to the parent of the leaf, creating tables as needed.
         for key in key_path[:-1]:
             node = current.get(key)
-            if isinstance(node, Container):
-                current = node
+            if isinstance(node, MutableMapping):
+                current = cast(MutableMapping[str, Any], node)
             else:
-                # Create a table if missing or not a container.
-                new_tbl: Table = table()  # returns a Table, which is a Container
-                current[key] = new_tbl
-                current = new_tbl
+                # Create a table if missing or not a mapping.
+                new_tbl: Table = table()
+                current[key] = new_tbl  # type: ignore[assignment]  # (value type Any accepts Table)
+                current = cast(MutableMapping[str, Any], new_tbl)
 
         # Set the leaf value (tomlkit will wrap primitives as Items).
         current[key_path[-1]] = value
@@ -40,11 +39,10 @@ class TomlConfigEditor:
         self.path.write_text(dumps(self._doc))
         LOGGER.info("Saved updated TOML to %s", self.path)
 
-    def get(self, key_path: list[str], default: t.Any = None) -> t.Any:
-        # Use a broad type for traversal; narrow only when needed.
-        obj: t.Any = self._doc
+    def get(self, key_path: list[str], default: Any = None) -> Any:
+        obj: Any = self._doc
         for key in key_path:
-            if not isinstance(obj, Container) or key not in obj:
+            if not isinstance(obj, MutableMapping) or key not in obj:
                 return default
             obj = obj[key]
         return obj

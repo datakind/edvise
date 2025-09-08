@@ -101,7 +101,7 @@ class TrainingTask:
             ),
         }
 
-        summary = modeling.automl.training.run_automl_classification(
+        summary: t.Any = modeling.automl.training.run_automl_classification(
             df_modeling,  # 1st positional arg
             **training_params,  # kwargs now precisely typed
         )
