@@ -9,10 +9,10 @@ from edvise.utils.data_cleaning import (
     drop_course_rows_missing_identifiers,
     strip_trailing_decimal_strings,
     replace_na_firstgen_and_pell,
-    compute_gateway_course_ids_and_cips,
     handling_duplicates,
     remove_pre_cohort_courses,
 )
+from eda import compute_gateway_course_ids_and_cips
 
 # TODO think of a better name than standardizer
 

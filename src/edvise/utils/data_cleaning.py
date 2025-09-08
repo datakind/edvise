@@ -308,38 +308,3 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
         ignore_index=True,
     )
     return df_course
-
-
-def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
-    """
-    Build a list of course IDs and CIP codes for Math/English gateway courses.
-    Filter: math_or_english_gateway in {"M", "E"}
-    ID format: "<course_prefix><course_number>" (both coerced to strings, trimmed)
-    CIP codes taken from 'course_cip' column
-    """
-    if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(
-        df_course.columns
-    ):
-        LOGGER.warning("Cannot compute key_course_ids: required columns missing.")
-        return []
-
-    mask = df_course["math_or_english_gateway"].astype("string").isin({"M", "E"})
-    ids = df_course.loc[mask, "course_prefix"].fillna("") + df_course.loc[
-        mask, "course_number"
-    ].fillna("")
-    
-    cips = (
-        df_course.loc[mask, "course_cip"]
-        .astype(str)
-        .fillna("")
-        .str.strip()
-    )
-
-    # edit this to auto populate the config
-    cips = cips[cips.ne("") & cips.str.lower().ne("nan")].drop_duplicates()
-    ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")].drop_duplicates()
-    
-    LOGGER.info(f"Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
-    LOGGER.info(f"Identified {len(cips)} unique CIP codes: {cips.tolist()}")
-
-    return [ids.tolist(), cips.tolist()]
