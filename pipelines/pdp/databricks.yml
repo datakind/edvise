@@ -18,6 +18,8 @@ variables:
   config_file_name:
     description: "Name of the config file to use for the pdp training"
     default: "config.toml"
+  datakind_group_to_manage_workflow:
+    description: "Group with permissions to manage the job"
 
 
 run_as:
