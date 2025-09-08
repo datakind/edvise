@@ -217,6 +217,146 @@ class TrainingTask:
             run_id=top_run_id,
             experiment_id=experiment_id,
         )
+    def make_predictions(self):
+        model = h2o_utils.load_h2o_model(self.cfg.model.run_id)
+        model_feature_names = modeling.h2o_ml.inference.get_h2o_used_features(model)
+        
+        logging.info(
+            "model uses %s features: %s", len(model_feature_names), model_feature_names
+        )
+
+        # Extract training data (all splits)
+        df = modeling.h2o_ml.evaluation.extract_training_data_from_model(
+            self.cfg.model.experiment_id
+        )
+        if self.cfg.split_col:
+            df_train = df_train.loc[df_train[self.cfg.split_col].eq("train"), :]
+            df_test = df.loc[df[self.cfg.split_col].eq("test"), :]
+
+        # Need only a sample to produce SHAP plot for training
+        df_test = df_test.sample(n=min(200, len(df_test)), random_state=self.cfg.random_state)
+
+        # Load and transform using sklearn imputer
+        imputer = modeling.h2o_ml.imputation.SklearnImputerWrapper.load(run_id=self.cfg.model.run_id)
+        df_test = imputer.transform(df_test)
+
+        # Extract features & unique ids
+        features_df = df_test.loc[:, model_feature_names]
+        unique_ids = df_test[self.cfg.student_id_col]
+
+        # Generate predictions
+        _, pred_probs = modeling.h2o_ml.inference.predict_h2o(
+            features_df,
+            model=model,
+            feature_names=model_feature_names,
+            pos_label=self.cfg.pos_label,
+        )
+
+        # Sample background data for performance optimization
+        df_bd = df_train.sample(
+            n=min(self.cfg.inference.background_data_sample, len(df_test)),
+            random_state=self.cfg.random_state,
+        )
+
+        contribs_df = modeling.h2o_ml.inference.compute_h2o_shap_contributions(
+            model=model,
+            df=features_df,
+            background_data=df_bd,
+        )
+
+        # Group one-hot encoding and missing value flags
+        grouped_contribs_df = modeling.h2o_ml.inference.group_shap_values(contribs_df)
+        grouped_features = modeling.h2o_ml.inference.group_feature_values(features_df)
+
+        if mlflow.active_run():
+            mlflow.end_run()
+
+        with mlflow.start_run(run_id=self.cfg.model.run_id):
+            # Create & log SHAP summary plot (default to group missing flags)
+            modeling.h2o_ml.inference.plot_grouped_shap(
+                contribs_df=contribs_df,
+                features_df=features_df,
+                original_dtypes=imputer.input_dtypes,
+            )
+
+        # Provide output using top features, SHAP values, and support scores
+        result = modeling.inference.select_top_features_for_display(
+            grouped_features,
+            unique_ids,
+            pred_probs,
+            grouped_contribs_df.to_numpy(),
+            n_features=10,
+            features_table=features_table,
+            needs_support_threshold_prob=self.cfg.inference.min_prob_pos_label,
+        )
+
+        # save sample advisor output dataset
+        dataio.write.to_delta_table(
+            result, self.cfg.datasets.gold.advisor_output.table_path, spark_session=spark
+        )
+
+        # Log MLFlow confusion matrix & roc table figures in silver schema
+        with mlflow.start_run(run_id=self.cfg.model.run_id) as run:
+            confusion_matrix = modeling.evaluation.log_confusion_matrix(
+                institution_id=self.cfg.institution_id,
+                automl_run_id=self.cfg.model.run_id,
+            )
+
+            # Log roc curve table for front-end
+            roc_logs = modeling.h2o_ml.evaluation.log_roc_table(
+                institution_id=self.cfg.institution_id,
+                automl_run_id=self.cfg.model.run_id,
+                modeling_dataset_name=self.cfg.datasets.silver.modeling.table_path,
+            )
+
+        shap_feature_importance = modeling.inference.generate_ranked_feature_table(
+            features=grouped_features,
+            shap_values=grouped_contribs_df.to_numpy(),
+            features_table=features_table,
+        )
+        if shap_feature_importance is not None and features_table is not None:
+            shap_feature_importance[
+                ["readable_feature_name", "short_feature_desc", "long_feature_desc"]
+            ] = shap_feature_importance["Feature Name"].apply(
+                lambda feature: pd.Series(
+                    modeling.inference._get_mapped_feature_name(
+                        feature, features_table, metadata=True
+                    )
+                )
+            )
+            shap_feature_importance.columns = shap_feature_importance.columns.str.replace(
+                " ", "_"
+            ).str.lower()
+
+
+        # save sample advisor output dataset
+        dataio.write.to_delta_table(
+            shap_feature_importance,
+            f"{self.args.silver_volume_path}.training_{self.cfg.model.run_id}_shap_feature_importance",
+            spark_session=spark,
+        )
+
+        support_score_distribution = modeling.inference.support_score_distribution_table(
+            df_serving=grouped_features,
+            unique_ids=unique_ids,
+            pred_probs=pred_probs,
+            shap_values=grouped_contribs_df,
+            inference_params=cfg.inference.dict(),
+        )
+
+        # save sample advisor output dataset
+        dataio.write.to_delta_table(
+            support_score_distribution,
+            f"{self.args.silver_volume_path}.training_{cfg.model.run_id}_support_overview",
+            spark_session=spark,
+        )
+        dataio.write.write_parquet(
+            support_score_distribution,
+            file_path=f"{self.args.silver_volume_path}.training_{cfg.model.run_id}_support_overview",
+        )
+
+
+
 
     def run(self):
         """Executes the target computation pipeline and saves result."""
