@@ -6,12 +6,12 @@ import pytest
 from edvise.modeling.h2o_ml import utils
 
 
-@mock.patch("edvise.modeling.h2o.utils.mlflow.log_param")
-@mock.patch("edvise.modeling.h2o.utils.mlflow.log_metric")
-@mock.patch("edvise.modeling.h2o.utils.mlflow.log_artifact")
-@mock.patch("edvise.modeling.h2o.utils.mlflow.start_run")
-@mock.patch("edvise.modeling.h2o.utils.mlflow.active_run")
-@mock.patch("edvise.modeling.h2o.utils.log_h2o_model")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_param")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_metric")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_artifact")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.start_run")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.active_run")
+@mock.patch("edvise.modeling.h2o_ml.utils.log_h2o_model")
 def test_log_h2o_experiment_logs_metrics(
     mock_eval_log,
     mock_active_run,
@@ -57,7 +57,7 @@ def test_log_h2o_experiment_logs_metrics(
     assert results_df["model_id"].iloc[0] == "model1"
 
 
-@mock.patch("edvise.modeling.h2o.utils.mlflow.set_experiment")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.set_experiment")
 def test_set_or_create_experiment_new(mock_set_experiment):
     mock_client = mock.MagicMock()
     mock_client.get_experiment_by_name.return_value = None
@@ -69,7 +69,7 @@ def test_set_or_create_experiment_new(mock_set_experiment):
     assert exp_id == "exp-123"
 
 
-@mock.patch("edvise.modeling.h2o.utils.mlflow.set_experiment")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.set_experiment")
 def test_set_or_create_experiment_existing(mock_set_experiment):
     mock_client = mock.MagicMock()
     mock_client.get_experiment_by_name.return_value = mock.MagicMock(
@@ -82,10 +82,10 @@ def test_set_or_create_experiment_existing(mock_set_experiment):
     assert exp_id == "exp-456"
 
 
-@mock.patch("edvise.modeling.h2o.utils.mlflow.log_artifact")
-@mock.patch("edvise.modeling.h2o.utils.mlflow.log_param")
-@mock.patch("edvise.modeling.h2o.utils.mlflow.log_metric")
-@mock.patch("edvise.modeling.h2o.utils.mlflow.start_run")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_artifact")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_param")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_metric")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.start_run")
 def test_log_h2o_experiment_summary_basic(
     mock_start_run,
     mock_log_metric,
@@ -140,22 +140,22 @@ def test_log_h2o_experiment_summary_basic(
     assert mock_log_artifact.call_count == 5
 
 
-@mock.patch("edvise.modeling.h2o.utils.h2o.save_model")
+@mock.patch("edvise.modeling.h2o_ml.utils.h2o.save_model")
 @mock.patch(
-    "edvise.modeling.h2o.utils.mlflow.log_artifact"
+    "edvise.modeling.h2o_ml.utils.mlflow.log_artifact"
 )  # single file
 @mock.patch(
-    "edvise.modeling.h2o.utils.mlflow.log_text"
+    "edvise.modeling.h2o_ml.utils.mlflow.log_text"
 )  # MLmodel yaml
 @mock.patch(
-    "edvise.modeling.h2o.utils.mlflow.log_metrics"
+    "edvise.modeling.h2o_ml.utils.mlflow.log_metrics"
 )  # batched metrics
-@mock.patch("edvise.modeling.h2o.utils.mlflow.log_param")
-@mock.patch("edvise.modeling.h2o.utils.mlflow.active_run")
-@mock.patch("edvise.modeling.h2o.utils.mlflow.start_run")
-@mock.patch("edvise.modeling.h2o.utils.evaluation")
-@mock.patch("edvise.modeling.h2o.utils.h2o.get_model")
-@mock.patch("edvise.modeling.h2o.utils.infer_signature")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_param")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.active_run")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.start_run")
+@mock.patch("edvise.modeling.h2o_ml.utils.evaluation")
+@mock.patch("edvise.modeling.h2o_ml.utils.h2o.get_model")
+@mock.patch("edvise.modeling.h2o_ml.utils.infer_signature")
 def test_log_h2o_model_basic(
     mock_infer_signature,
     mock_get_model,
@@ -270,11 +270,11 @@ def test_correct_h2o_dtypes_converts_object_column():
 
 
 @mock.patch(
-    "edvise.modeling.h2o.utils.correct_h2o_dtypes",
+    "edvise.modeling.h2o_ml.utils.correct_h2o_dtypes",
     return_value="corrected",
 )
 @mock.patch(
-    "edvise.modeling.h2o.utils.h2o.H2OFrame", return_value="hf"
+    "edvise.modeling.h2o_ml.utils.h2o.H2OFrame", return_value="hf"
 )
 def test_to_h2o_from_pandas_dataframe(mock_h2oframe, mock_correct):
     df = pd.DataFrame({"a": [1, 2, 3]})

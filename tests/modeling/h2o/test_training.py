@@ -56,14 +56,14 @@ def make_mock_frame(columns):
 
 
 @mock.patch(
-    "edvise.modeling.h2o.training.utils.set_or_create_experiment"
+    "edvise.modeling.h2o_ml.training.utils.set_or_create_experiment"
 )
-@mock.patch("edvise.modeling.h2o.utils.log_h2o_experiment")
-@mock.patch("edvise.modeling.h2o.training.H2OAutoML")
-@mock.patch("edvise.modeling.h2o.training.h2o.H2OFrame")
-@mock.patch("edvise.modeling.h2o.utils._to_h2o")
+@mock.patch("edvise.modeling.h2o_ml.utils.log_h2o_experiment")
+@mock.patch("edvise.modeling.h2o_ml.training.H2OAutoML")
+@mock.patch("edvise.modeling.h2o_ml.training.h2o.H2OFrame")
+@mock.patch("edvise.modeling.h2o_ml.utils._to_h2o")
 @mock.patch(
-    "edvise.modeling.h2o.training.imputation.SklearnImputerWrapper"
+    "edvise.modeling.h2o_ml.training.imputation.SklearnImputerWrapper"
 )
 def test_run_h2o_automl_success(
     mock_imputer_cls,
@@ -125,7 +125,7 @@ def test_run_h2o_automl_success(
     assert_frame_equal(actual_df, expected_df)
 
 
-@mock.patch("edvise.modeling.h2o.training.h2o.H2OFrame")
+@mock.patch("edvise.modeling.h2o_ml.training.h2o.H2OFrame")
 def test_run_h2o_automl_missing_logging_param(mock_h2oframe, sample_df):
     fake_h2o_frame = mock.MagicMock()
     fake_h2o_frame.columns = sample_df.columns.tolist()
