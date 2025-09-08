@@ -25,6 +25,7 @@ class ModelPrepTask:
         target_df: pd.DataFrame,
         selected_students: pd.DataFrame,
     ) -> pd.DataFrame:
+        #student id col is reqd in config 
         student_id_col = self.cfg.student_id_col
         df_labeled = pd.merge(
             checkpoint_df,
@@ -40,11 +41,15 @@ class ModelPrepTask:
         return cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled)
 
     def apply_dataset_splits(self, df: pd.DataFrame) -> pd.DataFrame:
-        try:
-            splits = self.cfg.preprocessing.splits
-            split_col = self.cfg.split_col
-        except AttributeError:
+        preprocessing_cfg = self.cfg.preprocessing
+        if preprocessing_cfg is not None:
+            splits = preprocessing_cfg.splits
+        else:
             splits = {"train": 0.6, "test": 0.2, "validate": 0.2}
+
+        if self.cfg.split_col is not None:
+            split_col = self.cfg.split_col
+        else:
             split_col = "split"
 
         df[split_col] = training_params.compute_dataset_splits(
@@ -57,13 +62,15 @@ class ModelPrepTask:
         return df
 
     def apply_sample_weights(self, df: pd.DataFrame) -> pd.DataFrame:
-        try:
+        if self.cfg.preprocessing.sample_class_weight is not None:
             sample_class_weight = self.cfg.preprocessing.sample_class_weight
-            sample_weight_col = self.cfg.sample_weight_col
-        except AttributeError:
+        else:
             sample_class_weight = "balanced"
+        if self.cfg.sample_weight_col is not None:
+            sample_weight_col = self.cfg.sample_weight_col
+        else:
             sample_weight_col = "sample_weight"
-
+ 
         df[sample_weight_col] = training_params.compute_sample_weights(
             df,
             target_col=self.cfg.target_col,
