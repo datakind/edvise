@@ -128,16 +128,10 @@ def make_pdp_config() -> PDPProjectConfig:
 
 @pytest.mark.parametrize("card_class", [H2OPDPModelCard])
 @patch("edvise.reporting.sections.registry.SectionRegistry.render_all")
-@patch(
-    "edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.collect_metadata"
-)
+@patch("edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.collect_metadata")
 @patch("edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.load_model")
-@patch(
-    "edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.extract_training_data"
-)
-@patch(
-    "edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.find_model_version"
-)
+@patch("edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.extract_training_data")
+@patch("edvise.reporting.model_card.h2o_pdp.H2OPDPModelCard.find_model_version")
 def test_template_placeholders_are_in_context(
     mock_find_version,
     mock_extract_data,

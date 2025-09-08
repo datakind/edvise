@@ -11,6 +11,7 @@ from edvise.configs import custom
 
 SRC_ROOT = pathlib.Path(__file__).parents[2] / "configs" / "custom_h2o"
 
+
 @pytest.fixture(scope="module")
 def template_cfg_dict():
     config_path = SRC_ROOT / "config-TEMPLATE.toml"

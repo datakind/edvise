@@ -80,7 +80,9 @@ class CustomFeatureGenerationTask:
         key_course_ids: t.Optional[list[str]] = None,
     ) -> pd.DataFrame:
         """Main feature generation pipeline."""
-        first_term = edvise_utils.infer_data_terms.infer_first_term_of_year(df_course["academic_term"])
+        first_term = edvise_utils.infer_data_terms.infer_first_term_of_year(
+            df_course["academic_term"]
+        )
 
         df_students = df_cohort.pipe(
             feature_generation.student.add_features, first_term_of_year=first_term

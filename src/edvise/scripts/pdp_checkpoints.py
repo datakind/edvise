@@ -128,7 +128,6 @@ class PDPCheckpointsTask:
         )
 
 
-
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(
@@ -137,13 +136,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
 
-
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
-    #again no school has a custom schema for pdp , but add in iff needed
+    # again no school has a custom schema for pdp , but add in iff needed
     # try:
     #     sys.path.append(args.custom_schemas_path)
     #     sys.path.append(

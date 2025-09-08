@@ -137,7 +137,7 @@ def parse_arguments() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_arguments()
-    #no school use a custom schema for now remove and add back in iff needed
+    # no school use a custom schema for now remove and add back in iff needed
     # try:
     #     sys.path.append(args.custom_schemas_path)
     #     sys.path.append(

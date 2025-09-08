@@ -53,4 +53,3 @@ def update_run_metadata(config_path: str, run_id: str, experiment_id: str):
     editor.save()
     editor.confirm_field(["model", "run_id"])
     editor.confirm_field(["model", "experiment_id"])
-

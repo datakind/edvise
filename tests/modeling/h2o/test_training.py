@@ -55,16 +55,12 @@ def make_mock_frame(columns):
     return mock_frame
 
 
-@mock.patch(
-    "edvise.modeling.h2o_ml.training.utils.set_or_create_experiment"
-)
+@mock.patch("edvise.modeling.h2o_ml.training.utils.set_or_create_experiment")
 @mock.patch("edvise.modeling.h2o_ml.utils.log_h2o_experiment")
 @mock.patch("edvise.modeling.h2o_ml.training.H2OAutoML")
 @mock.patch("edvise.modeling.h2o_ml.training.h2o.H2OFrame")
 @mock.patch("edvise.modeling.h2o_ml.utils._to_h2o")
-@mock.patch(
-    "edvise.modeling.h2o_ml.training.imputation.SklearnImputerWrapper"
-)
+@mock.patch("edvise.modeling.h2o_ml.training.imputation.SklearnImputerWrapper")
 def test_run_h2o_automl_success(
     mock_imputer_cls,
     mock_correct,

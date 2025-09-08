@@ -25,7 +25,7 @@ class ModelPrepTask:
         target_df: pd.DataFrame,
         selected_students: pd.DataFrame,
     ) -> pd.DataFrame:
-        #student id col is reqd in config 
+        # student id col is reqd in config
         student_id_col = self.cfg.student_id_col
         df_labeled = pd.merge(
             checkpoint_df,
@@ -70,7 +70,7 @@ class ModelPrepTask:
             sample_weight_col = self.cfg.sample_weight_col
         else:
             sample_weight_col = "sample_weight"
- 
+
         df[sample_weight_col] = training_params.compute_sample_weights(
             df,
             target_col=self.cfg.target_col,
@@ -84,7 +84,9 @@ class ModelPrepTask:
 
     def run(self):
         # Read inputs using custom function
-        checkpoint_df = read_parquet(f"{self.args.silver_volume_path}/checkpoint.parquet")
+        checkpoint_df = read_parquet(
+            f"{self.args.silver_volume_path}/checkpoint.parquet"
+        )
         target_df = read_parquet(f"{self.args.silver_volume_path}/target.parquet")
         selected_students = read_parquet(
             f"{self.args.silver_volume_path}/selected_students.parquet"

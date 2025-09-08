@@ -4,7 +4,7 @@ import pandas as pd
 import sys
 import importlib
 
-from edvise import targets as _targets 
+from edvise import targets as _targets
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
 
@@ -65,8 +65,12 @@ class PDPTargetsTask:
         df_target = target_series.reset_index().rename(
             columns={target_series.name: "target"}
         )
-        df_target.to_parquet(f"{self.args.silver_volume_path}/target.parquet", index=False)
-        logging.info(f"Target file saved to {self.args.silver_volume_path}/target.parquet")
+        df_target.to_parquet(
+            f"{self.args.silver_volume_path}/target.parquet", index=False
+        )
+        logging.info(
+            f"Target file saved to {self.args.silver_volume_path}/target.parquet"
+        )
 
 
 def parse_arguments() -> argparse.Namespace:

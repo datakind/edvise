@@ -130,7 +130,7 @@ def parse_arguments() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_arguments()
     if args.bronze_volume_path:
-        sys.path.append(f'{args.bronze_volume_path}/training_inputs')
+        sys.path.append(f"{args.bronze_volume_path}/training_inputs")
     try:
         converter_func = importlib.import_module("dataio")
         cohort_converter_func = converter_func.converter_func_cohort

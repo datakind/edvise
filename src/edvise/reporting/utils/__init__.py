@@ -1,5 +1,1 @@
-from . import (
-    formatting,
-    types,
-    utils
-)
+from . import formatting, types, utils

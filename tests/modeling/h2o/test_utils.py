@@ -141,15 +141,9 @@ def test_log_h2o_experiment_summary_basic(
 
 
 @mock.patch("edvise.modeling.h2o_ml.utils.h2o.save_model")
-@mock.patch(
-    "edvise.modeling.h2o_ml.utils.mlflow.log_artifact"
-)  # single file
-@mock.patch(
-    "edvise.modeling.h2o_ml.utils.mlflow.log_text"
-)  # MLmodel yaml
-@mock.patch(
-    "edvise.modeling.h2o_ml.utils.mlflow.log_metrics"
-)  # batched metrics
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_artifact")  # single file
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_text")  # MLmodel yaml
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_metrics")  # batched metrics
 @mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_param")
 @mock.patch("edvise.modeling.h2o_ml.utils.mlflow.active_run")
 @mock.patch("edvise.modeling.h2o_ml.utils.mlflow.start_run")
@@ -273,9 +267,7 @@ def test_correct_h2o_dtypes_converts_object_column():
     "edvise.modeling.h2o_ml.utils.correct_h2o_dtypes",
     return_value="corrected",
 )
-@mock.patch(
-    "edvise.modeling.h2o_ml.utils.h2o.H2OFrame", return_value="hf"
-)
+@mock.patch("edvise.modeling.h2o_ml.utils.h2o.H2OFrame", return_value="hf")
 def test_to_h2o_from_pandas_dataframe(mock_h2oframe, mock_correct):
     df = pd.DataFrame({"a": [1, 2, 3]})
     result = utils._to_h2o(df)

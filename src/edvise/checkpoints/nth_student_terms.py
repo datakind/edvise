@@ -259,6 +259,7 @@ def last_student_terms_in_enrollment_year(
         include_cols=include_cols,
     )
 
+
 def _get_included_cols(
     df: pd.DataFrame,
     student_id_cols: list[str],
