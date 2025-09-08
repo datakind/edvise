@@ -193,6 +193,8 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
 
 def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
     if "pell_status_first_year" in df_cohort.columns:
+        LOGGER.info("Before replacing 'pell_status_first_year':\n%s", 
+                    df_cohort["pell_status_first_year"].value_counts(dropna=False))
         na_pell = (df_cohort["pell_status_first_year"] == "UK").sum()
         df_cohort["pell_status_first_year"] = df_cohort[
             "pell_status_first_year"
@@ -201,14 +203,20 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
         df_cohort["pell_status_first_year"] = df_cohort[
             "pell_status_first_year"
         ].fillna("N")
+        LOGGER.info("After replacing 'pell_status_first_year':\n%s", 
+                    df_cohort["pell_status_first_year"].value_counts(dropna=False))
     else:
         LOGGER.warning(
             'Column "pell_status_first_year" not found; skipping Pell status NA replacement.'
         )
     if "first_gen" in df_cohort.columns:
+        LOGGER.info("Before filling 'first_gen':\n%s", 
+                    df_cohort["first_gen"].value_counts(dropna=False))
         na_first = df_cohort["first_gen"].isna().sum()
         df_cohort["first_gen"] = df_cohort["first_gen"].fillna("N")
         LOGGER.info('Filled %s NAs in "first_gen" with "N".', int(na_first))
+        LOGGER.info("After filling 'first_gen':\n%s", 
+                    df_cohort["first_gen"].value_counts(dropna=False))
     else:
         LOGGER.warning(
             'Column "first_gen" not found; skipping first-gen NA replacement.'
