@@ -244,7 +244,7 @@ def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
 def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
     """
     Dropping duplicate course records, except:
-    - if duplicate-key rows all share the SAME course_name, keep them and
+    - if duplicate-key rows have DIFFERENT course_names, keep them and
       suffix course_number with -01, -02, ... instead of dropping.
     """
     unique_cols = [
@@ -270,7 +270,7 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
             if len(idx) <= 1:
                 continue
             names = df_course.loc[idx, "course_name"]
-            if names.nunique(dropna=False) == 1:
+            if names.nunique(dropna=False) > 1:
                 same_name_idx.extend(idx)
 
         if same_name_idx:
