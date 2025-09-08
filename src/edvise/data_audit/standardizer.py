@@ -108,7 +108,7 @@ class PDPCourseStandardizer(BaseStandardizer):
         """
         df = strip_trailing_decimal_strings(df)
         df = drop_course_rows_missing_identifiers(df)
-        # df = handling_duplicates(df) 
+        df = handling_duplicates(df) 
         # I think this will be pre-ingestion
 
         cols_to_drop = [
