@@ -320,3 +320,19 @@ def _drop_incomplete_pairs(s1: pd.Series, s2: pd.Series) -> tuple[pd.Series, pd.
     df = pd.DataFrame({"s1": s1, "s2": s2})
     df = df.dropna(axis="index", how="any", ignore_index=True)  # type: ignore
     return (df["s1"], df["s2"])
+
+
+def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> pd.DataFrame:
+    null_ratios = df.isna().mean(axis="index").sort_values(ascending=False)
+    high_nulls = null_ratios[null_ratios > threshold]
+
+    if high_nulls.empty:
+        LOGGER.info("No columns with more than %.0f%% null values.", threshold * 100)
+    else:
+        for col, ratio in high_nulls.items():
+            LOGGER.warning(
+                'Column "%s" has %.1f%% null values.',
+                col,
+                ratio * 100,
+            )
+    return df
