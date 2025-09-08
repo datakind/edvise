@@ -108,7 +108,7 @@ class PDPCourseStandardizer(BaseStandardizer):
         """
         df = strip_trailing_decimal_strings(df)
         df = drop_course_rows_missing_identifiers(df)
-        df = handling_duplicates(df) 
+        # df = handling_duplicates(df) 
         # I think this will be pre-ingestion
 
         cols_to_drop = [
@@ -129,7 +129,7 @@ class PDPCourseStandardizer(BaseStandardizer):
             "enrollment_record_at_other_institution_s_carnegie_s",
             "enrollment_record_at_other_institution_s_locale_s",
         ]
-        df = remove_pre_cohort_courses(df)
+        # df = remove_pre_cohort_courses(df)
         df = drop_columns_safely(df, cols_to_drop)
         df = self.add_empty_columns_if_missing(
             df, {"term_program_of_study": (None, "string")}
