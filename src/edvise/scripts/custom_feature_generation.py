@@ -7,8 +7,8 @@ import sys
 import pandas as pd
 import typing as t
 
-from .. import utils
-from .. import feature_generation
+from edvise import utils as edvise_utils
+from edvise import feature_generation
 from edvise.data_audit.standardizer import BaseStandardizer
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
@@ -80,7 +80,7 @@ class CustomFeatureGenerationTask:
         key_course_ids: t.Optional[list[str]] = None,
     ) -> pd.DataFrame:
         """Main feature generation pipeline."""
-        first_term = self.base_std.infer_first_term_of_year(df_course["academic_term"])
+        first_term = edvise_utils.infer_data_terms.infer_first_term_of_year(df_course["academic_term"])
 
         df_students = df_cohort.pipe(
             feature_generation.student.add_features, first_term_of_year=first_term

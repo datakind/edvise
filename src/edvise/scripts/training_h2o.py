@@ -197,10 +197,10 @@ class TrainingTask:
 
     def select_model(self, experiment_id: str) -> None:
         if self.cfg.modeling is not None and self.cfg.modeling.evaluation is not None:
-                    modeling_cfg = self.cfg.modeling
-                    topn = modeling_cfg.evaluation.topn_runs_included
-
-        topn = 10
+            modeling_cfg = self.cfg.modeling
+            topn = modeling_cfg.evaluation.topn_runs_included
+        else:
+            topn = 10
         selected_runs = modeling.evaluation.get_top_runs(
             experiment_id,
             optimization_metrics=[
