@@ -101,7 +101,7 @@ class TrainingTask:
             ),
         }
 
-        summary: t.Any = modeling.automl.training.run_automl_classification(
+        summary: t.Any = modeling.automl.training.run_automl_classification(  # type: ignore
             df_modeling,  # 1st positional arg
             **training_params,  # kwargs now precisely typed
         )
@@ -158,7 +158,7 @@ class TrainingTask:
                 df_pred = df_modeling.assign(
                     **{
                         self.cfg.pred_col: model.predict(df_features),
-                        self.cfg.pred_prob_col: modeling.automl.inference.predict_probs(
+                        self.cfg.pred_prob_col: modeling.automl.inference.predict_probs(  # type: ignore
                             df_features,
                             model,
                             feature_names=list(df_features.columns),
