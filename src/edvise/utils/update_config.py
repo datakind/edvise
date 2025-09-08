@@ -1,5 +1,4 @@
 import pathlib
-import typing as t
 from typing import cast, MutableMapping, Any
 from tomlkit import parse, dumps, table, TOMLDocument
 from tomlkit.items import Table

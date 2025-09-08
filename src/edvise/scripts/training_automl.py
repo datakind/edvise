@@ -7,7 +7,7 @@ import importlib
 import mlflow
 import dbutils
 
-from .. import modeling, utils, dataio, configs
+from edvise import modeling, utils, dataio, configs
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
