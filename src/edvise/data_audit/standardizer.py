@@ -134,6 +134,5 @@ class PDPCourseStandardizer(BaseStandardizer):
         df = self.add_empty_columns_if_missing(
             df, {"term_program_of_study": (None, "string")}
         )
-        gateway_course_ids_and_cips = compute_gateway_course_ids_and_cips(df)
-        LOGGER.info("Math and English Gateway Courses and CIP codes Identified:", gateway_course_ids_and_cips)
+        compute_gateway_course_ids_and_cips(df)
         return df
