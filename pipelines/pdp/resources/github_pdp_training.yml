@@ -264,4 +264,6 @@ resources:
       permissions:
         - user_name: ${var.ds_run_as}
           level: IS_OWNER
+        - group_name: ${var.datakind_group_to_manage_workflow} 
+          level: CAN_MANAGE
 
