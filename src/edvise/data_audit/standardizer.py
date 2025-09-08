@@ -40,6 +40,7 @@ class PDPCohortStandardizer(BaseStandardizer):
         Args:
             df: As output by :func:`dataio.read_raw_pdp_cohort_data_from_file()` .
         """
+        df = log_high_null_columns(df)
         cols_to_drop = [
             # not a viable target variable, but highly correlated with it
             "time_to_credential",
@@ -91,7 +92,6 @@ class PDPCohortStandardizer(BaseStandardizer):
             "first_year_to_associates_at_other_inst": (None, "Int8"),
             "first_year_to_certificate_at_other_inst": (None, "Int8"),
         }
-        df = log_high_null_columns(df)
         df = drop_columns_safely(df, cols_to_drop)
         df = replace_na_firstgen_and_pell(df)
         df = self.add_empty_columns_if_missing(df, col_val_dtypes)
@@ -111,7 +111,7 @@ class PDPCourseStandardizer(BaseStandardizer):
         df = drop_course_rows_missing_identifiers(df)
         df = handling_duplicates(df) 
         # I think this will be pre-ingestion
-
+        df = log_high_null_columns(df)
         cols_to_drop = [
             # student demographics found in raw cohort dataset
             "cohort",
@@ -130,7 +130,6 @@ class PDPCourseStandardizer(BaseStandardizer):
             "enrollment_record_at_other_institution_s_carnegie_s",
             "enrollment_record_at_other_institution_s_locale_s",
         ]
-        df = log_high_null_columns(df)
         # df = remove_pre_cohort_courses(df)
         df = drop_columns_safely(df, cols_to_drop)
         df = self.add_empty_columns_if_missing(
