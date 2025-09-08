@@ -1,7 +1,6 @@
 import pathlib
 import typing as t
 from tomlkit import parse, dumps, table, TOMLDocument
-from tomlkit.items import Table
 import logging
 
 LOGGER = logging.getLogger(__name__)

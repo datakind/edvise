@@ -1,8 +1,6 @@
 import logging
 import argparse
 import pandas as pd
-import sys
-import importlib
 
 from edvise import targets as _targets
 from edvise.dataio.read import read_config

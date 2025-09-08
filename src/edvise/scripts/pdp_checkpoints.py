@@ -1,8 +1,6 @@
 import logging
 import argparse
 import pandas as pd
-import sys
-import importlib
 
 from edvise import checkpoints
 from edvise.configs.pdp import PDPProjectConfig

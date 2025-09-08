@@ -4,7 +4,6 @@ import typing as t
 
 LOGGER = logging.getLogger(__name__)
 
-from .. import utils
 from edvise.utils.drop_columns_safely import drop_columns_safely
 from edvise.utils.data_cleaning import (
     drop_course_rows_missing_identifiers,
