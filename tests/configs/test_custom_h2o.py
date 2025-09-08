@@ -9,15 +9,7 @@ import pytest
 
 from edvise.configs import custom
 
-
-SRC_ROOT = (
-    pathlib.Path(__file__).parents[2]
-    / "pipelines"
-    / "custom"
-    / "institution_id"
-    / "h2o"
-)
-
+SRC_ROOT = pathlib.Path(__file__).parents[2] / "configs" / "custom_h2o"
 
 @pytest.fixture(scope="module")
 def template_cfg_dict():
