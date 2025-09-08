@@ -263,7 +263,7 @@ resources:
           default: ${var.datakind_notification_email}
       permissions:
         - user_name: ${var.ds_run_as}
-          level: IS_OWNER
+          level: CAN_MANAGE
         - group_name: ${var.datakind_group_to_manage_workflow} 
-          level: IS_OWNER
+          level: CAN_MANAGE
 
