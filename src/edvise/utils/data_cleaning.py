@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from typing import List
 
 from edvise.utils import types
+from edvise.dataio.pdp_course_converters import dedupe_by_renumbering_courses
 
 LOGGER = logging.getLogger(__name__)
 
@@ -243,12 +244,20 @@ def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
 
 def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
     """
-    Dropping duplicate course records, except:
+    Dropping duplicate course records and keeping the one with the higher number of credits, except:
     - if duplicate-key rows have DIFFERENT course_names, keep them and
       suffix course_number with -01, -02, ... instead of dropping.
     """
+    # HACK: infer the correct student id col in raw data from the data itself
+    student_id_col = (
+        "student_guid"
+        if "student_guid" in df_course.columns
+        else "study_id"
+        if "study_id" in df_course.columns
+        else "student_id"
+    )
     unique_cols = [
-        "student_id",
+        student_id_col, 
         "academic_year",
         "academic_term",
         "course_prefix",
@@ -256,54 +265,38 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
         "section_id",
     ]
 
+    # Check for duplicate key rows
     dup_mask = df_course.duplicated(unique_cols, keep=False)
-    if (
-        dup_mask.any()
-        and "course_name" in df_course.columns
-        and "course_number" in df_course.columns
-    ):
-        same_name_idx = []
+
+    if dup_mask.any() and "course_name" in df_course.columns:
+        # Group and check for variation in course_name
+        to_renumber = []
         for _, idx in (
-            df_course.loc[dup_mask].groupby(unique_cols, dropna=False).groups.items()
+            df_course.loc[dup_mask]
+            .groupby(unique_cols, dropna=False)
+            .groups.items()
         ):
             idx = list(idx)
             if len(idx) <= 1:
                 continue
             names = df_course.loc[idx, "course_name"]
             if names.nunique(dropna=False) > 1:
-                same_name_idx.extend(idx)
+                to_renumber.extend(idx)
 
-        if same_name_idx:
-            deduped_course_numbers = (
-                df_course.loc[dup_mask, :]
-                .sort_values(
-                    by=unique_cols + ["number_of_credits_attempted"],
-                    ascending=False,
-                    ignore_index=False,
-                )
-                .assign(
-                    grp_num=lambda d: d.groupby(unique_cols)["course_number"].transform(
-                        "cumcount"
-                    )
-                    + 1,
-                    course_number=lambda d: d["course_number"]
-                    .astype("string")
-                    .str.cat(d["grp_num"].astype(int).map("{:02d}".format), sep="-"),
-                )
-                .loc[:, ["course_number"]]
-            )
-            to_apply = deduped_course_numbers.reindex(same_name_idx).dropna(how="all")
-            df_course.loc[to_apply.index, "course_number"] = to_apply["course_number"]
+        if to_renumber:
+            df_course = dedupe_by_renumbering_courses(df_course)
+            return df_course
 
-    dupe_rows = df_course.loc[df_course.duplicated(unique_cols, keep=False), :].sort_values(
+    # If we reach here, these are true duplicates → drop them
+    dupe_rows = df_course.loc[dup_mask, :].sort_values(
         by=unique_cols + ["number_of_credits_attempted"],
         ascending=False,
         ignore_index=True,
     )
     LOGGER.warning(
-        "%s (%.1f%% of data) duplicate rows found & dropped",
+        "%s (%.1f%% of data) true duplicate rows found & dropped",
         len(dupe_rows) / 2,
-        (len(dupe_rows) / len(df_course)) * 100
+        (len(dupe_rows) / len(df_course)) * 100,
     )
 
     df_course = df_course.drop_duplicates(subset=unique_cols, keep="first").sort_values(
@@ -311,4 +304,5 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
         ascending=False,
         ignore_index=True,
     )
+
     return df_course
