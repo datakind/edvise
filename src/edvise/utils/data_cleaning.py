@@ -248,7 +248,7 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
       suffix course_number with -01, -02, ... instead of dropping.
     """
     unique_cols = [
-        "study_id",
+        "student_id",
         "academic_year",
         "academic_term",
         "course_prefix",
