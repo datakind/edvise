@@ -341,7 +341,7 @@ def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> pd.DataFr
     return df
 
 
-def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
+def compute_gateway_course_ids_and_cips(self, df_course: pd.DataFrame) -> List[str]:
     """
     Build a list of course IDs and CIP codes for Math/English gateway courses.
     Filter: math_or_english_gateway in {"M", "E"}
@@ -398,6 +398,12 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
 
     LOGGER.info(f"Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
     LOGGER.info(f"Identified {len(cips)} unique CIP codes: {cips.tolist()}")
+
+    utils.update_config.update_run_metadata(
+        config_path=self.args.config_file_path,
+        key_course_ids=ids,
+        key_course_subject_areas=cips,
+    )
 
     # Sanity-check for prefixes and swap if clearly reversed; has come up for some schools
     pref_e = (
