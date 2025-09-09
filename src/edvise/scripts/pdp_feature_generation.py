@@ -2,6 +2,22 @@ import argparse
 import logging
 import pandas as pd
 import typing as t
+import os 
+import sys
+
+# Go up 3 levels from the current file's directory to reach repo root
+script_dir = os.getcwd()
+repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
+src_path = os.path.join(repo_root, "src")
+
+if os.path.isdir(src_path) and src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+# Debug info
+print("Script dir:", script_dir)
+print("Repo root:", repo_root)
+print("src_path:", src_path)
+print("sys.path:", sys.path)
 
 from edvise import feature_generation, utils
 from edvise.dataio.read import read_config
