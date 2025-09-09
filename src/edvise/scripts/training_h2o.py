@@ -1,6 +1,5 @@
 import typing as t
 import logging
-from dataclasses import dataclass
 import argparse
 import pandas as pd
 import mlflow

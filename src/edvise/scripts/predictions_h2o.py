@@ -1,16 +1,19 @@
+from enum import Enum
 import typing as t
 from dataclasses import dataclass
 import logging
 import pandas as pd
+import numpy as np
 import mlflow
+
+import h2o
+from h2o.estimators.estimator_base import H2OEstimator
 
 from edvise import modeling, dataio
 from edvise.modeling.h2o_ml import utils as h2o_utils
 
-# ---- Dataclasses to decouple IO and outputs ----
 
-
-class RunType(str, t.Enum):
+class RunType(str, Enum):
     TRAIN = "train"
     PREDICT = "predict"
 
@@ -57,7 +60,9 @@ def load_features_table(path: str | None) -> pd.DataFrame | None:
         return None
 
 
-def load_model_and_features(run_id: str):
+def load_model_and_features(
+    run_id: str,
+) -> t.Tuple[h2o.model.model_base.ModelBase, t.List[str]]:
     model = h2o_utils.load_h2o_model(run_id)
     feat_names = modeling.h2o_ml.inference.get_h2o_used_features(model)
     if not feat_names:
@@ -65,7 +70,9 @@ def load_model_and_features(run_id: str):
     return model, feat_names
 
 
-def extract_and_split_training_data(experiment_id: str | None, split_col: str | None):
+def extract_and_split_training_data(
+    experiment_id: str | None, split_col: str | None
+) -> t.Tuple[pd.DataFrame, pd.DataFrame]:
     if not experiment_id:
         raise ValueError(
             "experiment_id is required to extract training data for background SHAP."
@@ -92,13 +99,13 @@ def sample_rows(df: pd.DataFrame, n: int, seed: int, where: str) -> pd.DataFrame
     return df.sample(n=n, random_state=seed)
 
 
-def imputer_for_run(run_id: str):
+def imputer_for_run(run_id: str) -> modeling.h2o_ml.imputation.SklearnImputerWrapper:
     return modeling.h2o_ml.imputation.SklearnImputerWrapper.load(run_id=run_id)
 
 
 def align_features(
     df_imp: pd.DataFrame, model_feature_names: list[str], student_id_col: str
-):
+) -> t.Tuple[pd.DataFrame, pd.DataFrame]:
     missing = [c for c in model_feature_names if c not in df_imp.columns]
     if missing:
         raise ValueError(f"Imputed data missing model features: {missing}")
@@ -108,8 +115,11 @@ def align_features(
 
 
 def predict_probs(
-    features_df: pd.DataFrame, model, feature_names: list[str], pos_label
-):
+    features_df: pd.DataFrame,
+    model: H2OEstimator,
+    feature_names: list[str],
+    pos_label: str,
+) -> t.Tuple[np.ndarray, np.ndarray]:
     labels, probs = modeling.h2o_ml.inference.predict_h2o(
         features=features_df,
         model=model,
@@ -119,19 +129,28 @@ def predict_probs(
     return labels, probs
 
 
-def compute_shap(model, features_df: pd.DataFrame, background_df: pd.DataFrame):
+def compute_shap(
+    model: H2OEstimator, features_df: pd.DataFrame, background_df: pd.DataFrame
+) -> t.Tuple[pd.DataFrame, t.Optional[pd.DataFrame]]:
     return modeling.h2o_ml.inference.compute_h2o_shap_contributions(
         model=model, df=features_df, background_data=background_df
     )
 
 
-def group_shap_and_features(contribs_df: pd.DataFrame, features_df: pd.DataFrame):
+def group_shap_and_features(
+    contribs_df: pd.DataFrame, features_df: pd.DataFrame
+) -> t.Tuple[pd.DataFrame, pd.DataFrame]:
     grouped_contribs_df = modeling.h2o_ml.inference.group_shap_values(contribs_df)
     grouped_features = modeling.h2o_ml.inference.group_feature_values(features_df)
     return grouped_contribs_df, grouped_features
 
 
-def log_shap_plot(contribs_df, features_df, original_dtypes, run_id: str):
+def log_shap_plot(
+    contribs_df: pd.DataFrame,
+    features_df: pd.DataFrame,
+    original_dtypes: t.Optional[dict[str, t.Any]],
+    run_id: str,
+) -> None:
     if mlflow.active_run():
         mlflow.end_run()
     try:
@@ -152,7 +171,7 @@ def run_predictions(
     cfg: PredConfig,
     paths: PredPaths,
     *,
-    run_type: RunType = RunType.TRAIN,
+    run_type: RunType,
     df_inference: pd.DataFrame | None = None,
     test_sample_cap: int = 200,
 ) -> PredOutputs:
@@ -173,22 +192,14 @@ def run_predictions(
         )
     else:
         # PREDICT: inference input
-        if df_inference is None:
-            if not paths.inference_input_path:
-                raise ValueError(
-                    "inference_input_path or df_inference required for predict run."
-                )
-            df_inference = dataio.read.read_parquet(
-                file_path=paths.inference_input_path
-            )
-        df_test_all = df_inference
-        df_test = df_test_all  # inference needs SHAP for all rows
+        df_test = df_inference
 
         # get a training background unless caller provides one
         df_train, _ = extract_and_split_training_data(cfg.experiment_id, cfg.split_col)
 
     # ----- Impute & align for predictions -----
     df_test_imp = imp.transform(df_test)
+    
     features_df, unique_ids = align_features(
         df_test_imp, model_feature_names, cfg.student_id_col
     )
