@@ -294,13 +294,13 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
     pct_dup = (len(dupe_rows) / len(df_course)) * 100
     if pct_dup < 1:
         LOGGER.warning(
-        "%s ('<1%' of data) true duplicate rows found & dropped",
-        len(dupe_rows) / 2
-    )
+            "%s (<1%% of data) true duplicate rows found & dropped",
+            len(dupe_rows) // 2,  # integer count of dropped pairs
+        )
     else:
         LOGGER.warning(
             "%s (%.1f%% of data) true duplicate rows found & dropped",
-            len(dupe_rows) / 2,
+            len(dupe_rows) // 2,
             pct_dup,
         )
 
