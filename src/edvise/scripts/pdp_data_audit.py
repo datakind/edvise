@@ -20,7 +20,10 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise import data_audit
+from edvise.data_audit.schemas import (
+    RawPDPCohortDataSchema,
+    RawPDPCourseDataSchema
+)
 from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
@@ -71,7 +74,7 @@ class PDPDataAuditTask:
         # Cohort
         df_cohort_raw = read_raw_pdp_cohort_data(
             file_path=cohort_dataset_raw_path,
-            schema=data_audit.schemas.RawPDPCohortDataSchema,
+            schema=RawPDPCohortDataSchema,
             converter_func=self.cohort_converter_func,
             spark_session=self.spark,
         )
@@ -87,7 +90,7 @@ class PDPDataAuditTask:
             try:
                 df_course_raw = read_raw_pdp_course_data(
                     file_path=course_dataset_raw_path,
-                    schema=data_audit.schemas.RawPDPCourseDataSchema,
+                    schema=RawPDPCourseDataSchema,
                     dttm_format=fmt,
                     converter_func=self.course_converter_func,
                     spark_session=self.spark,
