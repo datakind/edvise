@@ -179,8 +179,8 @@ resources:
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: 5909-173218-tkjmn2sx
-          # existing_cluster_id: 5507-145238-6we6v2w3
+          # existing_cluster_id: 5909-173218-tkjmn2sx
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
