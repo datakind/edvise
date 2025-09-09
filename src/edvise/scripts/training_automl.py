@@ -6,7 +6,7 @@ import sys
 import importlib
 import mlflow
 import dbutils
-import os 
+import os
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()

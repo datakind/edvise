@@ -94,7 +94,9 @@ class TrainingTask:
             msg = f"{label} is empty: cannot write inference summary tables."
             logging.error(msg)
             raise ValueError(msg)
-        table_path = f"{self.args.catalog}.{self.cfg.institution_id}_silver.{table_name_suffix}"
+        table_path = (
+            f"{self.args.catalog}.{self.cfg.institution_id}_silver.{table_name_suffix}"
+        )
         dataio.write.to_delta_table(
             df=df, table_path=table_path, spark_session=self.spark_session
         )
@@ -304,13 +306,13 @@ class TrainingTask:
             self.write_delta(
                 df=out.shap_feature_importance,
                 table_name_suffix=f"training_{self.cfg.model.run_id}_shap_feature_importance",
-                label="Training SHAP Feature Importance table"
+                label="Training SHAP Feature Importance table",
             )
 
             self.write_delta(
                 df=out.support_score_distribution,
                 table_name_suffix=f"training_{self.cfg.model.run_id}_support_overview",
-                label="Training Support Overview table"
+                label="Training Support Overview table",
             )
 
             # training-only logging

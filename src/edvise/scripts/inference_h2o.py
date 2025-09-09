@@ -135,9 +135,7 @@ class ModelInferenceTask:
         features: pd.DataFrame,
         shap_values: npt.NDArray[np.float64],
     ) -> pd.DataFrame:
-        features_table = dataio.read.read_features_table(
-            self.features_table_path
-        )
+        features_table = dataio.read.read_features_table(self.features_table_path)
         try:
             feature_boxstats = modeling.automl.inference.top_feature_boxstats(
                 features=features,
@@ -155,8 +153,8 @@ class ModelInferenceTask:
         client = MlflowClient(registry_uri="databricks-uc")
         model_name = modeling.registration.get_model_name(
             institution_id=self.cfg.institution_id,
-            target=self.cfg.preprocessing.target.name,
-            checkpoint=self.cfg.preprocessing.checkpoint.name,
+            target=self.cfg.preprocessing.target.name, # type: ignore
+            checkpoint=self.cfg.preprocessing.checkpoint.name, # type: ignore
         )
         full_model_name = f"{self.args.catalog}.{self.args.databricks_institution_name}_gold.{model_name}"
 
@@ -187,19 +185,34 @@ class ModelInferenceTask:
             msg = f"{label} is empty: cannot write inference summary tables."
             logging.error(msg)
             raise ValueError(msg)
-        table_path = f"{self.args.catalog}.{self.cfg.institution_id}_silver.{table_name_suffix}"
+        table_path = (
+            f"{self.args.catalog}.{self.cfg.institution_id}_silver.{table_name_suffix}"
+        )
         dataio.write.to_delta_table(
             df=df, table_path=table_path, spark_session=self.spark_session
         )
         logging.info("%s data written to: %s", table_name_suffix, table_path)
 
     def run(self) -> None:
+        if self.cfg.modeling is None or self.cfg.modeling.training is None:
+            raise ValueError("Missing section of the config: modeling.training")
+        if self.cfg.preprocessing is None:
+            raise ValueError("Missing 'preprocessing' section in config.")
+        if self.cfg.preprocessing.target is None:
+            raise ValueError("Missing 'preprocessing.target' section in config.")
+        if self.cfg.preprocessing.checkpoint is None:
+            raise ValueError("Missing 'preprocessing.checkpoint' section in config.")
+        if self.cfg.pos_label is None:
+            raise ValueError("Missing 'pos_label' in config.")
+        
         # 1) Load UC model metadata (run_id + experiment_id)
         self.load_mlflow_model_metadata()
         assert self.model_run_id and self.model_experiment_id
 
         # 2) Read the processed dataset
-        df_processed = dataio.read.read_parquet(f"{self.args.silver_volume_path}/preprocessed.parquet")
+        df_processed = dataio.read.read_parquet(
+            f"{self.args.silver_volume_path}/preprocessed.parquet"
+        )
 
         # 3) Notify via email
         self._send_kickoff_email()
