@@ -3,8 +3,6 @@ import logging
 import re
 import typing as t
 from collections.abc import Iterable
-from typing import List
-
 from edvise.utils import types
 from edvise.dataio.pdp_course_converters import dedupe_by_renumbering_courses
 
