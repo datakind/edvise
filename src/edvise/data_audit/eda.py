@@ -5,6 +5,7 @@ import typing as t
 import numpy as np
 import pandas as pd
 import scipy.stats as ss
+from typing import List
 
 from edvise import utils
 
