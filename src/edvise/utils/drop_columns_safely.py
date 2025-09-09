@@ -23,4 +23,5 @@ def drop_columns_safely(df: pd.DataFrame, cols_to_drop: list[str]) -> pd.DataFra
 
     df_trf = df.drop(columns=list(drop_cols))
     LOGGER.info("Dropped %s columns safely", len(drop_cols))
+    LOGGER.info("Columns Dropped:", drop_cols)
     return df_trf

@@ -195,7 +195,7 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
     if "pell_status_first_year" in df_cohort.columns:
         LOGGER.info("Before replacing 'pell_status_first_year':\n%s", 
                     df_cohort["pell_status_first_year"].value_counts(dropna=False))
-        na_pell = (df_cohort["pell_status_first_year"] == "UK").sum()
+        na_pell = df_cohort["pell_status_first_year"].isna().sum()
         df_cohort["pell_status_first_year"] = df_cohort[
             "pell_status_first_year"
         ].replace("UK", "N")
@@ -300,7 +300,11 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
         ascending=False,
         ignore_index=True,
     )
-    LOGGER.warning("%s duplicate rows found & dropped", int(len(dupe_rows) / 2))
+    LOGGER.warning(
+        "%d (%.1f%% of data) duplicate rows found & dropped",
+        len(dupe_rows) / 2,
+        (len(dupe_rows) / len(df_course)) * 100
+    )
 
     df_course = df_course.drop_duplicates(subset=unique_cols, keep="first").sort_values(
         by=unique_cols + ["number_of_credits_attempted"],
