@@ -301,7 +301,7 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
         ignore_index=True,
     )
     LOGGER.warning(
-        "%d (%.1f%% of data) duplicate rows found & dropped",
+        "%s (%.1f%% of data) duplicate rows found & dropped",
         len(dupe_rows) / 2,
         (len(dupe_rows) / len(df_course)) * 100
     )
