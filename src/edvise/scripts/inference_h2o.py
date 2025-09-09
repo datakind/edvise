@@ -24,6 +24,8 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 from databricks.connect import DatabricksSession
+from pyspark.sql import SparkSession
+
 from databricks.sdk import WorkspaceClient
 from mlflow.tracking import MlflowClient
 
@@ -55,6 +57,7 @@ class ModelInferenceTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
+        self.spark_session = self.get_spark_session()
         self.cfg = dataio.read.read_config(
             self.args.toml_file_path, schema=PDPProjectConfig
         )
@@ -62,6 +65,20 @@ class ModelInferenceTask:
         # Populated by load_mlflow_model()
         self.model_run_id: str | None = None
         self.model_experiment_id: str | None = None
+
+    def get_spark_session(self) -> SparkSession:
+        """
+        Attempts to create a Spark session.
+        Returns:
+            DatabricksSession | None: A Spark session if successful, None otherwise.
+        """
+        try:
+            spark_session = DatabricksSession.builder.getOrCreate()
+            logging.info("Spark session created successfully.")
+            return spark_session
+        except Exception:
+            logging.error("Unable to create Spark session.")
+            raise
 
     def read_config(self, toml_file_path: str) -> PDPProjectConfig:
         try:
@@ -74,26 +91,30 @@ class ModelInferenceTask:
             raise
 
     def top_n_features(
+        self,
         grouped_features: pd.DataFrame,
         unique_ids: pd.Series,
-        grouped_shap_values: npt.NDArray[np.float64],
+        grouped_shap_values: npt.NDArray[np.float64] | pd.DataFrame,  # relax input
         features_table_path: str,
         n: int = 10,
     ) -> pd.DataFrame:
         features_table = dataio.read.read_features_table(features_table_path)
         try:
             top_n_shap_features = modeling.automl.inference.top_shap_features(
-                grouped_features,
-                unique_ids,
-                grouped_shap_values,
-                n,
+                grouped_features=grouped_features,
+                unique_ids=unique_ids,
+                grouped_shap_values=(
+                    grouped_shap_values.values
+                    if isinstance(grouped_shap_values, pd.DataFrame)
+                    else grouped_shap_values
+                ),
+                n=n,
                 features_table=features_table,
             )
             return top_n_shap_features
-
         except Exception as e:
             logging.error("Error computing top %d shap features table: %s", n, e)
-            return None
+            raise  # keep the signature honest
 
     def features_box_whiskers_table(
         self,
@@ -136,19 +157,21 @@ class ModelInferenceTask:
             self.model_experiment_id,
         )
 
-    def write_parquet(
+    def write_delta(
         self,
         df: pd.DataFrame,
         table_name_suffix: str,
-        label: t.Optional[str] = "Parquet table",
+        label: t.Optional[str] = "Delta table",
     ) -> None:
         """Writes a DataFrame to a Delta Lake table in the institution's silver schema."""
         if df is None:
             msg = f"{label} is empty: cannot write inference summary tables."
             logging.error(msg)
             raise ValueError(msg)
-        table_path = f"{self.args.silver_volume_path}.{table_name_suffix}.parquet"
-        dataio.write.write_parquet(df, table_path)
+        table_path = f"{self.args.silver_volume_path}.{table_name_suffix}"
+        dataio.write.to_delta_table(
+            df=df, table_path=table_path, spark_session=self.spark_session
+        )
         logging.info("%s data written to: %s", table_name_suffix, table_path)
 
     def run(self) -> None:
@@ -188,7 +211,9 @@ class ModelInferenceTask:
             pos_label=("true" if self.cfg.pos_label is None else self.cfg.pos_label),
             min_prob_pos_label=min_prob_pos_label,
             background_data_sample=background_data_sample,
-            random_state=(12345 if self.cfg.random_state is None else self.cfg.random_state),
+            random_state=(
+                12345 if self.cfg.random_state is None else self.cfg.random_state
+            ),
             cfg_inference_params=inference_params,
         )
         # Choose the correct features table path your project uses
@@ -219,12 +244,15 @@ class ModelInferenceTask:
                 "predicted_label": out.pred_labels.values,
             }
         )
-        self.write_parquet(predicted_df, "predicted_dataset")
-
+        self.write_delta(
+            df=predicted_df,
+            table_name_suffix="predicted_dataset",
+            label="Prediction dataset",
+        )
         support_scores = pd.DataFrame(
             {
-                "student_id": out.unique_ids.values,  # From the original df_test
-                "support_score": df_predicted["predicted_prob"].values,
+                "student_id": out.unique_ids.values,
+                "support_score": out.pred_probs.values,
             }
         )
         # 6) Create FE tables
@@ -233,7 +261,7 @@ class ModelInferenceTask:
             unique_ids=out.unique_ids,
             grouped_shap_values=out.grouped_contribs_df,
             features_table_path=features_table_path,
-        ).merge(out.support_scores, on="student_id", how="left")
+        ).merge(support_scores, on="student_id", how="left")
         box_whiskers_table = self.features_box_whiskers_table(
             features=out.grouped_features,
             shap_values=out.grouped_contribs_df.values,
@@ -260,7 +288,7 @@ class ModelInferenceTask:
         }
 
         for suffix, (df, label) in tables.items():
-            self.write_parquet(df, suffix, label)
+            self.write_delta(df, suffix, label)
 
         # 8) Export a CSV of the main “inference_output” (use top_features_result here)
         self._export_csv_with_spark(
@@ -278,7 +306,7 @@ class ModelInferenceTask:
         SENDER_EMAIL = Address("Datakind Info", "help", "datakind.org")
 
         emails.send_inference_kickoff_email(
-            SENDER_EMAIL,
+            str(SENDER_EMAIL),
             [self.args.notification_email],
             [self.args.DK_CC_EMAIL],
             MANDRILL_USERNAME,
