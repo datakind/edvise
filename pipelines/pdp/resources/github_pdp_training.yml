@@ -17,7 +17,8 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --config_file_path 
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: "5904-163729-pjqjr77t"
+          # existing_cluster_id: 5904-163729-pjqjr77t
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -48,7 +49,8 @@ resources:
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: "5904-163729-pjqjr77t"
+          # existing_cluster_id: 5904-163729-pjqjr77t
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -79,7 +81,8 @@ resources:
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: "5904-163729-pjqjr77t"
+          # existing_cluster_id: 5904-163729-pjqjr77t
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -110,7 +113,8 @@ resources:
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: "5904-163729-pjqjr77t"
+          # existing_cluster_id: 5904-163729-pjqjr77t
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -141,7 +145,8 @@ resources:
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: "5904-163729-pjqjr77t"
+          # existing_cluster_id: 5904-163729-pjqjr77t
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -174,7 +179,8 @@ resources:
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: "5904-163729-pjqjr77t"
+          # existing_cluster_id: 5904-163729-pjqjr77t
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -209,7 +215,8 @@ resources:
               - "{{job.parameters.db_run_id}}"
               - --ds_run_as
               - "{{job.parameters.ds_run_as}}"
-          existing_cluster_id: "5904-163729-pjqjr77t"
+          # existing_cluster_id: 5904-163729-pjqjr77t
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: numpy==1.24.4
