@@ -190,6 +190,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
             )
         ]
     )
+    return df_course
 
 
 def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
