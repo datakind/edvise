@@ -163,24 +163,33 @@ class ModelInferenceTask:
         self._send_kickoff_email()
 
         # 4) Configure + call the shared predictions pipeline
+        inf = self.cfg.inference
+        min_prob_pos_label = (
+            0.5
+            if inf is None or inf.min_prob_pos_label is None
+            else inf.min_prob_pos_label
+        )
+
+        background_data_sample = (
+            500
+            if inf is None or inf.background_data_sample is None
+            else inf.background_data_sample
+        )
+        inference_params = (
+            {"num_top_features": 5, "min_prob_pos_label": 0.5}
+            if inf is None or inf.dict() is None
+            else inf.dict()
+        )
         pred_cfg = PredConfig(
             model_run_id=self.model_run_id,
             experiment_id=self.model_experiment_id,
             split_col=self.cfg.split_col,
             student_id_col=self.cfg.student_id_col,
             pos_label=("true" if self.cfg.pos_label is None else self.cfg.pos_label),
-            min_prob_pos_label=(
-                0.5
-                if self.cfg.inference.min_prob_pos_label is None
-                else self.cfg.inference.min_prob_pos_label
-            ),
-            background_data_sample=(
-                500
-                if self.cfg.inference.background_data_sample is None
-                else self.cfg.inference.background_data_sample
-            ),
-            random_state=self.cfg.random_state,
-            cfg_inference_params=self.cfg.inference.dict(),
+            min_prob_pos_label=min_prob_pos_label,
+            background_data_sample=background_data_sample,
+            random_state=(12345 if self.cfg.random_state is None else self.cfg.random_state),
+            cfg_inference_params=inference_params,
         )
         # Choose the correct features table path your project uses
         features_table_path = (
