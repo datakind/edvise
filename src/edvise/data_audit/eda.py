@@ -389,11 +389,27 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     LOGGER.info(f"Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
     LOGGER.info(f"Identified {len(cips)} unique CIP codes: {cips.tolist()}")
 
-    # Log prefixes by type 
-    prefixes_e = df_course.loc[df_course["math_or_english_gateway"] == "E", "course_prefix"].dropna().unique()
-    prefixes_m = df_course.loc[df_course["math_or_english_gateway"] == "M", "course_prefix"].dropna().unique()
-    LOGGER.info("English (E) gateway course prefixes: %s", prefixes_e.tolist())
-    LOGGER.info("Math (M) gateway course prefixes: %s", prefixes_m.tolist())
-    LOGGER.info("NOTE: If prefixes above don’t look right, Math/English markers may need to be swapped.")
+    # Sanity-check for prefixes and swap if clearly reversed; has come up for some schools
+    pref_e = (df_course.loc[df_course["math_or_english_gateway"].eq("E"), "course_prefix"]
+            .dropna().astype(str).str.strip().unique())
+    pref_m = (df_course.loc[df_course["math_or_english_gateway"].eq("M"), "course_prefix"]
+            .dropna().astype(str).str.strip().unique())
+
+    LOGGER.info("English (E) prefixes (raw): %s", pref_e.tolist())
+    LOGGER.info("Math (M) prefixes (raw): %s", pref_m.tolist())
+
+    looks = lambda arr, ch: len(arr) > 0 and all(str(p).upper().startswith(ch) for p in arr)
+    e_ok, m_ok = looks(pref_e, "E"), looks(pref_m, "M")
+
+    if not e_ok and not m_ok:
+        LOGGER.warning("Prefixes look swapped. Swapping E<->M. E=%s, M=%s", pref_e.tolist(), pref_m.tolist())
+        pref_e, pref_m = pref_m, pref_e
+    elif e_ok and m_ok:
+        LOGGER.info("Prefixes look OK (start with E* for English, start with M* for Math).")
+    else:
+        LOGGER.warning("One group inconsistent. English OK=%s, Math OK=%s", e_ok, m_ok)
+
+    LOGGER.info("Final English (E) prefixes: %s", pref_e.tolist())
+    LOGGER.info("Final Math (M) prefixes: %s", pref_m.tolist())
 
     return [ids.tolist(), cips.tolist()]

@@ -197,7 +197,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
     if n_removed > 0:
         pct_removed = (n_removed / n_before) * 100
         LOGGER.info(
-            "remove_pre_cohort_courses: %d pre-cohort course records removed (%.1f%% of data).",
+            "remove_pre_cohort_courses: %d pre-cohort course records removed successfully (%.1f%% of data).",
             n_removed,
             pct_removed,
         )
