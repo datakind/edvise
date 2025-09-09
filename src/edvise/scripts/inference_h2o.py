@@ -101,14 +101,14 @@ class ModelInferenceTask:
         features_table = dataio.read.read_features_table(features_table_path)
         try:
             top_n_shap_features = modeling.automl.inference.top_shap_features(
-                grouped_features=grouped_features,
+                features=grouped_features,
                 unique_ids=unique_ids,
-                grouped_shap_values=(
+                shap_values=(
                     grouped_shap_values.values
                     if isinstance(grouped_shap_values, pd.DataFrame)
                     else grouped_shap_values
                 ),
-                n=n,
+                top_n=n,
                 features_table=features_table,
             )
             return top_n_shap_features

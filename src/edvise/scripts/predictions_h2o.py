@@ -11,6 +11,7 @@ from h2o.estimators.estimator_base import H2OEstimator
 
 from edvise import modeling, dataio
 from edvise.modeling.h2o_ml import utils as h2o_utils
+from edvise.modeling.automl import inference as automl_inference
 
 
 class RunType(str, Enum):
@@ -232,7 +233,7 @@ def run_predictions(
     )
 
     # ----- Tables -----
-    top_features_result = modeling.automl.inference.select_top_features_for_display(
+    top_features_result = automl_inference.select_top_features_for_display(
         features=grouped_features,
         unique_ids=unique_ids,
         predicted_probabilities=list(pred_probs),
@@ -242,7 +243,7 @@ def run_predictions(
         needs_support_threshold_prob=pred_cfg.min_prob_pos_label,
     )
 
-    sfi = modeling.automl.inference.generate_ranked_feature_table(
+    sfi = automl_inference.generate_ranked_feature_table(
         features=grouped_features,
         shap_values=grouped_contribs_df.to_numpy(),
         features_table=ft,
@@ -252,7 +253,7 @@ def run_predictions(
             "Feature Name"
         ].apply(
             lambda f: pd.Series(
-                modeling.automl.inference._get_mapped_feature_name(f, ft, metadata=True)
+                automl_inference._get_mapped_feature_name(f, ft, metadata=True)
             )
         )
         sfi.columns = sfi.columns.str.replace(" ", "_").str.lower()
@@ -261,7 +262,7 @@ def run_predictions(
         "num_top_features": 5,
         "min_prob_pos_label": 0.5,
     }
-    ssd = modeling.automl.inference.support_score_distribution_table(
+    ssd = automl_inference.support_score_distribution_table(
         df_serving=grouped_features,
         unique_ids=unique_ids,
         pred_probs=pred_probs,
