@@ -248,7 +248,7 @@ resources:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
         # git_branch: develop
-        git_branch: debug_data_audit
+        git_branch: automate_gateway_config
       tags:
         dev: kayla_wilding
       queue:
