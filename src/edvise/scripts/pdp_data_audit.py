@@ -20,15 +20,12 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.data_audit.schemas import (
-    RawPDPCohortDataSchema,
-    RawPDPCourseDataSchema
-)
+from edvise.data_audit.schemas import RawPDPCohortDataSchema, RawPDPCourseDataSchema
 from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
-from edvise.utils.databricks import get_spark_session 
+from edvise.utils.databricks import get_spark_session
 from edvise.utils.data_cleaning import handling_duplicates
 
 from edvise.dataio.read import (
@@ -67,8 +64,8 @@ class PDPDataAuditTask:
         # self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
         # Use default converter to handle duplicates if none provided
         self.course_converter_func: ConverterFunc = (
-            handling_duplicates 
-            if course_converter_func is None 
+            handling_duplicates
+            if course_converter_func is None
             else course_converter_func
         )
         self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
@@ -80,10 +77,9 @@ class PDPDataAuditTask:
 
         # --- Load datasets ---
 
-
         # Cohort
 
-        # Schema validate cohort data 
+        # Schema validate cohort data
         LOGGER.info("Reading and schema validating cohort data:")
         df_cohort_validated = read_raw_pdp_cohort_data(
             file_path=cohort_dataset_raw_path,
