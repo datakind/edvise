@@ -55,7 +55,6 @@ class ModelInferenceTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.spark_session = self.get_spark_session()
         self.cfg = dataio.read.read_config(
             self.args.toml_file_path, schema=PDPProjectConfig
         )
@@ -64,18 +63,9 @@ class ModelInferenceTask:
         self.model_run_id: str | None = None
         self.model_experiment_id: str | None = None
 
-    def get_spark_session(self) -> DatabricksSession:
-        try:
-            spark_session = DatabricksSession.builder.getOrCreate()
-            logging.info("Spark session created successfully.")
-            return spark_session
-        except Exception:
-            logging.error("Unable to create Spark session.")
-            raise
-
     def read_config(self, toml_file_path: str) -> PDPProjectConfig:
         try:
-            return dataio.read_config(toml_file_path, schema=PDPProjectConfig)
+            return dataio.read.read_config(toml_file_path, schema=PDPProjectConfig)
         except FileNotFoundError:
             logging.error("Configuration file not found at %s", toml_file_path)
             raise
@@ -110,7 +100,9 @@ class ModelInferenceTask:
         features: pd.DataFrame,
         shap_values: npt.NDArray[np.float64],
     ) -> pd.DataFrame:
-        features_table = dataio.read_features_table("assets/pdp/features_table.toml")
+        features_table = dataio.read.read_features_table(
+            "assets/pdp/features_table.toml"
+        )
         try:
             feature_boxstats = modeling.automl.inference.top_feature_boxstats(
                 features=features,
@@ -144,31 +136,28 @@ class ModelInferenceTask:
             self.model_experiment_id,
         )
 
-    def write_delta(
-        self, df: pd.DataFrame, table_name_suffix: str, label: t.Optional[str] = "table"
+    def write_parquet(
+        self,
+        df: pd.DataFrame,
+        table_name_suffix: str,
+        label: t.Optional[str] = "Parquet table",
     ) -> None:
         """Writes a DataFrame to a Delta Lake table in the institution's silver schema."""
         if df is None:
             msg = f"{label} is empty: cannot write inference summary tables."
             logging.error(msg)
             raise ValueError(msg)
-        write_schema = f"{self.args.databricks_institution_name}_silver"
-        table_path = f"{self.args.DB_workspace}.{write_schema}.{table_name_suffix}"
-        dataio.write.to_delta_table(df, table_path, spark_session=self.spark_session)
+        table_path = f"{self.args.silver_volume_path}.{table_name_suffix}.parquet"
+        dataio.write.write_parquet(df, table_path)
         logging.info("%s data written to: %s", table_name_suffix, table_path)
 
-    # ------------------------------
-    # Main entry
-    # ------------------------------
     def run(self) -> None:
         # 1) Load UC model metadata (run_id + experiment_id)
         self.load_mlflow_model_metadata()
         assert self.model_run_id and self.model_experiment_id
 
-        # 2) Read the processed dataset (as-is; the shared pipeline will impute/align)
-        df_processed = dataio.read.from_delta_table(
-            self.args.processed_dataset_path, spark_session=self.spark_session
-        )
+        # 2) Read the processed dataset
+        df_processed = dataio.read.read_parquet(self.args.processed_dataset_path)
 
         # 3) Notify via email
         self._send_kickoff_email()
@@ -179,10 +168,19 @@ class ModelInferenceTask:
             experiment_id=self.model_experiment_id,
             split_col=self.cfg.split_col,
             student_id_col=self.cfg.student_id_col,
-            pos_label=self.cfg.pos_label,
-            min_prob_pos_label=self.cfg.inference.min_prob_pos_label,
-            background_data_sample=self.cfg.inference.background_data_sample,
+            pos_label=("true" if self.cfg.pos_label is None else self.cfg.pos_label),
+            min_prob_pos_label=(
+                0.5
+                if self.cfg.inference.min_prob_pos_label is None
+                else self.cfg.inference.min_prob_pos_label
+            ),
+            background_data_sample=(
+                500
+                if self.cfg.inference.background_data_sample is None
+                else self.cfg.inference.background_data_sample
+            ),
             random_state=self.cfg.random_state,
+            cfg_inference_params=self.cfg.inference.dict(),
         )
         # Choose the correct features table path your project uses
         features_table_path = (
@@ -198,8 +196,8 @@ class ModelInferenceTask:
         )
 
         out = run_predictions(
-            cfg=pred_cfg,
-            paths=pred_paths,
+            pred_cfg=pred_cfg,
+            pred_paths=pred_paths,
             run_type=RunType.PREDICT,
             df_inference=df_processed,
         )
@@ -212,8 +210,14 @@ class ModelInferenceTask:
                 "predicted_label": out.pred_labels.values,
             }
         )
-        self.write_delta(predicted_df, "predicted_dataset")
+        self.write_parquet(predicted_df, "predicted_dataset")
 
+        support_scores = pd.DataFrame(
+            {
+                "student_id": out.unique_ids.values,  # From the original df_test
+                "support_score": df_predicted["predicted_prob"].values,
+            }
+        )
         # 6) Create FE tables
         inference_features_with_most_impact = self.top_n_features(
             grouped_features=out.grouped_features,
@@ -247,7 +251,7 @@ class ModelInferenceTask:
         }
 
         for suffix, (df, label) in tables.items():
-            self.write_delta(df, suffix, label)
+            self.write_parquet(df, suffix, label)
 
         # 8) Export a CSV of the main “inference_output” (use top_features_result here)
         self._export_csv_with_spark(
@@ -298,6 +302,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--model_type", type=str, required=True)
     parser.add_argument("--job_root_dir", type=str, required=True)
     parser.add_argument("--toml_file_path", type=str, required=True)
+    parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--processed_dataset_path", type=str, required=True)
     parser.add_argument("--notification_email", type=str, required=True)
     parser.add_argument("--DK_CC_EMAIL", type=str, required=True)

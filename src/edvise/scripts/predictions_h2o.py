@@ -46,6 +46,7 @@ class PredOutputs:
     grouped_contribs_df: pd.DataFrame
     unique_ids: pd.Series
     pred_probs: pd.Series
+    pred_labels: pd.Series
 
 
 def load_features_table(path: str | None) -> pd.DataFrame | None:
@@ -168,26 +169,26 @@ def log_shap_plot(
 
 
 def run_predictions(
-    cfg: PredConfig,
-    paths: PredPaths,
+    pred_cfg: PredConfig,
+    pred_paths: PredPaths,
     *,
     run_type: RunType,
     df_inference: pd.DataFrame | None = None,
     test_sample_cap: int = 200,
 ) -> PredOutputs:
-    ft = load_features_table(paths.features_table_path)
-    model, model_feature_names = load_model_and_features(cfg.model_run_id)
-    imp = imputer_for_run(cfg.model_run_id)
+    ft = load_features_table(pred_paths.features_table_path)
+    model, model_feature_names = load_model_and_features(pred_cfg.model_run_id)
+    imp = imputer_for_run(pred_cfg.model_run_id)
 
     # ----- Build df_test (the rows to score) -----
     if run_type == RunType.TRAIN:
         df_train, df_test_all = extract_and_split_training_data(
-            cfg.experiment_id, cfg.split_col
+            pred_cfg.experiment_id, pred_cfg.split_col
         )
         df_test = sample_rows(
             df_test_all,
             min(test_sample_cap, len(df_test_all)),
-            cfg.random_state,
+            pred_cfg.random_state,
             "df_test(train)",
         )
     else:
@@ -195,23 +196,25 @@ def run_predictions(
         df_test = df_inference
 
         # get a training background unless caller provides one
-        df_train, _ = extract_and_split_training_data(cfg.experiment_id, cfg.split_col)
+        df_train, _ = extract_and_split_training_data(
+            pred_cfg.experiment_id, pred_cfg.split_col
+        )
 
     # ----- Impute & align for predictions -----
     df_test_imp = imp.transform(df_test)
-    
+
     features_df, unique_ids = align_features(
-        df_test_imp, model_feature_names, cfg.student_id_col
+        df_test_imp, model_feature_names, pred_cfg.student_id_col
     )
     pred_labels, pred_probs = predict_probs(
-        features_df, model, model_feature_names, cfg.pos_label
+        features_df, model, model_feature_names, str(pred_cfg.pos_label)
     )
 
     # ----- Background for SHAP -----
     df_bd_raw = sample_rows(
         df_train,
-        cfg.background_data_sample,
-        cfg.random_state,
+        pred_cfg.background_data_sample,
+        pred_cfg.random_state,
         "df_train(background)",
     )
     df_bd = imp.transform(df_bd_raw).loc[:, model_feature_names].copy()
@@ -225,17 +228,18 @@ def run_predictions(
         contribs_df,
         features_df,
         getattr(imp, "input_dtypes", None),
-        cfg.model_run_id,
+        pred_cfg.model_run_id,
     )
 
     # ----- Tables -----
     top_features_result = modeling.automl.inference.select_top_features_for_display(
-        grouped_features,
-        features_df,
-        pred_probs,
+        features=grouped_features,
+        unique_ids=unique_ids,
+        predicted_probabilities=list(pred_probs),
+        shap_values=grouped_contribs_df.to_numpy(),
         n_features=10,
         features_table=ft,
-        needs_support_threshold_prob=cfg.min_prob_pos_label,
+        needs_support_threshold_prob=pred_cfg.min_prob_pos_label,
     )
 
     sfi = modeling.automl.inference.generate_ranked_feature_table(
@@ -248,17 +252,25 @@ def run_predictions(
             "Feature Name"
         ].apply(
             lambda f: pd.Series(
-                modeling.inference._get_mapped_feature_name(f, ft, metadata=True)
+                modeling.automl.inference._get_mapped_feature_name(f, ft, metadata=True)
             )
         )
         sfi.columns = sfi.columns.str.replace(" ", "_").str.lower()
 
+    default_inference_params = {
+        "num_top_features": 5,
+        "min_prob_pos_label": 0.5,
+    }
     ssd = modeling.automl.inference.support_score_distribution_table(
         df_serving=grouped_features,
         unique_ids=unique_ids,
         pred_probs=pred_probs,
         shap_values=grouped_contribs_df,
-        inference_params=cfg.inference.dict(),
+        inference_params=(
+            default_inference_params
+            if pred_cfg.cfg_inference_params is None
+            else pred_cfg.cfg_inference_params
+        ),
     )
 
     return PredOutputs(

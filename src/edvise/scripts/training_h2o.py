@@ -240,7 +240,9 @@ class TrainingTask:
         )
 
         try:
-            out = run_predictions(cfg, paths, run_type=RunType.TRAIN)
+            out = run_predictions(
+                pred_cfg=cfg, pred_paths=paths, run_type=RunType.TRAIN
+            )
 
             # write the artifacts that are specific to *training* outputs
             dataio.write.write_parquet(
