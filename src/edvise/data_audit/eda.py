@@ -396,14 +396,14 @@ def compute_gateway_course_ids_and_cips(self, df_course: pd.DataFrame) -> List[s
     cips = cips[cips.ne("")].drop_duplicates()
     ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")].drop_duplicates()
 
+    LOGGER.info("Auto-populating config with above course IDs and cip codes: change if necessary")
+    utils.update_key_courses_and_cips(
+        self.args.config_file_path, 
+        key_course_ids=ids.tolist(), 
+        key_course_subject_areas=cips.tolist()
+    )
     LOGGER.info(f"Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
     LOGGER.info(f"Identified {len(cips)} unique CIP codes: {cips.tolist()}")
-
-    utils.update_config.update_run_metadata(
-        config_path=self.args.config_file_path,
-        key_course_ids=ids,
-        key_course_subject_areas=cips,
-    )
 
     # Sanity-check for prefixes and swap if clearly reversed; has come up for some schools
     pref_e = (
@@ -445,4 +445,5 @@ def compute_gateway_course_ids_and_cips(self, df_course: pd.DataFrame) -> List[s
 
     LOGGER.info("Final English (E) prefixes: %s", pref_e.tolist())
     LOGGER.info("Final Math (M) prefixes: %s", pref_m.tolist())
+
     return [ids.tolist(), cips.tolist()]
