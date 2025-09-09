@@ -79,7 +79,9 @@ class PDPDataAuditTask:
         # Cohort
 
         # Schema validate cohort data 
-        LOGGER.info("Reading and schema validating cohort data:")
+        LOGGER.info(
+            "Reading and schema validating cohort data:"
+        )
         df_cohort_validated = read_raw_pdp_cohort_data(
             file_path=cohort_dataset_raw_path,
             schema=RawPDPCohortDataSchema,

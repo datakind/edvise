@@ -207,28 +207,42 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
 
 def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
     if "pell_status_first_year" in df_cohort.columns:
-        LOGGER.info("Before replacing 'pell_status_first_year':\n%s", 
-                    df_cohort["pell_status_first_year"].value_counts(dropna=False))
+        LOGGER.info(
+            "Before replacing 'pell_status_first_year':\n%s", 
+            df_cohort["pell_status_first_year"].value_counts(dropna=False)
+        )
         na_pell = df_cohort["pell_status_first_year"].isna().sum()
         df_cohort["pell_status_first_year"] = df_cohort[
             "pell_status_first_year"
         ].fillna("N")
-        LOGGER.info('Filled %s NAs in "pell_status_first_year" to "N".', int(na_pell))
-        LOGGER.info("After replacing 'pell_status_first_year':\n%s", 
-                    df_cohort["pell_status_first_year"].value_counts(dropna=False))
+        LOGGER.info(
+            'Filled %s NAs in "pell_status_first_year" to "N".', 
+            int(na_pell)
+        )
+        LOGGER.info(
+            "After replacing 'pell_status_first_year':\n%s", 
+            df_cohort["pell_status_first_year"].value_counts(dropna=False)
+        )
     else:
         LOGGER.warning(
             'Column "pell_status_first_year" not found; skipping Pell status NA replacement.'
         )
     
     if "first_gen" in df_cohort.columns:
-        LOGGER.info("Before filling 'first_gen':\n%s", 
-                    df_cohort["first_gen"].value_counts(dropna=False))
+        LOGGER.info(
+            "Before filling 'first_gen':\n%s", 
+            df_cohort["first_gen"].value_counts(dropna=False)
+        )
         na_first = df_cohort["first_gen"].isna().sum()
         df_cohort["first_gen"] = df_cohort["first_gen"].fillna("N")
-        LOGGER.info('Filled %s NAs in "first_gen" with "N".', int(na_first))
-        LOGGER.info("After filling 'first_gen':\n%s", 
-                    df_cohort["first_gen"].value_counts(dropna=False))
+        LOGGER.info(
+            'Filled %s NAs in "first_gen" with "N".', 
+            int(na_first)
+        )
+        LOGGER.info(
+            "After filling 'first_gen':\n%s", 
+            df_cohort["first_gen"].value_counts(dropna=False)
+        )
     else:
         LOGGER.warning(
             'Column "first_gen" not found; skipping first-gen NA replacement.'
@@ -268,7 +282,7 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
         else "student_id"
     )
     unique_cols = [
-        student_id_col, 
+        student_id_col,
         "academic_year",
         "academic_term",
         "course_prefix",
@@ -283,9 +297,7 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
         # Group and check for variation in course_name
         to_renumber = []
         for _, idx in (
-            df_course.loc[dup_mask]
-            .groupby(unique_cols, dropna=False)
-            .groups.items()
+            df_course.loc[dup_mask].groupby(unique_cols, dropna=False).groups.items()
         ):
             idx = list(idx)
             if len(idx) <= 1:

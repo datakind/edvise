@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import scipy.stats as ss
 from typing import List
-
 from edvise import utils
 
 LOGGER = logging.getLogger(__name__)
@@ -376,11 +375,20 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
             .astype(str)
             .str.strip()
             .replace(
-                {"nan": "", "NaN": "", "NAN": "", "missing": "", "MISSING": "", "Missing": ""}
+                {
+                    "nan": "", 
+                    "NaN": "", 
+                    "NAN": "", 
+                    "missing": "", 
+                    "MISSING": "", 
+                    "Missing": ""
+                }
             )
         )
         if cips.eq("").all():
-            LOGGER.warning("Column 'course_cip' is present but unpopulated for gateway courses.")
+            LOGGER.warning(
+                "Column 'course_cip' is present but unpopulated for gateway courses."
+            )
 
     # edit this to auto populate the config
     cips = cips[cips.ne("")].drop_duplicates()
@@ -390,26 +398,44 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     LOGGER.info(f"Identified {len(cips)} unique CIP codes: {cips.tolist()}")
 
     # Sanity-check for prefixes and swap if clearly reversed; has come up for some schools
-    pref_e = (df_course.loc[df_course["math_or_english_gateway"].eq("E"), "course_prefix"]
-            .dropna().astype(str).str.strip().unique())
-    pref_m = (df_course.loc[df_course["math_or_english_gateway"].eq("M"), "course_prefix"]
-            .dropna().astype(str).str.strip().unique())
+    pref_e = (
+            df_course.loc[df_course["math_or_english_gateway"].eq("E"), "course_prefix"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .unique()
+        )
+    pref_m = (
+            df_course.loc[df_course["math_or_english_gateway"].eq("M"), "course_prefix"]
+            .dropna()
+            .astype(str)
+            .str.strip()
+            .unique()
+        )
 
     LOGGER.info("English (E) prefixes (raw): %s", pref_e.tolist())
     LOGGER.info("Math (M) prefixes (raw): %s", pref_m.tolist())
 
-    looks = lambda arr, ch: len(arr) > 0 and all(str(p).upper().startswith(ch) for p in arr)
+    looks = lambda arr, ch: len(arr) > 0 and all(
+        str(p).upper().startswith(ch) for p in arr
+    )
     e_ok, m_ok = looks(pref_e, "E"), looks(pref_m, "M")
 
     if not e_ok and not m_ok:
-        LOGGER.warning("Prefixes look swapped. Swapping E<->M. E=%s, M=%s", pref_e.tolist(), pref_m.tolist())
+        LOGGER.warning(
+            "Prefixes look swapped. Swapping E<->M. E=%s, M=%s", 
+            pref_e.tolist(), 
+            pref_m.tolist()
+        )
         pref_e, pref_m = pref_m, pref_e
     elif e_ok and m_ok:
-        LOGGER.info("Prefixes look correct and not swapped (start with E for English, start with M for Math).")
+        LOGGER.info(
+            "Prefixes look correct and not swapped (start with E for English, start with M for Math)."
+        )
     else:
         LOGGER.warning("One group inconsistent. English OK=%s, Math OK=%s", e_ok, m_ok)
 
     LOGGER.info("Final English (E) prefixes: %s", pref_e.tolist())
     LOGGER.info("Final Math (M) prefixes: %s", pref_m.tolist())
-
+    
     return [ids.tolist(), cips.tolist()]
