@@ -330,6 +330,7 @@ def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> pd.DataFr
     if high_nulls.empty:
         LOGGER.info("No columns with more than %.0f%% null values.", threshold * 100)
     else:
+        LOGGER.info("Printing columns with >20% missing values to later be dropped during feature selection:")
         for col, ratio in high_nulls.items():
             LOGGER.warning(
                 'Column "%s" has %.1f%% null values.',

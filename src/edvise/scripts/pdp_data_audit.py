@@ -66,9 +66,7 @@ class PDPDataAuditTask:
         self.course_std = PDPCourseStandardizer()
         #self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
         # Use default converter to handle duplicates if none provided
-        self.course_converter_func: ConverterFunc = (
-            course_converter_func or handling_duplicates
-        )
+        self.course_converter_func: ConverterFunc = handling_duplicates if course_converter_func is None else course_converter_func
         self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
     def run(self):
@@ -81,15 +79,16 @@ class PDPDataAuditTask:
         # Cohort
 
         # Schema validate cohort data 
+        LOGGER.info("Reading and schema validating cohort data:")
         df_cohort_validated = read_raw_pdp_cohort_data(
             file_path=cohort_dataset_raw_path,
             schema=RawPDPCohortDataSchema,
             converter_func=self.cohort_converter_func,
             spark_session=self.spark,
         )
-        LOGGER.info("Cohort data read and schema validated.")
 
         # Standardize cohort data
+        LOGGER.info("Standardizing cohort data:")
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
 
         LOGGER.info("Cohort data standardized.")
@@ -98,6 +97,7 @@ class PDPDataAuditTask:
         dttm_formats = ["ISO8601", "%Y%m%d.0"]
 
         # Schema validate course data and handle duplicates
+        LOGGER.info("Reading and schema validating course data, handling any duplicates:")
         for fmt in dttm_formats:
             try:
                 df_course_validated = read_raw_pdp_course_data(
@@ -115,10 +115,10 @@ class PDPDataAuditTask:
             raise ValueError(
                 "Failed to parse course data with all known datetime formats."
             )
-        
         LOGGER.info("Course data read and schema validated, duplicates handled.")
 
         # Standardize course data
+        LOGGER.info("Standardizing course data:")
         df_course_standardized = self.course_std.standardize(df_course_validated)
 
         LOGGER.info("Course data standardized.")

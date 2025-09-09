@@ -291,11 +291,18 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
         ascending=False,
         ignore_index=True,
     )
-    LOGGER.warning(
-        "%s (%.1f%% of data) true duplicate rows found & dropped",
-        len(dupe_rows) / 2,
-        (len(dupe_rows) / len(df_course)) * 100,
+    pct_dup = (len(dupe_rows) / len(df_course)) * 100
+    if pct_dup < 1:
+        LOGGER.warning(
+        "%s ('<1%' of data) true duplicate rows found & dropped",
+        len(dupe_rows) / 2
     )
+    else:
+        LOGGER.warning(
+            "%s (%.1f%% of data) true duplicate rows found & dropped",
+            len(dupe_rows) / 2,
+            pct_dup,
+        )
 
     df_course = df_course.drop_duplicates(subset=unique_cols, keep="first").sort_values(
         by=unique_cols + ["number_of_credits_attempted"],
