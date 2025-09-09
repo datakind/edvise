@@ -346,6 +346,11 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     Filter: math_or_english_gateway in {"M", "E"}
     ID format: "<course_prefix><course_number>" (both coerced to strings, trimmed)
     CIP codes taken from 'course_cip' column
+
+    Logs:
+    - If CIP column is missing or has no values or gateway field unpopulated
+    - Log prefixes for English (E) and Math (M) courses, with a note that they
+    may need to be swapped if they don’t look right
     """
     if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(
         df_course.columns
@@ -354,22 +359,41 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
         return []
 
     mask = df_course["math_or_english_gateway"].astype("string").isin({"M", "E"})
+    if not mask.any():
+        LOGGER.info("No Math/English gateway courses found.")
+        return [[], []]
+    
     ids = df_course.loc[mask, "course_prefix"].fillna("") + df_course.loc[
         mask, "course_number"
     ].fillna("")
-    
-    cips = (
-        df_course.loc[mask, "course_cip"]
-        .astype(str)
-        .fillna("")
-        .str.strip()
-    )
+
+    if "course_cip" not in df_course.columns:
+        LOGGER.warning("Column 'course_cip' is missing; no CIP codes extracted.")
+        cips = pd.Series([], dtype=str)
+    else:
+        cips = (
+            df_course.loc[mask, "course_cip"]
+            .astype(str)
+            .str.strip()
+            .replace(
+                {"nan": "", "NaN": "", "NAN": "", "missing": "", "MISSING": "", "Missing": ""}
+            )
+        )
+        if cips.eq("").all():
+            LOGGER.warning("Column 'course_cip' is present but unpopulated for gateway courses.")
 
     # edit this to auto populate the config
-    cips = cips[cips.ne("") & cips.str.lower().ne("nan")].drop_duplicates()
+    cips = cips[cips.ne("")].drop_duplicates()
     ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")].drop_duplicates()
     
     LOGGER.info(f"Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
     LOGGER.info(f"Identified {len(cips)} unique CIP codes: {cips.tolist()}")
+
+    # Log prefixes by type 
+    prefixes_e = df_course.loc[df_course["math_or_english_gateway"] == "E", "course_prefix"].dropna().unique()
+    prefixes_m = df_course.loc[df_course["math_or_english_gateway"] == "M", "course_prefix"].dropna().unique()
+    LOGGER.info("English (E) gateway course prefixes: %s", prefixes_e.tolist())
+    LOGGER.info("Math (M) gateway course prefixes: %s", prefixes_m.tolist())
+    LOGGER.info("NOTE: If prefixes above don’t look right, Math/English markers may need to be swapped.")
 
     return [ids.tolist(), cips.tolist()]

@@ -181,6 +181,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
         if "study_id" in df_course.columns
         else "student_id"
     )
+    n_before = len(df_course)
     df_course = df_course.groupby(student_id_col, group_keys=False).apply(
         lambda df_course: df_course[
             (df_course["academic_year"] > df_course["cohort"])
@@ -190,6 +191,19 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
             )
         ]
     )
+    n_after = len(df_course)
+    n_removed = n_before - n_after
+
+    if n_removed > 0:
+        pct_removed = (n_removed / n_before) * 100
+        LOGGER.info(
+            "remove_pre_cohort_courses: %d pre-cohort course records removed (%.1f%% of data).",
+            n_removed,
+            pct_removed,
+        )
+    else:
+        LOGGER.info("remove_pre_cohort_courses: no pre-cohort course records found.")
+
     return df_course
 
 
