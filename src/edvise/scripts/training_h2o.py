@@ -94,9 +94,7 @@ class TrainingTask:
             msg = f"{label} is empty: cannot write inference summary tables."
             logging.error(msg)
             raise ValueError(msg)
-        table_path = (
-            f"{self.args.catalog}.{self.cfg.institution_id}_silver.{table_name_suffix}"
-        )
+        table_path = f"{self.args.DB_workspace}.{self.cfg.institution_id}_silver.{table_name_suffix}"
         dataio.write.to_delta_table(
             df=df, table_path=table_path, spark_session=self.spark_session
         )
@@ -347,7 +345,7 @@ class TrainingTask:
                 model_name,
                 self.cfg.institution_id,
                 run_id=self.cfg.model.run_id,
-                catalog=self.args.catalog,
+                catalog=self.args.DB_workspace,
                 registry_uri="databricks-uc",
                 mlflow_client=self.client,
             )
@@ -360,7 +358,7 @@ class TrainingTask:
         # Initialize card
         card = H2OPDPModelCard(
             config=self.cfg,
-            catalog=self.args.catalog,
+            catalog=self.args.DB_workspace,
             model_name=model_name,
             mlflow_client=self.client,
         )
@@ -409,7 +407,7 @@ class TrainingTask:
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(description="H2o training for pipeline.")
-    parser.add_argument("--catalog", type=str, required=True)
+    parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)

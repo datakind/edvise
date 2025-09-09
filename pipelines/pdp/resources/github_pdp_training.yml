@@ -215,7 +215,7 @@ resources:
               - "{{job.parameters.db_run_id}}"
               - --ds_run_as
               - "{{job.parameters.ds_run_as}}"
-              - --catalog
+              - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
           existing_cluster_id: 5507-145238-6we6v2w3

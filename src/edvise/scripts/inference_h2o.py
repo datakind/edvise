@@ -153,10 +153,10 @@ class ModelInferenceTask:
         client = MlflowClient(registry_uri="databricks-uc")
         model_name = modeling.registration.get_model_name(
             institution_id=self.cfg.institution_id,
-            target=self.cfg.preprocessing.target.name, # type: ignore
-            checkpoint=self.cfg.preprocessing.checkpoint.name, # type: ignore
+            target=self.cfg.preprocessing.target.name,  # type: ignore
+            checkpoint=self.cfg.preprocessing.checkpoint.name,  # type: ignore
         )
-        full_model_name = f"{self.args.catalog}.{self.args.databricks_institution_name}_gold.{model_name}"
+        full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{model_name}"
 
         mv = max(
             client.search_model_versions(f"name='{full_model_name}'"),
@@ -185,9 +185,7 @@ class ModelInferenceTask:
             msg = f"{label} is empty: cannot write inference summary tables."
             logging.error(msg)
             raise ValueError(msg)
-        table_path = (
-            f"{self.args.catalog}.{self.cfg.institution_id}_silver.{table_name_suffix}"
-        )
+        table_path = f"{self.args.DB_workspace}.{self.cfg.institution_id}_silver.{table_name_suffix}"
         dataio.write.to_delta_table(
             df=df, table_path=table_path, spark_session=self.spark_session
         )
@@ -204,7 +202,7 @@ class ModelInferenceTask:
             raise ValueError("Missing 'preprocessing.checkpoint' section in config.")
         if self.cfg.pos_label is None:
             raise ValueError("Missing 'pos_label' in config.")
-        
+
         # 1) Load UC model metadata (run_id + experiment_id)
         self.load_mlflow_model_metadata()
         assert self.model_run_id and self.model_experiment_id
@@ -363,7 +361,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--databricks_institution_name", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=True)
-    parser.add_argument("--catalog", type=str, required=True)
+    parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--job_root_dir", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
