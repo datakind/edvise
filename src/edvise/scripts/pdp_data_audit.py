@@ -64,9 +64,13 @@ class PDPDataAuditTask:
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
-        #self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
+        # self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
         # Use default converter to handle duplicates if none provided
-        self.course_converter_func: ConverterFunc = handling_duplicates if course_converter_func is None else course_converter_func
+        self.course_converter_func: ConverterFunc = (
+            handling_duplicates 
+            if course_converter_func is None 
+            else course_converter_func
+        )
         self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
     def run(self):
@@ -75,13 +79,12 @@ class PDPDataAuditTask:
         course_dataset_raw_path = self.cfg.datasets.bronze.raw_course.file_path
 
         # --- Load datasets ---
-        
+
+
         # Cohort
 
         # Schema validate cohort data 
-        LOGGER.info(
-            "Reading and schema validating cohort data:"
-        )
+        LOGGER.info("Reading and schema validating cohort data:")
         df_cohort_validated = read_raw_pdp_cohort_data(
             file_path=cohort_dataset_raw_path,
             schema=RawPDPCohortDataSchema,
@@ -99,7 +102,9 @@ class PDPDataAuditTask:
         dttm_formats = ["ISO8601", "%Y%m%d.0"]
 
         # Schema validate course data and handle duplicates
-        LOGGER.info("Reading and schema validating course data, handling any duplicates:")
+        LOGGER.info(
+            "Reading and schema validating course data, handling any duplicates:"
+        )
         for fmt in dttm_formats:
             try:
                 df_course_validated = read_raw_pdp_course_data(
@@ -107,7 +112,7 @@ class PDPDataAuditTask:
                     schema=RawPDPCourseDataSchema,
                     dttm_format=fmt,
                     converter_func=self.course_converter_func,
-                    #converter_func=handling_duplicates,
+                    # converter_func=handling_duplicates,
                     spark_session=self.spark,
                 )
                 break  # success — exit loop

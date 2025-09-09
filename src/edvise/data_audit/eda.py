@@ -327,9 +327,14 @@ def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> pd.DataFr
     high_nulls = null_ratios[null_ratios > threshold]
 
     if high_nulls.empty:
-        LOGGER.info("No columns with more than %.0f%% null values.", threshold * 100)
+        LOGGER.info(
+            "No columns with more than %.0f%% null values.", 
+            threshold * 100
+        )
     else:
-        LOGGER.info("Printing columns with >20% missing values to later be dropped during feature selection:")
+        LOGGER.info(
+            "Printing columns with >20% missing values to later be dropped during feature selection:"
+        )
         for col, ratio in high_nulls.items():
             LOGGER.warning(
                 'Column "%s" has %.1f%% null values.',
@@ -354,12 +359,16 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(
         df_course.columns
     ):
-        LOGGER.warning("Cannot compute key_course_ids: required columns missing.")
+        LOGGER.warning(
+            "Cannot compute key_course_ids: required columns missing."
+        )
         return []
 
     mask = df_course["math_or_english_gateway"].astype("string").isin({"M", "E"})
     if not mask.any():
-        LOGGER.info("No Math/English gateway courses found.")
+        LOGGER.info(
+            "No Math/English gateway courses found."
+        )
         return [[], []]
     
     ids = df_course.loc[mask, "course_prefix"].fillna("") + df_course.loc[
@@ -367,7 +376,9 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     ].fillna("")
 
     if "course_cip" not in df_course.columns:
-        LOGGER.warning("Column 'course_cip' is missing; no CIP codes extracted.")
+        LOGGER.warning(
+            "Column 'course_cip' is missing; no CIP codes extracted."
+        )
         cips = pd.Series([], dtype=str)
     else:
         cips = (
@@ -376,11 +387,11 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
             .str.strip()
             .replace(
                 {
-                    "nan": "", 
-                    "NaN": "", 
-                    "NAN": "", 
-                    "missing": "", 
-                    "MISSING": "", 
+                    "nan": "",
+                    "NaN": "",
+                    "NAN": "",
+                    "missing": "",
+                    "MISSING": "",
                     "Missing": ""
                 }
             )
@@ -394,8 +405,12 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     cips = cips[cips.ne("")].drop_duplicates()
     ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")].drop_duplicates()
     
-    LOGGER.info(f"Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
-    LOGGER.info(f"Identified {len(cips)} unique CIP codes: {cips.tolist()}")
+    LOGGER.info(
+        f"Identified {len(ids)} unique gateway course IDs: {ids.tolist()}"
+    )
+    LOGGER.info(
+        f"Identified {len(cips)} unique CIP codes: {cips.tolist()}"
+    )
 
     # Sanity-check for prefixes and swap if clearly reversed; has come up for some schools
     pref_e = (
@@ -413,8 +428,14 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
             .unique()
         )
 
-    LOGGER.info("English (E) prefixes (raw): %s", pref_e.tolist())
-    LOGGER.info("Math (M) prefixes (raw): %s", pref_m.tolist())
+    LOGGER.info(
+        "English (E) prefixes (raw): %s",
+        pref_e.tolist()
+    )
+    LOGGER.info(
+        "Math (M) prefixes (raw): %s",
+        pref_m.tolist()
+    )
 
     looks = lambda arr, ch: len(arr) > 0 and all(
         str(p).upper().startswith(ch) for p in arr
@@ -423,9 +444,9 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
 
     if not e_ok and not m_ok:
         LOGGER.warning(
-            "Prefixes look swapped. Swapping E<->M. E=%s, M=%s", 
-            pref_e.tolist(), 
-            pref_m.tolist()
+            "Prefixes look swapped. Swapping E<->M. E=%s, M=%s",
+            pref_e.tolist(),
+            pref_m.tolist(),
         )
         pref_e, pref_m = pref_m, pref_e
     elif e_ok and m_ok:
@@ -433,9 +454,18 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
             "Prefixes look correct and not swapped (start with E for English, start with M for Math)."
         )
     else:
-        LOGGER.warning("One group inconsistent. English OK=%s, Math OK=%s", e_ok, m_ok)
+        LOGGER.warning(
+            "One group inconsistent. English OK=%s, Math OK=%s", 
+            e_ok, 
+            m_ok
+        )
 
-    LOGGER.info("Final English (E) prefixes: %s", pref_e.tolist())
-    LOGGER.info("Final Math (M) prefixes: %s", pref_m.tolist())
-    
+    LOGGER.info(
+        "Final English (E) prefixes: %s", 
+        pref_e.tolist()
+    )
+    LOGGER.info(
+        "Final Math (M) prefixes: %s",
+        pref_m.tolist()
+    )
     return [ids.tolist(), cips.tolist()]
