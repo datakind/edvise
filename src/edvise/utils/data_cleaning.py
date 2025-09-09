@@ -199,17 +199,15 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
         na_pell = df_cohort["pell_status_first_year"].isna().sum()
         df_cohort["pell_status_first_year"] = df_cohort[
             "pell_status_first_year"
-        ].replace("UK", "N")
-        LOGGER.info('Filled %s NAs in "pell_status_first_year" to "N".', int(na_pell))
-        df_cohort["pell_status_first_year"] = df_cohort[
-            "pell_status_first_year"
         ].fillna("N")
+        LOGGER.info('Filled %s NAs in "pell_status_first_year" to "N".', int(na_pell))
         LOGGER.info("After replacing 'pell_status_first_year':\n%s", 
                     df_cohort["pell_status_first_year"].value_counts(dropna=False))
     else:
         LOGGER.warning(
             'Column "pell_status_first_year" not found; skipping Pell status NA replacement.'
         )
+    
     if "first_gen" in df_cohort.columns:
         LOGGER.info("Before filling 'first_gen':\n%s", 
                     df_cohort["first_gen"].value_counts(dropna=False))

@@ -9,7 +9,6 @@ from edvise.utils.data_cleaning import (
     drop_course_rows_missing_identifiers,
     strip_trailing_decimal_strings,
     replace_na_firstgen_and_pell,
-    handling_duplicates,
     remove_pre_cohort_courses,
 )
 from .eda import compute_gateway_course_ids_and_cips, log_high_null_columns
@@ -109,8 +108,6 @@ class PDPCourseStandardizer(BaseStandardizer):
         """
         df = strip_trailing_decimal_strings(df)
         df = drop_course_rows_missing_identifiers(df)
-        # df = handling_duplicates(df) 
-        # I think this will be pre-ingestion
         df = log_high_null_columns(df)
         cols_to_drop = [
             # student demographics found in raw cohort dataset

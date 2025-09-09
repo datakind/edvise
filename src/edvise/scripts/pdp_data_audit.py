@@ -6,6 +6,8 @@ import sys
 import pandas as pd
 import os
 
+from edvise.utils.data_cleaning import handling_duplicates
+
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
 repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
@@ -62,7 +64,11 @@ class PDPDataAuditTask:
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
-        self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
+        #self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
+        # Use default converter to handle duplicates if none provided
+        self.course_converter_func: ConverterFunc = (
+            course_converter_func or handling_duplicates
+        )
         self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
     def run(self):
@@ -71,8 +77,11 @@ class PDPDataAuditTask:
         course_dataset_raw_path = self.cfg.datasets.bronze.raw_course.file_path
 
         # --- Load datasets ---
+        
         # Cohort
-        df_cohort_raw = read_raw_pdp_cohort_data(
+
+        # Schema validate cohort data 
+        df_cohort_validated = read_raw_pdp_cohort_data(
             file_path=cohort_dataset_raw_path,
             schema=RawPDPCohortDataSchema,
             converter_func=self.cohort_converter_func,
@@ -81,18 +90,22 @@ class PDPDataAuditTask:
         LOGGER.info("Cohort data read and schema validated.")
 
         # Standardize cohort data
-        df_cohort_validated = self.cohort_std.standardize(df_cohort_raw)
+        df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
+
+        LOGGER.info("Cohort data standardized.")
 
         # Course
         dttm_formats = ["ISO8601", "%Y%m%d.0"]
 
+        # Schema validate course data and handle duplicates
         for fmt in dttm_formats:
             try:
-                df_course_raw = read_raw_pdp_course_data(
+                df_course_validated = read_raw_pdp_course_data(
                     file_path=course_dataset_raw_path,
                     schema=RawPDPCourseDataSchema,
                     dttm_format=fmt,
                     converter_func=self.course_converter_func,
+                    #converter_func=handling_duplicates,
                     spark_session=self.spark,
                 )
                 break  # success — exit loop
@@ -102,20 +115,22 @@ class PDPDataAuditTask:
             raise ValueError(
                 "Failed to parse course data with all known datetime formats."
             )
+        
+        LOGGER.info("Course data read and schema validated, duplicates handled.")
 
         # Standardize course data
-        df_course_validated = self.course_std.standardize(df_course_raw)
+        df_course_standardized = self.course_std.standardize(df_course_validated)
 
-        LOGGER.info("Course data read and schema validated.")
+        LOGGER.info("Course data standardized.")
 
         # --- Write results ---
         write_parquet(
-            df_cohort_validated,
-            f"{self.args.silver_volume_path}/df_cohort_validated.parquet",
+            df_cohort_standardized,
+            f"{self.args.silver_volume_path}/df_cohort_standardized.parquet",
         )
         write_parquet(
-            df_course_validated,
-            f"{self.args.silver_volume_path}/df_course_validated.parquet",
+            df_course_standardized,
+            f"{self.args.silver_volume_path}/df_course_standardized.parquet",
         )
 
 
