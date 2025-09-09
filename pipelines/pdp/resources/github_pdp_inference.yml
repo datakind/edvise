@@ -1,0 +1,246 @@
+resources:
+  jobs:
+    github_sourced_pdp_training_pipeline:
+      name: github_sourced_pdp_training_pipeline
+      max_concurrent_runs: 2
+      tasks:
+        - task_key: data_audit
+          spark_python_task:
+            python_file: src/edvise/scripts/pdp_data_audit.py
+            source: GIT
+            parameters:
+              - --bronze_volume_path
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume"
+              - --silver_volume_path
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --config_file_path 
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          existing_cluster_id: 5507-145238-6we6v2w3
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+        - task_key: feature_generation
+          depends_on:
+            - task_key: data_audit
+          spark_python_task:
+            python_file: src/edvise/scripts/pdp_feature_generation.py
+            source: GIT
+            parameters:
+              - --silver_volume_path
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --config_file_path 
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          existing_cluster_id: 5507-145238-6we6v2w3
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+        - task_key: checkpoint
+          depends_on:
+            - task_key: feature_generation
+          spark_python_task:
+            python_file: src/edvise/scripts/pdp_checkpoints.py
+            source: GIT
+            parameters:
+              - --silver_volume_path
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --config_file_path 
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          existing_cluster_id: 5507-145238-6we6v2w3
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+        - task_key: student_selection
+          depends_on:
+            - task_key: feature_generation
+          spark_python_task:
+            python_file: src/edvise/scripts/pdp_student_selection.py
+            source: GIT
+            parameters:
+              - --silver_volume_path
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --config_file_path 
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          existing_cluster_id: 5507-145238-6we6v2w3
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10  
+        - task_key: inf_prep
+          depends_on:
+            - task_key: checkpoint
+            - task_key: student_selection
+          spark_python_task:
+            python_file: src/edvise/scripts/pdp_inf_prep.py
+            source: GIT
+            parameters:
+              - --silver_volume_path
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --config_file_path 
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          existing_cluster_id: 5507-145238-6we6v2w3
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10      
+        - task_key: inference_h2o
+          depends_on:
+            - task_key: inf_prep
+          spark_python_task:
+            python_file: src/edvise/scripts/inference_h2o.py
+            source: GIT
+            parameters:
+              - --silver_volume_path
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --config_file_path 
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --ds_run_as
+              - "{{job.parameters.ds_run_as}}"
+              - --catalog
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --datakind_notification_email
+              - "{{job.parameters.datakind_notification_email}}"
+              - --DK_CC_EMAIL
+              - "{{job.parameters.DK_CC_EMAIL}}"
+              - --job_root_dir  
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
+          existing_cluster_id: 5507-145238-6we6v2w3
+          libraries:
+            - pypi:
+                package: numpy==1.24.4
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+            - pypi:
+                package: h2o==3.46.0.7
+            - pypi:
+                package: shap~=0.46.0
+            - pypi:
+                package: mlflow~=2.22
+      git_source:
+        git_url: https://github.com/datakind/edvise
+        git_provider: gitHub
+        git_branch: develop
+      tags:
+        dev: kayla_wilding
+      queue:
+        enabled: true
+      parameters:
+        - name: databricks_institution_name
+          default: ${var.databricks_institution_name}
+        - name: db_run_id
+          default: "{{job.run_id}}"
+        - name: DB_workspace
+          default: ${var.DB_workspace}
+        - name: DK_CC_EMAIL
+          default: ${var.datakind_notification_email}
+        - name: config_file_name
+          default: ${var.config_file_name}
+        - name: ds_run_as
+          default: ${var.ds_run_as}
+        - name: datakind_notification_email
+          default: ${var.datakind_notification_email}
+      permissions:
+        - user_name: ${var.ds_run_as}
+          level: IS_OWNER
+        - group_name: ${var.datakind_group_to_manage_workflow} 
+          level: CAN_MANAGE
+

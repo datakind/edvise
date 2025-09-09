@@ -59,9 +59,9 @@ class ModelInferenceTask:
         self.args = args
         self.spark_session = self.get_spark_session()
         self.cfg = dataio.read.read_config(
-            self.args.toml_file_path, schema=PDPProjectConfig
+            self.args.config_file_path, schema=PDPProjectConfig
         )
-
+        self.features_table_path = "shared/assets/pdp_features_table.toml"
         # Populated by load_mlflow_model()
         self.model_run_id: str | None = None
         self.model_experiment_id: str | None = None
@@ -80,11 +80,11 @@ class ModelInferenceTask:
             logging.error("Unable to create Spark session.")
             raise
 
-    def read_config(self, toml_file_path: str) -> PDPProjectConfig:
+    def read_config(self, config_file_path: str) -> PDPProjectConfig:
         try:
-            return dataio.read.read_config(toml_file_path, schema=PDPProjectConfig)
+            return dataio.read.read_config(config_file_path, schema=PDPProjectConfig)
         except FileNotFoundError:
-            logging.error("Configuration file not found at %s", toml_file_path)
+            logging.error("Configuration file not found at %s", config_file_path)
             raise
         except Exception as e:
             logging.error("Error reading configuration file: %s", e)
@@ -122,7 +122,7 @@ class ModelInferenceTask:
         shap_values: npt.NDArray[np.float64],
     ) -> pd.DataFrame:
         features_table = dataio.read.read_features_table(
-            "assets/pdp/features_table.toml"
+            self.features_table_path
         )
         try:
             feature_boxstats = modeling.automl.inference.top_feature_boxstats(
@@ -139,7 +139,12 @@ class ModelInferenceTask:
     def load_mlflow_model_metadata(self) -> None:
         """Discover UC model latest version -> run_id + experiment_id (no model object needed here)."""
         client = MlflowClient(registry_uri="databricks-uc")
-        full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{self.args.model_name}"
+        model_name = modeling.registration.get_model_name(
+            institution_id=self.cfg.institution_id,
+            target=self.cfg.preprocessing.target.name,
+            checkpoint=self.cfg.preprocessing.checkpoint.name,
+        )
+        full_model_name = f"{self.args.catalog}.{self.args.databricks_institution_name}_gold.{model_name}"
 
         mv = max(
             client.search_model_versions(f"name='{full_model_name}'"),
@@ -180,7 +185,7 @@ class ModelInferenceTask:
         assert self.model_run_id and self.model_experiment_id
 
         # 2) Read the processed dataset
-        df_processed = dataio.read.read_parquet(self.args.processed_dataset_path)
+        df_processed = dataio.read.read_parquet(f"{self.args.silver_volume_path}/preprocessed.parquet")
 
         # 3) Notify via email
         self._send_kickoff_email()
@@ -217,10 +222,7 @@ class ModelInferenceTask:
             cfg_inference_params=inference_params,
         )
         # Choose the correct features table path your project uses
-        features_table_path = (
-            getattr(self.args, "features_table_path", None)
-            or "assets/pdp/features_table.toml"
-        )
+        features_table_path = self.features_table_path
 
         pred_paths = PredPaths(
             silver_modeling_path=self.cfg.datasets.silver.modeling.table_path
@@ -332,21 +334,14 @@ def parse_arguments() -> argparse.Namespace:
         description="Perform model inference for the SST pipeline.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--databricks_institution_name", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=True)
     parser.add_argument("--catalog", type=str, required=True)
-    parser.add_argument("--model_name", type=str, required=True)
-    parser.add_argument("--model_type", type=str, required=True)
     parser.add_argument("--job_root_dir", type=str, required=True)
-    parser.add_argument("--toml_file_path", type=str, required=True)
+    parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
-    parser.add_argument("--processed_dataset_path", type=str, required=True)
     parser.add_argument("--notification_email", type=str, required=True)
     parser.add_argument("--DK_CC_EMAIL", type=str, required=True)
-    # Optional / legacy:
-    parser.add_argument("--modeling_table_path", type=str, required=False)
-    parser.add_argument("--custom_schemas_path", type=str, required=False)
     parser.add_argument("--features_table_path", type=str, required=False)
     return parser.parse_args()
 
@@ -354,16 +349,16 @@ def parse_arguments() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_arguments()
 
-    # Optional schema hook (kept from your original)
-    try:
-        if args.custom_schemas_path:
-            sys.path.append(args.custom_schemas_path)
-            import importlib
+    # # Optional schema hook (kept from your original)
+    # try:
+    #     if args.custom_schemas_path:
+    #         sys.path.append(args.custom_schemas_path)
+    #         import importlib
 
-            _ = importlib.import_module(f"{args.databricks_institution_name}.schemas")
-            logging.info("Running task with custom schema")
-    except Exception:
-        logging.info("Running task with default schema")
+    #         _ = importlib.import_module(f"{args.databricks_institution_name}.schemas")
+    #         logging.info("Running task with custom schema")
+    # except Exception:
+    #     logging.info("Running task with default schema")
 
     task = ModelInferenceTask(args)
     task.run()
