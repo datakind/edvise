@@ -9,7 +9,10 @@ from mlflow.tracking import MlflowClient
 
 from edvise import modeling, dataio, configs
 from edvise.modeling.h2o_ml import utils as h2o_utils
+from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise import utils as edvise_utils
+
+from .predictions_h2o import PredConfig, PredPaths, RunType, run_predictions
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -44,6 +47,7 @@ class TrainingTask:
             schema=configs.pdp.PDPProjectConfig,
         )
         self.client = MlflowClient()
+        self.features_table_path = "shared/assets/pdp_features_table.toml"
         h2o_utils.safe_h2o_init()
         os.environ["MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR"] = "false"
 
@@ -218,6 +222,101 @@ class TrainingTask:
             experiment_id=experiment_id,
         )
 
+    def make_predictions(self):
+        cfg = PredConfig(
+            model_run_id=self.cfg.model.run_id,
+            experiment_id=self.cfg.model.experiment_id,
+            split_col=self.cfg.split_col,
+            student_id_col=self.cfg.student_id_col,
+            pos_label=self.cfg.pos_label,
+            min_prob_pos_label=self.cfg.inference.min_prob_pos_label,
+            background_data_sample=self.cfg.inference.background_data_sample,
+            cfg_inference_params=self.cfg.inference.dict(),
+            random_state=self.cfg.random_state,
+        )
+        paths = PredPaths(
+            silver_modeling_path=self.cfg.datasets.silver.modeling.table_path,
+            features_table_path="shared/assets/pdp_features_table.toml",
+        )
+
+        try:
+            out = run_predictions(
+                pred_cfg=cfg, pred_paths=paths, run_type=RunType.TRAIN
+            )
+
+            # write the artifacts that are specific to *training* outputs
+            dataio.write.write_parquet(
+                out.top_features_result,
+                self.cfg.datasets.gold.advisor_output.table_path,
+            )
+
+            if out.shap_feature_importance is not None:
+                dataio.write.write_parquet(
+                    out.shap_feature_importance,
+                    f"{self.args.silver_volume_path}.training_{self.cfg.model.run_id}_shap_feature_importance.parquet",
+                )
+
+            dataio.write.write_parquet(
+                out.support_score_distribution,
+                f"{self.args.silver_volume_path}.training_{self.cfg.model.run_id}_support_overview.parquet",
+            )
+
+            # training-only logging
+            if mlflow.active_run():
+                mlflow.end_run()
+            with mlflow.start_run(run_id=self.cfg.model.run_id):
+                _ = modeling.evaluation.log_confusion_matrix(
+                    institution_id=self.cfg.institution_id,
+                    automl_run_id=self.cfg.model.run_id,
+                )
+                _ = modeling.h2o_ml.evaluation.log_roc_table(
+                    institution_id=self.cfg.institution_id,
+                    automl_run_id=self.cfg.model.run_id,
+                    modeling_dataset_name=self.cfg.datasets.silver.modeling.table_path,
+                )
+
+        finally:
+            if mlflow.active_run():
+                try:
+                    mlflow.end_run()
+                except Exception:
+                    pass
+
+    def register_model(self):
+        model_name = modeling.registration.get_model_name(
+            institution_id=self.cfg.institution_id,
+            target=self.cfg.preprocessing.target.name,
+            checkpoint=self.cfg.preprocessing.checkpoint.name,
+        )
+        try:
+            modeling.registration.register_mlflow_model(
+                model_name,
+                self.cfg.institution_id,
+                run_id=self.cfg.model.run_id,
+                catalog=self.args.catalog,
+                registry_uri="databricks-uc",
+                mlflow_client=self.client,
+            )
+        except Exception as e:
+            logging.warning("Failed to register model: %s", e)
+
+        return model_name
+
+    def create_model_card(self, model_name):
+        # Initialize card
+        card = H2OPDPModelCard(
+            config=self.cfg,
+            catalog=self.args.catalog,
+            model_name=model_name,
+            mlflow_client=self.client,
+        )
+        # Build context and download artifacts
+        card.build()
+
+        # Reload & publish
+        card.reload_card()
+        card.export_to_pdf()
+
     def run(self):
         """Executes the target computation pipeline and saves result."""
         logging.info("Loading preprocessed data")
@@ -243,10 +342,20 @@ class TrainingTask:
         logging.info("Selecting best model")
         self.select_model(experiment_id)
 
+        logging.info("Generating training predictions & SHAP values")
+        self.make_predictions()
+
+        logging.info("Registering model in UC gold volume")
+        model_name = self.register_model()
+
+        logging.info("Generating model card")
+        self.create_model_card(model_name)
+
 
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(description="H2o training for pipeline.")
+    parser.add_argument("--catalog", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)

@@ -571,7 +571,9 @@ def log_roc_table(
 
     split_col = split_col or "split"
 
-    table_path = f"{catalog}.{institution_id}_silver.training_{automl_run_id}_roc_curve"
+    table_path = (
+        f"{catalog}.{institution_id}_silver.training_{automl_run_id}_roc_curve.parquet"
+    )
 
     try:
         df = spark.read.table(modeling_dataset_name).toPandas()
