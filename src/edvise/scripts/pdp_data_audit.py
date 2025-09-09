@@ -6,8 +6,6 @@ import sys
 import pandas as pd
 import os
 
-from edvise.utils.data_cleaning import handling_duplicates
-
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
 repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
@@ -30,7 +28,9 @@ from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
-from edvise.utils.databricks import get_spark_session
+from edvise.utils.databricks import get_spark_session 
+from edvise.utils.data_cleaning import handling_duplicates
+
 from edvise.dataio.read import (
     read_config,
     read_raw_pdp_cohort_data,
