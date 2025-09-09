@@ -12,7 +12,7 @@ from edvise.utils.data_cleaning import (
     handling_duplicates,
     remove_pre_cohort_courses,
 )
-from eda import compute_gateway_course_ids_and_cips, log_high_null_columns
+from data_audit.eda import compute_gateway_course_ids_and_cips, log_high_null_columns
 
 # TODO think of a better name than standardizer
 
