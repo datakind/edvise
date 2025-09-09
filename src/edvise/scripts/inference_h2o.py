@@ -168,7 +168,7 @@ class ModelInferenceTask:
             msg = f"{label} is empty: cannot write inference summary tables."
             logging.error(msg)
             raise ValueError(msg)
-        table_path = f"{self.args.silver_volume_path}.{table_name_suffix}"
+        table_path = f"{self.args.catalog}.{self.cfg.institution_id}_silver.{table_name_suffix}"
         dataio.write.to_delta_table(
             df=df, table_path=table_path, spark_session=self.spark_session
         )
@@ -335,6 +335,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--databricks_institution_name", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=True)
+    parser.add_argument("--catalog", type=str, required=True)
     parser.add_argument("--model_name", type=str, required=True)
     parser.add_argument("--model_type", type=str, required=True)
     parser.add_argument("--job_root_dir", type=str, required=True)

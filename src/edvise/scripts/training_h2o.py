@@ -5,6 +5,8 @@ import pandas as pd
 import mlflow
 import os
 
+from databricks.connect import DatabricksSession
+from pyspark.sql import SparkSession
 from mlflow.tracking import MlflowClient
 
 from edvise import modeling, dataio, configs
@@ -42,6 +44,7 @@ class TrainingTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
+        self.spark_session = self.get_spark_session()
         self.cfg = dataio.read.read_config(
             self.args.config_file_path,
             schema=configs.pdp.PDPProjectConfig,
@@ -50,6 +53,37 @@ class TrainingTask:
         self.features_table_path = "shared/assets/pdp_features_table.toml"
         h2o_utils.safe_h2o_init()
         os.environ["MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR"] = "false"
+
+    def get_spark_session(self) -> SparkSession:
+        """
+        Attempts to create a Spark session.
+        Returns:
+            DatabricksSession | None: A Spark session if successful, None otherwise.
+        """
+        try:
+            spark_session = DatabricksSession.builder.getOrCreate()
+            logging.info("Spark session created successfully.")
+            return spark_session
+        except Exception:
+            logging.error("Unable to create Spark session.")
+            raise
+
+    def write_delta(
+        self,
+        df: pd.DataFrame,
+        table_name_suffix: str,
+        label: t.Optional[str] = "Delta table",
+    ) -> None:
+        """Writes a DataFrame to a Delta Lake table in the institution's silver schema."""
+        if df is None:
+            msg = f"{label} is empty: cannot write inference summary tables."
+            logging.error(msg)
+            raise ValueError(msg)
+        table_path = f"{self.args.catalog}.{self.cfg.institution_id}_silver.{table_name_suffix}"
+        dataio.write.to_delta_table(
+            df=df, table_path=table_path, spark_session=self.spark_session
+        )
+        logging.info("%s data written to: %s", table_name_suffix, table_path)
 
     def feature_selection(self, df_preprocessed: pd.DataFrame) -> pd.DataFrame:
         if self.cfg.modeling is None or self.cfg.modeling.feature_selection is None:
@@ -244,21 +278,24 @@ class TrainingTask:
                 pred_cfg=cfg, pred_paths=paths, run_type=RunType.TRAIN
             )
 
-            # write the artifacts that are specific to *training* outputs
-            dataio.write.write_parquet(
-                out.top_features_result,
-                self.cfg.datasets.gold.advisor_output.table_path,
+            # write gold artifacts
+            dataio.write.to_delta_table(
+                df=out.top_features_result,
+                table_path=self.cfg.datasets.gold.advisor_output.table_path,
+                spark_session=self.spark_session,
             )
 
-            if out.shap_feature_importance is not None:
-                dataio.write.write_parquet(
-                    out.shap_feature_importance,
-                    f"{self.args.silver_volume_path}.training_{self.cfg.model.run_id}_shap_feature_importance.parquet",
-                )
+            # write to silver for FE tables
+            self.write_delta(
+                df=out.shap_feature_importance,
+                table_name_suffix=f"training_{self.cfg.model.run_id}_shap_feature_importance",
+                label="Training SHAP Feature Importance table"
+            )
 
-            dataio.write.write_parquet(
-                out.support_score_distribution,
-                f"{self.args.silver_volume_path}.training_{self.cfg.model.run_id}_support_overview.parquet",
+            self.write_delta(
+                df=out.support_score_distribution,
+                table_name_suffix=f"training_{self.cfg.model.run_id}_support_overview",
+                label="Training Support Overview table"
             )
 
             # training-only logging
