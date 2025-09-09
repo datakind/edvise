@@ -3,9 +3,8 @@ import logging
 import re
 import typing as t
 from collections.abc import Iterable
-from typing import List
-
 from edvise.utils import types
+from edvise.dataio.pdp_course_converters import dedupe_by_renumbering_courses
 
 LOGGER = logging.getLogger(__name__)
 
@@ -180,6 +179,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
         if "study_id" in df_course.columns
         else "student_id"
     )
+    n_before = len(df_course)
     df_course = df_course.groupby(student_id_col, group_keys=False).apply(
         lambda df_course: df_course[
             (df_course["academic_year"] > df_course["cohort"])
@@ -189,26 +189,60 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
             )
         ]
     )
+    n_after = len(df_course)
+    n_removed = n_before - n_after
+
+    if n_removed > 0:
+        pct_removed = (n_removed / n_before) * 100
+        LOGGER.info(
+            "remove_pre_cohort_courses: %d pre-cohort course records removed successfully (%.1f%% of data).",
+            n_removed,
+            pct_removed,
+        )
+    else:
+        LOGGER.info("remove_pre_cohort_courses: no pre-cohort course records found.")
+
+    return df_course
 
 
 def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
     if "pell_status_first_year" in df_cohort.columns:
-        na_pell = (df_cohort["pell_status_first_year"] == "UK").sum()
-        df_cohort["pell_status_first_year"] = df_cohort[
-            "pell_status_first_year"
-        ].replace("UK", "N")
-        LOGGER.info('Filled %s NAs in "pell_status_first_year" to "N".', int(na_pell))
+        LOGGER.info(
+            "Before replacing 'pell_status_first_year':\n%s",
+            df_cohort["pell_status_first_year"].value_counts(dropna=False),
+        )
+        na_pell = df_cohort["pell_status_first_year"].isna().sum()
         df_cohort["pell_status_first_year"] = df_cohort[
             "pell_status_first_year"
         ].fillna("N")
+        LOGGER.info(
+            'Filled %s NAs in "pell_status_first_year" to "N".',
+            int(na_pell),
+        )
+        LOGGER.info(
+            "After replacing 'pell_status_first_year':\n%s",
+            df_cohort["pell_status_first_year"].value_counts(dropna=False),
+        )
     else:
         LOGGER.warning(
             'Column "pell_status_first_year" not found; skipping Pell status NA replacement.'
         )
+
     if "first_gen" in df_cohort.columns:
+        LOGGER.info(
+            "Before filling 'first_gen':\n%s",
+            df_cohort["first_gen"].value_counts(dropna=False),
+        )
         na_first = df_cohort["first_gen"].isna().sum()
         df_cohort["first_gen"] = df_cohort["first_gen"].fillna("N")
-        LOGGER.info('Filled %s NAs in "first_gen" with "N".', int(na_first))
+        LOGGER.info(
+            'Filled %s NAs in "first_gen" with "N".',
+            int(na_first),
+        )
+        LOGGER.info(
+            "After filling 'first_gen':\n%s",
+            df_cohort["first_gen"].value_counts(dropna=False),
+        )
     else:
         LOGGER.warning(
             'Column "first_gen" not found; skipping first-gen NA replacement.'
@@ -235,12 +269,20 @@ def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
 
 def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
     """
-    Dropping duplicate course records, except:
-    - if duplicate-key rows all share the SAME course_name, keep them and
+    Dropping duplicate course records and keeping the one with the higher number of credits, except:
+    - if duplicate-key rows have DIFFERENT course_names, keep them and
       suffix course_number with -01, -02, ... instead of dropping.
     """
+    # HACK: infer the correct student id col in raw data from the data itself
+    student_id_col = (
+        "student_guid"
+        if "student_guid" in df_course.columns
+        else "study_id"
+        if "study_id" in df_course.columns
+        else "student_id"
+    )
     unique_cols = [
-        "study_id",
+        student_id_col,
         "academic_year",
         "academic_term",
         "course_prefix",
@@ -248,13 +290,12 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
         "section_id",
     ]
 
+    # Check for duplicate key rows
     dup_mask = df_course.duplicated(unique_cols, keep=False)
-    if (
-        dup_mask.any()
-        and "course_name" in df_course.columns
-        and "course_number" in df_course.columns
-    ):
-        same_name_idx = []
+
+    if dup_mask.any() and "course_name" in df_course.columns:
+        # Group and check for variation in course_name
+        to_renumber = []
         for _, idx in (
             df_course.loc[dup_mask].groupby(unique_cols, dropna=False).groups.items()
         ):
@@ -262,66 +303,36 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
             if len(idx) <= 1:
                 continue
             names = df_course.loc[idx, "course_name"]
-            if names.nunique(dropna=False) == 1:
-                same_name_idx.extend(idx)
+            if names.nunique(dropna=False) > 1:
+                to_renumber.extend(idx)
 
-        if same_name_idx:
-            deduped_course_numbers = (
-                df_course.loc[dup_mask, :]
-                .sort_values(
-                    by=unique_cols + ["number_of_credits_attempted"],
-                    ascending=False,
-                    ignore_index=False,
-                )
-                .assign(
-                    grp_num=lambda d: d.groupby(unique_cols)["course_number"].transform(
-                        "cumcount"
-                    )
-                    + 1,
-                    course_number=lambda d: d["course_number"]
-                    .astype("string")
-                    .str.cat(d["grp_num"].astype(int).map("{:02d}".format), sep="-"),
-                )
-                .loc[:, ["course_number"]]
-            )
-            to_apply = deduped_course_numbers.reindex(same_name_idx).dropna(how="all")
-            df_course.loc[to_apply.index, "course_number"] = to_apply["course_number"]
+        if to_renumber:
+            df_course = dedupe_by_renumbering_courses(df_course)
+            return df_course
 
-    dupe_rows = df_course.loc[
-        df_course.duplicated(unique_cols, keep=False), :
-    ].sort_values(
+    # If we reach here, these are true duplicates → drop them
+    dupe_rows = df_course.loc[dup_mask, :].sort_values(
         by=unique_cols + ["number_of_credits_attempted"],
         ascending=False,
         ignore_index=True,
     )
-    LOGGER.warning("%s duplicate rows found & dropped", int(len(dupe_rows) / 2))
+    pct_dup = (len(dupe_rows) / len(df_course)) * 100
+    if pct_dup < 1:
+        LOGGER.warning(
+            "%s (<1%% of data) true duplicate rows found & dropped",
+            len(dupe_rows) // 2,  # integer count of dropped pairs
+        )
+    else:
+        LOGGER.warning(
+            "%s (%.1f%% of data) true duplicate rows found & dropped",
+            len(dupe_rows) // 2,
+            pct_dup,
+        )
 
     df_course = df_course.drop_duplicates(subset=unique_cols, keep="first").sort_values(
         by=unique_cols + ["number_of_credits_attempted"],
         ascending=False,
         ignore_index=True,
     )
+
     return df_course
-
-
-def compute_gateway_course_ids(df_course: pd.DataFrame) -> List[t.Any]:
-    """
-    Build a list of course IDs for Math/English gateway courses.
-    Filter: math_or_english_gateway in {"M", "E"}
-    ID format: "<course_prefix><course_number>" (both coerced to strings, trimmed)
-    """
-    if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(
-        df_course.columns
-    ):
-        LOGGER.warning("Cannot compute key_course_ids: required columns missing.")
-        return []
-
-    mask = df_course["math_or_english_gateway"].astype("string").isin({"M", "E"})
-    ids = df_course.loc[mask, "course_prefix"].fillna("") + df_course.loc[
-        mask, "course_number"
-    ].fillna("")
-
-    # Drop NaNs, blanks, and ensure uniqueness
-    # edit this to auto populate the config
-    ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")]
-    return list(ids.drop_duplicates())

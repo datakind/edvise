@@ -22,5 +22,6 @@ def drop_columns_safely(df: pd.DataFrame, cols_to_drop: list[str]) -> pd.DataFra
         LOGGER.warning("Missing columns not found in df: %s", missing_cols)
 
     df_trf = df.drop(columns=list(drop_cols))
-    LOGGER.info("Dropped %s columns safely", len(drop_cols))
+    LOGGER.info("Dropped %s columns not needed safely", len(drop_cols))
+    LOGGER.info("Columns Dropped: %s", drop_cols)
     return df_trf

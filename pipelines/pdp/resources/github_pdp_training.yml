@@ -17,6 +17,7 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --config_file_path 
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          # existing_cluster_id: 5909-173218-tkjmn2sx
           existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
@@ -48,6 +49,7 @@ resources:
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          # existing_cluster_id: 5909-173218-tkjmn2sx
           existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
@@ -79,6 +81,7 @@ resources:
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          # existing_cluster_id: 5909-173218-tkjmn2sx
           existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
@@ -110,6 +113,7 @@ resources:
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          # existing_cluster_id: 5909-173218-tkjmn2sx
           existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
@@ -141,6 +145,7 @@ resources:
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          # existing_cluster_id: 5909-173218-tkjmn2sx
           existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
@@ -174,6 +179,7 @@ resources:
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          # existing_cluster_id: 5909-173218-tkjmn2sx
           existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
@@ -209,6 +215,7 @@ resources:
               - "{{job.parameters.db_run_id}}"
               - --ds_run_as
               - "{{job.parameters.ds_run_as}}"
+          # existing_cluster_id: 5909-173218-tkjmn2sx
           existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
@@ -240,8 +247,8 @@ resources:
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
-        git_branch: develop
-        # git_branch: unit_test
+        # git_branch: develop
+        git_branch: debug_data_audit
       tags:
         dev: kayla_wilding
       queue:
@@ -263,7 +270,7 @@ resources:
           default: ${var.datakind_notification_email}
       permissions:
         - user_name: ${var.ds_run_as}
-          level: CAN_MANAGE
+          level: IS_OWNER
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
 

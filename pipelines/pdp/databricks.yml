@@ -21,7 +21,6 @@ variables:
   datakind_group_to_manage_workflow:
     description: "Group with permissions to manage the job"
 
-
 run_as:
   user_name: ${var.ds_run_as}
     

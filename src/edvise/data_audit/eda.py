@@ -5,7 +5,7 @@ import typing as t
 import numpy as np
 import pandas as pd
 import scipy.stats as ss
-
+from typing import List
 from edvise import utils
 
 LOGGER = logging.getLogger(__name__)
@@ -320,3 +320,123 @@ def _drop_incomplete_pairs(s1: pd.Series, s2: pd.Series) -> tuple[pd.Series, pd.
     df = pd.DataFrame({"s1": s1, "s2": s2})
     df = df.dropna(axis="index", how="any", ignore_index=True)  # type: ignore
     return (df["s1"], df["s2"])
+
+
+def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> pd.DataFrame:
+    null_ratios = df.isna().mean(axis="index").sort_values(ascending=False)
+    high_nulls = null_ratios[null_ratios > threshold]
+
+    if high_nulls.empty:
+        LOGGER.info("No columns with more than %.0f%% null values.", threshold * 100)
+    else:
+        LOGGER.info(
+            "Printing columns with >20% missing values to later be dropped during feature selection:"
+        )
+        for col, ratio in high_nulls.items():
+            LOGGER.warning(
+                'Column "%s" has %.1f%% null values.',
+                col,
+                ratio * 100,
+            )
+    return df
+
+
+def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
+    """
+    Build a list of course IDs and CIP codes for Math/English gateway courses.
+    Filter: math_or_english_gateway in {"M", "E"}
+    ID format: "<course_prefix><course_number>" (both coerced to strings, trimmed)
+    CIP codes taken from 'course_cip' column
+
+    Logs:
+    - If CIP column is missing or has no values or gateway field unpopulated
+    - Log prefixes for English (E) and Math (M) courses, with a note that they
+    may need to be swapped if they don’t look right
+    """
+    if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(
+        df_course.columns
+    ):
+        LOGGER.warning("Cannot compute key_course_ids: required columns missing.")
+        return []
+
+    mask = df_course["math_or_english_gateway"].astype("string").isin({"M", "E"})
+    if not mask.any():
+        LOGGER.info("No Math/English gateway courses found.")
+        return []
+
+    ids = df_course.loc[mask, "course_prefix"].fillna("") + df_course.loc[
+        mask, "course_number"
+    ].fillna("")
+
+    if "course_cip" not in df_course.columns:
+        LOGGER.warning("Column 'course_cip' is missing; no CIP codes extracted.")
+        cips = pd.Series([], dtype=str)
+    else:
+        cips = (
+            df_course.loc[mask, "course_cip"]
+            .astype(str)
+            .str.strip()
+            .replace(
+                {
+                    "nan": "",
+                    "NaN": "",
+                    "NAN": "",
+                    "missing": "",
+                    "MISSING": "",
+                    "Missing": "",
+                }
+            )
+        )
+        if cips.eq("").all():
+            LOGGER.warning(
+                "Column 'course_cip' is present but unpopulated for gateway courses."
+            )
+
+    # edit this to auto populate the config
+    cips = cips[cips.ne("")].drop_duplicates()
+    ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")].drop_duplicates()
+
+    LOGGER.info(f"Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
+    LOGGER.info(f"Identified {len(cips)} unique CIP codes: {cips.tolist()}")
+
+    # Sanity-check for prefixes and swap if clearly reversed; has come up for some schools
+    pref_e = (
+        df_course.loc[df_course["math_or_english_gateway"].eq("E"), "course_prefix"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .unique()
+    )
+    pref_m = (
+        df_course.loc[df_course["math_or_english_gateway"].eq("M"), "course_prefix"]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .unique()
+    )
+
+    LOGGER.info("English (E) prefixes (raw): %s", pref_e.tolist())
+    LOGGER.info("Math (M) prefixes (raw): %s", pref_m.tolist())
+
+    looks = lambda arr, ch: len(arr) > 0 and all(
+        str(p).upper().startswith(ch) for p in arr
+    )
+    e_ok, m_ok = looks(pref_e, "E"), looks(pref_m, "M")
+
+    if not e_ok and not m_ok:
+        LOGGER.warning(
+            "Prefixes look swapped. Swapping E<->M. E=%s, M=%s",
+            pref_e.tolist(),
+            pref_m.tolist(),
+        )
+        pref_e, pref_m = pref_m, pref_e
+    elif e_ok and m_ok:
+        LOGGER.info(
+            "Prefixes look correct and not swapped (start with E for English, start with M for Math)."
+        )
+    else:
+        LOGGER.warning("One group inconsistent. English OK=%s, Math OK=%s", e_ok, m_ok)
+
+    LOGGER.info("Final English (E) prefixes: %s", pref_e.tolist())
+    LOGGER.info("Final Math (M) prefixes: %s", pref_m.tolist())
+    return [ids.tolist(), cips.tolist()]
