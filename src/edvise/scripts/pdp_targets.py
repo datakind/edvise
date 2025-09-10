@@ -90,7 +90,6 @@ class PDPTargetsTask:
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(description="Target generation for SST pipeline.")
-    parser.add_argument("--catalog", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     return parser.parse_args()
