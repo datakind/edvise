@@ -246,6 +246,12 @@ resources:
                 package: shap~=0.46.0
             - pypi:
                 package: mlflow~=2.22
+            - pypi:
+                package: weasyprint~=60.2
+            - pypi:
+                package: pydyf~=0.8.0
+            - pypi:
+                package: markdown~=3.5
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
