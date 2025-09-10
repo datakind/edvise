@@ -252,6 +252,11 @@ resources:
                 package: pydyf~=0.8.0
             - pypi:
                 package: markdown~=3.5
+            - pypi:
+                package: pyarrow~=16.0
+            - pypi:
+                package: polars~=0.20
+
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
