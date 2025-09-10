@@ -228,8 +228,10 @@ def generate_ranked_feature_table(
     )
 
     # Format magnitudes after sorting to avoid type issues
-    df["Average SHAP Magnitude"] = df["Average SHAP Magnitude (Raw)"].apply(
-        lambda x: "<0.0000" if round(x, 4) == 0 else round(x, 4)
+    df["Average SHAP Magnitude"] = (
+        df["Average SHAP Magnitude (Raw)"]
+        .apply(lambda x: "<0.0000" if round(x, 4) == 0 else round(x, 4))
+        .astype(str)
     )
 
     # Drop the raw magnitude column

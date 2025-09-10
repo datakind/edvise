@@ -215,6 +215,8 @@ resources:
               - "{{job.parameters.db_run_id}}"
               - --ds_run_as
               - "{{job.parameters.ds_run_as}}"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
           existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
@@ -244,11 +246,21 @@ resources:
                 package: shap~=0.46.0
             - pypi:
                 package: mlflow~=2.22
+            - pypi:
+                package: weasyprint~=60.2
+            - pypi:
+                package: pydyf~=0.8.0
+            - pypi:
+                package: markdown~=3.5
+            - pypi:
+                package: pyarrow~=16.0
+            - pypi:
+                package: polars~=0.20
+
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
-        # git_branch: develop
-        git_branch: debug_data_audit
+        git_branch: develop
       tags:
         dev: kayla_wilding
       queue:

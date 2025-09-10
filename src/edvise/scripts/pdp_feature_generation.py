@@ -2,7 +2,7 @@ import argparse
 import logging
 import pandas as pd
 import typing as t
-import os 
+import os
 import sys
 
 # Go up 3 levels from the current file's directory to reach repo root

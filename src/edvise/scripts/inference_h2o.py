@@ -51,7 +51,7 @@ from edvise.utils import emails
 
 
 # Shared predictions pipeline (your extracted module)
-from .predictions_h2o import (
+from edvise.scripts.predictions_h2o import (
     PredConfig,
     PredPaths,
     RunType,
@@ -135,9 +135,7 @@ class ModelInferenceTask:
         features: pd.DataFrame,
         shap_values: npt.NDArray[np.float64],
     ) -> pd.DataFrame:
-        features_table = dataio.read.read_features_table(
-            self.features_table_path
-        )
+        features_table = dataio.read.read_features_table(self.features_table_path)
         try:
             feature_boxstats = modeling.automl.inference.top_feature_boxstats(
                 features=features,
@@ -155,10 +153,10 @@ class ModelInferenceTask:
         client = MlflowClient(registry_uri="databricks-uc")
         model_name = modeling.registration.get_model_name(
             institution_id=self.cfg.institution_id,
-            target=self.cfg.preprocessing.target.name,
-            checkpoint=self.cfg.preprocessing.checkpoint.name,
+            target=self.cfg.preprocessing.target.name,  # type: ignore
+            checkpoint=self.cfg.preprocessing.checkpoint.name,  # type: ignore
         )
-        full_model_name = f"{self.args.catalog}.{self.args.databricks_institution_name}_gold.{model_name}"
+        full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{model_name}"
 
         mv = max(
             client.search_model_versions(f"name='{full_model_name}'"),
@@ -187,19 +185,32 @@ class ModelInferenceTask:
             msg = f"{label} is empty: cannot write inference summary tables."
             logging.error(msg)
             raise ValueError(msg)
-        table_path = f"{self.args.catalog}.{self.cfg.institution_id}_silver.{table_name_suffix}"
+        table_path = f"{self.args.DB_workspace}.{self.cfg.institution_id}_silver.{table_name_suffix}"
         dataio.write.to_delta_table(
             df=df, table_path=table_path, spark_session=self.spark_session
         )
         logging.info("%s data written to: %s", table_name_suffix, table_path)
 
     def run(self) -> None:
+        if self.cfg.modeling is None or self.cfg.modeling.training is None:
+            raise ValueError("Missing section of the config: modeling.training")
+        if self.cfg.preprocessing is None:
+            raise ValueError("Missing 'preprocessing' section in config.")
+        if self.cfg.preprocessing.target is None:
+            raise ValueError("Missing 'preprocessing.target' section in config.")
+        if self.cfg.preprocessing.checkpoint is None:
+            raise ValueError("Missing 'preprocessing.checkpoint' section in config.")
+        if self.cfg.pos_label is None:
+            raise ValueError("Missing 'pos_label' in config.")
+
         # 1) Load UC model metadata (run_id + experiment_id)
         self.load_mlflow_model_metadata()
         assert self.model_run_id and self.model_experiment_id
 
         # 2) Read the processed dataset
-        df_processed = dataio.read.read_parquet(f"{self.args.silver_volume_path}/preprocessed.parquet")
+        df_processed = dataio.read.read_parquet(
+            f"{self.args.silver_volume_path}/preprocessed.parquet"
+        )
 
         # 3) Notify via email
         self._send_kickoff_email()
@@ -323,7 +334,7 @@ class ModelInferenceTask:
 
         emails.send_inference_kickoff_email(
             str(SENDER_EMAIL),
-            [self.args.notification_email],
+            [self.args.datakind_notification_email],
             [self.args.DK_CC_EMAIL],
             MANDRILL_USERNAME,
             MANDRILL_PASSWORD,
@@ -350,13 +361,14 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--databricks_institution_name", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=True)
-    parser.add_argument("--catalog", type=str, required=True)
+    parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--job_root_dir", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
-    parser.add_argument("--notification_email", type=str, required=True)
+    parser.add_argument("--datakind_notification_email", type=str, required=True)
     parser.add_argument("--DK_CC_EMAIL", type=str, required=True)
     parser.add_argument("--features_table_path", type=str, required=False)
+    parser.add_argument("--ds_run_as", type=str, required=False)
     return parser.parse_args()
 
 

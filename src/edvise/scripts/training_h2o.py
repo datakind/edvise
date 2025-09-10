@@ -29,7 +29,12 @@ from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise import utils as edvise_utils
 
-from .predictions_h2o import PredConfig, PredPaths, RunType, run_predictions
+from edvise.scripts.predictions_h2o import (
+    PredConfig,
+    PredPaths,
+    RunType,
+    run_predictions,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -69,6 +74,10 @@ class TrainingTask:
         h2o_utils.safe_h2o_init()
         os.environ["MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR"] = "false"
 
+        # new run/experiment ids to be filled post model selection
+        self.selected_model_run_id: t.Optional[str] = None
+        self.selected_experiment_id: t.Optional[str] = None
+
     def get_spark_session(self) -> SparkSession:
         """
         Attempts to create a Spark session.
@@ -94,7 +103,7 @@ class TrainingTask:
             msg = f"{label} is empty: cannot write inference summary tables."
             logging.error(msg)
             raise ValueError(msg)
-        table_path = f"{self.args.catalog}.{self.cfg.institution_id}_silver.{table_name_suffix}"
+        table_path = f"{self.args.DB_workspace}.{self.cfg.institution_id}_silver.{table_name_suffix}"
         dataio.write.to_delta_table(
             df=df, table_path=table_path, spark_session=self.spark_session
         )
@@ -271,10 +280,26 @@ class TrainingTask:
             experiment_id=experiment_id,
         )
 
+        # create parameter for updated config post model-selection
+        cfg_post_ms = dataio.read.read_config(
+            self.args.config_file_path,
+            schema=configs.pdp.PDPProjectConfig,
+        )
+        if cfg_post_ms is not None and cfg_post_ms.model is not None:
+            self.selected_model_run_id = cfg_post_ms.model.run_id
+            self.selected_experiment_id = cfg_post_ms.model.experiment_id
+        else:
+            logging.error(
+                "Unable to read config post model selection and extract new run & experiment ids."
+            )
+            raise ValueError(
+                "Unable to read config post model selection and proceed with SHAP & model registration"
+            )
+
     def make_predictions(self):
         cfg = PredConfig(
-            model_run_id=self.cfg.model.run_id,
-            experiment_id=self.cfg.model.experiment_id,
+            model_run_id=self.selected_model_run_id,
+            experiment_id=self.selected_experiment_id,
             split_col=self.cfg.split_col,
             student_id_col=self.cfg.student_id_col,
             pos_label=self.cfg.pos_label,
@@ -303,27 +328,27 @@ class TrainingTask:
             # write to silver for FE tables
             self.write_delta(
                 df=out.shap_feature_importance,
-                table_name_suffix=f"training_{self.cfg.model.run_id}_shap_feature_importance",
-                label="Training SHAP Feature Importance table"
+                table_name_suffix=f"training_{self.selected_model_run_id}_shap_feature_importance",
+                label="Training SHAP Feature Importance table",
             )
 
             self.write_delta(
                 df=out.support_score_distribution,
-                table_name_suffix=f"training_{self.cfg.model.run_id}_support_overview",
-                label="Training Support Overview table"
+                table_name_suffix=f"training_{self.selected_model_run_id}_support_overview",
+                label="Training Support Overview table",
             )
 
             # training-only logging
             if mlflow.active_run():
                 mlflow.end_run()
-            with mlflow.start_run(run_id=self.cfg.model.run_id):
+            with mlflow.start_run(run_id=self.selected_model_run_id):
                 _ = modeling.evaluation.log_confusion_matrix(
                     institution_id=self.cfg.institution_id,
-                    automl_run_id=self.cfg.model.run_id,
+                    automl_run_id=self.selected_model_run_id,
                 )
                 _ = modeling.h2o_ml.evaluation.log_roc_table(
                     institution_id=self.cfg.institution_id,
-                    automl_run_id=self.cfg.model.run_id,
+                    automl_run_id=self.selected_model_run_id,
                     modeling_dataset_name=self.cfg.datasets.silver.modeling.table_path,
                 )
 
@@ -337,15 +362,15 @@ class TrainingTask:
     def register_model(self):
         model_name = modeling.registration.get_model_name(
             institution_id=self.cfg.institution_id,
-            target=self.cfg.preprocessing.target.name,
+            target=self.cfgg.preprocessing.target.name,
             checkpoint=self.cfg.preprocessing.checkpoint.name,
         )
         try:
             modeling.registration.register_mlflow_model(
                 model_name,
                 self.cfg.institution_id,
-                run_id=self.cfg.model.run_id,
-                catalog=self.args.catalog,
+                run_id=self.selected_model_run_id,
+                catalog=self.args.DB_workspace,
                 registry_uri="databricks-uc",
                 mlflow_client=self.client,
             )
@@ -358,7 +383,7 @@ class TrainingTask:
         # Initialize card
         card = H2OPDPModelCard(
             config=self.cfg,
-            catalog=self.args.catalog,
+            catalog=self.args.DB_workspace,
             model_name=model_name,
             mlflow_client=self.client,
         )
@@ -407,7 +432,7 @@ class TrainingTask:
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(description="H2o training for pipeline.")
-    parser.add_argument("--catalog", type=str, required=True)
+    parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
