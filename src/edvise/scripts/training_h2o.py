@@ -29,7 +29,12 @@ from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise import utils as edvise_utils
 
-from .predictions_h2o import PredConfig, PredPaths, RunType, run_predictions
+from edvise.scripts.predictions_h2o import (
+    PredConfig,
+    PredPaths,
+    RunType,
+    run_predictions,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

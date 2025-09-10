@@ -51,7 +51,7 @@ from edvise.utils import emails
 
 
 # Shared predictions pipeline (your extracted module)
-from .predictions_h2o import (
+from edvise.scripts.predictions_h2o import (
     PredConfig,
     PredPaths,
     RunType,
