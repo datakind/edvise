@@ -28,30 +28,37 @@ class SklearnImputerWrapper:
     """
     A leakage-safe imputer using sklearn's SimpleImputer and ColumnTransformer,
     with skew-aware numeric strategy assignment, optional missingness flags,
-    and MLflow-based artifact logging.
+    MLflow-based artifact logging, and runtime drift detection for newly-missing
+    values using `missing_flag_cols` only (no extra baseline file).
     """
 
     DEFAULT_SKEW_THRESHOLD = 0.5
     PIPELINE_FILENAME = "imputer_pipeline.joblib"
 
-    def __init__(self):
+    def __init__(
+        self, *, on_new_missing: str = "warn", log_drift_to_mlflow: bool = True
+    ):
+        """
+        on_new_missing: "error" (raise on newly-missing), or "warn" (log & continue)
+        log_drift_to_mlflow: if True, logs per-inference drift JSON artifacts when drift is detected
+        """
         self.pipeline = None
         self.input_dtypes: t.Optional[dict[str, t.Any]] = None
         self.input_feature_names: t.Optional[list[str]] = None
         self.output_feature_names: t.Optional[list[str]] = None
         self.missing_flag_cols: list[str] = []
+        self.on_new_missing = on_new_missing
+        self.log_drift_to_mlflow = log_drift_to_mlflow
 
+    # ---------------------------
+    # Fit / Transform
+    # ---------------------------
     def fit(self, df: pd.DataFrame) -> Pipeline:
         """
         Fit the imputer pipeline on a DataFrame. Replaces `None` with NaN, records dtypes and feature names,
-        optionally adds missingness flags, and builds a column-wise imputer
-        with appropriate strategies for each dtype.
-
-        Parameters:
-            df: Input DataFrame to fit on.
-
-        Returns:
-            The fitted scikit-learn `Pipeline` instance.
+        adds missingness flags for columns that have NaNs at fit, and builds a column-wise imputer
+        with appropriate strategies for each dtype. Real features ALWAYS get an imputer (no passthrough)
+        so inference-time NaNs are safely handled.
         """
         # record originals before coercion so we can cast back in transform()
         self.input_dtypes = df.dtypes.to_dict()
@@ -80,14 +87,8 @@ class SklearnImputerWrapper:
         Apply the fitted imputer pipeline to new data.
         Ensures column alignment with training-time features, adds missingness
         flags if enabled, maintains original row order, and restores data types
-        after imputation. Raises 'ValueError' if  the pipeline has not been fitted, or if required
-        features are missing, or if row counts mismatch.
-
-        Parameters:
-            df: DataFrame to transform.
-
-        Returns:
-            Imputed DataFrame with same index as input.
+        after imputation. Optionally logs (or raises) when "newly-missing" columns
+        are found among those that were clean at training (based on missing_flag_cols).
         """
         if self.pipeline is None:
             raise ValueError("Pipeline not fitted. Call `fit()` first.")
@@ -101,6 +102,9 @@ class SklearnImputerWrapper:
 
         df = self._normalize_missing(df)
         df = self._coerce_extension_types_for_sklearn(df)
+
+        # Drift detection (before flags) using missing_flag_cols only
+        self._detect_and_log_new_missing(df)
 
         # Compute extra columns (e.g. student_id_col) before subsetting so we can reattach later
         raw_features = list(self.input_feature_names or [])
@@ -119,7 +123,7 @@ class SklearnImputerWrapper:
         # Add missingness flags
         df = self._add_missingness_flags(df)
 
-        # Ensure missingness flags from fit-time exist
+        # Ensure missingness flags from fit-time exist (in case a column isn't missing now)
         for col in self.missing_flag_cols:
             if col not in df:
                 df[col] = False
@@ -147,6 +151,7 @@ class SklearnImputerWrapper:
             transformed, columns=self.output_feature_names, index=orig_index
         )
 
+        # restore original dtypes for imputed features
         for col, orig_dtype in self.input_dtypes.items():
             if col not in result.columns:
                 continue
@@ -154,7 +159,6 @@ class SklearnImputerWrapper:
             if is_bool_dtype(orig_dtype):
                 # Imputer may output floats 0/1 or bools, coerce safely to pandas boolean dtype
                 s = pd.Series(result[col])
-                # handle strings "0"/"1" or "True"/"False" and numerics
                 s = pd.to_numeric(s, errors="coerce").round()
                 result[col] = (
                     s.astype("Int64").map({0: False, 1: True}).astype("boolean")
@@ -162,8 +166,17 @@ class SklearnImputerWrapper:
 
             elif is_numeric_dtype(orig_dtype):
                 # Keep numeric columns numeric
-                result[col] = pd.to_numeric(result[col], errors="coerce")
-
+                try:
+                    result[col] = pd.to_numeric(result[col], errors="coerce").astype(
+                        orig_dtype
+                    )
+                except TypeError:
+                    LOGGER.warning(
+                        f"Could not restore dtype {orig_dtype} for column {col}, falling back to float64"
+                    )
+                    result[col] = pd.to_numeric(result[col], errors="coerce").astype(
+                        "float64"
+                    )
             else:
                 # Originally non-numeric -> keep as pandas string dtype (prevents "1010" -> 1010)
                 result[col] = pd.Series(result[col]).astype("string")
@@ -180,7 +193,7 @@ class SklearnImputerWrapper:
                 [result, df_original.loc[orig_index, extra_cols]], axis=1
             )
 
-        # Validate only the imputed columns
+        # Validate only the imputed columns (no NaNs left)
         self.validate(result[self.output_feature_names])
         return result
 
@@ -188,28 +201,24 @@ class SklearnImputerWrapper:
         """
         Construct an imputation pipeline with dtype and skew-aware strategies.
 
-        For each column in the DataFrame, an imputation strategy is chosen based on:
-        - No missing values-> passthrough (no transformation)
-        - Boolean dtype -> most frequent value
-        - Numeric dtype -> median if absolute skewness ≥ DEFAULT_SKEW_THRESHOLD, else mean
-        - Categorical or object dtype -> most frequent value
-        - Other types -> most frequent value
-
-        Parameters:
-            df: Input DataFrame used to determine dtypes, skewness, and missingness patterns.
-
-        Returns:
-            An unfitted scikit-learn `Pipeline` containing a `ColumnTransformer`
-            with per-column `SimpleImputer` instances or passthroughs.
+        IMPORTANT:
+        - Real features ALWAYS get a SimpleImputer so we have a trained statistic
+          even if there were no NaNs at fit-time (safe for GLMs).
+        - *_missing_flag columns passthrough.
         """
         transformers = []
         skew_vals = df.select_dtypes(include="number").skew(numeric_only=True)
 
         for col in df.columns:
+            # passthrough flags (already 0/1 without NaNs)
+            if col.endswith("_missing_flag"):
+                transformers.append((col, "passthrough", [col]))
+                continue
+
             s = df[col]
             n_obs = s.notna().sum()
 
-            # 1) All NaNs -> constant fill
+            # Choose strategy by dtype (and skew for numerics). If entirely NaN at fit, use constants.
             if n_obs == 0:
                 if is_bool_dtype(s.dtype):
                     imputer = SimpleImputer(strategy="constant", fill_value=False)
@@ -218,28 +227,20 @@ class SklearnImputerWrapper:
                     imputer = SimpleImputer(strategy="constant", fill_value=fill_val)
                 else:
                     imputer = SimpleImputer(strategy="constant", fill_value="missing")
-                transformers.append((col, imputer, [col]))
-                continue
-
-            # 2) No NaNs -> passthrough
-            if not s.isna().any():
-                transformers.append((col, "passthrough", [col]))
-                continue
-
-            # 3) Some NaNs -> choose strategy by dtype (check skew for numerics)
-            if is_bool_dtype(s.dtype):
-                strategy = "most_frequent"
-            elif is_numeric_dtype(s):
-                skew = skew_vals.get(col, 0)
-                strategy = (
-                    "median" if abs(skew) >= self.DEFAULT_SKEW_THRESHOLD else "mean"
-                )
-            elif is_categorical_dtype(s) or is_object_dtype(s):
-                strategy = "most_frequent"
             else:
-                strategy = "most_frequent"
+                if is_bool_dtype(s.dtype):
+                    strategy = "most_frequent"
+                elif is_numeric_dtype(s):
+                    skew = skew_vals.get(col, 0)
+                    strategy = (
+                        "median" if abs(skew) >= self.DEFAULT_SKEW_THRESHOLD else "mean"
+                    )
+                elif is_categorical_dtype(s) or is_object_dtype(s):
+                    strategy = "most_frequent"
+                else:
+                    strategy = "most_frequent"
+                imputer = SimpleImputer(strategy=strategy)
 
-            imputer = SimpleImputer(strategy=strategy)
             transformers.append((col, imputer, [col]))
 
         ct = ColumnTransformer(
@@ -249,10 +250,8 @@ class SklearnImputerWrapper:
 
     def log_pipeline(self, artifact_path: str) -> None:
         """
-        Logs the fitted pipeline and input dtypes to MLflow as artifacts.
-
-        Parameters:
-            artifact_path: MLflow artifact subdirectory (e.g., "sklearn_imputer")
+        Logs the fitted pipeline and input metadata to MLflow as artifacts.
+        (No extra baseline file is created; we rely on missing_flag_cols.json.)
         """
         if self.pipeline is None:
             raise RuntimeError(
@@ -321,44 +320,99 @@ class SklearnImputerWrapper:
     def validate(self, df: pd.DataFrame) -> bool:
         """
         Check that the DataFrame contains no null values after imputation.
-
-        Parameters:
-            df: DataFrame to validate.
-
-        Returns:
-            True if no nulls found, False otherwise.
         """
         missing = df.isnull().sum()
         missing_cols = missing[missing > 0].index.tolist()
-
         if missing_cols:
             raise ValueError(
                 f"Transformed data still contains nulls in: {missing_cols}"
             )
         return True
 
-    def _add_missingness_flags(self, df: pd.DataFrame) -> pd.DataFrame:
-        df = df.copy()
-        for col in df.columns:
-            if df[col].isnull().any():
-                df[f"{col}_missing_flag"] = df[col].isnull().astype(bool)
-        return df
+    def _detect_and_log_new_missing(self, df_sklearn: pd.DataFrame) -> None:
+        """
+        Detect "newly-missing" columns at inference using training-time missing_flag_cols only.
+        - Columns that did NOT receive a *_missing_flag at fit are considered "clean at training".
+        - If any of those are missing now, log (and optionally raise).
+        df_sklearn must be normalized/coerced and BEFORE flags are added.
+        """
+        if not self.input_feature_names:
+            return
 
+        # Base columns that had missingness at fit (those that got flags)
+        flagged_bases = {
+            c.rsplit("_missing_flag", 1)[0]
+            for c in self.missing_flag_cols
+            if c.endswith("_missing_flag")
+        }
+        clean_cols = [
+            c
+            for c in self.input_feature_names
+            if c not in flagged_bases and c in df_sklearn.columns
+        ]
+
+        newly_missing = [c for c in clean_cols if df_sklearn[c].isna().any()]
+        if not newly_missing:
+            return
+
+        # Log prominently
+        rates = {c: float(df_sklearn[c].isna().mean()) for c in newly_missing}
+        msg = (
+            f"New missingness at inference for columns that were clean at training: "
+            f"{newly_missing} (rates={rates})"
+        )
+        if self.on_new_missing == "error":
+            LOGGER.error(msg)
+        else:
+            LOGGER.warning(msg)
+
+        # Best-effort artifact (unique filename) if enabled
+        if self.log_drift_to_mlflow:
+            try:
+                self._log_new_missing_report(
+                    {
+                        "type": "new_missing_at_inference",
+                        "columns": newly_missing,
+                        "rates": rates,
+                    }
+                )
+            except Exception:
+                LOGGER.debug("Could not log new_missing_report artifact to MLflow.")
+
+        if self.on_new_missing == "error":
+            raise ValueError(msg)
+
+    def _log_new_missing_report(self, payload: dict) -> None:
+        """
+        Write a uniquely named drift report into the MLflow run as an artifact.
+        """
+        if not mlflow.active_run():
+            return  # don't force a run here
+
+        from datetime import datetime
+        import hashlib
+
+        ts = datetime.utcnow().isoformat(timespec="seconds").replace(":", "-")
+        digest = hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()[
+            :8
+        ]
+        fname = f"new_missing_report_{ts}_{digest}.json"
+
+        with tempfile.TemporaryDirectory() as td:
+            p = os.path.join(td, fname)
+            with open(p, "w") as f:
+                json.dump(payload, f, indent=2)
+            mlflow.log_artifact(p, artifact_path="sklearn_imputer")
+
+    # ---------------------------
+    # Load helpers
+    # ---------------------------
     @classmethod
     def load(
         cls, run_id: str, artifact_path: str = "sklearn_imputer"
     ) -> "SklearnImputerWrapper":
         """
-        Load a trained imputer pipeline from MLflow.
-        Restores the fitted pipeline and associated metadata, including input
-        dtypes, feature names, and missingness flag columns.
-
-        Parameters:
-            run_id: The MLflow run ID from which to load artifacts.
-            artifact_path: The artifact subdirectory used when logging.
-
-        Returns:
-            An instance of `SklearnImputerWrapper` with loaded state.
+        Load a trained imputer pipeline from MLflow. (No had_missing_at_fit file needed.)
         """
         instance = cls()
         LOGGER.info(f"Loading pipeline from MLflow run {run_id}...")
@@ -376,7 +430,6 @@ class SklearnImputerWrapper:
             )
             with open(dtypes_path) as f:
                 loaded = json.load(f)
-            # convert back to dtype objects
             instance.input_dtypes = {k: pandas_dtype(v) for k, v in loaded.items()}
             LOGGER.info("Successfully loaded input_dtypes from MLflow.")
         except Exception as e:
@@ -437,14 +490,6 @@ class SklearnImputerWrapper:
     ) -> pd.DataFrame:
         """
         Load a trained imputer from MLflow and apply it to data.
-
-        Parameters:
-            df: DataFrame to transform.
-            run_id: MLflow run ID for loading the pipeline.
-            artifact_path: Artifact subdirectory used when logging.
-
-        Returns:
-            Imputed DataFrame with same index as input.
         """
         instance = cls.load(run_id=run_id, artifact_path=artifact_path)
         transformed = instance.transform(df)
@@ -452,6 +497,9 @@ class SklearnImputerWrapper:
             instance.validate(transformed[instance.output_feature_names])
         return transformed
 
+    # ---------------------------
+    # Type coercion helpers
+    # ---------------------------
     def _coerce_extension_types_for_sklearn(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Make all columns sklearn-safe (no pd.NA makes it into object arrays).
@@ -499,4 +547,11 @@ class SklearnImputerWrapper:
         # Convert any logical missing to np.nan without comparing to pd.NA
         df = df.replace({None: np.nan})
         df = df.mask(df.isna(), np.nan)
+        return df
+
+    def _add_missingness_flags(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        for col in df.columns:
+            if df[col].isnull().any():
+                df[f"{col}_missing_flag"] = df[col].isnull().astype(bool)
         return df

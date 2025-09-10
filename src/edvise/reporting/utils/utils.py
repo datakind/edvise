@@ -13,9 +13,7 @@ import tempfile
 LOGGER = logging.getLogger(__name__)
 
 
-def ensure_temp_assets_dir(
-    path_str: t.Optional[str]
-) -> str:
+def ensure_temp_assets_dir(path_str: t.Optional[str]) -> str:
     """
     Resolve a writable absolute directory under the system temp dir.
       - Accepts relative names like 'card_assets' or None.
