@@ -113,8 +113,8 @@ class PDPDataAuditTask:
         for fmt in dttm_formats:
             try:
                 # Raw course data
-                df_course_raw = read_raw_pdp_cohort_data(
-                    file_path=cohort_dataset_raw_path,
+                df_course_raw = read_raw_pdp_course_data(
+                    file_path=course_dataset_raw_path,
                     schema=None,
                     dttm_format=fmt,
                     spark_session=self.spark,

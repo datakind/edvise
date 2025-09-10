@@ -44,3 +44,23 @@ def rename_mangled_column_names(
     }
     LOGGER.info("renaming mangled columns in raw cohort data: %s", rename_columns)
     return df.rename(columns=rename_columns)
+
+
+def converter_func_cohort(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    We also want to handle NaN dual enrollment students as NON-dual enrollment. 
+    """
+    # Categories to filter out
+    filter_categories = ["DE", "DS", "SE"]
+
+    # Count how many students fall into these categories
+    num_filtered = df["dual_and_summer_enrollment"].isin(filter_categories).sum()
+
+    LOGGER.warning(
+        "Filtering out %d students with dual enrollment, summer enrollment, "
+        "or dual summer enrollment categories",
+        num_filtered,
+    )
+    df = df[~df["dual_and_summer_enrollment"].isin(filter_categories)]
+    return df
+
