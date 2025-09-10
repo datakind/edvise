@@ -1,7 +1,7 @@
 resources:
   jobs:
-    github_sourced_pdp_training_pipeline:
-      name: github_sourced_pdp_training_pipeline
+    edvise_github_sourced_pdp_inference_pipeline:
+      name: edvise_github_sourced_pdp_inference_pipeline
       max_concurrent_runs: 2
       tasks:
         - task_key: data_audit
