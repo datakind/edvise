@@ -237,12 +237,6 @@ def generate_ranked_feature_table(
     # Drop the raw magnitude column
     df = df.drop(columns=["Average SHAP Magnitude (Raw)"])
 
-    # Log as an ML artifact
-    df.to_csv("/tmp/ranked_selected_features.csv", index=False)
-    mlflow.log_artifact(
-        "/tmp/ranked_selected_features.csv", artifact_path="selected_features"
-    )
-
     return df
 
 
