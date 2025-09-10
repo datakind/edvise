@@ -123,7 +123,7 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
         if "study_id" in df.columns
         else "student_id"
     )
-    missing_course_students = df[drop_mask].groupby(student_id_col).filter(
+    missing_course_students = df.groupby(student_id_col).filter(
         lambda x: x["course_prefix"].isna().all()
     )[student_id_col].nunique()
 

@@ -385,6 +385,8 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
                     "Missing": "",
                 }
             )
+            .str.extract(r"^(\d{2})")  # Extract first two digits only; cip codes usually 23.0101
+            .dropna()[0]
         )
         if cips.eq("").all():
             LOGGER.warning(
