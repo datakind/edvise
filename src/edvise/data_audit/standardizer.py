@@ -134,11 +134,4 @@ class PDPCourseStandardizer(BaseStandardizer):
         df = self.add_empty_columns_if_missing(
             df, {"term_program_of_study": (None, "string")}
         )
-        # compute_gateway_course_ids_and_cips(df)
-        # LOGGER.info("Auto-populating config with below course IDs and cip codes: change if necessary")
-        # update_config.update_key_courses_and_cips(
-        #     self.args.config_file_path, 
-        #     key_course_ids=ids.tolist(), 
-        #     key_course_subject_areas=cips.tolist()
-        # )
         return df

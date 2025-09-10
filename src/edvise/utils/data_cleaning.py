@@ -220,7 +220,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
             n_removed,
             pct_removed,
         )
-        LOGGER.info(
+        LOGGER.warning(
             "remove_pre_cohort_courses: %d students had only pre-cohort records and were dropped.",
             n_students_dropped,
         )
@@ -280,7 +280,10 @@ def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
         if col in df_course.columns:
             df_course[col] = df_course[col].astype("string")
             pre_truncated = df_course[col].copy()
-            df_course[col] = df_course[col].str.rstrip(".0")
+
+            # Only remove literal ".0" at the end of the string
+            df_course[col] = df_course[col].str.replace(r"\.0$", "", regex=True)
+
             truncated = (pre_truncated != df_course[col]).sum(min_count=1)
             LOGGER.info(
                 'Stripped trailing ".0" in %s rows for column "%s".',
