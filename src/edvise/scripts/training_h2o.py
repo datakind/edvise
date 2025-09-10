@@ -69,11 +69,14 @@ class TrainingTask:
             self.args.config_file_path,
             schema=configs.pdp.PDPProjectConfig,
         )
-        self.cfg_post_ms = None 
         self.client = MlflowClient()
         self.features_table_path = "shared/assets/pdp_features_table.toml"
         h2o_utils.safe_h2o_init()
         os.environ["MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR"] = "false"
+
+        # new run/experiment ids to be filled post model selection
+        self.selected_model_run_id: t.Optional[str] = None
+        self.selected_experiment_id: t.Optional[str] = None
 
     def get_spark_session(self) -> SparkSession:
         """
@@ -278,25 +281,35 @@ class TrainingTask:
         )
 
         # create parameter for updated config post model-selection
-        self.cfg_post_ms = dataio.read.read_config(
+        cfg_post_ms = dataio.read.read_config(
             self.args.config_file_path,
             schema=configs.pdp.PDPProjectConfig,
         )
+        if cfg_post_ms is not None and cfg_post_ms.model is not None:
+            self.selected_model_run_id = cfg_post_ms.model.run_id
+            self.selected_experiment_id = cfg_post_ms.model.experiment_id
+        else:
+            logging.error(
+                "Unable to read config post model selection and extract new run & experiment ids."
+            )
+            raise ValueError(
+                "Unable to read config post model selection and proceed with SHAP & model registration"
+            )
 
     def make_predictions(self):
         cfg = PredConfig(
-            model_run_id=self.cfg_post_ms.model.run_id,
-            experiment_id=self.cfg_post_ms.model.experiment_id,
-            split_col=self.cfg_post_ms.split_col,
-            student_id_col=self.cfg_post_ms.student_id_col,
-            pos_label=self.cfg_post_ms.pos_label,
-            min_prob_pos_label=self.cfg_post_ms.inference.min_prob_pos_label,
-            background_data_sample=self.cfg_post_ms.inference.background_data_sample,
-            cfg_inference_params=self.cfg_post_ms.inference.dict(),
-            random_state=self.cfg_post_ms.random_state,
+            model_run_id=self.selected_model_run_id,
+            experiment_id=self.selected_experiment_id,
+            split_col=self.cfg.split_col,
+            student_id_col=self.cfg.student_id_col,
+            pos_label=self.cfg.pos_label,
+            min_prob_pos_label=self.cfg.inference.min_prob_pos_label,
+            background_data_sample=self.cfg.inference.background_data_sample,
+            cfg_inference_params=self.cfg.inference.dict(),
+            random_state=self.cfg.random_state,
         )
         paths = PredPaths(
-            silver_modeling_path=self.cfg_post_ms.datasets.silver.modeling.table_path,
+            silver_modeling_path=self.cfg.datasets.silver.modeling.table_path,
             features_table_path="shared/assets/pdp_features_table.toml",
         )
 
@@ -308,35 +321,35 @@ class TrainingTask:
             # write gold artifacts
             dataio.write.to_delta_table(
                 df=out.top_features_result,
-                table_path=self.cfg_post_ms.datasets.gold.advisor_output.table_path,
+                table_path=self.cfg.datasets.gold.advisor_output.table_path,
                 spark_session=self.spark_session,
             )
 
             # write to silver for FE tables
             self.write_delta(
                 df=out.shap_feature_importance,
-                table_name_suffix=f"training_{self.cfg_post_ms.model.run_id}_shap_feature_importance",
+                table_name_suffix=f"training_{self.selected_model_run_id}_shap_feature_importance",
                 label="Training SHAP Feature Importance table",
             )
 
             self.write_delta(
                 df=out.support_score_distribution,
-                table_name_suffix=f"training_{self.cfg_post_ms.model.run_id}_support_overview",
+                table_name_suffix=f"training_{self.selected_model_run_id}_support_overview",
                 label="Training Support Overview table",
             )
 
             # training-only logging
             if mlflow.active_run():
                 mlflow.end_run()
-            with mlflow.start_run(run_id=self.cfg_post_ms.model.run_id):
+            with mlflow.start_run(run_id=self.selected_model_run_id):
                 _ = modeling.evaluation.log_confusion_matrix(
-                    institution_id=self.cfg_post_ms.institution_id,
-                    automl_run_id=self.cfg_post_ms.model.run_id,
+                    institution_id=self.cfg.institution_id,
+                    automl_run_id=self.selected_model_run_id,
                 )
                 _ = modeling.h2o_ml.evaluation.log_roc_table(
-                    institution_id=self.cfg_post_ms.institution_id,
-                    automl_run_id=self.cfg_post_ms.model.run_id,
-                    modeling_dataset_name=self.cfg_post_ms.datasets.silver.modeling.table_path,
+                    institution_id=self.cfg.institution_id,
+                    automl_run_id=self.selected_model_run_id,
+                    modeling_dataset_name=self.cfg.datasets.silver.modeling.table_path,
                 )
 
         finally:
@@ -348,15 +361,15 @@ class TrainingTask:
 
     def register_model(self):
         model_name = modeling.registration.get_model_name(
-            institution_id=self.cfg_post_ms.institution_id,
-            target=self.cfg_post_msg.preprocessing.target.name,
-            checkpoint=self.cfg_post_ms.preprocessing.checkpoint.name,
+            institution_id=self.cfg.institution_id,
+            target=self.cfgg.preprocessing.target.name,
+            checkpoint=self.cfg.preprocessing.checkpoint.name,
         )
         try:
             modeling.registration.register_mlflow_model(
                 model_name,
-                self.cfg_post_ms.institution_id,
-                run_id=self.cfg_post_ms.model.run_id,
+                self.cfg.institution_id,
+                run_id=self.selected_model_run_id,
                 catalog=self.args.DB_workspace,
                 registry_uri="databricks-uc",
                 mlflow_client=self.client,
@@ -369,7 +382,7 @@ class TrainingTask:
     def create_model_card(self, model_name):
         # Initialize card
         card = H2OPDPModelCard(
-            config=self.cfg_post_ms,
+            config=self.cfg,
             catalog=self.args.DB_workspace,
             model_name=model_name,
             mlflow_client=self.client,
