@@ -39,7 +39,7 @@ class PDPCohortStandardizer(BaseStandardizer):
         Args:
             df: As output by :func:`dataio.read_raw_pdp_cohort_data_from_file()` .
         """
-        df = log_high_null_columns(df)
+        log_high_null_columns(df)
         cols_to_drop = [
             # not a viable target variable, but highly correlated with it
             "time_to_credential",
@@ -108,7 +108,7 @@ class PDPCourseStandardizer(BaseStandardizer):
         """
         df = strip_trailing_decimal_strings(df)
         df = drop_course_rows_missing_identifiers(df)
-        df = log_high_null_columns(df)
+        log_high_null_columns(df)
         cols_to_drop = [
             # student demographics found in raw cohort dataset
             "cohort",

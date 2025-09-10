@@ -322,7 +322,7 @@ def _drop_incomplete_pairs(s1: pd.Series, s2: pd.Series) -> tuple[pd.Series, pd.
     return (df["s1"], df["s2"])
 
 
-def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> pd.DataFrame:
+def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> None:
     null_ratios = df.isna().mean(axis="index").sort_values(ascending=False)
     high_nulls = null_ratios[null_ratios > threshold]
 
@@ -338,7 +338,6 @@ def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> pd.DataFr
                 col,
                 ratio * 100,
             )
-    return df
 
 
 def compute_gateway_course_ids_and_cips(self, df_course: pd.DataFrame) -> List[str]:
