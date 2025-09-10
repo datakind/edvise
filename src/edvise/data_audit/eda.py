@@ -396,7 +396,7 @@ def compute_gateway_course_ids_and_cips(self, df_course: pd.DataFrame) -> List[s
     cips = cips[cips.ne("")].drop_duplicates()
     ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")].drop_duplicates()
 
-    LOGGER.info("Auto-populating config with above course IDs and cip codes: change if necessary")
+    LOGGER.info("Auto-populating config with below course IDs and cip codes: change if necessary")
     utils.update_key_courses_and_cips(
         self.args.config_file_path, 
         key_course_ids=ids.tolist(), 
