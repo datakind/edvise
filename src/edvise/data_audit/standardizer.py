@@ -132,5 +132,5 @@ class PDPCourseStandardizer(BaseStandardizer):
         df = self.add_empty_columns_if_missing(
             df, {"term_program_of_study": (None, "string")}
         )
-        compute_gateway_course_ids_and_cips(df)
+        compute_gateway_course_ids_and_cips(self, df)
         return df
