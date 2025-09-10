@@ -123,9 +123,6 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
         if "study_id" in df.columns
         else "student_id"
     )
-    missing_course_students = df.groupby(student_id_col).filter(
-        lambda x: x["course_prefix"].isna().all()
-    )[student_id_col].nunique()
 
     if num_dropped > 0:
         # Breakdown by enrolled_at_other_institution_s within the dropped set
@@ -155,11 +152,6 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
                 "Dropped %s rows from course dataset due to missing identifiers. "
                 "Column 'enrolled_at_other_institution_s' not found; cannot compute alignment breakdown.",
                 num_dropped,
-            )
-        if missing_course_students > 0:
-            LOGGER.warning(
-                "A total of %s students were dropped entirely because all of their course records were missing identifiers.",
-                missing_course_students,
             )
 
     # Keep only rows with both identifiers present

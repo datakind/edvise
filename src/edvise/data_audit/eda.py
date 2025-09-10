@@ -475,11 +475,11 @@ def log_most_recent_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> N
                  Fall 2023   → "2023-24: Fall (Fall 2023)"
         """
         term = term.strip().lower()
-        if term in {"spring", "summer"}:
+        if term in {"SPRING", "SUMMER"}:
             school_year = f"{year-1}-{str(year)[-2:]}"   # e.g., 2023-24
             short_label = f"{term.capitalize()} {str(year)[-2:]}"  # Summer 24
             return f"{school_year}: {term.capitalize()} ({short_label})"
-        elif term in {"fall", "winter"}:
+        elif term in {"FALL", "WINTER"}:
             school_year = f"{year}-{str(year+1)[-2:]}"   # e.g., 2023-24
             short_label = f"{term.capitalize()} {year}"  # Winter 2023
             return f"{school_year}: {term.capitalize()} ({short_label})"
