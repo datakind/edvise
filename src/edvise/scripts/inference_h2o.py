@@ -250,9 +250,6 @@ class ModelInferenceTask:
         features_table_path = self.features_table_path
 
         pred_paths = PredPaths(
-            silver_modeling_path=self.cfg.datasets.silver.modeling.table_path
-            if hasattr(self.cfg, "datasets")
-            else None,
             features_table_path=features_table_path,
         )
 

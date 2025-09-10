@@ -51,7 +51,6 @@ class PredConfig:
 
 @dataclass
 class PredPaths:
-    silver_modeling_path: str | None = None
     features_table_path: str | None = None
 
 

@@ -309,7 +309,6 @@ class TrainingTask:
             random_state=self.cfg.random_state,
         )
         paths = PredPaths(
-            silver_modeling_path=self.cfg.datasets.silver.modeling.table_path,
             features_table_path="shared/assets/pdp_features_table.toml",
         )
 
