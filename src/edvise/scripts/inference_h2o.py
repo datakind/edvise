@@ -369,7 +369,6 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--DK_CC_EMAIL", type=str, required=True)
     parser.add_argument("--features_table_path", type=str, required=False)
     parser.add_argument("--ds_run_as", type=str, required=False)
-
     return parser.parse_args()
 
 
