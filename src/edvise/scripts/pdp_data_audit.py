@@ -35,7 +35,7 @@ from edvise.dataio.read import (
 )
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.data_audit.eda import compute_gateway_course_ids_and_cips
+from edvise.data_audit.eda import compute_gateway_course_ids_and_cips, log_record_drops, log_most_recent_terms
 from edvise.utils.update_config import update_key_courses_and_cips
 
 # Configure logging
@@ -80,6 +80,12 @@ class PDPDataAuditTask:
         # --- Load datasets ---
 
         # Cohort
+        # Raw cohort data
+        df_cohort_raw = read_raw_pdp_cohort_data(
+            file_path=cohort_dataset_raw_path,
+            schema=None,
+            spark_session=self.spark,
+        )
 
         # Schema validate cohort data
         LOGGER.info("Reading and schema validating cohort data:")
@@ -103,8 +109,16 @@ class PDPDataAuditTask:
         LOGGER.info(
             "Reading and schema validating course data, handling any duplicates:"
         )
+
         for fmt in dttm_formats:
             try:
+                # Raw course data
+                df_course_raw = read_raw_pdp_cohort_data(
+                    file_path=cohort_dataset_raw_path,
+                    schema=None,
+                    dttm_format=fmt,
+                    spark_session=self.spark,
+                )
                 df_course_validated = read_raw_pdp_course_data(
                     file_path=course_dataset_raw_path,
                     schema=RawPDPCourseDataSchema,
@@ -135,6 +149,20 @@ class PDPDataAuditTask:
             self.args.config_file_path,  
             key_course_ids=ids_cips[0],
             key_course_subject_areas=ids_cips[1]
+        )
+
+        # Log changes before and after pre-processing
+        log_record_drops(
+            df_cohort_raw, 
+            df_cohort_standardized, 
+            df_course_raw,
+            df_course_standardized,
+        )
+
+        # Logs most recent terms 
+        log_most_recent_terms(
+            df_course_standardized,
+            df_cohort_standardized,
         )
 
         # --- Write results ---

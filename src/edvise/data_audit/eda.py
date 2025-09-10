@@ -442,3 +442,44 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     LOGGER.info("Final Math (M) prefixes: %s", pref_m.tolist())
 
     return [ids.tolist(), cips.tolist()]
+
+
+def log_record_drops(df_cohort_before: pd.DataFrame, df_cohort_after: pd.DataFrame,
+                     df_course_before: pd.DataFrame, df_course_after: pd.DataFrame) -> None:
+    """
+    Logs row counts before and after processing for cohort and course data.
+    Also logs the number of dropped students and dropped course records.
+    """
+    cohort_before = len(df_cohort_before)
+    cohort_after = len(df_cohort_after)
+    cohort_dropped = cohort_before - cohort_after
+
+    course_before = len(df_course_before)
+    course_after = len(df_course_after)
+    course_dropped = course_before - course_after
+
+    LOGGER.info("Cohort file: %d → %d rows (%d students dropped) after preprocessing", cohort_before, cohort_after, cohort_dropped)
+    LOGGER.info("Course file: %d → %d rows (%d course records dropped) after preprocessing", course_before, course_after, course_dropped)
+
+
+def log_most_recent_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
+    """
+    Logs the most recent cohort year/term and academic year/term based on data.
+    """
+    if {"cohort", "cohort_term"}.issubset(df_cohort.columns):
+        latest_cohort = df_cohort[["cohort", "cohort_term"]].dropna().sort_values(
+            by=["cohort", "cohort_term"], ascending=False
+        ).head(1)
+        LOGGER.info("Most recent cohort year/term: %s / %s",
+                    latest_cohort["cohort"].values[0], latest_cohort["cohort_term"].values[0])
+    else:
+        LOGGER.warning("Missing cohort or cohort_term column in cohort dataframe.")
+
+    if {"academic_year", "academic_term"}.issubset(df_course.columns):
+        latest_term = df_course[["academic_year", "academic_term"]].dropna().sort_values(
+            by=["academic_year", "academic_term"], ascending=False
+        ).head(1)
+        LOGGER.info("Most recent academic year/term: %s / %s",
+                    latest_term["academic_year"].values[0], latest_term["academic_term"].values[0])
+    else:
+        LOGGER.warning("Missing academic_year or academic_term column in course dataframe.")
