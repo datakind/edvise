@@ -236,7 +236,7 @@ resources:
           default: ${var.config_file_name}
         - name: ds_run_as
           default: ${var.ds_run_as}
-        - name: datakind_notification_email
+        - name: notification_email
           default: ${var.datakind_notification_email}
       permissions:
         - user_name: ${var.ds_run_as}
