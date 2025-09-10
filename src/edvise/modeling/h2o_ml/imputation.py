@@ -166,8 +166,17 @@ class SklearnImputerWrapper:
 
             elif is_numeric_dtype(orig_dtype):
                 # Keep numeric columns numeric
-                result[col] = pd.to_numeric(result[col], errors="coerce")
-
+                try:
+                    result[col] = pd.to_numeric(result[col], errors="coerce").astype(
+                        orig_dtype
+                    )
+                except TypeError:
+                    LOGGER.warning(
+                        f"Could not restore dtype {orig_dtype} for column {col}, falling back to float64"
+                    )
+                    result[col] = pd.to_numeric(result[col], errors="coerce").astype(
+                        "float64"
+                    )
             else:
                 # Originally non-numeric -> keep as pandas string dtype (prevents "1010" -> 1010)
                 result[col] = pd.Series(result[col]).astype("string")
@@ -332,7 +341,9 @@ class SklearnImputerWrapper:
 
         # Base columns that had missingness at fit (those that got flags)
         flagged_bases = {
-            c[:-14] for c in self.missing_flag_cols if c.endswith("_missing_flag")
+            c.rsplit("_missing_flag", 1)[0]
+            for c in self.missing_flag_cols
+            if c.endswith("_missing_flag")
         }
         clean_cols = [
             c
