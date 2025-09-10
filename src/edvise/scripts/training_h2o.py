@@ -74,10 +74,6 @@ class TrainingTask:
         h2o_utils.safe_h2o_init()
         os.environ["MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR"] = "false"
 
-        # new run/experiment ids to be filled post model selection
-        self.selected_model_run_id: t.Optional[str] = None
-        self.selected_experiment_id: t.Optional[str] = None
-
     def get_spark_session(self) -> SparkSession:
         """
         Attempts to create a Spark session.
@@ -281,25 +277,15 @@ class TrainingTask:
         )
 
         # create parameter for updated config post model-selection
-        cfg_post_ms = dataio.read.read_config(
+        self.cfg = dataio.read.read_config(
             self.args.config_file_path,
             schema=configs.pdp.PDPProjectConfig,
         )
-        if cfg_post_ms is not None and cfg_post_ms.model is not None:
-            self.selected_model_run_id = cfg_post_ms.model.run_id
-            self.selected_experiment_id = cfg_post_ms.model.experiment_id
-        else:
-            logging.error(
-                "Unable to read config post model selection and extract new run & experiment ids."
-            )
-            raise ValueError(
-                "Unable to read config post model selection and proceed with SHAP & model registration"
-            )
 
     def make_predictions(self):
         cfg = PredConfig(
-            model_run_id=self.selected_model_run_id,
-            experiment_id=self.selected_experiment_id,
+            model_run_id=self.cfg.model.run_id,
+            experiment_id=self.cfg.model.experiment_id,
             split_col=self.cfg.split_col,
             student_id_col=self.cfg.student_id_col,
             pos_label=self.cfg.pos_label,
@@ -327,13 +313,13 @@ class TrainingTask:
             # write to silver for FE tables
             self.write_delta(
                 df=out.shap_feature_importance,
-                table_name_suffix=f"training_{self.selected_model_run_id}_shap_feature_importance",
+                table_name_suffix=f"training_{self.cfg.model.run_id}_shap_feature_importance",
                 label="Training SHAP Feature Importance table",
             )
 
             self.write_delta(
                 df=out.support_score_distribution,
-                table_name_suffix=f"training_{self.selected_model_run_id}_support_overview",
+                table_name_suffix=f"training_{self.cfg.model.run_id}_support_overview",
                 label="Training Support Overview table",
             )
 
@@ -345,14 +331,14 @@ class TrainingTask:
             # training-only logging
             if mlflow.active_run():
                 mlflow.end_run()
-            with mlflow.start_run(run_id=self.selected_model_run_id):
+            with mlflow.start_run(run_id=self.cfg.model.run_id):
                 _ = modeling.evaluation.log_confusion_matrix(
                     institution_id=self.cfg.institution_id,
-                    automl_run_id=self.selected_model_run_id,
+                    automl_run_id=self.cfg.model.run_id,
                 )
                 _ = modeling.h2o_ml.evaluation.log_roc_table(
                     institution_id=self.cfg.institution_id,
-                    automl_run_id=self.selected_model_run_id,
+                    automl_run_id=self.cfg.model.run_id,
                     modeling_df=modeling_df,
                 )
 
@@ -373,7 +359,7 @@ class TrainingTask:
             modeling.registration.register_mlflow_model(
                 model_name,
                 self.cfg.institution_id,
-                run_id=self.selected_model_run_id,
+                run_id=self.cfg.model.run_id,
                 catalog=self.args.DB_workspace,
                 registry_uri="databricks-uc",
                 mlflow_client=self.client,
