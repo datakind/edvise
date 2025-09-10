@@ -35,7 +35,9 @@ class SklearnImputerWrapper:
     DEFAULT_SKEW_THRESHOLD = 0.5
     PIPELINE_FILENAME = "imputer_pipeline.joblib"
 
-    def __init__(self, *, on_new_missing: str = "error", log_drift_to_mlflow: bool = True):
+    def __init__(
+        self, *, on_new_missing: str = "warn", log_drift_to_mlflow: bool = True
+    ):
         """
         on_new_missing: "error" (raise on newly-missing), or "warn" (log & continue)
         log_drift_to_mlflow: if True, logs per-inference drift JSON artifacts when drift is detected
@@ -74,7 +76,9 @@ class SklearnImputerWrapper:
         pipeline.fit(df)
         self.pipeline = pipeline
         if self.pipeline is not None:
-            self.output_feature_names = self.pipeline.named_steps["imputer"].get_feature_names_out()
+            self.output_feature_names = self.pipeline.named_steps[
+                "imputer"
+            ].get_feature_names_out()
 
         return self.pipeline
 
@@ -99,7 +103,7 @@ class SklearnImputerWrapper:
         df = self._normalize_missing(df)
         df = self._coerce_extension_types_for_sklearn(df)
 
-        #Drift detection (before flags) using missing_flag_cols only
+        # Drift detection (before flags) using missing_flag_cols only
         self._detect_and_log_new_missing(df)
 
         # Compute extra columns (e.g. student_id_col) before subsetting so we can reattach later
@@ -156,7 +160,9 @@ class SklearnImputerWrapper:
                 # Imputer may output floats 0/1 or bools, coerce safely to pandas boolean dtype
                 s = pd.Series(result[col])
                 s = pd.to_numeric(s, errors="coerce").round()
-                result[col] = s.astype("Int64").map({0: False, 1: True}).astype("boolean")
+                result[col] = (
+                    s.astype("Int64").map({0: False, 1: True}).astype("boolean")
+                )
 
             elif is_numeric_dtype(orig_dtype):
                 # Keep numeric columns numeric
@@ -174,7 +180,9 @@ class SklearnImputerWrapper:
         # Reattach extras (avoid name collisions with imputed output)
         extra_cols = [c for c in extra_cols if c not in result.columns]
         if extra_cols:
-            result = pd.concat([result, df_original.loc[orig_index, extra_cols]], axis=1)
+            result = pd.concat(
+                [result, df_original.loc[orig_index, extra_cols]], axis=1
+            )
 
         # Validate only the imputed columns (no NaNs left)
         self.validate(result[self.output_feature_names])
@@ -215,7 +223,9 @@ class SklearnImputerWrapper:
                     strategy = "most_frequent"
                 elif is_numeric_dtype(s):
                     skew = skew_vals.get(col, 0)
-                    strategy = "median" if abs(skew) >= self.DEFAULT_SKEW_THRESHOLD else "mean"
+                    strategy = (
+                        "median" if abs(skew) >= self.DEFAULT_SKEW_THRESHOLD else "mean"
+                    )
                 elif is_categorical_dtype(s) or is_object_dtype(s):
                     strategy = "most_frequent"
                 else:
@@ -235,7 +245,9 @@ class SklearnImputerWrapper:
         (No extra baseline file is created; we rely on missing_flag_cols.json.)
         """
         if self.pipeline is None:
-            raise RuntimeError("Pipeline not fitted. Call `fit()` before `log_pipeline()`.")
+            raise RuntimeError(
+                "Pipeline not fitted. Call `fit()` before `log_pipeline()`."
+            )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Save pipeline
@@ -246,7 +258,9 @@ class SklearnImputerWrapper:
             if self.input_dtypes is not None:
                 dtypes_path = os.path.join(tmpdir, "input_dtypes.json")
                 with open(dtypes_path, "w") as f:
-                    json.dump({k: str(v) for k, v in self.input_dtypes.items()}, f, indent=2)
+                    json.dump(
+                        {k: str(v) for k, v in self.input_dtypes.items()}, f, indent=2
+                    )
             else:
                 dtypes_path = None
 
@@ -301,7 +315,9 @@ class SklearnImputerWrapper:
         missing = df.isnull().sum()
         missing_cols = missing[missing > 0].index.tolist()
         if missing_cols:
-            raise ValueError(f"Transformed data still contains nulls in: {missing_cols}")
+            raise ValueError(
+                f"Transformed data still contains nulls in: {missing_cols}"
+            )
         return True
 
     def _detect_and_log_new_missing(self, df_sklearn: pd.DataFrame) -> None:
@@ -315,8 +331,14 @@ class SklearnImputerWrapper:
             return
 
         # Base columns that had missingness at fit (those that got flags)
-        flagged_bases = {c[:-14] for c in self.missing_flag_cols if c.endswith("_missing_flag")}
-        clean_cols = [c for c in self.input_feature_names if c not in flagged_bases and c in df_sklearn.columns]
+        flagged_bases = {
+            c[:-14] for c in self.missing_flag_cols if c.endswith("_missing_flag")
+        }
+        clean_cols = [
+            c
+            for c in self.input_feature_names
+            if c not in flagged_bases and c in df_sklearn.columns
+        ]
 
         newly_missing = [c for c in clean_cols if df_sklearn[c].isna().any()]
         if not newly_missing:
@@ -336,8 +358,13 @@ class SklearnImputerWrapper:
         # Best-effort artifact (unique filename) if enabled
         if self.log_drift_to_mlflow:
             try:
-                self._log_new_missing_report({"type": "new_missing_at_inference",
-                                              "columns": newly_missing, "rates": rates})
+                self._log_new_missing_report(
+                    {
+                        "type": "new_missing_at_inference",
+                        "columns": newly_missing,
+                        "rates": rates,
+                    }
+                )
             except Exception:
                 LOGGER.debug("Could not log new_missing_report artifact to MLflow.")
 
@@ -355,7 +382,9 @@ class SklearnImputerWrapper:
         import hashlib
 
         ts = datetime.utcnow().isoformat(timespec="seconds").replace(":", "-")
-        digest = hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:8]
+        digest = hashlib.md5(json.dumps(payload, sort_keys=True).encode()).hexdigest()[
+            :8
+        ]
         fname = f"new_missing_report_{ts}_{digest}.json"
 
         with tempfile.TemporaryDirectory() as td:
@@ -368,7 +397,9 @@ class SklearnImputerWrapper:
     # Load helpers
     # ---------------------------
     @classmethod
-    def load(cls, run_id: str, artifact_path: str = "sklearn_imputer") -> "SklearnImputerWrapper":
+    def load(
+        cls, run_id: str, artifact_path: str = "sklearn_imputer"
+    ) -> "SklearnImputerWrapper":
         """
         Load a trained imputer pipeline from MLflow. (No had_missing_at_fit file needed.)
         """
@@ -428,7 +459,9 @@ class SklearnImputerWrapper:
         pipeline = instance.pipeline
         if pipeline is not None:
             try:
-                instance.output_feature_names = pipeline.named_steps["imputer"].get_feature_names_out()
+                instance.output_feature_names = pipeline.named_steps[
+                    "imputer"
+                ].get_feature_names_out()
             except Exception:
                 instance.output_feature_names = None
         else:
