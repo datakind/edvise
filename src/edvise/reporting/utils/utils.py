@@ -18,7 +18,6 @@ def ensure_temp_assets_dir(
 ) -> str:
     """
     Resolve a writable absolute directory under the system temp dir.
-      - If per_run=True and run_id is provided, namescope under a subfolder.
       - Accepts relative names like 'card_assets' or None.
     Examples:
       ensure_temp_assets_dir("card_assets") -> /tmp/card_assets
@@ -56,7 +55,7 @@ def download_artifact(
     Returns:
         Local path to artifact OR inline HTML string with path information if image
     """
-    ensure_temp_assets_dir(local_folder)
+    local_folder = ensure_temp_assets_dir(local_folder)
 
     try:
         local_path = mlflow.artifacts.download_artifacts(
@@ -98,7 +97,7 @@ def download_static_asset(
     Returns:
         Local path to artifact OR inline HTML string with path information if image
     """
-    ensure_temp_assets_dir(local_folder)
+    local_folder = ensure_temp_assets_dir(local_folder)
 
     dst_path = os.path.join(local_folder, static_path.name)
 
@@ -144,7 +143,7 @@ def save_card_to_gold_volume(filename: str, catalog: str, institution_id: str) -
             return
 
         # Ensure model_cards subdirectory exists
-        ensure_temp_assets_dir(model_card_dir)
+        os.makedirs(model_card_dir, exist_ok=True)
 
         # Copy the model card file
         shutil.copyfile(filename, dst_path)
