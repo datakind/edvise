@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats as ss
 from typing import List
-from edvise import utils
+from edvise.utils import update_config 
 
 LOGGER = logging.getLogger(__name__)
 
@@ -396,7 +396,7 @@ def compute_gateway_course_ids_and_cips(self, df_course: pd.DataFrame) -> List[s
     ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")].drop_duplicates()
 
     LOGGER.info("Auto-populating config with below course IDs and cip codes: change if necessary")
-    utils.update_key_courses_and_cips(
+    update_config.update_key_courses_and_cips(
         self.args.config_file_path, 
         key_course_ids=ids.tolist(), 
         key_course_subject_areas=cips.tolist()
