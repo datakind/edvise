@@ -334,7 +334,7 @@ class ModelInferenceTask:
 
         emails.send_inference_kickoff_email(
             str(SENDER_EMAIL),
-            [self.args.notification_email],
+            [self.args.datakind_notification_email],
             [self.args.DK_CC_EMAIL],
             MANDRILL_USERNAME,
             MANDRILL_PASSWORD,
@@ -365,7 +365,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--job_root_dir", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
-    parser.add_argument("--notification_email", type=str, required=True)
+    parser.add_argument("--datakind_notification_email", type=str, required=True)
     parser.add_argument("--DK_CC_EMAIL", type=str, required=True)
     parser.add_argument("--features_table_path", type=str, required=False)
     return parser.parse_args()
