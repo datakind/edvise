@@ -5,7 +5,8 @@ import logging
 import pandas as pd
 import numpy as np
 import mlflow
-import os 
+import tempfile
+import os
 import sys
 
 # Go up 3 levels from the current file's directory to reach repo root
@@ -182,6 +183,47 @@ def log_shap_plot(
         logging.warning("Failed to log SHAP plot: %s", e)
 
 
+def build_and_log_ranked_feature_table(
+    *,
+    grouped_features: pd.DataFrame,
+    grouped_contribs_df: pd.DataFrame,
+    features_table: pd.DataFrame | None,
+    run_id: str,
+    artifact_path: str = "selected_features",
+    filename: str = "ranked_selected_features.csv",
+) -> pd.DataFrame | None:
+    """
+    Builds the ranked SHAP feature-importance table and logs it as a CSV artifact.
+    Returns the DataFrame (or None if generation fails).
+    """
+    try:
+        # 1) Build table
+        sfi = automl_inference.generate_ranked_feature_table(
+            features=grouped_features,
+            shap_values=grouped_contribs_df.to_numpy(),
+            features_table=features_table,
+        )
+
+        if sfi is None or sfi.empty:
+            logging.warning("Ranked feature table is empty; skipping logging.")
+            return sfi
+
+        # 2) Log to the same run (end active run first if needed, like your SHAP helper)
+        if mlflow.active_run():
+            mlflow.end_run()
+        with mlflow.start_run(run_id=run_id):
+            with tempfile.TemporaryDirectory() as td:
+                out_path = os.path.join(td, filename)
+                sfi.to_csv(out_path, index=False)
+                mlflow.log_artifact(out_path, artifact_path=artifact_path)
+
+        return sfi
+
+    except Exception as e:
+        logging.warning("Failed to build/log ranked feature table: %s", e)
+        return None
+
+
 # ---- main orchestration that both training & inference can call ----
 
 
@@ -259,20 +301,24 @@ def run_predictions(
         needs_support_threshold_prob=pred_cfg.min_prob_pos_label,
     )
 
-    sfi = automl_inference.generate_ranked_feature_table(
-        features=grouped_features,
-        shap_values=grouped_contribs_df.to_numpy(),
+    sfi = build_and_log_ranked_feature_table(
+        grouped_features=grouped_features,
+        grouped_contribs_df=grouped_contribs_df,
         features_table=ft,
+        run_id=pred_cfg.model_run_id,
     )
+
+    sfi_ft: pd.DataFrame | None = None
     if sfi is not None and ft is not None:
-        sfi[["readable_feature_name", "short_feature_desc", "long_feature_desc"]] = sfi[
-            "Feature Name"
-        ].apply(
-            lambda f: pd.Series(
-                automl_inference._get_mapped_feature_name(f, ft, metadata=True)
+        sfi_ft = sfi.copy()
+        sfi_ft[["readable_feature_name", "short_feature_desc", "long_feature_desc"]] = (
+            sfi_ft["Feature Name"].apply(
+                lambda f: pd.Series(
+                    automl_inference._get_mapped_feature_name(f, ft, metadata=True)
+                )
             )
         )
-        sfi.columns = sfi.columns.str.replace(" ", "_").str.lower()
+        sfi_ft.columns = sfi_ft.columns.str.replace(" ", "_").str.lower()
 
     default_inference_params = {
         "num_top_features": 5,
@@ -292,7 +338,7 @@ def run_predictions(
 
     return PredOutputs(
         top_features_result=top_features_result,
-        shap_feature_importance=sfi,
+        shap_feature_importance=sfi_ft,
         support_score_distribution=ssd,
         grouped_features=grouped_features,
         grouped_contribs_df=grouped_contribs_df,

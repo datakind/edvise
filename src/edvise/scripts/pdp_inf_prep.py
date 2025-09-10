@@ -1,10 +1,9 @@
 ## TODO : edit so it works for training or inference (with and without targets)
 
-import typing as t
 import argparse
 import pandas as pd
 import logging
-import os 
+import os
 import sys
 
 # Go up 3 levels from the current file's directory to reach repo root
@@ -21,7 +20,7 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.model_prep import cleanup_features as cleanup, training_params
+from edvise.model_prep import cleanup_features as cleanup
 from edvise.dataio.read import read_parquet, read_config
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig

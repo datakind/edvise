@@ -1,7 +1,7 @@
 resources:
   jobs:
-    github_sourced_pdp_training_pipeline:
-      name: github_sourced_pdp_training_pipeline
+    edvise_github_sourced_pdp_inference_pipeline:
+      name: edvise_github_sourced_pdp_inference_pipeline
       max_concurrent_runs: 2
       tasks:
         - task_key: data_audit
@@ -177,7 +177,7 @@ resources:
               - "{{job.parameters.db_run_id}}"
               - --ds_run_as
               - "{{job.parameters.ds_run_as}}"
-              - --catalog
+              - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
