@@ -11,7 +11,9 @@ from edvise.utils.data_cleaning import (
     replace_na_firstgen_and_pell,
     remove_pre_cohort_courses,
 )
-from .eda import compute_gateway_course_ids_and_cips, log_high_null_columns
+from .eda import log_high_null_columns
+# from .eda import compute_gateway_course_ids_and_cips, log_high_null_columns
+# from edvise.utils.update_config import update_key_courses_and_cips
 
 # TODO think of a better name than standardizer
 
@@ -132,5 +134,11 @@ class PDPCourseStandardizer(BaseStandardizer):
         df = self.add_empty_columns_if_missing(
             df, {"term_program_of_study": (None, "string")}
         )
-        compute_gateway_course_ids_and_cips(self, df)
+        # compute_gateway_course_ids_and_cips(df)
+        # LOGGER.info("Auto-populating config with below course IDs and cip codes: change if necessary")
+        # update_config.update_key_courses_and_cips(
+        #     self.args.config_file_path, 
+        #     key_course_ids=ids.tolist(), 
+        #     key_course_subject_areas=cips.tolist()
+        # )
         return df

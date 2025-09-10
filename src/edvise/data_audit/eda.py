@@ -340,7 +340,7 @@ def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> None:
             )
 
 
-def compute_gateway_course_ids_and_cips(self, df_course: pd.DataFrame) -> List[str]:
+def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     """
     Build a list of course IDs and CIP codes for Math/English gateway courses.
     Filter: math_or_english_gateway in {"M", "E"}
@@ -394,13 +394,6 @@ def compute_gateway_course_ids_and_cips(self, df_course: pd.DataFrame) -> List[s
     # edit this to auto populate the config
     cips = cips[cips.ne("")].drop_duplicates()
     ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")].drop_duplicates()
-
-    LOGGER.info("Auto-populating config with below course IDs and cip codes: change if necessary")
-    update_config.update_key_courses_and_cips(
-        self.args.config_file_path, 
-        key_course_ids=ids.tolist(), 
-        key_course_subject_areas=cips.tolist()
-    )
 
     LOGGER.info(f"Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
     LOGGER.info(f"Identified {len(cips)} unique CIP codes: {cips.tolist()}")

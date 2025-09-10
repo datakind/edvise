@@ -115,6 +115,18 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     drop_mask = ~present_mask
     num_dropped = int(drop_mask.sum())
 
+    # Count number of fully dropped students (all rows missing course_prefix)
+    student_id_col = (
+        "student_guid"
+        if "student_guid" in df.columns
+        else "study_id"
+        if "study_id" in df.columns
+        else "student_id"
+    )
+    missing_course_students = df[drop_mask].groupby(student_id_col).filter(
+        lambda x: x["course_prefix"].isna().all()
+    )[student_id_col].nunique()
+
     if num_dropped > 0:
         # Breakdown by enrolled_at_other_institution_s within the dropped set
         if "enrolled_at_other_institution_s" in df.columns:
@@ -143,6 +155,11 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
                 "Dropped %s rows from course dataset due to missing identifiers. "
                 "Column 'enrolled_at_other_institution_s' not found; cannot compute alignment breakdown.",
                 num_dropped,
+            )
+        if missing_course_students > 0:
+            LOGGER.warning(
+                "A total of %s students were dropped entirely because all of their course records were missing identifiers.",
+                missing_course_students,
             )
 
     # Keep only rows with both identifiers present
@@ -180,6 +197,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
         else "student_id"
     )
     n_before = len(df_course)
+    students_before = df_course[student_id_col].nunique()
     df_course = df_course.groupby(student_id_col, group_keys=False).apply(
         lambda df_course: df_course[
             (df_course["academic_year"] > df_course["cohort"])
@@ -190,14 +208,21 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
         ]
     )
     n_after = len(df_course)
+    students_after = df_course[student_id_col].nunique()
     n_removed = n_before - n_after
-
+    n_students_dropped = students_before - students_after 
+    
+    # Logging
     if n_removed > 0:
         pct_removed = (n_removed / n_before) * 100
         LOGGER.info(
             "remove_pre_cohort_courses: %d pre-cohort course records removed successfully (%.1f%% of data).",
             n_removed,
             pct_removed,
+        )
+        LOGGER.info(
+            "remove_pre_cohort_courses: %d students had only pre-cohort records and were dropped.",
+            n_students_dropped,
         )
     else:
         LOGGER.info("remove_pre_cohort_courses: no pre-cohort course records found.")

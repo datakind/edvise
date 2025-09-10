@@ -35,6 +35,8 @@ from edvise.dataio.read import (
 )
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
+from edvise.data_audit.eda import compute_gateway_course_ids_and_cips
+from edvise.utils.update_config import update_key_courses_and_cips
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -125,6 +127,15 @@ class PDPDataAuditTask:
         df_course_standardized = self.course_std.standardize(df_course_validated)
 
         LOGGER.info("Course data standardized.")
+        
+        # Log Math/English gateway courses and add to config
+        ids_cips = compute_gateway_course_ids_and_cips(df_course_standardized)
+        LOGGER.info("Auto-populating config with below course IDs and cip codes: change if necessary")
+        update_key_courses_and_cips(
+            self.args.config_file_path,  
+            key_course_ids=ids_cips[0],
+            key_course_subject_areas=ids_cips[1]
+        )
 
         # --- Write results ---
         write_parquet(
