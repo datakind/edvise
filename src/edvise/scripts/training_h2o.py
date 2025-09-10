@@ -338,6 +338,11 @@ class TrainingTask:
                 label="Training Support Overview table",
             )
 
+            # read modeling parquet for roc table
+            modeling_df = dataio.read.read_parquet(
+                f"{self.args.silver_volume_path}/modeling.parquet"
+            )
+
             # training-only logging
             if mlflow.active_run():
                 mlflow.end_run()
@@ -349,7 +354,7 @@ class TrainingTask:
                 _ = modeling.h2o_ml.evaluation.log_roc_table(
                     institution_id=self.cfg.institution_id,
                     automl_run_id=self.selected_model_run_id,
-                    modeling_dataset_name=self.cfg.datasets.silver.modeling.table_path,
+                    modeling_df=modeling_df,
                 )
 
         finally:

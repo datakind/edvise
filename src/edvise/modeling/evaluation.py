@@ -544,7 +544,7 @@ def log_roc_table(
     automl_run_id: str,
     catalog: str = "staging_sst_01",
     target_col: str = "target",
-    modeling_dataset_name: str = "modeling_dataset",
+    modeling_df: pd.DataFrame,
     split_col: Optional[str] = None,
 ) -> None:
     """
@@ -576,7 +576,7 @@ def log_roc_table(
     )
 
     try:
-        df = spark.read.table(modeling_dataset_name).toPandas()
+        df = modeling_df
         test_df = df[df[split_col] == "test"].copy()
 
         # Load model + features
