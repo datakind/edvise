@@ -190,6 +190,7 @@ def build_and_log_ranked_feature_table(
     run_id: str,
     artifact_path: str = "selected_features",
     filename: str = "ranked_selected_features.csv",
+    log_to_mlflow: bool = False,
 ) -> pd.DataFrame | None:
     """
     Builds the ranked SHAP feature-importance table and logs it as a CSV artifact.
@@ -206,15 +207,16 @@ def build_and_log_ranked_feature_table(
         if sfi is None or sfi.empty:
             logging.warning("Ranked feature table is empty; skipping logging.")
             return sfi
-
-        # 2) Log to the same run (end active run first if needed, like your SHAP helper)
-        if mlflow.active_run():
-            mlflow.end_run()
-        with mlflow.start_run(run_id=run_id):
-            with tempfile.TemporaryDirectory() as td:
-                out_path = os.path.join(td, filename)
-                sfi.to_csv(out_path, index=False)
-                mlflow.log_artifact(out_path, artifact_path=artifact_path)
+        
+        if log_to_mlflow:
+            # 2) Log to the same run (end active run first if needed)
+            if mlflow.active_run():
+                mlflow.end_run()
+            with mlflow.start_run(run_id=run_id):
+                with tempfile.TemporaryDirectory() as td:
+                    out_path = os.path.join(td, filename)
+                    sfi.to_csv(out_path, index=False)
+                    mlflow.log_artifact(out_path, artifact_path=artifact_path)
 
         return sfi
 
@@ -305,6 +307,7 @@ def run_predictions(
         grouped_contribs_df=grouped_contribs_df,
         features_table=ft,
         run_id=pred_cfg.model_run_id,
+        log_to_mlflow=(run_type == RunType.TRAIN)
     )
 
     sfi_ft: pd.DataFrame | None = None
