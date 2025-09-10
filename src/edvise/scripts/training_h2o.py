@@ -366,7 +366,7 @@ class TrainingTask:
     def register_model(self):
         model_name = modeling.registration.get_model_name(
             institution_id=self.cfg.institution_id,
-            target=self.cfgg.preprocessing.target.name,
+            target=self.cfg.preprocessing.target.name,
             checkpoint=self.cfg.preprocessing.checkpoint.name,
         )
         try:
