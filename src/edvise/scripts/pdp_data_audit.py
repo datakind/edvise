@@ -109,12 +109,14 @@ class PDPDataAuditTask:
             raise ValueError(
                 " Failed to parse course data with all known datetime formats."
             )
-        
-        LOGGER.info(" Loaded raw data: checking for mismatches in cohort and course files: ")
+
+        LOGGER.info(
+            " Loaded raw data: checking for mismatches in cohort and course files: "
+        )
         log_misjoined_records(df_cohort_raw, df_course_raw)
 
         # TODO: we may want to add checks here for expected columns, rows, etc. that could break the schemas
-        
+
         # --- Load COHORT dataset - with schema ---
 
         # Schema validate cohort data
@@ -132,7 +134,7 @@ class PDPDataAuditTask:
 
         LOGGER.info(" Cohort data standardized.")
 
-         # --- Load COURSE dataset - with schema ---
+        # --- Load COURSE dataset - with schema ---
 
         # Schema validate course data and handle duplicates
         LOGGER.info(
