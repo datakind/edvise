@@ -7,7 +7,6 @@ import pandas as pd
 import scipy.stats as ss
 from typing import List
 from edvise import utils as edvise_utils
-from edvise.utils import update_config
 
 LOGGER = logging.getLogger(__name__)
 
