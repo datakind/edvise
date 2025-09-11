@@ -250,13 +250,18 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
     else:
         LOGGER.info(" remove_pre_cohort_courses: No pre-cohort course records found.")
     
-    dropped_student_ids = sorted(
-        set(df_course[student_id_col].unique()) - set(df_filtered[student_id_col].unique())
-    )
-    LOGGER.info(
-                "remove_pre_cohort_courses: Dropped student IDs:\n%s",
-                dropped_student_ids,
+    def is_post_or_same_term(df):
+        return (
+            (df["academic_year"] > df["cohort"])
+            | (
+                (df["academic_year"] == df["cohort"])
+                & (df["academic_term"] >= df["cohort_term"])
             )
+        )
+    df_pre_cohort = df_course.groupby(student_id_col, group_keys=False).apply(
+        lambda df: df[~is_post_or_same_term(df)]
+    )
+    print(df_pre_cohort["student_id"].tolist())
     return df_filtered
 
 
