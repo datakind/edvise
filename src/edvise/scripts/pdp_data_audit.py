@@ -111,7 +111,7 @@ class PDPDataAuditTask:
             )
 
         LOGGER.info(
-            " Loaded raw data: checking for mismatches in cohort and course files: "
+            " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
         )
         log_misjoined_records(df_cohort_raw, df_course_raw)
 

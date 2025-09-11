@@ -579,8 +579,8 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
     df_misjoined = df_merged[df_merged["_merge"] != "both"]
 
     # Log mismatch summary (custom format)
-    if pct_misjoined < 1:
-        pct_str = "<1%%"
+    if pct_misjoined < 0.1:
+        pct_str = "<0.1%%"
     else:
         pct_str = f"{pct_misjoined:.1f}%%"
 
@@ -606,18 +606,12 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
     total_students = df_merged["study_id"].dropna().nunique()
     pct_dropped = (dropped_students / total_students) * 100 if total_students else 0
 
-    LOGGER.warning(
-        " inspect_misjoined_records: These mismatches will later result in dropping %d students (%.1f%% of all students).",
-        dropped_students,
-        pct_dropped,
-    )
-
     # Log value counts of key fields
-    for col in ["enrollment_type", "enrollment_intensity"]:
+    for col in ["enrollment_type", "enrollment_intensity_first_term"]:
         if col in df_misjoined.columns:
             value_counts = df_misjoined[col].value_counts(dropna=False)
             LOGGER.info(
-                " Value counts for column '%s':\n%s", col, value_counts.to_string()
+                " Value counts for mismatched records in column '%s':\n%s to identify potential trends", col, value_counts.to_string()
             )
 
     # Log grouped cohort & cohort_term
@@ -628,9 +622,15 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
             .sort_index()
         )
         LOGGER.info(
-            "Grouped counts by cohort and cohort_term:\n%s",
+            " Grouped counts for mismatched records by cohort and cohort_term to identify potential trends:\n%s",
             cohort_group_counts.to_string(),
         )
+    
+    LOGGER.warning(
+        " inspect_misjoined_records: These mismatches will later result in dropping %d students (%.1f%% of all students).",
+        dropped_students,
+        pct_dropped,
+    )
 
     # Return mismatched records for optional inspection
     cols_to_return = [
