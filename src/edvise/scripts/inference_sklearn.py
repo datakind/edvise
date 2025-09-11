@@ -4,14 +4,18 @@ import logging
 import os
 import sys
 from email.headerregistry import Address
-import mlflow
-import numpy as np
-import pandas as pd
-from databricks.sdk import WorkspaceClient
-from mlflow.tracking import MlflowClient
+import typing as t
 from joblib import Parallel, delayed
-from typing import List, Optional
+
+import mlflow
+from mlflow.tracking import MlflowClient
+from databricks.sdk import WorkspaceClient
+
+import numpy as np
+from numpy.typing import NDArray
+import pandas as pd
 import shap
+from sklearn.base import ClassifierMixin
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
@@ -91,7 +95,7 @@ class ModelInferenceTask:
             logging.error("Error loading MLflow model: %s", e)
             raise  # Critical error; re-raise to halt execution
 
-    def predict(self, model, df: pd.DataFrame) -> pd.DataFrame:
+    def predict(self, model: ClassifierMixin, df: pd.DataFrame) -> pd.DataFrame:
         """Performs inference and adds predictions to the DataFrame."""
         try:
             model_feature_names = model.named_steps["column_selector"].get_params()[
@@ -105,13 +109,15 @@ class ModelInferenceTask:
         df_predicted["predicted_prob"] = model.predict_proba(df_serving)[:, 1]
         return df_predicted
 
-    def write_data_to_delta(self, df: pd.DataFrame, table_name_suffix: str):
+    def write_data_to_delta(self, df: pd.DataFrame, table_name_suffix: str) -> None:
         """Writes a DataFrame to a Delta Lake table."""
         write_schema = f"{self.args.databricks_institution_name}_silver"
         table_path = f"{self.args.DB_workspace}.{write_schema}.{table_name_suffix}"
 
         try:
-            dataio.to_delta_table(df, table_path, spark_session=self.spark_session)
+            dataio.write.to_delta_table(
+                df, table_path, spark_session=self.spark_session
+            )
             logging.info(
                 "%s data written to: %s", table_name_suffix.capitalize(), table_path
             )
@@ -123,30 +129,33 @@ class ModelInferenceTask:
 
     @staticmethod
     def predict_proba(
-        X: pd.DataFrame,
-        model,
-        feature_names: Optional[List[str]] = None,
-        pos_label: Optional[bool | str] = None,
-    ) -> np.ndarray:
-        """Predicts probabilities using the provided model.  Handles data prep."""
-
+        X: pd.DataFrame | NDArray[np.floating],
+        model: ClassifierMixin, 
+        feature_names: t.Optional[t.Sequence[str]] = None,
+        pos_label: t.Optional[bool | str] = None,
+    ) -> NDArray[np.floating]:
         if feature_names is None:
             feature_names = model.named_steps["column_selector"].get_params()["cols"]
         if not isinstance(X, pd.DataFrame):
             X = pd.DataFrame(data=X, columns=feature_names)
-        pred_probs = model.predict_proba(X)
+
+        pred_probs = t.cast(NDArray[np.floating], model.predict_proba(X))
+
         if pos_label is not None:
-            return pred_probs[:, model.classes_.tolist().index(pos_label)]
+            idx = t.cast(list[object], model.classes_.tolist()).index(
+                t.cast(object, pos_label)
+            )
+            return t.cast(NDArray[np.floating], pred_probs[:, idx])
         else:
-            return pred_probs
+            return t.cast(NDArray[np.floating], pred_probs)
 
     def parallel_explanations(
         self,
-        model,
+        model: ClassifierMixin,
         df_features: pd.DataFrame,
         explainer: shap.Explainer,
-        model_feature_names: List[str],
-        n_jobs: Optional[int] = -1,
+        model_feature_names: t.List[str],
+        n_jobs: t.Optional[int] = -1,
     ) -> shap.Explanation:
         """
         Calculates SHAP explanations in parallel using joblib.
@@ -186,7 +195,7 @@ class ModelInferenceTask:
 
     def calculate_shap_values(
         self,
-        model,
+        model: ClassifierMixin,
         df_processed: pd.DataFrame,
         model_feature_names: list[str],
     ) -> pd.DataFrame | None:
