@@ -620,7 +620,6 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
     if "cohort" in df_misjoined.columns and "cohort_term" in df_misjoined.columns:
         cohort_group_counts = (
             df_misjoined.groupby(["cohort", "cohort_term"], dropna=False)
-            .size()
             .sort_index()
         )
         LOGGER.info(
