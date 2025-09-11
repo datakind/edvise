@@ -138,7 +138,7 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
             pct_not_y = 100.0 * count_not_y / num_dropped
 
             LOGGER.warning(
-                "Dropped %s rows from course dataset due to missing identifiers."
+                "Dropped %s rows from course dataset due to missing identifiers. "
                 "Of these, %s (%.1f%%) had 'Y' in enrolled_at_other_institution_s; "
                 "%s (%.1f%%) did not.",
                 num_dropped,
@@ -149,7 +149,7 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
             )
         else:
             LOGGER.warning(
-                "Dropped %s rows from course dataset due to missing identifiers."
+                "Dropped %s rows from course dataset due to missing identifiers. "
                 "Column 'enrolled_at_other_institution_s' not found; cannot compute alignment breakdown.",
                 num_dropped,
             )

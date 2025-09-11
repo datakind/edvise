@@ -490,9 +490,9 @@ def log_most_recent_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> N
             .head(1)
         )
         LOGGER.info(
-            "Most recent cohort year/term: %s : %s"
-            "NOTE: If FALL/WINTER, assume earlier year: e.g. 2023-24 FALL is FALL 2023."
-            "If SPRING/SUMMER, assume later year: e.g. 2023-24 SPRING is SPRING 2024.",
+            "Most recent cohort year and term: %s %s. "
+            "\n NOTE: If FALL/WINTER, assume earlier year: e.g. 2023-24 FALL is FALL 2023. "
+            "\n If SPRING/SUMMER, assume later year: e.g. 2023-24 SPRING is SPRING 2024.",
             latest_cohort["cohort"].values[0],
             latest_cohort["cohort_term"].values[0],
         )
@@ -507,9 +507,9 @@ def log_most_recent_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> N
             .head(1)
         )
         LOGGER.info(
-            "Most recent academic year/term: %s : %s"
-            "NOTE: If FALL/WINTER, assume earlier year: e.g. 2023-24 FALL is FALL 2023."
-            "If SPRING/SUMMER, assume later year: e.g. 2023-24 SPRING is SPRING 2024.",
+            "Most recent academic year and term: %s %s. "
+            "\n NOTE: If FALL/WINTER, assume earlier year: e.g. 2023-24 FALL is FALL 2023. "
+            "\n If SPRING/SUMMER, assume later year: e.g. 2023-24 SPRING is SPRING 2024.",
             latest_term["academic_year"].values[0],
             latest_term["academic_term"].values[0],
         )
