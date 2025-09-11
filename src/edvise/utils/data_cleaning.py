@@ -211,26 +211,35 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
     n_before = len(df_course)
     students_before = df_course[student_id_col].nunique()
 
-    df_filtered = (
-        df_course.loc[
-            (df_course.apply(lambda r: true_year(r["academic_year"], r["academic_term"]), axis=1)
-             < df_course.apply(lambda r: true_year(r["cohort"], r["cohort_term"]), axis=1))
-            |
-            (
-                df_course.apply(lambda r: true_year(r["academic_year"], r["academic_term"]), axis=1)
-                == df_course.apply(lambda r: true_year(r["cohort"], r["cohort_term"]), axis=1)
+    df_filtered = df_course.loc[
+        (
+            df_course.apply(
+                lambda r: true_year(r["academic_year"], r["academic_term"]), axis=1
             )
-            &
-            (
-                df_course["academic_term"].str.lower().map(term_order)
-                < df_course["cohort_term"].str.lower().map(term_order)
-            ),
-            :
-        ]
-        .assign(
-            cohort_id=lambda d: d["cohort"].astype(str).str.cat(d["cohort_term"].astype(str), sep=" "),
-            term_id=lambda d: d["academic_year"].astype(str).str.cat(d["academic_term"].astype(str), sep=" "),
+            < df_course.apply(
+                lambda r: true_year(r["cohort"], r["cohort_term"]), axis=1
+            )
         )
+        | (
+            df_course.apply(
+                lambda r: true_year(r["academic_year"], r["academic_term"]), axis=1
+            )
+            == df_course.apply(
+                lambda r: true_year(r["cohort"], r["cohort_term"]), axis=1
+            )
+        )
+        & (
+            df_course["academic_term"].str.lower().map(term_order)
+            < df_course["cohort_term"].str.lower().map(term_order)
+        ),
+        :,
+    ].assign(
+        cohort_id=lambda d: d["cohort"]
+        .astype(str)
+        .str.cat(d["cohort_term"].astype(str), sep=" "),
+        term_id=lambda d: d["academic_year"]
+        .astype(str)
+        .str.cat(d["academic_term"].astype(str), sep=" "),
     )
 
     # Stats for logging
@@ -255,6 +264,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
         LOGGER.info("remove_pre_cohort_courses: No pre-cohort course records found.")
 
     return df_filtered
+
 
 def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
     if "pell_status_first_year" in df_cohort.columns:
