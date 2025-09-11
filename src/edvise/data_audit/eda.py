@@ -465,13 +465,13 @@ def log_record_drops(
     course_dropped = course_before - course_after
 
     LOGGER.info(
-        " Cohort file: %d → %d rows (%d students dropped) after preprocessing",
+        " Cohort file: %d → %d rows (%d total students dropped) after preprocessing",
         cohort_before,
         cohort_after,
         cohort_dropped,
     )
     LOGGER.info(
-        " Course file: %d → %d rows (%d course records dropped) after preprocessing",
+        " Course file: %d → %d rows (%d total course records dropped) after preprocessing",
         course_before,
         course_after,
         course_dropped,

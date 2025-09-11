@@ -123,9 +123,10 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     id_cols = ["course_prefix", "course_number"]
     present_mask = df[id_cols].notna().all(axis=1)
     drop_mask = ~present_mask
-    num_dropped_rows = drop_mask.sum()
+    num_dropped_rows = int(drop_mask.sum())
+    pct_dropped_rows = (num_dropped_rows / len(df) * 100.0) if len(df) else 0.0
 
-    # Keep only rows with both identifiers present
+   # Keep only rows with both identifiers present
     df_cleaned = df.loc[present_mask].reset_index(drop=True)
     students_after = df_cleaned[student_id_col].nunique()
     dropped_students = students_before - students_after
@@ -133,25 +134,50 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     # Log dropped rows
     if num_dropped_rows > 0:
         LOGGER.warning(
-            " Dropped %s rows from course dataset due to missing course_prefix or course_number.",
+            " Dropped %s rows (%.1f%%) from course dataset due to missing course_prefix or course_number.",
             num_dropped_rows,
+            pct_dropped_rows,
         )
+
+        # 🔎 Additional analysis of dropped records to detect trends
+        df_dropped = df.loc[drop_mask].copy()
+
+        # Log value counts of key fields
+        for col in ["enrollment_type", "enrollment_intensity_first_term"]:
+            if col in df_dropped.columns:
+                value_counts = df_dropped[col].value_counts(dropna=False)
+                LOGGER.info(
+                    " Value counts for missing-identifier (dropped) records in column '%s' to identify potential trends:\n%s",
+                    col,
+                    value_counts.to_string(),
+                )
+
+        # Log grouped cohort & cohort_term
+        if "cohort" in df_dropped.columns and "cohort_term" in df_dropped.columns:
+            cohort_group_counts = (
+                df_dropped.groupby(["cohort", "cohort_term"], dropna=False)
+                .size()
+                .sort_index()
+            )
+            LOGGER.info(
+                " Grouped counts for missing-identifier (dropped) records by cohort and cohort_term to identify potential trends:\n%s",
+                cohort_group_counts.to_string(),
+            )
 
     # Log student alignment breakdown if available
     if "enrolled_at_other_institution_s" in df.columns and num_dropped_rows > 0:
-        dropped = (
+        dropped_flag = (
             df.loc[drop_mask, "enrolled_at_other_institution_s"]
             .astype("string")
             .str.upper()
         )
-        count_y = int((dropped == "Y").sum())
+        count_y = int((dropped_flag == "Y").sum())
         count_not_y = int(num_dropped_rows - count_y)
-        pct_y = 100.0 * count_y / num_dropped_rows
-        pct_not_y = 100.0 * count_not_y / num_dropped_rows
+        pct_y = 100.0 * count_y / num_dropped_rows if num_dropped_rows else 0.0
+        pct_not_y = 100.0 * count_not_y / num_dropped_rows if num_dropped_rows else 0.0
 
         LOGGER.warning(
-            " Of dropped rows, %s (%.1f%%) had 'Y' in enrolled_at_other_institution_s; "
-            " %s (%.1f%%) did not.",
+            " Of dropped rows, %s (%.1f%%) had 'Y' in enrolled_at_other_institution_s; %s (%.1f%%) did not.",
             count_y,
             pct_y,
             count_not_y,
@@ -162,7 +188,8 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
         if pct_not_y > 10.0:
             LOGGER.warning(
                 " drop_course_rows_missing_identifiers: ⚠️ More than 10%% of dropped rows (%d of %d) "
-                " were NOT marked as transfer out records based on the 'enrolled_at_other_institution_s'. This is uncommon: please contact data team for further investigation",
+                "were NOT marked as transfer out records based on 'enrolled_at_other_institution_s'. "
+                "This is uncommon: please contact data team for further investigation",
                 count_not_y,
                 num_dropped_rows,
             )
@@ -208,26 +235,28 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
 
     n_before = len(df_course)
     students_before = df_course[student_id_col].nunique()
-    df_filtered = df_course.loc[
-        (df_course["academic_year"].ge(df_course["cohort"]))
-    ].assign(
-        cohort_id=lambda df: df["cohort"]
-        .astype(str)
-        .str.cat(df["cohort_term"].astype(str), sep=" "),
-        term_id=lambda df: df["academic_year"]
-        .astype(str)
-        .str.cat(df["academic_term"].astype(str), sep=" "),
+
+    # Build mask for "keep" rows (cohort year or later)
+    keep_mask = df_course["academic_year"].ge(df_course["cohort"])
+
+    # Split for logging/analysis
+    df_dropped = df_course.loc[~keep_mask].copy()
+    df_filtered = (
+        df_course.loc[keep_mask]
+        .assign(
+            cohort_id=lambda df: df["cohort"].astype(str).str.cat(df["cohort_term"].astype(str), sep=" "),
+            term_id=lambda df: df["academic_year"].astype(str).str.cat(df["academic_term"].astype(str), sep=" "),
+        )
     )
+
     n_after = len(df_filtered)
     students_after = df_filtered[student_id_col].nunique()
     n_removed = n_before - n_after
-    dropped_students = students_before - students_after
+    dropped_students_count = students_before - students_after
+    pct_removed = (n_removed / n_before) * 100 if n_before else 0.0
 
-    pct_removed = (n_removed / n_before) * 100
-
-    # Logging
+    # Summary logging
     if n_removed > 0:
-        pct_removed = (n_removed / n_before) * 100
         if pct_removed < 0.1:
             LOGGER.info(
                 " remove_pre_cohort_courses: %d pre-cohort course records safely removed (<0.1%% of data).",
@@ -240,13 +269,37 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
                 pct_removed,
             )
 
-        if dropped_students:
+        if dropped_students_count > 0:
             LOGGER.warning(
                 " remove_pre_cohort_courses: %d students were fully dropped (i.e., only had pre-cohort records).",
-                len(dropped_students),
+                dropped_students_count,
             )
+
+        # Additional analysis of dropped records to detect trends
+        # Log value counts of key fields (only if present)
+        for col in ["enrollment_type", "enrollment_intensity_first_term"]:
+            if col in df_dropped.columns:
+                value_counts = df_dropped[col].value_counts(dropna=False)
+                LOGGER.info(
+                    " Value counts for pre-cohort (dropped) records in column '%s' to identify potential trends:\n%s",
+                    col,
+                    value_counts.to_string(),
+                )
+
+        # Log grouped cohort & cohort_term (only if both present)
+        if "cohort" in df_dropped.columns and "cohort_term" in df_dropped.columns:
+            cohort_group_counts = (
+                df_dropped.groupby(["cohort", "cohort_term"], dropna=False)
+                .size()
+                .sort_index()
+            )
+            LOGGER.info(
+                " Grouped counts for pre-cohort (dropped) records by cohort and cohort_term to identify potential trends:\n%s",
+                cohort_group_counts.to_string(),
+            )
+
     else:
-        LOGGER.info(" remove_pre_cohort_courses: No pre-cohort course records found.")
+        LOGGER.info("remove_pre_cohort_courses: No pre-cohort course records found.")
 
     return df_filtered
 
