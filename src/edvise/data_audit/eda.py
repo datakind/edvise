@@ -327,14 +327,14 @@ def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> None:
     high_nulls = null_ratios[null_ratios > threshold]
 
     if high_nulls.empty:
-        LOGGER.info("No columns with more than %.0f%% null values.", threshold * 100)
+        LOGGER.info(" No columns with more than %.0f%% null values.", threshold * 100)
     else:
         LOGGER.info(
-            "Printing columns with >20% missing values to later be dropped during feature selection:"
+            " Printing columns with >20% missing values to later be dropped during feature selection:"
         )
         for col, ratio in high_nulls.items():
             LOGGER.warning(
-                'Column "%s" has %.1f%% null values.',
+                ' Column "%s" has %.1f%% null values. ',
                 col,
                 ratio * 100,
             )
@@ -355,12 +355,12 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(
         df_course.columns
     ):
-        LOGGER.warning("Cannot compute key_course_ids: required columns missing.")
+        LOGGER.warning(" Cannot compute key_course_ids: required columns missing.")
         return []
 
     mask = df_course["math_or_english_gateway"].astype("string").isin({"M", "E"})
     if not mask.any():
-        LOGGER.info("No Math/English gateway courses found.")
+        LOGGER.info(" No Math/English gateway courses found.")
         return []
 
     ids = df_course.loc[mask, "course_prefix"].fillna("") + df_course.loc[
@@ -368,7 +368,7 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     ].fillna("")
 
     if "course_cip" not in df_course.columns:
-        LOGGER.warning("Column 'course_cip' is missing; no CIP codes extracted.")
+        LOGGER.warning(" Column 'course_cip' is missing; no CIP codes extracted.")
         cips = pd.Series([], dtype=str)
     else:
         cips = (
@@ -392,15 +392,15 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
         )
         if cips.eq("").all():
             LOGGER.warning(
-                "Column 'course_cip' is present but unpopulated for gateway courses."
+                " Column 'course_cip' is present but unpopulated for gateway courses."
             )
 
     # edit this to auto populate the config
     cips = cips[cips.ne("")].drop_duplicates()
     ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")].drop_duplicates()
 
-    LOGGER.info(f"Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
-    LOGGER.info(f"Identified {len(cips)} unique CIP codes: {cips.tolist()}")
+    LOGGER.info(f" Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
+    LOGGER.info(f" Identified {len(cips)} unique CIP codes: {cips.tolist()}")
 
     # Sanity-check for prefixes and swap if clearly reversed; has come up for some schools
     pref_e = (
@@ -418,8 +418,8 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
         .unique()
     )
 
-    LOGGER.info("English (E) prefixes (raw): %s", pref_e.tolist())
-    LOGGER.info("Math (M) prefixes (raw): %s", pref_m.tolist())
+    LOGGER.info(" English (E) prefixes (raw): %s", pref_e.tolist())
+    LOGGER.info(" Math (M) prefixes (raw): %s", pref_m.tolist())
 
     looks = lambda arr, ch: len(arr) > 0 and all(
         str(p).upper().startswith(ch) for p in arr
@@ -428,20 +428,20 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
 
     if not e_ok and not m_ok:
         LOGGER.warning(
-            "Prefixes look swapped. Swapping E<->M. E=%s, M=%s",
+            " Prefixes look swapped. Swapping E<->M. E=%s, M=%s",
             pref_e.tolist(),
             pref_m.tolist(),
         )
         pref_e, pref_m = pref_m, pref_e
     elif e_ok and m_ok:
         LOGGER.info(
-            "Prefixes look correct and not swapped (start with E for English, start with M for Math)."
+            " Prefixes look correct and not swapped (start with E for English, start with M for Math)."
         )
     else:
-        LOGGER.warning("One group inconsistent. English OK=%s, Math OK=%s", e_ok, m_ok)
+        LOGGER.warning(" One group inconsistent. English OK=%s, Math OK=%s", e_ok, m_ok)
 
-    LOGGER.info("Final English (E) prefixes: %s", pref_e.tolist())
-    LOGGER.info("Final Math (M) prefixes: %s", pref_m.tolist())
+    LOGGER.info(" Final English (E) prefixes: %s", pref_e.tolist())
+    LOGGER.info(" Final Math (M) prefixes: %s", pref_m.tolist())
 
     return [ids.tolist(), cips.tolist()]
 
@@ -465,13 +465,13 @@ def log_record_drops(
     course_dropped = course_before - course_after
 
     LOGGER.info(
-        "Cohort file: %d → %d rows (%d students dropped) after preprocessing",
+        " Cohort file: %d → %d rows (%d students dropped) after preprocessing",
         cohort_before,
         cohort_after,
         cohort_dropped,
     )
     LOGGER.info(
-        "Course file: %d → %d rows (%d course records dropped) after preprocessing",
+        " Course file: %d → %d rows (%d course records dropped) after preprocessing",
         course_before,
         course_after,
         course_dropped,
@@ -490,14 +490,14 @@ def log_most_recent_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> N
             .head(1)
         )
         LOGGER.info(
-            "Most recent cohort year and term: %s %s. "
+            " Most recent cohort year and term: %s %s. "
             "\n NOTE: If FALL/WINTER, assume earlier year: e.g. 2023-24 FALL is FALL 2023. "
             "\n If SPRING/SUMMER, assume later year: e.g. 2023-24 SPRING is SPRING 2024.",
             latest_cohort["cohort"].values[0],
             latest_cohort["cohort_term"].values[0],
         )
     else:
-        LOGGER.warning("Missing cohort or cohort_term column in cohort dataframe.")
+        LOGGER.warning(" Missing cohort or cohort_term column in cohort dataframe.")
 
     if {"academic_year", "academic_term"}.issubset(df_course.columns):
         latest_term = (
@@ -507,7 +507,7 @@ def log_most_recent_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> N
             .head(1)
         )
         LOGGER.info(
-            "Most recent academic year and term: %s %s. "
+            " Most recent academic year and term: %s %s. "
             "\n NOTE: If FALL/WINTER, assume earlier year: e.g. 2023-24 FALL is FALL 2023. "
             "\n If SPRING/SUMMER, assume later year: e.g. 2023-24 SPRING is SPRING 2024.",
             latest_term["academic_year"].values[0],
@@ -515,5 +515,5 @@ def log_most_recent_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> N
         )
     else:
         LOGGER.warning(
-            "Missing academic_year or academic_term column in course dataframe."
+            " Missing academic_year or academic_term column in course dataframe."
         )

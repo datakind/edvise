@@ -138,9 +138,9 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
             pct_not_y = 100.0 * count_not_y / num_dropped
 
             LOGGER.warning(
-                "Dropped %s rows from course dataset due to missing identifiers. "
-                "Of these, %s (%.1f%%) had 'Y' in enrolled_at_other_institution_s; "
-                "%s (%.1f%%) did not.",
+                " Dropped %s rows from course dataset due to missing identifiers. "
+                " Of these, %s (%.1f%%) had 'Y' in enrolled_at_other_institution_s; "
+                " %s (%.1f%%) did not.",
                 num_dropped,
                 count_y,
                 pct_y,
@@ -149,8 +149,8 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
             )
         else:
             LOGGER.warning(
-                "Dropped %s rows from course dataset due to missing identifiers. "
-                "Column 'enrolled_at_other_institution_s' not found; cannot compute alignment breakdown.",
+                " Dropped %s rows from course dataset due to missing identifiers. "
+                " Column 'enrolled_at_other_institution_s' not found; cannot compute alignment breakdown.",
                 num_dropped,
             )
 
@@ -208,16 +208,16 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
     if n_removed > 0:
         pct_removed = (n_removed / n_before) * 100
         LOGGER.info(
-            "remove_pre_cohort_courses: %d pre-cohort course records removed successfully (%.1f%% of data).",
+            " remove_pre_cohort_courses: %d pre-cohort course records removed successfully (%.1f%% of data).",
             n_removed,
             pct_removed,
         )
         LOGGER.warning(
-            "remove_pre_cohort_courses: %d students had only pre-cohort records and were dropped.",
+            " remove_pre_cohort_courses: %d students had only pre-cohort records and were dropped.",
             n_students_dropped,
         )
     else:
-        LOGGER.info("remove_pre_cohort_courses: no pre-cohort course records found.")
+        LOGGER.info(" remove_pre_cohort_courses: no pre-cohort course records found.")
 
     return df_course
 
@@ -225,7 +225,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
 def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
     if "pell_status_first_year" in df_cohort.columns:
         LOGGER.info(
-            "Before replacing 'pell_status_first_year':\n%s",
+            " Before replacing 'pell_status_first_year':\n%s",
             df_cohort["pell_status_first_year"].value_counts(dropna=False),
         )
         na_pell = df_cohort["pell_status_first_year"].isna().sum()
@@ -233,36 +233,36 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
             "pell_status_first_year"
         ].fillna("N")
         LOGGER.info(
-            'Filled %s NAs in "pell_status_first_year" to "N".',
+            ' Filled %s NAs in "pell_status_first_year" to "N".',
             int(na_pell),
         )
         LOGGER.info(
-            "After replacing 'pell_status_first_year':\n%s",
+            " After replacing 'pell_status_first_year':\n%s",
             df_cohort["pell_status_first_year"].value_counts(dropna=False),
         )
     else:
         LOGGER.warning(
-            'Column "pell_status_first_year" not found; skipping Pell status NA replacement.'
+            ' Column "pell_status_first_year" not found; skipping Pell status NA replacement.'
         )
 
     if "first_gen" in df_cohort.columns:
         LOGGER.info(
-            "Before filling 'first_gen':\n%s",
+            " Before filling 'first_gen':\n%s",
             df_cohort["first_gen"].value_counts(dropna=False),
         )
         na_first = df_cohort["first_gen"].isna().sum()
         df_cohort["first_gen"] = df_cohort["first_gen"].fillna("N")
         LOGGER.info(
-            'Filled %s NAs in "first_gen" with "N".',
+            ' Filled %s NAs in "first_gen" with "N".',
             int(na_first),
         )
         LOGGER.info(
-            "After filling 'first_gen':\n%s",
+            " After filling 'first_gen':\n%s",
             df_cohort["first_gen"].value_counts(dropna=False),
         )
     else:
         LOGGER.warning(
-            'Column "first_gen" not found; skipping first-gen NA replacement.'
+            ' Column "first_gen" not found; skipping first-gen NA replacement.'
         )
     return df_cohort
 
@@ -283,7 +283,7 @@ def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
                 col,
             )
         else:
-            LOGGER.warning('Column "%s" not found', col)
+            LOGGER.warning(' Column "%s" not found', col)
     return df_course
 
 
@@ -339,12 +339,12 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
     pct_dup = (len(dupe_rows) / len(df_course)) * 100
     if pct_dup < 1:
         LOGGER.warning(
-            "%s (<1%% of data) true duplicate rows found & dropped",
+            " %s (<1%% of data) true duplicate rows found & dropped",
             len(dupe_rows) // 2,  # integer count of dropped pairs
         )
     else:
         LOGGER.warning(
-            "%s (%.1f%% of data) true duplicate rows found & dropped",
+            " %s (%.1f%% of data) true duplicate rows found & dropped",
             len(dupe_rows) // 2,
             pct_dup,
         )
