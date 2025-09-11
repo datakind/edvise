@@ -130,7 +130,7 @@ class ModelInferenceTask:
     @staticmethod
     def predict_proba(
         X: pd.DataFrame | NDArray[np.floating],
-        model: ClassifierMixin, 
+        model: ClassifierMixin,
         feature_names: t.Optional[t.Sequence[str]] = None,
         pos_label: t.Optional[bool | str] = None,
     ) -> NDArray[np.floating]:
