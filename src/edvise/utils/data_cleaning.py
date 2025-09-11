@@ -109,7 +109,7 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     """
 
     # HACK: get correct student_id_col
-    
+
     student_id_col = (
         "student_guid"
         if "student_guid" in df.columns
@@ -163,7 +163,7 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     if dropped_students:
         LOGGER.warning(
             "%d students were fully dropped from the course data due to all their records missing identifiers.",
-            len(dropped_students),
+            dropped_students,
         )
 
     return df_cleaned
