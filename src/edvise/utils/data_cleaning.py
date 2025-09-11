@@ -126,7 +126,7 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     num_dropped_rows = int(drop_mask.sum())
     pct_dropped_rows = (num_dropped_rows / len(df) * 100.0) if len(df) else 0.0
 
-   # Keep only rows with both identifiers present
+    # Keep only rows with both identifiers present
     df_cleaned = df.loc[present_mask].reset_index(drop=True)
     students_after = df_cleaned[student_id_col].nunique()
     dropped_students = students_before - students_after
@@ -144,10 +144,9 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
 
         # Log grouped cohort & cohort_term
         if "cohort" in df_dropped.columns and "cohort_term" in df_dropped.columns:
-            cohort_group_counts = (
-                df_dropped.groupby(["cohort", "cohort_term"], dropna=False)
-                .sort_index()
-            )
+            cohort_group_counts = df_dropped.groupby(
+                ["cohort", "cohort_term"], dropna=False
+            ).sort_index()
             LOGGER.info(
                 " Grouped counts for missing course identifier (dropped) records by cohort and cohort_term to identify potential trends:\n%s",
                 cohort_group_counts.to_string(),
@@ -230,12 +229,13 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
 
     # Split for logging/analysis
     df_dropped = df_course.loc[~keep_mask].copy()
-    df_filtered = (
-        df_course.loc[keep_mask]
-        .assign(
-            cohort_id=lambda df: df["cohort"].astype(str).str.cat(df["cohort_term"].astype(str), sep=" "),
-            term_id=lambda df: df["academic_year"].astype(str).str.cat(df["academic_term"].astype(str), sep=" "),
-        )
+    df_filtered = df_course.loc[keep_mask].assign(
+        cohort_id=lambda df: df["cohort"]
+        .astype(str)
+        .str.cat(df["cohort_term"].astype(str), sep=" "),
+        term_id=lambda df: df["academic_year"]
+        .astype(str)
+        .str.cat(df["academic_term"].astype(str), sep=" "),
     )
 
     n_after = len(df_filtered)
@@ -265,11 +265,13 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
             )
 
         # Log grouped academic_year and  academic_term (only if both present)
-        if "academic_year" in df_dropped.columns and "academic_term" in df_dropped.columns:
-            cohort_group_counts = (
-                df_dropped.groupby(["academic_year", "academic_term"], dropna=False)
-                .sort_index()
-            )
+        if (
+            "academic_year" in df_dropped.columns
+            and "academic_term" in df_dropped.columns
+        ):
+            cohort_group_counts = df_dropped.groupby(
+                ["academic_year", "academic_term"], dropna=False
+            ).sort_index()
             LOGGER.info(
                 " Grouped counts for pre-cohort (dropped) records by academic_year and academic_term to identify potential trends:\n%s",
                 cohort_group_counts.to_string(),
