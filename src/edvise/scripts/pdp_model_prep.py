@@ -87,7 +87,7 @@ class ModelPrepTask:
         prep = self.cfg.preprocessing
         sample_class_weight = None
         # if no sample weights included- just return df
-        if self.cfg.sample_weight_col == "":
+        if prep is not None and self.cfg.sample_weight_col == "":
             return df
         if prep is not None and prep.sample_class_weight is not None:
             sample_class_weight = prep.sample_class_weight
