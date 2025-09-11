@@ -10,20 +10,18 @@ resources:
             source: GIT
             parameters:
               - --bronze_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume"
               - --silver_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --config_file_path 
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
-            - pypi:
-                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -48,16 +46,14 @@ resources:
             source: GIT
             parameters:
               - --silver_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
-            - pypi:
-                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -82,16 +78,14 @@ resources:
             source: GIT
             parameters:
               - --silver_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
-            - pypi:
-                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -116,16 +110,14 @@ resources:
             source: GIT
             parameters:
               - --silver_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
-            - pypi:
-                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -150,18 +142,16 @@ resources:
             source: GIT
             parameters:
               - --silver_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
             - pypi:
                 package: faker==33.1.0
-            - pypi:
-                package: numpy==1.26.4
             - pypi:
                 package: google-cloud-storage==2.19.0
             - pypi:
@@ -186,16 +176,14 @@ resources:
             source: GIT
             parameters:
               - --silver_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
                 package: pandas==2.2.3
-            - pypi:
-                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -220,9 +208,9 @@ resources:
             source: GIT
             parameters:
               - --silver_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
               - --ds_run_as
@@ -230,10 +218,10 @@ resources:
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5507-145238-6we6v2w3
           libraries:
             - pypi:
-                package: numpy==1.26.4
+                package: numpy==1.24.4
             - pypi:
                 package: pandas==2.2.3
             - pypi:
@@ -272,8 +260,7 @@ resources:
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
-        # git_branch: develop
-        git_branch: feat/adding_gcs_ingestion
+        git_branch: develop
       tags:
         dev: kayla_wilding
       queue:
