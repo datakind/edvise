@@ -536,7 +536,7 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
         pd.merge(
             df_cohort,
             df_course,
-            on="student_id",
+            on="study_id",
             how="outer",
             suffixes=("_cohort", "_course"),
             indicator=True,
