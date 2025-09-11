@@ -163,6 +163,7 @@ resources:
             - pypi:
                 package: pydantic~=2.10      
         - task_key: inference_h2o
+          if: "{{job.parameters.model_type == 'h2o'}}"
           depends_on:
             - task_key: inf_prep
           spark_python_task:
@@ -215,6 +216,56 @@ resources:
                 package: shap~=0.46.0
             - pypi:
                 package: mlflow~=2.22
+        - task_key: inference_sklearn
+          if: "{{job.parameters.model_type == 'sklearn'}}"
+          depends_on:
+            - task_key: inf_prep
+          spark_python_task:
+            python_file: src/edvise/scripts/inference_sklearn.py
+            source: GIT
+            parameters:
+              - --silver_volume_path
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --config_file_path 
+              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --datakind_notification_email
+              - "{{job.parameters.datakind_notification_email}}"
+              - --DK_CC_EMAIL
+              - "{{job.parameters.DK_CC_EMAIL}}"
+              - --job_root_dir  
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
+          existing_cluster_id: 5507-145238-6we6v2w3
+          libraries:
+            - pypi:
+                package: numpy==1.24.4
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+            - pypi:
+                package: shap~=0.46.0
+            - pypi:
+                package: mlflow~=2.22
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
@@ -238,6 +289,8 @@ resources:
           default: ${var.ds_run_as}
         - name: datakind_notification_email
           default: ${var.datakind_notification_email}
+        - name: model_type
+          default: "h2o" # options are "h2o" or "sklearn"
       permissions:
         - user_name: ${var.ds_run_as}
           level: IS_OWNER
