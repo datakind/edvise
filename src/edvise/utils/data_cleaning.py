@@ -179,20 +179,25 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
 
 def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
     """
-    Removes any course records that occur before a student's cohort start term,
-    accounting for the fact that Spring/Summer terms belong to the *later* year
-    in an academic year string (e.g., '2020-21'), while Fall/Winter belong to the
-    *earlier* year.
+    Removes any course records that occur before a student's cohort start term.
+
+    This ensures that any pre-cohort course records are excluded before generating any features
+    in our `student_term_df`. These records can otherwise introduce inconsistencies in
+    cumulative features. For example, in retention models, we observed mismatches
+    between `cumulative_credits_earned` and `number_of_credits_earned` when using the
+    first cohort term as the checkpoint because pre-cohort courses were
+    still included in the data when generating these features. To avoid this, we drop all records that occurred
+    prior to the student's official cohort start term before feature generation.
+
+    Please rememeber to check with your respective schools during the data assessment call how they would like pre-cohort course records to be handled and if this function needs to be called or not.
 
     Args:
-        df_course (pd.DataFrame): Must contain at least these columns:
-            ['academic_year','academic_term','cohort','cohort_term'].
+        df_course
 
     Returns:
         pd.DataFrame: Filtered DataFrame excluding pre-cohort course records.
     """
-
-    # Detect student id column
+    # HACK: infer the correct student id col in raw data from the data itself
     student_id_col = (
         "student_guid"
         if "student_guid" in df_course.columns
@@ -201,67 +206,47 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
         else "student_id"
     )
 
-    term_order = {"FALL": 1, "WINTER": 2, "SPRING": 3, "SUMMER": 4}
-
-    def true_year(ay: str, term: str) -> int:
-        start, end = map(int, ay.split("-"))
-        end += (start // 100) * 100  # ensure end year is 4-digit
-        return end if term.lower() in ("SPRING", "SUMMER") else start
-
     n_before = len(df_course)
     students_before = df_course[student_id_col].nunique()
-
     df_filtered = df_course.loc[
-        (
-            df_course.apply(
-                lambda r: true_year(r["academic_year"], r["academic_term"]), axis=1
-            )
-            < df_course.apply(
-                lambda r: true_year(r["cohort"], r["cohort_term"]), axis=1
-            )
-        )
-        | (
-            df_course.apply(
-                lambda r: true_year(r["academic_year"], r["academic_term"]), axis=1
-            )
-            == df_course.apply(
-                lambda r: true_year(r["cohort"], r["cohort_term"]), axis=1
-            )
-        )
-        & (
-            df_course["academic_term"].str.lower().map(term_order)
-            < df_course["cohort_term"].str.lower().map(term_order)
-        ),
-        :,
+        (df_course["academic_year"].ge(df_course["cohort"]))
     ].assign(
-        cohort_id=lambda d: d["cohort"]
+        cohort_id=lambda df: df["cohort"]
         .astype(str)
-        .str.cat(d["cohort_term"].astype(str), sep=" "),
-        term_id=lambda d: d["academic_year"]
+        .str.cat(df["cohort_term"].astype(str), sep=" "),
+        term_id=lambda df: df["academic_year"]
         .astype(str)
-        .str.cat(d["academic_term"].astype(str), sep=" "),
+        .str.cat(df["academic_term"].astype(str), sep=" "),
     )
-
-    # Stats for logging
     n_after = len(df_filtered)
     students_after = df_filtered[student_id_col].nunique()
     n_removed = n_before - n_after
     dropped_students = students_before - students_after
 
+    pct_removed = (n_removed / n_before) * 100
+
+    # Logging
     if n_removed > 0:
         pct_removed = (n_removed / n_before) * 100
-        LOGGER.info(
-            "remove_pre_cohort_courses: %d pre-cohort records removed (%.2f%% of data).",
-            n_removed,
-            pct_removed,
-        )
+        if pct_removed < 0.1:
+            LOGGER.info(
+                " remove_pre_cohort_courses: %d pre-cohort course records safely removed (<0.1%% of data).",
+                n_removed,
+            )
+        else:
+            LOGGER.info(
+                " remove_pre_cohort_courses: %d pre-cohort course records safely removed (%.1f%% of data).",
+                n_removed,
+                pct_removed,
+            )
+
         if dropped_students:
             LOGGER.warning(
-                "remove_pre_cohort_courses: %d students fully dropped (only had pre-cohort records).",
-                dropped_students,
+                " remove_pre_cohort_courses: %d students were fully dropped (i.e., only had pre-cohort records).",
+                len(dropped_students),
             )
     else:
-        LOGGER.info("remove_pre_cohort_courses: No pre-cohort course records found.")
+        LOGGER.info(" remove_pre_cohort_courses: No pre-cohort course records found.")
 
     return df_filtered
 
