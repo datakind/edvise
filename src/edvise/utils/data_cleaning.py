@@ -125,7 +125,6 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     drop_mask = ~present_mask
     num_dropped_rows = drop_mask.sum()
 
-
     # Keep only rows with both identifiers present
     df_cleaned = df.loc[present_mask].reset_index(drop=True)
     students_after = df_cleaned[student_id_col].nunique()
@@ -237,8 +236,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
             )
     else:
         LOGGER.info(" remove_pre_cohort_courses: No pre-cohort course records found.")
-    
-    
+
     return df_filtered
 
 

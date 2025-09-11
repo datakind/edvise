@@ -127,7 +127,7 @@ class PDPDataAuditTask:
                 )
 
                 # TODO: we may want to add a check here for expected columns, rows, etc. that could break the schema
-                
+
                 df_course_validated = read_raw_pdp_course_data(
                     file_path=course_dataset_raw_path,
                     schema=RawPDPCourseDataSchema,
