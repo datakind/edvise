@@ -237,8 +237,8 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
             )
     else:
         LOGGER.info(" remove_pre_cohort_courses: No pre-cohort course records found.")
-
-
+    
+    
     return df_filtered
 
 
