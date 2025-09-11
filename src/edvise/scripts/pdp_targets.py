@@ -79,7 +79,7 @@ class PDPTargetsTask:
         df_target = target_series.reset_index().rename(
             columns={target_series.name: "target"}
         )
-        
+
         df_target.to_parquet(
             f"{self.args.silver_volume_path}/target.parquet", index=False
         )
