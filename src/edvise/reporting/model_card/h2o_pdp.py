@@ -5,7 +5,7 @@ from mlflow.tracking import MlflowClient
 from edvise.modeling import h2o_ml
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.reporting.model_card.base import ModelCard
-from edvise.reporting.sections.custom import register_sections as register_pdp_sections
+from edvise.reporting.sections.pdp import register_sections as register_pdp_sections
 import edvise.reporting.utils as reporting_utils
 
 

@@ -7,6 +7,7 @@ from mlflow.tracking import MlflowClient
 # export .md to .pdf
 import markdown
 from weasyprint import HTML
+import tempfile
 
 # resolving files in templates module within package
 from importlib.abc import Traversable
@@ -336,8 +337,10 @@ class ModelCard(t.Generic[C]):
         """
         Builds the output path for the model card.
         """
+        out_dir = os.path.join(tempfile.gettempdir(), "model_cards")
+        os.makedirs(out_dir, exist_ok=True)
         filename = f"model-card-{self.model_name}.md"
-        return os.path.join(os.getcwd(), filename)
+        return os.path.join(out_dir, filename)
 
     def _register_sections(self):
         """

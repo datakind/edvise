@@ -250,9 +250,6 @@ class ModelInferenceTask:
         features_table_path = self.features_table_path
 
         pred_paths = PredPaths(
-            silver_modeling_path=self.cfg.datasets.silver.modeling.table_path
-            if hasattr(self.cfg, "datasets")
-            else None,
             features_table_path=features_table_path,
         )
 
@@ -267,8 +264,8 @@ class ModelInferenceTask:
         predicted_df = pd.DataFrame(
             {
                 self.cfg.student_id_col: out.unique_ids.values,
-                "predicted_prob": out.pred_probs.values,
-                "predicted_label": out.pred_labels.values,
+                "predicted_prob": out.pred_probs,
+                "predicted_label": out.pred_labels,
             }
         )
         self.write_delta(
@@ -279,7 +276,7 @@ class ModelInferenceTask:
         support_scores = pd.DataFrame(
             {
                 "student_id": out.unique_ids.values,
-                "support_score": out.pred_probs.values,
+                "support_score": out.pred_probs,
             }
         )
         # 6) Create FE tables

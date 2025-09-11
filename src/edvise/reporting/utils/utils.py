@@ -7,8 +7,29 @@ from mlflow.tracking import MlflowClient
 import pathlib
 from importlib.abc import Traversable
 from importlib.resources import as_file
+import tempfile
+
 
 LOGGER = logging.getLogger(__name__)
+
+
+def ensure_temp_assets_dir(path_str: t.Optional[str]) -> str:
+    """
+    Resolve a writable absolute directory under the system temp dir.
+      - Accepts relative names like 'card_assets' or None.
+    Examples:
+      ensure_temp_assets_dir("card_assets") -> /tmp/card_assets
+    """
+    root = pathlib.Path(tempfile.gettempdir())
+    if not path_str:
+        # default folder name if nothing provided
+        path = root / "card_assets"
+    else:
+        p = pathlib.Path(path_str)
+        path = (root / p) if not p.is_absolute() else p
+
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
 
 
 def download_artifact(
@@ -32,7 +53,7 @@ def download_artifact(
     Returns:
         Local path to artifact OR inline HTML string with path information if image
     """
-    os.makedirs(local_folder, exist_ok=True)
+    local_folder = ensure_temp_assets_dir(local_folder)
 
     try:
         local_path = mlflow.artifacts.download_artifacts(
@@ -74,7 +95,7 @@ def download_static_asset(
     Returns:
         Local path to artifact OR inline HTML string with path information if image
     """
-    os.makedirs(local_folder, exist_ok=True)
+    local_folder = ensure_temp_assets_dir(local_folder)
 
     dst_path = os.path.join(local_folder, static_path.name)
 
