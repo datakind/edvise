@@ -39,6 +39,7 @@ from edvise.data_audit.eda import (
     compute_gateway_course_ids_and_cips,
     log_record_drops,
     log_most_recent_terms,
+    log_misjoined_records,
 )
 from edvise.utils.update_config import update_key_courses_and_cips
 
@@ -109,7 +110,8 @@ class PDPDataAuditTask:
                 " Failed to parse course data with all known datetime formats."
             )
         
-        
+        LOGGER.info(" Loaded raw data: checking for mismatches in cohort and course files: ")
+        log_misjoined_records(df_cohort_raw, df_course_raw)
 
         # TODO: we may want to add checks here for expected columns, rows, etc. that could break the schemas
         
