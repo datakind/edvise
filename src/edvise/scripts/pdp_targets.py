@@ -53,12 +53,8 @@ class PDPTargetsTask:
         }
         if target_type not in target_modules:
             raise ValueError(f"Unknown target type: {target_type}")
-        
-        if target_cfg.max_academic_year is not None:
-            compute_func = target_modules[target_type].compute_target(max_academic_year=target_cfg.max_academic_year)
-        else:
-            # else, infer
-            compute_func = target_modules[target_type].compute_target
+
+        compute_func = target_modules[target_type].compute_target
         kwargs = target_cfg.model_dump()
         kwargs.pop("name", None)
         kwargs.pop("type_", None)
