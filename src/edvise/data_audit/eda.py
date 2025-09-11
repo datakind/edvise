@@ -579,11 +579,16 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
     df_misjoined = df_merged[df_merged["_merge"] != "both"]
 
     # Log mismatch summary (custom format)
+    if pct_misjoined < 1:
+            pct_str = "<1%%"
+    else:
+        pct_str = f"{pct_misjoined:.1f}%%"
+
     LOGGER.warning(
-        " inspect_misjoined_records: Found %d total misjoined records (%.1f%% of data): "
-        " %d records in cohort file not found in course file, %d records in course file not found in cohort file.",
+        "inspect_misjoined_records: Found %d total misjoined records (%s of data): "
+        "%d records in cohort file not found in course file, %d records in course file not found in cohort file.",
         total_misjoined,
-        pct_misjoined,
+        pct_str,
         left_only,
         right_only,
     )
@@ -597,8 +602,8 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
         )
 
     # Log dropped student impact
-    dropped_students = df_misjoined["student_id"].dropna().nunique()
-    total_students = df_merged["student_id"].dropna().nunique()
+    dropped_students = df_misjoined["study_id"].dropna().nunique()
+    total_students = df_merged["study_id"].dropna().nunique()
     pct_dropped = (dropped_students / total_students) * 100 if total_students else 0
 
     LOGGER.warning(
