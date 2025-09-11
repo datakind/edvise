@@ -144,9 +144,13 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
 
         # Log grouped cohort & cohort_term
         if "cohort" in df_dropped.columns and "cohort_term" in df_dropped.columns:
-            cohort_group_counts = df_dropped.groupby(
-                ["cohort", "cohort_term"], dropna=False
-            ).sort_index()
+            cohort_group_counts = (
+                df_dropped.groupby(
+                    ["cohort", "cohort_term"], dropna=False, observed=True
+                )
+                .size()
+                .sort_index()
+            )
             LOGGER.info(
                 " Grouped counts for missing course identifier (dropped) records by cohort and cohort_term to identify potential trends:\n%s",
                 cohort_group_counts.to_string(),
@@ -269,9 +273,13 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
             "academic_year" in df_dropped.columns
             and "academic_term" in df_dropped.columns
         ):
-            cohort_group_counts = df_dropped.groupby(
-                ["academic_year", "academic_term"], dropna=False
-            ).sort_index()
+            cohort_group_counts = (
+                df_dropped.groupby(
+                    ["academic_year", "academic_term"], dropna=False, observed=True
+                )
+                .size()
+                .sort_index()
+            )
             LOGGER.info(
                 " Grouped counts for pre-cohort (dropped) records by academic_year and academic_term to identify potential trends:\n%s",
                 cohort_group_counts.to_string(),
