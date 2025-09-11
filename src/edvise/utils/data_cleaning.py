@@ -107,6 +107,16 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     specifically course prefix and number, which supposedly are partial records
     from students' enrollments at *other* institutions -- not wanted here!
     """
+
+    # HACK: get correct student_id_col
+    
+    student_id_col = (
+        "student_guid"
+        if "student_guid" in df.columns
+        else "study_id"
+        if "study_id" in df.columns
+        else "student_id"
+    )
     students_before = df[student_id_col].nunique()
 
     # Identify rows missing either identifier
@@ -115,14 +125,6 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     drop_mask = ~present_mask
     num_dropped_rows = drop_mask.sum()
 
-    # Count number of fully dropped students (all rows missing course_prefix)
-    student_id_col = (
-        "student_guid"
-        if "student_guid" in df.columns
-        else "study_id"
-        if "study_id" in df.columns
-        else "student_id"
-    )
 
     # Keep only rows with both identifiers present
     df_cleaned = df.loc[present_mask].reset_index(drop=True)
