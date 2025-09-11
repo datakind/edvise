@@ -158,6 +158,14 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
             pct_not_y,
         )
 
+        # Additional warning if too many are not clearly transfer records
+        if pct_not_y > 10.0:
+            LOGGER.warning(
+                " drop_course_rows_missing_identifiers: ⚠️ More than 10%% of dropped rows (%d of %d) "
+                " were NOT marked as transfer out records based on the 'enrolled_at_other_institution_s'. This is uncommon: please contact data team for further investigation",
+                count_not_y, num_dropped_rows,
+            )
+
     # Log fully dropped students
     if dropped_students:
         LOGGER.warning(

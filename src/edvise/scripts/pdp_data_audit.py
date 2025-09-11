@@ -81,9 +81,9 @@ class PDPDataAuditTask:
         cohort_dataset_raw_path = self.cfg.datasets.bronze.raw_cohort.file_path
         course_dataset_raw_path = self.cfg.datasets.bronze.raw_course.file_path
 
-        # --- Load datasets ---
+        # --- Load RAW datasets ---
+        LOGGER.info(" Loading raw cohort and course datasets:")
 
-        # Cohort
         # Raw cohort data
         df_cohort_raw = read_raw_pdp_cohort_data(
             file_path=cohort_dataset_raw_path,
@@ -91,10 +91,32 @@ class PDPDataAuditTask:
             spark_session=self.spark,
         )
 
-        # TODO: we may want to add a check here for expected columns, rows, etc. that could break the schema
+        # Raw course data
+        dttm_formats = ["ISO8601", "%Y%m%d.0"]
+        for fmt in dttm_formats:
+            try:
+                df_course_raw = read_raw_pdp_course_data(
+                    file_path=course_dataset_raw_path,
+                    schema=None,
+                    dttm_format=fmt,
+                    spark_session=self.spark,
+                )
+                break  # success — exit loop
+            except ValueError:
+                continue  # try next format
+        else:
+            raise ValueError(
+                " Failed to parse course data with all known datetime formats."
+            )
+        
+        
+
+        # TODO: we may want to add checks here for expected columns, rows, etc. that could break the schemas
+        
+        # --- Load COHORT dataset - with schema ---
 
         # Schema validate cohort data
-        LOGGER.info("Reading and schema validating cohort data:")
+        LOGGER.info(" Reading and schema validating cohort data:")
         df_cohort_validated = read_raw_pdp_cohort_data(
             file_path=cohort_dataset_raw_path,
             schema=RawPDPCohortDataSchema,
@@ -103,31 +125,20 @@ class PDPDataAuditTask:
         )
 
         # Standardize cohort data
-        LOGGER.info("Standardizing cohort data:")
+        LOGGER.info(" Standardizing cohort data:")
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
 
-        LOGGER.info("Cohort data standardized.")
+        LOGGER.info(" Cohort data standardized.")
 
-        # Course
-        dttm_formats = ["ISO8601", "%Y%m%d.0"]
+         # --- Load COURSE dataset - with schema ---
 
         # Schema validate course data and handle duplicates
         LOGGER.info(
-            "Reading and schema validating course data, handling any duplicates:"
+            " Reading and schema validating course data, handling any duplicates:"
         )
 
         for fmt in dttm_formats:
             try:
-                # Raw course data
-                df_course_raw = read_raw_pdp_course_data(
-                    file_path=course_dataset_raw_path,
-                    schema=None,
-                    dttm_format=fmt,
-                    spark_session=self.spark,
-                )
-
-                # TODO: we may want to add a check here for expected columns, rows, etc. that could break the schema
-
                 df_course_validated = read_raw_pdp_course_data(
                     file_path=course_dataset_raw_path,
                     schema=RawPDPCourseDataSchema,
@@ -141,20 +152,20 @@ class PDPDataAuditTask:
                 continue  # try next format
         else:
             raise ValueError(
-                "Failed to parse course data with all known datetime formats."
+                " Failed to parse course data with all known datetime formats."
             )
-        LOGGER.info("Course data read and schema validated, duplicates handled.")
+        LOGGER.info(" Course data read and schema validated, duplicates handled.")
 
         # Standardize course data
-        LOGGER.info("Standardizing course data:")
+        LOGGER.info(" Standardizing course data:")
         df_course_standardized = self.course_std.standardize(df_course_validated)
 
-        LOGGER.info("Course data standardized.")
+        LOGGER.info(" Course data standardized.")
 
         # Log Math/English gateway courses and add to config
         ids_cips = compute_gateway_course_ids_and_cips(df_course_standardized)
         LOGGER.info(
-            "Auto-populating config with below course IDs and cip codes: change if necessary"
+            " Auto-populating config with below course IDs and cip codes: change if necessary"
         )
         update_key_courses_and_cips(
             self.args.config_file_path,

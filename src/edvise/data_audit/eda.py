@@ -517,3 +517,106 @@ def log_most_recent_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> N
         LOGGER.warning(
             " Missing academic_year or academic_term column in course dataframe."
         )
+
+
+def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> pd.DataFrame:
+    """
+    Merges raw cohort and course data, identifies misjoined student records,
+    and logs value counts for mismatches to help identify possible trends.
+
+    Args:
+        df_cohort (pd.DataFrame): Cohort-level student data
+        df_course (pd.DataFrame): Course-level student data
+
+    Returns:
+        pd.DataFrame: Mismatched records with diagnostic columns.
+    """
+    # Merge with indicator
+    df_merged = pd.merge(
+        df_cohort,
+        df_course,
+        on="student_id",
+        how="outer",
+        suffixes=("_cohort", "_course"),
+        indicator=True,
+    ).rename(
+        columns={
+            "cohort_cohort": "cohort",
+            "cohort_term_cohort": "cohort_term",
+            "student_age_cohort": "student_age",
+            "race_cohort": "race",
+            "ethnicity_cohort": "ethnicity",
+            "gender_cohort": "gender",
+            "institution_id_cohort": "institution_id",
+        }
+    ).drop(
+        columns=[
+            "cohort_course",
+            "cohort_term_course",
+            "student_age_course",
+            "race_course",
+            "ethnicity_course",
+            "gender_course",
+            "institution_id_course",
+        ],
+        errors="ignore",
+    )
+
+    # Count merge results
+    merge_counts = df_merged["_merge"].value_counts()
+    left_only = merge_counts.get("left_only", 0)
+    right_only = merge_counts.get("right_only", 0)
+    both = merge_counts.get("both", 0)
+    total = len(df_merged)
+    total_misjoined = left_only + right_only
+    pct_misjoined = (total_misjoined / total) * 100 if total else 0
+
+    # Filter misjoined records only
+    df_misjoined = df_merged[df_merged["_merge"] != "both"]
+
+    # Log mismatch summary (custom format)
+    LOGGER.warning(
+        " inspect_misjoined_records: Found %d total misjoined records (%.1f%% of data): "
+        " %d records in cohort file not found in course file, %d records in course file not found in cohort file.",
+        total_misjoined, pct_misjoined, left_only, right_only,
+    )
+
+    # Additional warning if mismatch is significant
+    if total_misjoined > 100 or pct_misjoined > 10:
+        LOGGER.warning(
+            " inspect_misjoined_records: ⚠️ High mismatch detected — %d records (%.1f%% of data). This is uncommon: please contact data team for further investigation.",
+            total_misjoined, pct_misjoined
+        )
+
+    # Log dropped student impact
+    dropped_students = df_misjoined["student_id"].dropna().nunique()
+    total_students = df_merged["student_id"].dropna().nunique()
+    pct_dropped = (dropped_students / total_students) * 100 if total_students else 0
+
+    LOGGER.warning(
+        " inspect_misjoined_records: These mismatches will later result in dropping %d students (%.1f%% of all students).",
+        dropped_students, pct_dropped
+    )
+
+    # Log value counts of key fields
+    for col in ["enrollment_type", "enrollment_intensity"]:
+        if col in df_misjoined.columns:
+            value_counts = df_misjoined[col].value_counts(dropna=False)
+            LOGGER.info(" Value counts for column '%s':\n%s", col, value_counts.to_string())
+
+    # Log grouped cohort & cohort_term
+    if "cohort" in df_misjoined.columns and "cohort_term" in df_misjoined.columns:
+        cohort_group_counts = (
+            df_misjoined
+            .groupby(["cohort", "cohort_term"], dropna=False)
+            .size()
+            .sort_index()
+        )
+        LOGGER.info( Grouped counts by cohort and cohort_term:\n%s", cohort_group_counts.to_string())
+
+    # Return mismatched records for optional inspection
+    cols_to_return = [
+        "student_id", "cohort", "cohort_term", "enrollment_type", "enrollment_intensity", "_merge"
+    ]
+    available_cols = [col for col in cols_to_return if col in df_misjoined.columns]
+    return df_misjoined[available_cols]
