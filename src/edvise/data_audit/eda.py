@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats as ss
 from typing import List
-from edvise.utils import update_config 
+from edvise import utils as edvise_utils
 
 LOGGER = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ def assess_unique_values(data: pd.DataFrame, cols: str | list[str]) -> dict[str,
         data
         cols
     """
-    unique_data = data.loc[:, utils.types.to_list(cols)]
+    unique_data = data.loc[:, edvise_utils.types.to_list(cols)]
     is_duplicated = unique_data.duplicated()
     return {
         "num_uniques": is_duplicated.eq(False).sum(),
@@ -51,8 +51,8 @@ def compute_summary_stats(
         - https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.describe.html
     """
     num_rows = data.shape[0]
-    include = utils.types.to_list(include) if include is not None else None
-    exclude = utils.types.to_list(exclude) if exclude is not None else None
+    include = edvise_utils.types.to_list(include) if include is not None else None
+    exclude = edvise_utils.types.to_list(exclude) if exclude is not None else None
     data_selected = data.select_dtypes(include=include, exclude=exclude)  # type: ignore
     data_described = data_selected.describe(percentiles=percentiles).T.assign(
         null_count=data_selected.isna().sum(),
@@ -385,7 +385,9 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
                     "Missing": "",
                 }
             )
-            .str.extract(r"^(\d{2})")  # Extract first two digits only; cip codes usually 23.0101
+            .str.extract(
+                r"^(\d{2})"
+            )  # Extract first two digits only; cip codes usually 23.0101
             .dropna()[0]
         )
         if cips.eq("").all():
@@ -444,8 +446,12 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     return [ids.tolist(), cips.tolist()]
 
 
-def log_record_drops(df_cohort_before: pd.DataFrame, df_cohort_after: pd.DataFrame,
-                     df_course_before: pd.DataFrame, df_course_after: pd.DataFrame) -> None:
+def log_record_drops(
+    df_cohort_before: pd.DataFrame,
+    df_cohort_after: pd.DataFrame,
+    df_course_before: pd.DataFrame,
+    df_course_after: pd.DataFrame,
+) -> None:
     """
     Logs row counts before and after processing for cohort and course data.
     Also logs the number of dropped students and dropped course records.
@@ -458,8 +464,18 @@ def log_record_drops(df_cohort_before: pd.DataFrame, df_cohort_after: pd.DataFra
     course_after = len(df_course_after)
     course_dropped = course_before - course_after
 
-    LOGGER.info("Cohort file: %d → %d rows (%d students dropped) after preprocessing", cohort_before, cohort_after, cohort_dropped)
-    LOGGER.info("Course file: %d → %d rows (%d course records dropped) after preprocessing", course_before, course_after, course_dropped)
+    LOGGER.info(
+        "Cohort file: %d → %d rows (%d students dropped) after preprocessing",
+        cohort_before,
+        cohort_after,
+        cohort_dropped,
+    )
+    LOGGER.info(
+        "Course file: %d → %d rows (%d course records dropped) after preprocessing",
+        course_before,
+        course_after,
+        course_dropped,
+    )
 
 
 def log_most_recent_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
@@ -467,23 +483,29 @@ def log_most_recent_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> N
     Logs the most recent cohort year/term and academic year/term based on data.
     """
     if {"cohort", "cohort_term"}.issubset(df_cohort.columns):
-        latest_cohort = df_cohort[["cohort", "cohort_term"]].dropna().sort_values(
-            by=["cohort", "cohort_term"], ascending=False
-        ).head(1)
+        latest_cohort = (
+            df_cohort[["cohort", "cohort_term"]]
+            .dropna()
+            .sort_values(by=["cohort", "cohort_term"], ascending=False)
+            .head(1)
+        )
         LOGGER.info(
             "Most recent cohort year/term: %s : %s",
             "NOTE: If FALL/WINTER, assume earlier year: e.g. 2023-24 FALL is FALL 2023"
             "If SPRING/SUMMER, assume later year: e.g. 2023-24 SPRING is SPRING 2024",
-            latest_cohort["cohort"].values[0], 
+            latest_cohort["cohort"].values[0],
             latest_cohort["cohort_term"].values[0],
         )
     else:
         LOGGER.warning("Missing cohort or cohort_term column in cohort dataframe.")
 
     if {"academic_year", "academic_term"}.issubset(df_course.columns):
-        latest_term = df_course[["academic_year", "academic_term"]].dropna().sort_values(
-            by=["academic_year", "academic_term"], ascending=False
-        ).head(1)
+        latest_term = (
+            df_course[["academic_year", "academic_term"]]
+            .dropna()
+            .sort_values(by=["academic_year", "academic_term"], ascending=False)
+            .head(1)
+        )
         LOGGER.info(
             "Most recent academic year/term: %s : %s",
             "NOTE: If FALL/WINTER, assume earlier year: e.g. 2023-24 FALL is FALL 2023"
@@ -492,4 +514,6 @@ def log_most_recent_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> N
             latest_term["academic_term"].values[0],
         )
     else:
-        LOGGER.warning("Missing academic_year or academic_term column in course dataframe.")
+        LOGGER.warning(
+            "Missing academic_year or academic_term column in course dataframe."
+        )

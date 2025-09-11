@@ -202,8 +202,8 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
     n_after = len(df_course)
     students_after = df_course[student_id_col].nunique()
     n_removed = n_before - n_after
-    n_students_dropped = students_before - students_after 
-    
+    n_students_dropped = students_before - students_after
+
     # Logging
     if n_removed > 0:
         pct_removed = (n_removed / n_before) * 100
