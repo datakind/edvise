@@ -196,17 +196,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
         if "study_id" in df_course.columns
         else "student_id"
     )
-    # Define pre-cohort condition
-    def is_pre_cohort(df):
-        return (df["academic_year"] < df["cohort"]) | (
-            (df["academic_year"] == df["cohort"]) & (df["academic_term"] < df["cohort_term"])
-        )
 
-    # Get pre-cohort rows
-    df_pre_cohort = df_course.groupby(student_id_col, group_keys=False).apply(
-        lambda df: df[is_pre_cohort(df)]
-    )
-    print(df_pre_cohort)
     n_before = len(df_course)
     students_before = df_course[student_id_col].nunique()
     df_filtered = df_course.groupby(student_id_col, group_keys=False).apply(
