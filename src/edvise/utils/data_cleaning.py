@@ -224,9 +224,6 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
 
     # Identify dropped student IDs
     students_with_pre_cohort = df_course[student_id_col].nunique() - df_filtered[student_id_col].nunique()
-    LOGGER.info(
-        students_with_pre_cohort
-    )
 
     pct_removed = (n_removed / n_before) * 100
 
@@ -252,7 +249,14 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
             )
     else:
         LOGGER.info(" remove_pre_cohort_courses: No pre-cohort course records found.")
-
+    
+    dropped_student_ids = sorted(
+        set(df_course[student_id_col].unique()) - set(df_filtered[student_id_col].unique())
+    )
+    LOGGER.info(
+                "remove_pre_cohort_courses: Dropped student IDs:\n%s",
+                dropped_student_ids,
+            )
     return df_filtered
 
 
