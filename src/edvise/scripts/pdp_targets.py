@@ -84,7 +84,7 @@ class PDPTargetsTask:
         logging.info("Target breakdown (counts):\n%s", target_counts.to_string())
 
         target_percents =df_target["target"].value_counts(normalize=True, dropna=False)
-        logging.info("Target breakdown (counts):\n%s", target_percents.to_string())
+        logging.info("Target breakdown (percents):\n%s", target_percents.to_string())
         
         df_target.to_parquet(
             f"{self.args.silver_volume_path}/target.parquet", index=False
