@@ -74,6 +74,10 @@ class PDPTargetsTask:
         logging.info("Generating target labels...")
         target_series = self.target_generation(df_student_terms)
 
+        # Counts (and keep NaN if present)
+        target_counts = target_series.value_counts(dropna=False)
+        logging.info("Target breakdown (counts):\n%s", target_counts.to_string())
+
         logging.info("Saving target data...")
         # Convert Series to DataFrame for saving
         df_target = target_series.reset_index().rename(
