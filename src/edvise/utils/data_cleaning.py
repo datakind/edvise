@@ -208,15 +208,20 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
 
     n_before = len(df_course)
     students_before = df_course[student_id_col].nunique()
-    df_filtered = df_course.groupby(student_id_col, group_keys=False).apply(
-        lambda df_course: df_course[
-            (df_course["academic_year"] > df_course["cohort"])
-            | (
-                (df_course["academic_year"] == df_course["cohort"])
-                & (df_course["academic_term"] >= df_course["cohort_term"])
-            )
-        ]
+    df_filtered = (
+    df_course.loc[
+        (df_course["academic_year"].gt(df_course["cohort"]))
+        | (
+            df_course["academic_year"].eq(df_course["cohort"])
+            & df_course["academic_term"].ge(df_course["cohort_term"])
+        ),
+        :
+    ]
+    .assign(
+        cohort_id=lambda df: df["cohort"].astype(str).str.cat(df["cohort_term"].astype(str), sep=" "),
+        term_id=lambda df: df["academic_year"].astype(str).str.cat(df["academic_term"].astype(str), sep=" "),
     )
+)
     n_after = len(df_filtered)
     students_after = df_filtered[student_id_col].nunique()
     n_removed = n_before - n_after
@@ -250,18 +255,6 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
     else:
         LOGGER.info(" remove_pre_cohort_courses: No pre-cohort course records found.")
     
-    def is_post_or_same_term(df):
-        return (
-            (df["academic_year"] > df["cohort"])
-            | (
-                (df["academic_year"] == df["cohort"])
-                & (df["academic_term"] >= df["cohort_term"])
-            )
-        )
-    df_pre_cohort = df_course.groupby(student_id_col, group_keys=False).apply(
-        lambda df: df[~is_post_or_same_term(df)]
-    )
-    print(df_pre_cohort["student_id"].tolist())
     return df_filtered
 
 
