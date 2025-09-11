@@ -580,7 +580,7 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
 
     # Log mismatch summary (custom format)
     if pct_misjoined < 1:
-            pct_str = "<1%%"
+        pct_str = "<1%%"
     else:
         pct_str = f"{pct_misjoined:.1f}%%"
 
