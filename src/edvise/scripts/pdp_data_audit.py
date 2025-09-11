@@ -60,7 +60,7 @@ class PDPDataAuditTask:
         )
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
-        self.course_std = PDPCourseStandardizer()
+        self.course_std = PDPCourseStandardizer()            
         # self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
         # Use default converter to handle duplicates if none provided
         self.course_converter_func: ConverterFunc = (
@@ -72,8 +72,17 @@ class PDPDataAuditTask:
 
     def run(self):
         """Executes the data preprocessing pipeline."""
-        cohort_dataset_raw_path = self.cfg.datasets.bronze.raw_cohort.file_path
-        course_dataset_raw_path = self.cfg.datasets.bronze.raw_course.file_path
+        cohort_dataset_raw_path = (
+            self.args.cohort_dataset_validated_path # inference
+            if self.args.cohort_dataset_validated_path
+            else self.cfg.datasets.bronze.raw_cohort.file_path # training
+        )
+
+        course_dataset_raw_path = (
+            self.args.course_dataset_validated_path # inference
+            if self.args.course_dataset_validated_path
+            else self.cfg.datasets.bronze.raw_course.file_path # training
+        )
 
         # --- Load datasets ---
 
@@ -140,6 +149,12 @@ class PDPDataAuditTask:
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Data preprocessing for inference in the SST pipeline."
+    )
+    parser.add_argument(
+        "--course_dataset_validated_path", required=False, help="Name of the course data file during inference with GCS blobs when connected to webapp"
+    )
+    parser.add_argument(
+        "--cohort_dataset_validated_path", required=False, help="Name of the cohort data file during inference with GCS blobs when connected to webapp"
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--bronze_volume_path", type=str, required=False)

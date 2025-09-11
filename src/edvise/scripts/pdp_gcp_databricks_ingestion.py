@@ -42,8 +42,6 @@ class DataIngestionTask:
     def __init__(
         self,
         args: argparse.Namespace,
-        course_converter_func: t.Optional[ConverterFunc] = None,
-        cohort_converter_func: t.Optional[ConverterFunc] = None,
     ):
         """
         Initializes the DataIngestionTask with parsed arguments.
@@ -54,8 +52,6 @@ class DataIngestionTask:
         self.args = args
         self.storage_client = storage.Client()
         self.bucket = self.storage_client.bucket(self.args.gcp_bucket_name)
-        self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
-        self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
     def download_data_from_gcs(self, internal_pipeline_path: str) -> tuple[str, str]:
         """
@@ -88,130 +84,6 @@ class DataIngestionTask:
             logging.error(f"GCS download error: {e}")
             raise
 
-    def read_and_validate_data(
-        self, fpath_course: str, fpath_cohort: str
-    ) -> tuple[pd.DataFrame, pd.DataFrame]:
-        # -> tuple[raw_course.RawPDPCourseDataSchema, raw_cohort.RawPDPCohortDataSchema]:
-        """
-        Reads course and cohort data from CSV files and validates their schemas.
-
-        Args:
-            fpath_course (str): Path to the course data file.
-            fpath_cohort (str): Path to the cohort data file.
-
-        Returns:
-            tuple[raw_course.RawPDPCourseDataSchema, raw_cohort.RawPDPCohortDataSchema]:
-                Validated course and cohort data.
-        """
-
-        # Read data from CSV files into Pandas DataFrames and validate schema
-        dttm_formats = ["ISO8601", "%Y%m%d.0"]
-
-        for fmt in dttm_formats:
-            try:
-                df_course = dataio.read.read_raw_pdp_course_data(
-                    file_path=fpath_course,
-                    schema=raw_course.RawPDPCourseDataSchema,
-                    dttm_format=fmt,
-                    converter_func=self.course_converter_func,
-                )
-                break  # success — exit loop
-            except ValueError:
-                continue  # try next format
-        else:
-            raise ValueError(
-                "Failed to parse course data with all known datetime formats."
-            )
-
-        logging.info("Course data read and schema validated.")
-        df_cohort = dataio.read.read_raw_pdp_cohort_data(
-            file_path=fpath_cohort,
-            schema=raw_cohort.RawPDPCohortDataSchema,
-            converter_func=self.cohort_converter_func,
-        )
-        logging.info("Cohort data read and schema validated.")
-        return df_course, df_cohort
-
-    def write_data_to_delta_lake(
-        self,
-        df_course,
-        df_cohort,
-    ):
-        """
-        Writes the validated DataFrames to Delta Lake tables in Unity Catalog.
-
-        Args:
-            df_course (raw_course.RawPDPCourseDataSchema): Validated course data.
-            df_cohort (raw_cohort.RawPDPCohortDataSchema): Validated cohort data.
-        """
-
-        catalog = self.args.DB_workspace
-        write_schema = f"{self.args.databricks_institution_name}_bronze"
-        course_dataset_validated_path = (
-            f"{catalog}.{write_schema}.{self.args.db_run_id}_course_dataset_validated"
-        )
-        cohort_dataset_validated_path = (
-            f"{catalog}.{write_schema}.{self.args.db_run_id}_cohort_dataset_validated"
-        )
-        try:
-            dataio.write.to_delta_table(
-                df_course,
-                course_dataset_validated_path,
-                spark_session=self.spark_session,
-            )
-            logging.info(
-                "Course data written to Delta Lake table: %s.%s.%s_course_dataset_validated",
-                catalog,
-                write_schema,
-                self.args.db_run_id,
-            )
-
-            dataio.write.to_delta_table(
-                df_cohort,
-                cohort_dataset_validated_path,
-                spark_session=self.spark_session,
-            )
-            logging.info(
-                "Cohort data written to Delta Lake table: %s.%s.%s_cohort_dataset_validated",
-                catalog,
-                write_schema,
-                self.args.db_run_id,
-            )
-
-            return course_dataset_validated_path, cohort_dataset_validated_path
-        except Exception as e:
-            logging.error("Error writing to Delta Lake: %s", e)
-            raise
-
-    def verify_delta_lake_write(
-        self, course_dataset_validated_path, cohort_dataset_validated_path
-    ):
-        """
-        Verifies the Delta Lake write by reading the data back from the tables.
-        """
-        try:
-            df_course_from_catalog = raw_course.RawPDPCourseDataSchema(
-                dataio.from_delta_table(
-                    course_dataset_validated_path,
-                    spark_session=self.spark_session,
-                )
-            )
-            logging.info(
-                "Course DataFrame shape from catalog: %s", df_course_from_catalog.shape
-            )
-
-            df_cohort_from_catalog = raw_cohort.RawPDPCohortDataSchema(
-                dataio.from_delta_table(
-                    cohort_dataset_validated_path,
-                    spark_session=self.spark_session,
-                )
-            )
-            logging.info(
-                "Cohort DataFrame shape from catalog: %s", df_cohort_from_catalog.shape
-            )
-        except Exception as e:
-            logging.error("Error writing to Delta Lake: %s", e)
-            raise
 
     def run(self):
         """
@@ -222,20 +94,13 @@ class DataIngestionTask:
         dbutils.fs.mkdirs(raw_files_path)
 
         fpath_course, fpath_cohort = self.download_data_from_gcs(raw_files_path)
-        df_course, df_cohort = self.read_and_validate_data(fpath_course, fpath_cohort)
 
-        course_dataset_validated_path, cohort_dataset_validated_path = (
-            self.write_data_to_delta_lake(df_course, df_cohort)
-        )
-        self.verify_delta_lake_write(
-            course_dataset_validated_path, cohort_dataset_validated_path
-        )
         # Setting task variables for downstream tasks
         dbutils.jobs.taskValues.set(
-            key="course_dataset_validated_path", value=course_dataset_validated_path
+            key="course_dataset_validated_path", value=fpath_course,
         )
         dbutils.jobs.taskValues.set(
-            key="cohort_dataset_validated_path", value=cohort_dataset_validated_path
+            key="cohort_dataset_validated_path", value=fpath_cohort,
         )
         dbutils.jobs.taskValues.set(key="job_root_dir", value=self.args.job_root_dir)
 
@@ -313,9 +178,5 @@ if __name__ == "__main__":
 
         logging.info("Running task with default schema")
 
-    task = DataIngestionTask(
-        args,
-        cohort_converter_func=cohort_converter_func,
-        course_converter_func=course_converter_func,
-    )
+    task = DataIngestionTask(args)
     task.run()
