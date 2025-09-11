@@ -107,13 +107,13 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     specifically course prefix and number, which supposedly are partial records
     from students' enrollments at *other* institutions -- not wanted here!
     """
-    num_rows_before = len(df)
+    students_before = df[student_id_col].nunique()
 
     # Identify rows missing either identifier
     id_cols = ["course_prefix", "course_number"]
     present_mask = df[id_cols].notna().all(axis=1)
     drop_mask = ~present_mask
-    num_dropped = int(drop_mask.sum())
+    num_dropped_rows = drop_mask.sum()
 
     # Count number of fully dropped students (all rows missing course_prefix)
     student_id_col = (
@@ -124,40 +124,47 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
         else "student_id"
     )
 
-    if num_dropped > 0:
-        # Breakdown by enrolled_at_other_institution_s within the dropped set
-        if "enrolled_at_other_institution_s" in df.columns:
-            dropped = (
-                df.loc[drop_mask, "enrolled_at_other_institution_s"]
-                .astype("string")
-                .str.upper()
-            )
-            count_y = int((dropped == "Y").sum())
-            count_not_y = num_dropped - count_y
-            pct_y = 100.0 * count_y / num_dropped
-            pct_not_y = 100.0 * count_not_y / num_dropped
-
-            LOGGER.warning(
-                " Dropped %s rows from course dataset due to missing identifiers. "
-                " Of these, %s (%.1f%%) had 'Y' in enrolled_at_other_institution_s; "
-                " %s (%.1f%%) did not.",
-                num_dropped,
-                count_y,
-                pct_y,
-                count_not_y,
-                pct_not_y,
-            )
-        else:
-            LOGGER.warning(
-                " Dropped %s rows from course dataset due to missing identifiers. "
-                " Column 'enrolled_at_other_institution_s' not found; cannot compute alignment breakdown.",
-                num_dropped,
-            )
-
     # Keep only rows with both identifiers present
-    df = df.loc[present_mask].reset_index(drop=True)
-    num_rows_after = len(df)
-    return df
+    df_cleaned = df.loc[present_mask].reset_index(drop=True)
+    students_after = df_cleaned[student_id_col].nunique()
+    dropped_students = students_before - students_after
+
+    # Log dropped rows
+    if num_dropped_rows > 0:
+        LOGGER.warning(
+            "Dropped %s rows from course dataset due to missing course_prefix or course_number.",
+            num_dropped_rows,
+        )
+
+    # Log student alignment breakdown if available
+    if "enrolled_at_other_institution_s" in df.columns and num_dropped_rows > 0:
+        dropped = (
+            df.loc[drop_mask, "enrolled_at_other_institution_s"]
+            .astype("string")
+            .str.upper()
+        )
+        count_y = int((dropped == "Y").sum())
+        count_not_y = int(num_dropped_rows - count_y)
+        pct_y = 100.0 * count_y / num_dropped_rows
+        pct_not_y = 100.0 * count_not_y / num_dropped_rows
+
+        LOGGER.warning(
+            "Of dropped rows, %s (%.1f%%) had 'Y' in enrolled_at_other_institution_s; "
+            "%s (%.1f%%) did not.",
+            count_y,
+            pct_y,
+            count_not_y,
+            pct_not_y,
+        )
+
+    # Log fully dropped students
+    if dropped_students:
+        LOGGER.warning(
+            "%d students were fully dropped from the course data due to all their records missing identifiers.",
+            len(dropped_students),
+        )
+
+    return df_cleaned
 
 
 def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
@@ -190,7 +197,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
     )
     n_before = len(df_course)
     students_before = df_course[student_id_col].nunique()
-    df_course = df_course.groupby(student_id_col, group_keys=False).apply(
+    df_filtered = df_course.groupby(student_id_col, group_keys=False).apply(
         lambda df_course: df_course[
             (df_course["academic_year"] > df_course["cohort"])
             | (
@@ -202,32 +209,35 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
     n_after = len(df_course)
     students_after = df_course[student_id_col].nunique()
     n_removed = n_before - n_after
-    n_students_dropped = students_before - students_after
+    dropped_students = students_before - students_after
 
     pct_removed = (n_removed / n_before) * 100
 
     # Logging
     if n_removed > 0:
+        pct_removed = (n_removed / n_before) * 100
         if pct_removed < 1:
             LOGGER.info(
-                " remove_pre_cohort_courses: %d (<1%% of data) pre-cohort course records removed successfully.",
+                " remove_pre_cohort_courses: %d pre-cohort course records removed (<1%% of data).",
                 n_removed,
             )
         else:
             LOGGER.info(
-                " remove_pre_cohort_courses: %d pre-cohort course records removed successfully (%.1f%% of data).",
+                " remove_pre_cohort_courses: %d pre-cohort course records removed (%.1f%% of data).",
                 n_removed,
                 pct_removed,
-        )
-        LOGGER.warning(
-        " remove_pre_cohort_courses: %d students had only pre-cohort records and were dropped.",
-        n_students_dropped,
-        pct_removed,
-        )
-    else:
-        LOGGER.info(" remove_pre_cohort_courses: no pre-cohort course records found.")
+            )
 
-    return df_course
+        if dropped_students:
+            LOGGER.warning(
+                " remove_pre_cohort_courses: %d students were fully dropped (i.e., only had pre-cohort records).",
+                len(dropped_students),
+            )
+    else:
+        LOGGER.info(" remove_pre_cohort_courses: No pre-cohort course records found.")
+
+
+    return df_filtered
 
 
 def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:

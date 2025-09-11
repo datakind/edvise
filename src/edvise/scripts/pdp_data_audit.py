@@ -91,6 +91,8 @@ class PDPDataAuditTask:
             spark_session=self.spark,
         )
 
+        # TODO: we may want to add a check here for expected columns, rows, etc. that could break the schema
+
         # Schema validate cohort data
         LOGGER.info("Reading and schema validating cohort data:")
         df_cohort_validated = read_raw_pdp_cohort_data(
@@ -123,6 +125,9 @@ class PDPDataAuditTask:
                     dttm_format=fmt,
                     spark_session=self.spark,
                 )
+
+                # TODO: we may want to add a check here for expected columns, rows, etc. that could break the schema
+                
                 df_course_validated = read_raw_pdp_course_data(
                     file_path=course_dataset_raw_path,
                     schema=RawPDPCourseDataSchema,
