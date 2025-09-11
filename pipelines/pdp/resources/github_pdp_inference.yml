@@ -28,7 +28,7 @@ resources:
             - pypi:
                 package: pandas==2.2.3
             - pypi:
-              package: numpy==1.26
+                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -61,7 +61,7 @@ resources:
             - pypi:
                 package: pandas==2.2.3
             - pypi:
-                package: numpy==1.26
+                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -94,7 +94,7 @@ resources:
             - pypi:
                 package: pandas==2.2.3
             - pypi:
-                package: numpy==1.26
+                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -127,7 +127,7 @@ resources:
             - pypi:
                 package: pandas==2.2.3
             - pypi:
-                package: numpy==1.26
+                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -161,7 +161,7 @@ resources:
             - pypi:
                 package: pandas==2.2.3
             - pypi:
-                package: numpy==1.26
+                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -206,7 +206,7 @@ resources:
           existing_cluster_id: 5911-191621-o9zpgvdo
           libraries:
             - pypi:
-                package: numpy==1.26
+                package: numpy==1.26.4
             - pypi:
                 package: pandas==2.2.3
             - pypi:
