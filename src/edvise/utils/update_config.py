@@ -49,13 +49,15 @@ class TomlConfigEditor:
     def confirm_field(self, key_path: list[str]) -> None:
         value = self.get(key_path, default=None)
         LOGGER.info("Confirmed %s = %s", ".".join(key_path), value)
-    
+
     def update_key_course_ids(self, ids: list[str]) -> None:
         self.update_field(["preprocessing", "features", "key_course_ids"], ids)
         self.confirm_field(["preprocessing", "features", "key_course_ids"])
 
     def update_key_course_subject_areas(self, cips: list[str]) -> None:
-        self.update_field(["preprocessing", "features", "key_course_subject_areas"], cips)
+        self.update_field(
+            ["preprocessing", "features", "key_course_subject_areas"], cips
+        )
         self.confirm_field(["preprocessing", "features", "key_course_subject_areas"])
 
 

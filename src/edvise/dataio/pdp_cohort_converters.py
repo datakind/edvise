@@ -48,7 +48,7 @@ def rename_mangled_column_names(
 
 def converter_func_cohort(df: pd.DataFrame) -> pd.DataFrame:
     """
-    We also want to handle NaN dual enrollment students as NON-dual enrollment. 
+    We also want to handle NaN dual enrollment students as NON-dual enrollment.
     """
     # Categories to filter out
     filter_categories = ["DE", "DS", "SE"]
@@ -63,4 +63,3 @@ def converter_func_cohort(df: pd.DataFrame) -> pd.DataFrame:
     )
     df = df[~df["dual_and_summer_enrollment"].isin(filter_categories)]
     return df
-
