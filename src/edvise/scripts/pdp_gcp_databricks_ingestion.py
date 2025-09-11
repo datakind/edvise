@@ -68,14 +68,14 @@ class DataIngestionTask:
             # Download course data from GCS
             course_blob_name = f"{sst_container_folder}/{self.args.course_file_name}"
             course_blob = self.bucket.blob(course_blob_name)
-            course_file_path = f"{internal_pipeline_path}{self.args.course_file_name}"
+            course_file_path = os.path.join(internal_pipeline_path, self.args.course_file_name)
             course_blob.download_to_filename(course_file_path)
             logging.info("Course data downloaded from GCS: %s", course_file_path)
 
             # Download cohort data from GCS
             cohort_blob_name = f"{sst_container_folder}/{self.args.cohort_file_name}"
             cohort_blob = self.bucket.blob(cohort_blob_name)
-            cohort_file_path = f"{internal_pipeline_path}{self.args.cohort_file_name}"
+            cohort_file_path = os.path.join(internal_pipeline_path, self.args.cohort_file_name)
             cohort_blob.download_to_filename(cohort_file_path)
             logging.info("Cohort data downloaded from GCS: %s", cohort_file_path)
 
@@ -89,11 +89,22 @@ class DataIngestionTask:
         """
         Executes the data ingestion task.
         """
-        raw_files_path = f"{self.args.job_root_dir}/raw_files/"
-        print("raw_files_path:", raw_files_path)
-        dbutils.fs.mkdirs(raw_files_path)
+        # Use institution bronze volume instead of job_root_dir
+        bronze_root = (
+            f"/Volumes/{self.args.DB_workspace}/"
+            f"{self.args.databricks_institution_name}_bronze/bronze_volume"
+        )
 
-        fpath_course, fpath_cohort = self.download_data_from_gcs(raw_files_path)
+        # Put raw inputs for inference under a stable subfolder in bronze
+        # e.g., /Volumes/.../bronze_volume/inference_inputs/validated/<run-id or date>/
+        landing_dir = os.path.join(
+            bronze_root, "inference_inputs", "validated", self.args.db_run_id
+        )
+
+        # Ensure the directory exists (Volumes are accessible as local paths)
+        os.makedirs(landing_dir, exist_ok=True)
+
+        fpath_course, fpath_cohort = self.download_data_from_gcs(landing_dir)
 
         # Setting task variables for downstream tasks
         dbutils.jobs.taskValues.set(
@@ -134,9 +145,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--gcp_bucket_name", required=True, help="Name of the GCP bucket"
     )
-    parser.add_argument(
-        "--job_root_dir", required=True, help="Folder path to store job output files"
-    )
+
     parser.add_argument(
         "--custom_schemas_path",
         required=False,

@@ -4,6 +4,7 @@ import logging
 import typing as t
 import sys
 import pandas as pd
+import pathlib
 import os
 
 # Go up 3 levels from the current file's directory to reach repo root
@@ -70,18 +71,40 @@ class PDPDataAuditTask:
         )
         self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
+    def _resolve_path(task_param_path: t.Optional[str], cfg_path: str, label: str) -> str:
+        """
+        Resolve path depending on if we're running training (accepts from config) or
+        inference (accepts from task parameters).
+        We resolve by prefering a non-empty task parameter path, otherwise we fall back to config.
+        """
+        # Accept only non-empty strings for task parameter paths
+        chosen = (task_param_path.strip() if isinstance(task_param_path, str) and task_param_path.strip() else None) or cfg_path
+
+        # Log decision
+        if task_param_path and task_param_path.strip():
+            LOGGER.info("%s: using inference-provided path: %s", label, chosen)
+        else:
+            LOGGER.info("%s: using training-config path: %s", label, chosen)
+
+        # Sanity check for /Volumes paths (skip dbfs:/)
+        if chosen.startswith("/Volumes/"):
+            p = pathlib.Path(chosen)
+            if not p.exists():
+                LOGGER.warning("%s path does not exist at runtime: %s", label, chosen)
+
+        return chosen
+
     def run(self):
         """Executes the data preprocessing pipeline."""
-        cohort_dataset_raw_path = (
-            self.args.cohort_dataset_validated_path # inference
-            if self.args.cohort_dataset_validated_path
-            else self.cfg.datasets.bronze.raw_cohort.file_path # training
+        cohort_dataset_raw_path = self._resolve_path(
+            self.args.cohort_dataset_validated_path,
+            self.cfg.datasets.bronze.raw_cohort.file_path,
+            "cohort",
         )
-
-        course_dataset_raw_path = (
-            self.args.course_dataset_validated_path # inference
-            if self.args.course_dataset_validated_path
-            else self.cfg.datasets.bronze.raw_course.file_path # training
+        course_dataset_raw_path = self._resolve_path(
+            self.args.course_dataset_validated_path,
+            self.cfg.datasets.bronze.raw_course.file_path,
+            "course",
         )
 
         # --- Load datasets ---

@@ -4,11 +4,11 @@ resources:
       name: edvise_github_sourced_pdp_inference_pipeline
       max_concurrent_runs: 2
       tasks:
-        - task_key: data_ingestion
-          spark_python_task:
-            python_file: src/edvise/scripts/pdp_gcp_databricks_ingestion.py
-            source: GIT
-            parameters:
+        # - task_key: data_ingestion
+        #   spark_python_task:
+        #     python_file: src/edvise/scripts/pdp_gcp_databricks_ingestion.py
+        #     source: GIT
+        #     parameters:
 
         - task_key: data_audit
           spark_python_task:
