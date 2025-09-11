@@ -11,7 +11,6 @@ from databricks.sdk import WorkspaceClient
 from mlflow.tracking import MlflowClient
 from joblib import Parallel, delayed
 from typing import List, Optional
-import importlib
 import shap
 
 # Go up 3 levels from the current file's directory to reach repo root
@@ -37,9 +36,7 @@ from edvise.utils.databricks import get_spark_session
 from edvise.modeling.inference import top_n_features, features_box_whiskers_table
 from edvise.modeling.evaluation import plot_shap_beeswarm
 
-from edvise.dataio.read import (
-    read_config
-)
+from edvise.dataio.read import read_config
 
 # Disable mlflow autologging (prevents conflicts in Databricks)
 mlflow.autolog(disable=True)
@@ -59,7 +56,7 @@ class ModelInferenceTask:
         self.cfg = read_config(
             file_path=self.args.config_file_path, schema=PDPProjectConfig
         )
-        self.model_type = 'sklearn'
+        self.model_type = "sklearn"
 
     def load_mlflow_model(self):
         """Loads the MLflow model."""
@@ -242,7 +239,6 @@ class ModelInferenceTask:
             logging.error("Error during SHAP value calculation: %s", e)
             raise
 
-    
     def support_score_distribution(
         self, df_serving, unique_ids, df_predicted, shap_values, model_feature_names
     ):
@@ -256,7 +252,9 @@ class ModelInferenceTask:
             return None
 
         # --- Load features table ---
-        features_table = dataio.read.read_features_table("assets/pdp/features_table.toml")
+        features_table = dataio.read.read_features_table(
+            "assets/pdp/features_table.toml"
+        )
 
         # --- Inference Parameters ---
         inference_params = {
@@ -293,9 +291,13 @@ class ModelInferenceTask:
                 "Spark session not initialized. Cannot post process shap values."
             )
             return None
-        features_table = dataio.read.read_features_table("assets/pdp/features_table.toml")
-        shap_feature_importance = modeling.automl.inference.generate_ranked_feature_table(
-            df_serving, shap_values.values, features_table
+        features_table = dataio.read.read_features_table(
+            "assets/pdp/features_table.toml"
+        )
+        shap_feature_importance = (
+            modeling.automl.inference.generate_ranked_feature_table(
+                df_serving, shap_values.values, features_table
+            )
         )
 
         return shap_feature_importance
@@ -313,7 +315,9 @@ class ModelInferenceTask:
             return None
 
         # --- Load features table ---
-        features_table = dataio.read.read_features_table("assets/pdp/features_table.toml")
+        features_table = dataio.read.read_features_table(
+            "assets/pdp/features_table.toml"
+        )
 
         # --- Inference Parameters ---
         inference_params = {
@@ -356,7 +360,7 @@ class ModelInferenceTask:
         df_processed = dataio.read.read_parquet(
             f"{self.args.silver_volume_path}/preprocessed.parquet"
         )
-        #subset for testing
+        # subset for testing
         df_processed = df_processed[:30]
         unique_ids = df_processed[self.cfg.student_id_col]
 
@@ -514,13 +518,39 @@ def parse_arguments() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
-    parser.add_argument("--config_file_path", type=str, required=True, help="Path to configuration file")
-    parser.add_argument("--db_run_id", type=str, required=True, help="Databricks run ID")
-    parser.add_argument("--DB_workspace", type=str,required=True, help="Databricks workspace identifier")
-    parser.add_argument("--databricks_institution_name", type=str, required=True, help="Databricks institution name")
-    parser.add_argument("--datakind_notification_email", type=str,required=True, help="DK's email used for notifications")
-    parser.add_argument("--DK_CC_EMAIL", type=str, required=True, help="Datakind email address CC'd")
-    parser.add_argument( "--job_root_dir", type=str, required=True, help="Folder path to store job output files")
+    parser.add_argument(
+        "--config_file_path", type=str, required=True, help="Path to configuration file"
+    )
+    parser.add_argument(
+        "--db_run_id", type=str, required=True, help="Databricks run ID"
+    )
+    parser.add_argument(
+        "--DB_workspace",
+        type=str,
+        required=True,
+        help="Databricks workspace identifier",
+    )
+    parser.add_argument(
+        "--databricks_institution_name",
+        type=str,
+        required=True,
+        help="Databricks institution name",
+    )
+    parser.add_argument(
+        "--datakind_notification_email",
+        type=str,
+        required=True,
+        help="DK's email used for notifications",
+    )
+    parser.add_argument(
+        "--DK_CC_EMAIL", type=str, required=True, help="Datakind email address CC'd"
+    )
+    parser.add_argument(
+        "--job_root_dir",
+        type=str,
+        required=True,
+        help="Folder path to store job output files",
+    )
     return parser.parse_args()
 
 
