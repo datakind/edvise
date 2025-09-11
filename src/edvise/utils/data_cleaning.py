@@ -139,18 +139,8 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
             pct_dropped_rows,
         )
 
-        # 🔎 Additional analysis of dropped records to detect trends
+        # Additional analysis of dropped records to detect trends
         df_dropped = df.loc[drop_mask].copy()
-
-        # Log value counts of key fields
-        for col in ["enrollment_type", "enrollment_intensity_first_term"]:
-            if col in df_dropped.columns:
-                value_counts = df_dropped[col].value_counts(dropna=False)
-                LOGGER.info(
-                    " Value counts for missing-identifier (dropped) records in column '%s' to identify potential trends:\n%s",
-                    col,
-                    value_counts.to_string(),
-                )
 
         # Log grouped cohort & cohort_term
         if "cohort" in df_dropped.columns and "cohort_term" in df_dropped.columns:
@@ -286,10 +276,10 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
                     value_counts.to_string(),
                 )
 
-        # Log grouped cohort & cohort_term (only if both present)
-        if "cohort" in df_dropped.columns and "cohort_term" in df_dropped.columns:
+        # Log grouped academic_year and  academic_term (only if both present)
+        if "academic_year" in df_dropped.columns and "academic_term" in df_dropped.columns:
             cohort_group_counts = (
-                df_dropped.groupby(["cohort", "cohort_term"], dropna=False)
+                df_dropped.groupby(["academic_year", "academic_term"], dropna=False)
                 .size()
                 .sort_index()
             )
