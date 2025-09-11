@@ -80,6 +80,9 @@ class PDPTargetsTask:
             columns={target_series.name: "target"}
         )
 
+        target_counts =df_target["target"].value_counts(dropna=False)
+        logging.info("Target breakdown (counts):\n%s", target_counts.to_string())
+
         target_percents =df_target["target"].value_counts(normalize=True, dropna=False)
         logging.info("Target breakdown (counts):\n%s", target_percents.to_string())
         
