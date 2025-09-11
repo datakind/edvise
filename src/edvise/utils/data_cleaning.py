@@ -134,7 +134,7 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     # Log dropped rows
     if num_dropped_rows > 0:
         LOGGER.warning(
-            "Dropped %s rows from course dataset due to missing course_prefix or course_number.",
+            " Dropped %s rows from course dataset due to missing course_prefix or course_number.",
             num_dropped_rows,
         )
 
@@ -151,8 +151,8 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
         pct_not_y = 100.0 * count_not_y / num_dropped_rows
 
         LOGGER.warning(
-            "Of dropped rows, %s (%.1f%%) had 'Y' in enrolled_at_other_institution_s; "
-            "%s (%.1f%%) did not.",
+            " Of dropped rows, %s (%.1f%%) had 'Y' in enrolled_at_other_institution_s; "
+            " %s (%.1f%%) did not.",
             count_y,
             pct_y,
             count_not_y,
@@ -162,7 +162,7 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     # Log fully dropped students
     if dropped_students:
         LOGGER.warning(
-            "%d students were fully dropped from the course data due to all their records missing identifiers.",
+            " %d students were fully dropped from the course data due to all their records missing identifiers.",
             dropped_students,
         )
 
@@ -208,8 +208,8 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
             )
         ]
     )
-    n_after = len(df_course)
-    students_after = df_course[student_id_col].nunique()
+    n_after = len(df_filtered)
+    students_after = df_filtered[student_id_col].nunique()
     n_removed = n_before - n_after
     dropped_students = students_before - students_after
 
