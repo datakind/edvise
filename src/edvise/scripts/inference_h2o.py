@@ -48,7 +48,8 @@ import edvise.dataio as dataio
 import edvise.modeling as modeling
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.utils import emails
-
+from edvise.utils.databricks import get_spark_session
+from edvise.modeling.inference import top_n_features, features_box_whiskers_table
 
 # Shared predictions pipeline (your extracted module)
 from edvise.scripts.predictions_h2o import (
@@ -71,7 +72,7 @@ class ModelInferenceTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.spark_session = self.get_spark_session()
+        self.spark_session = get_spark_session()
         self.cfg = dataio.read.read_config(
             self.args.config_file_path, schema=PDPProjectConfig
         )
@@ -80,73 +81,73 @@ class ModelInferenceTask:
         self.model_run_id: str | None = None
         self.model_experiment_id: str | None = None
 
-    def get_spark_session(self) -> SparkSession:
-        """
-        Attempts to create a Spark session.
-        Returns:
-            DatabricksSession | None: A Spark session if successful, None otherwise.
-        """
-        try:
-            spark_session = DatabricksSession.builder.getOrCreate()
-            logging.info("Spark session created successfully.")
-            return spark_session
-        except Exception:
-            logging.error("Unable to create Spark session.")
-            raise
+    # def get_spark_session(self) -> SparkSession:
+    #     """
+    #     Attempts to create a Spark session.
+    #     Returns:
+    #         DatabricksSession | None: A Spark session if successful, None otherwise.
+    #     """
+    #     try:
+    #         spark_session = DatabricksSession.builder.getOrCreate()
+    #         logging.info("Spark session created successfully.")
+    #         return spark_session
+    #     except Exception:
+    #         logging.error("Unable to create Spark session.")
+    #         raise
 
-    def read_config(self, config_file_path: str) -> PDPProjectConfig:
-        try:
-            return dataio.read.read_config(config_file_path, schema=PDPProjectConfig)
-        except FileNotFoundError:
-            logging.error("Configuration file not found at %s", config_file_path)
-            raise
-        except Exception as e:
-            logging.error("Error reading configuration file: %s", e)
-            raise
+    # def read_config(self, config_file_path: str) -> PDPProjectConfig:
+    #     try:
+    #         return dataio.read.read_config(config_file_path, schema=PDPProjectConfig)
+    #     except FileNotFoundError:
+    #         logging.error("Configuration file not found at %s", config_file_path)
+    #         raise
+    #     except Exception as e:
+    #         logging.error("Error reading configuration file: %s", e)
+    #         raise
 
-    def top_n_features(
-        self,
-        grouped_features: pd.DataFrame,
-        unique_ids: pd.Series,
-        grouped_shap_values: npt.NDArray[np.float64] | pd.DataFrame,  # relax input
-        features_table_path: str,
-        n: int = 10,
-    ) -> pd.DataFrame:
-        features_table = dataio.read.read_features_table(features_table_path)
-        try:
-            top_n_shap_features = modeling.automl.inference.top_shap_features(
-                features=grouped_features,
-                unique_ids=unique_ids,
-                shap_values=(
-                    grouped_shap_values.values
-                    if isinstance(grouped_shap_values, pd.DataFrame)
-                    else grouped_shap_values
-                ),
-                top_n=n,
-                features_table=features_table,
-            )
-            return top_n_shap_features
-        except Exception as e:
-            logging.error("Error computing top %d shap features table: %s", n, e)
-            raise  # keep the signature honest
+    # def top_n_features(
+    #     self,
+    #     grouped_features: pd.DataFrame,
+    #     unique_ids: pd.Series,
+    #     grouped_shap_values: npt.NDArray[np.float64] | pd.DataFrame,  # relax input
+    #     features_table_path: str,
+    #     n: int = 10,
+    # ) -> pd.DataFrame:
+    #     features_table = dataio.read.read_features_table(features_table_path)
+    #     try:
+    #         top_n_shap_features = modeling.automl.inference.top_shap_features(
+    #             features=grouped_features,
+    #             unique_ids=unique_ids,
+    #             shap_values=(
+    #                 grouped_shap_values.values
+    #                 if isinstance(grouped_shap_values, pd.DataFrame)
+    #                 else grouped_shap_values
+    #             ),
+    #             top_n=n,
+    #             features_table=features_table,
+    #         )
+    #         return top_n_shap_features
+    #     except Exception as e:
+    #         logging.error("Error computing top %d shap features table: %s", n, e)
+    #         raise  # keep the signature honest
 
-    def features_box_whiskers_table(
-        self,
-        features: pd.DataFrame,
-        shap_values: npt.NDArray[np.float64],
-    ) -> pd.DataFrame:
-        features_table = dataio.read.read_features_table(self.features_table_path)
-        try:
-            feature_boxstats = modeling.automl.inference.top_feature_boxstats(
-                features=features,
-                shap_values=shap_values,
-                features_table=features_table,
-            )
-            return feature_boxstats
+    # def features_box_whiskers_table(
+    #     self,
+    #     features: pd.DataFrame,
+    #     shap_values: npt.NDArray[np.float64],
+    # ) -> pd.DataFrame:
+    #     features_table = dataio.read.read_features_table(self.features_table_path)
+    #     try:
+    #         feature_boxstats = modeling.automl.inference.top_feature_boxstats(
+    #             features=features,
+    #             shap_values=shap_values,
+    #             features_table=features_table,
+    #         )
+    #         return feature_boxstats
 
-        except Exception as e:
-            logging.error("Error computing box features %d shap features table: %s", e)
-            return None
+    #     except Exception as e:
+    #         logging.error("Error computing box features %d shap features table: %s", e)
+    #         return None
 
     def load_mlflow_model_metadata(self) -> None:
         """Discover UC model latest version -> run_id + experiment_id (no model object needed here)."""
@@ -280,15 +281,16 @@ class ModelInferenceTask:
             }
         )
         # 6) Create FE tables
-        inference_features_with_most_impact = self.top_n_features(
+        inference_features_with_most_impact = top_n_features(
             grouped_features=out.grouped_features,
             unique_ids=out.unique_ids,
             grouped_shap_values=out.grouped_contribs_df,
             features_table_path=features_table_path,
         ).merge(support_scores, on="student_id", how="left")
-        box_whiskers_table = self.features_box_whiskers_table(
+        box_whiskers_table = features_box_whiskers_table(
             features=out.grouped_features,
             shap_values=out.grouped_contribs_df.values,
+            features_table_path=features_table_path,
         )
 
         # 7) Write FE tables
