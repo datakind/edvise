@@ -210,12 +210,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
     students_before = df_course[student_id_col].nunique()
     df_filtered = (
     df_course.loc[
-        (df_course["academic_year"].gt(df_course["cohort"]))
-        | (
-            df_course["academic_year"].eq(df_course["cohort"])
-            & df_course["academic_term"].ge(df_course["cohort_term"])
-        ),
-        :
+        (df_course["academic_year"].ge(df_course["cohort"]))
     ]
     .assign(
         cohort_id=lambda df: df["cohort"].astype(str).str.cat(df["cohort_term"].astype(str), sep=" "),
