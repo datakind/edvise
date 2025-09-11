@@ -5,6 +5,7 @@ import typing as t
 from collections.abc import Iterable
 from edvise.utils import types
 from edvise.dataio.pdp_course_converters import dedupe_by_renumbering_courses
+import pdb
 
 LOGGER = logging.getLogger(__name__)
 
@@ -214,6 +215,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
 
     pct_removed = (n_removed / n_before) * 100
 
+    pdb.set_trace()
     # Logging
     if n_removed > 0:
         pct_removed = (n_removed / n_before) * 100
