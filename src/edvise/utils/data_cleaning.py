@@ -220,12 +220,12 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
         pct_removed = (n_removed / n_before) * 100
         if pct_removed < 1:
             LOGGER.info(
-                " remove_pre_cohort_courses: %d pre-cohort course records removed (<1%% of data).",
+                " remove_pre_cohort_courses: %d pre-cohort course records safely removed (<1%% of data).",
                 n_removed,
             )
         else:
             LOGGER.info(
-                " remove_pre_cohort_courses: %d pre-cohort course records removed (%.1f%% of data).",
+                " remove_pre_cohort_courses: %d pre-cohort course records safely removed (%.1f%% of data).",
                 n_removed,
                 pct_removed,
             )
@@ -298,7 +298,7 @@ def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
 
             truncated = (pre_truncated != df_course[col]).sum(min_count=1)
             LOGGER.info(
-                'Stripped trailing ".0" in %s rows for column "%s".',
+                ' Stripped trailing ".0" in %s rows for column "%s".',
                 int(truncated or 0),
                 col,
             )
