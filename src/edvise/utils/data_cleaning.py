@@ -204,17 +204,25 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
     n_removed = n_before - n_after
     n_students_dropped = students_before - students_after
 
+    pct_removed = (n_removed / n_before) * 100
+
     # Logging
     if n_removed > 0:
-        pct_removed = (n_removed / n_before) * 100
-        LOGGER.info(
-            " remove_pre_cohort_courses: %d pre-cohort course records removed successfully (%.1f%% of data).",
-            n_removed,
-            pct_removed,
+        if pct_removed < 1:
+            LOGGER.info(
+                " remove_pre_cohort_courses: %d (<1%% of data) pre-cohort course records removed successfully.",
+                n_removed,
+            )
+        else:
+            LOGGER.info(
+                " remove_pre_cohort_courses: %d pre-cohort course records removed successfully (%.1f%% of data).",
+                n_removed,
+                pct_removed,
         )
         LOGGER.warning(
-            " remove_pre_cohort_courses: %d students had only pre-cohort records and were dropped.",
-            n_students_dropped,
+        " remove_pre_cohort_courses: %d students had only pre-cohort records and were dropped.",
+        n_students_dropped,
+        pct_removed,
         )
     else:
         LOGGER.info(" remove_pre_cohort_courses: no pre-cohort course records found.")
