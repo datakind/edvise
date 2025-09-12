@@ -165,7 +165,7 @@ class PDPDataAuditTask:
 
         try:
             include_pre_cohort = (
-                self.args.config_file_path.preprocessing.include_pre_cohort_courses
+                self.cfg.preprocessing.include_pre_cohort_courses
             )
         except AttributeError:
             raise AttributeError(
@@ -175,7 +175,7 @@ class PDPDataAuditTask:
 
         if not include_pre_cohort:
             df_course_standardized = remove_pre_cohort_courses(
-                df_course_standardized, self.args.config_file_path.student_id_col
+                df_course_standardized, self.cfg.student_id_col
             )
 
         LOGGER.info(" Course data standardized.")
