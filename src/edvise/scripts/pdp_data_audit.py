@@ -93,7 +93,7 @@ class PDPDataAuditTask:
             LOGGER.info("%s: using training-config path: %s", label, chosen)
 
         # Sanity check for /Volumes paths (skip dbfs:/)
-        if chosen.startswith("/Volumes/"):
+        if chosen.startswith("/g/"):
             p = pathlib.Path(chosen)
             if not p.exists():
                 LOGGER.warning("%s path does not exist at runtime: %s", label, chosen)
