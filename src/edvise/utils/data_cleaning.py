@@ -101,7 +101,9 @@ def strip_upper_strings_to_cats(series: pd.Series) -> pd.Series:
     return series.str.strip().str.upper().astype("category")
 
 
-def drop_course_rows_missing_identifiers(df: pd.DataFrame, student_id_col: str) -> pd.DataFrame:
+def drop_course_rows_missing_identifiers(
+    df: pd.DataFrame, student_id_col: str
+) -> pd.DataFrame:
     """
     Drop rows from raw course dataset missing key course identifiers,
     specifically course prefix and number, which supposedly are partial records
@@ -187,7 +189,9 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame, student_id_col: str) 
     return df_cleaned
 
 
-def remove_pre_cohort_courses(df_course: pd.DataFrame, student_id_col: str) -> pd.DataFrame:
+def remove_pre_cohort_courses(
+    df_course: pd.DataFrame, student_id_col: str
+) -> pd.DataFrame:
     """
     Removes any course records that occur before a student's cohort start term.
 
