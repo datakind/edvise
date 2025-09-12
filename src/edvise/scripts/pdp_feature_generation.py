@@ -50,10 +50,10 @@ class PDPFeatureGenerationTask:
 
         # --- Load datasets ---
         df_course = pd.read_parquet(
-            f"{self.args.silver_volume_path}/df_course_validated.parquet"
+            f"{self.args.silver_volume_path}/df_course_standardized.parquet"
         )
         df_cohort = pd.read_parquet(
-            f"{self.args.silver_volume_path}/df_cohort_validated.parquet"
+            f"{self.args.silver_volume_path}/df_cohort_standardized.parquet"
         )
 
         # --- Generate student-term dataset ---
