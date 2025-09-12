@@ -1,4 +1,5 @@
 """Task for publishing data that has been output by the inference task."""
+
 import os
 import sys
 import argparse
@@ -32,6 +33,7 @@ def get_dbutils():
     """Lazy import: only available on Databricks."""
     try:
         from databricks.sdk.runtime import dbutils  # type: ignore
+
         return dbutils
     except Exception:
         return None
