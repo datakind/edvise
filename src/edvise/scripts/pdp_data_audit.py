@@ -42,7 +42,10 @@ from edvise.data_audit.eda import (
     log_misjoined_records,
 )
 from edvise.utils.update_config import update_key_courses_and_cips
-from edvise.utils.data_cleaning import remove_pre_cohort_courses
+from edvise.utils.data_cleaning import (
+    remove_pre_cohort_courses, 
+    log_pre_cohort_courses,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -171,6 +174,8 @@ class PDPDataAuditTask:
             df_course_standardized = remove_pre_cohort_courses(
                 df_course_validated, self.cfg.student_id_col
             )
+        else:
+            log_pre_cohort_courses(df_course_validated)
 
         # Standardize course data
         LOGGER.info(" Standardizing course data:")
