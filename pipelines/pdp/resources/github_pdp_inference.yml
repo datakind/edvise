@@ -21,8 +21,6 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --gcp_bucket_name
               - "{{job.parameters.gcp_bucket_name}}"
-              - --custom_schemas_path
-              - "{{job.parameters.custom_schemas_path}}"
           existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
@@ -267,8 +265,8 @@ resources:
               - "{{job.parameters.db_run_id}}"
               - --gcp_bucket_name
               - "{{job.parameters.gcp_bucket_name}}"
-              - --notification_email
-              - "{{job.parameters.notification_email}}"
+              - --datakind_notification_email
+              - "{{job.parameters.datakind_notification_email}}"
           existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
@@ -307,8 +305,6 @@ resources:
           default: ${var.datakind_notification_email}
         - name: service_account_executer
           default: ${var.service_account_executer}
-        - name: custom_schemas_path
-          default: ${var.custom_schemas_path}
       permissions:
         - user_name: ${var.ds_run_as}
           level: IS_OWNER

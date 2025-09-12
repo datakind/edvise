@@ -33,7 +33,7 @@ def main():
     )
 
     parser.add_argument(
-        "--notification_email",
+        "--datakind_notification_email",
         required=True,
         help="User's email who triggered the inference run.",
     )
@@ -53,7 +53,7 @@ def main():
     password = w.dbutils.secrets.get(scope="sst", key="MANDRILL_PASSWORD")
     logging.info("Sending email notification")
     send_inference_completion_email(
-        sender_email, [args.notification_email], cc_email_list, username, password
+        sender_email, [args.datakind_notification_email], cc_email_list, username, password
     )
 
 
