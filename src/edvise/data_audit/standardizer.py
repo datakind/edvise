@@ -108,9 +108,7 @@ class PDPCourseStandardizer(BaseStandardizer):
             df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
         """
         df = strip_trailing_decimal_strings(df)
-        df = drop_course_rows_missing_identifiers(
-            df, self.args.config_file_path.student_id_col
-        )
+        df = drop_course_rows_missing_identifiers(df)
         log_high_null_columns(df)
         cols_to_drop = [
             # student demographics found in raw cohort dataset

@@ -101,26 +101,31 @@ def strip_upper_strings_to_cats(series: pd.Series) -> pd.Series:
     return series.str.strip().str.upper().astype("category")
 
 
-def drop_course_rows_missing_identifiers(
-    df: pd.DataFrame, student_id_col: str
-) -> pd.DataFrame:
+def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFrame:
     """
     Drop rows from raw course dataset missing key course identifiers,
     specifically course prefix and number, which supposedly are partial records
     from students' enrollments at *other* institutions -- not wanted here!
     """
-
-    students_before = df[student_id_col].nunique()
+    # HACK: infer the correct student id col in raw data from the data itself
+    student_id_col = (
+        "student_guid"
+        if "student_guid" in df_course.columns
+        else "study_id"
+        if "study_id" in df_course.columns
+        else "student_id"
+    )
+    students_before = df_course[student_id_col].nunique()
 
     # Identify rows missing either identifier
     id_cols = ["course_prefix", "course_number"]
-    present_mask = df[id_cols].notna().all(axis=1)
+    present_mask = df_course[id_cols].notna().all(axis=1)
     drop_mask = ~present_mask
     num_dropped_rows = int(drop_mask.sum())
-    pct_dropped_rows = (num_dropped_rows / len(df) * 100.0) if len(df) else 0.0
+    pct_dropped_rows = (num_dropped_rows / len(df_course) * 100.0) if len(df_course) else 0.0
 
     # Keep only rows with both identifiers present
-    df_cleaned = df.loc[present_mask].reset_index(drop=True)
+    df_cleaned = df_course.loc[present_mask].reset_index(drop=True)
     students_after = df_cleaned[student_id_col].nunique()
     dropped_students = students_before - students_after
 
@@ -133,7 +138,7 @@ def drop_course_rows_missing_identifiers(
         )
 
         # Additional analysis of dropped records to detect trends
-        df_dropped = df.loc[drop_mask].copy()
+        df_dropped = df_course.loc[drop_mask].copy()
 
         # Log grouped cohort & cohort_term
         if "cohort" in df_dropped.columns and "cohort_term" in df_dropped.columns:
@@ -150,9 +155,9 @@ def drop_course_rows_missing_identifiers(
             )
 
     # Log student alignment breakdown if available
-    if "enrolled_at_other_institution_s" in df.columns and num_dropped_rows > 0:
+    if "enrolled_at_other_institution_s" in df_course.columns and num_dropped_rows > 0:
         dropped_flag = (
-            df.loc[drop_mask, "enrolled_at_other_institution_s"]
+            df_course.loc[drop_mask, "enrolled_at_other_institution_s"]
             .astype("string")
             .str.upper()
         )
