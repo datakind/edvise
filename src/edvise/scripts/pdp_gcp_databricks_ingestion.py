@@ -100,7 +100,7 @@ class DataIngestionTask:
         # Put raw inputs for inference under a stable subfolder in bronze
         # e.g., /Volumes/.../bronze_volume/inference_inputs/validated/<run-id or date>/
         landing_dir = os.path.join(
-            bronze_root, "inference_inputs", "validated", self.args.db_run_id
+            bronze_root, "inference_inputs", self.args.db_run_id
         )
 
         # Ensure the directory exists (Volumes are accessible as local paths)
@@ -161,12 +161,12 @@ def parse_arguments() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_arguments()
     sys.path.append(
-        f"/Volumes/staging_sst_01/{args.databricks_institution_name}_gold/gold_volume/inference_inputs"
+        f"/Volumes/{args.DB_workspace}/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
     )
     logging.info(
         "Files in the inference inputs path: %s",
         os.listdir(
-            f"/Volumes/staging_sst_01/{args.databricks_institution_name}_gold/gold_volume/inference_inputs"
+            f"/Volumes/{args.DB_workspace}/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
         ),
     )
     try:
