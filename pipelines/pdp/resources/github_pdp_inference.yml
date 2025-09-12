@@ -301,6 +301,8 @@ resources:
           default: ${var.config_file_name}
         - name: ds_run_as
           default: ${var.ds_run_as}
+        - name: gcp_bucket_name
+          default: databricks-2052166062819251-unitycatalog
         - name: datakind_notification_email
           default: ${var.datakind_notification_email}
         - name: service_account_executer
