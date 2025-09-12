@@ -207,7 +207,7 @@ def drop_collinear_features_iteratively(
     np.seterr(divide="ignore", invalid="ignore")
     force_include_cols = force_include_cols or []
 
-    # Identify numeric and boolean columns 
+    # Identify numeric and boolean columns
     numeric_df = df.select_dtypes(include=["number"])
     bool_df = df.select_dtypes(include=["boolean"]).astype("Int64")
 
@@ -215,12 +215,12 @@ def drop_collinear_features_iteratively(
         LOGGER.warning("no numeric columns found, so no collinear features to drop")
         return df
 
-    #Impute numeric features with mean because VIF function can't handle nulls
+    # Impute numeric features with mean because VIF function can't handle nulls
     imputer: sklearn.impute.SimpleImputer = sklearn.impute.SimpleImputer(
         missing_values=np.nan, strategy="mean"
     ).set_output(transform="pandas")  # type: ignore
     df_num_imputed = imputer.fit_transform(numeric_df)
-    assert isinstance(df_num_imputed, pd.DataFrame) 
+    assert isinstance(df_num_imputed, pd.DataFrame)
 
     df_features = df_num_imputed.copy()
 
@@ -233,7 +233,7 @@ def drop_collinear_features_iteratively(
 
         df_bool_imputed = bool_imputer.fit_transform(bool_df)
 
-        assert isinstance(df_bool_imputed, pd.DataFrame)  
+        assert isinstance(df_bool_imputed, pd.DataFrame)
 
         df_features = pd.concat([df_features, df_bool_imputed], axis=1)
 

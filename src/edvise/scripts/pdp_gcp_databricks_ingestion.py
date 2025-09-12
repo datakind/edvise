@@ -99,9 +99,7 @@ class DataIngestionTask:
 
         # Put raw inputs for inference under a stable subfolder in bronze
         # e.g., /Volumes/.../bronze_volume/inference_inputs/validated/<run-id or date>/
-        landing_dir = os.path.join(
-            bronze_root, "inference_inputs", self.args.db_run_id
-        )
+        landing_dir = os.path.join(bronze_root, "inference_inputs", self.args.db_run_id)
 
         # Ensure the directory exists (Volumes are accessible as local paths)
         os.makedirs(landing_dir, exist_ok=True)
@@ -187,7 +185,6 @@ if __name__ == "__main__":
         schemas = importlib.import_module("schemas")
         logging.info("Running task with custom schema")
     except Exception:
-
         logging.info("Running task with default schema")
 
     task = DataIngestionTask(args)

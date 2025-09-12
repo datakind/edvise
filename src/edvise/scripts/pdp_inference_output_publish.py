@@ -3,8 +3,8 @@
 import argparse
 import logging
 
-from student_success_tool.utils.gcs import publish_inference_output_files
-from student_success_tool.utils.emails import send_inference_completion_email
+from edvise.utils.gcs import publish_inference_output_files
+from edvise.utils.emails import send_inference_completion_email
 from databricks.sdk import WorkspaceClient
 from email.headerregistry import Address
 
