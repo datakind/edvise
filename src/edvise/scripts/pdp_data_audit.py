@@ -38,7 +38,7 @@ from edvise.configs.pdp import PDPProjectConfig
 from edvise.data_audit.eda import (
     compute_gateway_course_ids_and_cips,
     log_record_drops,
-    log_most_recent_terms,
+    log_terms,
     log_misjoined_records,
 )
 from edvise.utils.update_config import update_key_courses_and_cips
@@ -117,6 +117,16 @@ class PDPDataAuditTask:
             " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
         )
         log_misjoined_records(df_cohort_raw, df_course_raw)
+
+        # Logs cohort year and terms and academic year and terms, grouped and sorted 
+        
+        LOGGER.info(
+            " Listing grouped cohort year and terms and academic year and terms for raw cohort and course data files: "
+        )
+        log_terms(
+            df_course_raw,
+            df_cohort_raw,
+        )
 
         # TODO: we may want to add checks here for expected columns, rows, etc. that could break the schemas
 
@@ -202,8 +212,12 @@ class PDPDataAuditTask:
             df_course_standardized,
         )
 
-        # Logs most recent terms
-        log_most_recent_terms(
+        LOGGER.info(
+            " Listing grouped cohort year and terms and academic year and terms for *standardized* cohort and course data files: "
+        )
+
+        # Logs cohort year and terms and academic year and terms, grouped and sorted 
+        log_terms(
             df_course_standardized,
             df_cohort_standardized,
         )

@@ -478,46 +478,34 @@ def log_record_drops(
     )
 
 
-def log_most_recent_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
+def log_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
     """
-    Logs the most recent cohort year/term and academic year/term based on data.
+    Logs ALL cohort year/term pairs and ALL academic year/term pairs,
+    each sorted by year then term.
     """
+    # --- Cohort year/term pairs ---
     if {"cohort", "cohort_term"}.issubset(df_cohort.columns):
-        latest_cohort = (
+        cohort_terms = (
             df_cohort[["cohort", "cohort_term"]]
             .dropna()
-            .sort_values(by=["cohort", "cohort_term"], ascending=False)
-            .head(1)
+            .drop_duplicates()
+            .sort_values(by=["cohort", "cohort_term"])
         )
-        LOGGER.info(
-            " Most recent cohort year and term: %s %s. "
-            "\n NOTE: If FALL/WINTER, assume earlier year: e.g. 2023-24 FALL is FALL 2023. "
-            "\n If SPRING/SUMMER, assume later year: e.g. 2023-24 SPRING is SPRING 2024.",
-            latest_cohort["cohort"].values[0],
-            latest_cohort["cohort_term"].values[0],
-        )
+        LOGGER.info("All cohort year/term pairs:\n%s", cohort_terms.to_string(index=False))
     else:
-        LOGGER.warning(" Missing cohort or cohort_term column in cohort dataframe.")
+        LOGGER.warning("Missing fields cohort or cohort_term column in cohort dataframe.")
 
+    # --- Academic year/term pairs ---
     if {"academic_year", "academic_term"}.issubset(df_course.columns):
-        latest_term = (
+        academic_terms = (
             df_course[["academic_year", "academic_term"]]
             .dropna()
-            .sort_values(by=["academic_year", "academic_term"], ascending=False)
-            .head(1)
+            .drop_duplicates()
+            .sort_values(by=["academic_year", "academic_term"])
         )
-        LOGGER.info(
-            " Most recent academic year and term: %s %s. "
-            "\n NOTE: If FALL/WINTER, assume earlier year: e.g. 2023-24 FALL is FALL 2023. "
-            "\n If SPRING/SUMMER, assume later year: e.g. 2023-24 SPRING is SPRING 2024.",
-            latest_term["academic_year"].values[0],
-            latest_term["academic_term"].values[0],
-        )
+        LOGGER.info("All academic year/term pairs:\n%s", academic_terms.to_string(index=False))
     else:
-        LOGGER.warning(
-            " Missing academic_year or academic_term column in course dataframe."
-        )
-
+        LOGGER.warning("Missing fields academic_year or academic_term column in course dataframe.")
 
 def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> None:
     """
