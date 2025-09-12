@@ -17,10 +17,11 @@ import os
 import argparse
 import sys
 
+from databricks.connect import DatabricksSession
+from pyspark.sql import SparkSession
 from databricks.sdk.runtime import dbutils
 from google.cloud import storage
 
-import utils
 import importlib
 import pandas as pd
 
@@ -47,10 +48,24 @@ class DataIngestionTask:
         Args:
             args (argparse.Namespace): Parsed command-line arguments.
         """
-        self.spark_session = utils.databricks.get_spark_session()
+        self.spark_session = self.get_spark_session()
         self.args = args
         self.storage_client = storage.Client()
         self.bucket = self.storage_client.bucket(self.args.gcp_bucket_name)
+
+    def get_spark_session(self) -> SparkSession:
+        """
+        Attempts to create a Spark session.
+        Returns:
+            DatabricksSession | None: A Spark session if successful, None otherwise.
+        """
+        try:
+            spark_session = DatabricksSession.builder.getOrCreate()
+            logging.info("Spark session created successfully.")
+            return spark_session
+        except Exception:
+            logging.error("Unable to create Spark session.")
+            raise
 
     def download_data_from_gcs(self, internal_pipeline_path: str) -> tuple[str, str]:
         """
