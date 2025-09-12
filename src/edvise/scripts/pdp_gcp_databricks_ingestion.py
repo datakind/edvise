@@ -151,9 +151,6 @@ class DataIngestionTask:
         )
 
 
-# --- args & __main__ ------------------------------------------------------
-
-
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Ingest course and cohort data for the SST pipeline."

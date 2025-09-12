@@ -71,34 +71,65 @@ class PDPDataAuditTask:
         )
         self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
-    def _resolve_path(
-        self, task_param_path: t.Optional[str], cfg_path: str, label: str
+    def in_databricks(self) -> bool:
+        return bool(
+            os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER")
+        )
+
+    def _path_exists(self, p: str) -> bool:
+        if not p:
+            return False
+        # DBFS scheme
+        if p.startswith("dbfs:/"):
+            try:
+                from databricks.sdk.runtime import dbutils  # lazy import
+
+                dbutils.fs.ls(p)  # will raise if not found
+                return True
+            except Exception:
+                return False
+        # Local Posix path (Vols are mounted here)
+        return pathlib.Path(p).exists()
+
+    def _pick_existing_path(
+        self,
+        prefer_path: t.Optional[str],
+        fallback_path: str,
+        label: str,
+        use_fallback_on_dbx: bool = True,
     ) -> str:
         """
-        Resolve path depending on if we're running training (accepts from config) or
-        inference (accepts from task parameters).
-        We resolve by prefering a non-empty task parameter path, otherwise we fall back to config.
+        prefer_path: inference-provided path (may be None or empty)
+        fallback_path: config path
+        label: 'course' or 'cohort'
+        use_fallback_on_dbx: only fallback to config automatically when on Databricks
         """
-        # Accept only non-empty strings for task parameter paths
-        chosen = (
-            task_param_path.strip()
-            if isinstance(task_param_path, str) and task_param_path.strip()
-            else None
-        ) or cfg_path
+        prefer = (prefer_path or "").strip()
+        if prefer and self._path_exists(prefer):
+            LOGGER.info("%s: using inference-provided path: %s", label, prefer)
+            return prefer
 
-        # Log decision
-        if task_param_path and task_param_path.strip():
-            LOGGER.info("%s: using inference-provided path: %s", label, chosen)
-        else:
-            LOGGER.info("%s: using training-config path: %s", label, chosen)
+        if prefer and not self._path_exists(prefer):
+            LOGGER.warning("%s: inference-provided path not found: %s", label, prefer)
 
-        # Sanity check for /Volumes paths (skip dbfs:/)
-        if chosen.startswith("/g/"):
-            p = pathlib.Path(chosen)
-            if not p.exists():
-                LOGGER.warning("%s path does not exist at runtime: %s", label, chosen)
+        if (
+            use_fallback_on_dbx
+            and self.in_databricks()
+            and self._path_exists(fallback_path)
+        ):
+            LOGGER.info(
+                "%s: utilizing training-config path on Databricks: %s",
+                label,
+                fallback_path,
+            )
+            return fallback_path
 
-        return chosen
+        # If we get here, we couldn't find a usable path
+        tried = [p for p in [prefer, fallback_path] if p]
+        raise FileNotFoundError(
+            f"{label}: none of the candidate paths exist. Tried: {tried}. "
+            f"Environment: {'Databricks' if self.in_databricks() else 'non-Databricks'}"
+        )
 
     def run(self):
         """Executes the data preprocessing pipeline."""
