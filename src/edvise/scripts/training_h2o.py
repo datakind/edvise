@@ -113,6 +113,14 @@ class TrainingTask:
 
         modeling_cfg = self.cfg.modeling
         fs = modeling_cfg.feature_selection
+        force_include_vars = modeling_cfg.feature_selection.force_include_vars
+        #confirm each of the force_include_vars are in df_preprocessed columns
+        if force_include_vars is not None:
+            for var in force_include_vars:
+                if var not in df_preprocessed.columns:
+                    raise ValueError(
+                        f"FORCE INCLUDE VAR {var} NOT FOUND IN PREPROCESSED DATA COLUMNS"
+                    )
         selection_params: t.Dict[str, t.Any] = fs.model_dump() if fs is not None else {}
         selection_params["non_feature_cols"] = self.cfg.non_feature_cols
 
