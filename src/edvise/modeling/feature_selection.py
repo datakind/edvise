@@ -61,6 +61,11 @@ def select_features(
     if collinear_threshold is not None:
         # multi-collinearity: it may not interfere with the model's performance
         # but it does negatively affect the interpretation of the predictors
+        for col in force_include_cols:
+            if col not in df_selected.columns:
+                raise ValueError(
+                    f"force include column '{col}' was dropped during prior feature selection steps!"
+                )
         df_selected = drop_collinear_features_iteratively(
             df_selected,
             threshold=collinear_threshold,
