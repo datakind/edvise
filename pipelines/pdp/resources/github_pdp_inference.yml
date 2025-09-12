@@ -285,6 +285,10 @@ resources:
       queue:
         enabled: true
       parameters:
+        - name: cohort_file_name
+          default: AO1600pdp_AO1600_AR_DEIDENTIFIED_STUDYID_20250522120554.csv
+        - name: course_file_name
+          default: AO1600pdp_AO1600_COURSE_LEVEL_AR_DEIDENTIFIED_STUDYID_20250522120554.csv
         - name: databricks_institution_name
           default: ${var.databricks_institution_name}
         - name: db_run_id
