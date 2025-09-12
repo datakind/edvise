@@ -122,7 +122,9 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
     present_mask = df_course[id_cols].notna().all(axis=1)
     drop_mask = ~present_mask
     num_dropped_rows = int(drop_mask.sum())
-    pct_dropped_rows = (num_dropped_rows / len(df_course) * 100.0) if len(df_course) else 0.0
+    pct_dropped_rows = (
+        (num_dropped_rows / len(df_course) * 100.0) if len(df_course) else 0.0
+    )
 
     # Keep only rows with both identifiers present
     df_cleaned = df_course.loc[present_mask].reset_index(drop=True)
