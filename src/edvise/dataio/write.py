@@ -1,11 +1,17 @@
 import logging
 import time
 
+import json, enum
+from dataclasses import is_dataclass, asdict
+from datetime import datetime, date
+
 import pandas as pd
 import pyspark.sql
 import pathlib
+import numpy as np
 
 import edvise.utils as utils
+
 
 LOGGER = logging.getLogger(__name__)
 
@@ -79,9 +85,59 @@ def write_parquet(
     if path.exists() and not overwrite:
         raise FileExistsError(f"File already exists and overwrite=False: {path}")
 
-    df.to_parquet(path, index=index)
+    to_parquet_safe(df, path, index=index)
 
     if verbose:
         LOGGER.info(f"Wrote {df.shape[0]} rows × {df.shape[1]} columns to {path}")
 
     return str(path)
+
+
+def _to_jsonable(x):
+    if hasattr(x, "model_dump"):  # pydantic v2
+        return x.model_dump()
+    if is_dataclass(x):
+        return asdict(x)
+    if isinstance(x, enum.Enum):
+        return x.value
+    if isinstance(x, (np.generic,)):
+        return x.item()
+    if isinstance(x, (pd.Timestamp, datetime, date)):
+        return x.isoformat()
+    if isinstance(x, dict):
+        return {str(k): _to_jsonable(v) for k, v in x.items()}
+    if isinstance(x, (list, tuple, set)):
+        return [_to_jsonable(v) for v in x]
+    try:
+        json.dumps(x)
+        return x
+    except TypeError:
+        return str(x)
+
+def to_parquet_safe(df: pd.DataFrame, path: str, *, keep_attrs=True, strict=False, **kwargs):
+    # log non-JSON attrs
+    bad = {k: type(v).__name__ for k, v in df.attrs.items() if not _is_jsonable(v)}
+    if bad:
+        LOGGER.warning("Non-JSON attrs detected: %s", bad)
+
+    # Optionally fail fast if strict
+    if strict and bad:
+        raise TypeError(f"Non-JSON-serializable attrs: {bad}")
+
+    # Temporarily replace attrs on the original df (no data copy)
+    orig_attrs = df.attrs
+    try:
+        if keep_attrs and orig_attrs:
+            df.attrs = {k: _to_jsonable(v) for k, v in orig_attrs.items()}
+        else:
+            df.attrs = {}
+        df.to_parquet(path, **kwargs)
+    finally:
+        # Restore original attrs regardless of write outcome
+        df.attrs = orig_attrs
+
+def _is_jsonable(x):
+    try:
+        json.dumps(x); return True
+    except TypeError:
+        return False
