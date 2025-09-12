@@ -160,9 +160,7 @@ class PDPDataAuditTask:
         LOGGER.info(" Course data read and schema validated, duplicates handled.")
 
         try:
-            include_pre_cohort = (
-                self.cfg.preprocessing.include_pre_cohort_courses
-            )
+            include_pre_cohort = self.cfg.preprocessing.include_pre_cohort_courses
         except AttributeError:
             raise AttributeError(
                 "Config error: 'include_pre_cohort_courses' is missing. "
