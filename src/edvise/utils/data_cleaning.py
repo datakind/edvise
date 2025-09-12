@@ -101,22 +101,13 @@ def strip_upper_strings_to_cats(series: pd.Series) -> pd.Series:
     return series.str.strip().str.upper().astype("category")
 
 
-def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
+def drop_course_rows_missing_identifiers(df: pd.DataFrame, student_id_col: str) -> pd.DataFrame:
     """
     Drop rows from raw course dataset missing key course identifiers,
     specifically course prefix and number, which supposedly are partial records
     from students' enrollments at *other* institutions -- not wanted here!
     """
 
-    # HACK: get correct student_id_col
-
-    student_id_col = (
-        "student_guid"
-        if "student_guid" in df.columns
-        else "study_id"
-        if "study_id" in df.columns
-        else "student_id"
-    )
     students_before = df[student_id_col].nunique()
 
     # Identify rows missing either identifier
@@ -196,7 +187,7 @@ def drop_course_rows_missing_identifiers(df: pd.DataFrame) -> pd.DataFrame:
     return df_cleaned
 
 
-def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
+def remove_pre_cohort_courses(df_course: pd.DataFrame, student_id_col: str) -> pd.DataFrame:
     """
     Removes any course records that occur before a student's cohort start term.
 
@@ -216,14 +207,6 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
     Returns:
         pd.DataFrame: Filtered DataFrame excluding pre-cohort course records.
     """
-    # HACK: infer the correct student id col in raw data from the data itself
-    student_id_col = (
-        "student_guid"
-        if "student_guid" in df_course.columns
-        else "study_id"
-        if "study_id" in df_course.columns
-        else "student_id"
-    )
 
     n_before = len(df_course)
     students_before = df_course[student_id_col].nunique()

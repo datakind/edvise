@@ -42,6 +42,7 @@ from edvise.data_audit.eda import (
     log_misjoined_records,
 )
 from edvise.utils.update_config import update_key_courses_and_cips
+from edvise.utils.data_cleaning import remove_pre_cohort_courses
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -68,7 +69,6 @@ class PDPDataAuditTask:
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
-        # self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
         # Use default converter to handle duplicates if none provided
         self.course_converter_func: ConverterFunc = (
             handling_duplicates
@@ -148,7 +148,6 @@ class PDPDataAuditTask:
                     schema=RawPDPCourseDataSchema,
                     dttm_format=fmt,
                     converter_func=self.course_converter_func,
-                    # converter_func=handling_duplicates,
                     spark_session=self.spark,
                 )
                 break  # success — exit loop
@@ -163,6 +162,17 @@ class PDPDataAuditTask:
         # Standardize course data
         LOGGER.info(" Standardizing course data:")
         df_course_standardized = self.course_std.standardize(df_course_validated)
+
+        try:
+            include_pre_cohort = self.args.config_file_path.preprocessing.include_pre_cohort_courses
+        except AttributeError:
+            raise AttributeError(
+                "Config error: 'include_pre_cohort_courses' is missing. "
+                "Please set it explicitly in the config file under 'preprocessing' based on your school's preference (for default models, this should always be false)."
+            )
+
+        if not include_pre_cohort:
+            df_course_standardized = remove_pre_cohort_courses(df_course_standardized, self.args.config_file_path.student_id_col)
 
         LOGGER.info(" Course data standardized.")
 

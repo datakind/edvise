@@ -633,14 +633,3 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
         dropped_students,
         pct_dropped,
     )
-
-    # Return mismatched records for optional inspection
-    cols_to_return = [
-        "student_id",
-        "cohort",
-        "cohort_term",
-        "enrollment_type",
-        "enrollment_intensity",
-        "_merge",
-    ]
-    available_cols = [col for col in cols_to_return if col in df_misjoined.columns]
