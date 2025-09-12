@@ -113,7 +113,7 @@ class TrainingTask:
 
         modeling_cfg = self.cfg.modeling
         fs = modeling_cfg.feature_selection
-        force_include_vars = modeling_cfg.feature_selection.force_include_vars
+        force_include_vars = modeling_cfg.feature_selection.force_include_cols
         #confirm each of the force_include_vars are in df_preprocessed columns
         if force_include_vars is not None:
             for var in force_include_vars:
