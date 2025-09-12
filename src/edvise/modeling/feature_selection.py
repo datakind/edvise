@@ -207,6 +207,7 @@ def drop_collinear_features_iteratively(
     np.seterr(divide="ignore", invalid="ignore")
     force_include_cols = force_include_cols or []
 
+    # Identify numeric and boolean columns 
     numeric_df = df.select_dtypes(include=["number"])
     bool_df = df.select_dtypes(include=["boolean"]).astype("Int64")
 
@@ -214,13 +215,14 @@ def drop_collinear_features_iteratively(
         LOGGER.warning("no numeric columns found, so no collinear features to drop")
         return df
 
+    #Impute numeric features with mean because VIF function can't handle nulls
     imputer: sklearn.impute.SimpleImputer = sklearn.impute.SimpleImputer(
         missing_values=np.nan, strategy="mean"
     ).set_output(transform="pandas")  # type: ignore
     df_num_imputed = imputer.fit_transform(numeric_df)
-    assert isinstance(df_num_imputed, pd.DataFrame)  # type guard
+    assert isinstance(df_num_imputed, pd.DataFrame) 
 
-    df_features = df_num_imputed
+    df_features = df_num_imputed.copy()
 
     n_features_dropped_so_far = 0
 
@@ -228,9 +230,13 @@ def drop_collinear_features_iteratively(
         bool_imputer: sklearn.impute.SimpleImputer = sklearn.impute.SimpleImputer(
             missing_values=np.nan, strategy="most_frequent"
         ).set_output(transform="pandas")  # type: ignore
+
         df_bool_imputed = bool_imputer.fit_transform(bool_df)
-        assert isinstance(df_bool_imputed, pd.DataFrame)  # type guard
+
+        assert isinstance(df_bool_imputed, pd.DataFrame)  
+
         df_features = pd.concat([df_features, df_bool_imputed], axis=1)
+
         # drop if there are any boolean columns perfectly duplicate of the numeric cols
         duplicated_cols = df_features.columns[
             df_features.T.duplicated(keep="first")
@@ -285,41 +291,3 @@ def drop_collinear_features_iteratively(
         )
 
     return df
-
-    # TODO: figure out why this below code gives different results from the original :/
-    # collinear_cols = []
-    # while True:
-    #     candidate_cols = [
-    #         col for col in df_imputed.columns if col not in force_include_cols
-    #     ]
-    #     if not candidate_cols:
-    #         break
-
-    #     col_vifs = {
-    #         col: variance_inflation_factor(df_imputed, col_index)
-    #         for col_index, col in enumerate(candidate_cols)
-    #     }
-    #     max_vif = max(col_vifs.values())
-    #     if max_vif < threshold:
-    #         break
-
-    #     max_vif_cols = [col for col, vif in col_vifs.items() if vif == max_vif]
-    #     LOGGER.info(
-    #         "dropping %s columns with VIF >= %s: %s ...",
-    #         len(max_vif_cols),
-    #         threshold,
-    #         max_vif_cols,
-    #     )
-    #     df_imputed = df_imputed.drop(columns=max_vif_cols)
-    #     collinear_cols.extend(max_vif_cols)
-
-    # if collinear_cols:
-    #     LOGGER.info(
-    #         "dropping %s collinear features: %s",
-    #         len(collinear_cols),
-    #         collinear_cols,
-    #     )
-    #     return df.drop(columns=collinear_cols)
-    # else:
-    #     LOGGER.info("no collinear features found with VIF >= %s", threshold)
-    #     return df
