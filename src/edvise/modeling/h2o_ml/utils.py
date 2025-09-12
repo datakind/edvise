@@ -448,7 +448,17 @@ def log_h2o_model_metadata_for_uc(
         if model_saved_path != final_model_path:
             os.rename(model_saved_path, final_model_path)
 
-        # 2) Build MLmodel metadata (minimal)
+        # 2) Try to export MOJO
+        final_mojo_path = os.path.join(tmpdir, "model.zip")
+        try:
+            mojo_path = h2o.download_mojo(h2o_model, path=tmpdir)
+            if mojo_path != final_mojo_path:
+                os.replace(mojo_path, final_mojo_path)
+        except Exception as e:
+            # Some algos/versions may not support MOJO
+            logging.warning(f"MOJO export failed/unsupported: {e}")
+
+        # 3) Build MLmodel metadata
         mlmodel = Model(artifact_path=artifact_path, flavors={})
         mlmodel.add_flavor(
             "h2o",
@@ -465,7 +475,7 @@ def log_h2o_model_metadata_for_uc(
             mlmodel_yaml = f.read()
         mlflow.log_text(mlmodel_yaml, artifact_file=f"{artifact_path}/MLmodel")
 
-        # 3) (Optional) minimal env files. Skip by default for speed.
+        # 4) (Optional) minimal env files. Skip by default for speed.
         if include_env_files:
             # Small files, but still I/O + upload; only do if you need them.
             reqs_path = os.path.join(tmpdir, "requirements.txt")
@@ -487,7 +497,7 @@ def log_h2o_model_metadata_for_uc(
                 yaml.safe_dump(conda_env, f)
             mlflow.log_artifact(conda_path, artifact_path=artifact_path)
 
-        # 4) Upload the big file LAST (single call, no directory walk)
+        # 5) Upload the big file LAST (single call, no directory walk)
         mlflow.log_artifact(final_model_path, artifact_path=artifact_path)
 
 
