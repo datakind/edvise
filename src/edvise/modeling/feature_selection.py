@@ -259,6 +259,13 @@ def drop_collinear_features_iteratively(
 
             drop_cols = [col for col in dup_cols if col != keep_col]
 
+            if len(force_included) == 1 and len(dup_cols) > 1:
+                LOGGER.info(
+                    "Duplicate columns found: kept force-included '%s', dropped: %s",
+                    keep_col,
+                    drop_cols,
+                )
+
             if len(force_included) > 1:
                 LOGGER.warning(
                     "Duplicate force-included columns found: keeping '%s', dropping: %s",
@@ -305,5 +312,7 @@ def drop_collinear_features_iteratively(
         }
 
     LOGGER.info("dropping %s collinear features", n_features_dropped_so_far)
+
+
 
     return df
