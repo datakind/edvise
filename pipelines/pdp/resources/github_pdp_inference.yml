@@ -23,7 +23,7 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5911-193458-s6cg6saa
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -56,7 +56,7 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5911-193458-s6cg6saa
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -89,7 +89,7 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5911-193458-s6cg6saa
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -122,7 +122,7 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5911-193458-s6cg6saa
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -156,7 +156,7 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5911-193458-s6cg6saa
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -203,7 +203,7 @@ resources:
               - "{{job.parameters.DK_CC_EMAIL}}"
               - --job_root_dir  
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5911-193458-s6cg6saa
           libraries:
             - pypi:
                 package: numpy==1.26.4
