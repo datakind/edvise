@@ -341,10 +341,12 @@ class TrainingTask:
                 mlflow.end_run()
             with mlflow.start_run(run_id=self.cfg.model.run_id):
                 _ = modeling.evaluation.log_confusion_matrix(
+                    catalog = self.args.DB_workspace,
                     institution_id=self.cfg.institution_id,
                     automl_run_id=self.cfg.model.run_id,
                 )
                 _ = modeling.h2o_ml.evaluation.log_roc_table(
+                    catalog = self.args.DB_workspace,
                     institution_id=self.cfg.institution_id,
                     automl_run_id=self.cfg.model.run_id,
                     modeling_df=modeling_df,
