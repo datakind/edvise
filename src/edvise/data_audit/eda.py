@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats as ss
 from typing import List
-from edvise import utils
+from edvise import utils as edvise_utils
 
 LOGGER = logging.getLogger(__name__)
 
@@ -20,7 +20,7 @@ def assess_unique_values(data: pd.DataFrame, cols: str | list[str]) -> dict[str,
         data
         cols
     """
-    unique_data = data.loc[:, utils.types.to_list(cols)]
+    unique_data = data.loc[:, edvise_utils.types.to_list(cols)]
     is_duplicated = unique_data.duplicated()
     return {
         "num_uniques": is_duplicated.eq(False).sum(),
@@ -51,8 +51,8 @@ def compute_summary_stats(
         - https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.DataFrame.describe.html
     """
     num_rows = data.shape[0]
-    include = utils.types.to_list(include) if include is not None else None
-    exclude = utils.types.to_list(exclude) if exclude is not None else None
+    include = edvise_utils.types.to_list(include) if include is not None else None
+    exclude = edvise_utils.types.to_list(exclude) if exclude is not None else None
     data_selected = data.select_dtypes(include=include, exclude=exclude)  # type: ignore
     data_described = data_selected.describe(percentiles=percentiles).T.assign(
         null_count=data_selected.isna().sum(),
@@ -322,23 +322,22 @@ def _drop_incomplete_pairs(s1: pd.Series, s2: pd.Series) -> tuple[pd.Series, pd.
     return (df["s1"], df["s2"])
 
 
-def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> pd.DataFrame:
+def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> None:
     null_ratios = df.isna().mean(axis="index").sort_values(ascending=False)
     high_nulls = null_ratios[null_ratios > threshold]
 
     if high_nulls.empty:
-        LOGGER.info("No columns with more than %.0f%% null values.", threshold * 100)
+        LOGGER.info(" No columns with more than %.0f%% null values.", threshold * 100)
     else:
         LOGGER.info(
-            "Printing columns with >20% missing values to later be dropped during feature selection:"
+            " Printing columns with >20% missing values to later be dropped during feature selection:"
         )
         for col, ratio in high_nulls.items():
             LOGGER.warning(
-                'Column "%s" has %.1f%% null values.',
+                ' Column "%s" has %.1f%% null values. ',
                 col,
                 ratio * 100,
             )
-    return df
 
 
 def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
@@ -356,12 +355,12 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(
         df_course.columns
     ):
-        LOGGER.warning("Cannot compute key_course_ids: required columns missing.")
+        LOGGER.warning(" Cannot compute key_course_ids: required columns missing.")
         return []
 
     mask = df_course["math_or_english_gateway"].astype("string").isin({"M", "E"})
     if not mask.any():
-        LOGGER.info("No Math/English gateway courses found.")
+        LOGGER.info(" No Math/English gateway courses found.")
         return []
 
     ids = df_course.loc[mask, "course_prefix"].fillna("") + df_course.loc[
@@ -369,7 +368,7 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     ].fillna("")
 
     if "course_cip" not in df_course.columns:
-        LOGGER.warning("Column 'course_cip' is missing; no CIP codes extracted.")
+        LOGGER.warning(" Column 'course_cip' is missing; no CIP codes extracted.")
         cips = pd.Series([], dtype=str)
     else:
         cips = (
@@ -386,18 +385,22 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
                     "Missing": "",
                 }
             )
+            .str.extract(
+                r"^(\d{2})"
+            )  # Extract first two digits only; cip codes usually 23.0101
+            .dropna()[0]
         )
         if cips.eq("").all():
             LOGGER.warning(
-                "Column 'course_cip' is present but unpopulated for gateway courses."
+                " Column 'course_cip' is present but unpopulated for gateway courses."
             )
 
     # edit this to auto populate the config
     cips = cips[cips.ne("")].drop_duplicates()
     ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")].drop_duplicates()
 
-    LOGGER.info(f"Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
-    LOGGER.info(f"Identified {len(cips)} unique CIP codes: {cips.tolist()}")
+    LOGGER.info(f" Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
+    LOGGER.info(f" Identified {len(cips)} unique CIP codes: {cips.tolist()}")
 
     # Sanity-check for prefixes and swap if clearly reversed; has come up for some schools
     pref_e = (
@@ -415,8 +418,8 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
         .unique()
     )
 
-    LOGGER.info("English (E) prefixes (raw): %s", pref_e.tolist())
-    LOGGER.info("Math (M) prefixes (raw): %s", pref_m.tolist())
+    LOGGER.info(" English (E) prefixes (raw): %s", pref_e.tolist())
+    LOGGER.info(" Math (M) prefixes (raw): %s", pref_m.tolist())
 
     looks = lambda arr, ch: len(arr) > 0 and all(
         str(p).upper().startswith(ch) for p in arr
@@ -425,18 +428,208 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
 
     if not e_ok and not m_ok:
         LOGGER.warning(
-            "Prefixes look swapped. Swapping E<->M. E=%s, M=%s",
+            " Prefixes look swapped. Swapping E<->M. E=%s, M=%s",
             pref_e.tolist(),
             pref_m.tolist(),
         )
         pref_e, pref_m = pref_m, pref_e
     elif e_ok and m_ok:
         LOGGER.info(
-            "Prefixes look correct and not swapped (start with E for English, start with M for Math)."
+            " Prefixes look correct and not swapped (start with E for English, start with M for Math)."
         )
     else:
-        LOGGER.warning("One group inconsistent. English OK=%s, Math OK=%s", e_ok, m_ok)
+        LOGGER.warning(" One group inconsistent. English OK=%s, Math OK=%s", e_ok, m_ok)
 
-    LOGGER.info("Final English (E) prefixes: %s", pref_e.tolist())
-    LOGGER.info("Final Math (M) prefixes: %s", pref_m.tolist())
+    LOGGER.info(" Final English (E) prefixes: %s", pref_e.tolist())
+    LOGGER.info(" Final Math (M) prefixes: %s", pref_m.tolist())
+
     return [ids.tolist(), cips.tolist()]
+
+
+def log_record_drops(
+    df_cohort_before: pd.DataFrame,
+    df_cohort_after: pd.DataFrame,
+    df_course_before: pd.DataFrame,
+    df_course_after: pd.DataFrame,
+) -> None:
+    """
+    Logs row counts before and after processing for cohort and course data.
+    Also logs the number of dropped students and dropped course records.
+    """
+    cohort_before = len(df_cohort_before)
+    cohort_after = len(df_cohort_after)
+    cohort_dropped = cohort_before - cohort_after
+
+    course_before = len(df_course_before)
+    course_after = len(df_course_after)
+    course_dropped = course_before - course_after
+
+    LOGGER.info(
+        " Cohort file: %d → %d rows (%d total students dropped) after preprocessing",
+        cohort_before,
+        cohort_after,
+        cohort_dropped,
+    )
+    LOGGER.info(
+        " Course file: %d → %d rows (%d total course records dropped) after preprocessing",
+        course_before,
+        course_after,
+        course_dropped,
+    )
+
+
+def log_most_recent_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
+    """
+    Logs the most recent cohort year/term and academic year/term based on data.
+    """
+    if {"cohort", "cohort_term"}.issubset(df_cohort.columns):
+        latest_cohort = (
+            df_cohort[["cohort", "cohort_term"]]
+            .dropna()
+            .sort_values(by=["cohort", "cohort_term"], ascending=False)
+            .head(1)
+        )
+        LOGGER.info(
+            " Most recent cohort year and term: %s %s. "
+            "\n NOTE: If FALL/WINTER, assume earlier year: e.g. 2023-24 FALL is FALL 2023. "
+            "\n If SPRING/SUMMER, assume later year: e.g. 2023-24 SPRING is SPRING 2024.",
+            latest_cohort["cohort"].values[0],
+            latest_cohort["cohort_term"].values[0],
+        )
+    else:
+        LOGGER.warning(" Missing cohort or cohort_term column in cohort dataframe.")
+
+    if {"academic_year", "academic_term"}.issubset(df_course.columns):
+        latest_term = (
+            df_course[["academic_year", "academic_term"]]
+            .dropna()
+            .sort_values(by=["academic_year", "academic_term"], ascending=False)
+            .head(1)
+        )
+        LOGGER.info(
+            " Most recent academic year and term: %s %s. "
+            "\n NOTE: If FALL/WINTER, assume earlier year: e.g. 2023-24 FALL is FALL 2023. "
+            "\n If SPRING/SUMMER, assume later year: e.g. 2023-24 SPRING is SPRING 2024.",
+            latest_term["academic_year"].values[0],
+            latest_term["academic_term"].values[0],
+        )
+    else:
+        LOGGER.warning(
+            " Missing academic_year or academic_term column in course dataframe."
+        )
+
+
+def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> None:
+    """
+    Merges raw cohort and course data, identifies misjoined student records,
+    and logs value counts for mismatches to help identify possible trends.
+
+    Args:
+        df_cohort (pd.DataFrame): Cohort-level student data
+        df_course (pd.DataFrame): Course-level student data
+
+    Returns:
+        pd.DataFrame: Mismatched records with diagnostic columns.
+    """
+    # Merge with indicator
+    df_merged = (
+        pd.merge(
+            df_cohort,
+            df_course,
+            on="study_id",
+            how="outer",
+            suffixes=("_cohort", "_course"),
+            indicator=True,
+        )
+        .rename(
+            columns={
+                "cohort_cohort": "cohort",
+                "cohort_term_cohort": "cohort_term",
+                "student_age_cohort": "student_age",
+                "race_cohort": "race",
+                "ethnicity_cohort": "ethnicity",
+                "gender_cohort": "gender",
+                "institution_id_cohort": "institution_id",
+            }
+        )
+        .drop(
+            columns=[
+                "cohort_course",
+                "cohort_term_course",
+                "student_age_course",
+                "race_course",
+                "ethnicity_course",
+                "gender_course",
+                "institution_id_course",
+            ],
+            errors="ignore",
+        )
+    )
+
+    # Count merge results
+    merge_counts = df_merged["_merge"].value_counts()
+    left_only = merge_counts.get("left_only", 0)
+    right_only = merge_counts.get("right_only", 0)
+    both = merge_counts.get("both", 0)
+    total = len(df_merged)
+    total_misjoined = left_only + right_only
+    pct_misjoined = (total_misjoined / total) * 100 if total else 0
+
+    # Filter misjoined records only
+    df_misjoined = df_merged[df_merged["_merge"] != "both"]
+
+    # Log mismatch summary (custom format)
+    if pct_misjoined < 0.1:
+        pct_str = "<0.1%%"
+    else:
+        pct_str = f"{pct_misjoined:.1f}%%"
+
+    LOGGER.warning(
+        "inspect_misjoined_records: Found %d total misjoined records (%s of data): "
+        "%d records in cohort file not found in course file, %d records in course file not found in cohort file.",
+        total_misjoined,
+        pct_str,
+        left_only,
+        right_only,
+    )
+
+    # Additional warning if mismatch is significant
+    if total_misjoined > 100 or pct_misjoined > 10:
+        LOGGER.warning(
+            " inspect_misjoined_records: ⚠️ High mismatch detected — %d records (%.1f%% of data). This is uncommon: please contact data team for further investigation.",
+            total_misjoined,
+            pct_misjoined,
+        )
+
+    # Log dropped student impact
+    dropped_students = df_misjoined["study_id"].dropna().nunique()
+    total_students = df_merged["study_id"].dropna().nunique()
+    pct_dropped = (dropped_students / total_students) * 100 if total_students else 0
+
+    # Log value counts of key fields
+    for col in ["enrollment_type", "enrollment_intensity_first_term"]:
+        if col in df_misjoined.columns:
+            value_counts = df_misjoined[col].value_counts(dropna=False)
+            LOGGER.info(
+                " Value counts for mismatched records in column '%s' to identify potential trends:\n%s",
+                col,
+                value_counts.to_string(),
+            )
+
+    # Log grouped cohort & cohort_term
+    if "cohort" in df_misjoined.columns and "cohort_term" in df_misjoined.columns:
+        cohort_group_counts = (
+            df_misjoined.groupby(["cohort", "cohort_term"], dropna=False, observed=True)
+            .size()
+            .sort_index()
+        )
+        LOGGER.info(
+            " Grouped counts for mismatched records by cohort and cohort_term to identify potential trends:\n%s",
+            cohort_group_counts.to_string(),
+        )
+
+    LOGGER.warning(
+        " inspect_misjoined_records: These mismatches will later result in dropping %d students (%.1f%% of all students).",
+        dropped_students,
+        pct_dropped,
+    )
