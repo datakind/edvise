@@ -233,14 +233,7 @@ def remove_pre_cohort_courses(df_course: pd.DataFrame) -> pd.DataFrame:
 
     # Split for logging/analysis
     df_dropped = df_course.loc[~keep_mask].copy()
-    df_filtered = df_course.loc[keep_mask].assign(
-        cohort_id=lambda df: df["cohort"]
-        .astype(str)
-        .str.cat(df["cohort_term"].astype(str), sep=" "),
-        term_id=lambda df: df["academic_year"]
-        .astype(str)
-        .str.cat(df["academic_term"].astype(str), sep=" "),
-    )
+    df_filtered = df_course.loc[keep_mask]
 
     n_after = len(df_filtered)
     students_after = df_filtered[student_id_col].nunique()
