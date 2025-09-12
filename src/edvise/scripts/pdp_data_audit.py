@@ -159,10 +159,6 @@ class PDPDataAuditTask:
             )
         LOGGER.info(" Course data read and schema validated, duplicates handled.")
 
-        # Standardize course data
-        LOGGER.info(" Standardizing course data:")
-        df_course_standardized = self.course_std.standardize(df_course_validated)
-
         try:
             include_pre_cohort = (
                 self.cfg.preprocessing.include_pre_cohort_courses
@@ -175,8 +171,12 @@ class PDPDataAuditTask:
 
         if not include_pre_cohort:
             df_course_standardized = remove_pre_cohort_courses(
-                df_course_standardized, self.cfg.student_id_col
+                df_course_validated, self.cfg.student_id_col
             )
+
+        # Standardize course data
+        LOGGER.info(" Standardizing course data:")
+        df_course_standardized = self.course_std.standardize(df_course_validated)
 
         LOGGER.info(" Course data standardized.")
 
