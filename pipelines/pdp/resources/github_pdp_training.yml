@@ -18,7 +18,7 @@ resources:
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -52,7 +52,7 @@ resources:
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -86,7 +86,7 @@ resources:
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -120,7 +120,7 @@ resources:
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -154,7 +154,7 @@ resources:
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -190,7 +190,7 @@ resources:
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -230,7 +230,7 @@ resources:
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
           # existing_cluster_id: 5909-173218-tkjmn2sx
-          existing_cluster_id: 5911-191621-o9zpgvdo
+          existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
                 package: numpy==1.26.4
@@ -292,6 +292,8 @@ resources:
           default: ${var.ds_run_as}
         - name: datakind_notification_email
           default: ${var.datakind_notification_email}
+        - name: service_account_executer
+          default: ${var.service_account_executer}
       permissions:
         - user_name: ${var.ds_run_as}
           level: IS_OWNER
