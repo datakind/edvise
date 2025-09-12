@@ -113,9 +113,9 @@ class TrainingTask:
 
         modeling_cfg = self.cfg.modeling
         fs = modeling_cfg.feature_selection
-        force_include_vars = modeling_cfg.feature_selection.force_include_cols
-        # confirm each of the force_include_vars are in df_preprocessed columns
-        if force_include_vars is not None:
+        if modeling_cfg.feature_selection.force_include_cols is not None:
+            force_include_vars = modeling_cfg.feature_selection.force_include_cols
+            # confirm each of the force_include_vars are in df_preprocessed columns
             for var in force_include_vars:
                 if var not in df_preprocessed.columns:
                     raise ValueError(
