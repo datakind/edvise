@@ -21,7 +21,6 @@ from databricks.sdk.runtime import dbutils
 from google.cloud import storage
 
 import utils
-import dataio
 import importlib
 import pandas as pd
 
@@ -68,14 +67,18 @@ class DataIngestionTask:
             # Download course data from GCS
             course_blob_name = f"{sst_container_folder}/{self.args.course_file_name}"
             course_blob = self.bucket.blob(course_blob_name)
-            course_file_path = os.path.join(internal_pipeline_path, self.args.course_file_name)
+            course_file_path = os.path.join(
+                internal_pipeline_path, self.args.course_file_name
+            )
             course_blob.download_to_filename(course_file_path)
             logging.info("Course data downloaded from GCS: %s", course_file_path)
 
             # Download cohort data from GCS
             cohort_blob_name = f"{sst_container_folder}/{self.args.cohort_file_name}"
             cohort_blob = self.bucket.blob(cohort_blob_name)
-            cohort_file_path = os.path.join(internal_pipeline_path, self.args.cohort_file_name)
+            cohort_file_path = os.path.join(
+                internal_pipeline_path, self.args.cohort_file_name
+            )
             cohort_blob.download_to_filename(cohort_file_path)
             logging.info("Cohort data downloaded from GCS: %s", cohort_file_path)
 
@@ -83,7 +86,6 @@ class DataIngestionTask:
         except Exception as e:
             logging.error(f"GCS download error: {e}")
             raise
-
 
     def run(self):
         """
@@ -108,10 +110,12 @@ class DataIngestionTask:
 
         # Setting task variables for downstream tasks
         dbutils.jobs.taskValues.set(
-            key="course_dataset_validated_path", value=fpath_course,
+            key="course_dataset_validated_path",
+            value=fpath_course,
         )
         dbutils.jobs.taskValues.set(
-            key="cohort_dataset_validated_path", value=fpath_cohort,
+            key="cohort_dataset_validated_path",
+            value=fpath_cohort,
         )
         dbutils.jobs.taskValues.set(key="job_root_dir", value=self.args.job_root_dir)
 
@@ -183,7 +187,6 @@ if __name__ == "__main__":
         schemas = importlib.import_module("schemas")
         logging.info("Running task with custom schema")
     except Exception:
-        from edvise.data_audit.schemas import raw_course, raw_cohort
 
         logging.info("Running task with default schema")
 

@@ -41,7 +41,9 @@ def select_features(
     LOGGER.info("selecting features ...")
     non_feature_cols = non_feature_cols or []
     force_include_cols = force_include_cols or []
-    LOGGER.info("force including %s columns: %s", len(force_include_cols), force_include_cols)
+    LOGGER.info(
+        "force including %s columns: %s", len(force_include_cols), force_include_cols
+    )
     df_selected = (
         # we'll add these columns back in later
         df.drop(columns=non_feature_cols + force_include_cols)

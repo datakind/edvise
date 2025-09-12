@@ -61,7 +61,7 @@ class PDPDataAuditTask:
         )
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
-        self.course_std = PDPCourseStandardizer()            
+        self.course_std = PDPCourseStandardizer()
         # self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
         # Use default converter to handle duplicates if none provided
         self.course_converter_func: ConverterFunc = (
@@ -71,14 +71,20 @@ class PDPDataAuditTask:
         )
         self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
-    def _resolve_path(self, task_param_path: t.Optional[str], cfg_path: str, label: str) -> str:
+    def _resolve_path(
+        self, task_param_path: t.Optional[str], cfg_path: str, label: str
+    ) -> str:
         """
         Resolve path depending on if we're running training (accepts from config) or
         inference (accepts from task parameters).
         We resolve by prefering a non-empty task parameter path, otherwise we fall back to config.
         """
         # Accept only non-empty strings for task parameter paths
-        chosen = (task_param_path.strip() if isinstance(task_param_path, str) and task_param_path.strip() else None) or cfg_path
+        chosen = (
+            task_param_path.strip()
+            if isinstance(task_param_path, str) and task_param_path.strip()
+            else None
+        ) or cfg_path
 
         # Log decision
         if task_param_path and task_param_path.strip():
@@ -174,10 +180,14 @@ def parse_arguments() -> argparse.Namespace:
         description="Data preprocessing for inference in the SST pipeline."
     )
     parser.add_argument(
-        "--course_dataset_validated_path", required=False, help="Name of the course data file during inference with GCS blobs when connected to webapp"
+        "--course_dataset_validated_path",
+        required=False,
+        help="Name of the course data file during inference with GCS blobs when connected to webapp",
     )
     parser.add_argument(
-        "--cohort_dataset_validated_path", required=False, help="Name of the cohort data file during inference with GCS blobs when connected to webapp"
+        "--cohort_dataset_validated_path",
+        required=False,
+        help="Name of the cohort data file during inference with GCS blobs when connected to webapp",
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--bronze_volume_path", type=str, required=False)

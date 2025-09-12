@@ -1,7 +1,8 @@
 import logging
 import time
 
-import json, enum
+import json
+import enum
 from dataclasses import is_dataclass, asdict
 from datetime import datetime, date
 
@@ -114,7 +115,10 @@ def _to_jsonable(x):
     except TypeError:
         return str(x)
 
-def to_parquet_safe(df: pd.DataFrame, path: str, *, keep_attrs=True, strict=False, **kwargs):
+
+def to_parquet_safe(
+    df: pd.DataFrame, path: str, *, keep_attrs=True, strict=False, **kwargs
+):
     # log non-JSON attrs
     bad = {k: type(v).__name__ for k, v in df.attrs.items() if not _is_jsonable(v)}
     if bad:
@@ -136,8 +140,10 @@ def to_parquet_safe(df: pd.DataFrame, path: str, *, keep_attrs=True, strict=Fals
         # Restore original attrs regardless of write outcome
         df.attrs = orig_attrs
 
+
 def _is_jsonable(x):
     try:
-        json.dumps(x); return True
+        json.dumps(x)
+        return True
     except TypeError:
         return False
