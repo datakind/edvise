@@ -71,7 +71,7 @@ class PDPDataAuditTask:
         )
         self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
-    def _resolve_path(task_param_path: t.Optional[str], cfg_path: str, label: str) -> str:
+    def _resolve_path(self, task_param_path: t.Optional[str], cfg_path: str, label: str) -> str:
         """
         Resolve path depending on if we're running training (accepts from config) or
         inference (accepts from task parameters).
