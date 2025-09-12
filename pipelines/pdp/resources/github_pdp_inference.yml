@@ -307,6 +307,8 @@ resources:
           default: ${var.datakind_notification_email}
         - name: service_account_executer
           default: ${var.service_account_executer}
+        - name: custom_schemas_path
+          default: ${var.custom_schemas_path}
       permissions:
         - user_name: ${var.ds_run_as}
           level: IS_OWNER
