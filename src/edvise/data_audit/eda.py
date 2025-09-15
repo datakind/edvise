@@ -619,9 +619,16 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
             " Grouped counts for mismatched records by cohort and cohort_term to identify potential trends:\n%s",
             cohort_group_counts.to_string(),
         )
+    
+    if pct_dropped < 0.1:
+        LOGGER.warning(
+            "inspect_misjoined_records: These mismatches will later result in dropping %d students (<0.1%% of all students).",
+            dropped_students,
+        )
+    else:
+        LOGGER.warning(
+            "inspect_misjoined_records: These mismatches will later result in dropping %d students (%.1f%% of all students).",
+            dropped_students,
+            pct_dropped,
+        )
 
-    LOGGER.warning(
-        " inspect_misjoined_records: These mismatches will later result in dropping %d students (%.1f%% of all students).",
-        dropped_students,
-        pct_dropped,
-    )
