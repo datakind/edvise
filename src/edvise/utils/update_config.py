@@ -50,6 +50,16 @@ class TomlConfigEditor:
         value = self.get(key_path, default=None)
         LOGGER.info("Confirmed %s = %s", ".".join(key_path), value)
 
+    def update_key_course_ids(self, ids: list[str]) -> None:
+        self.update_field(["preprocessing", "features", "key_course_ids"], ids)
+        self.confirm_field(["preprocessing", "features", "key_course_ids"])
+
+    def update_key_course_subject_areas(self, cips: list[str]) -> None:
+        self.update_field(
+            ["preprocessing", "features", "key_course_subject_areas"], cips
+        )
+        self.confirm_field(["preprocessing", "features", "key_course_subject_areas"])
+
 
 def update_run_metadata(config_path: str, run_id: str, experiment_id: str) -> None:
     editor = TomlConfigEditor(config_path)
@@ -58,3 +68,17 @@ def update_run_metadata(config_path: str, run_id: str, experiment_id: str) -> No
     editor.save()
     editor.confirm_field(["model", "run_id"])
     editor.confirm_field(["model", "experiment_id"])
+
+
+def update_key_courses_and_cips(
+    config_path: str,
+    key_course_ids: list[str],
+    key_course_subject_areas: list[str],
+) -> None:
+    """
+    Update the TOML config with key course IDs and cip codes under [preprocessing.features].
+    """
+    editor = TomlConfigEditor(config_path)
+    editor.update_key_course_ids(key_course_ids)
+    editor.update_key_course_subject_areas(key_course_subject_areas)
+    editor.save()
