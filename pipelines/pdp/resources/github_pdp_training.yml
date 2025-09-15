@@ -273,7 +273,7 @@ resources:
             cluster_name: ""
             spark_version: 15.4.x-cpu-ml-scala2.12
             spark_conf:
-              spark.master: local[*, 4]
+            #   spark.master: local[*, 4]
               spark.databricks.cluster.profile: singleNode
             gcp_attributes:
               use_preemptible_executors: false
