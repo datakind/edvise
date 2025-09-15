@@ -251,25 +251,28 @@ def remove_pre_cohort_courses(
                 dropped_students_count,
             )
 
-        # Log grouped academic_year and  academic_term (only if both present)
-        if (
-            "academic_year" in df_dropped.columns
-            and "academic_term" in df_dropped.columns
-        ):
+        # Log grouped cohort, cohort_term, academic_year and  academic_term (only if all present)
+        required_cols = {"academic_year", "academic_term", "cohort", "cohort_term"}
+        if required_cols.issubset(df_dropped.columns):
             cohort_group_counts = (
                 df_dropped.groupby(
-                    ["academic_year", "academic_term"], dropna=False, observed=True
+                    ["cohort", "cohort_term", "academic_year", "academic_term"],
+                    dropna=False,
+                    observed=True,
                 )
                 .size()
                 .sort_index()
             )
             LOGGER.info(
-                " Grouped counts for pre-cohort (dropped) records by academic_year and academic_term to identify potential trends:\n%s",
+                "Grouped counts for pre-cohort (dropped) records by cohort/cohort_term and academic_year/academic_term to identify potential trends:\n%s",
                 cohort_group_counts.to_string(),
             )
-
-    else:
-        LOGGER.info("remove_pre_cohort_courses: No pre-cohort course records found.")
+        else:
+            missing = required_cols - df_dropped.columns.to_series().index.to_set()
+            LOGGER.warning(
+                "Could not log full pre-cohort groupings. Missing columns: %s",
+                ", ".join(missing),
+            ) 
 
     return df_filtered
 
@@ -327,19 +330,28 @@ def log_pre_cohort_courses(df_course: pd.DataFrame, student_id_col: str) -> None
             len(students_with_only_pre),
         )
 
-    # Group counts by year/term if available
-    if {"academic_year", "academic_term"}.issubset(df_pre.columns):
-        cohort_group_counts = (
-            df_pre.groupby(
-                ["academic_year", "academic_term"], dropna=False, observed=True
+    # Log grouped cohort, cohort_term, academic_year and  academic_term (only if all present)
+        required_cols = {"academic_year", "academic_term", "cohort", "cohort_term"}
+        if required_cols.issubset(df_pre.columns):
+            cohort_group_counts = (
+                df_pre.groupby(
+                    ["cohort", "cohort_term", "academic_year", "academic_term"],
+                    dropna=False,
+                    observed=True,
+                )
+                .size()
+                .sort_index()
             )
-            .size()
-            .sort_index()
-        )
-        LOGGER.info(
-            " Pre-cohort records grouped by academic_year and academic_term:\n%s",
-            cohort_group_counts.to_string(),
-        )
+            LOGGER.info(
+                "Grouped counts for pre-cohort (dropped) records by cohort/cohort_term and academic_year/academic_term to identify potential trends:\n%s",
+                cohort_group_counts.to_string(),
+            )
+        else:
+            missing = required_cols - df_pre.columns.to_series().index.to_set()
+            LOGGER.warning(
+                "Could not log full pre-cohort groupings. Missing columns: %s",
+                ", ".join(missing),
+            ) 
 
 
 def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
