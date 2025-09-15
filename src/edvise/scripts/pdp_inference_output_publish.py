@@ -21,7 +21,7 @@ from edvise.utils.gcs import publish_inference_output_files
 from edvise.utils.emails import send_inference_completion_email
 
 # GCS error classes for precise handling
-from google.api_core.exceptions import Forbidden, NotFound, PreconditionFailed
+from google.api_core.exceptions import Forbidden, NotFound
 
 
 def in_databricks() -> bool:

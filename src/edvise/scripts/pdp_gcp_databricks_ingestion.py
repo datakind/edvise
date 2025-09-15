@@ -1,4 +1,7 @@
-import os, argparse, sys, logging, json
+import os
+import argparse
+import logging
+import json
 import typing as t
 import importlib
 import pandas as pd
@@ -104,7 +107,7 @@ class DataIngestionTask:
 
             return course_file_path, cohort_file_path
 
-        except Forbidden as e:
+        except Forbidden:
             msg = (
                 f"GCS 403 for identity '{ident}' on "
                 f"gs://{self.args.gcp_bucket_name}/{course_blob_name} or /{cohort_blob_name}. "
@@ -119,10 +122,10 @@ class DataIngestionTask:
             )
             return None, None
 
-        except NotFound as e:
+        except NotFound:
             msg = (
-                f"GCS 404 on one of the paths. "
-                f"Check object names and 'validated/' prefix."
+                "GCS 404 on one of the paths. "
+                "Check object names and 'validated/' prefix."
             )
             if self.strict:
                 raise
