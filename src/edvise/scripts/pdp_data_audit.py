@@ -181,7 +181,7 @@ class PDPDataAuditTask:
             )
 
         if not include_pre_cohort:
-            df_course_standardized = remove_pre_cohort_courses(
+            df_course_validated = remove_pre_cohort_courses(
                 df_course_validated, self.cfg.student_id_col
             )
         else:
