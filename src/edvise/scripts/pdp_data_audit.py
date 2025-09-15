@@ -43,7 +43,7 @@ from edvise.data_audit.eda import (
 )
 from edvise.utils.update_config import update_key_courses_and_cips
 from edvise.utils.data_cleaning import (
-    remove_pre_cohort_courses, 
+    remove_pre_cohort_courses,
     log_pre_cohort_courses,
 )
 
@@ -118,8 +118,8 @@ class PDPDataAuditTask:
         )
         log_misjoined_records(df_cohort_raw, df_course_raw)
 
-        # Logs cohort year and terms and academic year and terms, grouped and sorted 
-        
+        # Logs cohort year and terms and academic year and terms, grouped and sorted
+
         LOGGER.info(
             " Listing grouped cohort year and terms and academic year and terms for raw cohort and course data files: "
         )
@@ -216,7 +216,7 @@ class PDPDataAuditTask:
             " Listing grouped cohort year and terms and academic year and terms for *standardized* cohort and course data files: "
         )
 
-        # Logs cohort year and terms and academic year and terms, grouped and sorted 
+        # Logs cohort year and terms and academic year and terms, grouped and sorted
         log_terms(
             df_course_standardized,
             df_cohort_standardized,

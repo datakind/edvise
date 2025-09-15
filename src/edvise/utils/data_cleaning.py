@@ -168,7 +168,7 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
                 count_not_y,
                 num_dropped_rows,
             )
-        
+
         if count_not_y > 0 and {"cohort", "cohort_term"}.issubset(df_course.columns):
             non_transfer_mask = drop_mask & (dropped_flag != "Y")
             cohort_group_counts = (
@@ -274,16 +274,14 @@ def remove_pre_cohort_courses(
     return df_filtered
 
 
-def log_pre_cohort_courses(
-    df_course: pd.DataFrame, student_id_col: str
-) -> None:
+def log_pre_cohort_courses(df_course: pd.DataFrame, student_id_col: str) -> None:
     """
     Logs any course records that occur before a student's cohort start term.
 
     This is a read-only helper: it does not modify or return the DataFrame.
     It can be used to review how many records would be dropped by
     `remove_pre_cohort_courses` without actually filtering them.
-    This is for schools that choose to keep these courses. 
+    This is for schools that choose to keep these courses.
 
     Args:
         df_course (pd.DataFrame): The course-level DataFrame.
@@ -318,8 +316,10 @@ def log_pre_cohort_courses(
     # Students with only pre-cohort records
     pre_only_students = df_pre[student_id_col].unique()
     students_with_only_pre = [
-        sid for sid in pre_only_students
-        if (df_course[student_id_col] == sid).sum() == (df_pre[student_id_col] == sid).sum()
+        sid
+        for sid in pre_only_students
+        if (df_course[student_id_col] == sid).sum()
+        == (df_pre[student_id_col] == sid).sum()
     ]
     if students_with_only_pre:
         LOGGER.warning(
@@ -330,7 +330,9 @@ def log_pre_cohort_courses(
     # Group counts by year/term if available
     if {"academic_year", "academic_term"}.issubset(df_pre.columns):
         cohort_group_counts = (
-            df_pre.groupby(["academic_year", "academic_term"], dropna=False, observed=True)
+            df_pre.groupby(
+                ["academic_year", "academic_term"], dropna=False, observed=True
+            )
             .size()
             .sort_index()
         )

@@ -493,7 +493,10 @@ def log_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
             .reset_index(name="count")
             .sort_values(by=["cohort", "cohort_term"])
         )
-        LOGGER.info("All cohort year/term pairs with counts:\n%s", cohort_terms_counts.to_string(index=False))
+        LOGGER.info(
+            "All cohort year/term pairs with counts:\n%s",
+            cohort_terms_counts.to_string(index=False),
+        )
     else:
         LOGGER.warning("Missing fields: 'cohort' or 'cohort_term' in cohort dataframe.")
 
@@ -506,9 +509,14 @@ def log_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
             .reset_index(name="count")
             .sort_values(by=["academic_year", "academic_term"])
         )
-        LOGGER.info("All academic year/term pairs with counts:\n%s", academic_terms_counts.to_string(index=False))
+        LOGGER.info(
+            "All academic year/term pairs with counts:\n%s",
+            academic_terms_counts.to_string(index=False),
+        )
     else:
-        LOGGER.warning("Missing fields: 'academic_year' or 'academic_term' in course dataframe.")
+        LOGGER.warning(
+            "Missing fields: 'academic_year' or 'academic_term' in course dataframe."
+        )
 
 
 def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> None:
@@ -619,7 +627,7 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
             " Grouped counts for mismatched records by cohort and cohort_term to identify potential trends:\n%s",
             cohort_group_counts.to_string(),
         )
-    
+
     if pct_dropped < 0.1:
         LOGGER.warning(
             "inspect_misjoined_records: These mismatches will later result in dropping %d students (<0.1%% of all students).",
@@ -631,4 +639,3 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
             dropped_students,
             pct_dropped,
         )
-
