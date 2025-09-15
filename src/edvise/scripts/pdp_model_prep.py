@@ -51,6 +51,15 @@ class ModelPrepTask:
             on=student_id_col,
         )
         df_labeled = pd.merge(df_labeled, target_df, how="inner", on=student_id_col)
+
+        target_counts = df_labeled["target"].value_counts(dropna=False)
+        logging.info("Target breakdown (counts):\n%s", target_counts.to_string())
+
+        target_percents = df_labeled["target"].value_counts(
+            normalize=True, dropna=False
+        )
+        logging.info("Target breakdown (percents):\n%s", target_percents.to_string())
+
         return df_labeled
 
     def cleanup_features(self, df_labeled: pd.DataFrame) -> pd.DataFrame:

@@ -36,6 +36,14 @@ from edvise.dataio.read import (
 )
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
+from edvise.data_audit.eda import (
+    compute_gateway_course_ids_and_cips,
+    log_record_drops,
+    log_most_recent_terms,
+    log_misjoined_records,
+)
+from edvise.utils.update_config import update_key_courses_and_cips
+from edvise.utils.data_cleaning import remove_pre_cohort_courses
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -62,7 +70,6 @@ class PDPDataAuditTask:
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
-        # self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
         # Use default converter to handle duplicates if none provided
         self.course_converter_func: ConverterFunc = (
             handling_duplicates
@@ -71,54 +78,118 @@ class PDPDataAuditTask:
         )
         self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
-    def _resolve_path(
-        self, task_param_path: t.Optional[str], cfg_path: str, label: str
+    def in_databricks(self) -> bool:
+        return bool(
+            os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER")
+        )
+
+    def _path_exists(self, p: str) -> bool:
+        if not p:
+            return False
+        # DBFS scheme
+        if p.startswith("dbfs:/"):
+            try:
+                from databricks.sdk.runtime import dbutils  # lazy import
+
+                dbutils.fs.ls(p)  # will raise if not found
+                return True
+            except Exception:
+                return False
+        # Local Posix path (Vols are mounted here)
+        return pathlib.Path(p).exists()
+
+    def _pick_existing_path(
+        self,
+        prefer_path: t.Optional[str],
+        fallback_path: str,
+        label: str,
+        use_fallback_on_dbx: bool = True,
     ) -> str:
         """
-        Resolve path depending on if we're running training (accepts from config) or
-        inference (accepts from task parameters).
-        We resolve by prefering a non-empty task parameter path, otherwise we fall back to config.
+        prefer_path: inference-provided path (may be None or empty)
+        fallback_path: config path
+        label: 'course' or 'cohort'
+        use_fallback_on_dbx: only fallback to config automatically when on Databricks
         """
-        # Accept only non-empty strings for task parameter paths
-        chosen = (
-            task_param_path.strip()
-            if isinstance(task_param_path, str) and task_param_path.strip()
-            else None
-        ) or cfg_path
+        prefer = (prefer_path or "").strip()
+        if prefer and self._path_exists(prefer):
+            LOGGER.info("%s: using inference-provided path: %s", label, prefer)
+            return prefer
 
-        # Log decision
-        if task_param_path and task_param_path.strip():
-            LOGGER.info("%s: using inference-provided path: %s", label, chosen)
-        else:
-            LOGGER.info("%s: using training-config path: %s", label, chosen)
+        if prefer and not self._path_exists(prefer):
+            LOGGER.warning("%s: inference-provided path not found: %s", label, prefer)
 
-        # Sanity check for /Volumes paths (skip dbfs:/)
-        if chosen.startswith("/Volumes/"):
-            p = pathlib.Path(chosen)
-            if not p.exists():
-                LOGGER.warning("%s path does not exist at runtime: %s", label, chosen)
+        if (
+            use_fallback_on_dbx
+            and self.in_databricks()
+            and self._path_exists(fallback_path)
+        ):
+            LOGGER.info(
+                "%s: utilizing training-config path on Databricks: %s",
+                label,
+                fallback_path,
+            )
+            return fallback_path
 
-        return chosen
+        # If we get here, we couldn't find a usable path
+        tried = [p for p in [prefer, fallback_path] if p]
+        raise FileNotFoundError(
+            f"{label}: none of the candidate paths exist. Tried: {tried}. "
+            f"Environment: {'Databricks' if self.in_databricks() else 'non-Databricks'}"
+        )
 
     def run(self):
         """Executes the data preprocessing pipeline."""
-        cohort_dataset_raw_path = self._resolve_path(
+        cohort_dataset_raw_path = self._pick_existing_path(
             self.args.cohort_dataset_validated_path,
             self.cfg.datasets.bronze.raw_cohort.file_path,
             "cohort",
         )
-        course_dataset_raw_path = self._resolve_path(
+        course_dataset_raw_path = self._pick_existing_path(
             self.args.course_dataset_validated_path,
             self.cfg.datasets.bronze.raw_course.file_path,
             "course",
         )
 
-        # --- Load datasets ---
+        # --- Load RAW datasets ---
+        LOGGER.info(" Loading raw cohort and course datasets:")
 
-        # Cohort
+        # Raw cohort data
+        df_cohort_raw = read_raw_pdp_cohort_data(
+            file_path=cohort_dataset_raw_path,
+            schema=None,
+            spark_session=self.spark,
+        )
+
+        # Raw course data
+        dttm_formats = ["ISO8601", "%Y%m%d.0"]
+        for fmt in dttm_formats:
+            try:
+                df_course_raw = read_raw_pdp_course_data(
+                    file_path=course_dataset_raw_path,
+                    schema=None,
+                    dttm_format=fmt,
+                    spark_session=self.spark,
+                )
+                break  # success — exit loop
+            except ValueError:
+                continue  # try next format
+        else:
+            raise ValueError(
+                " Failed to parse course data with all known datetime formats."
+            )
+
+        LOGGER.info(
+            " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
+        )
+        log_misjoined_records(df_cohort_raw, df_course_raw)
+
+        # TODO: we may want to add checks here for expected columns, rows, etc. that could break the schemas
+
+        # --- Load COHORT dataset - with schema ---
 
         # Schema validate cohort data
-        LOGGER.info("Reading and schema validating cohort data:")
+        LOGGER.info(" Reading and schema validating cohort data:")
         df_cohort_validated = read_raw_pdp_cohort_data(
             file_path=cohort_dataset_raw_path,
             schema=RawPDPCohortDataSchema,
@@ -127,18 +198,18 @@ class PDPDataAuditTask:
         )
 
         # Standardize cohort data
-        LOGGER.info("Standardizing cohort data:")
+        LOGGER.info(" Standardizing cohort data:")
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
 
-        LOGGER.info("Cohort data standardized.")
+        LOGGER.info(" Cohort data standardized.")
 
-        # Course
-        dttm_formats = ["ISO8601", "%Y%m%d.0"]
+        # --- Load COURSE dataset - with schema ---
 
         # Schema validate course data and handle duplicates
         LOGGER.info(
-            "Reading and schema validating course data, handling any duplicates:"
+            " Reading and schema validating course data, handling any duplicates:"
         )
+
         for fmt in dttm_formats:
             try:
                 df_course_validated = read_raw_pdp_course_data(
@@ -146,7 +217,6 @@ class PDPDataAuditTask:
                     schema=RawPDPCourseDataSchema,
                     dttm_format=fmt,
                     converter_func=self.course_converter_func,
-                    # converter_func=handling_duplicates,
                     spark_session=self.spark,
                 )
                 break  # success — exit loop
@@ -154,15 +224,53 @@ class PDPDataAuditTask:
                 continue  # try next format
         else:
             raise ValueError(
-                "Failed to parse course data with all known datetime formats."
+                " Failed to parse course data with all known datetime formats."
             )
-        LOGGER.info("Course data read and schema validated, duplicates handled.")
+        LOGGER.info(" Course data read and schema validated, duplicates handled.")
+
+        try:
+            include_pre_cohort = self.cfg.preprocessing.include_pre_cohort_courses
+        except AttributeError:
+            raise AttributeError(
+                "Config error: 'include_pre_cohort_courses' is missing. "
+                "Please set it explicitly in the config file under 'preprocessing' based on your school's preference (for default models, this should always be false)."
+            )
+
+        if not include_pre_cohort:
+            df_course_standardized = remove_pre_cohort_courses(
+                df_course_validated, self.cfg.student_id_col
+            )
 
         # Standardize course data
-        LOGGER.info("Standardizing course data:")
+        LOGGER.info(" Standardizing course data:")
         df_course_standardized = self.course_std.standardize(df_course_validated)
 
-        LOGGER.info("Course data standardized.")
+        LOGGER.info(" Course data standardized.")
+
+        # Log Math/English gateway courses and add to config
+        ids_cips = compute_gateway_course_ids_and_cips(df_course_standardized)
+        LOGGER.info(
+            " Auto-populating config with below course IDs and cip codes: change if necessary"
+        )
+        update_key_courses_and_cips(
+            self.args.config_file_path,
+            key_course_ids=ids_cips[0],
+            key_course_subject_areas=ids_cips[1],
+        )
+
+        # Log changes before and after pre-processing
+        log_record_drops(
+            df_cohort_raw,
+            df_cohort_standardized,
+            df_course_raw,
+            df_course_standardized,
+        )
+
+        # Logs most recent terms
+        log_most_recent_terms(
+            df_course_standardized,
+            df_cohort_standardized,
+        )
 
         # --- Write results ---
         write_parquet(

@@ -448,7 +448,12 @@ def log_h2o_model_metadata_for_uc(
         if model_saved_path != final_model_path:
             os.rename(model_saved_path, final_model_path)
 
-        # 2) Build MLmodel metadata (minimal)
+        # 2) Try to export MOJO
+        final_mojo_path = _try_export_mojo(h2o_model, tmpdir)
+        if final_mojo_path:
+            mlflow.log_artifact(final_mojo_path, artifact_path=artifact_path)
+
+        # 3) Build MLmodel metadata
         mlmodel = Model(artifact_path=artifact_path, flavors={})
         mlmodel.add_flavor(
             "h2o",
@@ -465,7 +470,7 @@ def log_h2o_model_metadata_for_uc(
             mlmodel_yaml = f.read()
         mlflow.log_text(mlmodel_yaml, artifact_file=f"{artifact_path}/MLmodel")
 
-        # 3) (Optional) minimal env files. Skip by default for speed.
+        # 4) (Optional) minimal env files. Skip by default for speed.
         if include_env_files:
             # Small files, but still I/O + upload; only do if you need them.
             reqs_path = os.path.join(tmpdir, "requirements.txt")
@@ -487,7 +492,7 @@ def log_h2o_model_metadata_for_uc(
                 yaml.safe_dump(conda_env, f)
             mlflow.log_artifact(conda_path, artifact_path=artifact_path)
 
-        # 4) Upload the big file LAST (single call, no directory walk)
+        # 5) Upload the big file LAST (single call, no directory walk)
         mlflow.log_artifact(final_model_path, artifact_path=artifact_path)
 
 
@@ -729,3 +734,32 @@ def _to_pandas(hobj: t.Any) -> pd.DataFrame:
             return hobj.as_data_frame(use_pandas=True)
 
     raise TypeError(f"_to_pandas: unsupported object type {type(hobj)}")
+
+
+def _try_export_mojo(h2o_model: ModelBase, tmpdir: str) -> str | None:
+    """
+    Attempt to export a MOJO for the given model. Returns (has_mojo, final_mojo_path).
+    """
+    final_mojo_path = os.path.join(tmpdir, "model.zip")
+    try:
+        # Primary, version-agnostic path: model method
+        mojo_path = h2o_model.download_mojo(path=tmpdir)
+        if mojo_path and os.path.exists(mojo_path):
+            if mojo_path != final_mojo_path:
+                os.replace(mojo_path, final_mojo_path)
+            return final_mojo_path
+        else:
+            logging.warning(
+                "download_mojo returned no path for algo=%s",
+                getattr(h2o_model, "algo", "?"),
+            )
+            return None
+    except AttributeError as e:
+        logging.warning("Model has no download_mojo(): %s", e)
+        return None
+    except Exception as e:
+        # Some algos/params don't support MOJO
+        logging.warning(
+            "MOJO export failed for algo=%s: %s", getattr(h2o_model, "algo", "?"), e
+        )
+        return None

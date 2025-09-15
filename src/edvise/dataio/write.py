@@ -1,5 +1,7 @@
+import typing as t
 import logging
 import time
+import os
 
 import json
 import enum
@@ -94,11 +96,50 @@ def write_parquet(
     return str(path)
 
 
-def _to_jsonable(x):
+def to_parquet_safe(
+    df: pd.DataFrame,
+    path: t.Union[str, os.PathLike[str]],
+    *,
+    keep_attrs: bool = True,
+    strict: bool = False,
+    **kwargs: t.Any,
+) -> None:
+    # log non-JSON attrs
+    bad: dict[str, str] = {
+        k: type(v).__name__ for k, v in df.attrs.items() if not _is_jsonable(v)
+    }
+    if bad:
+        LOGGER.warning("Non-JSON attrs detected: %s", bad)
+
+    if strict and bad:
+        raise TypeError(f"Non-JSON-serializable attrs: {bad}")
+
+    # Keep original attrs reference and type info for mypy
+    orig_attrs: dict[str, t.Any] = df.attrs
+    try:
+        if keep_attrs and orig_attrs:
+            df.attrs = {k: _to_jsonable(v) for k, v in orig_attrs.items()}
+        else:
+            # make mypy happy about the type of attrs (dict[str, Any])
+            df.attrs = t.cast(dict[str, t.Any], {})
+        df.to_parquet(path, **kwargs)
+    finally:
+        df.attrs = orig_attrs
+
+
+def _is_jsonable(x: t.Any) -> t.Any:
+    try:
+        json.dumps(x)
+        return True
+    except TypeError:
+        return False
+
+
+def _to_jsonable(x: t.Any) -> t.Any:
     if hasattr(x, "model_dump"):  # pydantic v2
         return x.model_dump()
     if is_dataclass(x):
-        return asdict(x)
+        return asdict(x)  # type: ignore[arg-type]
     if isinstance(x, enum.Enum):
         return x.value
     if isinstance(x, (np.generic,)):
@@ -114,36 +155,3 @@ def _to_jsonable(x):
         return x
     except TypeError:
         return str(x)
-
-
-def to_parquet_safe(
-    df: pd.DataFrame, path: str, *, keep_attrs=True, strict=False, **kwargs
-):
-    # log non-JSON attrs
-    bad = {k: type(v).__name__ for k, v in df.attrs.items() if not _is_jsonable(v)}
-    if bad:
-        LOGGER.warning("Non-JSON attrs detected: %s", bad)
-
-    # Optionally fail fast if strict
-    if strict and bad:
-        raise TypeError(f"Non-JSON-serializable attrs: {bad}")
-
-    # Temporarily replace attrs on the original df (no data copy)
-    orig_attrs = df.attrs
-    try:
-        if keep_attrs and orig_attrs:
-            df.attrs = {k: _to_jsonable(v) for k, v in orig_attrs.items()}
-        else:
-            df.attrs = {}
-        df.to_parquet(path, **kwargs)
-    finally:
-        # Restore original attrs regardless of write outcome
-        df.attrs = orig_attrs
-
-
-def _is_jsonable(x):
-    try:
-        json.dumps(x)
-        return True
-    except TypeError:
-        return False
