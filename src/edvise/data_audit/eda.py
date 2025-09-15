@@ -481,31 +481,35 @@ def log_record_drops(
 def log_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
     """
     Logs ALL cohort year/term pairs and ALL academic year/term pairs,
-    each sorted by year then term.
+    each sorted by year then term, including value counts.
     """
+
     # --- Cohort year/term pairs ---
     if {"cohort", "cohort_term"}.issubset(df_cohort.columns):
-        cohort_terms = (
+        cohort_terms_counts = (
             df_cohort[["cohort", "cohort_term"]]
             .dropna()
-            .drop_duplicates()
+            .value_counts()
+            .reset_index(name="count")
             .sort_values(by=["cohort", "cohort_term"])
         )
-        LOGGER.info("All cohort year/term pairs:\n%s", cohort_terms.to_string(index=False))
+        LOGGER.info("All cohort year/term pairs with counts:\n%s", cohort_terms_counts.to_string(index=False))
     else:
-        LOGGER.warning("Missing fields cohort or cohort_term column in cohort dataframe.")
+        LOGGER.warning("Missing fields: 'cohort' or 'cohort_term' in cohort dataframe.")
 
     # --- Academic year/term pairs ---
     if {"academic_year", "academic_term"}.issubset(df_course.columns):
-        academic_terms = (
+        academic_terms_counts = (
             df_course[["academic_year", "academic_term"]]
             .dropna()
-            .drop_duplicates()
+            .value_counts()
+            .reset_index(name="count")
             .sort_values(by=["academic_year", "academic_term"])
         )
-        LOGGER.info("All academic year/term pairs:\n%s", academic_terms.to_string(index=False))
+        LOGGER.info("All academic year/term pairs with counts:\n%s", academic_terms_counts.to_string(index=False))
     else:
-        LOGGER.warning("Missing fields academic_year or academic_term column in course dataframe.")
+        LOGGER.warning("Missing fields: 'academic_year' or 'academic_term' in course dataframe.")
+
 
 def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> None:
     """
