@@ -288,7 +288,7 @@ resources:
         - name: service_account_executer
           default: ${var.service_account_executer}
       permissions:
-        - service_principal_id: ${var.datakind_group_to_manage_workflow} 
+        - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
-        - user_name: ${var.service_account_executer}
+        - service_principal_id: ${var.service_account_executer}
           level: CAN_MANAGE_RUN
