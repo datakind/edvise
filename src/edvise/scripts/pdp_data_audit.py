@@ -39,11 +39,14 @@ from edvise.configs.pdp import PDPProjectConfig
 from edvise.data_audit.eda import (
     compute_gateway_course_ids_and_cips,
     log_record_drops,
-    log_most_recent_terms,
+    log_terms,
     log_misjoined_records,
 )
 from edvise.utils.update_config import update_key_courses_and_cips
-from edvise.utils.data_cleaning import remove_pre_cohort_courses
+from edvise.utils.data_cleaning import (
+    remove_pre_cohort_courses,
+    log_pre_cohort_courses,
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -184,6 +187,16 @@ class PDPDataAuditTask:
         )
         log_misjoined_records(df_cohort_raw, df_course_raw)
 
+        # Logs cohort year and terms and academic year and terms, grouped and sorted
+
+        LOGGER.info(
+            " Listing grouped cohort year and terms and academic year and terms for raw cohort and course data files: "
+        )
+        log_terms(
+            df_course_raw,
+            df_cohort_raw,
+        )
+
         # TODO: we may want to add checks here for expected columns, rows, etc. that could break the schemas
 
         # --- Load COHORT dataset - with schema ---
@@ -228,6 +241,7 @@ class PDPDataAuditTask:
             )
         LOGGER.info(" Course data read and schema validated, duplicates handled.")
 
+        # TODO: can't tell if this is working?
         try:
             include_pre_cohort = self.cfg.preprocessing.include_pre_cohort_courses
         except AttributeError:
@@ -237,9 +251,11 @@ class PDPDataAuditTask:
             )
 
         if not include_pre_cohort:
-            df_course_standardized = remove_pre_cohort_courses(
+            df_course_validated = remove_pre_cohort_courses(
                 df_course_validated, self.cfg.student_id_col
             )
+        else:
+            log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
         # Standardize course data
         LOGGER.info(" Standardizing course data:")
@@ -266,8 +282,12 @@ class PDPDataAuditTask:
             df_course_standardized,
         )
 
-        # Logs most recent terms
-        log_most_recent_terms(
+        LOGGER.info(
+            " Listing grouped cohort year and terms and academic year and terms for *standardized* cohort and course data files: "
+        )
+
+        # Logs cohort year and terms and academic year and terms, grouped and sorted
+        log_terms(
             df_course_standardized,
             df_cohort_standardized,
         )
