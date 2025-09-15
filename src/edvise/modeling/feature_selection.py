@@ -313,6 +313,4 @@ def drop_collinear_features_iteratively(
 
     LOGGER.info("dropping %s collinear features", n_features_dropped_so_far)
 
-
-
     return df
