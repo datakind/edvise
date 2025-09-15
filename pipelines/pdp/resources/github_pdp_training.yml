@@ -87,7 +87,7 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5912-162527-2xk4ug35
           job_cluster_key: edvise-pdp-training-pipeline-cluster
-        #   libraries:
+          libraries:
         #     - pypi:
         #         package: pandas==2.2.3
         #     - pypi:
@@ -104,8 +104,8 @@ resources:
         #         package: tomli==2.2.1
         #     - pypi:
         #         package: tomlkit==0.13.3
-        #     - pypi:
-        #         package: pandera==0.23.0
+            - pypi:
+                package: pandera==0.23.0
         #     - pypi:
         #         package: pydantic~=2.10
         - task_key: student_selection
@@ -121,7 +121,7 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5912-162527-2xk4ug35
           job_cluster_key: edvise-pdp-training-pipeline-cluster
-        #   libraries:
+          libraries:
         #     - pypi:
         #         package: pandas==2.2.3
         #     - pypi:
@@ -138,8 +138,8 @@ resources:
         #         package: tomli==2.2.1
         #     - pypi:
         #         package: tomlkit==0.13.3
-        #     - pypi:
-        #         package: pandera==0.23.0
+            - pypi:
+                package: pandera==0.23.0
         #     - pypi:
         #         package: pydantic~=2.10
         - task_key: targets
@@ -155,7 +155,7 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5912-162527-2xk4ug35
           job_cluster_key: edvise-pdp-training-pipeline-cluster
-        #   libraries:
+          libraries:
         #     - pypi:
         #         package: pandas==2.2.3
         #     - pypi:
@@ -172,8 +172,8 @@ resources:
         #         package: tomli==2.2.1
         #     - pypi:
         #         package: tomlkit==0.13.3
-        #     - pypi:
-        #         package: pandera==0.23.0
+            - pypi:
+                package: pandera==0.23.0
         #     - pypi:
         #         package: pydantic~=2.10
         - task_key: model_prep
@@ -191,7 +191,7 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           # existing_cluster_id: 5912-162527-2xk4ug35
           job_cluster_key: edvise-pdp-training-pipeline-cluster
-        #   libraries:
+          libraries:
         #     - pypi:
         #         package: pandas==2.2.3
         #     - pypi:
@@ -208,8 +208,8 @@ resources:
         #         package: tomli==2.2.1
         #     - pypi:
         #         package: tomlkit==0.13.3
-        #     - pypi:
-        #         package: pandera==0.23.0
+            - pypi:
+                package: pandera==0.23.0
         #     - pypi:
         #         package: pydantic~=2.10
         - task_key: training_h2o
@@ -230,7 +230,9 @@ resources:
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
           job_cluster_key: edvise-pdp-training-pipeline-cluster
-        #   libraries:
+          libraries:
+            - pypi:
+                package: pandera==0.23.0
             # - pypi:
             #     package: numpy==1.26.4
             # - pypi:
@@ -247,8 +249,6 @@ resources:
             #     package: tomli==2.2.1
             # - pypi:
             #     package: tomlkit==0.13.3
-            # - pypi:
-            #     package: pandera==0.23.0
             # - pypi:
             #     package: pydantic~=2.10
             # - pypi:
