@@ -185,7 +185,7 @@ class PDPDataAuditTask:
                 df_course_validated, self.cfg.student_id_col
             )
         else:
-            log_pre_cohort_courses(df_course_validated)
+            log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
         # Standardize course data
         LOGGER.info(" Standardizing course data:")
