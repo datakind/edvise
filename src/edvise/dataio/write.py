@@ -105,7 +105,9 @@ def to_parquet_safe(
     **kwargs: t.Any,
 ) -> None:
     # log non-JSON attrs
-    bad: dict[str, str] = {k: type(v).__name__ for k, v in df.attrs.items() if not _is_jsonable(v)}
+    bad: dict[str, str] = {
+        k: type(v).__name__ for k, v in df.attrs.items() if not _is_jsonable(v)
+    }
     if bad:
         LOGGER.warning("Non-JSON attrs detected: %s", bad)
 
@@ -131,6 +133,7 @@ def _is_jsonable(x: t.Any) -> t.Any:
         return True
     except TypeError:
         return False
+
 
 def _to_jsonable(x: t.Any) -> t.Any:
     if hasattr(x, "model_dump"):  # pydantic v2
