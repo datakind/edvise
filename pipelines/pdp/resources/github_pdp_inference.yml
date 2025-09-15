@@ -4,23 +4,50 @@ resources:
       name: edvise_github_sourced_pdp_inference_pipeline
       max_concurrent_runs: 2
       tasks:
+        - task_key: data_ingestion
+          spark_python_task:
+            python_file: src/edvise/scripts/pdp_gcp_databricks_ingestion.py
+            source: GIT
+            parameters:
+              - --cohort_file_name
+              - "{{job.parameters.cohort_file_name}}"
+              - --course_file_name
+              - "{{job.parameters.course_file_name}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+          existing_cluster_id: 5912-162527-2xk4ug35
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: google-cloud-storage==2.19.0
         - task_key: data_audit
+          depends_on:
+            - task_key: data_ingestion
           spark_python_task:
             python_file: src/edvise/scripts/pdp_data_audit.py
             source: GIT
             parameters:
               - --bronze_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume"
               - --silver_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --config_file_path 
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: 5507-145238-6we6v2w3
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
                 package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -45,13 +72,15 @@ resources:
             source: GIT
             parameters:
               - --silver_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: 5507-145238-6we6v2w3
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
                 package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -76,13 +105,15 @@ resources:
             source: GIT
             parameters:
               - --silver_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: 5507-145238-6we6v2w3
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
                 package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -107,13 +138,15 @@ resources:
             source: GIT
             parameters:
               - --silver_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: 5507-145238-6we6v2w3
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
                 package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -139,13 +172,15 @@ resources:
             source: GIT
             parameters:
               - --silver_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
-          existing_cluster_id: 5507-145238-6we6v2w3
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+          existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
                 package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
             - pypi:
                 package: faker==33.1.0
             - pypi:
@@ -170,9 +205,9 @@ resources:
             source: GIT
             parameters:
               - --silver_volume_path
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
-              - "/Volumes/staging_sst_01/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
               - --ds_run_as
@@ -187,10 +222,10 @@ resources:
               - "{{job.parameters.DK_CC_EMAIL}}"
               - --job_root_dir  
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
-          existing_cluster_id: 5507-145238-6we6v2w3
+          existing_cluster_id: 5912-162527-2xk4ug35
           libraries:
             - pypi:
-                package: numpy==1.24.4
+                package: numpy==1.26.4
             - pypi:
                 package: pandas==2.2.3
             - pypi:
@@ -215,15 +250,43 @@ resources:
                 package: shap~=0.46.0
             - pypi:
                 package: mlflow~=2.22
+        - task_key: output_publish
+          depends_on:
+            - task_key: inference_h2o
+          spark_python_task: 
+            python_file: src/edvise/scripts/pdp_inference_output_publish.py
+            source: GIT
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --datakind_notification_email
+              - "{{job.parameters.datakind_notification_email}}"
+          existing_cluster_id: 5912-162527-2xk4ug35
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: google-cloud-storage==2.19.0
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
-        git_branch: develop
+        # git_branch: develop
+        git_branch: feat/adding_gcs_ingestion
       tags:
         dev: kayla_wilding
       queue:
         enabled: true
       parameters:
+        - name: cohort_file_name
+          default: AO1600pdp_AO1600_AR_DEIDENTIFIED_STUDYID_20250522120554.csv
+        - name: course_file_name
+          default: AO1600pdp_AO1600_COURSE_LEVEL_AR_DEIDENTIFIED_STUDYID_20250522120554.csv
         - name: databricks_institution_name
           default: ${var.databricks_institution_name}
         - name: db_run_id
@@ -236,11 +299,14 @@ resources:
           default: ${var.config_file_name}
         - name: ds_run_as
           default: ${var.ds_run_as}
+        - name: gcp_bucket_name
+          default: databricks-2052166062819251-unitycatalog
         - name: datakind_notification_email
           default: ${var.datakind_notification_email}
+        - name: service_account_executer
+          default: ${var.service_account_executer}
       permissions:
-        - user_name: ${var.ds_run_as}
-          level: IS_OWNER
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
-
+        - user_name: ${var.service_account_executer}
+          level: CAN_MANAGE_RUN
