@@ -578,13 +578,6 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
     # Filter misjoined records only
     df_misjoined = df_merged[df_merged["_merge"] != "both"]
 
-    # Print misjoined ids
-    misjoined_ids = df_misjoined["study_id"].dropna().unique().tolist()
-    LOGGER.info(
-        "Misjoined student IDs:", 
-        misjoined_ids
-    )
-
     # Log mismatch summary (custom format)
     if pct_misjoined < 0.1:
         pct_str = "<0.1%%"
@@ -598,6 +591,13 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
         pct_str,
         left_only,
         right_only,
+    )
+
+    # Print misjoined ids
+    misjoined_ids = df_misjoined["study_id"].dropna().unique().tolist()
+    LOGGER.info(
+        "Misjoined student IDs:"
+        misjoined_ids,
     )
 
     # Additional warning if mismatch is significant
