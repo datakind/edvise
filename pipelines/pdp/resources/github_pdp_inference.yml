@@ -306,7 +306,7 @@ resources:
         - name: service_account_executer
           default: ${var.service_account_executer}
       permissions:
-        - group_name: ${var.service_account_executer}
+        - user_name: ${var.service_account_executer}
           level: CAN_MANAGE_RUN
         - user_name: ${var.ds_run_as}
           level: IS_OWNER
