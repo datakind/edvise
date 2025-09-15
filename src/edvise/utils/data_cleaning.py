@@ -168,28 +168,26 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
                 count_not_y,
                 num_dropped_rows,
             )
-
-        if count_not_y > 0 and {"cohort", "cohort_term"}.issubset(df_course.columns):
+            
+        # Logging cohort, cohort term, academic year and term for records with missing course identifiers for investigation and analysis 
+        if count_not_y > 0 and {"cohort", "cohort_term", "academic_year", "academic_term"}.issubset(df_course.columns):
             non_transfer_mask = drop_mask & (dropped_flag != "Y")
             cohort_group_counts = (
                 df_course.loc[non_transfer_mask]
-                .groupby(["cohort", "cohort_term"], dropna=False, observed=True)
+                .groupby(
+                    ["cohort", "cohort_term", "academic_year", "academic_term"],
+                    dropna=False,
+                    observed=True
+                )
                 .size()
-                .sort_index()
+                .reset_index(name="count")
+                .sort_values(by=["cohort", "cohort_term", "academic_year", "academic_term"])
             )
+
             LOGGER.info(
-                " Grouped cohort and cohort term counts for rows with missing course identifiers NOT marked as transfer-outs:\n%s",
-                cohort_group_counts.to_string(),
+                "Grouped cohort year/term and academic year/term counts for rows with missing course identifiers NOT marked as transfer-outs:\n%s",
+                cohort_group_counts.to_string(index=False)
             )
-
-    # Log fully dropped students
-    if dropped_students:
-        LOGGER.warning(
-            " %d students were fully dropped from the course data due to all their records missing identifiers.",
-            dropped_students,
-        )
-
-    return df_cleaned
 
 
 def remove_pre_cohort_courses(
