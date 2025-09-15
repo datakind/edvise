@@ -237,17 +237,45 @@ def drop_collinear_features_iteratively(
 
         df_features = pd.concat([df_features, df_bool_imputed], axis=1)
 
-        # drop if there are any boolean columns perfectly duplicate of the numeric cols
-        duplicated_cols = df_features.columns[
-            df_features.T.duplicated(keep="first")
-        ].tolist()
+        # Identify duplicated columns (perfect duplicates)
+        duplicated_mask = df_features.T.duplicated(keep=False)
+        duplicated_cols = df_features.columns[duplicated_mask].tolist()
 
-        df_features = df_features.drop(columns=duplicated_cols)
-        df = df.drop(columns=duplicated_cols)
-        n_features_dropped_so_far += len(duplicated_cols)
+        if duplicated_cols:
+            grouped = df_features[duplicated_cols].T.groupby(
+                lambda x: tuple(df_features[x].values), sort=False
+            )
+        for _, group in grouped:
+            dup_cols = list(group.index)
+            if len(dup_cols) <= 1:
+                continue
 
-    print(df_features.columns.tolist())
-    print(df_features.dtypes)
+            # Prefer to keep force-included columns
+            force_included = [col for col in dup_cols if col in force_include_cols]
+            if force_included:
+                keep_col = force_included[0]
+            else:
+                keep_col = dup_cols[0]
+
+            drop_cols = [col for col in dup_cols if col != keep_col]
+
+            if len(force_included) == 1 and len(dup_cols) > 1:
+                LOGGER.info(
+                    "Duplicate columns found: kept force-included '%s', dropped: %s",
+                    keep_col,
+                    drop_cols,
+                )
+
+            if len(force_included) > 1:
+                LOGGER.warning(
+                    "Duplicate force-included columns found: keeping '%s', dropping: %s",
+                    keep_col,
+                    [col for col in force_included if col != keep_col],
+                )
+
+            df_features = df_features.drop(columns=drop_cols)
+            df = df.drop(columns=drop_cols, errors="ignore")
+            n_features_dropped_so_far += len(drop_cols)
 
     # calculate initial VIFs for features that aren't force-included
     uncentered_vif_dict = {
@@ -284,10 +312,5 @@ def drop_collinear_features_iteratively(
         }
 
     LOGGER.info("dropping %s collinear features", n_features_dropped_so_far)
-
-    if not all([col in df.columns for col in force_include_cols]):
-        raise ValueError(
-            "The dataset with selected features is missing one of the force include variables!"
-        )
 
     return df
