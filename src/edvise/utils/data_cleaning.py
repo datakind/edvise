@@ -176,7 +176,7 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
             "academic_year",
             "academic_term",
         }.issubset(df_course.columns):
-            non_transfer_mask = drop_mask & (dropped_flag != "Y")
+            non_transfer_mask = drop_mask & (dropped_flag.reindex(drop_mask.index) != "Y"
             df_dropped = df_course.loc[non_transfer_mask]
 
             # Grouped by academic year and academic term
@@ -208,7 +208,8 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
                 "Grouped counts by cohort year and cohort term for rows with missing course identifiers NOT marked as transfer-outs:\n%s",
                 cohort_group_counts.to_string(index=False),
             )
-
+            
+    return df_cleaned
 
 def remove_pre_cohort_courses(
     df_course: pd.DataFrame, student_id_col: str
