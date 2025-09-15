@@ -367,41 +367,41 @@ def log_pre_cohort_courses(df_course: pd.DataFrame, student_id_col: str) -> None
             len(students_with_only_pre),
         )
 
-        # Log grouped cohort and academic year/term counts for dropped pre-cohort records
-        required_cols = {"academic_year", "academic_term", "cohort", "cohort_term"}
-        if required_cols.issubset(df_pre.columns):
-            # --- Grouped by academic year and term ---
-            academic_group_counts = (
-                df_pre.groupby(
-                    ["academic_year", "academic_term"], dropna=False, observed=True
-                )
-                .size()
-                .reset_index(name="count")
-                .sort_values(by=["academic_year", "academic_term"])
+    # Log grouped cohort and academic year/term counts for dropped pre-cohort records
+    required_cols = {"academic_year", "academic_term", "cohort", "cohort_term"}
+    if required_cols.issubset(df_pre.columns):
+        # --- Grouped by academic year and term ---
+        academic_group_counts = (
+            df_pre.groupby(
+                ["academic_year", "academic_term"], dropna=False, observed=True
             )
-            LOGGER.info(
-                "Pre-cohort records grouped by academic year and term:\n%s",
-                academic_group_counts.to_string(index=False),
-            )
+            .size()
+            .reset_index(name="count")
+            .sort_values(by=["academic_year", "academic_term"])
+        )
+        LOGGER.info(
+            "Pre-cohort records grouped by academic year and term:\n%s",
+            academic_group_counts.to_string(index=False),
+        )
 
-            # --- Grouped by cohort year and term ---
-            cohort_group_counts = (
-                df_pre.groupby(["cohort", "cohort_term"], dropna=False, observed=True)
-                .size()
-                .reset_index(name="count")
-                .sort_values(by=["cohort", "cohort_term"])
-            )
-            LOGGER.info(
-                "Pre-cohort records grouped by cohort year and term:\n%s",
-                cohort_group_counts.to_string(index=False),
-            )
+        # --- Grouped by cohort year and term ---
+        cohort_group_counts = (
+            df_pre.groupby(["cohort", "cohort_term"], dropna=False, observed=True)
+            .size()
+            .reset_index(name="count")
+            .sort_values(by=["cohort", "cohort_term"])
+        )
+        LOGGER.info(
+            "Pre-cohort records grouped by cohort year and term:\n%s",
+            cohort_group_counts.to_string(index=False),
+        )
 
-        else:
-            missing = required_cols - df_pre.columns.to_series().index.to_set()
-            LOGGER.warning(
-                "Could not log full pre-cohort groupings. Missing columns: %s",
-                ", ".join(missing),
-            )
+    else:
+        missing = required_cols - df_pre.columns.to_series().index.to_set()
+        LOGGER.warning(
+            "Could not log full pre-cohort groupings. Missing columns: %s",
+            ", ".join(missing),
+        )
 
 
 def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
