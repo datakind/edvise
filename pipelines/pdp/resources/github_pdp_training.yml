@@ -290,5 +290,5 @@ resources:
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
-        - service_principal_id: ${var.service_account_executer}
+        - service_principal_name: ${var.service_account_executer}
           level: CAN_MANAGE_RUN
