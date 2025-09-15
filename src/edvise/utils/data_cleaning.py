@@ -169,31 +169,40 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
                 num_dropped_rows,
             )
 
-        # Logging cohort, cohort term, academic year and term for records with missing course identifiers for investigation and analysis
+        # Logging cohort and academic term/year separately for investigation and analysis
         if count_not_y > 0 and {
-            "cohort",
-            "cohort_term",
-            "academic_year",
-            "academic_term",
+            "cohort", "cohort_term", "academic_year", "academic_term"
         }.issubset(df_course.columns):
+
             non_transfer_mask = drop_mask & (dropped_flag != "Y")
-            cohort_group_counts = (
-                df_course.loc[non_transfer_mask]
-                .groupby(
-                    ["cohort", "cohort_term", "academic_year", "academic_term"],
-                    dropna=False,
-                    observed=True,
-                )
+            df_dropped = df_course.loc[non_transfer_mask]
+
+            # Grouped by academic year and academic term
+            academic_group_counts = (
+                df_dropped
+                .groupby(["academic_year", "academic_term"], dropna=False, observed=True)
                 .size()
                 .reset_index(name="count")
-                .sort_values(
-                    by=["cohort", "cohort_term", "academic_year", "academic_term"]
-                )
+                .sort_values(by=["academic_year", "academic_term"])
             )
 
             LOGGER.info(
-                "Grouped cohort year/term and academic year/term counts for rows with missing course identifiers NOT marked as transfer-outs:\n%s",
-                cohort_group_counts.to_string(index=False),
+                "Grouped counts by academic year and academic term for rows with missing course identifiers NOT marked as transfer-outs:\n%s",
+                academic_group_counts.to_string(index=False)
+            )
+
+            # Grouped by cohort year and cohort term
+            cohort_group_counts = (
+                df_dropped
+                .groupby(["cohort", "cohort_term"], dropna=False, observed=True)
+                .size()
+                .reset_index(name="count")
+                .sort_values(by=["cohort", "cohort_term"])
+            )
+
+            LOGGER.info(
+                "Grouped counts by cohort year and cohort term for rows with missing course identifiers NOT marked as transfer-outs:\n%s",
+                cohort_group_counts.to_string(index=False)
             )
 
 
@@ -256,22 +265,41 @@ def remove_pre_cohort_courses(
                 dropped_students_count,
             )
 
-        # Log grouped cohort, cohort_term, academic_year and  academic_term (only if all present)
+       # Log grouped cohort and academic year/term counts for dropped pre-cohort records
         required_cols = {"academic_year", "academic_term", "cohort", "cohort_term"}
         if required_cols.issubset(df_dropped.columns):
-            cohort_group_counts = (
+            # --- Grouped by academic year and term ---
+            academic_group_counts = (
                 df_dropped.groupby(
-                    ["cohort", "cohort_term", "academic_year", "academic_term"],
+                    ["academic_year", "academic_term"],
                     dropna=False,
-                    observed=True,
+                    observed=True
                 )
                 .size()
-                .sort_index()
+                .reset_index(name="count")
+                .sort_values(by=["academic_year", "academic_term"])
             )
             LOGGER.info(
-                "Grouped counts for pre-cohort (dropped) records by cohort/cohort_term and academic_year/academic_term to identify potential trends:\n%s",
-                cohort_group_counts.to_string(),
+                "Pre-cohort records grouped by academic year and term:\n%s",
+                academic_group_counts.to_string(index=False)
             )
+
+            # --- Grouped by cohort year and term ---
+            cohort_group_counts = (
+                df_dropped.groupby(
+                    ["cohort", "cohort_term"],
+                    dropna=False,
+                    observed=True
+                )
+                .size()
+                .reset_index(name="count")
+                .sort_values(by=["cohort", "cohort_term"])
+            )
+            LOGGER.info(
+                "Pre-cohort records grouped by cohort year and term:\n%s",
+                cohort_group_counts.to_string(index=False)
+            )
+
         else:
             missing = required_cols - df_dropped.columns.to_series().index.to_set()
             LOGGER.warning(
@@ -335,22 +363,41 @@ def log_pre_cohort_courses(df_course: pd.DataFrame, student_id_col: str) -> None
             len(students_with_only_pre),
         )
 
-        # Log grouped cohort, cohort_term, academic_year and  academic_term (only if all present)
+        # Log grouped cohort and academic year/term counts for dropped pre-cohort records
         required_cols = {"academic_year", "academic_term", "cohort", "cohort_term"}
         if required_cols.issubset(df_pre.columns):
-            cohort_group_counts = (
+            # --- Grouped by academic year and term ---
+            academic_group_counts = (
                 df_pre.groupby(
-                    ["cohort", "cohort_term", "academic_year", "academic_term"],
+                    ["academic_year", "academic_term"],
                     dropna=False,
-                    observed=True,
+                    observed=True
                 )
                 .size()
-                .sort_index()
+                .reset_index(name="count")
+                .sort_values(by=["academic_year", "academic_term"])
             )
             LOGGER.info(
-                "Grouped counts for pre-cohort (dropped) records by cohort/cohort_term and academic_year/academic_term to identify potential trends:\n%s",
-                cohort_group_counts.to_string(),
+                "Pre-cohort records grouped by academic year and term:\n%s",
+                academic_group_counts.to_string(index=False)
             )
+
+            # --- Grouped by cohort year and term ---
+            cohort_group_counts = (
+                df_pre.groupby(
+                    ["cohort", "cohort_term"],
+                    dropna=False,
+                    observed=True
+                )
+                .size()
+                .reset_index(name="count")
+                .sort_values(by=["cohort", "cohort_term"])
+            )
+            LOGGER.info(
+                "Pre-cohort records grouped by cohort year and term:\n%s",
+                cohort_group_counts.to_string(index=False)
+            )
+
         else:
             missing = required_cols - df_pre.columns.to_series().index.to_set()
             LOGGER.warning(
