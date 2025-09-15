@@ -580,7 +580,10 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
 
     # Print misjoined ids
     misjoined_ids = df_misjoined["study_id"].dropna().unique().tolist()
-    print("Misjoined student IDs:", misjoined_ids)
+    LOGGER.info(
+        "Misjoined student IDs:", 
+        misjoined_ids
+    )
 
     # Log mismatch summary (custom format)
     if pct_misjoined < 0.1:
