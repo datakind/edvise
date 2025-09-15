@@ -25,13 +25,6 @@ def get_dbutils():
         return None
 
 
-def set_task_value(dbutils_obj, key: str, value: str) -> None:
-    if dbutils_obj:
-        dbutils_obj.jobs.taskValues.set(key=key, value=value)
-    else:
-        logging.info("[no-op dbutils] %s=%s", key, value)
-
-
 def active_gcp_identity() -> str:
     try:
         creds, _ = google.auth.default()
@@ -42,7 +35,7 @@ def active_gcp_identity() -> str:
             "service_account",
         ):
             if hasattr(creds, attr):
-                return getattr(creds, attr)
+                return str(getattr(creds, attr))
         return str(type(creds))
     except Exception:
         return "unknown"
@@ -52,7 +45,6 @@ def get_spark_session_or_none():
     if not in_databricks():
         return None
     try:
-        # Prefer native SparkSession inside DBR
         from pyspark.sql import SparkSession
 
         return SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
@@ -72,13 +64,13 @@ class DataIngestionTask:
         self.storage_client = storage.Client()
         self.bucket = self.storage_client.bucket(self.args.gcp_bucket_name)
 
-        # Strict outside DBR; lenient inside DBR unless overridden via flag
+        # Strict would be outside DBR (lenient inside DBR unless overridden via flag)
+        # Basically, we don't want to raise google errors when we're only running from backend/DBR
         self.strict = not in_databricks()
 
-    def _emit_audit(self, code: str, message: str, extra: dict | None = None):
+    def _logging(self, code: str, message: str, extra: dict | None = None) -> None:
         payload = {"code": code, "message": message, "extra": (extra or {})}
         logging.error("AUDIT %s", json.dumps(payload))
-        set_task_value(self.dbutils, "gcs_download_status", json.dumps(payload))
 
     def download_data_from_gcs(
         self, internal_pipeline_path: str
@@ -115,7 +107,7 @@ class DataIngestionTask:
             )
             if self.strict:
                 raise
-            self._emit_audit(
+            self._logging(
                 "gcs_forbidden",
                 msg,
                 {"identity": ident, "bucket": self.args.gcp_bucket_name},
@@ -129,9 +121,7 @@ class DataIngestionTask:
             )
             if self.strict:
                 raise
-            self._emit_audit(
-                "gcs_not_found", msg, {"bucket": self.args.gcp_bucket_name}
-            )
+            self._logging("gcs_not_found", msg, {"bucket": self.args.gcp_bucket_name})
             return None, None
 
     def run(self):
@@ -144,14 +134,14 @@ class DataIngestionTask:
 
         fpath_course, fpath_cohort = self.download_data_from_gcs(landing_dir)
 
-        # Only set task values if we have them; no-ops outside DBR
         if fpath_course:
-            set_task_value(self.dbutils, "course_dataset_validated_path", fpath_course)
+            self.dbutils.jobs.taskValues.set(
+                key="course_dataset_validated_path", value=fpath_course
+            )
         if fpath_cohort:
-            set_task_value(self.dbutils, "cohort_dataset_validated_path", fpath_cohort)
-        set_task_value(
-            self.dbutils, "job_root_dir", getattr(self.args, "job_root_dir", "")
-        )
+            self.dbutils.jobs.taskValues.set(
+                key="cohort_dataset_validated_path", value=fpath_cohort
+            )
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -165,10 +155,6 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--db_run_id", required=True)
     parser.add_argument("--gcp_bucket_name", required=True)
     parser.add_argument("--custom_schemas_path", required=False)
-    # Optional: force strict/lenient behavior
-    parser.add_argument(
-        "--strict", action="store_true", help="Raise on GCS errors even on Databricks."
-    )
     return parser.parse_args()
 
 
@@ -190,7 +176,7 @@ if __name__ == "__main__":
         try:
             mod = importlib.import_module(name)
             if attr:
-                getattr(mod, attr)  # just to verify presence
+                getattr(mod, attr)
             logging.info("Running task with %s", desc)
         except Exception:
             logging.info("Running task with default %s", desc.split(" custom ")[-1])

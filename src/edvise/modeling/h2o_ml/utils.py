@@ -449,8 +449,8 @@ def log_h2o_model_metadata_for_uc(
             os.rename(model_saved_path, final_model_path)
 
         # 2) Try to export MOJO
-        has_mojo, final_mojo_path = _try_export_mojo(h2o_model, tmpdir)
-        if has_mojo:
+        final_mojo_path = _try_export_mojo(h2o_model, tmpdir)
+        if final_mojo_path:
             mlflow.log_artifact(final_mojo_path, artifact_path=artifact_path)
 
         # 3) Build MLmodel metadata
@@ -736,7 +736,7 @@ def _to_pandas(hobj: t.Any) -> pd.DataFrame:
     raise TypeError(f"_to_pandas: unsupported object type {type(hobj)}")
 
 
-def _try_export_mojo(h2o_model: ModelBase, tmpdir: str) -> tuple[bool, str | None]:
+def _try_export_mojo(h2o_model: ModelBase, tmpdir: str) -> str | None:
     """
     Attempt to export a MOJO for the given model. Returns (has_mojo, final_mojo_path).
     """
@@ -747,19 +747,19 @@ def _try_export_mojo(h2o_model: ModelBase, tmpdir: str) -> tuple[bool, str | Non
         if mojo_path and os.path.exists(mojo_path):
             if mojo_path != final_mojo_path:
                 os.replace(mojo_path, final_mojo_path)
-            return True, final_mojo_path
+            return final_mojo_path
         else:
             logging.warning(
                 "download_mojo returned no path for algo=%s",
                 getattr(h2o_model, "algo", "?"),
             )
-            return False, None
+            return None
     except AttributeError as e:
         logging.warning("Model has no download_mojo(): %s", e)
-        return False, None
+        return None
     except Exception as e:
         # Some algos/params don't support MOJO
         logging.warning(
             "MOJO export failed for algo=%s: %s", getattr(h2o_model, "algo", "?"), e
         )
-        return False, None
+        return None

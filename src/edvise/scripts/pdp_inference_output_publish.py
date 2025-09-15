@@ -39,7 +39,7 @@ def get_dbutils():
         return None
 
 
-def emit_audit(code: str, message: str, extra: dict | None = None) -> None:
+def _logging(code: str, message: str, extra: dict | None = None) -> None:
     """Log a single structured line that you can search in logs."""
     payload = {"code": code, "message": message, "extra": (extra or {})}
     logging.error("AUDIT %s", json.dumps(payload))
@@ -63,10 +63,10 @@ def main():
     args = parser.parse_args()
 
     dbx = in_databricks()
-    strict = args.strict or (not dbx)  # lenient on DBR by default; strict elsewhere
+    strict = args.strict or (not dbx)  # lenient on DBR by default, strict elsewhere
     dbutils = get_dbutils()
 
-    # 1) Publish files to GCS (explicit error classification)
+    # 1) Publish files to GCS
     try:
         logging.info(
             "Publishing files to GCS bucket %s (run_id=%s)",
@@ -78,13 +78,13 @@ def main():
             args.databricks_institution_name,
             args.gcp_bucket_name,
             args.db_run_id,
-            False,  # approved flag is False immediately after inference
+            False,
         )
         logging.info("Publish complete.")
     except Forbidden as e:
         if strict:
             raise
-        emit_audit(
+        _logging(
             "gcs_forbidden",
             f"GCS 403 during publish: {e}",
             {"bucket": args.gcp_bucket_name, "run_id": args.db_run_id},
@@ -92,7 +92,7 @@ def main():
     except NotFound as e:
         if strict:
             raise
-        emit_audit(
+        _logging(
             "gcs_not_found",
             f"Target path not found: {e}",
             {"bucket": args.gcp_bucket_name, "run_id": args.db_run_id},
@@ -100,13 +100,13 @@ def main():
     except Exception as e:
         if strict:
             raise
-        emit_audit(
+        _logging(
             "publish_error",
             f"{e}",
             {"bucket": args.gcp_bucket_name, "run_id": args.db_run_id},
         )
 
-    # 2) Send email notification (Databricks secrets only; single recipient)
+    # 2) Send email notification
     try:
         if not dbutils:
             raise RuntimeError("dbutils unavailable (not running on Databricks).")
@@ -124,7 +124,7 @@ def main():
     except Exception as e:
         if strict:
             raise
-        emit_audit(
+        _logging(
             "email_error",
             f"Failed to send completion email: {e}",
             {"to": args.datakind_notification_email},
