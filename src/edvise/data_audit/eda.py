@@ -643,7 +643,8 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
             dropped_students,
             pct_dropped,
         )
-    
+
+
 def print_credential_types(df_cohort: pd.DataFrame) -> None:
     pct_credentials = df_cohort["credential_type_sought_year_1"].value_counts(
         dropna=False, normalize=True
