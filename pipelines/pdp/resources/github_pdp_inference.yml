@@ -43,27 +43,27 @@ resources:
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
-          # libraries:
-          #   - pypi:
-          #       package: pandas==2.2.3
-          #   - pypi:
-          #       package: numpy==1.26.4
-          #   - pypi:
-          #       package: faker==33.1.0
-          #   - pypi:
-          #       package: google-cloud-storage==2.19.0
-          #   - pypi:
-          #       package: scikit-learn==1.5.2
-          #   - pypi:
-          #       package: missingno==0.5.2
-          #   - pypi:
-          #       package: tomli==2.2.1
-          #   - pypi:
-          #       package: tomlkit==0.13.3
-          #   - pypi:
-          #       package: pandera==0.23.0
-          #   - pypi:
-          #       package: pydantic~=2.10
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
         - task_key: feature_generation
           depends_on:
             - task_key: data_audit
@@ -76,27 +76,27 @@ resources:
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
-          # libraries:
-          #   - pypi:
-          #       package: pandas==2.2.3
-          #   - pypi:
-          #       package: numpy==1.26.4
-          #   - pypi:
-          #       package: faker==33.1.0
-          #   - pypi:
-          #       package: google-cloud-storage==2.19.0
-          #   - pypi:
-          #       package: scikit-learn==1.5.2
-          #   - pypi:
-          #       package: missingno==0.5.2
-          #   - pypi:
-          #       package: tomli==2.2.1
-          #   - pypi:
-          #       package: tomlkit==0.13.3
-          #   - pypi:
-          #       package: pandera==0.23.0
-          #   - pypi:
-          #       package: pydantic~=2.10
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
         - task_key: checkpoint
           depends_on:
             - task_key: feature_generation
@@ -109,27 +109,27 @@ resources:
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
-          # libraries:
-          #   - pypi:
-          #       package: pandas==2.2.3
-          #   - pypi:
-          #       package: numpy==1.26.4
-          #   - pypi:
-          #       package: faker==33.1.0
-          #   - pypi:
-          #       package: google-cloud-storage==2.19.0
-          #   - pypi:
-          #       package: scikit-learn==1.5.2
-          #   - pypi:
-          #       package: missingno==0.5.2
-          #   - pypi:
-          #       package: tomli==2.2.1
-          #   - pypi:
-          #       package: tomlkit==0.13.3
-          #   - pypi:
-          #       package: pandera==0.23.0
-          #   - pypi:
-          #       package: pydantic~=2.10
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
         - task_key: student_selection
           depends_on:
             - task_key: feature_generation
@@ -142,27 +142,27 @@ resources:
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
-          # libraries:
-          #   - pypi:
-          #       package: pandas==2.2.3
-          #   - pypi:
-          #       package: numpy==1.26.4
-          #   - pypi:
-          #       package: faker==33.1.0
-          #   - pypi:
-          #       package: google-cloud-storage==2.19.0
-          #   - pypi:
-          #       package: scikit-learn==1.5.2
-          #   - pypi:
-          #       package: missingno==0.5.2
-          #   - pypi:
-          #       package: tomli==2.2.1
-          #   - pypi:
-          #       package: tomlkit==0.13.3
-          #   - pypi:
-          #       package: pandera==0.23.0
-          #   - pypi:
-          #       package: pydantic~=2.10  
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10  
         - task_key: inf_prep
           depends_on:
             - task_key: checkpoint
@@ -176,27 +176,27 @@ resources:
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
-          # libraries:
-          #   - pypi:
-          #       package: pandas==2.2.3
-          #   - pypi:
-          #       package: numpy==1.26.4
-          #   - pypi:
-          #       package: faker==33.1.0
-          #   - pypi:
-          #       package: google-cloud-storage==2.19.0
-          #   - pypi:
-          #       package: scikit-learn==1.5.2
-          #   - pypi:
-          #       package: missingno==0.5.2
-          #   - pypi:
-          #       package: tomli==2.2.1
-          #   - pypi:
-          #       package: tomlkit==0.13.3
-          #   - pypi:
-          #       package: pandera==0.23.0
-          #   - pypi:
-          #       package: pydantic~=2.10      
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10      
         - task_key: inference_h2o
           depends_on:
             - task_key: inf_prep
@@ -223,33 +223,33 @@ resources:
               - --job_root_dir  
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
-          # libraries:
-          #   - pypi:
-          #       package: numpy==1.26.4
-          #   - pypi:
-          #       package: pandas==2.2.3
-          #   - pypi:
-          #       package: faker==33.1.0
-          #   - pypi:
-          #       package: google-cloud-storage==2.19.0
-          #   - pypi:
-          #       package: scikit-learn==1.5.2
-          #   - pypi:
-          #       package: missingno==0.5.2
-          #   - pypi:
-          #       package: tomli==2.2.1
-          #   - pypi:
-          #       package: tomlkit==0.13.3
-          #   - pypi:
-          #       package: pandera==0.23.0
-          #   - pypi:
-          #       package: pydantic~=2.10
-          #   - pypi:
-          #       package: h2o==3.46.0.7
-          #   - pypi:
-          #       package: shap~=0.46.0
-          #   - pypi:
-          #       package: mlflow~=2.22
+          libraries:
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+            - pypi:
+                package: h2o==3.46.0.7
+            - pypi:
+                package: shap~=0.46.0
+            - pypi:
+                package: mlflow~=2.22
         - task_key: output_publish
           depends_on:
             - task_key: inference_h2o
@@ -294,33 +294,33 @@ resources:
             data_security_mode: SINGLE_USER
             runtime_engine: STANDARD
             num_workers: 0
-          libraries:
-            - pypi:
-                package: pandas==2.2.3
-            - pypi:
-                package: numpy==1.26.4
-            - pypi:
-                package: faker==33.1.0
-            - pypi:
-                package: google-cloud-storage==2.19.0
-            - pypi:
-                package: scikit-learn==1.5.2
-            - pypi:
-                package: missingno==0.5.2
-            - pypi:
-                package: tomli==2.2.1
-            - pypi:
-                package: tomlkit==0.13.3
-            - pypi:
-                package: pandera==0.23.0
-            - pypi:
-                package: pydantic~=2.10
-            - pypi:
-                package: h2o==3.46.0.7
-            - pypi:
-                package: shap~=0.46.0
-            - pypi:
-                package: mlflow~=2.22
+          # libraries:
+          #   - pypi:
+          #       package: pandas==2.2.3
+          #   - pypi:
+          #       package: numpy==1.26.4
+          #   - pypi:
+          #       package: faker==33.1.0
+          #   - pypi:
+          #       package: google-cloud-storage==2.19.0
+          #   - pypi:
+          #       package: scikit-learn==1.5.2
+          #   - pypi:
+          #       package: missingno==0.5.2
+          #   - pypi:
+          #       package: tomli==2.2.1
+          #   - pypi:
+          #       package: tomlkit==0.13.3
+          #   - pypi:
+          #       package: pandera==0.23.0
+          #   - pypi:
+          #       package: pydantic~=2.10
+          #   - pypi:
+          #       package: h2o==3.46.0.7
+          #   - pypi:
+          #       package: shap~=0.46.0
+          #   - pypi:
+          #       package: mlflow~=2.22
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
