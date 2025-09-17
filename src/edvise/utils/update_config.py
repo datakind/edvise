@@ -68,7 +68,7 @@ class TomlConfigEditor:
             LOGGER.info("No update needed for %s; values already present", ".".join(key_path))
 
     def update_key_course_ids(self, ids: list[str]) -> None:
-        self._merge_list_field(["preprocessing", "features", "key_course_ids"], ids)
+        self._merge_list_field(key_path=["preprocessing", "features", "key_course_ids"], new_values=ids)
 
 
     def update_key_course_subject_areas(self, cips: list[str]) -> None:
