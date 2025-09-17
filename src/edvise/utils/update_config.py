@@ -50,15 +50,29 @@ class TomlConfigEditor:
         value = self.get(key_path, default=None)
         LOGGER.info("Confirmed %s = %s", ".".join(key_path), value)
 
+    
+    def _merge_list_field(self, key_path: list[str], new_values: list[str]) -> None:
+        """
+        Merge new list values into an existing list at the given key path, avoiding duplicates.
+        If no values need to be added, no update is performed.
+        """
+        current_values = self.get(key_path, default=[])
+        if not isinstance(current_values, list):
+            current_values = []
+        merged_values = list(dict.fromkeys(current_values + new_values))  # preserves order, avoids duplicates
+
+        if set(merged_values) != set(current_values):
+            self.update_field(key_path, merged_values)
+            self.confirm_field(key_path)
+        else:
+            LOGGER.info("No update needed for %s; values already present", ".".join(key_path))
+
     def update_key_course_ids(self, ids: list[str]) -> None:
-        self.update_field(["preprocessing", "features", "key_course_ids"], ids)
-        self.confirm_field(["preprocessing", "features", "key_course_ids"])
+        self._merge_list_field(["preprocessing", "features", "key_course_ids"], ids)
+
 
     def update_key_course_subject_areas(self, cips: list[str]) -> None:
-        self.update_field(
-            ["preprocessing", "features", "key_course_subject_areas"], cips
-        )
-        self.confirm_field(["preprocessing", "features", "key_course_subject_areas"])
+        self._merge_list_field(["preprocessing", "features", "key_course_subject_areas"], cips)
 
 
 def update_run_metadata(config_path: str, run_id: str, experiment_id: str) -> None:
