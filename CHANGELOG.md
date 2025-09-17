@@ -6,6 +6,6 @@
 
 - Initial release of edvise repo 
 - Includes PDP code broken into components
-- Includes scripts for running PDP from ingestion through inference
+- Includes scripts for running PDP from ingestion through inference (data audit, etc.)
 - Includes Databricks DAB workflows set up for running the scripts for PDP
 - Includes h2o code for training models and running inference 

@@ -428,11 +428,10 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
 
     if not e_ok and not m_ok:
         LOGGER.warning(
-            " Prefixes look swapped. Swapping E<->M. E=%s, M=%s",
+            " Prefixes look swapped (do NOT start with E for English, start with M for Math). Consider swapping E <-> M. E=%s, M=%s",
             pref_e.tolist(),
             pref_m.tolist(),
         )
-        pref_e, pref_m = pref_m, pref_e
     elif e_ok and m_ok:
         LOGGER.info(
             " Prefixes look correct and not swapped (start with E for English, start with M for Math)."
@@ -643,3 +642,16 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
             dropped_students,
             pct_dropped,
         )
+
+
+def print_credential_types(df_cohort: pd.DataFrame) -> None:
+    pct_credentials = (
+        df_cohort["credential_type_sought_year_1"].value_counts(
+            dropna=False, normalize=True
+        )
+        * 100
+    )
+    LOGGER.info(
+        " Percent breakdown for credential types: \n%s ",
+        pct_credentials.to_string(),
+    )
