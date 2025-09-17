@@ -77,7 +77,8 @@ class TomlConfigEditor:
 
     def update_key_course_subject_areas(self, cips: list[str]) -> None:
         self._merge_list_field(
-            key_path=["preprocessing", "features", "key_course_subject_areas"], new_values=cips
+            key_path=["preprocessing", "features", "key_course_subject_areas"],
+            new_values=cips,
         )
 
 
