@@ -11,8 +11,6 @@ from edvise.utils.data_cleaning import (
     replace_na_firstgen_and_pell,
 )
 from .eda import log_high_null_columns, print_credential_types
-# from .eda import compute_gateway_course_ids_and_cips, log_high_null_columns
-# from edvise.utils.update_config import update_key_courses_and_cips
 
 # TODO think of a better name than standardizer
 
