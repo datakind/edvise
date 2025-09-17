@@ -274,6 +274,12 @@ class PDPDataAuditTask:
             key_course_subject_areas=ids_cips[1],
         )
 
+        LOGGER.info(
+            " New key_course_ids and key_course_subject_areas: ",
+            self.cfg.preprocessing.features.key_course_ids,
+            self.cfg.preprocessing.features.key_course_subject_areas,
+        )
+
         # Log changes before and after pre-processing
         log_record_drops(
             df_cohort_raw,
