@@ -458,8 +458,7 @@ def test_instability_added_when_valid_provided():
         valid=FakeFrame("valid"),
         test=FakeFrame("test"),
     )
-    assert "instability.score" in out and "instability.sd_gap" in out
-    assert 0.0 <= out["instability.score"] <= 1.0
+    assert "delta.test_valid" in out and "delta_std.test_valid" in out
 
 
 def test_overfit_without_cv_uses_test_minus_train_fallback():

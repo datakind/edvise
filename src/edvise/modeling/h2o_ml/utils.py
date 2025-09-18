@@ -128,11 +128,7 @@ def get_cv_logloss_stats(model) -> t.Tuple[t.Optional[float], t.Optional[float]]
     """
     try:
         summ = model.cross_validation_metrics_summary()
-        df = (
-            summ.as_data_frame(use_pandas=True)
-            if hasattr(summ, "as_data_frame")
-            else summ
-        )
+        df = summ.as_data_frame() if hasattr(summ, "as_data_frame") else summ
         if isinstance(df, pd.DataFrame):
             cols = [str(c).strip().lower() for c in df.columns]
             df.columns = cols
@@ -222,12 +218,12 @@ def compute_overfit_score_logloss(
         - (optional) instability.score, instability.sd_gap if validation dataset is provided.
     """
     # Tolerance constants
-    TOL_CV_TEST: float = 0.02  # tolerance for test vs CV mean
-    TOL_CV_TRAIN: float = 0.05  # tolerance for test vs train and CV vs train
+    TOL_CV_TEST: float = 0.03  # tolerance for test vs CV mean
+    TOL_CV_TRAIN: float = 0.1  # tolerance for test vs train and CV vs train
     FRAC_OF_CV_STD: float = (
         0.25  # ensures tolerance scales with CV std: min(cap, frac*cv_std)
     )
-    FALLBACK_STD: float = 0.05  # we treat this as “one STD” when CV is off
+    FALLBACK_STD: float = 0.08  # we treat this as “one STD” when CV is off
     STD_MAX: float = 1.5  # setting maximum STD so overfit score is capped at 1
 
     # Threshold-free split losses
@@ -257,7 +253,7 @@ def compute_overfit_score_logloss(
 
         z_test_cv = max(0.0, (delta_test_cv - tol_holdout) / cv_std)
         z_train_cv = max(0.0, (delta_cv_train - tol_train) / cv_std)
-        std_excess = max(z_test_cv, z_train_cv)
+        std_excess = z_test_cv
     else:
         scale_fb = FALLBACK_STD
         tol_tt = min(TOL_CV_TRAIN, FRAC_OF_CV_STD * scale_fb)
@@ -289,15 +285,17 @@ def compute_overfit_score_logloss(
 
     # Optional: instability (symmetric) for dashboards if a valid split is supplied
     if valid is not None:
+        valid_log_loss = float(model.model_performance(valid).logloss())
         delta_tv = test_log_loss - valid_log_loss
+        delta_tv_std = None
         scale = cv_std if cv_ok else FALLBACK_STD
-        tol_inst = min(TOL_CV_TEST, FRAC_OF_CV_STD * scale)
-        z_abs = max(0.0, (abs(delta_tv) - tol_inst) / scale)
+        delta_tv_std = (
+            delta_tv / scale if scale and np.isfinite(scale) and scale > 0 else np.nan
+        )
         out.update(
             {
-                "valid.logloss": float(valid_log_loss),
-                "instability.score": float(min(1.0, z_abs / STD_MAX)),
-                "instability.sd_gap": float(z_abs),
+                "delta.test_valid": float(delta_tv),
+                "delta_std.test_valid": float(delta_tv_std),
             }
         )
 
