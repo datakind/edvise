@@ -151,6 +151,7 @@ def run_h2o_automl_classification(
         max_runtime_secs=timeout_minutes * 60,
         sort_metric=metric,
         stopping_metric=metric,
+        max_models=500,
         seed=seed,
         verbosity="info",
         include_algos=frameworks,
@@ -162,7 +163,6 @@ def run_h2o_automl_classification(
         x=processed_model_features,
         y=target_col,
         training_frame=train,
-        validation_frame=valid,
         leaderboard_frame=valid,
     )
     if sample_weight_col in df.columns:
