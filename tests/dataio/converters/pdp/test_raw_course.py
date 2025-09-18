@@ -43,7 +43,7 @@ def df_test():
                 ],
                 "academic_term": ["FALL", "FALL", "FALL", "SPRING", "SUMMER", "SUMMER"],
                 "course_prefix": ["PHYS", "PHYS", "MATH", "MATH", "ENGL", "ENGL"],
-                "course_number": ["101-2", "101-1", "101", "202", "102-1", "102-2"],
+                "course_number": ["101-2", "101-1", "101", "202", "102-1", "102"],
                 "section_id": ["001", "001", "123", "123", "456", "456"],
                 "number_of_credits_attempted": [1.0, 3.0, 3.0, 3.0, 4.0, 1.0],
             },
