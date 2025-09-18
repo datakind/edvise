@@ -25,6 +25,8 @@ from h2o.automl import H2OAutoML
 from h2o.model.model_base import ModelBase
 from h2o.frame import H2OFrame
 from h2o.two_dim_table import H2OTwoDimTable
+from h2o.estimators.estimator_base import H2OEstimator
+
 
 from sklearn.metrics import confusion_matrix
 
@@ -112,20 +114,21 @@ def load_h2o_model(
         return h2o.load_model(local_model_file)
 
 
-def get_cv_logloss_stats(model) -> t.Tuple[t.Optional[float], t.Optional[float]]:
+def get_cv_logloss_stats(
+    model: H2OEstimator,
+) -> t.Tuple[t.Optional[float], t.Optional[float]]:
     """
     Return CV logloss mean and STD, if available.
 
     Tries the cross-validation summary table first (column names vary across H2O
     versions), then falls back to aggregating per-fold metrics. If CV is disabled
-    or stats are unavailable, returns (None, None).
+    from H2O AutoML or stats are unavailable, returns (None, None).
 
     Parameters:
-      model: H2O model (e.g., from AutoML leaderboard).
+      model: H2O model
 
     Returns:
-      Tuple[Optional[float], Optional[float]]: (cv_mean, cv_std) for logloss, or
-      (None, None) if CV was not enabled with H2O training configuration.
+      (cv_mean, cv_std) for logloss, or (None, None)
     """
     try:
         summ = model.cross_validation_metrics_summary()
@@ -141,7 +144,6 @@ def get_cv_logloss_stats(model) -> t.Tuple[t.Optional[float], t.Optional[float]]
             mean = (
                 "mean" if "mean" in cols else ("value" if "value" in cols else cols[1])
             )
-            # accept sd / stddev / std (and fall back safely)
             if "sd" in cols:
                 std = "sd"
             elif "stddev" in cols:
@@ -178,14 +180,16 @@ def get_cv_logloss_stats(model) -> t.Tuple[t.Optional[float], t.Optional[float]]
 
 
 def compute_overfit_score_logloss(
-    model, train: H2OFrame, test: H2OFrame, valid: t.Optional[H2OFrame] = None
+    model: H2OEstimator,
+    train: H2OFrame,
+    test: H2OFrame,
+    valid: t.Optional[H2OFrame] = None,
 ) -> dict:
     """
     Compute an overfit score between [0, 1] from logloss.
 
     Emphasizes generalization:
-      - Generalization vs expectation : penalizes when test logloss is
-      materially worse than the CV mean (test - CV_mean), scaled by CV_std.
+      - Penalizes when test logloss is materially worse than the CV mean (test - CV_mean), scaled by CV_std.
       - If H2O's training config doesn't include CV: we then penalize based on large test vs. train gaps.
       - (Optional) If validation dataset is provided, reports a symmetric validation vs. test
       instability metric for dashboards. If a model struggles with validation vs. test, that shows it may
@@ -195,7 +199,8 @@ def compute_overfit_score_logloss(
     Tolerances are also made to be adaptive to the dataset's CV spread, so they scale naturally
     across datasets. If CV is not available, we fall back to a conservative scale.
 
-    The returned overfit.score is capped between [0, 1] for automated model selection.
+    The maximum STD we chose was 1.5, which is actually quite aggressive. But since H2O regularizes but doesn't regularize
+    aggressively, certain learners can be prone to train hot and potentially overfit. The returned overfit.score is capped between [0, 1] for automated model selection.
 
     Parameters:
       model: H2O model to score.
@@ -205,7 +210,7 @@ def compute_overfit_score_logloss(
 
     Returns:
       dict:
-        - overfit.score (float [0,1]): higher ⇒ greater overfit risk.
+        - overfit.score (float [0,1]): higher -> greater overfit risk.
         - overfit.std_excess (float): max z-like excess among the risk terms.
         - overfit.flag (str): 'green' | 'yellow' | 'red' (based on std_excess vs STD_MAX).
         - delta.test_train (float): test vs. train.
