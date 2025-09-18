@@ -511,7 +511,7 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
         if to_renumber:
             # TODO: check if this works; capture rows about to be renumbered
             dup_info_before = df_course.loc[
-                to_renumber, ["course_name", "course_number"]
+                to_renumber, ["course_prefix", "course_name", "course_number"]
             ]
             LOGGER.info(f"Renumbering these duplicates (before):\n{dup_info_before}")
 
@@ -519,7 +519,7 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
 
             # TODO: check if this works; log the same rows again to see the updated course numbers
             dup_info_after = df_course.loc[
-                to_renumber, ["course_name", "course_number"]
+                to_renumber, ["course_prefix", "course_name", "course_number"]
             ]
             LOGGER.info(f"Renumbering these duplicates (after):\n{dup_info_after}")
 
