@@ -154,7 +154,7 @@ def run_h2o_automl_classification(
         seed=seed,
         verbosity="info",
         include_algos=frameworks,
-        nfolds=0,
+        nfolds=5,
     )
 
     # Only pass weights_column if it exists in the data
