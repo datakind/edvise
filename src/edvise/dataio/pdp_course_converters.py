@@ -16,8 +16,10 @@ def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
     """
     # infer student id column
     student_id_col = (
-        "student_guid" if "student_guid" in df.columns
-        else "study_id" if "study_id" in df.columns
+        "student_guid"
+        if "student_guid" in df.columns
+        else "study_id"
+        if "study_id" in df.columns
         else "student_id"
     )
 
@@ -75,8 +77,8 @@ def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
 
     # Apply group-wise renumbering
     dupes["course_number"] = dupes.groupby(
-        [c for c in unique_cols if c != "course_number"]
-    , group_keys=False).apply(renumber_group)
+        [c for c in unique_cols if c != "course_number"], group_keys=False
+    ).apply(renumber_group)
 
     LOGGER.warning(
         "%s duplicate course records found; course numbers modified to avoid duplicates",
