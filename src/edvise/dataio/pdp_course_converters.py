@@ -66,7 +66,7 @@ def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
     LOGGER.warning(
         "%s duplicate course records found (%.1f%%); course numbers modified to avoid duplicates",
         len(deduped_course_numbers),
-        (len(deduped_course_numbers) / len(df))*100
+        (len(deduped_course_numbers) / len(df)) * 100,
     )
     # update course numbers for dupe'd records in-place
     df.update(deduped_course_numbers, overwrite=True)
