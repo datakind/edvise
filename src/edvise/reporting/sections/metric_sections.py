@@ -10,6 +10,7 @@ def register_metric_sections(card, registry):
         Returns a markdown string describing the primary metric used for training the model. This section
         is meant to be more verbose in the model card, explaining what the metric is for a non-technical audience.
         """
+
         def normalize_metric(name: str | None) -> str | None:
             if not name:
                 return None
@@ -17,26 +18,22 @@ def register_metric_sections(card, registry):
             aliases = {
                 "logloss": "log_loss",
                 "log_loss": "log_loss",
-
                 "auc": "roc_auc",
                 "roc_auc": "roc_auc",
                 "area_under_roc": "roc_auc",
                 "areaunderroc": "roc_auc",
                 "binary_auc": "roc_auc",
-
                 "auprc": "pr_auc",
                 "pr_auc": "pr_auc",
                 "area_under_pr": "pr_auc",
                 "average_precision": "pr_auc",
-
                 "f1": "f1",
                 "f1_score": "f1",
-
                 "precision": "precision",
                 "recall": "recall",
                 "tpr": "recall",
             }
-            return aliases.get(name, name) 
+            return aliases.get(name, name)
 
         metric_map = {
             "log_loss": f"{card.format.indent_level(1)}- Our primary metric for training was log loss to ensure that the model produces well-calibrated probability estimates.\n{card.format.indent_level(1)}- Lower log loss is better, as it indicates more accurate and confident probability predictions.",
@@ -64,9 +61,7 @@ def register_metric_sections(card, registry):
         on where a column with a substring of "sample_weight" exists in the training data.
         """
         platform = (
-            "H2O AutoML" 
-            if card.cfg.model.framework == "h2o"
-            else "Databricks AutoML"
+            "H2O AutoML" if card.cfg.model.framework == "h2o" else "Databricks AutoML"
         )
         used_weights = any(
             col.startswith("sample_weight") for col in card.training_data.columns

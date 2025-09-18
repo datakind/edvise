@@ -154,7 +154,7 @@ def run_h2o_automl_classification(
         seed=seed,
         verbosity="info",
         include_algos=frameworks,
-        nfolds=5,
+        nfolds=0,
     )
 
     # Only pass weights_column if it exists in the data
@@ -162,6 +162,7 @@ def run_h2o_automl_classification(
         x=processed_model_features,
         y=target_col,
         training_frame=train,
+        validation_frame=valid,
         leaderboard_frame=valid,
     )
     if sample_weight_col in df.columns:
