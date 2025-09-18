@@ -96,8 +96,9 @@ def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
 
     # ---- apply to each duplicate group (excluding course_number in the key) ----
     dupes["course_number"] = dupes.groupby(
-        [c for c in unique_cols if c != "course_number"], group_keys=False
-    ).apply(renumber_group)
+        [c for c in unique_cols if c != "course_number"],
+        group_keys=False
+    ).apply(renumber_group).combine_first(dupes["course_number"])
 
     LOGGER.warning(
         "%s duplicate course records found; course numbers modified to avoid duplicates",
