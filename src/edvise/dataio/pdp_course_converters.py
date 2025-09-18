@@ -37,44 +37,33 @@ def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
     dupes = df.loc[df.duplicated(unique_cols, keep=False), :].copy()
 
     def renumber_group(grp: pd.DataFrame) -> pd.Series:
-        """
-        For each group of rows with same unique_cols, append incremental
-        suffixes to 'course_number' starting from the max existing suffix + 1.
-        """
-        # Extract base numbers and any existing numeric suffix
         suffix_re = re.compile(r"^(.*?)-(\d+)$")
-
-        # figure out current max suffix per base
         base_max = {}
         for cn in grp["course_number"]:
             m = suffix_re.match(cn)
             if m:
                 base, suf = m.group(1), int(m.group(2))
-                base_max[base] = max(base_max.get(base, 0), suf)
             else:
-                base_max[cn] = max(base_max.get(cn, 0), 0)
+                base, suf = cn, 0
+            base_max[base] = max(base_max.get(base, 0), suf)
 
-        # Sort group so higher credits come first (the "primary")
         grp_sorted = grp.sort_values("number_of_credits_attempted", ascending=False)
 
-        # Build new numbers only for the duplicates inside this group
-        seen = {}
+        seen = {base: set() for base in base_max}
         new_numbers = []
         for _, row in grp_sorted.iterrows():
             cn = row["course_number"]
             m = suffix_re.match(cn)
             base = m.group(1) if m else cn
-            if cn not in seen:
-                # first occurrence: keep as is
+            if cn not in seen[base]:
                 new_numbers.append(cn)
             else:
-                # duplicate: increment from existing max
                 base_max[base] += 1
                 new_numbers.append(f"{base}-{base_max[base]}")
-            seen[cn] = True
+            seen[base].add(new_numbers[-1])
 
-        # Return in the same order as grp
-        return pd.Series(new_numbers, index=grp_sorted.index).reindex(grp.index)
+        renumbered = pd.Series(new_numbers, index=grp_sorted.index)
+        return renumbered.loc[grp.index]
 
     # Apply group-wise renumbering
     dupes["course_number"] = dupes.groupby(
