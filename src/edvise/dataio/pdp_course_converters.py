@@ -28,8 +28,10 @@ def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
 
     # ---- identify the student id column ----
     student_id_col = (
-        "student_guid" if "student_guid" in df.columns
-        else "study_id"   if "study_id"   in df.columns
+        "student_guid"
+        if "student_guid" in df.columns
+        else "study_id"
+        if "study_id" in df.columns
         else "student_id"
     )
 
@@ -72,9 +74,7 @@ def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
         new_numbers = grp["course_number"].copy()
 
         # group only the plain rows by their base value
-        for base, sub in grp[is_plain].groupby(
-            grp.loc[is_plain, "course_number"]
-        ):
+        for base, sub in grp[is_plain].groupby(grp.loc[is_plain, "course_number"]):
             if len(sub) <= 1:
                 continue  # only one plain row → nothing to renumber
 
@@ -96,8 +96,7 @@ def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
 
     # ---- apply to each duplicate group (excluding course_number in the key) ----
     dupes["course_number"] = dupes.groupby(
-        [c for c in unique_cols if c != "course_number"],
-        group_keys=False
+        [c for c in unique_cols if c != "course_number"], group_keys=False
     ).apply(renumber_group)
 
     LOGGER.warning(
