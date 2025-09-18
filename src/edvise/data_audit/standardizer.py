@@ -10,7 +10,7 @@ from edvise.utils.data_cleaning import (
     strip_trailing_decimal_strings,
     replace_na_firstgen_and_pell,
 )
-from .eda import log_high_null_columns, print_credential_types
+from .eda import log_high_null_columns, print_credential_types_and_retention
 
 # TODO think of a better name than standardizer
 
@@ -39,7 +39,7 @@ class PDPCohortStandardizer(BaseStandardizer):
             df: As output by :func:`dataio.read_raw_pdp_cohort_data_from_file()` .
         """
         log_high_null_columns(df)
-        print_credential_types(df)
+        print_credential_types_and_retention(df)
         cols_to_drop = [
             # not a viable target variable, but highly correlated with it
             "time_to_credential",
