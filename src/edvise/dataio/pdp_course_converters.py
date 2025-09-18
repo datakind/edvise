@@ -37,7 +37,13 @@ def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
     dupes = df.loc[df.duplicated(unique_cols, keep=False), :].copy()
 
     def renumber_group(grp: pd.DataFrame) -> pd.Series:
+        """
+        Renumber duplicate course_numbers within this group,
+        appending -1, -2… while respecting any existing suffixes.
+        """
         suffix_re = re.compile(r"^(.*?)-(\d+)$")
+
+        # find current max suffix for each base
         base_max = {}
         for cn in grp["course_number"]:
             m = suffix_re.match(cn)
@@ -47,23 +53,27 @@ def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
                 base, suf = cn, 0
             base_max[base] = max(base_max.get(base, 0), suf)
 
+        # Sort for “primary” selection but keep original order reference
         grp_sorted = grp.sort_values("number_of_credits_attempted", ascending=False)
 
         seen = {base: set() for base in base_max}
-        new_numbers = []
-        for _, row in grp_sorted.iterrows():
+        new_numbers_by_index = {}
+
+        for idx, row in grp_sorted.iterrows():
             cn = row["course_number"]
             m = suffix_re.match(cn)
             base = m.group(1) if m else cn
+
+            # If this *exact* number hasn’t been used yet for this base, keep it
             if cn not in seen[base]:
-                new_numbers.append(cn)
+                new_numbers_by_index[idx] = cn
             else:
                 base_max[base] += 1
-                new_numbers.append(f"{base}-{base_max[base]}")
-            seen[base].add(new_numbers[-1])
+                new_numbers_by_index[idx] = f"{base}-{base_max[base]}"
+            seen[base].add(new_numbers_by_index[idx])
 
-        renumbered = pd.Series(new_numbers, index=grp_sorted.index)
-        return renumbered.loc[grp.index]
+        # now return in the original order, using the mapping we built
+        return pd.Series(new_numbers_by_index).loc[grp.index]
 
     # Apply group-wise renumbering
     dupes["course_number"] = dupes.groupby(
