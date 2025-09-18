@@ -113,13 +113,14 @@ def load_h2o_model(
 
 
 def get_cv_logloss_stats(model) -> t.Tuple[t.Optional[float], t.Optional[float]]:
-    """Return CV logloss mean and STD, if available.
+    """
+    Return CV logloss mean and STD, if available.
 
     Tries the cross-validation summary table first (column names vary across H2O
     versions), then falls back to aggregating per-fold metrics. If CV is disabled
     or stats are unavailable, returns (None, None).
 
-    Args:
+    Parameters:
       model: H2O model (e.g., from AutoML leaderboard).
 
     Returns:
@@ -179,26 +180,22 @@ def get_cv_logloss_stats(model) -> t.Tuple[t.Optional[float], t.Optional[float]]
 def compute_overfit_score_logloss(
     model, train: H2OFrame, test: H2OFrame, valid: t.Optional[H2OFrame] = None
 ) -> dict:
-    """Compute an overfit score between [0, 1] from logloss.
+    """
+    Compute an overfit score between [0, 1] from logloss.
 
     Emphasizes generalization:
-      - Generalization vs expectation (primary): penalizes when test logloss is
+      - Generalization vs expectation : penalizes when test logloss is
       materially worse than the CV mean (test - CV_mean), scaled by CV_std.
-      - Capacity overfit to train: penalizes when train looks much better than
-      the CV mean (CV_mean - train), scaled by CV_std.
       - If H2O's training config doesn't include CV: we then penalize based on large test vs. train gaps.
       - (Optional) If validation dataset is provided, reports a symmetric validation vs. test
       instability metric for dashboards. If a model struggles with validation vs. test, that shows it may
       generalize inconsistently.
 
     We utilize tolerances since fluctuations are normal and they should help avoid flagging noise.
-      - For test vs CV and CV vs train: `min(cap, FRAC_OF_CV_STD * CV_std)`.
-      - For test vs train when CV is off: `min(GAP_CAP_train, FRAC_OF_CV_STD * FALLBACK_STD)`.
-
-    Both are made adaptive to the dataset's CV spread, so they scale naturally
+    Tolerances are also made to be adaptive to the dataset's CV spread, so they scale naturally
     across datasets. If CV is not available, we fall back to a conservative scale.
 
-    The returned `overfit.score` is capped in [0, 1] for automated model selection.
+    The returned overfit.score is capped between [0, 1] for automated model selection.
 
     Parameters:
       model: H2O model to score.
@@ -219,7 +216,6 @@ def compute_overfit_score_logloss(
     """
     # Tolerance constants
     TOL_CV_TEST: float = 0.03  # tolerance for test vs CV mean
-    TOL_CV_TRAIN: float = 0.1  # tolerance for test vs train and CV vs train
     FRAC_OF_CV_STD: float = (
         0.25  # ensures tolerance scales with CV std: min(cap, frac*cv_std)
     )
@@ -248,16 +244,12 @@ def compute_overfit_score_logloss(
 
     # Risk metrics
     if cv_ok:
-        tol_holdout = min(TOL_CV_TEST, FRAC_OF_CV_STD * cv_std)  # test vs CV
-        tol_train = min(TOL_CV_TRAIN, FRAC_OF_CV_STD * cv_std)  # CV vs train
-
+        tol_holdout = min(TOL_CV_TEST, FRAC_OF_CV_STD * cv_std)
         z_test_cv = max(0.0, (delta_test_cv - tol_holdout) / cv_std)
-        z_train_cv = max(0.0, (delta_cv_train - tol_train) / cv_std)
         std_excess = z_test_cv
     else:
         scale_fb = FALLBACK_STD
-        tol_tt = min(TOL_CV_TRAIN, FRAC_OF_CV_STD * scale_fb)
-        z_tt = max(0.0, (delta_test_train - tol_tt) / scale_fb)
+        z_tt = max(0.0, delta_test_train / scale_fb)
         std_excess = z_tt
 
     # Capping score between [0, 1] for model selection
