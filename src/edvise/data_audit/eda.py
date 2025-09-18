@@ -651,7 +651,9 @@ def print_credential_types_and_retention(df_cohort: pd.DataFrame) -> None:
         )
         * 100
     )
-    retention = df_cohort[["cohort", "retention"]].value_counts(dropna=False).sort_index()
+    retention = (
+        df_cohort[["cohort", "retention"]].value_counts(dropna=False).sort_index()
+    )
     LOGGER.warning(
         " Breakdown for retention by cohort: IF MOST RECENT YEAR'S SPLIT IS DISPROPORTIONATE, exclude from training by changing max_academic_year in the config! \n%s ",
         retention.to_string(),
