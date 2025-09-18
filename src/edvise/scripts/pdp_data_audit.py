@@ -241,7 +241,7 @@ class PDPDataAuditTask:
             )
         LOGGER.info(" Course data read and schema validated, duplicates handled.")
 
-        # TODO: can't tell if this is working?
+        # TODO: can't tell if this is working? I never see the attribute error printed
         try:
             include_pre_cohort = self.cfg.preprocessing.include_pre_cohort_courses
         except AttributeError:

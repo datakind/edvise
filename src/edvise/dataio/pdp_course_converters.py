@@ -8,19 +8,28 @@ LOGGER = logging.getLogger(__name__)
 
 def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Deduplicate rows in raw course data ``df`` by renumbering courses,
-    avoiding re-using existing suffixes like 291-1 if they already exist.
+    Deduplicate rows in raw course data ``df`` by renumbering courses so that
+    the combination of student/year/term/prefix/section/course_number is unique.
 
-    Warning:
-        Only use when duplicates are due to course-number collisions,
-        not when you have truly duplicate rows.
+    Rules
+    -----
+    • Only renumber when duplicates are due to course-number collisions.
+    • If a course_number already has a suffix like 291-1 it is left untouched.
+    • When extra plain numbers exist (e.g. multiple '101's), keep the highest-
+      credit row as plain and suffix the rest: 101-1, 101-2, … starting from the
+      highest suffix already present.
+
+    Warning
+    -------
+    Do not use if the data contains true duplicate rows (same everything).
     """
-    # infer student id column
+    if df.empty:
+        return df
+
+    # ---- identify the student id column ----
     student_id_col = (
-        "student_guid"
-        if "student_guid" in df.columns
-        else "study_id"
-        if "study_id" in df.columns
+        "student_guid" if "student_guid" in df.columns
+        else "study_id"   if "study_id"   in df.columns
         else "student_id"
     )
 
@@ -33,17 +42,20 @@ def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
         "section_id",
     ]
 
-    # subset of rows that are duplicated
-    dupes = df.loc[df.duplicated(unique_cols, keep=False), :].copy()
+    # work only on rows that are true duplicates on these keys
+    dupes = df.loc[df.duplicated(unique_cols, keep=False)].copy()
+    if dupes.empty:
+        return df
 
     def renumber_group(grp: pd.DataFrame) -> pd.Series:
         """
-        Renumber duplicate course_numbers within this group,
-        appending -1, -2… while respecting any existing suffixes.
+        Within one duplicate group:
+          • leave already-suffixed numbers untouched,
+          • give extra plain numbers new suffixes without re-using any.
         """
         suffix_re = re.compile(r"^(.*?)-(\d+)$")
 
-        # find current max suffix for each base
+        # 1️⃣ find current highest suffix for each base
         base_max = {}
         for cn in grp["course_number"]:
             m = suffix_re.match(cn)
@@ -53,31 +65,39 @@ def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
                 base, suf = cn, 0
             base_max[base] = max(base_max.get(base, 0), suf)
 
-        # Sort for “primary” selection but keep original order reference
-        grp_sorted = grp.sort_values("number_of_credits_attempted", ascending=False)
+        # 2️⃣ rows whose course_number has NO suffix
+        is_plain = ~grp["course_number"].str.contains(r"-\d+$", regex=True)
 
-        seen = {base: set() for base in base_max}
-        new_numbers_by_index = {}
+        # 3️⃣ copy column and renumber extra plain rows
+        new_numbers = grp["course_number"].copy()
 
-        for idx, row in grp_sorted.iterrows():
-            cn = row["course_number"]
-            m = suffix_re.match(cn)
-            base = m.group(1) if m else cn
+        # group only the plain rows by their base value
+        for base, sub in grp[is_plain].groupby(
+            grp.loc[is_plain, "course_number"]
+        ):
+            if len(sub) <= 1:
+                continue  # only one plain row → nothing to renumber
 
-            # If this *exact* number hasn’t been used yet for this base, keep it
-            if cn not in seen[base]:
-                new_numbers_by_index[idx] = cn
-            else:
-                base_max[base] += 1
-                new_numbers_by_index[idx] = f"{base}-{base_max[base]}"
-            seen[base].add(new_numbers_by_index[idx])
+            # keep the highest-credit plain row unsuffixed
+            sub_sorted = sub.sort_values(
+                "number_of_credits_attempted",
+                ascending=False,
+                na_position="last",
+            )
+            keep_idx = sub_sorted.index[0]
+            rest = sub_sorted.index[1:]
 
-        # now return in the original order, using the mapping we built
-        return pd.Series(new_numbers_by_index).loc[grp.index]
+            next_suffix = base_max[base] + 1
+            for ix in rest:
+                new_numbers.loc[ix] = f"{base}-{next_suffix}"
+                next_suffix += 1
 
-    # Apply group-wise renumbering
+        return new_numbers
+
+    # ---- apply to each duplicate group (excluding course_number in the key) ----
     dupes["course_number"] = dupes.groupby(
-        [c for c in unique_cols if c != "course_number"], group_keys=False
+        [c for c in unique_cols if c != "course_number"],
+        group_keys=False
     ).apply(renumber_group)
 
     LOGGER.warning(
@@ -85,6 +105,7 @@ def dedupe_by_renumbering_courses(df: pd.DataFrame) -> pd.DataFrame:
         len(dupes),
     )
 
-    # Update the original dataframe
+    # ---- update the original DataFrame in place ----
+    df = df.copy()
     df.update(dupes[["course_number"]], overwrite=True)
     return df
