@@ -60,6 +60,9 @@ class ModelPrepTask:
         )
         logging.info("Target breakdown (percents):\n%s", target_percents.to_string())
 
+        cohort_counts = df_labeled["cohort"].value_counts(dropna=False)
+        logging.info("Cohort breakdown (counts):\n%s", cohort_counts.to_string())
+
         return df_labeled
 
     def cleanup_features(self, df_labeled: pd.DataFrame) -> pd.DataFrame:
