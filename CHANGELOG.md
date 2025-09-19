@@ -1,3 +1,8 @@
+## 0.1.2 (2025-09-19)
+
+- Enhanced EDA with logging 
+- Added overfit score
+
 ## 0.1.1 (2025-09-15)
 
 - Update pyproject
