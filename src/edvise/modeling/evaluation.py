@@ -81,6 +81,7 @@ def evaluate_performance(
     target_col: str = "target",
     pred_col: str = "pred",
     pred_prob_col: str = "pred_prob",
+    sample_weight_col: str = "sample_weight",
 ) -> None:
     """
     Evaluates and logs model performance for each data split. Generates
@@ -125,6 +126,7 @@ def evaluate_performance(
             preds=split_data[pred_col],
             pred_probs=split_data[pred_prob_col],
             pos_label=pos_label,
+            sample_weights=split_data[sample_weight_col]
         )
 
         perf_metrics = format_perf_metrics(perf_metrics_raw)
