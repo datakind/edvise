@@ -10,6 +10,7 @@ import matplotlib.figure
 import matplotlib.pyplot as plt
 import mlflow
 import mlflow.artifacts
+from mlflow.tracking import MlflowClient
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -122,11 +123,12 @@ def evaluate_performance(
 
         # Compute performance metrics by split (returns a dict)
         perf_metrics_raw = compute_classification_perf_metrics(
+            split_col=split_col,
             targets=split_data[target_col],
             preds=split_data[pred_col],
             pred_probs=split_data[pred_prob_col],
             pos_label=pos_label,
-            sample_weights=split_data[sample_weight_col]
+            sample_weights=split_data[sample_weight_col],
         )
 
         perf_metrics = format_perf_metrics(perf_metrics_raw)
@@ -285,54 +287,68 @@ def compute_balanced_score(
 
 
 def compute_classification_perf_metrics(
+    split_col: str,
     targets: pd.Series,
     preds: pd.Series,
     pred_probs: pd.Series,
     *,
     pos_label: PosLabelType,
+    mlflow_run_id: str | None = None,
     sample_weights: t.Optional[pd.Series] = None,
 ) -> dict[str, object]:
     """
-    Compute a variety of useful metrics for evaluating the performance of a classifier.
+    Compute contextual metrics for a classifier (prevalence, counts, etc.)
+    and optionally fill accuracy/precision/recall/f1/log_loss from MLflow
+    metrics if a run_id is provided.
 
     Args:
-        targets: True target values that classifier model was trained to predict.
+        targets: True target values.
         preds: Binary predictions output by classifier model.
-        pred_probs: Prediction probabilities output by classifier model,
-            for the positive class only.
-        pos_label: Value of the positive class (aka "label").
-        sample_weights: Sample weights for the examples corresponding to targets/preds,
-            if classifier model was trained on weighted samples.
+        pred_probs: Prediction probabilities for the positive class.
+        pos_label: Positive class label.
+        mlflow_run_id: If provided, pulls accuracy/precision/recall/f1/log_loss from MLflow.
+        sample_weights: Optional weights for counts/prevalence only (does not affect MLflow).
     """
-    assert isinstance(pos_label, (int, float, bool, str))  # type guard
-    precision, recall, f1_score, _ = sklearn.metrics.precision_recall_fscore_support(
-        targets,
-        preds,
-        beta=1,
-        average="binary",
-        pos_label=pos_label,  # type: ignore
-        sample_weight=sample_weights,
-        zero_division=np.nan,  # type: ignore
-    )
     result = {
         "num_samples": len(targets),
         "num_positives": targets.eq(pos_label).sum(),
         "true_positive_prevalence": targets.eq(pos_label).mean(),
         "pred_positive_prevalence": preds.eq(pos_label).mean(),
-        "accuracy": sklearn.metrics.accuracy_score(
-            targets, preds, sample_weight=sample_weights
-        ),
-        "precision": precision,
-        "recall": recall,
-        "f1_score": f1_score,
-        "log_loss": sklearn.metrics.log_loss(
-            targets, pred_probs, sample_weight=sample_weights, labels=[False, True]
-        ),
-        # TODO: add this back in, but handle errors for small N case
-        # "roc_auc": sklearn.metrics.roc_auc_score(
-        #     targets, pred_probs, sample_weight=sample_weights, labels=[False, True]
-        # ),
     }
+
+    if mlflow_run_id:
+        client = MlflowClient()
+        run = client.get_run(mlflow_run_id)
+        metrics = run.data.metrics
+        # use logged values
+        result["accuracy"] = metrics.get(f"{split_col}_accuracy")
+        result["precision"] = metrics.get(f"{split_col}_precision")
+        result["recall"] = metrics.get(f"{split_col}_recall")
+        result["f1_score"] = metrics.get(f"{split_col}_f1")
+        result["log_loss"] = metrics.get(f"{split_col}_log_loss")
+    else:
+        # fallback - calculate metrics again with sklearn
+        from sklearn import metrics as skm
+
+        precision, recall, f1_score, _ = skm.precision_recall_fscore_support(
+            targets,
+            preds,
+            beta=1,
+            average="binary",
+            pos_label=pos_label,
+            sample_weight=sample_weights,
+            zero_division=np.nan,
+        )
+        result["accuracy"] = skm.accuracy_score(
+            targets, preds, sample_weight=sample_weights
+        )
+        result["precision"] = precision
+        result["recall"] = recall
+        result["f1_score"] = f1_score
+        result["log_loss"] = skm.log_loss(
+            targets, pred_probs, sample_weight=sample_weights, labels=[False, True]
+        )
+
     return result
 
 
