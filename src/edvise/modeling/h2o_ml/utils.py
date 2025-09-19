@@ -192,8 +192,8 @@ def compute_overfit_score_logloss(
       - Penalizes when test logloss is materially worse than the CV mean (test - CV_mean), scaled by CV_std.
       - If H2O's training config doesn't include CV: we then penalize based on large test vs. train gaps.
       - (Optional) If validation dataset is provided, reports a symmetric validation vs. test
-      instability metric for dashboards. If a model struggles with validation vs. test, that shows it may
-      generalize inconsistently.
+      instability metric. If a model struggles with validation vs. test in either direction, it may
+      generalize inconsistently at inference time.
 
     We utilize tolerances since fluctuations are normal and they should help avoid flagging noise.
     Tolerances are also made to be adaptive to the dataset's CV spread, so they scale naturally
@@ -244,7 +244,7 @@ def compute_overfit_score_logloss(
         and cv_std is not None
         and delta_test_cv is not None
         and np.isfinite(cv_std)
-        and cv_std > 0
+        and cv_std > 0.0
     ):
         tol_holdout = min(TOL_CV_TEST, FRAC_OF_CV_STD * cv_std)
         std_excess = max(0.0, (delta_test_cv - tol_holdout) / cv_std)
