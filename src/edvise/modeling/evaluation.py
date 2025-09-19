@@ -101,6 +101,9 @@ def evaluate_performance(
     metrics_dir = "metrics"
     metrics_records = []
 
+    # set mlflow client so we can retrieve metrics
+    client = MlflowClient()
+
     for split_name, split_data in df_pred.groupby(split_col):
         LOGGER.info("Evaluating model performance for '%s' split", split_name)
         split_data.to_csv(f"/tmp/{split_name}_preds.csv", header=True, index=False)
@@ -124,12 +127,13 @@ def evaluate_performance(
 
         # Compute performance metrics by split (returns a dict)
         perf_metrics_raw = compute_classification_perf_metrics(
-            split_col=split_col,
+            split_name=split_name,
             targets=split_data[target_col],
             preds=split_data[pred_col],
             pred_probs=split_data[pred_prob_col],
             pos_label=pos_label,
             sample_weights=split_data[sample_weight_col],
+            client=client,
             mlflow_run_id=mlflow_run_id,
         )
 
@@ -289,13 +293,14 @@ def compute_balanced_score(
 
 
 def compute_classification_perf_metrics(
-    split_col: str,
+    split_name: str,
     targets: pd.Series,
     preds: pd.Series,
     pred_probs: pd.Series,
+    client: MlflowClient,
     *,
     pos_label: PosLabelType,
-    mlflow_run_id: str | None = None,
+    mlflow_run_id: str,
     sample_weights: t.Optional[pd.Series] = None,
 ) -> dict[str, object]:
     """
@@ -318,17 +323,16 @@ def compute_classification_perf_metrics(
         "pred_positive_prevalence": preds.eq(pos_label).mean(),
     }
 
-    if mlflow_run_id:
-        client = MlflowClient()
+    try:
         run = client.get_run(mlflow_run_id)
         metrics = run.data.metrics
         # use logged values
-        result["accuracy"] = metrics.get(f"{split_col}_accuracy")
-        result["precision"] = metrics.get(f"{split_col}_precision")
-        result["recall"] = metrics.get(f"{split_col}_recall")
-        result["f1_score"] = metrics.get(f"{split_col}_f1")
-        result["log_loss"] = metrics.get(f"{split_col}_log_loss")
-    else:
+        result["accuracy"] = metrics.get(f"{split_name}_accuracy")
+        result["precision"] = metrics.get(f"{split_name}_precision")
+        result["recall"] = metrics.get(f"{split_name}_recall")
+        result["f1_score"] = metrics.get(f"{split_name}_f1")
+        result["log_loss"] = metrics.get(f"{split_name}_log_loss")
+    except Exception:
         # fallback - calculate metrics again with sklearn
         from sklearn import metrics as skm
 
