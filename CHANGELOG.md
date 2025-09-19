@@ -1,3 +1,9 @@
+## 0.1.2 (2025-09-19)
+
+- Added overfit score 
+- Added critical logging in data audit 
+- Enhanced EDA
+
 ## 0.1.1 (2025-09-15)
 
 - Update pyproject
