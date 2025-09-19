@@ -122,7 +122,7 @@ def get_cv_logloss_stats(
 
     Tries the cross-validation summary table first (column names vary across H2O
     versions), then falls back to aggregating per-fold metrics. If CV is disabled
-    from H2O AutoML or stats are unavailable, returns (None, None).
+    from H2O AutoML config or stats are unavailable, returns (None, None).
 
     Parameters:
       model: H2O model
@@ -199,8 +199,9 @@ def compute_overfit_score_logloss(
     Tolerances are also made to be adaptive to the dataset's CV spread, so they scale naturally
     across datasets. If CV is not available, we fall back to a conservative scale.
 
-    The maximum STD we chose was 1.5, which is actually quite aggressive. But since H2O regularizes but doesn't regularize
-    aggressively, certain learners can be prone to train hot and potentially overfit. The returned overfit.score is capped between [0, 1] for automated model selection.
+    The maximum STD we chose was 1.5, which is actually quite aggressive. But since H2O regularizes but
+    doesn't regularize aggressively, certain learners can be prone to train hot and potentially overfit.
+    The returned overfit.score is capped between [0, 1] for automated model selection.
 
     Parameters:
       model: H2O model to score.
@@ -212,7 +213,6 @@ def compute_overfit_score_logloss(
       dict:
         - overfit.score (float [0,1]): higher -> greater overfit risk.
         - overfit.std_excess (float): max z-like excess among the risk terms.
-        - overfit.flag (str): 'green' | 'yellow' | 'red' (based on std_excess vs STD_MAX).
         - delta.test_train (float): test vs. train.
         - (optional) delta.test_cv (float): test vs. CV_mean
         - (optional) delta.cv_train (float): CV_mean vs. train
@@ -221,13 +221,10 @@ def compute_overfit_score_logloss(
     """
     # Tolerance constants
     TOL_CV_TEST: float = 0.03  # tolerance for test vs CV mean
-    FRAC_OF_CV_STD: float = (
-        0.25  # ensures tolerance scales with CV std: min(cap, frac*cv_std)
-    )
-    FALLBACK_STD: float = 0.08  # we treat this as “one STD” when CV is off
-    STD_MAX: float = 1.5  # setting maximum STD so overfit score is capped at 1
+    FRAC_OF_CV_STD: float = 0.25  # adaptive tolerance that scales with CV std
+    FALLBACK_STD: float = 0.15  # we treat this as “one std” when CV is off; setting loosely since training is typically hot in h2o
+    STD_MAX: float = 1.5  # setting maximum std so overfit score is capped at 1
 
-    # Threshold-free split losses
     train_log_loss = float(model.model_performance(train).logloss())
     test_log_loss = float(model.model_performance(test).logloss())
     if valid is not None:
@@ -235,44 +232,32 @@ def compute_overfit_score_logloss(
 
     # CV context
     cv_mean, cv_std = get_cv_logloss_stats(model)
-    cv_ok = (
-        (cv_mean is not None)
-        and (cv_std is not None)
-        and np.isfinite(cv_std)
-        and cv_std > 0
-    )
 
     # Deltas
     delta_test_train = test_log_loss - train_log_loss
-    delta_test_cv = None if not cv_ok else (test_log_loss - cv_mean)
-    delta_cv_train = None if not cv_ok else (cv_mean - train_log_loss)
+    delta_test_cv = (test_log_loss - cv_mean) if cv_mean else None
+    delta_cv_train = (cv_mean - train_log_loss) if cv_mean else None
 
     # Risk metrics
-    if cv_ok:
+    if (
+        cv_mean is not None
+        and cv_std is not None
+        and delta_test_cv is not None
+        and np.isfinite(cv_std)
+        and cv_std > 0
+    ):
         tol_holdout = min(TOL_CV_TEST, FRAC_OF_CV_STD * cv_std)
-        z_test_cv = max(0.0, (delta_test_cv - tol_holdout) / cv_std)
-        std_excess = z_test_cv
+        std_excess = max(0.0, (delta_test_cv - tol_holdout) / cv_std)
     else:
         scale_fb = FALLBACK_STD
-        z_tt = max(0.0, delta_test_train / scale_fb)
-        std_excess = z_tt
+        std_excess = max(0.0, delta_test_train / scale_fb)
 
     # Capping score between [0, 1] for model selection
     score = float(min(1.0, std_excess / STD_MAX))
 
-    # Bands
-    yellow_threshold = 0.33 * STD_MAX
-    red_threshold = 0.67 * STD_MAX
-    flag = (
-        "green"
-        if std_excess < yellow_threshold
-        else ("yellow" if std_excess < red_threshold else "red")
-    )
-
     out = {
         "overfit.score": score,
         "overfit.std_excess": float(std_excess),
-        "overfit.flag": flag,
         "delta.test_cv": (None if delta_test_cv is None else float(delta_test_cv)),
         "delta.cv_train": (None if delta_cv_train is None else float(delta_cv_train)),
         "delta.test_train": float(delta_test_train),
@@ -280,12 +265,12 @@ def compute_overfit_score_logloss(
         "cv.logloss_std": (None if cv_std is None else float(cv_std)),
     }
 
-    # Optional: instability (symmetric) for dashboards if a valid split is supplied
+    # Instability (symmetric)
     if valid is not None:
         valid_log_loss = float(model.model_performance(valid).logloss())
-        delta_tv = test_log_loss - valid_log_loss
+        delta_tv = abs(test_log_loss - valid_log_loss)
         delta_tv_std = None
-        scale = cv_std if cv_ok else FALLBACK_STD
+        scale = cv_std if cv_std else FALLBACK_STD
         delta_tv_std = (
             delta_tv / scale if scale and np.isfinite(scale) and scale > 0 else np.nan
         )

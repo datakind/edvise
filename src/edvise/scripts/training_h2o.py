@@ -218,7 +218,7 @@ class TrainingTask:
                 "test_roc_auc",
                 "test_log_loss",
                 "test_f1",
-                "overfit.score",
+                "overfit_score",
             ],
             topn_runs_included=topn,
         )
