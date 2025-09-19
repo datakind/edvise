@@ -243,6 +243,7 @@ def infer_directions(metrics: list[str]) -> list[str]:
         "mse",
         "bias_score_mean",
         "bias_score_max",
+        "overfit.score",
     )
     return [
         "asc" if any(metric.lower().endswith(k) for k in minimize_keywords) else "desc"

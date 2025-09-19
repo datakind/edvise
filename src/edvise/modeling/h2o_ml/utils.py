@@ -25,6 +25,8 @@ from h2o.automl import H2OAutoML
 from h2o.model.model_base import ModelBase
 from h2o.frame import H2OFrame
 from h2o.two_dim_table import H2OTwoDimTable
+from h2o.estimators.estimator_base import H2OEstimator
+
 
 from sklearn.metrics import confusion_matrix
 
@@ -112,6 +114,176 @@ def load_h2o_model(
         return h2o.load_model(local_model_file)
 
 
+def get_cv_logloss_stats(
+    model: H2OEstimator,
+) -> t.Tuple[t.Optional[float], t.Optional[float]]:
+    """
+    Return CV logloss mean and STD, if available.
+
+    Tries the cross-validation summary table first (column names vary across H2O
+    versions), then falls back to aggregating per-fold metrics. If CV is disabled
+    from H2O AutoML config or stats are unavailable, returns (None, None).
+
+    Parameters:
+      model: H2O model
+
+    Returns:
+      (cv_mean, cv_std) for logloss, or (None, None)
+    """
+    try:
+        summ = model.cross_validation_metrics_summary()
+        df = summ.as_data_frame() if hasattr(summ, "as_data_frame") else summ
+        if isinstance(df, pd.DataFrame):
+            cols = [str(c).strip().lower() for c in df.columns]
+            df.columns = cols
+            key = (
+                "name"
+                if "name" in cols
+                else ("metric" if "metric" in cols else cols[0])
+            )
+            mean = (
+                "mean" if "mean" in cols else ("value" if "value" in cols else cols[1])
+            )
+            if "sd" in cols:
+                std = "sd"
+            elif "stddev" in cols:
+                std = "stddev"
+            elif "std" in cols:
+                std = "std"
+            else:
+                std = cols[min(2, len(cols) - 1)]
+            row = df[df[key].astype(str).str.lower().eq("logloss")]
+            if not row.empty:
+                cv_mean = float(row[mean].iloc[0])
+                cv_std = float(row[std].iloc[0])
+                if np.isfinite(cv_mean) and np.isfinite(cv_std) and cv_std > 0:
+                    return cv_mean, cv_std
+    except Exception:
+        pass
+
+    # Fallback to per fold
+    try:
+        vals = [
+            m.logloss()
+            for m in getattr(model, "cross_validation_metrics", lambda: [])()
+            if hasattr(m, "logloss")
+        ]
+        vals = [v for v in vals if v is not None and np.isfinite(v)]
+        if len(vals) >= 2:
+            return float(np.mean(vals)), float(np.std(vals, ddof=1))
+        if len(vals) == 1:
+            return float(vals[0]), None
+    except Exception:
+        pass
+
+    return None, None
+
+
+def compute_overfit_score_logloss(
+    model: H2OEstimator,
+    train: H2OFrame,
+    test: H2OFrame,
+    valid: t.Optional[H2OFrame] = None,
+) -> dict:
+    """
+    Compute an overfit score between [0, 1] from logloss.
+
+    Emphasizes generalization:
+      - Penalizes when test logloss is materially worse than the CV mean (test - CV_mean), scaled by CV_std.
+      - If H2O's training config doesn't include CV: we then penalize based on large test vs. train gaps.
+      - (Optional) If validation dataset is provided, reports a symmetric validation vs. test
+      instability metric. If a model struggles with validation vs. test in either direction, it may
+      generalize inconsistently at inference time.
+
+    We utilize tolerances since fluctuations are normal and they should help avoid flagging noise.
+    Tolerances are also made to be adaptive to the dataset's CV spread, so they scale naturally
+    across datasets. If CV is not available, we fall back to a conservative scale.
+
+    The maximum STD we chose was 1.5, which is actually quite aggressive. But since H2O regularizes but
+    doesn't regularize aggressively, certain learners can be prone to train hot and potentially overfit.
+    The returned overfit.score is capped between [0, 1] for automated model selection.
+
+    Parameters:
+      model: H2O model to score.
+      train : H2OFrame for the training split.
+      valid (Optional): H2OFrame for the validation split.
+      test: H2OFrame for the test split.
+
+    Returns:
+      dict:
+        - overfit.score (float [0,1]): higher -> greater overfit risk.
+        - overfit.std_excess (float): max z-like excess among the risk terms.
+        - delta.test_train (float): test vs. train.
+        - (optional) delta.test_cv (float): test vs. CV_mean
+        - (optional) delta.cv_train (float): CV_mean vs. train
+        - (optional) cv.logloss_mean (float), cv.logloss_std (float)
+        - (optional) instability.score, instability.sd_gap if validation dataset is provided.
+    """
+    # Tolerance constants
+    TOL_CV_TEST: float = 0.03  # tolerance for test vs CV mean
+    FRAC_OF_CV_STD: float = 0.25  # adaptive tolerance that scales with CV std
+    FALLBACK_STD: float = 0.15  # we treat this as “one std” when CV is off; setting loosely since training is typically hot in h2o
+    STD_MAX: float = 1.5  # setting maximum std so overfit score is capped at 1
+
+    train_log_loss = float(model.model_performance(train).logloss())
+    test_log_loss = float(model.model_performance(test).logloss())
+    if valid is not None:
+        valid_log_loss = float(model.model_performance(valid).logloss())
+
+    # CV context
+    cv_mean, cv_std = get_cv_logloss_stats(model)
+
+    # Deltas
+    delta_test_train = test_log_loss - train_log_loss
+    delta_test_cv = (test_log_loss - cv_mean) if cv_mean else None
+    delta_cv_train = (cv_mean - train_log_loss) if cv_mean else None
+
+    # Risk metrics
+    if (
+        cv_mean is not None
+        and cv_std is not None
+        and delta_test_cv is not None
+        and np.isfinite(cv_std)
+        and cv_std > 0.0
+    ):
+        tol_holdout = min(TOL_CV_TEST, FRAC_OF_CV_STD * cv_std)
+        std_excess = max(0.0, (delta_test_cv - tol_holdout) / cv_std)
+    else:
+        scale_fb = FALLBACK_STD
+        std_excess = max(0.0, delta_test_train / scale_fb)
+
+    # Capping score between [0, 1] for model selection
+    score = float(min(1.0, std_excess / STD_MAX))
+
+    out = {
+        "overfit.score": score,
+        "overfit.std_excess": float(std_excess),
+        "delta.test_cv": (None if delta_test_cv is None else float(delta_test_cv)),
+        "delta.cv_train": (None if delta_cv_train is None else float(delta_cv_train)),
+        "delta.test_train": float(delta_test_train),
+        "cv.logloss_mean": (None if cv_mean is None else float(cv_mean)),
+        "cv.logloss_std": (None if cv_std is None else float(cv_std)),
+    }
+
+    # Instability (symmetric)
+    if valid is not None:
+        valid_log_loss = float(model.model_performance(valid).logloss())
+        delta_tv = abs(test_log_loss - valid_log_loss)
+        delta_tv_std = None
+        scale = cv_std if cv_std else FALLBACK_STD
+        delta_tv_std = (
+            delta_tv / scale if scale and np.isfinite(scale) and scale > 0 else np.nan
+        )
+        out.update(
+            {
+                "delta.test_valid": float(delta_tv),
+                "delta_std.test_valid": float(delta_tv_std),
+            }
+        )
+
+    return out
+
+
 def log_h2o_experiment(
     aml: H2OAutoML,
     *,
@@ -126,7 +298,7 @@ def log_h2o_experiment(
     Logs evaluation metrics, plots, and model artifacts for all models in an H2O AutoML leaderboard to MLflow.
 
     Args:
-        aml: Trained H2OAutoML object.
+        aml: trained H2OAutoML object.
         train: H2OFrame containing the training split.
         valid: H2OFrame containing the validation split.
         test: H2OFrame containing the test split.
@@ -212,11 +384,11 @@ def log_h2o_experiment_summary(
     schema (column names and types).
 
     Args:
-        aml: Trained H2OAutoML object.
+        aml: trained H2OAutoML object.
         leaderboard_df (pd.DataFrame): Leaderboard as DataFrame.
-        train (H2OFrame): Training H2OFrame.
+        train (H2OFrame): training H2OFrame.
         valid (H2OFrame): Validation H2OFrame.
-        test (H2OFrame): Test H2OFrame.
+        test (H2OFrame): test H2OFrame.
         target_col (str): Name of the target column.
         run_name (str): Name of the MLflow run. Defaults to "h2o_automl_experiment_summary".
     """
@@ -353,6 +525,12 @@ def log_h2o_model(
                         y_true, y_pred, y_proba, prefix=split_name
                     )
 
+            # Log overfit score based on log loss and CV
+            ofs = compute_overfit_score_logloss(
+                model=model, train=train, valid=valid, test=test
+            )
+            metrics.update(ofs)
+
             with _suppress_output():
                 # params + metrics (use the batched version you implemented)
                 log_model_metadata_to_mlflow(
@@ -433,7 +611,7 @@ def log_h2o_model_metadata_for_uc(
     Saves the H2O model + MLmodel metadata so Unity Catalog can register it.
 
     Args:
-        h2o_model: Trained H2O model to log.
+        h2o_model: trained H2O model to log.
         artifact_path: Subdir in MLflow run artifacts (e.g. "model").
         signature: Optional MLflow signature object (mlflow.models.signature.ModelSignature).
     """
