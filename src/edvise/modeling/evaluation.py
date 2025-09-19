@@ -75,6 +75,7 @@ def extract_training_data_from_model(
 
 
 def evaluate_performance(
+    mlflow_run_id: str,
     df_pred: pd.DataFrame,
     *,
     pos_label: PosLabelType,
@@ -129,6 +130,7 @@ def evaluate_performance(
             pred_probs=split_data[pred_prob_col],
             pos_label=pos_label,
             sample_weights=split_data[sample_weight_col],
+            mlflow_run_id=mlflow_run_id,
         )
 
         perf_metrics = format_perf_metrics(perf_metrics_raw)
