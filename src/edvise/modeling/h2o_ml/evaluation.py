@@ -15,9 +15,13 @@ from sklearn.metrics import (
     precision_recall_curve,
     roc_auc_score,
     average_precision_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    accuracy_score,
+    log_loss,
 )
 from sklearn.calibration import calibration_curve
-
 import h2o
 from h2o.automl import H2OAutoML
 from h2o.estimators.estimator_base import H2OEstimator
@@ -30,39 +34,83 @@ from . import inference
 LOGGER = logging.getLogger(__name__)
 
 
-# --- Metric evaluation ---
-def get_metrics_near_threshold_all_splits(
+PosLabelType = t.Union[bool, str]
+
+
+def get_metrics_fixed_threshold_all_splits(
     model: H2OEstimator,
     train: h2o.H2OFrame,
     valid: h2o.H2OFrame,
     test: h2o.H2OFrame,
+    target_col: str,
+    pos_label: PosLabelType,
     threshold: float = 0.5,
-) -> dict[str, float | str]:
-    def _metrics(perf, label):
-        thresh_df = utils._to_pandas(perf.thresholds_and_metric_scores())
-        closest = thresh_df.iloc[
-            (thresh_df["threshold"] - threshold).abs().argsort()[:1]
-        ]
+    sample_weight_col: t.Optional[str] = None,
+) -> t.Dict[str, float]:
+    """
+    Compute metrics at a fixed threshold (exact 0.5 by default) for all splits,
+    with proper positive-class handling and optional sample weights.
+    """
+
+    def _compute_metrics(frame, label: str) -> t.Dict[str, float]:
+        preds = model.predict(frame)
+        prob_col = utils._pick_pos_prob_column(preds, pos_label)
+
+        # Pull data
+        df = utils._to_pandas(frame)
+        y_true = df[target_col].to_numpy()
+        y_prob = utils._to_pandas(preds[prob_col]).to_numpy().reshape(-1)
+        w = None
+        if sample_weight_col and sample_weight_col in df.columns:
+            w = df[sample_weight_col].astype(float).fillna(0.0).to_numpy()
+
+        # Unify label space {0,1}
+        y_true_bin = utils._binarize_targets(y_true, pos_label)
+        y_pred = (y_prob >= threshold).astype(int)
+
+        # Metrics (all in {0,1})
+        acc = accuracy_score(y_true_bin, y_pred, sample_weight=w)
+        prec = precision_score(y_true_bin, y_pred, sample_weight=w, zero_division=0)
+        rec = recall_score(y_true_bin, y_pred, sample_weight=w)
+        f1 = f1_score(y_true_bin, y_pred, sample_weight=w)
+        # AUC/LogLoss expect true {0,1}; specify labels to be explicit
+        auc = roc_auc_score(y_true_bin, y_prob, sample_weight=w)
+        ll = log_loss(y_true_bin, y_prob, sample_weight=w, labels=[0, 1])
+
+        # Weighted confusion counts (for debugging/reporting parity, optional)
+        tn, fp, fn, tp = confusion_matrix(
+            y_true_bin, y_pred, labels=[0, 1], sample_weight=w
+        ).ravel()
+
         return {
-            f"{label}_threshold": closest["threshold"].values[0],
-            f"{label}_precision": closest["precision"].values[0],
-            f"{label}_recall": closest["recall"].values[0],
-            f"{label}_accuracy": closest["accuracy"].values[0],
-            f"{label}_f1": closest["f1"].values[0],
-            f"{label}_roc_auc": perf.auc(),
-            f"{label}_log_loss": perf.logloss(),
+            f"{label}_threshold": float(threshold),
+            f"{label}_precision": float(prec),
+            f"{label}_recall": float(rec),
+            f"{label}_accuracy": float(acc),
+            f"{label}_f1": float(f1),
+            f"{label}_roc_auc": float(auc),
+            f"{label}_log_loss": float(ll),
+            f"{label}_true_positives": float(tp),
+            f"{label}_true_negatives": float(tn),
+            f"{label}_false_positives": float(fp),
+            f"{label}_false_negatives": float(fn),
         }
 
     return {
         "model_id": model.model_id,
-        **_metrics(model.model_performance(train), "train"),
-        **_metrics(model.model_performance(valid), "validate"),
-        **_metrics(model.model_performance(test), "test"),
+        **_compute_metrics(train, "train"),
+        **_compute_metrics(valid, "validate"),
+        **_compute_metrics(test, "test"),
     }
 
 
 def generate_all_classification_plots(
-    y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray, prefix: str = "test"
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    y_proba: np.ndarray,
+    *,
+    prefix: str = "test",
+    sample_weights: t.Optional[np.ndarray] = None,
 ) -> None:
     """
     Generates and logs classification plots to MLflow as figures.
@@ -73,16 +121,24 @@ def generate_all_classification_plots(
         y_proba: Predicted probabilities for the positive class
         prefix: Prefix for plot file names (e.g., "train", "test", "val")
     """
-
-    plot_fns: dict[
-        str, tuple[Callable[[np.ndarray, np.ndarray], plt.Figure], np.ndarray]
-    ] = {
-        "confusion_matrix": (create_confusion_matrix_plot, y_pred),
-        "roc_curve": (create_roc_curve_plot, y_proba),
-        "precision_recall": (create_precision_recall_curve_plot, y_proba),
-        "calibration_curve": (create_calibration_curve_plot, y_proba),
+    plot_fns = {
+        "confusion_matrix": (
+            lambda yt, yp: create_confusion_matrix_plot(yt, yp, sample_weights),
+            y_pred,
+        ),
+        "roc_curve": (
+            lambda yt, pp: create_roc_curve_plot(yt, pp, sample_weights),
+            y_proba,
+        ),
+        "precision_recall": (
+            lambda yt, pp: create_precision_recall_curve_plot(yt, pp, sample_weights),
+            y_proba,
+        ),
+        "calibration_curve": (
+            lambda yt, pp: create_calibration_curve_plot(yt, pp),
+            y_proba,
+        ),
     }
-
     for name, (plot_fn, values) in plot_fns.items():
         fig = plot_fn(y_true, values)
         mlflow.log_figure(fig, f"{prefix}_{name}.png")
@@ -210,9 +266,13 @@ def create_and_log_h2o_model_comparison(
     return best
 
 
-def create_confusion_matrix_plot(y_true: np.ndarray, y_pred: np.ndarray) -> plt.Figure:
+def create_confusion_matrix_plot(
+    y_true: np.ndarray, y_pred: np.ndarray, sample_weights: t.Optional[np.ndarray]
+) -> plt.Figure:
     # Normalize confusion matrix by true labels
-    cm = confusion_matrix(y_true, y_pred, normalize="true")
+    cm = confusion_matrix(
+        y_true, y_pred, normalize="true", sample_weight=sample_weights
+    )
 
     fig, ax = plt.subplots()
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
@@ -236,9 +296,13 @@ def create_confusion_matrix_plot(y_true: np.ndarray, y_pred: np.ndarray) -> plt.
     return fig
 
 
-def create_roc_curve_plot(y_true: np.ndarray, y_proba: np.ndarray) -> plt.Figure:
-    fpr, tpr, _ = roc_curve(y_true, y_proba)
-    auc_score = roc_auc_score(y_true, y_proba)
+def create_roc_curve_plot(
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    sample_weights: t.Optional[np.ndarray] = None,
+) -> plt.Figure:
+    fpr, tpr, _ = roc_curve(y_true, y_proba, sample_weight=sample_weights)
+    auc_score = roc_auc_score(y_true, y_proba, sample_weight=sample_weights)
 
     fig, ax = plt.subplots()
     ax.plot(fpr, tpr, label=f"ROC Curve (AUC = {auc_score:.2f})")
@@ -252,10 +316,14 @@ def create_roc_curve_plot(y_true: np.ndarray, y_proba: np.ndarray) -> plt.Figure
 
 
 def create_precision_recall_curve_plot(
-    y_true: np.ndarray, y_proba: np.ndarray
+    y_true: np.ndarray,
+    y_proba: np.ndarray,
+    sample_weights: t.Optional[np.ndarray] = None,
 ) -> plt.Figure:
-    precision, recall, _ = precision_recall_curve(y_true, y_proba)
-    ap_score = average_precision_score(y_true, y_proba)
+    precision, recall, _ = precision_recall_curve(
+        y_true, y_proba, sample_weight=sample_weights
+    )
+    ap_score = average_precision_score(y_true, y_proba, sample_weight=sample_weights)
 
     fig, ax = plt.subplots()
     ax.plot(recall, precision, label=f"Precision-Recall (AP = {ap_score:.2f})")

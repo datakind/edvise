@@ -187,7 +187,7 @@ def test_log_h2o_model_basic(
     mock_model.predict.return_value = preds
 
     # eval metrics
-    mock_eval.get_metrics_near_threshold_all_splits.return_value = {
+    mock_eval.get_metrics_fixed_threshold_all_splits.return_value = {
         "validate_logloss": 0.3
     }
 

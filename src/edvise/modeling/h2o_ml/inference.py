@@ -24,6 +24,8 @@ from . import utils
 
 LOGGER = logging.getLogger(__name__)
 
+PosLabelType = t.Union[bool, str]
+
 
 def get_h2o_used_features(model: H2OEstimator) -> t.List[str]:
     """
@@ -62,7 +64,7 @@ def predict_h2o(
     model: H2OEstimator,
     *,
     feature_names: t.Optional[list[str]] = None,
-    pos_label: t.Optional[bool | str] = None,
+    pos_label: PosLabelType = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Predict labels and probabilities using an H2O model.
 
@@ -101,28 +103,16 @@ def predict_h2o(
     except Exception as e:
         LOGGER.warning("Failed to log H2OFrame details: %s", e)
 
-    # Run prediction & convert back to pandas
-    pred_df = utils._to_pandas(model.predict(h2o_features))
+    # Predict
+    preds_hf = model.predict(h2o_features)
+    pred_df = utils._to_pandas(preds_hf)
 
-    # Extract label column
+    # Labels as returned by H2O
     labels = pred_df["predict"].to_numpy()
 
-    # Extract probability for pos_label
-    if pos_label is not None:
-        pos_label_str = str(pos_label)
-        if pos_label_str not in pred_df.columns:
-            raise ValueError(
-                f"pos_label {pos_label_str} not found in prediction output columns: {pred_df.columns}"
-            )
-        probs = pred_df[pos_label_str].to_numpy(dtype=float)
-    else:
-        # Assume binary classification -> use the second probability column
-        prob_cols = [c for c in pred_df.columns if c != "predict"]
-        if len(prob_cols) < 2:
-            raise ValueError(
-                "Expected at least two probability columns for binary classification."
-            )
-        probs = pred_df[prob_cols[1]].to_numpy(dtype=float)
+    # Pick the correct probability column for the positive class
+    prob_col = utils._pick_pos_prob_column(preds_hf, pos_label)
+    probs = pred_df[prob_col].to_numpy(dtype=float)
 
     return labels, probs
 

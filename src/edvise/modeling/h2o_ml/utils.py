@@ -36,6 +36,8 @@ from . import imputation
 LOGGER = logging.getLogger(__name__)
 
 
+PosLabelType = t.Union[bool, str]
+
 def safe_h2o_init(base_port: int = 54321, mem_per_cluster: str = "4G") -> None:
     """
     Initialize a unique H2O cluster per Databricks task (or randomly if no task id).
@@ -93,6 +95,7 @@ def download_model_artifact(run_id: str, artifact_subdir: str = "model") -> str:
     return download_artifact_file(run_id, f"{artifact_subdir}/model.h2o")
 
 
+
 def load_h2o_model(
     run_id: str, artifact_path: str = "model"
 ) -> h2o.model.model_base.ModelBase:
@@ -113,6 +116,29 @@ def load_h2o_model(
             )
         return h2o.load_model(local_model_file)
 
+
+def _pick_pos_prob_column(preds, pos_label: PosLabelType) -> str:
+    """
+    Given an H2O prediction frame, return the column name containing P(positive).
+    Tries to match the positive label string; falls back to the last prob column.
+    """
+    cols = list(preds.col_names)
+    # common patterns: ["predict", "p0", "p1"] or ["predict", "<neg>", "<pos>"]
+    prob_cols = [c for c in cols if c != "predict"]
+    # try exact match on string form of pos_label
+    pl_str = str(pos_label)
+    if pl_str in prob_cols:
+        return pl_str
+    # try typical "p1" if pos_label corresponds to 1/True
+    if pl_str in {"1", "True", "true"} and "p1" in prob_cols:
+        return "p1"
+    # fall back to last prob column (H2O usually puts positive last)
+    return prob_cols[-1] if prob_cols else cols[-1]
+
+
+def _binarize_targets(y_true: np.ndarray, pos_label: PosLabelType) -> np.ndarray:
+    """Map y_true to {0,1} with 1 == pos_label."""
+    return (pd.Series(y_true).astype(object) == pos_label).astype(int).to_numpy()
 
 def get_cv_logloss_stats(
     model: H2OEstimator,
@@ -292,6 +318,8 @@ def log_h2o_experiment(
     test: h2o.H2OFrame,
     target_col: str,
     experiment_id: str,
+    pos_label: PosLabelType,
+    sample_weight_col: str = "sample_weight",
     imputer: t.Optional[imputation.SklearnImputerWrapper] = None,
 ) -> pd.DataFrame:
     """
@@ -356,6 +384,8 @@ def log_h2o_experiment(
             imputer=imputer,
             target_col=target_col,
             primary_metric=aml.sort_metric,
+            sample_weight_col=sample_weight_col,
+            pos_label=pos_label,
         )
 
         if metrics:
@@ -455,7 +485,9 @@ def log_h2o_model(
     train: h2o.H2OFrame,
     valid: h2o.H2OFrame,
     test: h2o.H2OFrame,
+    pos_label: PosLabelType,
     threshold: float = 0.5,
+    sample_weight_col: str = "sample_weight",
     target_col: str = "target",
     imputer: t.Optional[imputation.SklearnImputerWrapper] = None,
     primary_metric: str = "logloss",
@@ -470,9 +502,16 @@ def log_h2o_model(
         # get model
         model = h2o.get_model(model_id)
 
-        # compute scalar metrics once (no logging here)
-        metrics = evaluation.get_metrics_near_threshold_all_splits(
-            model, train, valid, test, threshold=threshold
+        # compute scalar metrics once
+        metrics = evaluation.get_metrics_fixed_threshold_all_splits(
+            model=model,
+            train=train,
+            valid=valid,
+            test=test,
+            target_col=target_col,
+            pos_label=pos_label,
+            threshold=threshold,
+            sample_weight_col=sample_weight_col,
         )
 
         # ensure clean run context
@@ -495,34 +534,32 @@ def log_h2o_model(
             for split_name, frame in zip(
                 ("train", "val", "test"), (train, valid, test)
             ):
-                # y_true (pandas)
-                y_true = _to_pandas(frame[target_col]).values.flatten()
+                df_split = _to_pandas(frame)
 
-                # predict probabilities
+                y_true_raw = _to_pandas(frame[target_col]).values.flatten()
+                y_true_bin = _binarize_targets(y_true_raw, pos_label)
+
                 with _suppress_output():
                     preds = model.predict(frame)
-                positive_class_label = preds.col_names[-1]
 
-                # pull prob column to pandas
-                y_proba = _to_pandas(preds[positive_class_label]).values.flatten()
+                prob_col = _pick_pos_prob_column(preds, pos_label)
+                y_proba = _to_pandas(preds[prob_col]).to_numpy().reshape(-1)
                 y_pred = (y_proba >= threshold).astype(int)
 
-                # confusion matrix counts (for FE tables)
-                tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
-                label = "validate" if split_name == "val" else split_name
-                metrics.update(
-                    {
-                        f"{label}_true_positives": float(tp),
-                        f"{label}_true_negatives": float(tn),
-                        f"{label}_false_positives": float(fp),
-                        f"{label}_false_negatives": float(fn),
-                    }
-                )
+                weights = None
+                if sample_weight_col and sample_weight_col in df_split.columns:
+                    weights = (df_split[sample_weight_col]
+                            .astype(float)
+                            .fillna(0.0)
+                            .to_numpy())
 
-                # classification plots (ROC/PR/etc)
                 with _suppress_output():
                     evaluation.generate_all_classification_plots(
-                        y_true, y_pred, y_proba, prefix=split_name
+                        y_true=y_true_bin,
+                        y_pred=y_pred,
+                        y_proba=y_proba,
+                        prefix=split_name,
+                        sample_weights=weights,
                     )
 
             # Log overfit score based on log loss and CV
