@@ -135,7 +135,7 @@ def _pick_pos_prob_column(preds, pos_label):
         candidates = []
         if isinstance(pos_label, (bool, int)):
             candidates.append(f"p{int(bool(pos_label))}")  # True/1 → "p1"
-            candidates.append(str(int(bool(pos_label))))   # "1"
+            candidates.append(str(int(bool(pos_label))))  # "1"
         candidates.append(str(pos_label))
         for c in candidates:
             if c in names:
@@ -146,6 +146,7 @@ def _pick_pos_prob_column(preds, pos_label):
     # Pandas DataFrame/Series
     try:
         import pandas as pd
+
         if isinstance(preds, (pd.DataFrame, pd.Series)):
             cols = list(preds.columns) if hasattr(preds, "columns") else []
             for c in (f"p{int(bool(pos_label))}", str(pos_label), "p1", "1"):
@@ -567,14 +568,14 @@ def log_h2o_model(
 
         with mlflow.start_run():
             active_run = mlflow.active_run()
-            run_id = active_run.info.run_id if active_run else None        
+            run_id = active_run.info.run_id if active_run else None
 
             try:
-               # Only set tag if MLflow believes there's an active run
-               if mlflow.active_run() is not None:
-                   mlflow.set_tag("mlflow.primaryMetric", f"validate_{primary_metric}")
+                # Only set tag if MLflow believes there's an active run
+                if mlflow.active_run() is not None:
+                    mlflow.set_tag("mlflow.primaryMetric", f"validate_{primary_metric}")
             except Exception as e:
-               LOGGER.debug(f"Skipping mlflow.set_tag (no real run / mocked env): {e}")
+                LOGGER.debug(f"Skipping mlflow.set_tag (no real run / mocked env): {e}")
 
             # model comparison plot
             # keep this where it is, but only silence its progress bars
@@ -620,7 +621,7 @@ def log_h2o_model(
                 metrics.update(ofs)
             except Exception as e:
                 LOGGER.warning(f"Failed to compute overfit score: {e}")
-            
+
             metrics.update(ofs)
 
             with _suppress_output():
@@ -1030,6 +1031,7 @@ def _try_export_mojo(h2o_model: ModelBase, tmpdir: str) -> str | None:
             "MOJO export failed for algo=%s: %s", getattr(h2o_model, "algo", "?"), e
         )
         return None
+
 
 def _safe_mlflow_log_metric(key, value, step=None):
     try:
