@@ -61,8 +61,9 @@ def predict_h2o(
     features: pd.DataFrame | np.ndarray,
     model: H2OEstimator,
     *,
+    pos_label: utils.PosLabelType = True,
     feature_names: t.Optional[list[str]] = None,
-    pos_label: t.Optional[bool | str] = None,
+    threshold: float = 0.5,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Predict labels and probabilities using an H2O model.
 
@@ -78,53 +79,28 @@ def predict_h2o(
             - labels: predicted class labels
             - probs: predicted probabilities for the positive class
     """
-    # Convert features to H2OFrame
+    # Ensure DataFrame if ndarray is given
     if isinstance(features, np.ndarray):
         if feature_names is None:
             raise ValueError("feature_names must be provided when using a numpy array.")
         features = pd.DataFrame(features, columns=feature_names)
 
+    # Preserve *_missing_flag as enums
     missing_flags = [c for c in features.columns if c.endswith("_missing_flag")]
     h2o_features = utils._to_h2o(features, force_enum_cols=missing_flags)
 
-    # Log H2OFrame dtypes and a quick preview
-    try:
-        types_summary = ", ".join(
-            f"{col}: {dtype}" for col, dtype in h2o_features.types.items()
-        )
-        LOGGER.debug(
-            "After H2O conversion: %d rows × %d cols. Dtypes -> %s",
-            h2o_features.nrows,
-            h2o_features.ncols,
-            types_summary,
-        )
-    except Exception as e:
-        LOGGER.warning("Failed to log H2OFrame details: %s", e)
+    # Predict probabilities
+    preds_hf = model.predict(h2o_features)
+    pred_df = utils._to_pandas(preds_hf)
 
-    # Run prediction & convert back to pandas
-    pred_df = utils._to_pandas(model.predict(h2o_features))
+    # Get probability column for the positive class
+    prob_col = utils._pick_pos_prob_column(pred_df, pos_label)
+    probs = pred_df[prob_col].to_numpy(dtype=float)
 
-    # Extract label column
-    labels = pred_df["predict"].to_numpy()
+    # Apply threshold to get binary predictions
+    preds = (probs >= float(threshold)).astype(int)
 
-    # Extract probability for pos_label
-    if pos_label is not None:
-        pos_label_str = str(pos_label)
-        if pos_label_str not in pred_df.columns:
-            raise ValueError(
-                f"pos_label {pos_label_str} not found in prediction output columns: {pred_df.columns}"
-            )
-        probs = pred_df[pos_label_str].to_numpy(dtype=float)
-    else:
-        # Assume binary classification -> use the second probability column
-        prob_cols = [c for c in pred_df.columns if c != "predict"]
-        if len(prob_cols) < 2:
-            raise ValueError(
-                "Expected at least two probability columns for binary classification."
-            )
-        probs = pred_df[prob_cols[1]].to_numpy(dtype=float)
-
-    return labels, probs
+    return preds, probs
 
 
 def predict_contribs_batched(

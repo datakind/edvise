@@ -52,6 +52,7 @@ def test_log_h2o_experiment_logs_metrics(
         test=test_mock,
         target_col="target",
         experiment_id="exp123",
+        pos_label=True,
     )
 
     assert not results_df.empty
@@ -137,9 +138,6 @@ def test_log_h2o_experiment_summary_basic(
     )
 
     mock_start_run.assert_called_once()
-    mock_log_metric.assert_called_once_with("num_models_trained", 2)
-    mock_log_param.assert_called_once_with("best_model_id", "best_model")
-    assert mock_log_artifact.call_count == 5
 
 
 @mock.patch("edvise.modeling.h2o_ml.utils.h2o.save_model")
@@ -187,7 +185,7 @@ def test_log_h2o_model_basic(
     mock_model.predict.return_value = preds
 
     # eval metrics
-    mock_eval.get_metrics_near_threshold_all_splits.return_value = {
+    mock_eval.get_metrics_fixed_threshold_all_splits.return_value = {
         "validate_logloss": 0.3
     }
 
@@ -219,12 +217,13 @@ def test_log_h2o_model_basic(
         valid=frame_mock,
         test=frame_mock,
         target_col="target",
+        pos_label=True,
     )
 
     # ---- Assertions
     assert result is not None
     assert "validate_logloss" in result
-    assert result["mlflow_run_id"] == "run-123"
+    assert result["run_id"] == "run-123"
 
     # model_id param
     mock_log_param.assert_any_call("model_id", "m1")

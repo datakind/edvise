@@ -47,6 +47,7 @@ def run_h2o_automl_classification(
     timeout_minutes = int(float(str(kwargs.pop("timeout_minutes", 5))))
     split_col: str = str(kwargs.pop("split_col", "split"))
     sample_weight_col = str(kwargs.pop("sample_weight_col", "sample_weight"))
+    pos_label = bool(kwargs.pop("pos_label", True))
     target_name = kwargs.pop("target_name", None)
     checkpoint_name = kwargs.pop("checkpoint_name", None)
     workspace_path = kwargs.pop("workspace_path", None)
@@ -180,6 +181,8 @@ def run_h2o_automl_classification(
         target_col=target_col,
         experiment_id=experiment_id,
         imputer=imputer,
+        sample_weight_col=sample_weight_col,
+        pos_label=pos_label,
     )
 
     return experiment_id, aml, train, valid, test
