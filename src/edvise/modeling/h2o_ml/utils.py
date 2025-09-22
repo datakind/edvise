@@ -29,7 +29,6 @@ from h2o.two_dim_table import H2OTwoDimTable
 from h2o.estimators.estimator_base import H2OEstimator
 
 
-
 from . import evaluation
 from . import imputation
 

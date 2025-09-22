@@ -63,6 +63,7 @@ def predict_h2o(
     *,
     pos_label: utils.PosLabelType = True,
     feature_names: t.Optional[list[str]] = None,
+    threshold: float = 0.5,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Predict labels and probabilities using an H2O model.
 
@@ -78,41 +79,28 @@ def predict_h2o(
             - labels: predicted class labels
             - probs: predicted probabilities for the positive class
     """
-    # Convert features to H2OFrame
+    # Ensure DataFrame if ndarray is given
     if isinstance(features, np.ndarray):
         if feature_names is None:
             raise ValueError("feature_names must be provided when using a numpy array.")
         features = pd.DataFrame(features, columns=feature_names)
 
+    # Preserve *_missing_flag as enums
     missing_flags = [c for c in features.columns if c.endswith("_missing_flag")]
     h2o_features = utils._to_h2o(features, force_enum_cols=missing_flags)
 
-    # Log H2OFrame dtypes and a quick preview
-    try:
-        types_summary = ", ".join(
-            f"{col}: {dtype}" for col, dtype in h2o_features.types.items()
-        )
-        LOGGER.debug(
-            "After H2O conversion: %d rows × %d cols. Dtypes -> %s",
-            h2o_features.nrows,
-            h2o_features.ncols,
-            types_summary,
-        )
-    except Exception as e:
-        LOGGER.warning("Failed to log H2OFrame details: %s", e)
-
-    # Predict
+    # Predict probabilities
     preds_hf = model.predict(h2o_features)
     pred_df = utils._to_pandas(preds_hf)
 
-    # Labels as returned by H2O
-    labels = pred_df["predict"].to_numpy()
-
-    # Pick the correct probability column for the positive class
+    # Get probability column for the positive class
     prob_col = utils._pick_pos_prob_column(pred_df, pos_label)
     probs = pred_df[prob_col].to_numpy(dtype=float)
 
-    return labels, probs
+    # Apply threshold to get binary predictions
+    preds = (probs >= float(threshold)).astype(int)
+
+    return preds, probs
 
 
 def predict_contribs_batched(
