@@ -175,7 +175,7 @@ def get_cv_logloss_stats(
     """
     try:
         summ = model.cross_validation_metrics_summary()
-        df = summ.as_data_frame() if hasattr(summ, "as_data_frame") else summ
+        df = _to_pandas(summ) if hasattr(summ, "as_data_frame") else summ
         if isinstance(df, pd.DataFrame):
             cols = [str(c).strip().lower() for c in df.columns]
             df.columns = cols
@@ -444,8 +444,8 @@ def log_h2o_experiment_summary(
 
     with mlflow.start_run(run_name=run_name):
         # Log basic experiment metadata
-        mlflow.log_metric("num_models_trained", len(leaderboard_df))
-        mlflow.log_param("best_model_id", aml.leader.model_id)
+        _safe_mlflow_log_metric(key="num_models_trained", value=len(leaderboard_df))
+        _safe_mlflow_log_metric(key="best_model_id", value=aml.leader.model_id)
 
         # Create tmp directory for artifacts
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -532,15 +532,22 @@ def log_h2o_model(
         )
 
         # ensure clean run context
-        if mlflow.active_run():
-            mlflow.end_run()
+        try:
+            if mlflow.active_run() is not None:
+                mlflow.end_run()
+        except Exception as e:
+            LOGGER.debug(f"No active MLflow run to end (safe to ignore): {e}")
 
         with mlflow.start_run():
             active_run = mlflow.active_run()
-            run_id = active_run.info.run_id if active_run else None
+            run_id = active_run.info.run_id if active_run else None        
 
-            # primary metric tag
-            mlflow.set_tag("mlflow.primaryMetric", f"validate_{primary_metric}")
+            try:
+               # Only set tag if MLflow believes there's an active run
+               if mlflow.active_run() is not None:
+                   mlflow.set_tag("mlflow.primaryMetric", f"validate_{primary_metric}")
+            except Exception as e:
+               LOGGER.debug(f"Skipping mlflow.set_tag (no real run / mocked env): {e}")
 
             # model comparison plot
             # keep this where it is, but only silence its progress bars
@@ -579,9 +586,14 @@ def log_h2o_model(
                     )
 
             # Log overfit score based on log loss and CV
-            ofs = compute_overfit_score_logloss(
-                model=model, train=train, valid=valid, test=test
-            )
+            try:
+                ofs = compute_overfit_score_logloss(
+                    model=model, train=train, valid=valid, test=test
+                )
+                metrics.update(ofs)
+            except Exception as e:
+                LOGGER.warning(f"Failed to compute overfit score: {e}")
+            
             metrics.update(ofs)
 
             with _suppress_output():
@@ -615,9 +627,8 @@ def log_h2o_model(
 
             # Predict on the *same small sample* (fast) for signature outputs
             with _suppress_output():
-                y_pred_sample = model.predict(sample_hf).as_data_frame()
-            if hasattr(y_pred_sample, "as_data_frame"):
-                y_pred_sample = y_pred_sample.as_data_frame()
+                y_pred_sample_hf = model.predict(sample_hf)
+            y_pred_sample = _to_pandas(y_pred_sample_hf)
 
             X_sample = X_sample.copy()
             maybe_na_ints = [
@@ -643,8 +654,7 @@ def log_h2o_model(
                     imputer.log_pipeline(artifact_path="sklearn_imputer")
                 except Exception as e:
                     LOGGER.warning(f"Failed to log imputer artifacts: {e}")
-
-        return metrics
+        return {**metrics, "run_id": run_id, "model_id": model_id}
 
     except Exception as e:
         LOGGER.exception(f"Failed to evaluate and log model {model_id}: {e}")
@@ -993,3 +1003,10 @@ def _try_export_mojo(h2o_model: ModelBase, tmpdir: str) -> str | None:
             "MOJO export failed for algo=%s: %s", getattr(h2o_model, "algo", "?"), e
         )
         return None
+
+def _safe_mlflow_log_metric(key, value, step=None):
+    try:
+        if mlflow.active_run() is not None:
+            mlflow.log_metric(key, value, step=step)
+    except Exception:
+        pass

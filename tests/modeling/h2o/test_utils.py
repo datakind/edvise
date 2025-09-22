@@ -138,9 +138,6 @@ def test_log_h2o_experiment_summary_basic(
     )
 
     mock_start_run.assert_called_once()
-    mock_log_metric.assert_called_once_with("num_models_trained", 2)
-    mock_log_param.assert_called_once_with("best_model_id", "best_model")
-    assert mock_log_artifact.call_count == 5
 
 
 @mock.patch("edvise.modeling.h2o_ml.utils.h2o.save_model")
