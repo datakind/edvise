@@ -223,7 +223,7 @@ def test_log_h2o_model_basic(
     # ---- Assertions
     assert result is not None
     assert "validate_logloss" in result
-    assert result["mlflow_run_id"] == "run-123"
+    assert result["run_id"] == "run-123"
 
     # model_id param
     mock_log_param.assert_any_call("model_id", "m1")
