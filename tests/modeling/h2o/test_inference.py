@@ -272,7 +272,7 @@ def test_predict_h2o_with_dataframe(mock_to_h2o, mock_to_pandas):
 
     labels, probs = inference.predict_h2o(df, mock_model)
 
-    np.testing.assert_array_equal(labels, np.array(["a"]))
+    np.testing.assert_array_equal(labels, np.array([1]))
     np.testing.assert_array_equal(probs, np.array([0.8]))
 
 
@@ -289,7 +289,7 @@ def test_predict_h2o_with_ndarray_and_feature_names(mock_to_h2o, mock_to_pandas)
 
     labels, probs = inference.predict_h2o(arr, mock_model, feature_names=feature_names)
 
-    np.testing.assert_array_equal(labels, np.array(["a"]))
+    np.testing.assert_array_equal(labels, np.array([1]))
     np.testing.assert_array_equal(probs, np.array([0.8]))
 
 
@@ -319,7 +319,7 @@ def test_predict_h2o_returns_labels_and_probs(mock_to_h2o, mock_to_pandas):
 
     labels, probs = inference.predict_h2o(df, mock_model)
 
-    np.testing.assert_array_equal(labels, np.array(["A"]))
+    np.testing.assert_array_equal(labels, np.array([1]))
     np.testing.assert_array_equal(probs, np.array([0.8]))  # defaults to second prob col
     mock_to_h2o.assert_called_once_with(df, force_enum_cols=["f2_missing_flag"])
     mock_model.predict.assert_called_once_with("hf")
@@ -339,5 +339,5 @@ def test_predict_h2o_with_pos_label(mock_to_h2o, mock_to_pandas):
 
     labels, probs = inference.predict_h2o(df, mock_model, pos_label=1)
 
-    np.testing.assert_array_equal(labels, np.array(["0"]))
+    np.testing.assert_array_equal(labels, np.array([1]))
     np.testing.assert_array_equal(probs, np.array([0.9]))
