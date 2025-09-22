@@ -310,18 +310,6 @@ def run_predictions(
         log_to_mlflow=(run_type == RunType.TRAIN),
     )
 
-    sfi_ft: pd.DataFrame | None = None
-    if sfi is not None and ft is not None:
-        sfi_ft = sfi.copy()
-        sfi_ft[["readable_feature_name", "short_feature_desc", "long_feature_desc"]] = (
-            sfi_ft["Feature Name"].apply(
-                lambda f: pd.Series(
-                    automl_inference._get_mapped_feature_name(f, ft, metadata=True)
-                )
-            )
-        )
-        sfi_ft.columns = sfi_ft.columns.str.replace(" ", "_").str.lower()
-
     default_inference_params = {
         "num_top_features": 5,
         "min_prob_pos_label": 0.5,
@@ -340,7 +328,7 @@ def run_predictions(
 
     return PredOutputs(
         top_features_result=top_features_result,
-        shap_feature_importance=sfi_ft,
+        shap_feature_importance=sfi,
         support_score_distribution=ssd,
         grouped_features=grouped_features,
         grouped_contribs_df=grouped_contribs_df,
