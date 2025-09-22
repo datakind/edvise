@@ -52,6 +52,7 @@ def test_log_h2o_experiment_logs_metrics(
         test=test_mock,
         target_col="target",
         experiment_id="exp123",
+        pos_label=True,
     )
 
     assert not results_df.empty
@@ -219,6 +220,7 @@ def test_log_h2o_model_basic(
         valid=frame_mock,
         test=frame_mock,
         target_col="target",
+        pos_label=True,
     )
 
     # ---- Assertions

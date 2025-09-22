@@ -13,6 +13,7 @@ from mlflow.models import Model, infer_signature
 from mlflow.tracking import MlflowClient
 import pandas as pd
 import numpy as np
+import numpy.typing as npt
 from pandas.api.types import (
     is_categorical_dtype,
     is_object_dtype,
@@ -28,7 +29,6 @@ from h2o.two_dim_table import H2OTwoDimTable
 from h2o.estimators.estimator_base import H2OEstimator
 
 
-from sklearn.metrics import confusion_matrix
 
 from . import evaluation
 from . import imputation
@@ -37,6 +37,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 PosLabelType = t.Union[bool, str]
+
 
 def safe_h2o_init(base_port: int = 54321, mem_per_cluster: str = "4G") -> None:
     """
@@ -95,7 +96,6 @@ def download_model_artifact(run_id: str, artifact_subdir: str = "model") -> str:
     return download_artifact_file(run_id, f"{artifact_subdir}/model.h2o")
 
 
-
 def load_h2o_model(
     run_id: str, artifact_path: str = "model"
 ) -> h2o.model.model_base.ModelBase:
@@ -117,28 +117,46 @@ def load_h2o_model(
         return h2o.load_model(local_model_file)
 
 
-def _pick_pos_prob_column(preds, pos_label: PosLabelType) -> str:
+def _pick_pos_prob_column(
+    preds: t.Union[H2OFrame, pd.DataFrame],
+    pos_label: PosLabelType,
+) -> str:
     """
-    Given an H2O prediction frame, return the column name containing P(positive).
-    Tries to match the positive label string; falls back to the last prob column.
+    Return the column name containing P(positive).
+    Works with an H2OFrame (uses .col_names) or a pandas DataFrame (uses .columns).
     """
-    cols = list(preds.col_names)
-    # common patterns: ["predict", "p0", "p1"] or ["predict", "<neg>", "<pos>"]
-    prob_cols = [c for c in cols if c != "predict"]
+    # Collect columns as list[str]
+    if isinstance(preds, H2OFrame):
+        cols: t.List[str] = [str(c) for c in preds.col_names]
+    elif isinstance(preds, pd.DataFrame):
+        cols = [str(c) for c in preds.columns]
+    else:
+        raise TypeError(f"Unsupported preds type: {type(preds)}")
+
+    prob_cols: t.List[str] = [c for c in cols if c != "predict"]
+
     # try exact match on string form of pos_label
     pl_str = str(pos_label)
     if pl_str in prob_cols:
         return pl_str
+
     # try typical "p1" if pos_label corresponds to 1/True
     if pl_str in {"1", "True", "true"} and "p1" in prob_cols:
         return "p1"
+
     # fall back to last prob column (H2O usually puts positive last)
-    return prob_cols[-1] if prob_cols else cols[-1]
+    # Cast keeps mypy happy because prob_cols is List[str]
+    return t.cast(str, prob_cols[-1] if prob_cols else cols[-1])
 
 
-def _binarize_targets(y_true: np.ndarray, pos_label: PosLabelType) -> np.ndarray:
+def _binarize_targets(
+    y_true: np.ndarray, pos_label: PosLabelType
+) -> npt.NDArray[np.int_]:
     """Map y_true to {0,1} with 1 == pos_label."""
-    return (pd.Series(y_true).astype(object) == pos_label).astype(int).to_numpy()
+    arr = np.asarray(y_true, dtype=object)
+    bin_ = (arr == pos_label).astype(np.int64, copy=False)
+    return t.cast(npt.NDArray[np.int_], bin_)
+
 
 def get_cv_logloss_stats(
     model: H2OEstimator,
@@ -548,10 +566,9 @@ def log_h2o_model(
 
                 weights = None
                 if sample_weight_col and sample_weight_col in df_split.columns:
-                    weights = (df_split[sample_weight_col]
-                            .astype(float)
-                            .fillna(0.0)
-                            .to_numpy())
+                    weights = (
+                        df_split[sample_weight_col].astype(float).fillna(0.0).to_numpy()
+                    )
 
                 with _suppress_output():
                     evaluation.generate_all_classification_plots(
@@ -628,7 +645,6 @@ def log_h2o_model(
                 except Exception as e:
                     LOGGER.warning(f"Failed to log imputer artifacts: {e}")
 
-        metrics["mlflow_run_id"] = str(run_id)
         return metrics
 
     except Exception as e:

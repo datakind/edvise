@@ -24,8 +24,6 @@ from . import utils
 
 LOGGER = logging.getLogger(__name__)
 
-PosLabelType = t.Union[bool, str]
-
 
 def get_h2o_used_features(model: H2OEstimator) -> t.List[str]:
     """
@@ -63,8 +61,8 @@ def predict_h2o(
     features: pd.DataFrame | np.ndarray,
     model: H2OEstimator,
     *,
+    pos_label: utils.PosLabelType = True,
     feature_names: t.Optional[list[str]] = None,
-    pos_label: PosLabelType = True,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Predict labels and probabilities using an H2O model.
 
@@ -111,7 +109,7 @@ def predict_h2o(
     labels = pred_df["predict"].to_numpy()
 
     # Pick the correct probability column for the positive class
-    prob_col = utils._pick_pos_prob_column(preds_hf, pos_label)
+    prob_col = utils._pick_pos_prob_column(pred_df, pos_label)
     probs = pred_df[prob_col].to_numpy(dtype=float)
 
     return labels, probs

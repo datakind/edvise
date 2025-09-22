@@ -1,6 +1,5 @@
 import typing as t
 import logging
-from collections.abc import Callable
 
 import tempfile
 import mlflow
@@ -24,6 +23,7 @@ from sklearn.metrics import (
 from sklearn.calibration import calibration_curve
 import h2o
 from h2o.automl import H2OAutoML
+from h2o.frame import H2OFrame
 from h2o.estimators.estimator_base import H2OEstimator
 
 from . import training
@@ -52,7 +52,7 @@ def get_metrics_fixed_threshold_all_splits(
     with proper positive-class handling and optional sample weights.
     """
 
-    def _compute_metrics(frame, label: str) -> t.Dict[str, float]:
+    def _compute_metrics(frame: H2OFrame, label: str) -> t.Dict[str, float]:
         preds = model.predict(frame)
         prob_col = utils._pick_pos_prob_column(preds, pos_label)
 
