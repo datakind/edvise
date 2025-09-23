@@ -12,8 +12,10 @@ variables:
     description: "Databricks workspace"
   datakind_notification_email:
     description: "Datakind address used for email notifications"
+  service_account_executer:
+    description: "Service account to execute the pipeline"
   ds_run_as:
-    description: "User to run as"
+    description: "Account to run the pipeline"
   databricks_institution_name:
     description: "Institution ID to use for the pdp training"
   config_file_name:
@@ -23,7 +25,7 @@ variables:
     description: "Group with permissions to manage the job"
 
 run_as:
-  user_name: ${var.ds_run_as}
+  service_principal_name: ${var.ds_run_as}
     
 targets:
   dev:

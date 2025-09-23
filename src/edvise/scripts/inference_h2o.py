@@ -234,19 +234,19 @@ class ModelInferenceTask:
 
         # 7) Write FE tables
         tables = {
-            f"inference_{self.model_run_id}_features_with_most_impact": (
+            f"inference_{self.args.db_run_id}_features_with_most_impact": (
                 inference_features_with_most_impact,
                 "Inference features with most impact",
             ),
-            f"inference_{self.model_run_id}_shap_feature_importance": (
+            f"inference_{self.args.db_run_id}_shap_feature_importance": (
                 out.shap_feature_importance,
                 "Shap Feature Importance",
             ),
-            f"inference_{self.model_run_id}_support_overview": (
+            f"inference_{self.args.db_run_id}_support_overview": (
                 out.support_score_distribution,
                 "Support overview table",
             ),
-            f"inference_{self.model_run_id}_box_plot_table": (
+            f"inference_{self.args.db_run_id}_box_plot_table": (
                 box_whiskers_table,
                 "Box plot table",
             ),

@@ -113,6 +113,17 @@ class TrainingTask:
 
         modeling_cfg = self.cfg.modeling
         fs = modeling_cfg.feature_selection
+        if (
+            modeling_cfg.feature_selection is not None
+            and modeling_cfg.feature_selection.force_include_cols is not None
+        ):
+            force_include_vars = modeling_cfg.feature_selection.force_include_cols
+            # confirm each of the force_include_vars are in df_preprocessed columns
+            for var in force_include_vars:
+                if var not in df_preprocessed.columns:
+                    raise ValueError(
+                        f"FORCE INCLUDE VAR {var} NOT FOUND IN PREPROCESSED DATA COLUMNS"
+                    )
         selection_params: t.Dict[str, t.Any] = fs.model_dump() if fs is not None else {}
         selection_params["non_feature_cols"] = self.cfg.non_feature_cols
 
@@ -207,7 +218,7 @@ class TrainingTask:
                 "test_roc_auc",
                 "test_log_loss",
                 "test_f1",
-                "validate_log_loss",
+                "overfit.score",
             ],
             topn_runs_included=topn,
         )
@@ -226,11 +237,14 @@ class TrainingTask:
                         run_id=run_id,
                     )
                 )
+                pos_label = (
+                    self.cfg.pos_label if self.cfg.pos_label is not None else True
+                )
                 model = h2o_utils.load_h2o_model(run_id=run_id)
                 labels, probs = modeling.h2o_ml.inference.predict_h2o(
                     features=df_features_imp,
                     model=model,
-                    pos_label=self.cfg.pos_label,
+                    pos_label=pos_label,
                 )
                 df_pred = df_modeling.assign(
                     **{
@@ -241,13 +255,13 @@ class TrainingTask:
                 modeling.evaluation.evaluate_performance(
                     df_pred,
                     target_col=self.cfg.target_col,
-                    pos_label=self.cfg.pos_label,
+                    pos_label=pos_label,
                 )
                 modeling.bias_detection.evaluate_bias(
                     df_pred,
                     student_group_cols=student_group_cols,
                     target_col=self.cfg.target_col,
-                    pos_label=self.cfg.pos_label,
+                    pos_label=pos_label,
                 )
                 logging.info("Run %s: Completed", run_id)
 
@@ -333,10 +347,12 @@ class TrainingTask:
                 mlflow.end_run()
             with mlflow.start_run(run_id=self.cfg.model.run_id):
                 _ = modeling.evaluation.log_confusion_matrix(
+                    catalog=self.args.DB_workspace,
                     institution_id=self.cfg.institution_id,
                     automl_run_id=self.cfg.model.run_id,
                 )
                 _ = modeling.h2o_ml.evaluation.log_roc_table(
+                    catalog=self.args.DB_workspace,
                     institution_id=self.cfg.institution_id,
                     automl_run_id=self.cfg.model.run_id,
                     modeling_df=modeling_df,

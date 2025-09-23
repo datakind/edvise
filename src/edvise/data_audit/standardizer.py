@@ -9,9 +9,8 @@ from edvise.utils.data_cleaning import (
     drop_course_rows_missing_identifiers,
     strip_trailing_decimal_strings,
     replace_na_firstgen_and_pell,
-    remove_pre_cohort_courses,
 )
-from .eda import compute_gateway_course_ids_and_cips, log_high_null_columns
+from .eda import log_high_null_columns, print_credential_types_and_retention
 
 # TODO think of a better name than standardizer
 
@@ -39,7 +38,8 @@ class PDPCohortStandardizer(BaseStandardizer):
         Args:
             df: As output by :func:`dataio.read_raw_pdp_cohort_data_from_file()` .
         """
-        df = log_high_null_columns(df)
+        log_high_null_columns(df)
+        print_credential_types_and_retention(df)
         cols_to_drop = [
             # not a viable target variable, but highly correlated with it
             "time_to_credential",
@@ -108,7 +108,7 @@ class PDPCourseStandardizer(BaseStandardizer):
         """
         df = strip_trailing_decimal_strings(df)
         df = drop_course_rows_missing_identifiers(df)
-        df = log_high_null_columns(df)
+        log_high_null_columns(df)
         cols_to_drop = [
             # student demographics found in raw cohort dataset
             "cohort",
@@ -127,10 +127,9 @@ class PDPCourseStandardizer(BaseStandardizer):
             "enrollment_record_at_other_institution_s_carnegie_s",
             "enrollment_record_at_other_institution_s_locale_s",
         ]
-        df = remove_pre_cohort_courses(df)
+
         df = drop_columns_safely(df, cols_to_drop)
         df = self.add_empty_columns_if_missing(
             df, {"term_program_of_study": (None, "string")}
         )
-        compute_gateway_course_ids_and_cips(df)
         return df

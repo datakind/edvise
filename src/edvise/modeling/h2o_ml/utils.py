@@ -13,6 +13,7 @@ from mlflow.models import Model, infer_signature
 from mlflow.tracking import MlflowClient
 import pandas as pd
 import numpy as np
+import numpy.typing as npt
 from pandas.api.types import (
     is_categorical_dtype,
     is_object_dtype,
@@ -25,13 +26,16 @@ from h2o.automl import H2OAutoML
 from h2o.model.model_base import ModelBase
 from h2o.frame import H2OFrame
 from h2o.two_dim_table import H2OTwoDimTable
+from h2o.estimators.estimator_base import H2OEstimator
 
-from sklearn.metrics import confusion_matrix
 
 from . import evaluation
 from . import imputation
 
 LOGGER = logging.getLogger(__name__)
+
+
+PosLabelType = t.Union[bool, str]
 
 
 def safe_h2o_init(base_port: int = 54321, mem_per_cluster: str = "4G") -> None:
@@ -112,6 +116,245 @@ def load_h2o_model(
         return h2o.load_model(local_model_file)
 
 
+def _pick_pos_prob_column(preds, pos_label):
+    """
+    Return the column name or index corresponding to the positive-class probability.
+
+    Handles:
+      - Real H2OFrame prediction objects
+      - Mocks with .col_names (unit tests)
+      - Pandas DataFrame/Series predictions
+      - Numpy arrays
+    """
+    # H2OFrame-like (or MagicMock in tests)
+    if hasattr(preds, "col_names"):
+        names = list(getattr(preds, "col_names") or [])
+        if not names:
+            raise ValueError("Prediction object has no columns")
+        # Candidate names for the positive class
+        candidates = []
+        if isinstance(pos_label, (bool, int)):
+            candidates.append(f"p{int(bool(pos_label))}")  # True/1 → "p1"
+            candidates.append(str(int(bool(pos_label))))  # "1"
+        candidates.append(str(pos_label))
+        for c in candidates:
+            if c in names:
+                return c
+        # Fallback: last column is usually the pos-prob for binary models
+        return names[-1]
+
+    # Pandas DataFrame/Series
+    try:
+        import pandas as pd
+
+        if isinstance(preds, (pd.DataFrame, pd.Series)):
+            cols = list(preds.columns) if hasattr(preds, "columns") else []
+            for c in (f"p{int(bool(pos_label))}", str(pos_label), "p1", "1"):
+                if c in cols:
+                    return c
+            return cols[-1] if cols else 1
+    except Exception:
+        pass
+
+    # Numpy array-like
+    if hasattr(preds, "shape"):
+        try:
+            ncols = preds.shape[1]
+            return ncols - 1 if ncols and ncols > 1 else 0
+        except Exception:
+            return 1
+
+    # Final fallback for odd mocks
+    for key in ("p1", "1"):
+        try:
+            _ = preds[key]
+            return key
+        except Exception:
+            continue
+
+    # Last-ditch numeric index
+    return 1
+
+
+def _binarize_targets(
+    y_true: np.ndarray, pos_label: PosLabelType
+) -> npt.NDArray[np.int_]:
+    """Map y_true to {0,1} with 1 == pos_label."""
+    arr = np.asarray(y_true, dtype=object)
+    bin_ = (arr == pos_label).astype(np.int64, copy=False)
+    return t.cast(npt.NDArray[np.int_], bin_)
+
+
+def get_cv_logloss_stats(
+    model: H2OEstimator,
+) -> t.Tuple[t.Optional[float], t.Optional[float]]:
+    """
+    Return CV logloss mean and STD, if available.
+
+    Tries the cross-validation summary table first (column names vary across H2O
+    versions), then falls back to aggregating per-fold metrics. If CV is disabled
+    from H2O AutoML config or stats are unavailable, returns (None, None).
+
+    Parameters:
+      model: H2O model
+
+    Returns:
+      (cv_mean, cv_std) for logloss, or (None, None)
+    """
+    try:
+        summ = model.cross_validation_metrics_summary()
+        df = _to_pandas(summ) if hasattr(summ, "as_data_frame") else summ
+        if isinstance(df, pd.DataFrame):
+            cols = [str(c).strip().lower() for c in df.columns]
+            df.columns = cols
+            key = (
+                "name"
+                if "name" in cols
+                else ("metric" if "metric" in cols else cols[0])
+            )
+            mean = (
+                "mean" if "mean" in cols else ("value" if "value" in cols else cols[1])
+            )
+            if "sd" in cols:
+                std = "sd"
+            elif "stddev" in cols:
+                std = "stddev"
+            elif "std" in cols:
+                std = "std"
+            else:
+                std = cols[min(2, len(cols) - 1)]
+            row = df[df[key].astype(str).str.lower().eq("logloss")]
+            if not row.empty:
+                cv_mean = float(row[mean].iloc[0])
+                cv_std = float(row[std].iloc[0])
+                if np.isfinite(cv_mean) and np.isfinite(cv_std) and cv_std > 0:
+                    return cv_mean, cv_std
+    except Exception:
+        pass
+
+    # Fallback to per fold
+    try:
+        vals = [
+            m.logloss()
+            for m in getattr(model, "cross_validation_metrics", lambda: [])()
+            if hasattr(m, "logloss")
+        ]
+        vals = [v for v in vals if v is not None and np.isfinite(v)]
+        if len(vals) >= 2:
+            return float(np.mean(vals)), float(np.std(vals, ddof=1))
+        if len(vals) == 1:
+            return float(vals[0]), None
+    except Exception:
+        pass
+
+    return None, None
+
+
+def compute_overfit_score_logloss(
+    model: H2OEstimator,
+    train: H2OFrame,
+    test: H2OFrame,
+    valid: t.Optional[H2OFrame] = None,
+) -> dict:
+    """
+    Compute an overfit score between [0, 1] from logloss.
+
+    Emphasizes generalization:
+      - Penalizes when test logloss is materially worse than the CV mean (test - CV_mean), scaled by CV_std.
+      - If H2O's training config doesn't include CV: we then penalize based on large test vs. train gaps.
+      - (Optional) If validation dataset is provided, reports a symmetric validation vs. test
+      instability metric. If a model struggles with validation vs. test in either direction, it may
+      generalize inconsistently at inference time.
+
+    We utilize tolerances since fluctuations are normal and they should help avoid flagging noise.
+    Tolerances are also made to be adaptive to the dataset's CV spread, so they scale naturally
+    across datasets. If CV is not available, we fall back to a conservative scale.
+
+    The maximum STD we chose was 1.5, which is actually quite aggressive. But since H2O regularizes but
+    doesn't regularize aggressively, certain learners can be prone to train hot and potentially overfit.
+    The returned overfit.score is capped between [0, 1] for automated model selection.
+
+    Parameters:
+      model: H2O model to score.
+      train : H2OFrame for the training split.
+      valid (Optional): H2OFrame for the validation split.
+      test: H2OFrame for the test split.
+
+    Returns:
+      dict:
+        - overfit.score (float [0,1]): higher -> greater overfit risk.
+        - overfit.std_excess (float): max z-like excess among the risk terms.
+        - delta.test_train (float): test vs. train.
+        - (optional) delta.test_cv (float): test vs. CV_mean
+        - (optional) delta.cv_train (float): CV_mean vs. train
+        - (optional) cv.logloss_mean (float), cv.logloss_std (float)
+        - (optional) instability.score, instability.sd_gap if validation dataset is provided.
+    """
+    # Tolerance constants
+    TOL_CV_TEST: float = 0.03  # tolerance for test vs CV mean
+    FRAC_OF_CV_STD: float = 0.25  # adaptive tolerance that scales with CV std
+    FALLBACK_STD: float = 0.15  # we treat this as “one std” when CV is off; setting loosely since training is typically hot in h2o
+    STD_MAX: float = 1.5  # setting maximum std so overfit score is capped at 1
+
+    train_log_loss = float(model.model_performance(train).logloss())
+    test_log_loss = float(model.model_performance(test).logloss())
+    if valid is not None:
+        valid_log_loss = float(model.model_performance(valid).logloss())
+
+    # CV context
+    cv_mean, cv_std = get_cv_logloss_stats(model)
+
+    # Deltas
+    delta_test_train = test_log_loss - train_log_loss
+    delta_test_cv = (test_log_loss - cv_mean) if cv_mean else None
+    delta_cv_train = (cv_mean - train_log_loss) if cv_mean else None
+
+    # Risk metrics
+    if (
+        cv_mean is not None
+        and cv_std is not None
+        and delta_test_cv is not None
+        and np.isfinite(cv_std)
+        and cv_std > 0.0
+    ):
+        tol_holdout = min(TOL_CV_TEST, FRAC_OF_CV_STD * cv_std)
+        std_excess = max(0.0, (delta_test_cv - tol_holdout) / cv_std)
+    else:
+        scale_fb = FALLBACK_STD
+        std_excess = max(0.0, delta_test_train / scale_fb)
+
+    # Capping score between [0, 1] for model selection
+    score = float(min(1.0, std_excess / STD_MAX))
+
+    out = {
+        "overfit.score": score,
+        "overfit.std_excess": float(std_excess),
+        "delta.test_cv": (None if delta_test_cv is None else float(delta_test_cv)),
+        "delta.cv_train": (None if delta_cv_train is None else float(delta_cv_train)),
+        "delta.test_train": float(delta_test_train),
+        "cv.logloss_mean": (None if cv_mean is None else float(cv_mean)),
+        "cv.logloss_std": (None if cv_std is None else float(cv_std)),
+    }
+
+    # Instability (symmetric)
+    if valid is not None:
+        valid_log_loss = float(model.model_performance(valid).logloss())
+        delta_tv = abs(test_log_loss - valid_log_loss)
+        delta_tv_std = None
+        scale = cv_std if cv_std else FALLBACK_STD
+        delta_tv_std = (
+            delta_tv / scale if scale and np.isfinite(scale) and scale > 0 else np.nan
+        )
+        out.update(
+            {
+                "delta.test_valid": float(delta_tv),
+                "delta_std.test_valid": float(delta_tv_std),
+            }
+        )
+
+    return out
+
+
 def log_h2o_experiment(
     aml: H2OAutoML,
     *,
@@ -120,13 +363,15 @@ def log_h2o_experiment(
     test: h2o.H2OFrame,
     target_col: str,
     experiment_id: str,
+    pos_label: PosLabelType,
+    sample_weight_col: str = "sample_weight",
     imputer: t.Optional[imputation.SklearnImputerWrapper] = None,
 ) -> pd.DataFrame:
     """
     Logs evaluation metrics, plots, and model artifacts for all models in an H2O AutoML leaderboard to MLflow.
 
     Args:
-        aml: Trained H2OAutoML object.
+        aml: trained H2OAutoML object.
         train: H2OFrame containing the training split.
         valid: H2OFrame containing the validation split.
         test: H2OFrame containing the test split.
@@ -184,6 +429,8 @@ def log_h2o_experiment(
             imputer=imputer,
             target_col=target_col,
             primary_metric=aml.sort_metric,
+            sample_weight_col=sample_weight_col,
+            pos_label=pos_label,
         )
 
         if metrics:
@@ -212,11 +459,11 @@ def log_h2o_experiment_summary(
     schema (column names and types).
 
     Args:
-        aml: Trained H2OAutoML object.
+        aml: trained H2OAutoML object.
         leaderboard_df (pd.DataFrame): Leaderboard as DataFrame.
-        train (H2OFrame): Training H2OFrame.
+        train (H2OFrame): training H2OFrame.
         valid (H2OFrame): Validation H2OFrame.
-        test (H2OFrame): Test H2OFrame.
+        test (H2OFrame): test H2OFrame.
         target_col (str): Name of the target column.
         run_name (str): Name of the MLflow run. Defaults to "h2o_automl_experiment_summary".
     """
@@ -225,8 +472,8 @@ def log_h2o_experiment_summary(
 
     with mlflow.start_run(run_name=run_name):
         # Log basic experiment metadata
-        mlflow.log_metric("num_models_trained", len(leaderboard_df))
-        mlflow.log_param("best_model_id", aml.leader.model_id)
+        _safe_mlflow_log_metric(key="num_models_trained", value=len(leaderboard_df))
+        _safe_mlflow_log_metric(key="best_model_id", value=aml.leader.model_id)
 
         # Create tmp directory for artifacts
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -283,7 +530,9 @@ def log_h2o_model(
     train: h2o.H2OFrame,
     valid: h2o.H2OFrame,
     test: h2o.H2OFrame,
+    pos_label: PosLabelType,
     threshold: float = 0.5,
+    sample_weight_col: str = "sample_weight",
     target_col: str = "target",
     imputer: t.Optional[imputation.SklearnImputerWrapper] = None,
     primary_metric: str = "logloss",
@@ -298,21 +547,35 @@ def log_h2o_model(
         # get model
         model = h2o.get_model(model_id)
 
-        # compute scalar metrics once (no logging here)
-        metrics = evaluation.get_metrics_near_threshold_all_splits(
-            model, train, valid, test, threshold=threshold
+        # compute scalar metrics once
+        metrics = evaluation.get_metrics_fixed_threshold_all_splits(
+            model=model,
+            train=train,
+            valid=valid,
+            test=test,
+            target_col=target_col,
+            pos_label=pos_label,
+            threshold=threshold,
+            sample_weight_col=sample_weight_col,
         )
 
         # ensure clean run context
-        if mlflow.active_run():
-            mlflow.end_run()
+        try:
+            if mlflow.active_run() is not None:
+                mlflow.end_run()
+        except Exception as e:
+            LOGGER.debug(f"No active MLflow run to end (safe to ignore): {e}")
 
         with mlflow.start_run():
             active_run = mlflow.active_run()
             run_id = active_run.info.run_id if active_run else None
 
-            # primary metric tag
-            mlflow.set_tag("mlflow.primaryMetric", f"validate_{primary_metric}")
+            try:
+                # Only set tag if MLflow believes there's an active run
+                if mlflow.active_run() is not None:
+                    mlflow.set_tag("mlflow.primaryMetric", f"validate_{primary_metric}")
+            except Exception as e:
+                LOGGER.debug(f"Skipping mlflow.set_tag (no real run / mocked env): {e}")
 
             # model comparison plot
             # keep this where it is, but only silence its progress bars
@@ -323,35 +586,43 @@ def log_h2o_model(
             for split_name, frame in zip(
                 ("train", "val", "test"), (train, valid, test)
             ):
-                # y_true (pandas)
-                y_true = _to_pandas(frame[target_col]).values.flatten()
+                df_split = _to_pandas(frame)
 
-                # predict probabilities
+                y_true_raw = _to_pandas(frame[target_col]).values.flatten()
+                y_true_bin = _binarize_targets(y_true_raw, pos_label)
+
                 with _suppress_output():
                     preds = model.predict(frame)
-                positive_class_label = preds.col_names[-1]
 
-                # pull prob column to pandas
-                y_proba = _to_pandas(preds[positive_class_label]).values.flatten()
+                prob_col = _pick_pos_prob_column(preds, pos_label)
+                y_proba = _to_pandas(preds[prob_col]).to_numpy().reshape(-1)
                 y_pred = (y_proba >= threshold).astype(int)
 
-                # confusion matrix counts (for FE tables)
-                tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
-                label = "validate" if split_name == "val" else split_name
-                metrics.update(
-                    {
-                        f"{label}_true_positives": float(tp),
-                        f"{label}_true_negatives": float(tn),
-                        f"{label}_false_positives": float(fp),
-                        f"{label}_false_negatives": float(fn),
-                    }
-                )
+                weights = None
+                if sample_weight_col and sample_weight_col in df_split.columns:
+                    weights = (
+                        df_split[sample_weight_col].astype(float).fillna(0.0).to_numpy()
+                    )
 
-                # classification plots (ROC/PR/etc)
                 with _suppress_output():
                     evaluation.generate_all_classification_plots(
-                        y_true, y_pred, y_proba, prefix=split_name
+                        y_true=y_true_bin,
+                        y_pred=y_pred,
+                        y_proba=y_proba,
+                        prefix=split_name,
+                        sample_weights=weights,
                     )
+
+            # Log overfit score based on log loss and CV
+            try:
+                ofs = compute_overfit_score_logloss(
+                    model=model, train=train, valid=valid, test=test
+                )
+                metrics.update(ofs)
+            except Exception as e:
+                LOGGER.warning(f"Failed to compute overfit score: {e}")
+
+            metrics.update(ofs)
 
             with _suppress_output():
                 # params + metrics (use the batched version you implemented)
@@ -384,9 +655,8 @@ def log_h2o_model(
 
             # Predict on the *same small sample* (fast) for signature outputs
             with _suppress_output():
-                y_pred_sample = model.predict(sample_hf).as_data_frame()
-            if hasattr(y_pred_sample, "as_data_frame"):
-                y_pred_sample = y_pred_sample.as_data_frame()
+                y_pred_sample_hf = model.predict(sample_hf)
+            y_pred_sample = _to_pandas(y_pred_sample_hf)
 
             X_sample = X_sample.copy()
             maybe_na_ints = [
@@ -412,9 +682,7 @@ def log_h2o_model(
                     imputer.log_pipeline(artifact_path="sklearn_imputer")
                 except Exception as e:
                     LOGGER.warning(f"Failed to log imputer artifacts: {e}")
-
-        metrics["mlflow_run_id"] = str(run_id)
-        return metrics
+        return {**metrics, "run_id": run_id, "model_id": model_id}
 
     except Exception as e:
         LOGGER.exception(f"Failed to evaluate and log model {model_id}: {e}")
@@ -433,7 +701,7 @@ def log_h2o_model_metadata_for_uc(
     Saves the H2O model + MLmodel metadata so Unity Catalog can register it.
 
     Args:
-        h2o_model: Trained H2O model to log.
+        h2o_model: trained H2O model to log.
         artifact_path: Subdir in MLflow run artifacts (e.g. "model").
         signature: Optional MLflow signature object (mlflow.models.signature.ModelSignature).
     """
@@ -448,7 +716,12 @@ def log_h2o_model_metadata_for_uc(
         if model_saved_path != final_model_path:
             os.rename(model_saved_path, final_model_path)
 
-        # 2) Build MLmodel metadata (minimal)
+        # 2) Try to export MOJO
+        final_mojo_path = _try_export_mojo(h2o_model, tmpdir)
+        if final_mojo_path:
+            mlflow.log_artifact(final_mojo_path, artifact_path=artifact_path)
+
+        # 3) Build MLmodel metadata
         mlmodel = Model(artifact_path=artifact_path, flavors={})
         mlmodel.add_flavor(
             "h2o",
@@ -465,7 +738,7 @@ def log_h2o_model_metadata_for_uc(
             mlmodel_yaml = f.read()
         mlflow.log_text(mlmodel_yaml, artifact_file=f"{artifact_path}/MLmodel")
 
-        # 3) (Optional) minimal env files. Skip by default for speed.
+        # 4) (Optional) minimal env files. Skip by default for speed.
         if include_env_files:
             # Small files, but still I/O + upload; only do if you need them.
             reqs_path = os.path.join(tmpdir, "requirements.txt")
@@ -487,7 +760,7 @@ def log_h2o_model_metadata_for_uc(
                 yaml.safe_dump(conda_env, f)
             mlflow.log_artifact(conda_path, artifact_path=artifact_path)
 
-        # 4) Upload the big file LAST (single call, no directory walk)
+        # 5) Upload the big file LAST (single call, no directory walk)
         mlflow.log_artifact(final_model_path, artifact_path=artifact_path)
 
 
@@ -729,3 +1002,40 @@ def _to_pandas(hobj: t.Any) -> pd.DataFrame:
             return hobj.as_data_frame(use_pandas=True)
 
     raise TypeError(f"_to_pandas: unsupported object type {type(hobj)}")
+
+
+def _try_export_mojo(h2o_model: ModelBase, tmpdir: str) -> str | None:
+    """
+    Attempt to export a MOJO for the given model. Returns (has_mojo, final_mojo_path).
+    """
+    final_mojo_path = os.path.join(tmpdir, "model.zip")
+    try:
+        # Primary, version-agnostic path: model method
+        mojo_path = h2o_model.download_mojo(path=tmpdir)
+        if mojo_path and os.path.exists(mojo_path):
+            if mojo_path != final_mojo_path:
+                os.replace(mojo_path, final_mojo_path)
+            return final_mojo_path
+        else:
+            logging.warning(
+                "download_mojo returned no path for algo=%s",
+                getattr(h2o_model, "algo", "?"),
+            )
+            return None
+    except AttributeError as e:
+        logging.warning("Model has no download_mojo(): %s", e)
+        return None
+    except Exception as e:
+        # Some algos/params don't support MOJO
+        logging.warning(
+            "MOJO export failed for algo=%s: %s", getattr(h2o_model, "algo", "?"), e
+        )
+        return None
+
+
+def _safe_mlflow_log_metric(key, value, step=None):
+    try:
+        if mlflow.active_run() is not None:
+            mlflow.log_metric(key, value, step=step)
+    except Exception:
+        pass
