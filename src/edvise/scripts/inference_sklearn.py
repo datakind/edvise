@@ -32,7 +32,6 @@ from edvise.configs.pdp import PDPProjectConfig
 from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session
 from edvise.modeling.inference import top_n_features, features_box_whiskers_table
-from edvise.modeling.evaluation import plot_shap_beeswarm
 
 from edvise.dataio.read import read_config
 
@@ -68,7 +67,7 @@ class ModelInferenceTask:
             target=self.cfg.preprocessing.target.name,  # type: ignore
             checkpoint=self.cfg.preprocessing.checkpoint.name,  # type: ignore
         )
-        full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{model_name}"
+        full_model_name = f"{self.args.gold_table_path}.{model_name}"
 
         # List all versions of the model
         all_versions = client.search_model_versions(f"name='{full_model_name}'")
@@ -155,14 +154,11 @@ class ModelInferenceTask:
         logging.info("Calculating SHAP values for %s records", len(df_features))
 
         chunk_size = 10
-        chuncks_count = max(1, len(df_features) // chunk_size)
-        chunks = np.array_split(df_features, chuncks_count)
+        chunks_count = max(1, len(df_features) // chunk_size)
+        chunks = np.array_split(df_features, chunks_count)
 
         results = Parallel(n_jobs=n_jobs)(
-            delayed(lambda model, chunk, explainer: explainer(chunk))(
-                model, chunk, explainer
-            )
-            for chunk in chunks
+            delayed(explainer)(chunk) for chunk in chunks
         )
 
         combined_values = np.concatenate([r.values for r in results], axis=0)
@@ -184,11 +180,19 @@ class ModelInferenceTask:
 
         try:
             shap_ref_data_size = 100  # Consider getting from config.
-
-            df_train = dataio.read.read_parquet(
-                f"{self.args.silver_volume_path}/preprocessed.parquet"
-            )
+            #make sure self.cfg.model.experiment_id and self.cfg.split_col are not None
+            if self.cfg.model.experiment_id is None:
+                raise ValueError("Missing 'model.experiment_id' in config.")
+            if self.cfg.split_col is None:
+                raise ValueError("Missing 'split_col' in config.")
+            #pull "train" observations from the training dataset for ref dataset
+            df_train = modeling.evaluation.extract_training_data_from_model(self.cfg.model.experiment_id).loc[
+                lambda df: df[self.cfg.split_col].eq("train")
+            ]           
+            # SHAP can't explain models using data with nulls
+            # so, impute nulls using the mode (most frequent values)
             train_mode = df_train.mode().iloc[0] 
+            # sample training dataset as "reference" data for SHAP Explainer
             df_ref = (
                 df_train.sample(
                     n=min(shap_ref_data_size, df_train.shape[0]),
@@ -197,12 +201,11 @@ class ModelInferenceTask:
                 .fillna(train_mode)
                 .loc[:, model_feature_names]
             )
-            logging.info(
-                f"Object dtype columns: {df_ref.select_dtypes(include=['object']).columns.tolist()}"
-            )
-
+            
+            # Ensure df_ref has the same dtypes as df_processed
             ref_dtypes = df_ref.dtypes.apply(lambda dt: dt.name).to_dict()
 
+            # Initialize SHAP KernelExplainer
             explainer = shap.explainers.KernelExplainer(
                 lambda x: self.predict_proba(
                     pd.DataFrame(x, columns=model_feature_names).astype(ref_dtypes),
@@ -214,6 +217,7 @@ class ModelInferenceTask:
                 link="identity",
             )
 
+            # Calculate SHAP values in parallel
             shap_values_explanation = self.parallel_explanations(
                 model=model,
                 df_features=df_processed[model_feature_names],
@@ -257,7 +261,9 @@ class ModelInferenceTask:
         )
         # HACK: subset for testing
         df_processed = df_processed[:30]
-        
+
+        if not hasattr(self.cfg, "student_id_col") or self.cfg.student_id_col is None:
+            raise ValueError("Missing 'student_id_col' in config.")
         unique_ids = df_processed[self.cfg.student_id_col]
 
         # 2. Load model from MLflow
@@ -280,7 +286,7 @@ class ModelInferenceTask:
 
         # 4. Perform predictions and save out predicted values
         df_predicted = self.predict(model, df_processed)
-        dataio.write.to_delta_table(df_predicted, f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_silver.predicted_dataset", self.spark_session)   
+        dataio.write.to_delta_table(df_predicted, f"{self.args.silver_table_path}.predicted_dataset", self.spark_session)   
 
         # 5.SHAP Values Calculation 
         shap_values = self.calculate_shap_values(
@@ -295,14 +301,13 @@ class ModelInferenceTask:
             )
             with mlflow.start_run(run_id=self.cfg.model.run_id):
 
+                # Inference Features with Most Impact Table
                 support_scores = pd.DataFrame(
                     {
                         "student_id": unique_ids.values, 
                         "support_score": df_predicted["predicted_prob"].values,
                     }
-                )
-                
-                # Inference Features with Most Impact Table
+                )          
                 inference_features_with_most_impact = top_n_features(
                     df_processed[model_feature_names], unique_ids, shap_values.values
                 ).merge(support_scores, on="student_id", how="left")
@@ -313,6 +318,7 @@ class ModelInferenceTask:
                     shap_values = shap_values.values, 
                     features_table = self.features_table
                 )
+
                 # Support Overview Table
                 support_overview_table = modeling.automl.inference.support_score_distribution_table(
                     df_serving = df_processed[model_feature_names],
@@ -322,12 +328,14 @@ class ModelInferenceTask:
                     inference_params  = self.inference_params,
                     features_table = self.features_table,
                 )
+
                 # Box and Whiskers Table
                 box_whiskers_table = features_box_whiskers_table(
                     features=df_processed[model_feature_names],
                     shap_values=
                     shap_values.values,
                 ) 
+
                 # Save tables to Delta Lake              
                 tables = {
                     f"inference_{self.args.db_run_id}_features_with_most_impact": (
@@ -353,7 +361,7 @@ class ModelInferenceTask:
                         msg = f"{label} is empty: cannot write inference summary tables."
                         logging.error(msg)
                         raise ValueError(msg)
-                    table_path = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_silver.{suffix}"
+                    table_path = f"{self.args.silver_table_path}.{suffix}"
                     dataio.write.to_delta_table(df, table_path, self.spark_session)   
 
                 
@@ -377,7 +385,7 @@ class ModelInferenceTask:
                     )
 
                     # Write the DataFrame to Unity Catalog table
-                    dataio.write.to_delta_table(shap_results, f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_silver.inference_output")
+                    dataio.write.to_delta_table(shap_results, f"{self.args.silver_table_path}.inference_output")
 
                 else:
                     logging.error(
@@ -394,14 +402,14 @@ def parse_arguments() -> argparse.Namespace:
         description="Perform model inference for the SST pipeline.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    parser.add_argument("--silver_table_path", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True, help="Path to configuration file")
     parser.add_argument("--db_run_id", type=str, required=True, help="Databricks run ID")
-    parser.add_argument("--DB_workspace", type=str, required=True, help="Databricks workspace identifier")
-    parser.add_argument("--databricks_institution_name",type=str,required=True,help="Databricks institution name")
+    parser.add_argument("--gold_table_path", type=str, required=True)
     parser.add_argument("--datakind_notification_email",type=str,required=True,help="DK's email used for notifications")
     parser.add_argument("--DK_CC_EMAIL", type=str, required=True, help="Datakind email address CC'd")
-    parser.add_argument( "--job_root_dir", type=str, required=True, help="Folder path to store job output files")
+    parser.add_argument("--job_root_dir", type=str, required=True, help="Folder path to store job output files")
     return parser.parse_args()
 
 

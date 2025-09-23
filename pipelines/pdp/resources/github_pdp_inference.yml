@@ -197,10 +197,71 @@ resources:
                 package: pandera==0.23.0
             - pypi:
                 package: pydantic~=2.10      
-        - task_key: inference_h2o
-          if: "{{job.parameters.model_type == 'h2o'}}"
+        - task_key: model_type
           depends_on:
             - task_key: inf_prep
+          condition_task:
+            op: EQUAL_TO
+            left: "{{job.parameters.model_type}}"
+            right: h2o
+        - task_key: inference_sklearn
+          depends_on:
+            - task_key: model_type
+              outcome: "false"
+          spark_python_task:
+            python_file: src/edvise/scripts/inference_sklearn.py
+            source: GIT
+            parameters:
+              - --silver_table_path
+              - "{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver"
+              - --silver_volume_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --config_file_path 
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --ds_run_as
+              - "{{job.parameters.ds_run_as}}"
+              - --gold_table_path
+              - "{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold"
+              - --datakind_notification_email
+              - "{{job.parameters.datakind_notification_email}}"
+              - --DK_CC_EMAIL
+              - "{{job.parameters.DK_CC_EMAIL}}"
+              - --job_root_dir  
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
+          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+            - pypi:
+                package: h2o==3.46.0.7
+            - pypi:
+                package: shap~=0.46.0
+            - pypi:
+                package: mlflow~=2.22
+        - task_key: inference_h2o
+          depends_on:
+            - task_key: model_type
+              outcome: "true"
           spark_python_task:
             python_file: src/edvise/scripts/inference_h2o.py
             source: GIT
@@ -253,7 +314,9 @@ resources:
                 package: mlflow~=2.22
         - task_key: output_publish
           depends_on:
+            - task_key: inference_sklearn
             - task_key: inference_h2o
+          run_if: AT_LEAST_ONE_SUCCESS
           spark_python_task: 
             python_file: src/edvise/scripts/pdp_inference_output_publish.py
             source: GIT
@@ -297,7 +360,8 @@ resources:
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
-        git_tag: v0.1.2
+        # git_tag: v0.1.2
+        git_branch: feat/add-sklearn-models-inference
       tags:
         dev: kayla_wilding
       queue:
@@ -325,6 +389,8 @@ resources:
           default: ${var.datakind_notification_email}
         - name: service_account_executer
           default: ${var.service_account_executer}
+        - name: model_type
+          default: h2o
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE

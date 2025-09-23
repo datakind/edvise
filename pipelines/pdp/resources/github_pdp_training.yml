@@ -284,7 +284,8 @@ resources:
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
-        git_tag: v0.1.2
+        # git_tag: v0.1.2
+        git_branch: feat/add-sklearn-models-inference
       tags:
         dev: kayla_wilding
       queue:
