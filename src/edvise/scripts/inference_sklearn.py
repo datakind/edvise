@@ -55,7 +55,7 @@ class ModelInferenceTask:
         )
         self.model_type = "sklearn"
         self.features_table = dataio.read.read_features_table(
-            "assets/pdp/features_table.toml"
+            "shared/assets/pdp_features_table.toml"
         )
         self.inference_params = {"num_top_features": 5, "min_prob_pos_label": 0.5}
 
