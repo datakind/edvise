@@ -231,7 +231,7 @@ def build_fe_shap_feature_importance_table(
 ) -> pd.DataFrame:
     """
     Uses the ranked SHAP feature-importance table and adds short desc and long desc
-    from feature table.
+    from feature table. This is used for the front-end for PDP schools.
     Returns the DataFrame (or None if generation fails).
     """
     if sfi is not None and features_table is not None:
