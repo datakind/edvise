@@ -225,6 +225,30 @@ def build_and_log_ranked_feature_table(
         return None
 
 
+def build_fe_shap_feature_importance_table(
+    sfi: pd.DataFrame | None,
+    features_table: t.Optional[dict[str, dict[str, str]]] = None,
+) -> pd.DataFrame:
+    """
+    Uses the ranked SHAP feature-importance table and adds short desc and long desc
+    from feature table.
+    Returns the DataFrame (or None if generation fails).
+    """
+    if sfi is not None and features_table is not None:
+            sfi[
+                ["readable_feature_name", "short_feature_desc", "long_feature_desc"]
+            ] = sfi["Feature Name"].apply(
+                lambda feature: pd.Series(
+                    automl_inference._get_mapped_feature_name(
+                        feature, features_table, metadata=True
+                    )
+                )
+            )
+            sfi.columns = (
+                sfi.columns.str.replace(" ", "_").str.lower()
+            )                             
+    return sfi
+
 # ---- main orchestration that both training & inference can call ----
 
 
@@ -310,6 +334,11 @@ def run_predictions(
         log_to_mlflow=(run_type == RunType.TRAIN),
     )
 
+    sfi_fe = build_fe_shap_feature_importance_table(
+        sfi=sfi,
+        features_table=ft,
+    )
+
     default_inference_params = {
         "num_top_features": 5,
         "min_prob_pos_label": 0.5,
@@ -328,7 +357,7 @@ def run_predictions(
 
     return PredOutputs(
         top_features_result=top_features_result,
-        shap_feature_importance=sfi,
+        shap_feature_importance=sfi_fe,
         support_score_distribution=ssd,
         grouped_features=grouped_features,
         grouped_contribs_df=grouped_contribs_df,
