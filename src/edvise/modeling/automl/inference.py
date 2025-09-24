@@ -250,7 +250,7 @@ def _get_mapped_feature_name(
         short_desc = entry.get("short_desc", entry.get("short_feature_desc"))
         long_desc = entry.get("long_desc", entry.get("long_feature_desc"))
         return short_desc, long_desc
-    
+
     if feature_col in features_table:
         entry = features_table[feature_col]
         feature_name = entry["name"]

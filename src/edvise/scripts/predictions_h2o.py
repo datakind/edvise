@@ -235,19 +235,18 @@ def build_fe_shap_feature_importance_table(
     Returns the DataFrame (or None if generation fails).
     """
     if sfi is not None and features_table is not None:
-            sfi[
-                ["readable_feature_name", "short_feature_desc", "long_feature_desc"]
-            ] = sfi["Feature Name"].apply(
-                lambda feature: pd.Series(
-                    automl_inference._get_mapped_feature_name(
-                        feature, features_table, metadata=True
-                    )
+        sfi[["readable_feature_name", "short_feature_desc", "long_feature_desc"]] = sfi[
+            "Feature Name"
+        ].apply(
+            lambda feature: pd.Series(
+                automl_inference._get_mapped_feature_name(
+                    feature, features_table, metadata=True
                 )
             )
-            sfi.columns = (
-                sfi.columns.str.replace(" ", "_").str.lower()
-            )                             
+        )
+        sfi.columns = sfi.columns.str.replace(" ", "_").str.lower()
     return sfi
+
 
 # ---- main orchestration that both training & inference can call ----
 
