@@ -67,8 +67,8 @@ class ModelInferenceTask:
             target=self.cfg.preprocessing.target.name,  # type: ignore
             checkpoint=self.cfg.preprocessing.checkpoint.name,  # type: ignore
         )
-        full_model_name = f"{self.args.gold_table_path}.{model_name}"
-
+        full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{model_name}"
+        logging.info("Loading model '%s' from MLflow Model Registry", full_model_name)
         # List all versions of the model
         all_versions = client.search_model_versions(f"name='{full_model_name}'")
 
