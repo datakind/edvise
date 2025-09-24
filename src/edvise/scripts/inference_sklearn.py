@@ -87,7 +87,6 @@ class ModelInferenceTask:
                 "lightgbm": mlflow.lightgbm.load_model,
                 "pyfunc": mlflow.pyfunc.load_model,  # Default
             }.get(self.model_type, mlflow.pyfunc.load_model)
-            logging.info(pd.__version__)
             model = load_model_func(model_uri)
             logging.info(
                 "MLflow '%s' model loaded from '%s'", self.model_type, model_uri
