@@ -406,12 +406,15 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True, help="Path to configuration file")
     parser.add_argument("--db_run_id", type=str, required=True, help="Databricks run ID")
+    parser.add_argument("--ds_run_as", type=str, required=False)
+    parser.add_argument("--DB_workspace", type=str, required=True)
+    parser.add_argument("--databricks_institution_name", type=str, required=True)
     parser.add_argument("--gold_table_path", type=str, required=True)
     parser.add_argument("--datakind_notification_email",type=str,required=True,help="DK's email used for notifications")
     parser.add_argument("--DK_CC_EMAIL", type=str, required=True, help="Datakind email address CC'd")
     parser.add_argument("--job_root_dir", type=str, required=True, help="Folder path to store job output files")
-    parser.add_argument("--databricks_institution_name", type=str, required=True)
-    parser.add_argument("--DB_workspace", type=str, required=True)
+    
+   
     return parser.parse_args()
 
 
