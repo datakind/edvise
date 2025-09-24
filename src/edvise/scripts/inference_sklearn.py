@@ -58,9 +58,7 @@ class ModelInferenceTask:
             file_path=self.args.config_file_path, schema=PDPProjectConfig
         )
         self.model_type = "sklearn"
-        self.features_table = self.read_features_table(
-            "shared/assets/pdp_features_table.toml"
-        )
+        self.features_table = self.read_features_table()
         self.inference_params = {"num_top_features": 5, "min_prob_pos_label": 0.5}
 
     def read_config(self, file_path: str, *, schema: type[S]) -> S:
@@ -92,7 +90,7 @@ class ModelInferenceTask:
         assert isinstance(data, dict)  # type guard
         return data
     
-    def read_features_table(self, file_path: str) -> dict[str, dict[str, str]]:
+    def read_features_table(self) -> dict[str, dict[str, str]]:
         """
         Read a features table mapping columns to readable names and (optionally) descriptions
         from a TOML file located at ``fpath``, which can either refer to a relative path in this
@@ -102,16 +100,16 @@ class ModelInferenceTask:
             file_path: Path to features table TOML file relative to package root or absolute;
                 for example: "assets/pdp/features_table.toml" or "/path/to/features_table.toml".
         """
-        pkg_root_dir = next(
-            p for p in pathlib.Path(__file__).parents if p.parts[-1] == "edvise"
-        )
-        fpath = (
-            pathlib.Path(file_path)
-            if pathlib.Path(file_path).is_absolute()
-            else pkg_root_dir / file_path
-        )
-        features_table = self.from_toml_file(str(fpath))
-        logging.info("loaded features table from '%s'", fpath)
+        # pkg_root_dir = next(
+        #     p for p in pathlib.Path(__file__).parents if p.parts[-1] == "edvise"
+        # )
+        # fpath = (
+        #     pathlib.Path(file_path)
+        #     if pathlib.Path(file_path).is_absolute()
+        #     else pkg_root_dir / file_path
+        # )
+        features_table = self.from_toml_file('src/edvise/shared/assets/pdp_features_table.toml')
+        # logging.info("loaded features table from '%s'", fpath)
         return features_table  # type: ignore
 
     def load_mlflow_model(self):
