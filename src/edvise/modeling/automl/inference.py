@@ -177,6 +177,7 @@ def generate_ranked_feature_table(
     features: pd.DataFrame,
     shap_values: npt.NDArray[np.float64],
     features_table: t.Optional[dict[str, dict[str, str]]] = None,
+    metadata: bool = True,
 ) -> pd.DataFrame:
     """
     Creates a table of all selected features of the model ranked
@@ -192,6 +193,8 @@ def generate_ranked_feature_table(
         shap_values: array of arrays of SHAP values, of shape len(unique_ids)
         features_table: Optional mapping of column to human-friendly feature name/desc,
             loaded via :func:`utils.load_features_table()`
+        metadata: whether to return short desc and long desc along with name in
+            features table (applicable only to pdp)
 
     Returns:
         A ranked pandas DataFrame by average shap magnitude
@@ -199,11 +202,21 @@ def generate_ranked_feature_table(
     feature_metadata = []
 
     for idx, feature in enumerate(features.columns):
-        feature_name = (
-            _get_mapped_feature_name(feature, features_table)
-            if features_table is not None
-            else feature
-        )
+        if features_table is not None:
+            mapped = _get_mapped_feature_name(
+                feature_col=feature,
+                features_table=features_table,
+                metadata=metadata,
+            )
+        else:
+            mapped = feature if not metadata else (feature, None, None)
+
+        if metadata:
+            readable_feature_name, short_feature_desc, long_feature_desc = mapped
+            feature_name = readable_feature_name
+        else:
+            feature_name = mapped
+
         dtype = features[feature].dtype
         data_type = (
             "Boolean"
@@ -212,32 +225,35 @@ def generate_ranked_feature_table(
             if pd.api.types.is_numeric_dtype(dtype)
             else "Categorical"
         )
+
         avg_shap_magnitude_raw = np.mean(np.abs(shap_values[:, idx]))
-        feature_metadata.append(
-            {
-                "Feature Name": feature_name,
-                "Data Type": data_type,
-                "Average SHAP Magnitude (Raw)": avg_shap_magnitude_raw,
-            }
-        )
+
+        row = {
+            "feature_name": feature,
+            "readable_feature_name": feature_name,
+            "data_type": data_type,
+            "average_shap_magnitude_raw": avg_shap_magnitude_raw,
+        }
+
+        if metadata:
+            row["short_feature_desc"] = short_feature_desc
+            row["long_feature_desc"] = long_feature_desc
+
+        feature_metadata.append(row)
 
     df = (
         pd.DataFrame(feature_metadata)
-        .sort_values(by="Average SHAP Magnitude (Raw)", ascending=False)
+        .sort_values(by="average_shap_magnitude_raw", ascending=False)
         .reset_index(drop=True)
     )
 
-    # Format magnitudes after sorting to avoid type issues
-    df["Average SHAP Magnitude"] = (
-        df["Average SHAP Magnitude (Raw)"]
+    df["average_shap_magnitude"] = (
+        df["average_shap_magnitude_raw"]
         .apply(lambda x: "<0.0000" if round(x, 4) == 0 else round(x, 4))
         .astype(str)
     )
 
-    # Drop the raw magnitude column
-    df = df.drop(columns=["Average SHAP Magnitude (Raw)"])
-
-    return df
+    return df.drop(columns=["average_shap_magnitude_raw"])
 
 
 def _get_mapped_feature_name(

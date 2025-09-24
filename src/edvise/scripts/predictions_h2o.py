@@ -193,15 +193,16 @@ def build_and_log_ranked_feature_table(
     log_to_mlflow: bool = False,
 ) -> pd.DataFrame | None:
     """
-    Builds the ranked SHAP feature-importance table and logs it as a CSV artifact.
+    Builds the ranked SHAP feature-importance table.
+    Logs a light version for the model card as a CSV artifact (only at training).
     Returns the DataFrame (or None if generation fails).
     """
     try:
-        # 1) Build table
         sfi = automl_inference.generate_ranked_feature_table(
             features=grouped_features,
             shap_values=grouped_contribs_df.to_numpy(),
             features_table=features_table,
+            metadata=True,
         )
 
         if sfi is None or sfi.empty:
@@ -209,13 +210,21 @@ def build_and_log_ranked_feature_table(
             return sfi
 
         if log_to_mlflow:
-            # 2) Log to the same run (end active run first if needed)
+            sfi_mc = sfi.drop(
+                columns=["feature_name", "short_feature_desc", "long_feature_desc"]
+            ).rename(
+                columns={
+                    "readable_feature_name": "Feature Name",
+                    "data_type": "Data Type",
+                    "average_shap_magnitude": "Average SHAP Magnitude",
+                }
+            )
             if mlflow.active_run():
                 mlflow.end_run()
             with mlflow.start_run(run_id=run_id):
                 with tempfile.TemporaryDirectory() as td:
                     out_path = os.path.join(td, filename)
-                    sfi.to_csv(out_path, index=False)
+                    sfi_mc.to_csv(out_path, index=False)
                     mlflow.log_artifact(out_path, artifact_path=artifact_path)
 
         return sfi
@@ -223,29 +232,6 @@ def build_and_log_ranked_feature_table(
     except Exception as e:
         logging.warning("Failed to build/log ranked feature table: %s", e)
         return None
-
-
-def build_fe_shap_feature_importance_table(
-    sfi: pd.DataFrame | None,
-    features_table: t.Optional[dict[str, dict[str, str]]] = None,
-) -> pd.DataFrame:
-    """
-    Uses the ranked SHAP feature-importance table and adds short desc and long desc
-    from feature table. This is used for the front-end for PDP schools.
-    Returns the DataFrame (or None if generation fails).
-    """
-    if sfi is not None and features_table is not None:
-        sfi[["readable_feature_name", "short_feature_desc", "long_feature_desc"]] = sfi[
-            "Feature Name"
-        ].apply(
-            lambda feature: pd.Series(
-                automl_inference._get_mapped_feature_name(
-                    feature, features_table, metadata=True
-                )
-            )
-        )
-        sfi.columns = sfi.columns.str.replace(" ", "_").str.lower()
-    return sfi
 
 
 # ---- main orchestration that both training & inference can call ----
@@ -333,11 +319,6 @@ def run_predictions(
         log_to_mlflow=(run_type == RunType.TRAIN),
     )
 
-    sfi_fe = build_fe_shap_feature_importance_table(
-        sfi=sfi,
-        features_table=ft,
-    )
-
     default_inference_params = {
         "num_top_features": 5,
         "min_prob_pos_label": 0.5,
@@ -356,7 +337,7 @@ def run_predictions(
 
     return PredOutputs(
         top_features_result=top_features_result,
-        shap_feature_importance=sfi_fe,
+        shap_feature_importance=sfi,
         support_score_distribution=ssd,
         grouped_features=grouped_features,
         grouped_contribs_df=grouped_contribs_df,

@@ -311,30 +311,109 @@ def ranked_feature_table_data():
     return features, shap_values, features_table
 
 
-@pytest.mark.parametrize("use_features_table", [True, False])
-def test_generate_ranked_feature_table(ranked_feature_table_data, use_features_table):
-    features, shap_values, features_table = ranked_feature_table_data
+# --- generate_ranked_feature_table tests ---
 
+
+@pytest.mark.parametrize("use_features_table", [True, False])
+@pytest.mark.parametrize("metadata", [True, False])
+def test_generate_ranked_feature_table_columns_and_sorting(
+    ranked_feature_table_data, use_features_table, metadata
+):
+    """
+    Verifies:
+    - returned columns match expectation based on metadata flag
+    - sorting is descending by numeric average |SHAP|
+    - readable names resolve correctly with and without features_table
+    """
+    features, shap_values, features_table = ranked_feature_table_data
     selected_features_table = features_table if use_features_table else None
 
     result = generate_ranked_feature_table(
-        features, shap_values, selected_features_table
+        features=features,
+        shap_values=shap_values,
+        features_table=selected_features_table,
+        metadata=metadata,
     )
 
     assert isinstance(result, pd.DataFrame) and not result.empty
-    assert set(result.columns) == {
-        "Feature Name",
-        "Data Type",
-        "Average SHAP Magnitude",
+
+    # Columns expected
+    base_cols = {
+        "feature_name",
+        "readable_feature_name",
+        "data_type",
+        "average_shap_magnitude",
     }
-
-    # Verify descending sort order by Average SHAP Magnitude
-    assert result["Average SHAP Magnitude"].is_monotonic_decreasing
-
-    if use_features_table:
-        assert "English or Math Gateway" in result["Feature Name"].values
+    if metadata:
+        expected_cols = base_cols | {"short_feature_desc", "long_feature_desc"}
     else:
-        assert "term_gpa" in result["Feature Name"].values
+        expected_cols = base_cols
+
+    assert set(result.columns) == expected_cols
+
+    # Check sorting numerically by recomputing avg |SHAP|
+    avg_abs = np.mean(np.abs(shap_values), axis=0)  # shape: (n_features,)
+
+    # Map the dataframe values back to numeric for comparison
+    def to_float(val: str) -> float:
+        return 0.0 if val == "<0.0000" else float(val)
+
+    df_values = result["average_shap_magnitude"].map(to_float).to_numpy()
+    # Ensure descending
+    assert np.all(df_values[:-1] >= df_values[1:])
+
+    # Ensure values match the inputs (after rounding to 4 decimals as in the function)
+    # Build a mapping from feature -> avg |SHAP|
+    feat_to_avg = {col: round(float(v), 4) for col, v in zip(features.columns, avg_abs)}
+    # Compare per-row by feature_name (original raw column)
+    for _, row in result.iterrows():
+        raw_feat = row["feature_name"]
+        expected_val = feat_to_avg[raw_feat]
+        observed_val = to_float(row["average_shap_magnitude"])
+        assert observed_val == expected_val or (
+            expected_val == 0.0 and observed_val == 0.0
+        )
+
+    # Name mapping expectations
+    if use_features_table:
+        # With a features table, we should see at least one human-friendly name
+        assert (result["readable_feature_name"] == "English or Math Gateway").any()
+    else:
+        # Without a features table, readable names should fall back to raw column names
+        assert (result["readable_feature_name"] == "term_gpa").any()
+
+
+@pytest.mark.parametrize("metadata", [True, False])
+def test_generate_ranked_feature_table_dtype_labels(
+    ranked_feature_table_data, metadata
+):
+    """
+    Spot-check that data_type is one of the three categories and that booleans/numerics/categoricals
+    are labeled consistently.
+    """
+    features, shap_values, features_table = ranked_feature_table_data
+
+    # Coerce one column to boolean and one to category for the test (if they exist)
+    if "is_first_term" in features.columns:
+        features = features.copy()
+        features["is_first_term"] = features["is_first_term"].astype(bool)
+    if "major" in features.columns:
+        features = features.copy()
+        features["major"] = features["major"].astype("category")
+
+    result = generate_ranked_feature_table(
+        features=features,
+        shap_values=shap_values,
+        features_table=features_table,
+        metadata=metadata,
+    )
+
+    assert set(result["data_type"].unique()).issubset(
+        {"Boolean", "Continuous", "Categorical"}
+    )
+
+
+# --- _get_mapped_feature_name tests ---
 
 
 @pytest.mark.parametrize(
@@ -375,10 +454,53 @@ def test_generate_ranked_feature_table(ranked_feature_table_data, use_features_t
         ),
     ],
 )
-def test_get_mapped_feature_name(feature_col, features_table, exp):
-    obs = _get_mapped_feature_name(feature_col, features_table)
+def test_get_mapped_feature_name_no_metadata(feature_col, features_table, exp):
+    obs = _get_mapped_feature_name(feature_col, features_table, metadata=False)
     assert isinstance(obs, str)
     assert obs == exp
+
+
+@pytest.mark.parametrize(
+    ["feature_col", "features_table", "exp_name"],
+    [
+        (
+            "academic_term",
+            {
+                "academic_term": {
+                    "name": "academic term",
+                    "short_desc": "sd",
+                    "long_desc": "ld",
+                }
+            },
+            "academic term",
+        ),
+        (
+            "foo_bar",
+            {},
+            "foo_bar",
+        ),
+        (
+            "num_courses_course_subject_area_24",
+            {
+                r"num_courses_course_subject_area_(\d+)": {
+                    "name": "number of courses taken in subject area {} this term",
+                    "short_feature_desc": "short",
+                    "long_feature_desc": "long",
+                }
+            },
+            "number of courses taken in subject area 24 this term",
+        ),
+    ],
+)
+def test_get_mapped_feature_name_with_metadata(feature_col, features_table, exp_name):
+    """
+    When metadata=True, expect a 3-tuple: (name, short_desc|None, long_desc|None).
+    """
+    obs = _get_mapped_feature_name(feature_col, features_table, metadata=True)
+    assert isinstance(obs, tuple) and len(obs) == 3
+    name, short_desc, long_desc = obs
+    assert name == exp_name
+    # short/long may be None depending on table; just ensure tuple structure
 
 
 @pytest.fixture
