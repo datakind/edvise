@@ -7,6 +7,7 @@ from email.headerregistry import Address
 import typing as t
 import cloudpickle
 from joblib import Parallel, delayed
+import pathlib
 
 import mlflow
 from mlflow.tracking import MlflowClient
@@ -18,6 +19,11 @@ import pandas as pd
 import shap
 from sklearn.base import ClassifierMixin
 
+try:
+    import tomllib  # type: ignore
+except ImportError:
+    import tomli as tomllib  # noqa
+
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
 repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
@@ -27,14 +33,11 @@ if os.path.isdir(src_path) and src_path not in sys.path:
     sys.path.insert(0, src_path)
 
 # Project modules
-import edvise.dataio as dataio
 import edvise.modeling as modeling
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session
 from edvise.modeling.inference import top_n_features, features_box_whiskers_table
-
-from edvise.dataio.read import read_config
 
 # Disable mlflow autologging (prevents conflicts in Databricks)
 mlflow.autolog(disable=True)
@@ -51,14 +54,65 @@ class ModelInferenceTask:
         """Initializes the ModelInferenceTask."""
         self.args = args
         self.spark_session = get_spark_session()
-        self.cfg = read_config(
+        self.cfg = self.read_config(
             file_path=self.args.config_file_path, schema=PDPProjectConfig
         )
         self.model_type = "sklearn"
-        self.features_table = dataio.read.read_features_table(
+        self.features_table = self.read_features_table(
             "shared/assets/pdp_features_table.toml"
         )
         self.inference_params = {"num_top_features": 5, "min_prob_pos_label": 0.5}
+
+    def read_config(self, file_path: str, *, schema: type[S]) -> S:
+        """
+        Read config from ``file_path`` and validate it using ``schema`` ,
+        returning an instance with parameters accessible by attribute.
+        """
+        try:
+            cfg = self.from_toml_file(file_path)
+            return schema.model_validate(cfg)
+        except FileNotFoundError:
+            logging.error("Configuration file not found at %s", file_path)
+            raise
+        except Exception as e:
+            logging.error("Error reading configuration file: %s", e)
+            raise
+
+    def from_toml_file(self, file_path: str) -> dict[str, object]:
+        """
+        Read data from ``file_path`` and return it as a dict.
+
+        Args:
+            file_path: Path to file on disk from which data will be read.
+        """
+        fpath = pathlib.Path(file_path).resolve()
+        with fpath.open(mode="rb") as f:
+            data = tomllib.load(f)
+        logging.info("loaded config from '%s'", fpath)
+        assert isinstance(data, dict)  # type guard
+        return data
+    
+    def read_features_table(self, file_path: str) -> dict[str, dict[str, str]]:
+        """
+        Read a features table mapping columns to readable names and (optionally) descriptions
+        from a TOML file located at ``fpath``, which can either refer to a relative path in this
+        package or an absolute path loaded from local disk.
+
+        Args:
+            file_path: Path to features table TOML file relative to package root or absolute;
+                for example: "assets/pdp/features_table.toml" or "/path/to/features_table.toml".
+        """
+        pkg_root_dir = next(
+            p for p in pathlib.Path(__file__).parents if p.parts[-1] == "edvise"
+        )
+        fpath = (
+            pathlib.Path(file_path)
+            if pathlib.Path(file_path).is_absolute()
+            else pkg_root_dir / file_path
+        )
+        features_table = self.from_toml_file(str(fpath))
+        logging.info("loaded features table from '%s'", fpath)
+        return features_table  # type: ignore
 
     def load_mlflow_model(self):
         """Loads the MLflow model."""
