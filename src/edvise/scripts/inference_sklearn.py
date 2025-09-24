@@ -5,6 +5,7 @@ import os
 import sys
 from email.headerregistry import Address
 import typing as t
+import cloudpickle
 from joblib import Parallel, delayed
 
 import mlflow
@@ -76,6 +77,9 @@ class ModelInferenceTask:
         latest_version = max(all_versions, key=lambda v: int(v.version))
         model_uri = f"models:/{full_model_name}/{latest_version.version}"
 
+        logging.info(f"Pandas version: {pd.__version__}")
+        logging.info(f"Cloudpickle version: {cloudpickle.__version__}")
+
         try:
             load_model_func = {
                 "sklearn": mlflow.sklearn.load_model,
@@ -83,6 +87,7 @@ class ModelInferenceTask:
                 "lightgbm": mlflow.lightgbm.load_model,
                 "pyfunc": mlflow.pyfunc.load_model,  # Default
             }.get(self.model_type, mlflow.pyfunc.load_model)
+            logging.info(pd.__version__)
             model = load_model_func(model_uri)
             logging.info(
                 "MLflow '%s' model loaded from '%s'", self.model_type, model_uri
