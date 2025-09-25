@@ -259,6 +259,18 @@ class PDPDataAuditTask:
         else:
             log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
+        # Select inference cohort if applicable
+        if self.args.job_type == "inference":
+            if self.cfg.inference is None or self.cfg.inference.cohort  is None:
+                raise ValueError("cfg.inference.cohort must be configured.")
+
+            inf_cohort = self.cfg.inference.cohort
+            df_course_validated, df_cohort_validated = select_inference_cohort(
+                df_course_validated, 
+                df_cohort_validated, 
+                cohorts_list = inf_cohort
+                )
+
         # Standardize course data
         LOGGER.info(" Standardizing course data:")
         df_course_standardized = self.course_std.standardize(df_course_validated)
@@ -287,17 +299,6 @@ class PDPDataAuditTask:
         LOGGER.info(
             " Listing grouped cohort year and terms and academic year and terms for *standardized* cohort and course data files: "
         )
-
-        if self.args.job_type == "inference":
-            if self.cfg.inference is None or self.cfg.inference.cohort  is None:
-                raise ValueError("cfg.inference.cohort must be configured.")
-
-            inf_cohort = self.cfg.inference.cohort
-            df_course_standardized, df_cohort_standardized = select_inference_cohort(
-                df_course_standardized, 
-                df_cohort_standardized, 
-                cohorts_list = inf_cohort
-                )
 
         # Logs cohort year and terms and academic year and terms, grouped and sorted
         log_terms(
