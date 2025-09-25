@@ -62,7 +62,8 @@ class ModelInferenceTask:
             file_path=self.args.config_file_path, schema=PDPProjectConfig
         )
         self.model_type = "sklearn"
-        self.features_table = self.read_features_table("shared/assets/pdp_features_table.toml")
+        self.features_table_path = "shared/assets/pdp_features_table.toml"
+        self.features_table = self.read_features_table(self.features_table_path)
         self.inference_params = {"num_top_features": 5, "min_prob_pos_label": 0.5}
 
     def read_config(self, file_path: str, *, schema: type[S]) -> S:
@@ -410,7 +411,10 @@ class ModelInferenceTask:
                     }
                 )          
                 inference_features_with_most_impact = top_n_features(
-                    df_processed[model_feature_names], unique_ids, shap_values.values
+                    grouped_features=df_processed[model_feature_names], 
+                    unique_ids=unique_ids, 
+                    grouped_shap_values=shap_values.values,
+                    features_table_path=self.features_table_path,
                 ).merge(support_scores, on="student_id", how="left")
 
                 # SHAP Feature Importance Table
