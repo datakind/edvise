@@ -357,7 +357,9 @@ class ModelInferenceTask:
             f"{self.args.silver_volume_path}/preprocessed.parquet"
         )
         # HACK: subset for testing
-        df_processed = df_processed[:30]
+        # df_processed = df_processed[:30]
+        #select 30 obs that are not missing any values
+        df_processed = df_processed.dropna().head(30)
 
         if not hasattr(self.cfg, "student_id_col") or self.cfg.student_id_col is None:
             raise ValueError("Missing 'student_id_col' in config.")
