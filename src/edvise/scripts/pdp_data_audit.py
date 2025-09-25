@@ -42,6 +42,7 @@ from edvise.data_audit.eda import (
     log_terms,
     log_misjoined_records,
 )
+from edvise.data_audit.cohort_selection import select_inference_cohort
 from edvise.utils.update_config import update_key_courses_and_cips
 from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
@@ -141,46 +142,7 @@ class PDPDataAuditTask:
             f"Environment: {'Databricks' if self.in_databricks() else 'non-Databricks'}"
         )
 
-    def select_inference_cohort(
-        self, df_course: pd.DataFrame, df_cohort: pd.DataFrame
-    )-> tuple[pd.DataFrame, pd.DataFrame]:
-        """
-        Selects the specified cohorts from the course and cohort DataFrames.
-
-        Args:
-            df_course: The course DataFrame.
-            df_cohort: The cohort DataFrame.
-            cohorts_list: List of cohorts to select (e.g., ["fall 2023", "spring 2024"]).
-
-        Returns:
-            A tuple containing the filtered course and cohort DataFrames.
-        
-        Raises:
-            ValueError: If filtering results in empty DataFrames.
-        """
-        #change to main config when its updated
-        cohorts_list = self.inf_cfg["inference_cohort"]
-
-        #We only have cohort and cohort term split up, so combine and strip to lower to prevent cap issues
-        df_course['cohort_selection'] = df_course['cohort_term'].astype(str).str.lower() + " " + df_course['cohort'].astype(str).str.lower()
-        df_cohort['cohort_selection'] = df_cohort['cohort_term'].astype(str).str.lower() + " " + df_cohort['cohort'].astype(str).str.lower()
-        
-        #Subset both datsets to only these cohorts
-        df_course_filtered = df_course[df_course['cohort_selection'].isin(cohorts_list)]
-        df_cohort_filtered = df_cohort[df_cohort['cohort_selection'].isin(cohorts_list)]
-        
-        #Log confirmation we are selecting the correct cohorts
-        logging.info("Selected cohorts: %s", cohorts_list)
-        
-        #Throw error if either dataset is empty after filtering
-        if df_course_filtered.empty or df_cohort_filtered.empty:
-            logging.error("Selected cohorts resulted in empty DataFrames.")
-            raise ValueError("Selected cohorts resulted in empty DataFrames.")
-        
-        logging.info("Cohort selection completed. Course shape: %s, Cohort shape: %s", df_course_filtered.shape, df_cohort_filtered.shape)
-        
-        return df_course_filtered, df_cohort_filtered        
-
+    
     def run(self):
         """Executes the data preprocessing pipeline."""
         cohort_dataset_raw_path = self._pick_existing_path(
@@ -331,7 +293,7 @@ class PDPDataAuditTask:
                 raise ValueError("cfg.inference.cohort must be configured.")
 
             inf_cohort = self.cfg.inference.cohort
-            df_course_standardized, df_cohort_standardized = self.select_inference_cohort(
+            df_course_standardized, df_cohort_standardized = select_inference_cohort(
                 df_course_standardized, 
                 df_cohort_standardized, 
                 cohorts_list = inf_cohort
