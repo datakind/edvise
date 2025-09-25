@@ -205,7 +205,7 @@ class ModelInferenceTask:
         df_features: pd.DataFrame,
         explainer: shap.Explainer,
         model_feature_names: List[str],
-        n_jobs: Optional[int] = -1,
+        n_jobs: Optional[int] = 1,
     ) -> shap.Explanation:
         """
         Calculates SHAP explanations in parallel using joblib.
