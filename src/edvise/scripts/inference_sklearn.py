@@ -491,7 +491,7 @@ class ModelInferenceTask:
                     )
 
                     # Write the DataFrame to Unity Catalog table
-                    write.to_delta_table(shap_results, f"{self.args.silver_table_path}.inference_output")
+                    write.to_delta_table(shap_results, f"{self.args.silver_table_path}.inference_output", self.spark_session)
 
                 else:
                     logging.error(
