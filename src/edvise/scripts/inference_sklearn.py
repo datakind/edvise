@@ -35,6 +35,7 @@ if os.path.isdir(src_path) and src_path not in sys.path:
     sys.path.insert(0, src_path)
 
 # Project modules
+from edvise.dataio import write
 import edvise.modeling as modeling
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.utils import emails
@@ -114,6 +115,15 @@ class ModelInferenceTask:
         features_table = self.from_toml_file(str(fpath))
         return features_table  # type: ignore
 
+    def read_parquet(
+       self, path: str, dtype: t.Optional[dict] = None, verbose: bool = False
+    ) -> pd.DataFrame:
+        df = pd.read_parquet(path)
+        if dtype:
+            df = df.astype(dtype)
+        if verbose:
+            print(f"Read {df.shape[0]} rows from {path}")
+        return df
 
     def load_mlflow_model(self):
         """Loads the MLflow model."""
@@ -315,7 +325,7 @@ class ModelInferenceTask:
             raise ValueError("Missing 'pos_label' in config.")
 
         # 1) Read the processed dataset
-        df_processed = dataio.read.read_parquet(
+        df_processed = self.read_parquet(
             f"{self.args.silver_volume_path}/preprocessed.parquet"
         )
         # HACK: subset for testing
@@ -345,7 +355,7 @@ class ModelInferenceTask:
 
         # 4. Perform predictions and save out predicted values
         df_predicted = self.predict(model, df_processed)
-        dataio.write.to_delta_table(df_predicted, f"{self.args.silver_table_path}.predicted_dataset", self.spark_session)   
+        write.to_delta_table(df_predicted, f"{self.args.silver_table_path}.predicted_dataset", self.spark_session)   
 
         # 5.SHAP Values Calculation 
         shap_values = self.calculate_shap_values(
@@ -421,7 +431,7 @@ class ModelInferenceTask:
                         logging.error(msg)
                         raise ValueError(msg)
                     table_path = f"{self.args.silver_table_path}.{suffix}"
-                    dataio.write.to_delta_table(df, table_path, self.spark_session)   
+                    write.to_delta_table(df, table_path, self.spark_session)   
 
                 
                 # Export a CSV of the main inference output
@@ -444,7 +454,7 @@ class ModelInferenceTask:
                     )
 
                     # Write the DataFrame to Unity Catalog table
-                    dataio.write.to_delta_table(shap_results, f"{self.args.silver_table_path}.inference_output")
+                    write.to_delta_table(shap_results, f"{self.args.silver_table_path}.inference_output")
 
                 else:
                     logging.error(
