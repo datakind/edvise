@@ -38,6 +38,7 @@ if os.path.isdir(src_path) and src_path not in sys.path:
 # Project modules
 from edvise.dataio import write
 import edvise.modeling as modeling
+from edvise.modeling.automl import inference
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session

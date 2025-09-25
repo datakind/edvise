@@ -5,7 +5,7 @@ import numpy as np
 import numpy.typing as npt
 
 import edvise.dataio as dataio
-import edvise.modeling as modeling
+import edvise.modeling.automl.inference as automl_inference
 
 
 def top_n_features(
@@ -17,7 +17,7 @@ def top_n_features(
 ) -> pd.DataFrame:
     features_table = dataio.read.read_features_table(features_table_path)
     try:
-        top_n_shap_features = modeling.automl.inference.top_shap_features(
+        top_n_shap_features = automl_inference.top_shap_features(
             features=grouped_features,
             unique_ids=unique_ids,
             shap_values=(
@@ -41,7 +41,7 @@ def features_box_whiskers_table(
 ) -> pd.DataFrame:
     features_table = dataio.read.read_features_table(features_table_path)
     try:
-        feature_boxstats = modeling.automl.inference.top_feature_boxstats(
+        feature_boxstats = automl_inference.top_feature_boxstats(
             features=features,
             shap_values=shap_values,
             features_table=features_table,
