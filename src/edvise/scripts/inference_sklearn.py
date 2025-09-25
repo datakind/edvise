@@ -205,27 +205,34 @@ class ModelInferenceTask:
         df_features: pd.DataFrame,
         explainer: shap.Explainer,
         model_feature_names: List[str],
-        n_jobs: Optional[int] = 1,  # Kept for interface compatibility
+        n_jobs: Optional[int] = -1,
     ) -> shap.Explanation:
         """
-        Calculates SHAP explanations (serial implementation for stability in Databricks).
+        Calculates SHAP explanations in parallel using joblib.
+
+        Args:
+            model: mlflow.pyfunc.PyFuncModel.
+            df_features pd.DataFrame: The feature dataset to calculate SHAP values for.
+            explainer (shap.Explainer): The SHAP explainer object.
+            model_feature_names (List[str]): List of feature names corresponding to the columns in `df_features`.
+            n_jobs (Optional[int]): The number of jobs to run in parallel. Defaults to -1 (use all available CPUs).
+
+        Returns:
+            shap.Explanation: The combined SHAP explanation object.
         """
 
         logging.info("Calculating SHAP values for %s records", len(df_features))
 
         chunk_size = 10
-        chunks_count = max(1, len(df_features) // chunk_size)
-        chunks = np.array_split(df_features, chunks_count)
+        chuncks_count = max(1, len(df_features) // chunk_size)
+        chunks = np.array_split(df_features, chuncks_count)
 
-        results = []
-        for i, chunk in enumerate(chunks):
-            logging.info(f"Explaining chunk {i + 1}/{chunks_count}")
-            try:
-                explanation = explainer(chunk)
-                results.append(explanation)
-            except Exception as e:
-                logging.error(f"Failed to explain chunk {i + 1}: {e}")
-                raise
+        results = Parallel(n_jobs=n_jobs)(
+            delayed(lambda model, chunk, explainer: explainer(chunk))(
+                model, chunk, explainer
+            )
+            for chunk in chunks
+        )
 
         combined_values = np.concatenate([r.values for r in results], axis=0)
         combined_data = np.concatenate([r.data for r in results], axis=0)
@@ -313,7 +320,7 @@ class ModelInferenceTask:
                 df_features=df_processed[model_feature_names],
                 explainer=explainer,
                 model_feature_names=model_feature_names,
-                n_jobs=-1,
+                n_jobs=1,
             )
 
             return shap_values_explanation
