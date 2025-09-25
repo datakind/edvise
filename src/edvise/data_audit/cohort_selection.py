@@ -7,7 +7,7 @@ def select_inference_cohort(
     cohorts_list: list[str],
     cohort_term_column: str = "cohort_term",
     cohort_column: str = "cohort"
-)-> tuple[pd.DataFrame, pd.DataFrame]:
+)-> pd.DataFrame:
     """
     Selects the specified cohorts from DataFrames.
 
@@ -16,7 +16,7 @@ def select_inference_cohort(
         cohorts_list: List of cohorts to select (e.g., ["fall 2023-24", "spring 2024-25"]).
 
     Returns:
-        A tuple containing the filtered course and cohort DataFrames.
+        The filtered DataFrame.
     
     Raises:
         ValueError: If filtering results in empty DataFrames.
