@@ -473,9 +473,9 @@ class ModelInferenceTask:
                 
                 # Export a CSV of the main inference output
                 shap_results = modeling.automl.inference.select_top_features_for_display(
-                    df_serving = df_processed[model_feature_names],
+                    features = df_processed[model_feature_names],
                     unique_ids = unique_ids,
-                    pred_probs = df_predicted['predicted_prob'],
+                    predicted_probabilities = df_predicted['predicted_prob'],
                     shap_values = shap_values.values,
                     n_features = self.inference_params["num_top_features"],
                     features_table = self.features_table,
