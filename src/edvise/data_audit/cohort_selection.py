@@ -39,4 +39,7 @@ def select_inference_cohort(
         logging.error("Selected cohorts resulted in empty DataFrames.")
         raise ValueError("Selected cohorts resulted in empty DataFrames.")
     
+    df_course_filtered.drop(columns="cohort_selection", inplace=True)
+    df_cohort_filtered.drop(columns="cohort_selection", inplace=True)
+    
     return df_course_filtered, df_cohort_filtered    
