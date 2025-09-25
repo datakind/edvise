@@ -212,6 +212,18 @@ class PDPDataAuditTask:
             spark_session=self.spark,
         )
 
+        # Select inference cohort if applicable
+        if self.args.job_type == "inference":
+            LOGGER.info(" Selecting inference cohort")
+            if self.cfg.inference is None or self.cfg.inference.cohort  is None:
+                raise ValueError("cfg.inference.cohort must be configured.")
+
+            inf_cohort = self.cfg.inference.cohort
+            df_cohort_validated = select_inference_cohort(
+                    df_cohort_validated, 
+                    cohorts_list = inf_cohort
+                )
+
         # Standardize cohort data
         LOGGER.info(" Standardizing cohort data:")
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
@@ -261,14 +273,14 @@ class PDPDataAuditTask:
 
         # Select inference cohort if applicable
         if self.args.job_type == "inference":
+            LOGGER.info(" Selecting inference cohort")
             if self.cfg.inference is None or self.cfg.inference.cohort  is None:
                 raise ValueError("cfg.inference.cohort must be configured.")
 
             inf_cohort = self.cfg.inference.cohort
-            df_course_validated, df_cohort_validated = select_inference_cohort(
-                df_course_validated, 
-                df_cohort_validated, 
-                cohorts_list = inf_cohort
+            df_course_validated = select_inference_cohort(
+                    df_course_validated, 
+                    cohorts_list = inf_cohort
                 )
 
         # Standardize course data
