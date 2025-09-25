@@ -438,8 +438,8 @@ class ModelInferenceTask:
                 # Box and Whiskers Table
                 box_whiskers_table = features_box_whiskers_table(
                     features=df_processed[model_feature_names],
-                    shap_values=
-                    shap_values.values,
+                    shap_values=shap_values.values,
+                    features_table_path=self.features_table_path,
                 ) 
 
                 # Save tables to Delta Lake              
