@@ -199,7 +199,7 @@ resources:
         - task_key: inference_sklearn
           depends_on:
             - task_key: model_type
-            outcome: "false"
+              outcome: "false"
           spark_python_task:
             python_file: src/edvise/scripts/inference_sklearn.py
             source: GIT
@@ -229,7 +229,7 @@ resources:
           job_cluster_key: edvise-sklearn-inference-cluster
           libraries:
             - pypi:
-                package: numpy==1.24.4  # Downgraded to fix numba compatibility
+                package: numpy==1.24.4 
             - pypi:
                 package: pandas==1.5.3
             - pypi:
@@ -344,6 +344,25 @@ resources:
             - pypi:
                 package: google-cloud-storage==2.19.0
       job_clusters:
+        - job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          new_cluster:
+            cluster_name: ""
+            spark_version: 15.4.x-cpu-ml-scala2.12
+            spark_conf:
+              spark.master: local[*, 4]
+              spark.databricks.cluster.profile: singleNode
+            gcp_attributes:
+              use_preemptible_executors: false
+              availability: ON_DEMAND_GCP
+              zone_id: HA
+            node_type_id: n2-standard-16
+            custom_tags:
+              ResourceClass: SingleNode
+              x-databricks-nextgen-cluster: "true"
+            enable_elastic_disk: true
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            num_workers: 0
         - job_cluster_key: edvise-sklearn-inference-cluster
           new_cluster:
             cluster_name: ""

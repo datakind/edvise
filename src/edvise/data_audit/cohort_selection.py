@@ -3,7 +3,6 @@ import logging
 
 
 def select_inference_cohort(
-    self, 
     df_course: pd.DataFrame, 
     df_cohort: pd.DataFrame, 
     cohorts_list: list[str],
