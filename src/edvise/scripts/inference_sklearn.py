@@ -238,6 +238,26 @@ class ModelInferenceTask:
             feature_names=model_feature_names,
         )
         return combined_explanation
+    
+    def from_delta_table(
+        self, table_path: str, spark_session
+    ) -> pd.DataFrame:
+        """
+        Read data from a table in Databricks Unity Catalog and return it as a DataFrame.
+
+        Args:
+            table_path: Path in Unity Catalog from which data will be read,
+                including the full three-level namespace: ``catalog.schema.table`` .
+            spark_session: Entry point to using spark dataframes and the databricks integration.
+
+        See Also:
+            - https://spark.apache.org/docs/latest/api/python/reference/pyspark.sql/api/pyspark.sql.DataFrameReader.html#pyspark.sql.DataFrameReader
+            - https://spark.apache.org/docs/latest/api/python/reference/pyspark.sql/spark_session.html
+        """
+        df = spark_session.read.format("delta").table(table_path).toPandas()
+        assert isinstance(df, pd.DataFrame)  # type guard
+        logging.info("loaded rows x cols = %s of data from '%s'", df.shape, table_path)
+        return df
 
     def calculate_shap_values(
         self,
@@ -255,9 +275,12 @@ class ModelInferenceTask:
             if self.cfg.split_col is None:
                 raise ValueError("Missing 'split_col' in config.")
             #pull "train" observations from the training dataset for ref dataset
-            df_train = modeling.evaluation.extract_training_data_from_model(self.cfg.model.experiment_id).loc[
-                lambda df: df[self.cfg.split_col].eq("train")
-            ]           
+            df_train = self.from_delta_table(
+                f"{self.args.silver_table_path}.modeling", spark_session=self.spark_session
+            )
+            # df_train = modeling.evaluation.extract_training_data_from_model(self.cfg.model.experiment_id).loc[
+            #     lambda df: df[self.cfg.split_col].eq("train")
+            # ]           
             # SHAP can't explain models using data with nulls
             # so, impute nulls using the mode (most frequent values)
             train_mode = df_train.mode().iloc[0] 
