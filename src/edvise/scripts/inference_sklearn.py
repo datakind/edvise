@@ -10,6 +10,7 @@ from joblib import Parallel, delayed
 import pydantic as pyd
 import pathlib
 S = t.TypeVar("S", bound=pyd.BaseModel)
+from typing import List, Optional
 
 import mlflow
 from mlflow.tracking import MlflowClient
@@ -200,11 +201,11 @@ class ModelInferenceTask:
 
     def parallel_explanations(
         self,
-        model: ClassifierMixin,
+        model,
         df_features: pd.DataFrame,
         explainer: shap.Explainer,
-        model_feature_names: t.List[str],
-        n_jobs: t.Optional[int] = -1,
+        model_feature_names: List[str],
+        n_jobs: Optional[int] = -1,
     ) -> shap.Explanation:
         """
         Calculates SHAP explanations in parallel using joblib.
@@ -223,11 +224,14 @@ class ModelInferenceTask:
         logging.info("Calculating SHAP values for %s records", len(df_features))
 
         chunk_size = 10
-        chunks_count = max(1, len(df_features) // chunk_size)
-        chunks = np.array_split(df_features, chunks_count)
+        chuncks_count = max(1, len(df_features) // chunk_size)
+        chunks = np.array_split(df_features, chuncks_count)
 
         results = Parallel(n_jobs=n_jobs)(
-            delayed(explainer)(chunk) for chunk in chunks
+            delayed(lambda model, chunk, explainer: explainer(chunk))(
+                model, chunk, explainer
+            )
+            for chunk in chunks
         )
 
         combined_values = np.concatenate([r.values for r in results], axis=0)
