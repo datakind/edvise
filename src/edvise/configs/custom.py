@@ -51,6 +51,7 @@ class CustomProjectConfig(pyd.BaseModel):
     pred_prob_col: str = "pred_prob"
     pos_label: t.Optional[bool | str] = True
     random_state: t.Optional[int] = 12345
+    pipeline_version: str = "v0.1.2"
 
     # key artifacts produced by project pipeline
     datasets: "AllDatasetStagesConfig" = pyd.Field(
@@ -431,3 +432,4 @@ class InferenceConfig(pyd.BaseModel):
     num_top_features: int = pyd.Field(default=5)
     min_prob_pos_label: t.Optional[float] = 0.5
     background_data_sample: t.Optional[int] = 500
+    cohort: t.Optional[list[str]] = ['fall 2024-25']
