@@ -318,6 +318,8 @@ resources:
                 package: shap~=0.46.0
             - pypi:
                 package: mlflow~=2.22
+            - pypi:
+                package: scikit-learn==1.5.2
         - task_key: output_publish
           depends_on:
             - task_key: inference_sklearn
