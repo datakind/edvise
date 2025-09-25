@@ -358,8 +358,8 @@ class ModelInferenceTask:
         )
         # HACK: subset for testing
         #select first 30 obs where academic_term is FALL
-        df_processed = df_processed[df_processed['academic_term']=='FALL'].head(30)
-        # df_processed = df_processed[:30]
+        # df_processed = df_processed[df_processed['academic_term']=='FALL'].head(30)
+        df_processed = df_processed[:30]
         #select 30 obs that are not missing any values
         # df_processed = df_processed.dropna().head(30)
 
