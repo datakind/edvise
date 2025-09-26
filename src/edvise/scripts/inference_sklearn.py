@@ -10,7 +10,7 @@ from joblib import Parallel, delayed
 import pydantic as pyd
 import pathlib
 S = t.TypeVar("S", bound=pyd.BaseModel)
-from typing import List, Optional
+from typing import List, Optional, Any
 
 import mlflow
 from mlflow.tracking import MlflowClient
@@ -203,7 +203,7 @@ class ModelInferenceTask:
 
     def parallel_explanations(
         self,
-        model,
+        model: Any,
         df_features: pd.DataFrame,
         explainer: shap.Explainer,
         model_feature_names: List[str],
@@ -247,7 +247,7 @@ class ModelInferenceTask:
 
     
     def from_delta_table(
-        self, table_path: str, spark_session
+        self, table_path: str, spark_session: Any
     ) -> pd.DataFrame:
         """
         Read data from a table in Databricks Unity Catalog and return it as a DataFrame.
@@ -277,7 +277,7 @@ class ModelInferenceTask:
         try:
             shap_ref_data_size = 100  # Consider getting from config.
             #make sure self.cfg.model.experiment_id and self.cfg.split_col are not None
-            if self.cfg.model.experiment_id is None:
+            if self.cfg.model is None or self.cfg.model.experiment_id is None:
                 raise ValueError("Missing 'model.experiment_id' in config.")
             if self.cfg.split_col is None:
                 raise ValueError("Missing 'split_col' in config.")
