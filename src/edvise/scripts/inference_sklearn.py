@@ -295,26 +295,47 @@ class ModelInferenceTask:
                 .fillna(train_mode)
                 .loc[:, model_feature_names]
             )
+            dtype_map = {
+                "Int64": "int64", "Int32": "int32", "Int16": "int16",
+                "UInt64": "uint64", "UInt32": "uint32", "UInt16": "uint16",
+                "boolean": "bool",
+                "string": "object",
+            }
 
-            # Ensure df_ref has the same dtypes as df_processed
-            ref_dtypes = df_ref.dtypes.apply(lambda dt: dt.name).to_dict()
+            # 1) Background (df_ref)
+            ref_dtypes_raw = df_ref.dtypes.apply(lambda dt: dt.name)
+            ref_dtypes = ref_dtypes_raw.replace(dtype_map).to_dict()
 
-            # Initialize SHAP KernelExplainer
+            df_ref_clean = (
+                df_ref.loc[:, model_feature_names]
+                    .fillna(train_mode)
+                    .astype(ref_dtypes) 
+            )
+
+            # 2) Explainer: avoid re-introducing nullable dtypes in predict_proba
             explainer = shap.explainers.KernelExplainer(
                 lambda x: self.predict_proba(
-                    pd.DataFrame(x, columns=model_feature_names).astype(ref_dtypes),
+                    pd.DataFrame(x, columns=model_feature_names)
+                    .fillna(train_mode)
+                    .astype(ref_dtypes),
                     model=model,
                     feature_names=model_feature_names,
                     pos_label=self.cfg.pos_label,
                 ),
-                df_ref.astype(ref_dtypes),
+                df_ref_clean,
                 link="identity",
             )
 
-            # Calculate SHAP values in parallel
+            # 3) Chunks passed to explainer must also be clean
+            df_features_clean = (
+                df_processed[model_feature_names]
+                .fillna(train_mode)
+                .astype(ref_dtypes)
+            )
+
             shap_values_explanation = self.parallel_explanations(
                 model=model,
-                df_features=df_processed[model_feature_names],
+                df_features=df_features_clean,
                 explainer=explainer,
                 model_feature_names=model_feature_names,
                 n_jobs=1,
