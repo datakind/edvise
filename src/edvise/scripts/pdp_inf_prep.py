@@ -82,6 +82,7 @@ class InferencePrepTask:
         dbutils.jobs.taskValues.set(
             key="model_type", value=model_type
         )
+        logger.info(f"Setting task parameter for 'model_type' as '{model_type}'")
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
