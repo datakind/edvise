@@ -388,7 +388,7 @@ resources:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
         # git_tag: v0.1.2
-        git_branch: feat/set_model_type
+        git_branch: develop
       tags:
         dev: kayla_wilding
       queue:
