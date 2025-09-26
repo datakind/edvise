@@ -72,7 +72,7 @@ class CustomProjectConfig(pyd.BaseModel):
     modeling: t.Optional["ModelingConfig"] = None
     inference: t.Optional["InferenceConfig"] = None
 
-    # @pyd.computed_field  # type: ignore[misc]
+    @pyd.computed_field  # type: ignore[misc]
     @property
     def non_feature_cols(self) -> list[str]:
         return (
@@ -233,7 +233,7 @@ class ModelConfig(pyd.BaseModel):
     run_id: str
     framework: t.Optional[t.Literal["sklearn", "h2o"]] = "sklearn"
 
-    # @pyd.computed_field  # type: ignore[misc]
+    @pyd.computed_field  # type: ignore[misc]
     @property
     def mlflow_model_uri(self) -> str:
         return f"runs:/{self.run_id}/model"
@@ -433,3 +433,4 @@ class InferenceConfig(pyd.BaseModel):
     min_prob_pos_label: t.Optional[float] = 0.5
     background_data_sample: t.Optional[int] = 500
     cohort: t.Optional[list[str]] = ['fall 2024-25']
+
