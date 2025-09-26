@@ -194,7 +194,7 @@ resources:
             - task_key: inf_prep
           condition_task:
             op: EQUAL_TO
-            left: "{{job.parameters.model_type}}"
+            left: "{{{{tasks.inf_prep.values.model_type}}}}"
             right: h2o
         - task_key: inference_sklearn
           depends_on:
@@ -388,7 +388,7 @@ resources:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
         # git_tag: v0.1.2
-        git_branch: develop
+        git_branch: feat/set_model_type
       tags:
         dev: kayla_wilding
       queue:
