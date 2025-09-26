@@ -1,3 +1,9 @@
+## 0.1.3 (2025-09-19)
+
+- Added sklearn inference to pipeline
+- Added reading model type from config
+- Added version number and inference cohort to configs
+
 ## 0.1.2 (2025-09-19)
 
 - Enhanced EDA with logging 
