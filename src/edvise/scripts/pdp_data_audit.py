@@ -142,7 +142,6 @@ class PDPDataAuditTask:
             f"Environment: {'Databricks' if self.in_databricks() else 'non-Databricks'}"
         )
 
-    
     def run(self):
         """Executes the data preprocessing pipeline."""
         cohort_dataset_raw_path = self._pick_existing_path(
@@ -215,14 +214,13 @@ class PDPDataAuditTask:
         # Select inference cohort if applicable
         if self.args.job_type == "inference":
             LOGGER.info(" Selecting inference cohort")
-            if self.cfg.inference is None or self.cfg.inference.cohort  is None:
+            if self.cfg.inference is None or self.cfg.inference.cohort is None:
                 raise ValueError("cfg.inference.cohort must be configured.")
 
             inf_cohort = self.cfg.inference.cohort
             df_cohort_validated = select_inference_cohort(
-                    df_cohort_validated, 
-                    cohorts_list = inf_cohort
-                )
+                df_cohort_validated, cohorts_list=inf_cohort
+            )
 
         # Standardize cohort data
         LOGGER.info(" Standardizing cohort data:")
@@ -274,14 +272,13 @@ class PDPDataAuditTask:
         # Select inference cohort if applicable
         if self.args.job_type == "inference":
             LOGGER.info(" Selecting inference cohort")
-            if self.cfg.inference is None or self.cfg.inference.cohort  is None:
+            if self.cfg.inference is None or self.cfg.inference.cohort is None:
                 raise ValueError("cfg.inference.cohort must be configured.")
 
             inf_cohort = self.cfg.inference.cohort
             df_course_validated = select_inference_cohort(
-                    df_course_validated, 
-                    cohorts_list = inf_cohort
-                )
+                df_course_validated, cohorts_list=inf_cohort
+            )
 
         # Standardize course data
         LOGGER.info(" Standardizing course data:")

@@ -432,5 +432,4 @@ class InferenceConfig(pyd.BaseModel):
     num_top_features: int = pyd.Field(default=5)
     min_prob_pos_label: t.Optional[float] = 0.5
     background_data_sample: t.Optional[int] = 500
-    cohort: t.Optional[list[str]] = ['fall 2024-25']
-
+    cohort: t.Optional[list[str]] = ["fall 2024-25"]

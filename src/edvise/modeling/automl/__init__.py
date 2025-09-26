@@ -1,1 +1,1 @@
-from . import inference, training 
+from . import inference, training

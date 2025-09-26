@@ -9,6 +9,7 @@ import cloudpickle
 from joblib import Parallel, delayed
 import pydantic as pyd
 import pathlib
+
 S = t.TypeVar("S", bound=pyd.BaseModel)
 from typing import List, Optional, Any
 
@@ -95,7 +96,7 @@ class ModelInferenceTask:
         logging.info("loaded config from '%s'", fpath)
         assert isinstance(data, dict)  # type guard
         return data
-    
+
     def read_features_table(self, file_path: str) -> dict[str, dict[str, str]]:
         """
         Read a features table mapping columns to readable names and (optionally) descriptions
@@ -107,9 +108,7 @@ class ModelInferenceTask:
                 for example: "assets/pdp/features_table.toml" or "/path/to/features_table.toml".
         """
         current_path = pathlib.Path().resolve()
-        pkg_root_dir = next(
-            p for p in current_path.parents if p.parts[-1] == "edvise"
-        )
+        pkg_root_dir = next(p for p in current_path.parents if p.parts[-1] == "edvise")
         fpath = (
             pathlib.Path(file_path)
             if pathlib.Path(file_path).is_absolute()
@@ -119,7 +118,7 @@ class ModelInferenceTask:
         return features_table  # type: ignore
 
     def read_parquet(
-       self, path: str, dtype: t.Optional[dict] = None, verbose: bool = False
+        self, path: str, dtype: t.Optional[dict] = None, verbose: bool = False
     ) -> pd.DataFrame:
         df = pd.read_parquet(path)
         if dtype:
@@ -177,7 +176,6 @@ class ModelInferenceTask:
         df_predicted["predicted_label"] = model.predict(df_serving)
         df_predicted["predicted_prob"] = model.predict_proba(df_serving)[:, 1]
         return df_predicted
-
 
     @staticmethod
     def predict_proba(
@@ -245,10 +243,7 @@ class ModelInferenceTask:
         )
         return combined_explanation
 
-    
-    def from_delta_table(
-        self, table_path: str, spark_session: Any
-    ) -> pd.DataFrame:
+    def from_delta_table(self, table_path: str, spark_session: Any) -> pd.DataFrame:
         """
         Read data from a table in Databricks Unity Catalog and return it as a DataFrame.
 
@@ -276,21 +271,22 @@ class ModelInferenceTask:
 
         try:
             shap_ref_data_size = 100  # Consider getting from config.
-            #make sure self.cfg.model.experiment_id and self.cfg.split_col are not None
+            # make sure self.cfg.model.experiment_id and self.cfg.split_col are not None
             if self.cfg.model is None or self.cfg.model.experiment_id is None:
                 raise ValueError("Missing 'model.experiment_id' in config.")
             if self.cfg.split_col is None:
                 raise ValueError("Missing 'split_col' in config.")
-            #pull "train" observations from the training dataset for ref dataset
+            # pull "train" observations from the training dataset for ref dataset
             df_train = self.from_delta_table(
-                f"{self.args.silver_table_path}.modeling", spark_session=self.spark_session
+                f"{self.args.silver_table_path}.modeling",
+                spark_session=self.spark_session,
             )
             # df_train = modeling.evaluation.extract_training_data_from_model(self.cfg.model.experiment_id).loc[
             #     lambda df: df[self.cfg.split_col].eq("train")
-            # ]           
+            # ]
             # SHAP can't explain models using data with nulls
             # so, impute nulls using the mode (most frequent values)
-            train_mode = df_train.mode().iloc[0] 
+            train_mode = df_train.mode().iloc[0]
             # sample training dataset as "reference" data for SHAP Explainer
             df_ref = (
                 df_train.sample(
@@ -300,7 +296,7 @@ class ModelInferenceTask:
                 .fillna(train_mode)
                 .loc[:, model_feature_names]
             )
-            
+
             # Ensure df_ref has the same dtypes as df_processed
             ref_dtypes = df_ref.dtypes.apply(lambda dt: dt.name).to_dict()
 
@@ -329,7 +325,7 @@ class ModelInferenceTask:
         except Exception as e:
             logging.error("Error during SHAP value calculation: %s", e)
             raise
-    
+
     def _export_csv_with_spark(
         self, df: pd.DataFrame, dest_dir: str, basename: str
     ) -> None:
@@ -339,7 +335,6 @@ class ModelInferenceTask:
             "overwrite"
         ).save(os.path.join(dest_dir, basename))
         logging.info("Exported CSV to %s", os.path.join(dest_dir, basename))
-
 
     def run(self):
         """Executes the model inference pipeline."""
@@ -369,7 +364,7 @@ class ModelInferenceTask:
         model = self.load_mlflow_model()
         model_feature_names = model.named_steps["column_selector"].get_params()["cols"]
 
-        # 3. Email users 
+        # 3. Email users
         w = WorkspaceClient()
         MANDRILL_USERNAME = w.dbutils.secrets.get(scope="sst", key="MANDRILL_USERNAME")
         MANDRILL_PASSWORD = w.dbutils.secrets.get(scope="sst", key="MANDRILL_PASSWORD")
@@ -385,9 +380,13 @@ class ModelInferenceTask:
 
         # 4. Perform predictions and save out predicted values
         df_predicted = self.predict(model, df_processed)
-        write.to_delta_table(df_predicted, f"{self.args.silver_table_path}.predicted_dataset", self.spark_session)   
+        write.to_delta_table(
+            df_predicted,
+            f"{self.args.silver_table_path}.predicted_dataset",
+            self.spark_session,
+        )
 
-        # 5.SHAP Values Calculation 
+        # 5.SHAP Values Calculation
         shap_values = self.calculate_shap_values(
             model, df_processed, model_feature_names
         )
@@ -399,36 +398,39 @@ class ModelInferenceTask:
                 f"now cfg.model.experiment_id = {self.cfg.model.experiment_id}"
             )
             with mlflow.start_run(run_id=self.cfg.model.run_id):
-
                 # Inference Features with Most Impact Table
                 support_scores = pd.DataFrame(
                     {
-                        "student_id": unique_ids.values, 
+                        "student_id": unique_ids.values,
                         "support_score": df_predicted["predicted_prob"].values,
                     }
-                )          
+                )
                 inference_features_with_most_impact = top_n_features(
-                    grouped_features=df_processed[model_feature_names], 
-                    unique_ids=unique_ids, 
+                    grouped_features=df_processed[model_feature_names],
+                    unique_ids=unique_ids,
                     grouped_shap_values=shap_values.values,
                     features_table_path=self.features_table_path,
                 ).merge(support_scores, on="student_id", how="left")
 
                 # SHAP Feature Importance Table
-                shap_feature_importance = modeling.automl.inference.generate_ranked_feature_table(
-                    features = df_processed[model_feature_names], 
-                    shap_values = shap_values.values, 
-                    features_table = self.features_table
+                shap_feature_importance = (
+                    modeling.automl.inference.generate_ranked_feature_table(
+                        features=df_processed[model_feature_names],
+                        shap_values=shap_values.values,
+                        features_table=self.features_table,
+                    )
                 )
 
                 # Support Overview Table
-                support_overview_table = modeling.automl.inference.support_score_distribution_table(
-                    df_serving = df_processed[model_feature_names],
-                    unique_ids = unique_ids,
-                    pred_probs = df_predicted['predicted_prob'],
-                    shap_values = shap_values,
-                    inference_params  = self.inference_params,
-                    features_table = self.features_table,
+                support_overview_table = (
+                    modeling.automl.inference.support_score_distribution_table(
+                        df_serving=df_processed[model_feature_names],
+                        unique_ids=unique_ids,
+                        pred_probs=df_predicted["predicted_prob"],
+                        shap_values=shap_values,
+                        inference_params=self.inference_params,
+                        features_table=self.features_table,
+                    )
                 )
 
                 # Box and Whiskers Table
@@ -436,9 +438,9 @@ class ModelInferenceTask:
                     features=df_processed[model_feature_names],
                     shap_values=shap_values.values,
                     features_table_path=self.features_table_path,
-                ) 
+                )
 
-                # Save tables to Delta Lake              
+                # Save tables to Delta Lake
                 tables = {
                     f"inference_{self.args.db_run_id}_features_with_most_impact": (
                         inference_features_with_most_impact,
@@ -460,22 +462,27 @@ class ModelInferenceTask:
 
                 for suffix, (df, label) in tables.items():
                     if df is None:
-                        msg = f"{label} is empty: cannot write inference summary tables."
+                        msg = (
+                            f"{label} is empty: cannot write inference summary tables."
+                        )
                         logging.error(msg)
                         raise ValueError(msg)
                     table_path = f"{self.args.silver_table_path}.{suffix}"
-                    write.to_delta_table(df, table_path, self.spark_session)   
+                    write.to_delta_table(df, table_path, self.spark_session)
 
-                
                 # Export a CSV of the main inference output
-                shap_results = modeling.automl.inference.select_top_features_for_display(
-                    features = df_processed[model_feature_names],
-                    unique_ids = unique_ids,
-                    predicted_probabilities = df_predicted['predicted_prob'],
-                    shap_values = shap_values.values,
-                    n_features = self.inference_params["num_top_features"],
-                    features_table = self.features_table,
-                    needs_support_threshold_prob = self.inference_params["min_prob_pos_label"],
+                shap_results = (
+                    modeling.automl.inference.select_top_features_for_display(
+                        features=df_processed[model_feature_names],
+                        unique_ids=unique_ids,
+                        predicted_probabilities=df_predicted["predicted_prob"],
+                        shap_values=shap_values.values,
+                        n_features=self.inference_params["num_top_features"],
+                        features_table=self.features_table,
+                        needs_support_threshold_prob=self.inference_params[
+                            "min_prob_pos_label"
+                        ],
+                    )
                 )
 
                 # --- Save Results to ext/ folder in Gold volume. ---
@@ -487,7 +494,11 @@ class ModelInferenceTask:
                     )
 
                     # Write the DataFrame to Unity Catalog table
-                    write.to_delta_table(shap_results, f"{self.args.silver_table_path}.inference_output", self.spark_session)
+                    write.to_delta_table(
+                        shap_results,
+                        f"{self.args.silver_table_path}.inference_output",
+                        self.spark_session,
+                    )
 
                 else:
                     logging.error(
@@ -506,17 +517,32 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--silver_table_path", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
-    parser.add_argument("--config_file_path", type=str, required=True, help="Path to configuration file")
-    parser.add_argument("--db_run_id", type=str, required=True, help="Databricks run ID")
+    parser.add_argument(
+        "--config_file_path", type=str, required=True, help="Path to configuration file"
+    )
+    parser.add_argument(
+        "--db_run_id", type=str, required=True, help="Databricks run ID"
+    )
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--databricks_institution_name", type=str, required=True)
     parser.add_argument("--gold_table_path", type=str, required=True)
-    parser.add_argument("--datakind_notification_email",type=str,required=True,help="DK's email used for notifications")
-    parser.add_argument("--DK_CC_EMAIL", type=str, required=True, help="Datakind email address CC'd")
-    parser.add_argument("--job_root_dir", type=str, required=True, help="Folder path to store job output files")
-    
-   
+    parser.add_argument(
+        "--datakind_notification_email",
+        type=str,
+        required=True,
+        help="DK's email used for notifications",
+    )
+    parser.add_argument(
+        "--DK_CC_EMAIL", type=str, required=True, help="Datakind email address CC'd"
+    )
+    parser.add_argument(
+        "--job_root_dir",
+        type=str,
+        required=True,
+        help="Folder path to store job output files",
+    )
+
     return parser.parse_args()
 
 
