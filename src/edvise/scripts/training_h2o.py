@@ -237,11 +237,14 @@ class TrainingTask:
                         run_id=run_id,
                     )
                 )
+                pos_label = (
+                    self.cfg.pos_label if self.cfg.pos_label is not None else True
+                )
                 model = h2o_utils.load_h2o_model(run_id=run_id)
                 labels, probs = modeling.h2o_ml.inference.predict_h2o(
                     features=df_features_imp,
                     model=model,
-                    pos_label=self.cfg.pos_label,
+                    pos_label=pos_label,
                 )
                 df_pred = df_modeling.assign(
                     **{
@@ -252,13 +255,13 @@ class TrainingTask:
                 modeling.evaluation.evaluate_performance(
                     df_pred,
                     target_col=self.cfg.target_col,
-                    pos_label=self.cfg.pos_label,
+                    pos_label=pos_label,
                 )
                 modeling.bias_detection.evaluate_bias(
                     df_pred,
                     student_group_cols=student_group_cols,
                     target_col=self.cfg.target_col,
-                    pos_label=self.cfg.pos_label,
+                    pos_label=pos_label,
                 )
                 logging.info("Run %s: Completed", run_id)
 

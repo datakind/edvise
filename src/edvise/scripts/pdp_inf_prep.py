@@ -3,6 +3,8 @@
 import argparse
 import pandas as pd
 import logging
+from databricks.sdk.runtime import dbutils
+
 import os
 import sys
 
@@ -74,6 +76,13 @@ class InferencePrepTask:
             overwrite=True,
             verbose=True,
         )
+
+        # Setting h2o vs sklearn based on config
+        model_type = (
+            "h2o" if getattr(self.cfg.model, "framework", None) == "h2o" else "sklearn"
+        )
+        dbutils.jobs.taskValues.set(key="model_type", value=model_type)
+        logger.info(f"Setting task parameter for 'model_type' as '{model_type}'")
 
 
 def parse_arguments() -> argparse.Namespace:

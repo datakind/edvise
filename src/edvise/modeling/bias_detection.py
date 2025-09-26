@@ -183,9 +183,9 @@ def compute_group_bias_metrics(
         }
 
         eval_metrics = evaluation.compute_classification_perf_metrics(
-            labels,
-            preds,
-            pred_probs,
+            targets=labels,
+            preds=preds,
+            pred_probs=pred_probs,
             pos_label=pos_label,
             sample_weights=(
                 subgroup_data[sample_weight_col]

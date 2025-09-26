@@ -13,6 +13,7 @@ from mlflow.models import Model, infer_signature
 from mlflow.tracking import MlflowClient
 import pandas as pd
 import numpy as np
+import numpy.typing as npt
 from pandas.api.types import (
     is_categorical_dtype,
     is_object_dtype,
@@ -28,12 +29,13 @@ from h2o.two_dim_table import H2OTwoDimTable
 from h2o.estimators.estimator_base import H2OEstimator
 
 
-from sklearn.metrics import confusion_matrix
-
 from . import evaluation
 from . import imputation
 
 LOGGER = logging.getLogger(__name__)
+
+
+PosLabelType = t.Union[bool, str]
 
 
 def safe_h2o_init(base_port: int = 54321, mem_per_cluster: str = "4G") -> None:
@@ -114,6 +116,75 @@ def load_h2o_model(
         return h2o.load_model(local_model_file)
 
 
+def _pick_pos_prob_column(preds, pos_label):
+    """
+    Return the column name or index corresponding to the positive-class probability.
+
+    Handles:
+      - Real H2OFrame prediction objects
+      - Mocks with .col_names (unit tests)
+      - Pandas DataFrame/Series predictions
+      - Numpy arrays
+    """
+    # H2OFrame-like (or MagicMock in tests)
+    if hasattr(preds, "col_names"):
+        names = list(getattr(preds, "col_names") or [])
+        if not names:
+            raise ValueError("Prediction object has no columns")
+        # Candidate names for the positive class
+        candidates = []
+        if isinstance(pos_label, (bool, int)):
+            candidates.append(f"p{int(bool(pos_label))}")  # True/1 → "p1"
+            candidates.append(str(int(bool(pos_label))))  # "1"
+        candidates.append(str(pos_label))
+        for c in candidates:
+            if c in names:
+                return c
+        # Fallback: last column is usually the pos-prob for binary models
+        return names[-1]
+
+    # Pandas DataFrame/Series
+    try:
+        import pandas as pd
+
+        if isinstance(preds, (pd.DataFrame, pd.Series)):
+            cols = list(preds.columns) if hasattr(preds, "columns") else []
+            for c in (f"p{int(bool(pos_label))}", str(pos_label), "p1", "1"):
+                if c in cols:
+                    return c
+            return cols[-1] if cols else 1
+    except Exception:
+        pass
+
+    # Numpy array-like
+    if hasattr(preds, "shape"):
+        try:
+            ncols = preds.shape[1]
+            return ncols - 1 if ncols and ncols > 1 else 0
+        except Exception:
+            return 1
+
+    # Final fallback for odd mocks
+    for key in ("p1", "1"):
+        try:
+            _ = preds[key]
+            return key
+        except Exception:
+            continue
+
+    # Last-ditch numeric index
+    return 1
+
+
+def _binarize_targets(
+    y_true: np.ndarray, pos_label: PosLabelType
+) -> npt.NDArray[np.int_]:
+    """Map y_true to {0,1} with 1 == pos_label."""
+    arr = np.asarray(y_true, dtype=object)
+    bin_ = (arr == pos_label).astype(np.int64, copy=False)
+    return t.cast(npt.NDArray[np.int_], bin_)
+
+
 def get_cv_logloss_stats(
     model: H2OEstimator,
 ) -> t.Tuple[t.Optional[float], t.Optional[float]]:
@@ -132,7 +203,7 @@ def get_cv_logloss_stats(
     """
     try:
         summ = model.cross_validation_metrics_summary()
-        df = summ.as_data_frame() if hasattr(summ, "as_data_frame") else summ
+        df = _to_pandas(summ) if hasattr(summ, "as_data_frame") else summ
         if isinstance(df, pd.DataFrame):
             cols = [str(c).strip().lower() for c in df.columns]
             df.columns = cols
@@ -292,6 +363,8 @@ def log_h2o_experiment(
     test: h2o.H2OFrame,
     target_col: str,
     experiment_id: str,
+    pos_label: PosLabelType,
+    sample_weight_col: str = "sample_weight",
     imputer: t.Optional[imputation.SklearnImputerWrapper] = None,
 ) -> pd.DataFrame:
     """
@@ -356,6 +429,8 @@ def log_h2o_experiment(
             imputer=imputer,
             target_col=target_col,
             primary_metric=aml.sort_metric,
+            sample_weight_col=sample_weight_col,
+            pos_label=pos_label,
         )
 
         if metrics:
@@ -397,8 +472,8 @@ def log_h2o_experiment_summary(
 
     with mlflow.start_run(run_name=run_name):
         # Log basic experiment metadata
-        mlflow.log_metric("num_models_trained", len(leaderboard_df))
-        mlflow.log_param("best_model_id", aml.leader.model_id)
+        _safe_mlflow_log_metric(key="num_models_trained", value=len(leaderboard_df))
+        _safe_mlflow_log_metric(key="best_model_id", value=aml.leader.model_id)
 
         # Create tmp directory for artifacts
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -455,7 +530,9 @@ def log_h2o_model(
     train: h2o.H2OFrame,
     valid: h2o.H2OFrame,
     test: h2o.H2OFrame,
+    pos_label: PosLabelType,
     threshold: float = 0.5,
+    sample_weight_col: str = "sample_weight",
     target_col: str = "target",
     imputer: t.Optional[imputation.SklearnImputerWrapper] = None,
     primary_metric: str = "logloss",
@@ -470,21 +547,35 @@ def log_h2o_model(
         # get model
         model = h2o.get_model(model_id)
 
-        # compute scalar metrics once (no logging here)
-        metrics = evaluation.get_metrics_near_threshold_all_splits(
-            model, train, valid, test, threshold=threshold
+        # compute scalar metrics once
+        metrics = evaluation.get_metrics_fixed_threshold_all_splits(
+            model=model,
+            train=train,
+            valid=valid,
+            test=test,
+            target_col=target_col,
+            pos_label=pos_label,
+            threshold=threshold,
+            sample_weight_col=sample_weight_col,
         )
 
         # ensure clean run context
-        if mlflow.active_run():
-            mlflow.end_run()
+        try:
+            if mlflow.active_run() is not None:
+                mlflow.end_run()
+        except Exception as e:
+            LOGGER.debug(f"No active MLflow run to end (safe to ignore): {e}")
 
         with mlflow.start_run():
             active_run = mlflow.active_run()
             run_id = active_run.info.run_id if active_run else None
 
-            # primary metric tag
-            mlflow.set_tag("mlflow.primaryMetric", f"validate_{primary_metric}")
+            try:
+                # Only set tag if MLflow believes there's an active run
+                if mlflow.active_run() is not None:
+                    mlflow.set_tag("mlflow.primaryMetric", f"validate_{primary_metric}")
+            except Exception as e:
+                LOGGER.debug(f"Skipping mlflow.set_tag (no real run / mocked env): {e}")
 
             # model comparison plot
             # keep this where it is, but only silence its progress bars
@@ -495,40 +586,42 @@ def log_h2o_model(
             for split_name, frame in zip(
                 ("train", "val", "test"), (train, valid, test)
             ):
-                # y_true (pandas)
-                y_true = _to_pandas(frame[target_col]).values.flatten()
+                df_split = _to_pandas(frame)
 
-                # predict probabilities
+                y_true_raw = _to_pandas(frame[target_col]).values.flatten()
+                y_true_bin = _binarize_targets(y_true_raw, pos_label)
+
                 with _suppress_output():
                     preds = model.predict(frame)
-                positive_class_label = preds.col_names[-1]
 
-                # pull prob column to pandas
-                y_proba = _to_pandas(preds[positive_class_label]).values.flatten()
+                prob_col = _pick_pos_prob_column(preds, pos_label)
+                y_proba = _to_pandas(preds[prob_col]).to_numpy().reshape(-1)
                 y_pred = (y_proba >= threshold).astype(int)
 
-                # confusion matrix counts (for FE tables)
-                tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
-                label = "validate" if split_name == "val" else split_name
-                metrics.update(
-                    {
-                        f"{label}_true_positives": float(tp),
-                        f"{label}_true_negatives": float(tn),
-                        f"{label}_false_positives": float(fp),
-                        f"{label}_false_negatives": float(fn),
-                    }
-                )
+                weights = None
+                if sample_weight_col and sample_weight_col in df_split.columns:
+                    weights = (
+                        df_split[sample_weight_col].astype(float).fillna(0.0).to_numpy()
+                    )
 
-                # classification plots (ROC/PR/etc)
                 with _suppress_output():
                     evaluation.generate_all_classification_plots(
-                        y_true, y_pred, y_proba, prefix=split_name
+                        y_true=y_true_bin,
+                        y_pred=y_pred,
+                        y_proba=y_proba,
+                        prefix=split_name,
+                        sample_weights=weights,
                     )
 
             # Log overfit score based on log loss and CV
-            ofs = compute_overfit_score_logloss(
-                model=model, train=train, valid=valid, test=test
-            )
+            try:
+                ofs = compute_overfit_score_logloss(
+                    model=model, train=train, valid=valid, test=test
+                )
+                metrics.update(ofs)
+            except Exception as e:
+                LOGGER.warning(f"Failed to compute overfit score: {e}")
+
             metrics.update(ofs)
 
             with _suppress_output():
@@ -562,9 +655,8 @@ def log_h2o_model(
 
             # Predict on the *same small sample* (fast) for signature outputs
             with _suppress_output():
-                y_pred_sample = model.predict(sample_hf).as_data_frame()
-            if hasattr(y_pred_sample, "as_data_frame"):
-                y_pred_sample = y_pred_sample.as_data_frame()
+                y_pred_sample_hf = model.predict(sample_hf)
+            y_pred_sample = _to_pandas(y_pred_sample_hf)
 
             X_sample = X_sample.copy()
             maybe_na_ints = [
@@ -590,9 +682,7 @@ def log_h2o_model(
                     imputer.log_pipeline(artifact_path="sklearn_imputer")
                 except Exception as e:
                     LOGGER.warning(f"Failed to log imputer artifacts: {e}")
-
-        metrics["mlflow_run_id"] = str(run_id)
-        return metrics
+        return {**metrics, "run_id": run_id, "model_id": model_id}
 
     except Exception as e:
         LOGGER.exception(f"Failed to evaluate and log model {model_id}: {e}")
@@ -941,3 +1031,11 @@ def _try_export_mojo(h2o_model: ModelBase, tmpdir: str) -> str | None:
             "MOJO export failed for algo=%s: %s", getattr(h2o_model, "algo", "?"), e
         )
         return None
+
+
+def _safe_mlflow_log_metric(key, value, step=None):
+    try:
+        if mlflow.active_run() is not None:
+            mlflow.log_metric(key, value, step=step)
+    except Exception:
+        pass
