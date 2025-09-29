@@ -142,7 +142,7 @@ class ModelInferenceTask:
         if self.cfg.pos_label is None:
             raise ValueError("Missing 'pos_label' in config.")
         
-        if self.cfg.model.run_id is None:
+        if self.cfg.model or self.cfg.model.run_id is None:
             raise ValueError("cfg.model.run_id must be set for inference runs.")
         current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
 
