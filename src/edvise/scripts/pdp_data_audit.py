@@ -144,14 +144,26 @@ class PDPDataAuditTask:
 
     def run(self):
         """Executes the data preprocessing pipeline."""
+        # Create a folder to save all the files in
+        if self.args.job_type == "training":
+            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
+            os.makedirs(current_run_path, exist_ok=True)
+        elif self.args.job_type == "inference":
+            if self.cfg.model.run_id is None:
+                raise ValueError("cfg.model.run_id must be set for inference runs.")
+            current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
+        else:
+            raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+
+        # Determine file paths
         cohort_dataset_raw_path = self._pick_existing_path(
             self.args.cohort_dataset_validated_path,
-            self.cfg.datasets.bronze.raw_cohort.file_path,
+            f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
             "cohort",
         )
         course_dataset_raw_path = self._pick_existing_path(
             self.args.course_dataset_validated_path,
-            self.cfg.datasets.bronze.raw_course.file_path,
+            f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
             "course",
         )
 
@@ -318,11 +330,11 @@ class PDPDataAuditTask:
         # --- Write results ---
         write_parquet(
             df_cohort_standardized,
-            f"{self.args.silver_volume_path}/df_cohort_standardized.parquet",
+            f"{current_run_path}/df_cohort_standardized.parquet",
         )
         write_parquet(
             df_course_standardized,
-            f"{self.args.silver_volume_path}/df_course_standardized.parquet",
+            f"{current_run_path}/df_course_standardized.parquet",
         )
 
 
@@ -345,6 +357,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--job_type", type=str, required=True)
+    parser.add_argument("--db_run_id", type=str, required=False)
     return parser.parse_args()
 
 

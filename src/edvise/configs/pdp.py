@@ -51,11 +51,9 @@ class PDPProjectConfig(pyd.BaseModel):
     random_state: t.Optional[int] = None
     pipeline_version: str = "v0.1.2"
 
-    # key artifacts produced by project pipeline
-    datasets: "AllDatasetStagesConfig" = pyd.Field(
-        description=(
-            "Key datasets produced by the pipeline represented here in this config"
-        ),
+    # key input datasets
+    datasets: "DatasetsConfig" = pyd.Field(
+        description=("Input filenames"),
     )
     model: t.Optional["ModelConfig"] = pyd.Field(
         default=None,
@@ -139,46 +137,45 @@ class PDPProjectConfig(pyd.BaseModel):
         return self
 
 
-class BronzeDatasetConfig(pyd.BaseModel):
-    raw_course: "DatasetIOConfig"
-    raw_cohort: "DatasetIOConfig"
+# class BronzeDatasetConfig(pyd.BaseModel):
+#     raw_course: "DatasetIOConfig"
+#     raw_cohort: "DatasetIOConfig"
 
 
-class SilverDatasetConfig(pyd.BaseModel):
-    preprocessed: "DatasetIOConfig"
-    modeling: "DatasetIOConfig"
+# class SilverDatasetConfig(pyd.BaseModel):
+#     preprocessed: "DatasetIOConfig"
+#     modeling: "DatasetIOConfig"
 
 
-class GoldDatasetConfig(pyd.BaseModel):
-    advisor_output: "DatasetIOConfig"
+# class GoldDatasetConfig(pyd.BaseModel):
+#     advisor_output: "DatasetIOConfig"
 
 
-class AllDatasetStagesConfig(pyd.BaseModel):
-    bronze: BronzeDatasetConfig
-    silver: SilverDatasetConfig
-    gold: GoldDatasetConfig
+class DatasetsConfig(pyd.BaseModel):
+    raw_course: str
+    raw_cohort: str
 
 
-class DatasetIOConfig(pyd.BaseModel):
-    table_path: t.Optional[str] = pyd.Field(
-        default=None,
-        description=(
-            "Path to a table in Unity Catalog where dataset is stored, "
-            "including the full three-level namespace: 'CATALOG.SCHEMA.TABLE'"
-        ),
-    )
-    file_path: t.Optional[str] = pyd.Field(
-        default=None,
-        description="Full, absolute path to dataset on disk, e.g. a Databricks Volume",
-    )
-    # TODO: if/when we allow different file formats, add this parameter ...
-    # file_format: t.Optional[t.Literal["csv", "parquet"]] = pyd.Field(default=None)
+# class DatasetIOConfig(pyd.BaseModel):
+#     table_path: t.Optional[str] = pyd.Field(
+#         default=None,
+#         description=(
+#             "Path to a table in Unity Catalog where dataset is stored, "
+#             "including the full three-level namespace: 'CATALOG.SCHEMA.TABLE'"
+#         ),
+#     )
+#     file_path: t.Optional[str] = pyd.Field(
+#         default=None,
+#         description="Full, absolute path to dataset on disk, e.g. a Databricks Volume",
+#     )
+#     # TODO: if/when we allow different file formats, add this parameter ...
+#     # file_format: t.Optional[t.Literal["csv", "parquet"]] = pyd.Field(default=None)
 
-    @pyd.model_validator(mode="after")
-    def check_some_nonnull_inputs(self):
-        if self.table_path is None and self.file_path is None:
-            raise ValueError("table_path and/or file_path must be non-null")
-        return self
+#     @pyd.model_validator(mode="after")
+#     def check_some_nonnull_inputs(self):
+#         if self.table_path is None and self.file_path is None:
+#             raise ValueError("table_path and/or file_path must be non-null")
+#         return self
 
 
 class ModelConfig(pyd.BaseModel):
