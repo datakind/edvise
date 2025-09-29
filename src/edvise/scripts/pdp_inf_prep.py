@@ -1,5 +1,3 @@
-## TODO : edit so it works for training or inference (with and without targets)
-
 import argparse
 import pandas as pd
 import logging

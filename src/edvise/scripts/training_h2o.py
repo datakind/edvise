@@ -296,7 +296,7 @@ class TrainingTask:
             schema=configs.pdp.PDPProjectConfig,
         )
 
-    def make_predictions(self):
+    def make_predictions(self, current_run_path):
         cfg = PredConfig(
             model_run_id=self.cfg.model.run_id,
             experiment_id=self.cfg.model.experiment_id,
@@ -339,7 +339,7 @@ class TrainingTask:
 
             # read modeling parquet for roc table
             modeling_df = dataio.read.read_parquet(
-                f"{self.args.silver_volume_path}/modeling.parquet"
+                f"{current_run_path}/modeling.parquet"
             )
 
             # training-only logging
@@ -402,19 +402,21 @@ class TrainingTask:
 
     def run(self):
         """Executes the target computation pipeline and saves result."""
+        current_run_path = f"{self.args.silver_volume_path}/current_run"
+
         logging.info("Loading preprocessed data")
         df_preprocessed = pd.read_parquet(
-            f"{self.args.silver_volume_path}/preprocessed.parquet"
+            f"{current_run_path}/preprocessed.parquet"
         )
         logging.info("Selecting features")
         df_modeling = self.feature_selection(df_preprocessed)
 
         logging.info("Saving modeling data")
         df_modeling.to_parquet(
-            f"{self.args.silver_volume_path}/modeling.parquet", index=False
+            f"{current_run_path}/modeling.parquet", index=False
         )
         logging.info(
-            f"Modeling file saved to {self.args.silver_volume_path}/modeling.parquet"
+            f"Modeling file saved to {current_run_path}/modeling.parquet"
         )
         logging.info("Training model")
         experiment_id = self.train_model(df_modeling)
@@ -426,13 +428,17 @@ class TrainingTask:
         self.select_model(experiment_id)
 
         logging.info("Generating training predictions & SHAP values")
-        self.make_predictions()
+        self.make_predictions(current_run_path=current_run_path)
 
         logging.info("Registering model in UC gold volume")
         model_name = self.register_model()
 
         logging.info("Generating model card")
         self.create_model_card(model_name)
+
+        logging.info("Updating folder name to model id")
+        os.rename(current_run_path, 
+                f"{self.args.silver_volume_path}/{self.cfg.model.run_id}")
 
 
 def parse_arguments() -> argparse.Namespace:

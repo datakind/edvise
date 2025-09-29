@@ -131,14 +131,22 @@ class PDPCheckpointsTask:
 
     def run(self):
         """Executes the data preprocessing pipeline."""
+        if self.args.job_type == "training":
+            current_run_path = f"{self.args.silver_volume_path}/current_run"
+        elif self.args.job_type == "inference":
+            if self.cfg.model.run_id is None:
+                raise ValueError("cfg.model.run_id must be set for inference runs.")
+            current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
+        else:
+            raise ValueError(f"Unsupported job_type: {self.args.job_type}")
         df_student_terms = pd.read_parquet(
-            f"{self.args.silver_volume_path}/student_terms.parquet"
+            f"{current_run_path}/student_terms.parquet"
         )
 
         df_ckpt = self.checkpoint_generation(df_student_terms)
 
         df_ckpt.to_parquet(
-            f"{self.args.silver_volume_path}/checkpoint.parquet", index=False
+            f"{current_run_path}/checkpoint.parquet", index=False
         )
 
 
@@ -149,6 +157,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument("--job_type", type=str, required=True)
 
     return parser.parse_args()
 

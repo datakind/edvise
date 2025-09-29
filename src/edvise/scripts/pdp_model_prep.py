@@ -129,12 +129,14 @@ class ModelPrepTask:
 
     def run(self):
         # Read inputs using custom function
+        current_run_path = f"{self.args.silver_volume_path}/current_run"
+
         checkpoint_df = read_parquet(
-            f"{self.args.silver_volume_path}/checkpoint.parquet"
+            f"{current_run_path}/checkpoint.parquet"
         )
-        target_df = read_parquet(f"{self.args.silver_volume_path}/target.parquet")
+        target_df = read_parquet(f"{current_run_path}/target.parquet")
         selected_students = read_parquet(
-            f"{self.args.silver_volume_path}/selected_students.parquet"
+            f"{current_run_path}/selected_students.parquet"
         )
 
         df_labeled = self.merge_data(checkpoint_df, target_df, selected_students)
@@ -145,7 +147,7 @@ class ModelPrepTask:
         # Write output using custom function
         write_parquet(
             df_preprocessed,
-            file_path=f"{self.args.silver_volume_path}/preprocessed.parquet",
+            file_path=f"{current_run_path}/preprocessed.parquet",
             index=False,
             overwrite=True,
             verbose=True,

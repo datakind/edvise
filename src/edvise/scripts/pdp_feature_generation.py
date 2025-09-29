@@ -48,12 +48,21 @@ class PDPFeatureGenerationTask:
         key_course_subject_areas = features_cfg.key_course_subject_areas
         key_course_ids = features_cfg.key_course_ids
 
+        if self.args.job_type == "training":
+            current_run_path = f"{self.args.silver_volume_path}/current_run"
+        elif self.args.job_type == "inference":
+            if self.cfg.model.run_id is None:
+                raise ValueError("cfg.model.run_id must be set for inference runs.")
+            current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
+        else:
+            raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+
         # --- Load datasets ---
         df_course = pd.read_parquet(
-            f"{self.args.silver_volume_path}/df_course_standardized.parquet"
+            f"{current_run_path}/df_course_standardized.parquet"
         )
         df_cohort = pd.read_parquet(
-            f"{self.args.silver_volume_path}/df_cohort_standardized.parquet"
+            f"{current_run_path}/df_cohort_standardized.parquet"
         )
 
         # --- Generate student-term dataset ---
@@ -70,7 +79,7 @@ class PDPFeatureGenerationTask:
 
         # --- Write result ---
         df_student_terms.to_parquet(
-            f"{self.args.silver_volume_path}/student_terms.parquet", index=False
+            f"{current_run_path}/student_terms.parquet", index=False
         )
 
     def make_student_term_dataset(
@@ -145,6 +154,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument("--job_type", type=str, required=True)
 
     return parser.parse_args()
 
