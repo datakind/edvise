@@ -289,12 +289,6 @@ class TrainingTask:
             run_id=top_run_id,
             experiment_id=experiment_id,
         )
-        #archive config to the run folder
-        edvise_utils.update_config.update_run_metadata(
-            config_path=f"{self.args.silver_volume_path}/{self.args.db_run_id}/{self.args.config_file_name}",
-            run_id=top_run_id,
-            experiment_id=experiment_id,
-        )
 
         # create parameter for updated config post model-selection
         self.cfg = dataio.read.read_config(
