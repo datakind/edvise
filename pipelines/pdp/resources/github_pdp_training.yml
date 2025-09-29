@@ -2,7 +2,7 @@ resources:
   jobs:
     github_sourced_pdp_training_pipeline:
       name: github_sourced_pdp_training_pipeline
-      max_concurrent_runs: 2
+      max_concurrent_runs: 5
       tasks:
         - task_key: data_audit
           spark_python_task:
@@ -245,6 +245,8 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --config_file_name
               - "{{job.parameters.config_file_name}}"
+              - --gold_table_path
+              - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
           job_cluster_key: edvise-pdp-training-pipeline-cluster
           libraries:
             - pypi:

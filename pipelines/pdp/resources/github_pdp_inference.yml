@@ -2,7 +2,7 @@ resources:
   jobs:
     edvise_github_sourced_pdp_inference_pipeline:
       name: edvise_github_sourced_pdp_inference_pipeline
-      max_concurrent_runs: 2
+      max_concurrent_runs: 5
       tasks:
         - task_key: data_ingestion
           spark_python_task:
@@ -229,7 +229,7 @@ resources:
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
               - --gold_table_path
-              - "{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold"
+              - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
               - --datakind_notification_email
               - "{{job.parameters.datakind_notification_email}}"
               - --DK_CC_EMAIL

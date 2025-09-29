@@ -320,7 +320,7 @@ class TrainingTask:
             # write gold artifacts
             dataio.write.to_delta_table(
                 df=out.top_features_result,
-                table_path=self.cfg.datasets.gold.advisor_output.table_path,
+                table_path=f"{self.args.gold_table_path}.advisor_output",
                 spark_session=self.spark_session,
             )
 
@@ -450,6 +450,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--config_file_name", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
     parser.add_argument("--ds_run_as", type=str, required=False)
+    parser.add_argument("--gold_table_path", type=str, required=True)
     return parser.parse_args()
 
 
