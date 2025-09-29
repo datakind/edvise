@@ -79,6 +79,8 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
+              - --job_type
+              - "{{job.parameters.job_type}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -112,6 +114,8 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
+              - --job_type
+              - "{{job.parameters.job_type}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -145,6 +149,8 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
+              - --job_type
+              - "{{job.parameters.job_type}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
