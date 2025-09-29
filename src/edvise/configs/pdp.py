@@ -52,7 +52,7 @@ class PDPProjectConfig(pyd.BaseModel):
     pipeline_version: str = "v0.1.2"
 
     # key input datasets
-    datasets: "AllDatasetStagesConfig" = pyd.Field(
+    datasets: "DatasetsConfig" = pyd.Field(
         description=(
             "Input filenames"
         ),
@@ -153,9 +153,9 @@ class PDPProjectConfig(pyd.BaseModel):
 #     advisor_output: "DatasetIOConfig"
 
 
-class AllDatasetStagesConfig(pyd.BaseModel):
+class DatasetsConfig(pyd.BaseModel):
     raw_course: str
-    raw_course: str
+    raw_cohort: str
 
 # class DatasetIOConfig(pyd.BaseModel):
 #     table_path: t.Optional[str] = pyd.Field(
