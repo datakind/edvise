@@ -53,9 +53,7 @@ class PDPProjectConfig(pyd.BaseModel):
 
     # key input datasets
     datasets: "DatasetsConfig" = pyd.Field(
-        description=(
-            "Input filenames"
-        ),
+        description=("Input filenames"),
     )
     model: t.Optional["ModelConfig"] = pyd.Field(
         default=None,
@@ -156,6 +154,7 @@ class PDPProjectConfig(pyd.BaseModel):
 class DatasetsConfig(pyd.BaseModel):
     raw_course: str
     raw_cohort: str
+
 
 # class DatasetIOConfig(pyd.BaseModel):
 #     table_path: t.Optional[str] = pyd.Field(

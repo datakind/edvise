@@ -347,15 +347,13 @@ class ModelInferenceTask:
             raise ValueError("Missing 'preprocessing.checkpoint' section in config.")
         if self.cfg.pos_label is None:
             raise ValueError("Missing 'pos_label' in config.")
-        
+
         if self.cfg.model.run_id is None:
             raise ValueError("cfg.model.run_id must be set for inference runs.")
         current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
 
         # 1) Read the processed dataset
-        df_processed = self.read_parquet(
-            f"{current_run_path}/preprocessed.parquet"
-        )
+        df_processed = self.read_parquet(f"{current_run_path}/preprocessed.parquet")
         # HACK: subset for testing
         # df_processed = df_processed[:30]
 

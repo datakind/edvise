@@ -79,9 +79,9 @@ def make_pdp_config() -> PDPProjectConfig:
         institution_name="Inst Name",
         model={"experiment_id": "exp123", "run_id": "abc"},
         datasets={
-                "raw_course": "dummy.csv",
-                "raw_cohort": "dummy.csv",
-            },        
+            "raw_course": "dummy.csv",
+            "raw_cohort": "dummy.csv",
+        },
         preprocessing={
             "selection": {"student_criteria": {"status": "active"}},
             "checkpoint": {

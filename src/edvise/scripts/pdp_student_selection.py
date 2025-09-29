@@ -46,9 +46,7 @@ class StudentSelectionTask:
         else:
             raise ValueError(f"Unsupported job_type: {self.args.job_type}")
         # Load the student-term data
-        df_student_terms = pd.read_parquet(
-            f"{current_run_path}/student_terms.parquet"
-        )
+        df_student_terms = pd.read_parquet(f"{current_run_path}/student_terms.parquet")
 
         # Pull selection criteria and ID column(s)
         student_criteria = self.cfg.preprocessing.selection.student_criteria

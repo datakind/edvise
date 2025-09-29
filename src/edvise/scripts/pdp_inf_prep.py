@@ -56,12 +56,10 @@ class InferencePrepTask:
 
     def run(self):
         if self.cfg.model.run_id is None:
-                raise ValueError("cfg.model.run_id must be set for inference runs.")
+            raise ValueError("cfg.model.run_id must be set for inference runs.")
         current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
         # Read inputs using custom function
-        checkpoint_df = read_parquet(
-            f"{current_run_path}/checkpoint.parquet"
-        )
+        checkpoint_df = read_parquet(f"{current_run_path}/checkpoint.parquet")
         selected_students = read_parquet(
             f"{current_run_path}/selected_students.parquet"
         )

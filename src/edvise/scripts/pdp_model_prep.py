@@ -131,9 +131,7 @@ class ModelPrepTask:
         # Read inputs using custom function
         current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
 
-        checkpoint_df = read_parquet(
-            f"{current_run_path}/checkpoint.parquet"
-        )
+        checkpoint_df = read_parquet(f"{current_run_path}/checkpoint.parquet")
         target_df = read_parquet(f"{current_run_path}/target.parquet")
         selected_students = read_parquet(
             f"{current_run_path}/selected_students.parquet"

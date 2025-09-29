@@ -405,19 +405,13 @@ class TrainingTask:
         current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
 
         logging.info("Loading preprocessed data")
-        df_preprocessed = pd.read_parquet(
-            f"{current_run_path}/preprocessed.parquet"
-        )
+        df_preprocessed = pd.read_parquet(f"{current_run_path}/preprocessed.parquet")
         logging.info("Selecting features")
         df_modeling = self.feature_selection(df_preprocessed)
 
         logging.info("Saving modeling data")
-        df_modeling.to_parquet(
-            f"{current_run_path}/modeling.parquet", index=False
-        )
-        logging.info(
-            f"Modeling file saved to {current_run_path}/modeling.parquet"
-        )
+        df_modeling.to_parquet(f"{current_run_path}/modeling.parquet", index=False)
+        logging.info(f"Modeling file saved to {current_run_path}/modeling.parquet")
         logging.info("Training model")
         experiment_id = self.train_model(df_modeling)
 
@@ -437,8 +431,9 @@ class TrainingTask:
         self.create_model_card(model_name)
 
         logging.info("Updating folder name to model id")
-        os.rename(current_run_path, 
-                f"{self.args.silver_volume_path}/{self.cfg.model.run_id}")
+        os.rename(
+            current_run_path, f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
+        )
 
 
 def parse_arguments() -> argparse.Namespace:

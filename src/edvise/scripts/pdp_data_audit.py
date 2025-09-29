@@ -9,7 +9,7 @@ import os
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
-repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", "..")) 
+repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
 src_path = os.path.join(repo_root, "src")
 
 if os.path.isdir(src_path) and src_path not in sys.path:
@@ -48,7 +48,7 @@ from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
     log_pre_cohort_courses,
 )
- 
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)
@@ -144,7 +144,7 @@ class PDPDataAuditTask:
 
     def run(self):
         """Executes the data preprocessing pipeline."""
-        #Create a folder to save all the files in 
+        # Create a folder to save all the files in
         if self.args.job_type == "training":
             current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
             os.makedirs(current_run_path, exist_ok=True)

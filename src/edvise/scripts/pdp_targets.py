@@ -69,9 +69,7 @@ class PDPTargetsTask:
         logging.info("Loading student-terms data...")
         current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
 
-        df_student_terms = pd.read_parquet(
-            f"{current_run_path}/student_terms.parquet"
-        )
+        df_student_terms = pd.read_parquet(f"{current_run_path}/student_terms.parquet")
 
         logging.info("Generating target labels...")
         target_series = self.target_generation(df_student_terms)
@@ -82,12 +80,8 @@ class PDPTargetsTask:
             columns={target_series.name: "target"}
         )
 
-        df_target.to_parquet(
-            f"{current_run_path}/target.parquet", index=False
-        )
-        logging.info(
-            f"Target file saved to {current_run_path}/target.parquet"
-        )
+        df_target.to_parquet(f"{current_run_path}/target.parquet", index=False)
+        logging.info(f"Target file saved to {current_run_path}/target.parquet")
 
 
 def parse_arguments() -> argparse.Namespace:

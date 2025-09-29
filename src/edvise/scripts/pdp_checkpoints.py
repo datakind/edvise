@@ -139,15 +139,11 @@ class PDPCheckpointsTask:
             current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
         else:
             raise ValueError(f"Unsupported job_type: {self.args.job_type}")
-        df_student_terms = pd.read_parquet(
-            f"{current_run_path}/student_terms.parquet"
-        )
+        df_student_terms = pd.read_parquet(f"{current_run_path}/student_terms.parquet")
 
         df_ckpt = self.checkpoint_generation(df_student_terms)
 
-        df_ckpt.to_parquet(
-            f"{current_run_path}/checkpoint.parquet", index=False
-        )
+        df_ckpt.to_parquet(f"{current_run_path}/checkpoint.parquet", index=False)
 
 
 def parse_arguments() -> argparse.Namespace:
