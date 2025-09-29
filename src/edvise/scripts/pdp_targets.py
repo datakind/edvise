@@ -67,9 +67,9 @@ class PDPTargetsTask:
     def run(self):
         """Executes the target computation pipeline and saves result."""
         logging.info("Loading student-terms data...")
-        df_student_terms = pd.read_parquet(
-            f"{self.args.silver_volume_path}/student_terms.parquet"
-        )
+        current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
+
+        df_student_terms = pd.read_parquet(f"{current_run_path}/student_terms.parquet")
 
         logging.info("Generating target labels...")
         target_series = self.target_generation(df_student_terms)
@@ -80,12 +80,8 @@ class PDPTargetsTask:
             columns={target_series.name: "target"}
         )
 
-        df_target.to_parquet(
-            f"{self.args.silver_volume_path}/target.parquet", index=False
-        )
-        logging.info(
-            f"Target file saved to {self.args.silver_volume_path}/target.parquet"
-        )
+        df_target.to_parquet(f"{current_run_path}/target.parquet", index=False)
+        logging.info(f"Target file saved to {current_run_path}/target.parquet")
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -93,6 +89,7 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Target generation for SST pipeline.")
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument("--db_run_id", type=str, required=False)
     return parser.parse_args()
 
 

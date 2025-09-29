@@ -10,17 +10,11 @@ pred_col = "pred"
 pred_prob_col = "pred_prob"
 pos_label = true
 random_state = 12345
+pipeline_version = "v0.1.2"
 
-[datasets.bronze]
-raw_course = { file_path = "/Volumes/CATALOG/INST_ID_bronze/INST_ID_bronze_file_volume/FILE_NAME_COURSE.csv" }
-raw_cohort = { file_path = "/Volumes/CATALOG/INST_ID_bronze/INST_ID_bronze_file_volume/FILE_NAME_COHORT.csv" }
-
-[datasets.silver]
-preprocessed = { table_path = "CATALOG.INST_ID_silver.DATASET_NAME_preprocessed" }
-modeling = { table_path = "CATALOG.INST_ID_silver.DATASET_NAME_modeling" }
-
-[datasets.gold]
-advisor_output = { table_path = "CATALOG.INST_ID_gold.INST_ID_advisor_output" }
+[datasets]
+raw_course = "FILE_NAME_COURSE.csv"
+raw_cohort = "FILE_NAME_COHORT.csv"
 
 [model]
 experiment_id = "EXPERIMENT_ID"
@@ -76,3 +70,4 @@ topn_runs_included = 5
 num_top_features = 5
 min_prob_pos_label = 0.5
 background_data_sample = 500
+cohort = ['fall 2024-25']
