@@ -141,6 +141,10 @@ class ModelInferenceTask:
             raise ValueError("Missing 'preprocessing.checkpoint' section in config.")
         if self.cfg.pos_label is None:
             raise ValueError("Missing 'pos_label' in config.")
+        
+        if self.cfg.model.run_id is None:
+            raise ValueError("cfg.model.run_id must be set for inference runs.")
+        current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
 
         # 1) Load UC model metadata (run_id + experiment_id)
         self.load_mlflow_model_metadata()
@@ -148,7 +152,7 @@ class ModelInferenceTask:
 
         # 2) Read the processed dataset
         df_processed = dataio.read.read_parquet(
-            f"{self.args.silver_volume_path}/preprocessed.parquet"
+            f"{current_run_path}/preprocessed.parquet"
         )
 
         # 3) Notify via email

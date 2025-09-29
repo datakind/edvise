@@ -55,12 +55,15 @@ class InferencePrepTask:
         return cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled)
 
     def run(self):
+        if self.cfg.model.run_id is None:
+                raise ValueError("cfg.model.run_id must be set for inference runs.")
+        current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
         # Read inputs using custom function
         checkpoint_df = read_parquet(
-            f"{self.args.silver_volume_path}/checkpoint.parquet"
+            f"{current_run_path}/checkpoint.parquet"
         )
         selected_students = read_parquet(
-            f"{self.args.silver_volume_path}/selected_students.parquet"
+            f"{current_run_path}/selected_students.parquet"
         )
 
         df_labeled = self.merge_data(checkpoint_df, selected_students)
@@ -69,7 +72,7 @@ class InferencePrepTask:
         # Write output using custom function
         write_parquet(
             df_preprocessed,
-            file_path=f"{self.args.silver_volume_path}/preprocessed.parquet",
+            file_path=f"{current_run_path}/preprocessed.parquet",
             index=False,
             overwrite=True,
             verbose=True,
@@ -89,6 +92,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument("--db_run_id", type=str, required=False)
     return parser.parse_args()
 
 
