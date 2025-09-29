@@ -300,14 +300,17 @@ class PDPDataAuditTask:
 
         # Log Math/English gateway courses and add to config
         ids_cips = compute_gateway_course_ids_and_cips(df_course_standardized)
-        LOGGER.info(
-            " Auto-populating config with below course IDs and cip codes: change if necessary"
-        )
-        update_key_courses_and_cips(
-            self.args.config_file_path,
-            key_course_ids=ids_cips[0],
-            key_course_subject_areas=ids_cips[1],
-        )
+
+        # Auto-populate only at training time to avoid training-inference skew
+        if self.args.job_type == "training":
+            LOGGER.info(
+                " Auto-populating config with below course IDs and cip codes: change if necessary"
+            )
+            update_key_courses_and_cips(
+                self.args.config_file_path,
+                key_course_ids=ids_cips[0],
+                key_course_subject_areas=ids_cips[1],
+            )
 
         # Log changes before and after pre-processing
         log_record_drops(
