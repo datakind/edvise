@@ -67,14 +67,7 @@ class PDPTargetsTask:
     def run(self):
         """Executes the target computation pipeline and saves result."""
         logging.info("Loading student-terms data...")
-        if self.args.job_type == "training":
-            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
-        elif self.args.job_type == "inference":
-            if self.cfg.model.run_id is None:
-                raise ValueError("cfg.model.run_id must be set for inference runs.")
-            current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
-        else:
-            raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+        current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
 
         df_student_terms = pd.read_parquet(
             f"{current_run_path}/student_terms.parquet"
