@@ -291,7 +291,7 @@ class TrainingTask:
         )
         #archive config to the run folder
         edvise_utils.update_config.update_run_metadata(
-            config_path=f"{self.args.silver_volume_path}/{self.args.db_run_id}",
+            config_path=f"{self.args.silver_volume_path}/{self.args.db_run_id}/{self.args.config_file_name}",
             run_id=top_run_id,
             experiment_id=experiment_id,
         )
@@ -453,6 +453,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument("--config_file_name", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
     parser.add_argument("--ds_run_as", type=str, required=False)
     return parser.parse_args()

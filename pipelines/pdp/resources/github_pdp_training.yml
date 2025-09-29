@@ -243,6 +243,8 @@ resources:
               - "{{job.parameters.ds_run_as}}"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
+              - --config_file_name
+              - "{{job.parameters.config_file_name}}"
           job_cluster_key: edvise-pdp-training-pipeline-cluster
           libraries:
             - pypi:
