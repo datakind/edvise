@@ -79,16 +79,9 @@ def make_pdp_config() -> PDPProjectConfig:
         institution_name="Inst Name",
         model={"experiment_id": "exp123", "run_id": "abc"},
         datasets={
-            "bronze": {
-                "raw_course": {"file_path": "dummy.csv"},
-                "raw_cohort": {"file_path": "dummy.csv"},
-            },
-            "silver": {
-                "preprocessed": {"table_path": "dummy"},
-                "modeling": {"table_path": "dummy"},
-            },
-            "gold": {"advisor_output": {"table_path": "dummy"}},
-        },
+                "raw_course": "dummy.csv",
+                "raw_cohort": "dummy.csv",
+            },        
         preprocessing={
             "selection": {"student_criteria": {"status": "active"}},
             "checkpoint": {
