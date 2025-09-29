@@ -402,7 +402,7 @@ class TrainingTask:
 
     def run(self):
         """Executes the target computation pipeline and saves result."""
-        current_run_path = f"{self.args.silver_volume_path}/current_run"
+        current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
 
         logging.info("Loading preprocessed data")
         df_preprocessed = pd.read_parquet(

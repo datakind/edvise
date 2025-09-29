@@ -38,7 +38,7 @@ class StudentSelectionTask:
     def run(self):
         """Execute the student selection task."""
         if self.args.job_type == "training":
-            current_run_path = f"{self.args.silver_volume_path}/current_run"
+            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
         elif self.args.job_type == "inference":
             if self.cfg.model.run_id is None:
                 raise ValueError("cfg.model.run_id must be set for inference runs.")
@@ -77,6 +77,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--job_type", type=str, required=True)
+    parser.add_argument("--db_run_id", type=str, required=False)
     return parser.parse_args()
 
 

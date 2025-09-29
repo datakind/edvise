@@ -68,7 +68,7 @@ class PDPTargetsTask:
         """Executes the target computation pipeline and saves result."""
         logging.info("Loading student-terms data...")
         if self.args.job_type == "training":
-            current_run_path = f"{self.args.silver_volume_path}/current_run"
+            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
         elif self.args.job_type == "inference":
             if self.cfg.model.run_id is None:
                 raise ValueError("cfg.model.run_id must be set for inference runs.")
@@ -102,6 +102,7 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Target generation for SST pipeline.")
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument("--db_run_id", type=str, required=False)
     return parser.parse_args()
 
 

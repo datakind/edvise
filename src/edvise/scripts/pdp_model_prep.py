@@ -129,7 +129,7 @@ class ModelPrepTask:
 
     def run(self):
         # Read inputs using custom function
-        current_run_path = f"{self.args.silver_volume_path}/current_run"
+        current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
 
         checkpoint_df = read_parquet(
             f"{current_run_path}/checkpoint.parquet"
@@ -160,6 +160,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument("--db_run_id", type=str, required=False)
     return parser.parse_args()
 
 

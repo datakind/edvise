@@ -146,7 +146,7 @@ class PDPDataAuditTask:
         """Executes the data preprocessing pipeline."""
         #Create a folder to save all the files in 
         if self.args.job_type == "training":
-            current_run_path = f"{self.args.silver_volume_path}/current_run"
+            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
             os.makedirs(current_run_path, exist_ok=True)
         elif self.args.job_type == "inference":
             if self.cfg.model.run_id is None:
@@ -357,6 +357,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--job_type", type=str, required=True)
+    parser.add_argument("--db_run_id", type=str, required=False)
     return parser.parse_args()
 
 
