@@ -1,4 +1,8 @@
-## 0.1.3 (2025-09-19)
+## 0.1.4 (2025-09-29)
+
+- Update file paths to store all run files into a folder named with the model number
+
+## 0.1.3 (2025-09-27)
 
 - Added sklearn inference to pipeline
 - Added reading model type from config
