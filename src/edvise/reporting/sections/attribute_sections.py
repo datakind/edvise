@@ -60,10 +60,10 @@ def register_attribute_sections(card, registry):
                 k.strip().upper().replace(" ", "-"): v for k, v in limits.items()
             }
 
-        full_time = normalized_limits.get("FULL-TIME")
-        part_time = normalized_limits.get("PART-TIME")
+            full_time = normalized_limits.get("FULL-TIME")
+            part_time = normalized_limits.get("PART-TIME")
 
-        if not full_time:
+        except Exception:
             LOGGER.warning(
                 "Unable to determine timeframe of outcome for students. Please specify in model card or in config.toml."
             )
