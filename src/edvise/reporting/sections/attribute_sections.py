@@ -34,8 +34,10 @@ def register_attribute_sections(card, registry):
         with the SST.
         """
         name = card.cfg.preprocessing.target.name
-        limits = card.cfg.preprocessing.selection.intensity_time_limits
-
+        limits = (
+            card.cfg.preprocessing.selection.intensity_time_limits
+            or card.cfg.preprocessing.target.intensity_time_limits
+        )
         if not name or not limits:
             LOGGER.warning(
                 "Unable to determine target or time limit for outcome information. Please specify in model card or in config.toml."
@@ -52,15 +54,16 @@ def register_attribute_sections(card, registry):
             )
             return f"{card.format.bold('Target Variable Not Found')}"
 
-        # Normalize intensity labels to support flexible formats
-        normalized_limits = {
-            k.strip().upper().replace(" ", "-"): v for k, v in limits.items()
-        }
+        try:
+            # Normalize intensity labels to support flexible formats
+            normalized_limits = {
+                k.strip().upper().replace(" ", "-"): v for k, v in limits.items()
+            }
 
-        full_time = normalized_limits.get("FULL-TIME")
-        part_time = normalized_limits.get("PART-TIME")
+            full_time = normalized_limits.get("FULL-TIME")
+            part_time = normalized_limits.get("PART-TIME")
 
-        if not full_time:
+        except Exception:
             LOGGER.warning(
                 "Unable to determine timeframe of outcome for students. Please specify in model card or in config.toml."
             )
