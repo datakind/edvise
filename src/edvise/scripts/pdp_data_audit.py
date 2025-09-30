@@ -303,14 +303,19 @@ class PDPDataAuditTask:
 
         # Auto-populate only at training time to avoid training-inference skew
         if self.args.job_type == "training":
-            LOGGER.info(
-                " Auto-populating config with below course IDs and cip codes: change if necessary"
-            )
-            update_key_courses_and_cips(
-                self.args.config_file_path,
-                key_course_ids=ids_cips[0],
-                key_course_subject_areas=ids_cips[1],
-            )
+            if len(ids_cips[0]) <= 25 and len(ids_cips[1]) <= 25:
+                LOGGER.info(
+                    " Auto-populating config with below course IDs and cip codes: change if necessary"
+                )
+                update_key_courses_and_cips(
+                    self.args.config_file_path,
+                    key_course_ids=ids_cips[0],
+                    key_course_subject_areas=ids_cips[1],
+                )
+            else:
+                LOGGER.warning(
+                    " Skipping auto-populating of config due to too many IDs that were identified. Please manually update config."
+                )
 
         # Log changes before and after pre-processing
         log_record_drops(
