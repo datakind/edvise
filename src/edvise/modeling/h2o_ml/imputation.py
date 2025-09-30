@@ -231,10 +231,11 @@ class SklearnImputerWrapper:
                 if is_bool_dtype(s.dtype):
                     strategy = "most_frequent"
                 elif is_numeric_dtype(s):
-                    skew = skew_vals.get(col, 0)
-                    strategy = (
-                        "median" if abs(skew) >= self.DEFAULT_SKEW_THRESHOLD else "mean"
-                    )
+                    raw = skew_vals.get(col, np.nan)
+                    use_median = False
+                    if isinstance(raw, (int, float)) and np.isfinite(raw):
+                        use_median = abs(raw) >= self.DEFAULT_SKEW_THRESHOLD
+                    strategy = "median" if use_median else "mean"
                 elif is_categorical_dtype(s) or is_object_dtype(s):
                     strategy = "most_frequent"
                 else:
