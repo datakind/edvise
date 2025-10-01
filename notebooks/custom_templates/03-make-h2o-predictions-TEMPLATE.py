@@ -31,6 +31,7 @@
 # COMMAND ----------
 
 import logging
+import tempfile
 
 import mlflow
 import pandas as pd
@@ -260,19 +261,38 @@ with mlflow.start_run(run_id=cfg.model.run_id):
 
 # COMMAND ----------
 
-shap_feature_importance = modeling.automl.inference.generate_ranked_feature_table(
+sfi = modeling.automl.inference.generate_ranked_feature_table(
     features=grouped_features,
     shap_values=grouped_contribs_df.to_numpy(),
     features_table=features_table,
     metadata=False,
 )
-shap_feature_importance
+if run_type == "train":
+    sfi_mc = (
+        sfi
+        .drop(columns="feature_name")
+        .rename(
+            columns={
+                "readable_feature_name": "Feature Name",
+                "data_type": "Data Type",
+                "average_shap_magnitude": "Average SHAP Magnitude",
+            }
+        )
+    )
+    if mlflow.active_run():
+        mlflow.end_run()
+    with mlflow.start_run(run_id=cfg.model.run_id):
+        with tempfile.TemporaryDirectory() as td:
+            out_path = os.path.join(td, "ranked_selected_features.csv")
+            sfi_mc.to_csv(out_path, index=False)
+            mlflow.log_artifact(out_path, artifact_path="selected_features")
+sfi_mc
 
 # COMMAND ----------
 
 # save sample advisor output dataset
 dataio.write.to_delta_table(
-    shap_feature_importance,
+    sfi_mc,
     f"staging_sst_01.{cfg.institution_id}_silver.training_{cfg.model.run_id}_shap_feature_importance",
     spark_session=spark,
 )
