@@ -195,12 +195,10 @@ logging.info("training params = %s", training_params)
 
 # COMMAND ----------
 
-experiment_id, aml, train, valid, test = (
-    h2o_ml.training.run_h2o_automl_classification(
-        df=df,
-        **training_params,
-        client=client,
-    )
+experiment_id, aml, train, valid, test = h2o_ml.training.run_h2o_automl_classification(
+    df=df,
+    **training_params,
+    client=client,
 )
 
 # COMMAND ----------
@@ -218,9 +216,7 @@ experiment_id, aml, train, valid, test = (
 if evaluate_model_bias := (training_params.get("split_col") is not None):
     df_features = df.drop(columns=cfg.non_feature_cols)
 else:
-    df_features = h2o_ml.evaluation.extract_training_data_from_model(
-        experiment_id
-    )
+    df_features = h2o_ml.evaluation.extract_training_data_from_model(experiment_id)
 
 # COMMAND ----------
 
@@ -249,11 +245,9 @@ for run_id in top_runs.values():
             " and bias assessment",
         )
         # Run imputation on df_features (includes all splits)
-        df_features_imp = (
-            h2o_ml.imputation.SklearnImputerWrapper.load_and_transform(
-                df=df_features,
-                run_id=run_id,
-            )
+        df_features_imp = h2o_ml.imputation.SklearnImputerWrapper.load_and_transform(
+            df=df_features,
+            run_id=run_id,
         )
         # Load model and predict
         model = h2o_ml.utils.load_h2o_model(run_id=run_id)

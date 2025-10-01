@@ -118,9 +118,7 @@ logging.info(
 
 # COMMAND ----------
 
-df_train = h2o_ml.evaluation.extract_training_data_from_model(
-    cfg.model.experiment_id
-)
+df_train = h2o_ml.evaluation.extract_training_data_from_model(cfg.model.experiment_id)
 if cfg.split_col:
     df_train = df_train.loc[df_train[cfg.split_col].eq("train"), :]
 
