@@ -205,10 +205,11 @@ with mlflow.start_run(run_id=cfg.model.run_id):
     )
 
     # Create & log ranked features by SHAP magnitude
-    selected_features_df = modeling.inference.generate_ranked_feature_table(
+    selected_features_df = modeling.automl.inference.generate_ranked_feature_table(
         grouped_features,
         grouped_contribs_df.to_numpy(),
         features_table=features_table,
+        metadata=False,
     )
 
 selected_features_df
@@ -221,7 +222,7 @@ selected_features_df
 # COMMAND ----------
 
 # Provide output using top features, SHAP values, and support scores
-result = modeling.inference.select_top_features_for_display(
+result = modeling.automl.inference.select_top_features_for_display(
     grouped_features,
     unique_ids,
     pred_probs,
@@ -262,27 +263,13 @@ with mlflow.start_run(run_id=cfg.model.run_id):
 
 # COMMAND ----------
 
-shap_feature_importance = modeling.inference.generate_ranked_feature_table(
-    features=grouped_features, shap_values=grouped_contribs_df.to_numpy()
+shap_feature_importance = modeling.automl.inference.generate_ranked_feature_table(
+    features=grouped_features,
+    shap_values=grouped_contribs_df.to_numpy(),
+    features_table=features_table,
+    metadata=False,
 )
-if shap_feature_importance is not None and features_table is not None:
-    shap_feature_importance[
-        ["readable_feature_name", "short_feature_desc", "long_feature_desc"]
-    ] = shap_feature_importance["Feature Name"].apply(
-        lambda feature: pd.Series(
-            modeling.inference._get_mapped_feature_name(
-                feature, features_table, metadata=True
-            )
-        )
-    )
-    shap_feature_importance.columns = shap_feature_importance.columns.str.replace(
-        " ", "_"
-    ).str.lower()
-
-    # Drop short feature desc & long feature desc if they aren't available
-    for col in shap_feature_importance.columns:
-        if shap_feature_importance[col].isna().all():
-            shap_feature_importance = shap_feature_importance.drop(col, axis=1)
+shap_feature_importance
 
 # COMMAND ----------
 
@@ -295,7 +282,7 @@ dataio.write.to_delta_table(
 
 # COMMAND ----------
 
-support_score_distribution = modeling.inference.support_score_distribution_table(
+support_score_distribution = modeling.automl.inference.support_score_distribution_table(
     df_serving=grouped_features,
     unique_ids=unique_ids,
     pred_probs=pred_probs,
