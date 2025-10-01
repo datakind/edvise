@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # SST Make and Explain Predictions: [SCHOOL]
+# MAGIC # SST Make and Explain Predictions
 # MAGIC
 # MAGIC Fourth step in the process of transforming raw (PDP) data into actionable, data-driven insights for advisors: generate predictions and feature importances for new (unlabeled) data.
 # MAGIC
@@ -8,7 +8,6 @@
 # MAGIC
 # MAGIC - [Data science product components (Confluence doc)](https://datakind.atlassian.net/wiki/spaces/TT/pages/237862913/Data+science+product+components+the+modeling+process)
 # MAGIC - [Databricks runtimes release notes](https://docs.databricks.com/en/release-notes/runtime/index.html)
-# MAGIC - [SCHOOL WEBSITE](https://example.com)
 
 # COMMAND ----------
 
