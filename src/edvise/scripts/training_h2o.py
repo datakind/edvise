@@ -420,7 +420,7 @@ class TrainingTask:
         self.evaluate_models(df_modeling, experiment_id)
 
         logging.info("Selecting best model")
-        self.select_model(experiment_id, [f"{current_run_path}/{self.args.config_file_name}.toml"])
+        self.select_model(experiment_id, [f"{current_run_path}/{self.args.config_file_name}"])
 
         logging.info("Generating training predictions & SHAP values")
         self.make_predictions(current_run_path=current_run_path)
