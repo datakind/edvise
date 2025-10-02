@@ -265,7 +265,7 @@ class TrainingTask:
                 )
                 logging.info("Run %s: Completed", run_id)
 
-    def select_model(self, experiment_id: str) -> None:
+    def select_model(self, experiment_id: str, extra_save_paths: list[str]) -> None:
         topn = 5
         if (mc := self.cfg.modeling) is not None and (ev := mc.evaluation) is not None:
             topn = ev.topn_runs_included
@@ -288,6 +288,7 @@ class TrainingTask:
             config_path=self.args.config_file_path,
             run_id=top_run_id,
             experiment_id=experiment_id,
+            extra_save_paths=extra_save_paths,
         )
 
         # create parameter for updated config post model-selection
@@ -419,7 +420,7 @@ class TrainingTask:
         self.evaluate_models(df_modeling, experiment_id)
 
         logging.info("Selecting best model")
-        self.select_model(experiment_id)
+        self.select_model(experiment_id, [f"{current_run_path}/{self.args.config_file_name}.toml"])
 
         logging.info("Generating training predictions & SHAP values")
         self.make_predictions(current_run_path=current_run_path)
