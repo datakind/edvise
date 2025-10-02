@@ -144,6 +144,11 @@ def run_h2o_automl_classification(
 
     train, valid, test = h2o_splits["train"], h2o_splits["validate"], h2o_splits["test"]
 
+    n_rows = int(train.nrows)
+    nfolds = 5 if n_rows < 30_000 else 3
+
+    LOGGER.info("AutoML CV config: training_rows=%d, nfolds=%d", n_rows, nfolds)
+
     # Run H2O AutoML
     processed_model_features = [c for c in train.columns if c not in exclude_cols]
     LOGGER.info(f"Running H2O AutoML with {len(processed_model_features)} features...")
@@ -156,7 +161,7 @@ def run_h2o_automl_classification(
         seed=seed,
         verbosity="info",
         include_algos=frameworks,
-        nfolds=5,
+        nfolds=nfolds,
     )
 
     # Only pass weights_column if it exists in the data
