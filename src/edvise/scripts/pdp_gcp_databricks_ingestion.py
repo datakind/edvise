@@ -211,6 +211,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--gcp_bucket_name", required=True)
     parser.add_argument("--custom_schemas_path", required=False)
     parser.add_argument("--model_name", required=True)
+    # parser.add_argument("--config_file_path", required=False)
     
     return parser.parse_args()
 
