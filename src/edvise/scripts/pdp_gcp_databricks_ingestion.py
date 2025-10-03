@@ -6,7 +6,6 @@ import typing as t
 import importlib
 import pandas as pd
 import pathlib
-import mlflow
 from mlflow.tracking import MlflowClient
 from google.cloud import storage
 from google.api_core.exceptions import Forbidden, NotFound
