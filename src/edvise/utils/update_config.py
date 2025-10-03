@@ -88,11 +88,11 @@ class TomlConfigEditor:
 
 
 def update_run_metadata(
-        config_path: str, 
-        run_id: str, 
-        experiment_id: str, 
-        extra_save_paths: list[str] | None = None,
-        ) -> None:
+    config_path: str,
+    run_id: str,
+    experiment_id: str,
+    extra_save_paths: list[str] | None = None,
+) -> None:
     editor = TomlConfigEditor(config_path)
     editor.update_field(["model", "run_id"], run_id)
     editor.update_field(["model", "experiment_id"], experiment_id)
@@ -120,4 +120,3 @@ def update_key_courses_and_cips(
 
     # Save to the original config path
     editor.save()
-

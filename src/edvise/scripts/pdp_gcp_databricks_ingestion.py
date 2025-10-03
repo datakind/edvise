@@ -55,9 +55,6 @@ def get_spark_session_or_none():
         return None
 
 
-
-
-
 ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
 
 
@@ -128,17 +125,17 @@ class DataIngestionTask:
                 raise
             self._logging("gcs_not_found", msg, {"bucket": self.args.gcp_bucket_name})
             return None, None
-        
+
     def get_latest_uc_model_run_id(
         self,
         model_name: str,
         workspace: str,
         institution: str,
-        registry_uri: str = "databricks-uc"
+        registry_uri: str = "databricks-uc",
     ) -> str:
         """
         Returns the run ID of the latest version of a model registered in Unity Catalog (Databricks).
-        
+
         Args:
             model_name: Short name of the model (without UC path).
             workspace: Unity Catalog workspace (e.g. 'edvise').
@@ -153,11 +150,12 @@ class DataIngestionTask:
 
         versions = client.search_model_versions(f"name='{full_model_name}'")
         if not versions:
-            raise ValueError(f"No registered versions found for model: {full_model_name}")
+            raise ValueError(
+                f"No registered versions found for model: {full_model_name}"
+            )
 
         latest_version = max(versions, key=lambda v: int(v.version))
-        return latest_version.run_id
-    
+        return str(latest_version.run_id)
 
     def find_config_file_path(self, file_path: str) -> str:
         """
@@ -169,7 +167,6 @@ class DataIngestionTask:
 
         if not toml_files:
             raise FileNotFoundError(f"No TOML config file found in {file_path}")
-        
 
         return str(toml_files[0])
 
@@ -192,11 +189,17 @@ class DataIngestionTask:
                 key="cohort_dataset_validated_path", value=fpath_cohort
             )
 
-        model_run_id = self.get_latest_uc_model_run_id(self.args.model_name, self.args.DB_workspace, self.args.databricks_institution_name)
+        model_run_id = self.get_latest_uc_model_run_id(
+            self.args.model_name,
+            self.args.DB_workspace,
+            self.args.databricks_institution_name,
+        )
         silver_path = f"/Volumes/{self.args.DB_workspace}/{self.args.databricks_institution_name}_silver/silver_volume/{model_run_id}"
         config_file_path = self.find_config_file_path(silver_path)
         logging.info("Using config file path: %s", config_file_path)
-        self.dbutils.jobs.taskValues.set(key="config_file_path", value=str(config_file_path))
+        self.dbutils.jobs.taskValues.set(
+            key="config_file_path", value=str(config_file_path)
+        )
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -212,7 +215,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--custom_schemas_path", required=False)
     parser.add_argument("--model_name", required=True)
     # parser.add_argument("--config_file_path", required=False)
-    
+
     return parser.parse_args()
 
 
