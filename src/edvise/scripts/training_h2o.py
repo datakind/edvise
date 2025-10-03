@@ -265,7 +265,7 @@ class TrainingTask:
                 )
                 logging.info("Run %s: Completed", run_id)
 
-    def select_model(self, experiment_id: str) -> None:
+    def select_model(self, experiment_id: str, extra_save_paths: list[str]) -> None:
         topn = 5
         if (mc := self.cfg.modeling) is not None and (ev := mc.evaluation) is not None:
             topn = ev.topn_runs_included
@@ -288,6 +288,7 @@ class TrainingTask:
             config_path=self.args.config_file_path,
             run_id=top_run_id,
             experiment_id=experiment_id,
+            extra_save_paths=extra_save_paths,
         )
 
         # create parameter for updated config post model-selection
@@ -419,7 +420,9 @@ class TrainingTask:
         self.evaluate_models(df_modeling, experiment_id)
 
         logging.info("Selecting best model")
-        self.select_model(experiment_id)
+        self.select_model(
+            experiment_id, [f"{current_run_path}/{self.args.config_file_name}"]
+        )
 
         logging.info("Generating training predictions & SHAP values")
         self.make_predictions(current_run_path=current_run_path)
@@ -442,10 +445,10 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
-    parser.add_argument("--config_file_name", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--gold_table_path", type=str, required=True)
+    parser.add_argument("--config_file_name", type=str, required=True)
     return parser.parse_args()
 
 

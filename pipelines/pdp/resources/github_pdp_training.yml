@@ -237,14 +237,14 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - --config_file_name
+              - "{{job.parameters.config_file_name}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
               - --ds_run_as
               - "{{job.parameters.ds_run_as}}"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
-              - --config_file_name
-              - "{{job.parameters.config_file_name}}"
               - --gold_table_path
               - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
           job_cluster_key: edvise-pdp-training-pipeline-cluster

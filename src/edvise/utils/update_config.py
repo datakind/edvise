@@ -34,9 +34,14 @@ class TomlConfigEditor:
         current[key_path[-1]] = value
         LOGGER.debug("Set %s to %s", ".".join(key_path), value)
 
-    def save(self) -> None:
-        self.path.write_text(dumps(self._doc))
-        LOGGER.info("Saved updated TOML to %s", self.path)
+    # def save(self) -> None:
+    #     self.path.write_text(dumps(self._doc))
+    #     LOGGER.info("Saved updated TOML to %s", self.path)
+
+    def save(self, output_path: str | None = None) -> None:
+        path_to_write = self.path if output_path is None else pathlib.Path(output_path)
+        path_to_write.write_text(dumps(self._doc))
+        LOGGER.info("Saved updated TOML to %s", path_to_write)
 
     def get(self, key_path: list[str], default: Any = None) -> Any:
         obj: Any = self._doc
@@ -82,11 +87,20 @@ class TomlConfigEditor:
         )
 
 
-def update_run_metadata(config_path: str, run_id: str, experiment_id: str) -> None:
+def update_run_metadata(
+    config_path: str,
+    run_id: str,
+    experiment_id: str,
+    extra_save_paths: list[str] | None = None,
+) -> None:
     editor = TomlConfigEditor(config_path)
     editor.update_field(["model", "run_id"], run_id)
     editor.update_field(["model", "experiment_id"], experiment_id)
     editor.save()
+    # Save to any additional paths provided, e.g. the model run folder
+    if extra_save_paths:
+        for path in extra_save_paths:
+            editor.save(output_path=path)
     editor.confirm_field(["model", "run_id"])
     editor.confirm_field(["model", "experiment_id"])
 
@@ -97,9 +111,12 @@ def update_key_courses_and_cips(
     key_course_subject_areas: list[str],
 ) -> None:
     """
-    Update the TOML config with key course IDs and cip codes under [preprocessing.features].
+    Update the TOML config with key course IDs and cip codes under [preprocessing.features],
+    and optionally save the updated config to one or more additional paths.
     """
     editor = TomlConfigEditor(config_path)
     editor.update_key_course_ids(key_course_ids)
     editor.update_key_course_subject_areas(key_course_subject_areas)
+
+    # Save to the original config path
     editor.save()
