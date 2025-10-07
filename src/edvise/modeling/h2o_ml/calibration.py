@@ -47,8 +47,8 @@ class SklearnCalibratorWrapper:
             raise RuntimeError("Calibrator not fitted")
         p = np.asarray(p_raw, float).ravel()
         if self.method == "isotonic":
-            return self.model.transform(p)
-        return self.model.predict_proba(p.reshape(-1, 1))[:, 1]
+            return np.array(self.model.transform(p))
+        return np.array(self.model.predict_proba(p.reshape(-1, 1))[:, 1])
 
     def save(self, artifact_path: str = "calibration") -> None:
         """Save calibration model + metadata as MLflow artifact."""

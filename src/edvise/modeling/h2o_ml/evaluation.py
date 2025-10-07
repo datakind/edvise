@@ -48,7 +48,7 @@ def get_metrics_fixed_threshold_all_splits(
     threshold: float = 0.5,
     sample_weight_col: t.Optional[str] = None,
     calibrator: t.Optional[calibration.SklearnCalibratorWrapper] = None,
-) -> t.Dict[str, float] | tuple[t.Dict[str, float], dict]:
+) -> tuple[t.Dict[str, float], dict]:
     """
     Compute metrics at a fixed threshold (default 0.5) for all splits.
     If `calibrator` is given, metrics use calibrated probabilities.
@@ -103,10 +103,10 @@ def get_metrics_fixed_threshold_all_splits(
             f"{label}_false_negatives": float(fn),
         }
         preds = {
-            "y_true_bin": y_true_bin,
-            "y_prob_raw": y_prob_raw,
-            "y_prob": y_prob,  # already calibrated if calibrator is not None
-            "weights": w,
+            "y_true_bin": np.array(y_true_bin),
+            "y_prob_raw": np.array(y_prob_raw),
+            "y_prob": np.array(y_prob),  # already calibrated if calibrator is not None
+            "weights": np.array(w),
         }
         return metrics, preds
 

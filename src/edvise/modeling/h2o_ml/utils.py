@@ -550,7 +550,7 @@ def log_h2o_model(
     try:
         # get model
         model = h2o.get_model(model_id)
-        
+
         if calibrator is not None and getattr(calibrator, "model", None) is None:
             with _suppress_output():
                 preds_valid = model.predict(valid)
@@ -606,8 +606,10 @@ def log_h2o_model(
             for split_name in ("train", "val", "test"):
                 split_label = "validate" if split_name == "val" else split_name
                 y_true = preds[split_label]["y_true_bin"]
-                p_cal  = preds[split_label]["y_prob"]     # calibrated if calibrator is provided
-                w      = preds[split_label]["weights"]
+                p_cal = preds[split_label][
+                    "y_prob"
+                ]  # calibrated if calibrator is provided
+                w = preds[split_label]["weights"]
                 y_pred = (p_cal >= threshold).astype(int)
 
                 with _suppress_output():
