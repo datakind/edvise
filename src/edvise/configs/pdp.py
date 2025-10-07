@@ -182,6 +182,7 @@ class ModelConfig(pyd.BaseModel):
     experiment_id: str
     run_id: str
     framework: t.Literal["sklearn", "h2o"] = "sklearn"
+    calibrate: t.Optional[bool] = False
 
     @pyd.computed_field  # type: ignore[misc]
     @property
