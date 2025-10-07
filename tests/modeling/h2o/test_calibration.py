@@ -161,7 +161,7 @@ def test_save_and_load_roundtrip_tmpdir(probs_small, tmp_path, monkeypatch):
     monkeypatch.setattr(mlflow, "artifacts", FakeArtifacts)
 
     # --- Load and compare ---
-    loaded = SklearnCalibratorWrapper.load(run_id="dummy", artifact_path="calibration")
+    loaded = SklearnCalibratorWrapper.load(run_id="dummy", artifact_path="sklearn_calibration")
     assert loaded is not None
     assert loaded.method == "platt"
     assert isinstance(loaded.model, LogisticRegression)

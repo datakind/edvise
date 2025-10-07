@@ -594,7 +594,7 @@ def log_h2o_model(
             # Save calibrator if we have it
             if calibrator is not None:
                 try:
-                    calibrator.save(artifact_path="calibration")
+                    calibrator.save(artifact_path="sklearn_calibrator")
                 except Exception as e:
                     LOGGER.warning(f"Failed to log calibrator: {e}")
 
