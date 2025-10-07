@@ -412,7 +412,9 @@ if __name__ == "__main__":
 
     root = logging.getLogger()
     fh = logging.FileHandler(log_file, encoding="utf-8")
-    fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+    fh.setFormatter(
+        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    )
     fh.setLevel(logging.INFO)
     root.addHandler(fh)
 
