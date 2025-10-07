@@ -18,6 +18,7 @@ class SklearnCalibratorWrapper:
     def __init__(self):
         self.method: str | None = None
         self.model = None
+        LOGGER.info("Initiating calibrator for H2O")
 
     def fit(self, p_raw: np.ndarray, y_true: np.ndarray) -> "SklearnCalibratorWrapper":
         """
