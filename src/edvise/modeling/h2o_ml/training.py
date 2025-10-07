@@ -157,7 +157,6 @@ def run_h2o_automl_classification(
         max_runtime_secs=timeout_minutes * 60,
         sort_metric=metric,
         stopping_metric=metric,
-        max_models=500,
         seed=seed,
         verbosity="info",
         include_algos=frameworks,
