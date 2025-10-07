@@ -44,6 +44,15 @@ class SklearnCalibrationWrapper:
             return self.model.transform(p)
         return self.model.predict_proba(p.reshape(-1, 1))[:, 1]
 
+    def save(self, artifact_path: str = "calibration") -> None:
+        """Save calibration model + metadata as MLflow artifact."""
+        if self.model is None:
+            raise RuntimeError("Calibrator not fitted")
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "calibrator.joblib")
+            joblib.dump({"method": self.method, "model": self.model}, path)
+            mlflow.log_artifact(path, artifact_path=artifact_path)
+
     @staticmethod
     def _choose_method(y_val: np.ndarray, *, min_n: int = 1000, min_pos_neg: int = 200) -> str:
         """Heuristic: Platt for small/imbalanced validation, Isotonic otherwise."""
@@ -54,15 +63,6 @@ class SklearnCalibrationWrapper:
         if n < min_n or min(pos, neg) < min_pos_neg:
             return "platt"
         return "isotonic"
-
-    def save(self, artifact_path: str = "calibration") -> None:
-        """Save calibration model + metadata as MLflow artifact."""
-        if self.model is None:
-            raise RuntimeError("Calibrator not fitted")
-        with tempfile.TemporaryDirectory() as td:
-            path = os.path.join(td, "calibrator.joblib")
-            joblib.dump({"method": self.method, "model": self.model}, path)
-            mlflow.log_artifact(path, artifact_path=artifact_path)
 
     @classmethod
     def load(cls, run_id: str, artifact_path: str = "calibration") -> "SklearnCalibrationWrapper":
