@@ -428,7 +428,7 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
 
     if not e_ok and not m_ok:
         LOGGER.warning(
-            " Prefixes look swapped (do NOT start with E for English, start with M for Math). Consider swapping E <-> M. E=%s, M=%s",
+            " Prefixes may be swapped (do NOT start with E for English, start with M for Math). Consider swapping E <-> M. E=%s, M=%s",
             pref_e.tolist(),
             pref_m.tolist(),
         )
