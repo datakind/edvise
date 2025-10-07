@@ -304,7 +304,7 @@ class PDPDataAuditTask:
         # Auto-populate only at training time to avoid training-inference skew
         if self.args.job_type == "training":
             LOGGER.info(
-                "Existing config course IDs and subject areas: ",
+                "Existing config course IDs and subject areas: %s | %s",
                 self.cfg.preprocessing.features.key_course_ids,
                 self.cfg.preprocessing.features.key_course_subject_areas,
             )
@@ -318,7 +318,7 @@ class PDPDataAuditTask:
                     key_course_subject_areas=ids_cips[1],
                 )
                 LOGGER.info(
-                    "New config course IDs and subject areas: ",
+                    "New config course IDs and subject areas: %s | %s",
                     self.cfg.preprocessing.features.key_course_ids,
                     self.cfg.preprocessing.features.key_course_subject_areas,
                 )
