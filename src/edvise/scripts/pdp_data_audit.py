@@ -6,6 +6,7 @@ import sys
 import pandas as pd
 import pathlib
 import os
+from contextlib import redirect_stdout, redirect_stderr
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
@@ -383,33 +384,89 @@ if __name__ == "__main__":
     args = parse_arguments()
     if args.bronze_volume_path:
         sys.path.append(f"{args.bronze_volume_path}/training_inputs")
-    try:
-        converter_func = importlib.import_module("dataio")
-        cohort_converter_func = converter_func.converter_func_cohort
-        LOGGER.info("Running task with custom cohort converter func")
-    except Exception as e:
-        cohort_converter_func = None
-        LOGGER.info("Running task with default cohort converter func")
-        LOGGER.warning(f"Failed to load custom converter functions: {e}")
-    try:
-        converter_func = importlib.import_module("dataio")
-        course_converter_func = converter_func.converter_func_course
-        LOGGER.info("Running task with custom course converter func")
-    except Exception as e:
-        course_converter_func = None
-        LOGGER.info("Running task default course converter func")
-        LOGGER.warning(f"Failed to load custom converter functions: {e}")
-    # try:
-    #     schemas = importlib.import_module("schemas")
-    #     LOGGER.info("Running task with custom schema")
-    # except Exception as e:
-    #     from data_audit import schemas as schemas
-    #     LOGGER.info("Running task with default schema")
-    #     LOGGER.warning(f"Failed to load custom schema: {e}")
 
-    task = PDPDataAuditTask(
-        args,
-        cohort_converter_func=cohort_converter_func,
-        course_converter_func=course_converter_func,
-    )
-    task.run()
+    # --- log file in the silver volume ---
+    log_file = f"{args.silver_volume_path}/data_audit_logger.log"
+    os.makedirs(os.path.dirname(log_file) or args.silver_volume_path, exist_ok=True)
+
+    # --- tiny tee so output goes to BOTH terminal and the file ---
+    class _Tee:
+        def __init__(self, *streams):
+            self.streams = streams
+        def write(self, data):
+            for s in self.streams:
+                s.write(data)
+                s.flush()
+        def flush(self):
+            for s in self.streams:
+                s.flush()
+
+    log = open(log_file, "a", buffering=1, encoding="utf-8")
+    _old_out, _old_err = sys.stdout, sys.stderr
+    sys.stdout = sys.stderr = _Tee(sys.__stdout__, log)
+
+    try:
+        try:
+            converter_func = importlib.import_module("dataio")
+            cohort_converter_func = converter_func.converter_func_cohort
+            LOGGER.info("Running task with custom cohort converter func")
+        except Exception as e:
+            cohort_converter_func = None
+            LOGGER.info("Running task with default cohort converter func")
+            LOGGER.warning(f"Failed to load custom converter functions: {e}")
+        try:
+            converter_func = importlib.import_module("dataio")
+            course_converter_func = converter_func.converter_func_course
+            LOGGER.info("Running task with custom course converter func")
+        except Exception as e:
+            course_converter_func = None
+            LOGGER.info("Running task default course converter func")
+            LOGGER.warning(f"Failed to load custom converter functions: {e}")
+
+        task = PDPDataAuditTask(
+            args,
+            cohort_converter_func=cohort_converter_func,
+            course_converter_func=course_converter_func,
+        )
+        print(f"Saving terminal output to: {log_file}")
+        task.run()
+        print(f"\n✅ Log saved at: {log_file}")
+    finally:
+        sys.stdout, sys.stderr = _old_out, _old_err
+        log.close()
+
+
+# if __name__ == "__main__":
+#     args = parse_arguments()
+#     if args.bronze_volume_path:
+#         sys.path.append(f"{args.bronze_volume_path}/training_inputs")
+#     try:
+#         converter_func = importlib.import_module("dataio")
+#         cohort_converter_func = converter_func.converter_func_cohort
+#         LOGGER.info("Running task with custom cohort converter func")
+#     except Exception as e:
+#         cohort_converter_func = None
+#         LOGGER.info("Running task with default cohort converter func")
+#         LOGGER.warning(f"Failed to load custom converter functions: {e}")
+#     try:
+#         converter_func = importlib.import_module("dataio")
+#         course_converter_func = converter_func.converter_func_course
+#         LOGGER.info("Running task with custom course converter func")
+#     except Exception as e:
+#         course_converter_func = None
+#         LOGGER.info("Running task default course converter func")
+#         LOGGER.warning(f"Failed to load custom converter functions: {e}")
+#     # try:
+#     #     schemas = importlib.import_module("schemas")
+#     #     LOGGER.info("Running task with custom schema")
+#     # except Exception as e:
+#     #     from data_audit import schemas as schemas
+#     #     LOGGER.info("Running task with default schema")
+#     #     LOGGER.warning(f"Failed to load custom schema: {e}")
+
+#     task = PDPDataAuditTask(
+#         args,
+#         cohort_converter_func=cohort_converter_func,
+#         course_converter_func=course_converter_func,
+#     )
+#     task.run()
