@@ -9,6 +9,7 @@ from h2o.automl import H2OAutoML
 
 from . import utils
 from . import imputation
+from . import calibration
 
 LOGGER = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ def run_h2o_automl_classification(
     split_col: str = str(kwargs.pop("split_col", "split"))
     sample_weight_col = str(kwargs.pop("sample_weight_col", "sample_weight"))
     pos_label = bool(kwargs.pop("pos_label", True))
+    calibrate = bool(kwargs.pop("calibrate", False))
     target_name = kwargs.pop("target_name", None)
     checkpoint_name = kwargs.pop("checkpoint_name", None)
     workspace_path = kwargs.pop("workspace_path", None)
@@ -134,6 +136,9 @@ def run_h2o_automl_classification(
         )
         df_splits[split_name] = df_split_processed
 
+    # Initialize calibrator if calibrate=True
+    calibrator = calibration.SklearnCalibratorWrapper() if calibrate else None
+
     # Convert to H2OFrames and fix dtypes
     h2o_splits: dict[str, h2o.H2OFrame] = {}
     for k, v in df_splits.items():
@@ -186,6 +191,7 @@ def run_h2o_automl_classification(
         target_col=target_col,
         experiment_id=experiment_id,
         imputer=imputer,
+        calibrator=calibrator,
         sample_weight_col=sample_weight_col,
         pos_label=pos_label,
     )

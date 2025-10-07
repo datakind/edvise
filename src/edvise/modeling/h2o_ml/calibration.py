@@ -1,19 +1,25 @@
 import os
 import tempfile
+import typing as t
 import joblib
 import mlflow
+import logging
+
 import numpy as np
 from sklearn.isotonic import IsotonicRegression
 from sklearn.linear_model import LogisticRegression
 
-class SklearnCalibrationWrapper:
-    """Post-hoc probability calibrator: auto-selects isotonic or Platt (logistic) based on validation size."""
+LOGGER = logging.getLogger(__name__)
+
+
+class SklearnCalibratorWrapper:
+    """Post modeling probability calibrator; also, auto-selects isotonic or Platt (logistic regression) based on validation size."""
 
     def __init__(self):
         self.method: str | None = None
         self.model = None
 
-    def fit(self, p_raw: np.ndarray, y_true: np.ndarray) -> "SklearnCalibrationWrapper":
+    def fit(self, p_raw: np.ndarray, y_true: np.ndarray) -> "SklearnCalibratorWrapper":
         """
         Auto-select calibration method (Platt vs Isotonic) based on val size/imbalance,
         then fit the appropriate model.
@@ -54,7 +60,9 @@ class SklearnCalibrationWrapper:
             mlflow.log_artifact(path, artifact_path=artifact_path)
 
     @staticmethod
-    def _choose_method(y_val: np.ndarray, *, min_n: int = 1000, min_pos_neg: int = 200) -> str:
+    def _choose_method(
+        y_val: np.ndarray, *, min_n: int = 1000, min_pos_neg: int = 200
+    ) -> str:
         """Heuristic: Platt for small/imbalanced validation, Isotonic otherwise."""
         y = np.asarray(y_val).astype(int).ravel()
         n = y.size
@@ -65,13 +73,26 @@ class SklearnCalibrationWrapper:
         return "isotonic"
 
     @classmethod
-    def load(cls, run_id: str, artifact_path: str = "calibration") -> "SklearnCalibrationWrapper":
-        """Load a fitted calibrator from MLflow."""
-        local = mlflow.artifacts.download_artifacts(
-            run_id=run_id, artifact_path=f"{artifact_path}/calibrator.joblib"
-        )
-        bundle = joblib.load(local)
-        inst = cls()
-        inst.method = bundle["method"]
-        inst.model = bundle["model"]
-        return inst
+    def load(
+        cls, run_id: str, artifact_path: str = "calibration"
+    ) -> t.Optional["SklearnCalibratorWrapper"]:
+        """
+        Load a fitted calibrator from MLflow if it exists.
+        Returns a SklearnCalibratorWrapper instance or None if not found.
+        """
+        try:
+            local = mlflow.artifacts.download_artifacts(
+                run_id=run_id, artifact_path=f"{artifact_path}/calibrator.joblib"
+            )
+            bundle = joblib.load(local)
+            inst = cls()
+            inst.method = bundle["method"]
+            inst.model = bundle["model"]
+            LOGGER.info(f"Loaded calibrator from run {run_id} (method={inst.method})")
+            return inst
+        except Exception as e:
+            # Handles missing artifacts or joblib load errors
+            LOGGER.info(
+                f"No calibrator found for run {run_id}: {e}. Model calibration was not performed."
+            )
+            return None
