@@ -407,6 +407,17 @@ if __name__ == "__main__":
     #     LOGGER.info("Running task with default schema")
     #     LOGGER.warning(f"Failed to load custom schema: {e}")
 
+    log_file = f"{args.silver_volume_path}/data_audit_logger.log"
+    os.makedirs(os.path.dirname(log_file) or args.silver_volume_path, exist_ok=True)
+
+    root = logging.getLogger()
+    fh = logging.FileHandler(log_file, encoding="utf-8")
+    fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+    fh.setLevel(logging.INFO)
+    root.addHandler(fh)
+
+    LOGGER.info("Logging to: %s", log_file)
+
     task = PDPDataAuditTask(
         args,
         cohort_converter_func=cohort_converter_func,
