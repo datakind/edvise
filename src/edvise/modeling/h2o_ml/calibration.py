@@ -67,7 +67,7 @@ class SklearnCalibratorWrapper:
         n = y.size
         pos = int(y.sum())
         neg = n - pos
-        if n < 300 or min(pos, neg) < 50:
+        if n < 100 or min(pos, neg) < 50:
             self.method = "passthrough"
             self.model = None
             self.lam = 0.0
