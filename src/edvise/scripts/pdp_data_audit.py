@@ -382,33 +382,32 @@ def parse_arguments() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_arguments()
-    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_dir = os.path.join(args.silver_volume_path, "logs")
-    os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, f"pdp_data_audit_{ts}.log")
+    # ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    # log_dir = os.path.join(args.silver_volume_path, "logs")
+    # os.makedirs(log_dir, exist_ok=True)
+    # log_path = os.path.join(log_dir, f"pdp_data_audit_{ts}.log")
 
-    # Databricks tip: if args.silver_volume_path starts with 'dbfs:/', map to '/dbfs/...'
-    if log_path.startswith("dbfs:/"):
-        log_path = "/dbfs/" + log_path[len("dbfs:/"):]
+    # if log_path.startswith("dbfs:/"):
+    #     log_path = "/dbfs/" + log_path[len("dbfs:/"):]
 
-    f = open(log_path, "a", encoding="utf-8")
+    # f = open(log_path, "a", encoding="utf-8")
 
-    class Tee:
-        def __init__(self, *streams): self.streams = streams
-        def write(self, data):
-            for s in self.streams:
-                try: s.write(data)
-                except Exception: pass
-        def flush(self):
-            for s in self.streams:
-                try: s.flush()
-                except Exception: pass
+    # class Tee:
+    #     def __init__(self, *streams): self.streams = streams
+    #     def write(self, data):
+    #         for s in self.streams:
+    #             try: s.write(data)
+    #             except Exception: pass
+    #     def flush(self):
+    #         for s in self.streams:
+    #             try: s.flush()
+    #             except Exception: pass
 
-    # mirror terminal output to file
-    sys.stdout = Tee(sys.__stdout__, f)   # print(...) and anything writing to stdout
-    sys.stderr = Tee(sys.__stderr__, f)   # errors/tracebacks and logging defaults
+    # # mirror terminal output to file
+    # sys.stdout = Tee(sys.__stdout__, f)   # print(...) and anything writing to stdout
+    # sys.stderr = Tee(sys.__stderr__, f)   # errors/tracebacks and logging defaults
 
-    print(f"[tee] logging to {log_path}")
+    # print(f"[tee] logging to {log_path}")
     if args.bronze_volume_path:
         sys.path.append(f"{args.bronze_volume_path}/training_inputs")
     try:
