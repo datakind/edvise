@@ -383,60 +383,65 @@ def parse_arguments() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_arguments()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # Put logs under a logs/ subfolder in the silver volume
     raw_log_path = os.path.join(args.silver_volume_path, "logs", f"pdp_data_audit_{timestamp}.log")
 
-    # Handle Databricks 'dbfs:/' scheme by using the POSIX mirror '/dbfs/...'
-    if raw_log_path.startswith("dbfs:/"):
-        log_file_path = "/dbfs/" + raw_log_path[len("dbfs:/"):]
-    else:
-        log_file_path = raw_log_path
-
-    # Ensure directory exists
+    # Databricks-safe: map dbfs:/... -> /dbfs/...
+    log_file_path = "/dbfs/" + raw_log_path[len("dbfs:/"):] if raw_log_path.startswith("dbfs:/") else raw_log_path
     os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
 
-    # Smoke test: can we write here?
+    # (Optional) smoke test so the file definitely exists
     with open(log_file_path, "a", encoding="utf-8") as _f:
-        _f.write("--- logging file created (smoke test) ---\n")
+        _f.write("--- logging start ---\n")
 
-    # Create handlers
+    # Handlers
     file_handler = logging.FileHandler(log_file_path, mode="a", encoding="utf-8")
-    # IMPORTANT: use the original stdout, not sys.stdout
-    console_handler = logging.StreamHandler(stream=sys.__stdout__)
+    console_handler = logging.StreamHandler(stream=sys.__stdout__)  # use original stdout (prevents recursion)
 
-    # Levels & format
+    # Levels + format
+    fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+                            datefmt="%Y-%m-%d %H:%M:%S")
     file_handler.setLevel(logging.INFO)
     console_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-    file_handler.setFormatter(formatter)
-    console_handler.setFormatter(formatter)
+    file_handler.setFormatter(fmt)
+    console_handler.setFormatter(fmt)
 
-    # Attach directly to ROOT logger
+    # Root logger: wipe whatever Spark/Databricks set, then add ours
     root = logging.getLogger()
     root.setLevel(logging.INFO)
     root.handlers.clear()
     root.addHandler(file_handler)
     root.addHandler(console_handler)
 
+    # Your module logger
     LOGGER = logging.getLogger(__name__)
+    logging.getLogger("py4j").setLevel(logging.WARNING)
 
-    # OPTIONAL: Redirect print() to logger (do this only AFTER handlers are set,
-    # and now it's safe because console handler writes to sys.__stdout__)
+    # --- Redirect print() and stderr to logger (safe now) ---
     class LoggerWriter:
-        def __init__(self, level): self.level = level
-        def write(self, message):
-            msg = message.strip()
-            if msg:
-                self.level(msg)
-        def flush(self): pass
+        """Redirects writes to a logging function, buffering by newline to keep lines intact."""
+        def __init__(self, log_func):
+            self.log_func = log_func
+            self._buf = []
+        def write(self, s):
+            if not s:
+                return
+            self._buf.append(s)
+            # Flush on newline to avoid fragmenting logs
+            if "\n" in s:
+                self.flush()
+        def flush(self):
+            if self._buf:
+                msg = "".join(self._buf).rstrip("\n")
+                if msg.strip():
+                    # splitlines to keep multi-line prints readable
+                    for line in msg.splitlines():
+                        if line.strip():
+                            self.log_func(line)
+                self._buf = []
 
-    sys.stdout = LoggerWriter(LOGGER.info)     # print(...) → INFO
-    # If you also want stderr redirected (optional), keep console handler on __stdout__
-    sys.stderr = LoggerWriter(LOGGER.error)    # warnings/tracebacks → ERROR
+    # Capture prints and tracebacks
+    sys.stdout = LoggerWriter(logging.getLogger().info)   # print(...) -> INFO
+    sys.stderr = LoggerWriter(logging.getLogger().error)  # exceptions/warnings -> ERROR
 
     LOGGER.info(f"Logging initialized. File: {log_file_path}")
 
