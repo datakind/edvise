@@ -45,7 +45,7 @@ class SklearnCalibratorWrapper:
     def __init__(self):
         self.method: str | None = None
         self.model = None
-        self.lam: float = 1.0
+        self.lam: float = 0.0
         self._min_improve = 1e-3
 
     def fit(self, p_raw: np.ndarray, y_true: np.ndarray) -> "SklearnCalibratorWrapper":
