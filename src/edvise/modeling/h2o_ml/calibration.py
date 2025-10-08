@@ -89,7 +89,7 @@ class SklearnCalibratorWrapper:
 
         # Get calibrated probabilities at lambda = 1
         p_cal = expit(lr.decision_function(z.reshape(-1, 1)))
-    
+
         # Adaptive λ grid
         if n < 1000:
             lam_grid = (0.0, 0.25, 0.5)
