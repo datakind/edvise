@@ -1,5 +1,6 @@
 import argparse
 import importlib
+import datetime
 import logging
 import typing as t
 import sys
@@ -381,6 +382,50 @@ def parse_arguments() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_arguments()
+    # Build log file path inside silver volume
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file_path = os.path.join(
+        args.silver_volume_path, f"pdp_data_audit_{timestamp}.log"
+    )
+
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+
+    # Create handlers
+    file_handler = logging.FileHandler(log_file_path, mode="a", encoding="utf-8")
+    console_handler = logging.StreamHandler(sys.stdout)
+
+    # Set levels
+    file_handler.setLevel(logging.INFO)
+    console_handler.setLevel(logging.INFO)
+
+    # Format for log messages
+    formatter = logging.Formatter(
+        "%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+
+    # Apply to root logger
+    logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler], force=True)
+    logging.getLogger("py4j").setLevel(logging.WARNING)
+    LOGGER = logging.getLogger(__name__)
+
+    # Redirect print() calls to logger so everything is captured
+    class LoggerWriter:
+        def __init__(self, level):
+            self.level = level
+        def write(self, message):
+            if message.strip():
+                self.level(message.strip())
+        def flush(self):
+            pass
+
+    sys.stdout = LoggerWriter(LOGGER.info)
+    sys.stderr = LoggerWriter(LOGGER.error)
+
+    LOGGER.info(f"Logging initialized. Output will be saved to: {log_file_path}")
     if args.bronze_volume_path:
         sys.path.append(f"{args.bronze_volume_path}/training_inputs")
     try:
