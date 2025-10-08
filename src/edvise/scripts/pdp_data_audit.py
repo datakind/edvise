@@ -51,7 +51,7 @@ from edvise.utils.data_cleaning import (
 )
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
@@ -408,7 +408,7 @@ if __name__ == "__main__":
     console_handler.setFormatter(formatter)
 
     # Apply to root logger
-    logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler], force=True)
+    logging.basicConfig(level=logging.INFO, handlers=[file_handler, console_handler])
     logging.getLogger("py4j").setLevel(logging.WARNING)
     LOGGER = logging.getLogger(__name__)
 
