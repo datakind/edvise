@@ -39,7 +39,7 @@ class SklearnCalibratorWrapper:
     Attributes:
     - method: str | None — "platt_logits" or "none".
     - model: fitted LogisticRegression or None.
-    - lam: float — mixing coefficient (1.0 = full Platt, 0.0 = no calibration).
+    - lam: float — mixing coefficient (1.0 = full calibration (full Platt), 0.0 = no calibration).
     """
 
     def __init__(self):
@@ -64,6 +64,20 @@ class SklearnCalibratorWrapper:
         """
         p = np.asarray(p_raw, float).ravel()
         y = np.asarray(y_true, int).ravel()
+    
+        # Minimum data guard -> avoids noisy fits on tiny or imbalanced validation datasets
+        n = y.size
+        pos = int(y.sum())
+        neg = n - pos
+        if n < 300 or min(pos, neg) < 50:
+            self.method = "passthrough"
+            self.model = None
+            self.lam = 0.0
+            LOGGER.info(
+                f"Calibrator skipped (n={n}, pos={pos}, neg={neg} too small). "
+                f"method={self.method}, λ={self.lam:.2f}"
+            )
+            return self
 
         # Compute base score (lower = better)
         base_brier = brier_score_loss(y, p)
@@ -87,7 +101,7 @@ class SklearnCalibratorWrapper:
                 score_best, lam_best = score, lam
 
         # Only apply if Brier score improves meaningfully
-        if base_brier - score_best < self._min_improve:
+        if (base_brier - score_best) < self._min_improve:
             self.method = "passthrough"
             self.model = None
             self.lam = 0.0
@@ -97,7 +111,7 @@ class SklearnCalibratorWrapper:
         # Log summary
         LOGGER.info(
             f"Calibrator method={self.method}, λ={self.lam:.2f}, "
-            f"Brier Δ={(base_brier - score_best):.6f}"
+            f"Brier score improvement={(base_brier - score_best):.6f}"
         )
 
         return self
