@@ -175,8 +175,8 @@ class TrainingTask:
         )
 
         calibrate = (
-            self.cfg.model.calibrate 
-            if self.cfg.model and self.cfg.model.calibrate 
+            self.cfg.model.calibrate
+            if self.cfg.model and self.cfg.model.calibrate
             else False
         )
 
