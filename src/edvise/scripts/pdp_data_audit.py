@@ -7,8 +7,6 @@ import sys
 import pandas as pd
 import pathlib
 import os
-import queue
-from logging.handlers import QueueHandler, QueueListener
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
@@ -384,65 +382,33 @@ def parse_arguments() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_arguments()
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    raw_log_path = os.path.join(args.silver_volume_path, "logs", f"pdp_data_audit_{timestamp}.log")
-    log_file_path = "/dbfs/" + raw_log_path[len("dbfs:/"):] if raw_log_path.startswith("dbfs:/") else raw_log_path
-    os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = os.path.join(args.silver_volume_path, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_path = os.path.join(log_dir, f"pdp_data_audit_{ts}.log")
 
-    # (Optional) prove the path works
-    with open(log_file_path, "a", encoding="utf-8") as _f:
-        _f.write("--- logging start ---\n")
+    # Databricks tip: if args.silver_volume_path starts with 'dbfs:/', map to '/dbfs/...'
+    if log_path.startswith("dbfs:/"):
+        log_path = "/dbfs/" + log_path[len("dbfs:/"):]
 
-    # Real file/console handlers (consumer side)
-    file_handler = logging.FileHandler(log_file_path, mode="a", encoding="utf-8", delay=True)
-    console_handler = logging.StreamHandler(stream=sys.__stdout__)  # original stdout (prevents recursion)
+    f = open(log_path, "a", encoding="utf-8")
 
-    fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-                            datefmt="%Y-%m-%d %H:%M:%S")
-    file_handler.setFormatter(fmt)
-    console_handler.setFormatter(fmt)
-    file_handler.setLevel(logging.INFO)
-    console_handler.setLevel(logging.INFO)
-
-    # Queue-based, non-blocking logging
-    log_q = queue.SimpleQueue()
-    queue_handler = QueueHandler(log_q)  # producer
-    listener = QueueListener(log_q, file_handler, console_handler, respect_handler_level=True)
-    listener.start()
-
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)              # or WARNING if you want fewer logs
-    root.handlers.clear()
-    root.addHandler(queue_handler)
-
-    # Quiet very chatty loggers
-    for noisy in ["py4j", "databricks", "urllib3", "botocore", "azure", "google", "snowflake", "org.apache"]:
-        logging.getLogger(noisy).setLevel(logging.ERROR)
-
-    LOGGER = logging.getLogger(__name__)
-
-    # OPTIONAL: capture print() and errors into logs (safe now; console writes to __stdout__)
-    class LoggerWriter:
-        def __init__(self, log_func): self.log_func = log_func; self._buf = []
-        def write(self, s):
-            if not s: return
-            self._buf.append(s)
-            if "\n" in s: self.flush()
+    class Tee:
+        def __init__(self, *streams): self.streams = streams
+        def write(self, data):
+            for s in self.streams:
+                try: s.write(data)
+                except Exception: pass
         def flush(self):
-            if not self._buf: return
-            msg = "".join(self._buf).rstrip("\n")
-            if msg.strip():
-                for line in msg.splitlines():
-                    if line.strip():
-                        self.log_func(line)
-            self._buf = []
+            for s in self.streams:
+                try: s.flush()
+                except Exception: pass
 
-    # If you *must* capture prints, uncomment these two:
-    sys.stdout = LoggerWriter(logging.getLogger().info)    # print(...) -> INFO
-    sys.stderr = LoggerWriter(logging.getLogger().error)   # tracebacks -> ERROR
+    # mirror terminal output to file
+    sys.stdout = Tee(sys.__stdout__, f)   # print(...) and anything writing to stdout
+    sys.stderr = Tee(sys.__stderr__, f)   # errors/tracebacks and logging defaults
 
-    LOGGER.info(f"Logging initialized. File: {log_file_path}")
-
+    print(f"[tee] logging to {log_path}")
     if args.bronze_volume_path:
         sys.path.append(f"{args.bronze_volume_path}/training_inputs")
     try:
