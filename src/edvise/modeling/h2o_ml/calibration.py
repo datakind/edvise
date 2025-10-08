@@ -166,7 +166,7 @@ class SklearnCalibratorWrapper:
             inst = cls()
             inst.method = bundle.get("method")
             inst.model = bundle.get("model")
-            inst.lam = float(bundle.get("lam", 1.0))
+            inst.lam = float(bundle.get("lam", 0.0))
             LOGGER.info(
                 f"Loaded calibrator (method={inst.method}, lambda={inst.lam:.2f}) from run {run_id}"
             )
