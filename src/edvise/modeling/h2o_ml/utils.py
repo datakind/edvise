@@ -599,9 +599,9 @@ def log_h2o_model(
             if calibrator is not None:
                 mlflow.log_params(
                     {
-                        "calibration_method": calibrator.method or "none",
-                        "calibration_lam": getattr(calibrator, "lam", 0.0),
-                        "calibration_applied": bool(
+                        "sklearn_calibration_method": calibrator.method or "none",
+                        "sklearn_calibration_lam": getattr(calibrator, "lam", 0.0),
+                        "sklearn_calibration_applied": bool(
                             getattr(calibrator, "method", None) == "platt_logits"
                             and getattr(calibrator, "lam", 0.0) > 0.0
                         ),
