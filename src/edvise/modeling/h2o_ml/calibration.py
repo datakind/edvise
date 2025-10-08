@@ -64,14 +64,14 @@ class SklearnCalibratorWrapper:
     def _choose_method(
         y_val: np.ndarray, *, min_n: int = 1000, min_pos_neg: int = 200
     ) -> str:
-        """Heuristic: Platt for small/imbalanced validation, Isotonic otherwise."""
+        """Platt for small/imbalanced validation, Isotonic otherwise."""
         y = np.asarray(y_val).astype(int).ravel()
         n = y.size
         pos = int(y.sum())
         neg = n - pos
         if n < min_n or min(pos, neg) < min_pos_neg:
             return "platt"
-        return "isotonic"
+        return "platt"
 
     @classmethod
     def load(
