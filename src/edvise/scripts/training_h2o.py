@@ -50,6 +50,7 @@ class TrainingParams(t.TypedDict, total=False):
     target_col: str
     split_col: t.Optional[str]
     pos_label: t.Optional[str | bool]
+    calibrate: t.Optional[bool]
     primary_metric: str
     timeout_minutes: int
     exclude_cols: t.List[str]
@@ -173,6 +174,12 @@ class TrainingTask:
             set((training_cfg.exclude_cols or []) + (self.cfg.student_group_cols or []))
         )
 
+        calibrate = (
+            self.cfg.model.calibrate 
+            if self.cfg.model and self.cfg.model.calibrate 
+            else False
+        )
+
         training_params: TrainingParams = {
             "db_run_id": db_run_id,
             "institution_id": self.cfg.institution_id,
@@ -180,7 +187,7 @@ class TrainingTask:
             "target_col": self.cfg.target_col,
             "split_col": split_col,
             "pos_label": pos_label,
-            "calibrate": self.cfg.model.calibrate,
+            "calibrate": calibrate,
             "primary_metric": training_cfg.primary_metric,
             "timeout_minutes": timeout_minutes,
             "exclude_cols": sorted(exclude_cols),

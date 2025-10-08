@@ -254,7 +254,9 @@ for run_id in top_runs.values():
         model = h2o_ml.utils.load_h2o_model(run_id=run_id)
 
         # Try to load a calibrator (ok if missing)
-        calibrator = h2o_ml.calibration.SklearnCalibratorWrapper.load(run_id=cfg.model.run_id)
+        calibrator = h2o_ml.calibration.SklearnCalibratorWrapper.load(
+            run_id=cfg.model.run_id
+        )
 
         labels, probs = h2o_ml.inference.predict_h2o(
             features=df_features_imp,

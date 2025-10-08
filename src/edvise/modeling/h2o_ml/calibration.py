@@ -62,7 +62,7 @@ class SklearnCalibratorWrapper:
         """
         p = np.asarray(p_raw, float).ravel()
         y = np.asarray(y_true, int).ravel()
-    
+
         # Minimum data guard -> avoids noisy fits on tiny or imbalanced validation datasets
         n = y.size
         pos = int(y.sum())

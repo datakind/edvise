@@ -14,7 +14,7 @@ def rng():
 @pytest.fixture
 def probs_small(rng):
     # 200 samples with noisy labels → calibration should usually help (λ>0)
-    p = np.clip(rng.beta(2, 5, size=200), 1e-6, 1 - 1e-6)
+    p = np.clip(rng.beta(2, 5, size=1000), 1e-6, 1 - 1e-6)
     y = (p + rng.normal(0, 0.15, size=p.size) > 0.5).astype(int)
     return p, y
 
