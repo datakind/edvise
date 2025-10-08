@@ -9,7 +9,6 @@ from h2o.automl import H2OAutoML
 
 from . import utils
 from . import imputation
-from . import calibration
 
 LOGGER = logging.getLogger(__name__)
 

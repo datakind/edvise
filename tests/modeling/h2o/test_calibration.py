@@ -86,7 +86,6 @@ def test_no_improvement_means_no_calibration(rng):
 def test_save_and_load_roundtrip_tmpdir(probs_small, tmp_path, monkeypatch):
     """Ensure save() writes a bundle and load() reconstructs the calibrator."""
     import mlflow
-    import joblib
 
     p, y = probs_small
     cal = SklearnCalibratorWrapper().fit(p, y)
