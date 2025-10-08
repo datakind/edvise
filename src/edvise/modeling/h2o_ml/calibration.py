@@ -135,7 +135,7 @@ class SklearnCalibratorWrapper:
         p_cal = expit(self.model.decision_function(z.reshape(-1, 1)))
         return self._tune(p, p_cal, self.lam)
 
-    def save(self, artifact_path: str = "sklearn_calibration") -> None:
+    def save(self, artifact_path: str = "sklearn_calibrator") -> None:
         """Save calibration model, λ, and metadata as an MLflow artifact."""
         if self.method is None:
             raise RuntimeError("Calibrator not fitted")
@@ -149,7 +149,7 @@ class SklearnCalibratorWrapper:
 
     @classmethod
     def load(
-        cls, run_id: str, artifact_path: str = "sklearn_calibration"
+        cls, run_id: str, artifact_path: str = "sklearn_calibrator"
     ) -> t.Optional["SklearnCalibratorWrapper"]:
         """Load a saved calibrator from MLflow. Returns None if not found."""
         try:
