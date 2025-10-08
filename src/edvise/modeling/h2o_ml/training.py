@@ -136,9 +136,6 @@ def run_h2o_automl_classification(
         )
         df_splits[split_name] = df_split_processed
 
-    # Initialize calibrator if calibrate=True
-    calibrator = calibration.SklearnCalibratorWrapper() if calibrate else None
-
     # Convert to H2OFrames and fix dtypes
     h2o_splits: dict[str, h2o.H2OFrame] = {}
     for k, v in df_splits.items():
@@ -191,7 +188,7 @@ def run_h2o_automl_classification(
         target_col=target_col,
         experiment_id=experiment_id,
         imputer=imputer,
-        calibrator=calibrator,
+        calibrate=calibrate,
         sample_weight_col=sample_weight_col,
         pos_label=pos_label,
     )

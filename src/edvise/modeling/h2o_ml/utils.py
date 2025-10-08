@@ -366,8 +366,8 @@ def log_h2o_experiment(
     experiment_id: str,
     pos_label: PosLabelType,
     sample_weight_col: str = "sample_weight",
+    calibrate: bool = False,
     imputer: t.Optional[imputation.SklearnImputerWrapper] = None,
-    calibrator: t.Optional[calibration.SklearnCalibratorWrapper] = None,
 ) -> pd.DataFrame:
     """
     Logs evaluation metrics, plots, and model artifacts for all models in an H2O AutoML leaderboard to MLflow.
@@ -421,6 +421,10 @@ def log_h2o_experiment(
                 f"Completed logging on {model_num}/{len(top_model_ids)} top models..."
             )
 
+        per_model_calibrator = (
+            calibration.SklearnCalibratorWrapper() if calibrate else None
+        )
+
         # Setting threshold to 0.5 due to binary classification
         metrics = log_h2o_model(
             aml=aml,
@@ -429,7 +433,7 @@ def log_h2o_experiment(
             valid=valid,
             test=test,
             imputer=imputer,
-            calibrator=calibrator,
+            calibrator=per_model_calibrator,
             target_col=target_col,
             primary_metric=aml.sort_metric,
             sample_weight_col=sample_weight_col,
@@ -591,8 +595,13 @@ def log_h2o_model(
             except Exception as e:
                 LOGGER.debug(f"Skipping mlflow.set_tag (no real run / mocked env): {e}")
 
-            # Save calibrator if we have it
-            if calibrator is not None:
+            # save only if calibration actually applied
+            if (
+                calibrator is not None
+                and getattr(calibrator, "method", None) == "platt_logits"
+                and getattr(calibrator, "model", None) is not None
+                and getattr(calibrator, "lam", 0.0) > 0.0
+            ):
                 try:
                     calibrator.save(artifact_path="sklearn_calibrator")
                 except Exception as e:
