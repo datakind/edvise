@@ -46,7 +46,6 @@ class SklearnCalibratorWrapper:
         self.method: str | None = None
         self.model = None
         self.lam: float = 1.0
-        self._lam_grid = (0.25, 0.5, 0.75, 1.0)
         self._min_improve = 1e-3
 
     def fit(self, p_raw: np.ndarray, y_true: np.ndarray) -> "SklearnCalibratorWrapper":
@@ -90,10 +89,18 @@ class SklearnCalibratorWrapper:
 
         # Get calibrated probabilities at lambda = 1
         p_cal = expit(lr.decision_function(z.reshape(-1, 1)))
+    
+        # Adaptive λ grid
+        if n < 1000:
+            lam_grid = (0.0, 0.25, 0.5)
+        elif n < 5000:
+            lam_grid = (0.0, 0.25, 0.5, 0.75)
+        else:
+            lam_grid = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
 
         # Tune lambda
         lam_best, score_best = 1.0, self._score(y, self._tune(p, p_cal, 1.0))
-        for lam in self._lam_grid:
+        for lam in lam_grid:
             score = self._score(y, self._tune(p, p_cal, lam))
             if score < score_best:
                 score_best, lam_best = score, lam
