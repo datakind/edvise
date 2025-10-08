@@ -7,6 +7,8 @@ import sys
 import pandas as pd
 import pathlib
 import os
+import queue
+from logging.handlers import QueueHandler, QueueListener
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
@@ -384,64 +386,60 @@ if __name__ == "__main__":
     args = parse_arguments()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     raw_log_path = os.path.join(args.silver_volume_path, "logs", f"pdp_data_audit_{timestamp}.log")
-
-    # Databricks-safe: map dbfs:/... -> /dbfs/...
     log_file_path = "/dbfs/" + raw_log_path[len("dbfs:/"):] if raw_log_path.startswith("dbfs:/") else raw_log_path
     os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
 
-    # (Optional) smoke test so the file definitely exists
+    # (Optional) prove the path works
     with open(log_file_path, "a", encoding="utf-8") as _f:
         _f.write("--- logging start ---\n")
 
-    # Handlers
-    file_handler = logging.FileHandler(log_file_path, mode="a", encoding="utf-8")
-    console_handler = logging.StreamHandler(stream=sys.__stdout__)  # use original stdout (prevents recursion)
+    # Real file/console handlers (consumer side)
+    file_handler = logging.FileHandler(log_file_path, mode="a", encoding="utf-8", delay=True)
+    console_handler = logging.StreamHandler(stream=sys.__stdout__)  # original stdout (prevents recursion)
 
-    # Levels + format
     fmt = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s",
                             datefmt="%Y-%m-%d %H:%M:%S")
-    file_handler.setLevel(logging.INFO)
-    console_handler.setLevel(logging.INFO)
     file_handler.setFormatter(fmt)
     console_handler.setFormatter(fmt)
+    file_handler.setLevel(logging.INFO)
+    console_handler.setLevel(logging.INFO)
 
-    # Root logger: wipe whatever Spark/Databricks set, then add ours
+    # Queue-based, non-blocking logging
+    log_q = queue.SimpleQueue()
+    queue_handler = QueueHandler(log_q)  # producer
+    listener = QueueListener(log_q, file_handler, console_handler, respect_handler_level=True)
+    listener.start()
+
     root = logging.getLogger()
-    root.setLevel(logging.INFO)
+    root.setLevel(logging.INFO)              # or WARNING if you want fewer logs
     root.handlers.clear()
-    root.addHandler(file_handler)
-    root.addHandler(console_handler)
+    root.addHandler(queue_handler)
 
-    # Your module logger
+    # Quiet very chatty loggers
+    for noisy in ["py4j", "databricks", "urllib3", "botocore", "azure", "google", "snowflake", "org.apache"]:
+        logging.getLogger(noisy).setLevel(logging.ERROR)
+
     LOGGER = logging.getLogger(__name__)
-    logging.getLogger("py4j").setLevel(logging.WARNING)
 
-    # --- Redirect print() and stderr to logger (safe now) ---
+    # OPTIONAL: capture print() and errors into logs (safe now; console writes to __stdout__)
     class LoggerWriter:
-        """Redirects writes to a logging function, buffering by newline to keep lines intact."""
-        def __init__(self, log_func):
-            self.log_func = log_func
-            self._buf = []
+        def __init__(self, log_func): self.log_func = log_func; self._buf = []
         def write(self, s):
-            if not s:
-                return
+            if not s: return
             self._buf.append(s)
-            # Flush on newline to avoid fragmenting logs
-            if "\n" in s:
-                self.flush()
+            if "\n" in s: self.flush()
         def flush(self):
-            if self._buf:
-                msg = "".join(self._buf).rstrip("\n")
-                if msg.strip():
-                    # splitlines to keep multi-line prints readable
-                    for line in msg.splitlines():
-                        if line.strip():
-                            self.log_func(line)
-                self._buf = []
+            if not self._buf: return
+            msg = "".join(self._buf).rstrip("\n")
+            if msg.strip():
+                for line in msg.splitlines():
+                    if line.strip():
+                        self.log_func(line)
+            self._buf = []
 
-    # Capture prints and tracebacks
-    sys.stdout = LoggerWriter(logging.getLogger().info)   # print(...) -> INFO
-    sys.stderr = LoggerWriter(logging.getLogger().error)  # exceptions/warnings -> ERROR
+    # If you *must* capture prints, uncomment these two:
+    sys.stdout = LoggerWriter(logging.getLogger().info)    # print(...) -> INFO
+    sys.stderr = LoggerWriter(logging.getLogger().error)   # tracebacks -> ERROR
 
     LOGGER.info(f"Logging initialized. File: {log_file_path}")
 
