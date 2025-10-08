@@ -77,7 +77,7 @@ def get_metrics_fixed_threshold_all_splits(
         y_true_bin = utils._binarize_targets(y_true, pos_label)
         y_pred = (y_prob >= threshold).astype(int)
 
-        # Metrics (all in {0,1}); AUC/LogLoss computed on (possibly) calibrated probs
+        # Metrics (all in {0,1})
         acc = accuracy_score(y_true_bin, y_pred, sample_weight=w)
         prec = precision_score(y_true_bin, y_pred, sample_weight=w, zero_division=0)
         rec = recall_score(y_true_bin, y_pred, sample_weight=w)
@@ -105,7 +105,7 @@ def get_metrics_fixed_threshold_all_splits(
         preds = {
             "y_true_bin": np.array(y_true_bin),
             "y_prob_raw": np.array(y_prob_raw),
-            "y_prob": np.array(y_prob),  # already calibrated if calibrator is not None
+            "y_prob": np.array(y_prob),
             "weights": np.array(w),
         }
         return metrics, preds

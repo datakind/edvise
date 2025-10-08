@@ -180,6 +180,7 @@ class TrainingTask:
             "target_col": self.cfg.target_col,
             "split_col": split_col,
             "pos_label": pos_label,
+            "calibrate": self.cfg.model.calibrate,
             "primary_metric": training_cfg.primary_metric,
             "timeout_minutes": timeout_minutes,
             "exclude_cols": sorted(exclude_cols),
@@ -241,10 +242,14 @@ class TrainingTask:
                     self.cfg.pos_label if self.cfg.pos_label is not None else True
                 )
                 model = h2o_utils.load_h2o_model(run_id=run_id)
+                calibrator = modeling.h2o_ml.calibration.SklearnCalibratorWrapper.load(
+                    run_id=run_id
+                )
                 labels, probs = modeling.h2o_ml.inference.predict_h2o(
                     features=df_features_imp,
                     model=model,
                     pos_label=pos_label,
+                    calibrator=calibrator,
                 )
                 df_pred = df_modeling.assign(
                     **{

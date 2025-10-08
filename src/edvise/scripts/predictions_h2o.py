@@ -121,6 +121,12 @@ def imputer_for_run(run_id: str) -> modeling.h2o_ml.imputation.SklearnImputerWra
     return modeling.h2o_ml.imputation.SklearnImputerWrapper.load(run_id=run_id)
 
 
+def calibrator_for_run(
+    run_id: str,
+) -> modeling.h2o_ml.calibration.SklearnCalibratorWrapper | None:
+    return modeling.h2o_ml.calibration.SklearnCalibratorWrapper.load(run_id=run_id)
+
+
 def align_features(
     df_imp: pd.DataFrame, model_feature_names: list[str], student_id_col: str
 ) -> t.Tuple[pd.DataFrame, pd.DataFrame]:
@@ -137,12 +143,14 @@ def predict_probs(
     model: H2OEstimator,
     feature_names: list[str],
     pos_label: str,
+    calibrator: t.Optional[modeling.h2o_ml.calibration.SklearnCalibratorWrapper] = None,
 ) -> t.Tuple[np.ndarray, np.ndarray]:
     labels, probs = modeling.h2o_ml.inference.predict_h2o(
         features=features_df,
         model=model,
         feature_names=feature_names,
         pos_label=pos_label,
+        calibrator=calibrator,
     )
     return labels, probs
 
@@ -248,6 +256,7 @@ def run_predictions(
     ft = load_features_table(pred_paths.features_table_path)
     model, model_feature_names = load_model_and_features(pred_cfg.model_run_id)
     imp = imputer_for_run(pred_cfg.model_run_id)
+    cal = calibrator_for_run(pred_cfg.model_run_id)
 
     # ----- Build df_test (the rows to score) -----
     if run_type == RunType.TRAIN:
@@ -276,7 +285,11 @@ def run_predictions(
         df_test_imp, model_feature_names, pred_cfg.student_id_col
     )
     pred_labels, pred_probs = predict_probs(
-        features_df, model, model_feature_names, str(pred_cfg.pos_label)
+        features_df,
+        model,
+        model_feature_names,
+        str(pred_cfg.pos_label),
+        calibrator=cal,
     )
 
     # ----- Background for SHAP -----

@@ -155,6 +155,9 @@ unique_ids = df_test[cfg.student_id_col]
 
 # COMMAND ----------
 
+# Try to load a calibrator (ok if missing)
+calibrator = h2o_ml.calibration.SklearnCalibratorWrapper.load(run_id=cfg.model.run_id)
+
 pred_labels, pred_probs = h2o_ml.inference.predict_h2o(
     features_df,
     model=model,

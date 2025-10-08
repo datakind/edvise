@@ -15,24 +15,24 @@ LOGGER = logging.getLogger(__name__)
 
 class SklearnCalibratorWrapper:
     """
-    Lightweight Platt (logistic) probability calibrator with automatic tuning (λ-tuning).
+    Lightweight Platt (logistic) probability calibrator with automatic tuning (lambda-tuning).
 
     This class fits a logistic regression model on the logits of predicted probabilities
     from a base classifier (i.e., Platt scaling). It then automatically tunes a tuning
-    parameter λ ∈ {0.25, 0.5, 0.75, 1.0} to avoid overcorrection by mixing calibrated and
+    parameter lambda ∈ {0.25, 0.5, 0.75, 1.0} to avoid overcorrection by mixing calibrated and
     original probabilities. The equation is the following:
 
-        p_final = (1 - λ) * p_raw + λ * p_platt
+        p_final = (1 - lambda) * p_raw + lambda * p_platt
 
-    The best λ minimizes the Brier score on the validation set.
-    Calibration is applied only if the best λ improves the Brier score by a small margin. This
+    The best lambda minimizes the Brier score on the validation set.
+    Calibration is applied only if the best lambda improves the Brier score by a small margin. This
     is a guardrail, so that we only apply calibrator if it actually improves calibration compared
     to our raw probabilities from our model.
 
     ---
     Key behaviors:
     - Always uses Platt calibration. We avoid isotonic, so that probabilities stay smooth and not discrete.
-    - Automatically tunes λ to avoid overcorrection.
+    - Automatically tunes lambda to avoid overcorrection.
     - Skips calibration if it doesn't improve Brier score meaningfully.
 
     ---
@@ -46,14 +46,12 @@ class SklearnCalibratorWrapper:
         self.method: str | None = None
         self.model = None
         self.lam: float = 1.0
-
-        # Constants (internal)
         self._lam_grid = (0.25, 0.5, 0.75, 1.0)
         self._min_improve = 1e-3
 
     def fit(self, p_raw: np.ndarray, y_true: np.ndarray) -> "SklearnCalibratorWrapper":
         """
-        Fit a logistic (Platt) calibration model and tune λ to minimize Brier score.
+        Fit a logistic (Platt) calibration model and tune lambda to minimize Brier score.
 
         Parameters:
             p_raw: Raw predicted probabilities from the base model.
@@ -75,7 +73,7 @@ class SklearnCalibratorWrapper:
             self.lam = 0.0
             LOGGER.info(
                 f"Calibrator skipped (n={n}, pos={pos}, neg={neg} too small). "
-                f"method={self.method}, λ={self.lam:.2f}"
+                f"method={self.method}, lambda={self.lam:.2f}"
             )
             return self
 
@@ -90,10 +88,10 @@ class SklearnCalibratorWrapper:
         self.method = "platt_logits"
         self.model = lr
 
-        # Get calibrated probabilities at λ = 1
+        # Get calibrated probabilities at lambda = 1
         p_cal = expit(lr.decision_function(z.reshape(-1, 1)))
 
-        # Tune λ
+        # Tune lambda
         lam_best, score_best = 1.0, self._score(y, self._tune(p, p_cal, 1.0))
         for lam in self._lam_grid:
             score = self._score(y, self._tune(p, p_cal, lam))
@@ -110,7 +108,7 @@ class SklearnCalibratorWrapper:
 
         # Log summary
         LOGGER.info(
-            f"Calibrator method={self.method}, λ={self.lam:.2f}, "
+            f"Calibrator method={self.method}, lambda={self.lam:.2f}, "
             f"Brier score improvement={(base_brier - score_best):.6f}"
         )
 
@@ -136,7 +134,7 @@ class SklearnCalibratorWrapper:
         return self._tune(p, p_cal, self.lam)
 
     def save(self, artifact_path: str = "sklearn_calibrator") -> None:
-        """Save calibration model, λ, and metadata as an MLflow artifact."""
+        """Save calibration model, lambda, and metadata as an MLflow artifact."""
         if self.method is None:
             raise RuntimeError("Calibrator not fitted")
         with tempfile.TemporaryDirectory() as td:
@@ -162,7 +160,7 @@ class SklearnCalibratorWrapper:
             inst.model = bundle.get("model")
             inst.lam = float(bundle.get("lam", 1.0))
             LOGGER.info(
-                f"Loaded calibrator (method={inst.method}, λ={inst.lam:.2f}) from run {run_id}"
+                f"Loaded calibrator (method={inst.method}, lambda={inst.lam:.2f}) from run {run_id}"
             )
             return inst
         except Exception as e:
