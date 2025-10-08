@@ -20,12 +20,14 @@ class SklearnCalibratorWrapper:
     This class fits a logistic regression model on the logits of predicted probabilities
     from a base classifier (i.e., Platt scaling). It then automatically tunes a tuning
     parameter λ ∈ {0.25, 0.5, 0.75, 1.0} to avoid overcorrection by mixing calibrated and
-    original probabilities:
+    original probabilities. The equation is the following:
 
         p_final = (1 - λ) * p_raw + λ * p_platt
 
     The best λ minimizes the Brier score on the validation set.
-    Calibration is applied only if it improves the Brier score by a small margin.
+    Calibration is applied only if the best λ improves the Brier score by a small margin. This
+    is a guardrail, so that we only apply calibrator if it actually improves calibration compared
+    to our raw probabilities from our model.
 
     ---
     Key behaviors:
@@ -47,7 +49,7 @@ class SklearnCalibratorWrapper:
 
         # Constants (internal)
         self._lam_grid = (0.25, 0.5, 0.75, 1.0)
-        self._min_improve = 1e-4
+        self._min_improve = 1e-3
 
     def fit(self, p_raw: np.ndarray, y_true: np.ndarray) -> "SklearnCalibratorWrapper":
         """
@@ -84,7 +86,7 @@ class SklearnCalibratorWrapper:
             if score < score_best:
                 score_best, lam_best = score, lam
 
-        # Only apply guardrail if Brier score improves meaningfully
+        # Only apply if Brier score improves meaningfully
         if base_brier - score_best < self._min_improve:
             self.method = "passthrough"
             self.model = None
@@ -166,5 +168,5 @@ class SklearnCalibratorWrapper:
 
     @staticmethod
     def _tune(p_raw: np.ndarray, p_cal: np.ndarray, lam: float) -> np.ndarray:
-        """Linear tune between raw and calibrated probabilities."""
+        """Linear tune between raw and calibrated probabilities using lambda."""
         return (1.0 - lam) * p_raw + lam * p_cal
