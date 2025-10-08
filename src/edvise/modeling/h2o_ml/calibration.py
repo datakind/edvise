@@ -86,7 +86,7 @@ class SklearnCalibratorWrapper:
 
         # Only apply guardrail if Brier score improves meaningfully
         if base_brier - score_best < self._min_improve:
-            self.method = "none"
+            self.method = "passthrough"
             self.model = None
             self.lam = 0.0
         else:
@@ -97,11 +97,6 @@ class SklearnCalibratorWrapper:
             f"Calibrator method={self.method}, λ={self.lam:.2f}, "
             f"Brier Δ={(base_brier - score_best):.6f}"
         )
-        try:
-            mlflow.log_param("calibration_method", self.method)
-            mlflow.log_param("calibration_lam", self.lam)
-        except Exception:
-            pass
 
         return self
 
