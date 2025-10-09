@@ -80,6 +80,7 @@ class SklearnCalibratorWrapper:
         base_brier = brier_score_loss(y, p)
 
         # Adaptive lambda grid & C regularization based on sample size
+        lam_grid: tuple[float, ...] | None = None
         if n < 1000:
             lam_grid = (0.25, 0.5)
             C_reg = 0.01
