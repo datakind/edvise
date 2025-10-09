@@ -128,6 +128,10 @@ class TrainingTask:
         selection_params: t.Dict[str, t.Any] = fs.model_dump() if fs is not None else {}
         selection_params["non_feature_cols"] = self.cfg.non_feature_cols
 
+        # NOTE: keeping autolog disabled feature selection onwards
+        # otherwise, autolog will freak out during FS and
+        # it will create a new run if we are calibrating our models
+        # post h2o training
         mlflow.autolog(disable=True)
 
         df_selected = modeling.feature_selection.select_features(
@@ -142,8 +146,6 @@ class TrainingTask:
         return df_modeling
 
     def train_model(self, df_modeling: pd.DataFrame) -> str:
-        mlflow.autolog(disable=False)
-
         # KAYLA TODO: figure out how we want to create this - create a user email field in yml to deploy?
         # Use run as for now - this will work until we set this as a service account
         workspace_path = f"/Users/{self.args.ds_run_as}"
