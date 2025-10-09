@@ -308,8 +308,8 @@ resources:
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
-        # git_tag: v0.1.4
-        git_branch: data_audit_updates
+        git_tag: v0.1.4
+        # git_branch: data_audit_updates
       tags:
         dev: kayla_wilding
       queue:
