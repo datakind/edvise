@@ -79,9 +79,20 @@ class SklearnCalibratorWrapper:
         # Compute base score (lower = better)
         base_brier = brier_score_loss(y, p)
 
+        # Adaptive lambda grid & C regularization based on sample size
+        if n < 1000:
+            lam_grid = (0.25, 0.5)
+            C_reg = 0.01
+        elif n < 5000:
+            lam_grid = (0.25, 0.5, 0.75)
+            C_reg = 0.1
+        else:
+            lam_grid = (0.2, 0.4, 0.6, 0.8, 1.0)
+            C_reg = 1.0
+
         # Fit Platt on logits
         z = self._safe_logit(p)
-        lr = LogisticRegression(solver="lbfgs")
+        lr = LogisticRegression(solver="lbfgs", C=C_reg)
         lr.fit(z.reshape(-1, 1), y)
 
         self.method = "platt_logits"
@@ -89,14 +100,6 @@ class SklearnCalibratorWrapper:
 
         # Get calibrated probabilities at lambda = 1
         p_cal = expit(lr.decision_function(z.reshape(-1, 1)))
-
-        # Adaptive lambda grid
-        if n < 1000:
-            lam_grid = (0.25, 0.5)
-        elif n < 5000:
-            lam_grid = (0.25, 0.5, 0.75)
-        else:
-            lam_grid = (0.2, 0.4, 0.6, 0.8, 1.0)
 
         # Tune lambda
         lam_best = lam_grid[0]
