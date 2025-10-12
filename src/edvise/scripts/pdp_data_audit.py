@@ -50,18 +50,19 @@ from edvise.utils.data_cleaning import (
 )
 
 # Configure logging
-# logging.basicConfig(level=logging.INFO) 
+# logging.basicConfig(level=logging.INFO)
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
 # Create callable type
 ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
+
 
 class PDPDataAuditTask:
     """Encapsulates the data preprocessing logic for the SST pipeline."""
@@ -159,10 +160,10 @@ class PDPDataAuditTask:
             current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
         else:
             raise ValueError(f"Unsupported job_type: {self.args.job_type}")
-        
+
         def local_fs_path(p: str) -> str:
             return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
-    
+
         # Convert to local filesystem path if using DBFS
         local_run_path = local_fs_path(current_run_path)
 
@@ -175,16 +176,22 @@ class PDPDataAuditTask:
         # Attach file handler
         try:
             file_handler = logging.FileHandler(log_file_path, mode="w")
-            file_handler.setFormatter(logging.Formatter(
-                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-            ))
+            file_handler.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                )
+            )
             logging.getLogger().addHandler(file_handler)
-            LOGGER.info("File logging initialized. Logs will be saved to: %s", log_file_path)
+            LOGGER.info(
+                "File logging initialized. Logs will be saved to: %s", log_file_path
+            )
             # Quick existence check (should be True immediately)
             if not os.path.exists(log_file_path):
                 LOGGER.warning("Log file does not appear yet: %s", log_file_path)
         except Exception as e:
-            LOGGER.exception("Failed to initialize file logging at %s: %s", log_file_path, e)
+            LOGGER.exception(
+                "Failed to initialize file logging at %s: %s", log_file_path, e
+            )
 
         # Determine file paths
         cohort_dataset_raw_path = self._pick_existing_path(
