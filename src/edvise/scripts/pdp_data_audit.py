@@ -50,7 +50,13 @@ from edvise.utils.data_cleaning import (
 )
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO) 
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
@@ -154,6 +160,18 @@ class PDPDataAuditTask:
             current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
         else:
             raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+        
+        # Inside run(), right after current_run_path is defined:
+        os.makedirs(current_run_path, exist_ok=True)  # ensure folder exists
+
+        log_file_path = os.path.join(current_run_path, "pdp_data_audit.log")
+        file_handler = logging.FileHandler(log_file_path, mode="w")
+        file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+
+        # Add file handler to root logger
+        logging.getLogger().addHandler(file_handler)
+
+        LOGGER.info(f"File logging initialized. Logs will be saved to: {log_file_path}")
 
         # Determine file paths
         cohort_dataset_raw_path = self._pick_existing_path(
