@@ -63,7 +63,6 @@ LOGGER = logging.getLogger(__name__)
 # Create callable type
 ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
 
-
 class PDPDataAuditTask:
     """Encapsulates the data preprocessing logic for the SST pipeline."""
 
@@ -161,17 +160,29 @@ class PDPDataAuditTask:
         else:
             raise ValueError(f"Unsupported job_type: {self.args.job_type}")
         
-        # Inside run(), right after current_run_path is defined:
-        os.makedirs(current_run_path, exist_ok=True)  # ensure folder exists
+        def local_fs_path(p: str) -> str:
+            # Convert DBFS URI to local path for Python file I/O
+            return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
+    
+        # Convert to local filesystem path if using DBFS
+        local_run_path = local_fs_path(current_run_path)
 
-        log_file_path = os.path.join(current_run_path, "pdp_data_audit.log")
-        file_handler = logging.FileHandler(log_file_path, mode="w")
-        file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+        # Make sure the folder exists on the local FS
+        os.makedirs(local_run_path, exist_ok=True)
 
-        # Add file handler to root logger
-        logging.getLogger().addHandler(file_handler)
+        # Build log file path (local FS form)
+        log_file_path = os.path.join(local_run_path, "pdp_data_audit.log")
 
-        LOGGER.info(f"File logging initialized. Logs will be saved to: {log_file_path}")
+        # Attach file handler
+        try:
+            file_handler = logging.FileHandler(log_file_path, mode="w")
+            file_handler.setFormatter(logging.Formatter(
+                "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            ))
+            logging.getLogger().addHandler(file_handler)
+            LOGGER.info(f"File logging initialized. Logs will be saved to: {log_file_path}")
+        except Exception as e:
+            LOGGER.exception(f"Failed to initialize file logging at {log_file_path}: {e}")
 
         # Determine file paths
         cohort_dataset_raw_path = self._pick_existing_path(
