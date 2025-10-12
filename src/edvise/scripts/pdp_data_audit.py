@@ -161,7 +161,6 @@ class PDPDataAuditTask:
             raise ValueError(f"Unsupported job_type: {self.args.job_type}")
         
         def local_fs_path(p: str) -> str:
-            # Convert DBFS URI to local path for Python file I/O
             return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
     
         # Convert to local filesystem path if using DBFS
@@ -180,9 +179,12 @@ class PDPDataAuditTask:
                 "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
             ))
             logging.getLogger().addHandler(file_handler)
-            LOGGER.info(f"File logging initialized. Logs will be saved to: {log_file_path}")
+            LOGGER.info("File logging initialized. Logs will be saved to: %s", log_file_path)
+            # Quick existence check (should be True immediately)
+            if not os.path.exists(log_file_path):
+                LOGGER.warning("Log file does not appear yet: %s", log_file_path)
         except Exception as e:
-            LOGGER.exception(f"Failed to initialize file logging at {log_file_path}: {e}")
+            LOGGER.exception("Failed to initialize file logging at %s: %s", log_file_path, e)
 
         # Determine file paths
         cohort_dataset_raw_path = self._pick_existing_path(
@@ -442,3 +444,10 @@ if __name__ == "__main__":
         course_converter_func=course_converter_func,
     )
     task.run()
+    # Ensure all logs are flushed to disk
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()
