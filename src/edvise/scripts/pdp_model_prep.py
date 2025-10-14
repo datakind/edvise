@@ -27,18 +27,8 @@ from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
 
 
-# Console logging; file handler attached later like your PDP audit script
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
-logging.getLogger("py4j").setLevel(logging.WARNING)
-LOGGER = logging.getLogger(__name__)
-
-
-def local_fs_path(p: str) -> str:
-    return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class ModelPrepTask:
@@ -112,7 +102,7 @@ class ModelPrepTask:
             seed=self.cfg.random_state,
             stratify_col=self.cfg.target_col,
         )
-        LOGGER.info(
+        logger.info(
             "Dataset split distribution:\n%s",
             df[split_col].value_counts(normalize=True),
         )
@@ -135,65 +125,28 @@ class ModelPrepTask:
             target_col=self.cfg.target_col,
             class_weight=sample_class_weight,
         )
-        LOGGER.info(
+        logger.info(
             "Sample weight distribution:\n%s",
             df[sample_weight_col].value_counts(normalize=True),
         )
         return df
 
     def run(self):
-        # Resolve run path like your PDP audit script
-        if self.args.job_type == "training":
-            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
-        elif self.args.job_type == "inference":
-            if self.cfg.model.run_id is None:
-                raise ValueError("cfg.model.run_id must be set for inference runs.")
-            current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
-        else:
-            raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+        # Read inputs using custom function
+        current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
 
-        # Convert to local FS if DBFS, ensure dir, attach file handler
-        local_run_path = local_fs_path(current_run_path)
-        os.makedirs(local_run_path, exist_ok=True)
-        log_file_path = os.path.join(local_run_path, "pdp_model_prep.log")
-        try:
-            fh = logging.FileHandler(log_file_path, mode="w")
-            fh.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
-            )
-            logging.getLogger().addHandler(fh)
-            LOGGER.info(
-                "File logging initialized. Logs will be saved to: %s", log_file_path
-            )
-            if not os.path.exists(log_file_path):
-                LOGGER.warning("Log file does not appear yet: %s", log_file_path)
-        except Exception as e:
-            LOGGER.exception(
-                "Failed to initialize file logging at %s: %s", log_file_path, e
-            )
-
-        # Read inputs
         checkpoint_df = read_parquet(f"{current_run_path}/checkpoint.parquet")
+        target_df = read_parquet(f"{current_run_path}/target.parquet")
         selected_students = read_parquet(
             f"{current_run_path}/selected_students.parquet"
         )
 
-        target_path = f"{current_run_path}/target.parquet"
-        target_df = (
-            read_parquet(target_path)
-            if os.path.exists(local_fs_path(target_path))
-            else None
-        )
-
-        # Process
-        df_labeled = self.merge_data(checkpoint_df, selected_students, target_df)
+        df_labeled = self.merge_data(checkpoint_df, target_df, selected_students)
         df_preprocessed = self.cleanup_features(df_labeled)
         df_preprocessed = self.apply_dataset_splits(df_preprocessed)
         df_preprocessed = self.apply_sample_weights(df_preprocessed)
 
-        # Write output
+        # Write output using custom function
         write_parquet(
             df_preprocessed,
             file_path=f"{current_run_path}/preprocessed.parquet",
@@ -217,10 +170,3 @@ if __name__ == "__main__":
     args = parse_arguments()
     task = ModelPrepTask(args)
     task.run()
-    # Ensure all logs are flushed to disk
-    for h in logging.getLogger().handlers:
-        try:
-            h.flush()
-        except Exception:
-            pass
-    logging.shutdown()
