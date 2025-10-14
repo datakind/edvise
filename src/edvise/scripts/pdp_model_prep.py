@@ -155,7 +155,7 @@ class ModelPrepTask:
         # Convert to local FS if DBFS, ensure dir, attach file handler
         local_run_path = local_fs_path(current_run_path)
         os.makedirs(local_run_path, exist_ok=True)
-        log_file_path = os.path.join(local_run_path, "model_prep.log")
+        log_file_path = os.path.join(local_run_path, "pdp_model_prep.log")
         try:
             fh = logging.FileHandler(log_file_path, mode="w")
             fh.setFormatter(
