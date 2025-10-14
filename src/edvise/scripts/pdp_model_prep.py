@@ -158,20 +158,34 @@ class ModelPrepTask:
         log_file_path = os.path.join(local_run_path, "model_prep.log")
         try:
             fh = logging.FileHandler(log_file_path, mode="w")
-            fh.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+            fh.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                )
+            )
             logging.getLogger().addHandler(fh)
-            LOGGER.info("File logging initialized. Logs will be saved to: %s", log_file_path)
+            LOGGER.info(
+                "File logging initialized. Logs will be saved to: %s", log_file_path
+            )
             if not os.path.exists(log_file_path):
                 LOGGER.warning("Log file does not appear yet: %s", log_file_path)
         except Exception as e:
-            LOGGER.exception("Failed to initialize file logging at %s: %s", log_file_path, e)
+            LOGGER.exception(
+                "Failed to initialize file logging at %s: %s", log_file_path, e
+            )
 
         # Read inputs
         checkpoint_df = read_parquet(f"{current_run_path}/checkpoint.parquet")
-        selected_students = read_parquet(f"{current_run_path}/selected_students.parquet")
+        selected_students = read_parquet(
+            f"{current_run_path}/selected_students.parquet"
+        )
 
         target_path = f"{current_run_path}/target.parquet"
-        target_df = read_parquet(target_path) if os.path.exists(local_fs_path(target_path)) else None
+        target_df = (
+            read_parquet(target_path)
+            if os.path.exists(local_fs_path(target_path))
+            else None
+        )
 
         # Process
         df_labeled = self.merge_data(checkpoint_df, selected_students, target_df)
@@ -195,7 +209,9 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
-    parser.add_argument("--job_type", type=str, required=True, choices=["training", "inference"])
+    parser.add_argument(
+        "--job_type", type=str, required=True, choices=["training", "inference"]
+    )
     parser.add_argument("--db_run_id", type=str, required=False)
     return parser.parse_args()
 

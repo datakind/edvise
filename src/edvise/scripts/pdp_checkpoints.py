@@ -133,10 +133,10 @@ class PDPCheckpointsTask:
             )
 
         raise ValueError(f"Unknown checkpoint type: {cp.type_}")
-    
+
     def _local_fs_path(self, p: str) -> str:
-            return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
-    
+        return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
+
     def run(self):
         """Executes the data preprocessing pipeline."""
         if self.args.job_type == "training":
@@ -147,7 +147,7 @@ class PDPCheckpointsTask:
             current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
         else:
             raise ValueError(f"Unsupported job_type: {self.args.job_type}")
-        
+
         # --- Add file logging handler EARLY ---
         local_run_path = self._local_fs_path(current_run_path)
         os.makedirs(local_run_path, exist_ok=True)
@@ -155,12 +155,21 @@ class PDPCheckpointsTask:
 
         # Avoid adding duplicate handlers if run() is called multiple times
         root_logger = logging.getLogger()
-        if not any(isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None) == os.path.abspath(log_file_path)
-                   for h in root_logger.handlers):
+        if not any(
+            isinstance(h, logging.FileHandler)
+            and getattr(h, "baseFilename", None) == os.path.abspath(log_file_path)
+            for h in root_logger.handlers
+        ):
             fh = logging.FileHandler(log_file_path, mode="w")
-            fh.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+            fh.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                )
+            )
             root_logger.addHandler(fh)
-            LOGGER.info("File logging initialized. Logs will be saved to: %s", log_file_path)
+            LOGGER.info(
+                "File logging initialized. Logs will be saved to: %s", log_file_path
+            )
 
         df_student_terms = pd.read_parquet(f"{current_run_path}/student_terms.parquet")
 

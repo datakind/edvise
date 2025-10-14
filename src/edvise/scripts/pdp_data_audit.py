@@ -434,7 +434,7 @@ if __name__ == "__main__":
         course_converter_func = None
         LOGGER.info("Running task default course converter func")
         LOGGER.warning(f"Failed to load custom converter functions: {e}")
-    
+
     # try:
     #     schemas = importlib.import_module("schemas")
     #     LOGGER.info("Running task with custom schema")
@@ -442,7 +442,6 @@ if __name__ == "__main__":
     #     from data_audit import schemas as schemas
     #     LOGGER.info("Running task with default schema")
     #     LOGGER.warning(f"Failed to load custom schema: {e}")
-
 
     task = PDPDataAuditTask(
         args,
