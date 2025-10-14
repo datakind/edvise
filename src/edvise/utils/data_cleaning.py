@@ -165,16 +165,29 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
         ]
 
         if not dropped_terms.empty:
+            TERM_ORDER = {"Spring": 1, "Summer": 2, "Fall": 3, "Winter": 4}
+
+            def parse_year(year_str: str) -> int:
+                """
+                Extracts the first year as an integer from formats like:
+                '2022', '2022-23', or '2022-2023'
+                """
+                # Grab the first 4 digits
+                import re
+                match = re.search(r"\d{4}", year_str)
+                return int(match.group()) if match else 0
+
             term_list = sorted(
                 [
                     f"{r.academic_term} {r.academic_year}"
                     for r in dropped_terms.itertuples()
                 ],
                 key=lambda s: (
-                    int(s.split()[-1]),
-                    s.split()[0],
-                ),  # sorts by year, then term
+                    parse_year(s.split()[-1]),                   # handle '2022-23'
+                    TERM_ORDER.get(s.split()[0], 99),            # order terms
+                ),
             )
+
             LOGGER.warning(
                 " ⚠️ ENTIRE academic term(s) dropped because *all* rows were missing course identifiers: %s",
                 ", ".join(term_list),
