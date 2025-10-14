@@ -383,7 +383,7 @@ class ModelInferenceTask:
         df_predicted = self.predict(model, df_processed)
         write.to_delta_table(
             df_predicted,
-            f"{current_run_path}.predicted_dataset",
+            f"{current_run_path}/predicted_dataset",
             self.spark_session,
         )
 
