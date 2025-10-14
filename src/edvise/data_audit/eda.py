@@ -213,7 +213,7 @@ def compute_pairwise_associations(
             is_symmetric = True
         else:
             LOGGER.warning(
-                "'%s' and/or '%s' columns' dtypes (%s and/or %s) aren't supported "
+                " ⚠️ '%s' and/or '%s' columns' dtypes (%s and/or %s) aren't supported "
                 "for association computation; skipping ...",
                 col1,
                 col2,
@@ -355,7 +355,7 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(
         df_course.columns
     ):
-        LOGGER.warning(" Cannot compute key_course_ids: required columns missing.")
+        LOGGER.warning(" ⚠️ Cannot compute key_course_ids: required columns missing.")
         return []
 
     mask = df_course["math_or_english_gateway"].astype("string").isin({"M", "E"})
@@ -368,7 +368,7 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     ].fillna("")
 
     if "course_cip" not in df_course.columns:
-        LOGGER.warning(" Column 'course_cip' is missing; no CIP codes extracted.")
+        LOGGER.warning(" ⚠️ Column 'course_cip' is missing; no CIP codes extracted.")
         cips = pd.Series([], dtype=str)
     else:
         cips = (
@@ -392,7 +392,7 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
         )
         if cips.eq("").all():
             LOGGER.warning(
-                " Column 'course_cip' is present but unpopulated for gateway courses."
+                " ⚠️ Column 'course_cip' is present but unpopulated for gateway courses."
             )
 
     # edit this to auto populate the config
@@ -428,7 +428,7 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
 
     if not e_ok and not m_ok:
         LOGGER.warning(
-            " Prefixes may be swapped (do NOT start with E for English, start with M for Math). Consider swapping E <-> M. E=%s, M=%s",
+            " ⚠️ Prefixes MAY be swapped (do NOT start with E for English, start with M for Math). Consider swapping E <-> M. E=%s, M=%s",
             pref_e.tolist(),
             pref_m.tolist(),
         )
@@ -497,7 +497,7 @@ def log_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
             cohort_terms_counts.to_string(index=False),
         )
     else:
-        LOGGER.warning("Missing fields: 'cohort' or 'cohort_term' in cohort dataframe.")
+        LOGGER.warning(" ⚠️ Missing fields: 'cohort' or 'cohort_term' in cohort dataframe.")
 
     # --- Academic year/term pairs ---
     if {"academic_year", "academic_term"}.issubset(df_course.columns):
@@ -514,7 +514,7 @@ def log_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
         )
     else:
         LOGGER.warning(
-            "Missing fields: 'academic_year' or 'academic_term' in course dataframe."
+            " ⚠️ Missing fields: 'academic_year' or 'academic_term' in course dataframe."
         )
 
 
@@ -584,7 +584,7 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
         pct_str = f"{pct_misjoined:.1f}%%"
 
     LOGGER.warning(
-        "inspect_misjoined_records: Found %d total misjoined records (%s of data): "
+        " ⚠️ inspect_misjoined_records: Found %d total misjoined records (%s of data): "
         "%d records in cohort file not found in course file, %d records in course file not found in cohort file.",
         total_misjoined,
         pct_str,
@@ -599,7 +599,7 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
     # Additional warning if mismatch is significant
     if total_misjoined > 100 or pct_misjoined > 10:
         LOGGER.warning(
-            " inspect_misjoined_records: ⚠️ High mismatch detected — %d records (%.1f%% of data). This is uncommon: please contact data team for further investigation.",
+            " ⚠️ inspect_misjoined_records: HIGH mismatch detected — %d records (%.1f%% of data). This is uncommon: please contact data team for further investigation.",
             total_misjoined,
             pct_misjoined,
         )
@@ -650,12 +650,12 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
 
     if pct_dropped < 0.1:
         LOGGER.warning(
-            "inspect_misjoined_records: These mismatches will later result in dropping %d students (<0.1%% of all students).",
+            " ⚠️ inspect_misjoined_records: These mismatches will later result in dropping %d students (<0.1%% of all students).",
             dropped_students,
         )
     else:
         LOGGER.warning(
-            "inspect_misjoined_records: These mismatches will later result in dropping %d students (%.1f%% of all students).",
+            " ⚠️ inspect_misjoined_records: These mismatches will later result in dropping %d students (%.1f%% of all students).",
             dropped_students,
             pct_dropped,
         )
@@ -672,7 +672,7 @@ def print_credential_types_and_retention(df_cohort: pd.DataFrame) -> None:
         df_cohort[["cohort", "retention"]].value_counts(dropna=False).sort_index()
     )
     LOGGER.warning(
-        " Breakdown for retention by cohort: IF MOST RECENT YEAR'S SPLIT IS DISPROPORTIONATE, exclude from training by changing max_academic_year in the config! \n%s ",
+        "  ⚠️ Breakdown for retention by cohort: IF MOST RECENT YEAR'S SPLIT IS DISPROPORTIONATE, exclude from training by changing max_academic_year in the config! \n%s ",
         retention.to_string(),
     )
     LOGGER.info(
