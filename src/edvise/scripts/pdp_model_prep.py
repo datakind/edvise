@@ -139,12 +139,14 @@ class ModelPrepTask:
     def run(self):
         # Read inputs using custom function
         current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
-        
+
         def local_fs_path(p: str) -> str:
             return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
-        
+
         # Determine run path and set up a log file alongside outputs
-        local_run_path = local_fs_path(f"{self.args.silver_volume_path}/{self.args.db_run_id}")
+        local_run_path = local_fs_path(
+            f"{self.args.silver_volume_path}/{self.args.db_run_id}"
+        )
         os.makedirs(local_run_path, exist_ok=True)
         log_file_path = os.path.join(local_run_path, "pdp_model_prep.log")
 
@@ -156,9 +158,15 @@ class ModelPrepTask:
             for h in root_logger.handlers
         ):
             fh = logging.FileHandler(log_file_path, mode="w")
-            fh.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+            fh.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                )
+            )
             root_logger.addHandler(fh)
-            LOGGER.info("File logging initialized. Logs will be saved to: %s", log_file_path)
+            LOGGER.info(
+                "File logging initialized. Logs will be saved to: %s", log_file_path
+            )
 
         checkpoint_df = read_parquet(f"{current_run_path}/checkpoint.parquet")
         target_df = read_parquet(f"{current_run_path}/target.parquet")
@@ -201,4 +209,3 @@ if __name__ == "__main__":
         except Exception:
             pass
     logging.shutdown()
-
