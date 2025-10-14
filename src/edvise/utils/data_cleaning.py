@@ -138,7 +138,7 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
             num_dropped_rows,
             pct_dropped_rows,
         )
-    
+
     # Warn if any full academic term was completely removed
     if {"academic_year", "academic_term"}.issubset(df_course.columns):
         original_terms = (
@@ -166,7 +166,8 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
 
         if not dropped_terms.empty:
             term_list = [
-                f"{r.academic_term} {r.academic_year}" for r in dropped_terms.itertuples()
+                f"{r.academic_term} {r.academic_year}"
+                for r in dropped_terms.itertuples()
             ]
             LOGGER.warning(
                 " ⚠️ Entire academic term(s) dropped because *all* rows were missing course identifiers: %s",
@@ -249,7 +250,9 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
                 )
 
             # Log for NOT-marked-as-transfer (existing behavior)
-            _group_and_log(dropped_non_transfer_mask, "NOT-marked-as-transfer-out ('N')")
+            _group_and_log(
+                dropped_non_transfer_mask, "NOT-marked-as-transfer-out ('N')"
+            )
 
             # NEW: Log for rows MARKED as transfer-outs
             _group_and_log(dropped_transfer_mask, "MARKED-as-transfer-out ('Y')")

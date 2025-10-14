@@ -70,9 +70,7 @@ class ModelPrepTask:
         )
 
         cohort_target_counts = (
-            df_labeled[["cohort", "target"]]
-            .value_counts(dropna=False)
-            .sort_index()
+            df_labeled[["cohort", "target"]].value_counts(dropna=False).sort_index()
         )
         logging.info(
             "Cohort Target breakdown (counts):\n%s", cohort_target_counts.to_string()
