@@ -170,7 +170,10 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
                     f"{r.academic_term} {r.academic_year}"
                     for r in dropped_terms.itertuples()
                 ],
-                key=lambda s: (int(s.split()[-1]), s.split()[0])  # sorts by year, then term
+                key=lambda s: (
+                    int(s.split()[-1]),
+                    s.split()[0],
+                ),  # sorts by year, then term
             )
             LOGGER.warning(
                 " ⚠️ ENTIRE academic term(s) dropped because *all* rows were missing course identifiers: %s",

@@ -497,7 +497,9 @@ def log_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
             cohort_terms_counts.to_string(index=False),
         )
     else:
-        LOGGER.warning(" ⚠️ Missing fields: 'cohort' or 'cohort_term' in cohort dataframe.")
+        LOGGER.warning(
+            " ⚠️ Missing fields: 'cohort' or 'cohort_term' in cohort dataframe."
+        )
 
     # --- Academic year/term pairs ---
     if {"academic_year", "academic_term"}.issubset(df_course.columns):
