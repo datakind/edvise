@@ -139,15 +139,21 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
             pct_dropped_rows,
         )
 
-    # Log student alignment breakdown if available
+    # Log transfer-out alignment breakdowns if available
     if "enrolled_at_other_institution_s" in df_course.columns and num_dropped_rows > 0:
-        dropped_flag = (
-            df_course.loc[drop_mask, "enrolled_at_other_institution_s"]
+        # Normalize the flag just once on the full frame, then slice with drop_mask
+        norm_flag = (
+            df_course["enrolled_at_other_institution_s"]
             .astype("string")
             .str.upper()
         )
-        count_y = int((dropped_flag == "Y").sum())
-        count_not_y = int(num_dropped_rows - count_y)
+
+        # Build mutually exclusive masks for the *dropped* rows
+        dropped_transfer_mask = drop_mask & (norm_flag == "Y")
+        dropped_non_transfer_mask = drop_mask & (norm_flag != "Y")  # includes N/blank/NA
+
+        count_y = int(dropped_transfer_mask.sum())
+        count_not_y = int(dropped_non_transfer_mask.sum())
         pct_y = 100.0 * count_y / num_dropped_rows if num_dropped_rows else 0.0
         pct_not_y = 100.0 * count_not_y / num_dropped_rows if num_dropped_rows else 0.0
 
@@ -169,47 +175,47 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
                 num_dropped_rows,
             )
 
-        # Logging cohort and academic term/year separately for investigation and analysis
-        if count_not_y > 0 and {
-            "cohort",
-            "cohort_term",
-            "academic_year",
-            "academic_term",
-        }.issubset(df_course.columns):
-            non_transfer_mask = drop_mask & (
-                dropped_flag.reindex(drop_mask.index) != "Y"
-            )
-            df_dropped = df_course.loc[non_transfer_mask]
+        # If we have cohort/academic fields, log grouped counts for BOTH segments
+        required_cols = {"cohort", "cohort_term", "academic_year", "academic_term"}
+        if required_cols.issubset(df_course.columns):
+            def _group_and_log(mask: pd.Series, segment_label: str) -> None:
+                if not mask.any():
+                    return
+                df_seg = df_course.loc[mask]
 
-            # Grouped by academic year and academic term
-            academic_group_counts = (
-                df_dropped.groupby(
-                    ["academic_year", "academic_term"], dropna=False, observed=True
+                academic_group_counts = (
+                    df_seg.groupby(
+                        ["academic_year", "academic_term"], dropna=False, observed=True
+                    )
+                    .size()
+                    .reset_index(name="count")
+                    .sort_values(by=["academic_year", "academic_term"], kind="mergesort")
                 )
-                .size()
-                .reset_index(name="count")
-                .sort_values(by=["academic_year", "academic_term"])
-            )
-
-            LOGGER.info(
-                "Grouped counts by academic year and academic term for rows with missing course identifiers NOT marked as transfer-outs:\n%s",
-                academic_group_counts.to_string(index=False),
-            )
-
-            # Grouped by cohort year and cohort term
-            cohort_group_counts = (
-                df_dropped.groupby(
-                    ["cohort", "cohort_term"], dropna=False, observed=True
+                LOGGER.info(
+                    "Grouped counts by academic year and academic term for %s rows with missing course identifiers:\n%s",
+                    segment_label,
+                    academic_group_counts.to_string(index=False),
                 )
-                .size()
-                .reset_index(name="count")
-                .sort_values(by=["cohort", "cohort_term"])
-            )
 
-            LOGGER.info(
-                "Grouped counts by cohort year and cohort term for rows with missing course identifiers NOT marked as transfer-outs:\n%s",
-                cohort_group_counts.to_string(index=False),
-            )
+                cohort_group_counts = (
+                    df_seg.groupby(
+                        ["cohort", "cohort_term"], dropna=False, observed=True
+                    )
+                    .size()
+                    .reset_index(name="count")
+                    .sort_values(by=["cohort", "cohort_term"], kind="mergesort")
+                )
+                LOGGER.info(
+                    "Grouped counts by cohort year and cohort term for %s rows with missing course identifiers:\n%s",
+                    segment_label,
+                    cohort_group_counts.to_string(index=False),
+                )
+
+            # Log for NOT-marked-as-transfer (existing behavior)
+            _group_and_log(dropped_non_transfer_mask, "NOT-marked-as-transfer-out")
+
+            # NEW: Log for rows MARKED as transfer-outs
+            _group_and_log(dropped_transfer_mask, "MARKED-as-transfer-out ('Y')")
 
     return df_cleaned
 

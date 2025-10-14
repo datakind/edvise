@@ -60,8 +60,8 @@ class ModelPrepTask:
         )
         logging.info("Target breakdown (percents):\n%s", target_percents.to_string())
 
-        cohort_counts = df_labeled["cohort"].value_counts(dropna=False).sort_index()
-        logging.info("Cohort breakdown (counts):\n%s", cohort_counts.to_string())
+        cohort_counts = df_labeled[["cohort", "cohort_term"]].value_counts(dropna=False).sort_index()
+        logging.info("Cohort & Cohort Term breakdowns (counts):\n%s", cohort_counts.to_string())
 
         cohort_target_pct = (
             df_labeled[["cohort", "target"]]
