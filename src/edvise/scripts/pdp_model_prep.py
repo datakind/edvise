@@ -209,9 +209,6 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
-    parser.add_argument(
-        "--job_type", type=str, required=True, choices=["training", "inference"]
-    )
     parser.add_argument("--db_run_id", type=str, required=False)
     return parser.parse_args()
 
