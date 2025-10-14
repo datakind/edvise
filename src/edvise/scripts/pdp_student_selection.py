@@ -23,9 +23,14 @@ from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
 
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# ---- Configure console logging right away (file handler attached later) ----
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
 logging.getLogger("py4j").setLevel(logging.WARNING)
+LOGGER = logging.getLogger(__name__)
 
 
 class StudentSelectionTask:
@@ -45,6 +50,17 @@ class StudentSelectionTask:
             current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
         else:
             raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+        
+        # --- Add file logging handler ---
+        os.makedirs(current_run_path, exist_ok=True)
+        log_file_path = os.path.join(current_run_path, "pdp_student_selection.log")
+        file_handler = logging.FileHandler(log_file_path, mode="w")
+        file_handler.setFormatter(
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        )
+        logging.getLogger().addHandler(file_handler)
+        LOGGER.info("File logging initialized. Logs will be saved to: %s", log_file_path)
+
         # Load the student-term data
         df_student_terms = pd.read_parquet(f"{current_run_path}/student_terms.parquet")
 
