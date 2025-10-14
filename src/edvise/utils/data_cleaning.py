@@ -174,6 +174,7 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
                 """
                 # Grab the first 4 digits
                 import re
+
                 match = re.search(r"\d{4}", year_str)
                 return int(match.group()) if match else 0
 
@@ -183,8 +184,8 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
                     for r in dropped_terms.itertuples()
                 ],
                 key=lambda s: (
-                    parse_year(s.split()[-1]),                   # handle '2022-23'
-                    TERM_ORDER.get(s.split()[0], 99),            # order terms
+                    parse_year(s.split()[-1]),  # handle '2022-23'
+                    TERM_ORDER.get(s.split()[0], 99),  # order terms
                 ),
             )
 
