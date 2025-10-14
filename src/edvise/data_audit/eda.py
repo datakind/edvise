@@ -630,11 +630,16 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
             " Grouped counts for mismatched records by cohort and cohort_term to identify potential trends:\n%s",
             cohort_group_counts.to_string(),
         )
-    
+
     # Log grouped academic_year & academic_term
-    if "academic_year" in df_misjoined.columns and "academic_term" in df_misjoined.columns:
+    if (
+        "academic_year" in df_misjoined.columns
+        and "academic_term" in df_misjoined.columns
+    ):
         academic_group_counts = (
-            df_misjoined.groupby(["academic_year", "academic_term"], dropna=False, observed=True)
+            df_misjoined.groupby(
+                ["academic_year", "academic_term"], dropna=False, observed=True
+            )
             .size()
             .sort_index()
         )

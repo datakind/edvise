@@ -143,14 +143,14 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
     if "enrolled_at_other_institution_s" in df_course.columns and num_dropped_rows > 0:
         # Normalize the flag just once on the full frame, then slice with drop_mask
         norm_flag = (
-            df_course["enrolled_at_other_institution_s"]
-            .astype("string")
-            .str.upper()
+            df_course["enrolled_at_other_institution_s"].astype("string").str.upper()
         )
 
         # Build mutually exclusive masks for the *dropped* rows
         dropped_transfer_mask = drop_mask & (norm_flag == "Y")
-        dropped_non_transfer_mask = drop_mask & (norm_flag != "Y")  # includes N/blank/NA
+        dropped_non_transfer_mask = drop_mask & (
+            norm_flag != "Y"
+        )  # includes N/blank/NA
 
         count_y = int(dropped_transfer_mask.sum())
         count_not_y = int(dropped_non_transfer_mask.sum())
@@ -178,6 +178,7 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
         # If we have cohort/academic fields, log grouped counts for BOTH segments
         required_cols = {"cohort", "cohort_term", "academic_year", "academic_term"}
         if required_cols.issubset(df_course.columns):
+
             def _group_and_log(mask: pd.Series, segment_label: str) -> None:
                 if not mask.any():
                     return
@@ -189,7 +190,9 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
                     )
                     .size()
                     .reset_index(name="count")
-                    .sort_values(by=["academic_year", "academic_term"], kind="mergesort")
+                    .sort_values(
+                        by=["academic_year", "academic_term"], kind="mergesort"
+                    )
                 )
                 LOGGER.info(
                     "Grouped counts by academic year and academic term for %s rows with missing course identifiers:\n%s",
