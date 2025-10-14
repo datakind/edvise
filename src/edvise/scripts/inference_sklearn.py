@@ -299,6 +299,9 @@ class ModelInferenceTask:
             # Ensure df_ref has the same dtypes as df_processed
             ref_dtypes = df_ref.dtypes.apply(lambda dt: dt.name).to_dict()
 
+            #fill nas for df_processed
+            df_processed = df_processed.fillna(train_mode)
+
             # Initialize SHAP KernelExplainer
             explainer = shap.explainers.KernelExplainer(
                 lambda x: self.predict_proba(
