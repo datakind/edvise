@@ -69,13 +69,13 @@ class ModelPrepTask:
             "Cohort & Cohort Term breakdowns (counts):\n%s", cohort_counts.to_string()
         )
 
-        cohort_target_pct = (
+        cohort_target_counts = (
             df_labeled[["cohort", "target"]]
-            .value_counts(dropna=False, normalize=True)
+            .value_counts(dropna=False)
             .sort_index()
         )
         logging.info(
-            "Cohort Target breakdown (percents):\n%s", cohort_target_pct.to_string()
+            "Cohort Target breakdown (counts):\n%s", cohort_target_counts.to_string()
         )
 
         return df_labeled

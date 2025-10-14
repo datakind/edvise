@@ -138,6 +138,40 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
             num_dropped_rows,
             pct_dropped_rows,
         )
+    
+    # Warn if any full academic term was completely removed
+    if {"academic_year", "academic_term"}.issubset(df_course.columns):
+        original_terms = (
+            df_course.loc[:, ["academic_year", "academic_term"]]
+            .drop_duplicates()
+            .assign(_present=True)
+        )
+        cleaned_terms = (
+            df_cleaned.loc[:, ["academic_year", "academic_term"]]
+            .drop_duplicates()
+            .assign(_present=True)
+        )
+
+        merged_terms = original_terms.merge(
+            cleaned_terms,
+            on=["academic_year", "academic_term"],
+            how="left",
+            suffixes=("", "_cleaned"),
+            indicator=True,
+        )
+
+        dropped_terms = merged_terms.loc[
+            merged_terms["_merge"] == "left_only", ["academic_year", "academic_term"]
+        ]
+
+        if not dropped_terms.empty:
+            term_list = [
+                f"{r.academic_term} {r.academic_year}" for r in dropped_terms.itertuples()
+            ]
+            LOGGER.warning(
+                " ⚠️ Entire academic term(s) dropped because *all* rows were missing course identifiers: %s",
+                ", ".join(term_list),
+            )
 
     # Log transfer-out alignment breakdowns if available
     if "enrolled_at_other_institution_s" in df_course.columns and num_dropped_rows > 0:
@@ -215,7 +249,7 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
                 )
 
             # Log for NOT-marked-as-transfer (existing behavior)
-            _group_and_log(dropped_non_transfer_mask, "NOT-marked-as-transfer-out")
+            _group_and_log(dropped_non_transfer_mask, "NOT-marked-as-transfer-out ('N')")
 
             # NEW: Log for rows MARKED as transfer-outs
             _group_and_log(dropped_transfer_mask, "MARKED-as-transfer-out ('Y')")
