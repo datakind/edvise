@@ -406,15 +406,13 @@ resources:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
         git_tag: v0.1.4
-      tags:
-        dev: kayla_wilding
       queue:
         enabled: true
       parameters:
         - name: cohort_file_name
-          default: AO1600pdp_AO1600_AR_DEIDENTIFIED_STUDYID_20250819030854.csv
+          default: AO1600pdp_AO1600_AR_DEIDENTIFIED_STUDYID_20250723040724.csv
         - name: course_file_name
-          default: AO1600pdp_AO1600_COURSE_LEVEL_AR_DEIDENTIFIED_STUDYID_20250819030854.csv
+          default: AO1600pdp_AO1600_COURSE_LEVEL_AR_DEIDENTIFIED_STUDYID_20250723040724.csv
         - name: databricks_institution_name
           default: ${var.databricks_institution_name}
         - name: db_run_id
@@ -438,7 +436,7 @@ resources:
         - name: job_type
           default: inference
         - name: model_name
-          default: flathead_valley_cc_retention_end_of_first_term
+          default: northwest_state_cc_credits_earned_60_12_credits_earned
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE

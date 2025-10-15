@@ -286,27 +286,6 @@ class ModelInferenceTask:
             # SHAP can't explain models using data with nulls
             # so, impute nulls using the mode (most frequent values)
             train_mode = df_ref.iloc[0]
-            for col in df_ref.columns:
-                dtype = df_ref[col].dtype
-                mode_val = train_mode.get(col, pd.NA)
-
-                if pd.isna(mode_val):
-                    # Handle string columns
-                    if pd.api.types.is_string_dtype(dtype):
-                        train_mode[col] = "" 
-                    # Handle numeric columns
-                    elif pd.api.types.is_numeric_dtype(dtype):
-                        train_mode[col] = 0
-                    # Handle boolean
-                    elif pd.api.types.is_bool_dtype(dtype):
-                        train_mode[col] = False
-                    # Object or category 
-                    else:
-                        train_mode[col] = ""
-
-                # Ensure all string-like columns get strings
-                elif pd.api.types.is_string_dtype(dtype) and not isinstance(mode_val, str):
-                    train_mode[col] = str(mode_val)
 
             # sample training dataset as "reference" data for SHAP Explainer
             df_ref = (
