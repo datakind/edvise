@@ -17,6 +17,10 @@ class SklearnCalibratorWrapper:
     """
     Lightweight Platt (logistic) probability calibrator with automatic tuning (lambda-tuning).
 
+    We apply calibration when our model is underpredicting (calibration curve sits under the 1:1 slope line).
+    The intent behind adding calibration is to help improve recall. We avoid calibration when our model
+    is overpredicting, since we want to capture as many students as possible for Edvise.
+
     This class fits a logistic regression model on the logits of predicted probabilities
     from a base classifier (i.e., Platt scaling). It then automatically tunes a tuning
     parameter lambda ∈ {0.25, 0.5, 0.75, 1.0} to avoid overcorrection by mixing calibrated and

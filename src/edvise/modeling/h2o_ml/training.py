@@ -48,7 +48,7 @@ def run_h2o_automl_classification(
     split_col: str = str(kwargs.pop("split_col", "split"))
     sample_weight_col = str(kwargs.pop("sample_weight_col", "sample_weight"))
     pos_label = bool(kwargs.pop("pos_label", True))
-    calibrate = bool(kwargs.pop("calibrate", False))
+    calibrate = bool(kwargs.pop("calibrate_underpred", False))
     target_name = kwargs.pop("target_name", None)
     checkpoint_name = kwargs.pop("checkpoint_name", None)
     workspace_path = kwargs.pop("workspace_path", None)
