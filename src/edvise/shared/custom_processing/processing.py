@@ -26,52 +26,6 @@ max_prefix = "max_"
 
 hist_suffix = "_to_date"
 
-
-def clean_column_name(col_name):
-    """
-    Clean and standardize a column name by replacing any characters that are not alphanumeric or underscores
-    with a single underscore, converting the name to uppercase, and ensuring there are no sequences of two or
-    more consecutive underscores.
-
-    Args:
-        col_name (str): The original column name to be cleaned.
-
-    Returns:
-        str: The cleaned and standardized column name, which is uppercase and contains only alphanumeric characters
-             and underscores, with no sequences of multiple underscores.
-
-    Example:
-        >>> clean_column_name('Student Name (2020)')
-        'student_name_2020'
-    """
-    cleaned = re.sub(r"[^A-Za-z0-9_]", "_", col_name).lower()
-    cleaned = re.sub(
-        r"_{2,}", "_", cleaned
-    )  # Ensure there are no 3 or more consecutive underscores
-    return cleaned
-
-
-def cumulative_list_aggregation(list_values_over_time):
-    """Aggregate column values over time into
-    cumulative lists. Example use case: we have a student term dataset
-    containing the term numbers a student is enrolled in. Applying this
-    function to that dataset using
-    df.sort_values(term_rank_col).groupby(student_id_col).transform(cumulative_list_aggregation)
-    would give us, at each term, a list of the terms a student has been enrolled in
-    to date.
-
-    Args:
-        list_values_over_time (list): list of values to accumulate over time
-
-    Returns:
-        list of lists
-    """
-    out = [[]]
-    for x in list_values_over_time:
-        out.append(out[-1] + [x])
-    return out[1:]
-
-
 def calculate_pct_terms_unenrolled(
     student_term_df,
     possible_terms_list,
@@ -95,7 +49,7 @@ def calculate_pct_terms_unenrolled(
     student_term_df["term_ranks_enrolled_to_date"] = (
         student_term_df.sort_values(term_rank_col)
         .groupby(student_id_col)[term_rank_col]
-        .transform(cumulative_list_aggregation)
+        .transform(_cumulative_list_aggregation)
     )
     student_term_df["first_enrolled_term_rank"] = [
         min(enrolled_ranks)
@@ -142,6 +96,27 @@ def calculate_pct_terms_unenrolled(
         ]
     )
     return student_term_df
+
+
+def _cumulative_list_aggregation(list_values_over_time):
+    """Aggregate column values over time into
+    cumulative lists. Example use case: we have a student term dataset
+    containing the term numbers a student is enrolled in. Applying this
+    function to that dataset using
+    df.sort_values(term_rank_col).groupby(student_id_col).transform(cumulative_list_aggregation)
+    would give us, at each term, a list of the terms a student has been enrolled in
+    to date.
+
+    Args:
+        list_values_over_time (list): list of values to accumulate over time
+
+    Returns:
+        list of lists
+    """
+    out = [[]]
+    for x in list_values_over_time:
+        out.append(out[-1] + [x])
+    return out[1:]
 
 
 def extract_course_level_from_course_number(num):
