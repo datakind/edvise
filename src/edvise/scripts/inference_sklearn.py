@@ -285,7 +285,7 @@ class ModelInferenceTask:
             # ]
             # SHAP can't explain models using data with nulls
             # so, impute nulls using the mode (most frequent values)
-            train_mode = df_ref.iloc[0]
+            train_mode = df_train.mode().iloc[0]
 
             # sample training dataset as "reference" data for SHAP Explainer
             df_ref = (
@@ -300,7 +300,7 @@ class ModelInferenceTask:
             # Ensure df_ref has the same dtypes as df_processed
             ref_dtypes = df_ref.dtypes.apply(lambda dt: dt.name).to_dict()
 
-            #fill nas for df_processed
+            # fill nas for df_processed
             df_processed = df_processed.fillna(train_mode)
 
             # Initialize SHAP KernelExplainer

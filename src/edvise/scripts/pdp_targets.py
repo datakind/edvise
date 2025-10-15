@@ -34,7 +34,9 @@ class PDPTargetsTask:
         self.args = args
         self.cfg = read_config(self.args.config_file_path, schema=PDPProjectConfig)
 
-    def target_generation(self, df_student_terms: pd.DataFrame, df_ckpt: pd.DataFrame) -> pd.Series:
+    def target_generation(
+        self, df_student_terms: pd.DataFrame, df_ckpt: pd.DataFrame
+    ) -> pd.Series:
         """
         Computes the target variable based on config.
         Returns a Series indexed by student ID(s) with boolean values.
@@ -58,7 +60,7 @@ class PDPTargetsTask:
         kwargs = target_cfg.model_dump()
         kwargs.pop("name", None)
         kwargs.pop("type_", None)
-        if target_type  == "credits_earned":
+        if target_type == "credits_earned":
             kwargs["checkpoint"] = df_ckpt
 
         s = compute_func(df_student_terms, **kwargs)
