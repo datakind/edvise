@@ -301,7 +301,7 @@ def run_predictions(
     )
     df_bd = imp.transform(df_bd_raw).loc[:, model_feature_names].copy()
 
-    contribs_df, _ = compute_shap(model, features_df, df_bd)
+    contribs_df = compute_shap(model, features_df, df_bd)
     grouped_contribs_df, grouped_features = group_shap_and_features(
         contribs_df, features_df
     )

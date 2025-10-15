@@ -595,22 +595,26 @@ def log_h2o_model(
             except Exception as e:
                 LOGGER.debug(f"Skipping mlflow.set_tag (no real run / mocked env): {e}")
 
-            # save only if calibration actually applied
             if calibrator is not None:
+                calibration_applied = bool(
+                    getattr(calibrator, "method", None) == "platt_logits"
+                    and getattr(calibrator, "lam", 0.0) > 0.0
+                    and getattr(calibrator, "model", None) is not None
+                )
                 mlflow.log_params(
                     {
                         "sklearn_calibration_method": calibrator.method or "none",
-                        "sklearn_calibration_lam": getattr(calibrator, "lam", 0.0),
-                        "sklearn_calibration_applied": bool(
-                            getattr(calibrator, "method", None) == "platt_logits"
-                            and getattr(calibrator, "lam", 0.0) > 0.0
+                        "sklearn_calibration_lam": float(
+                            getattr(calibrator, "lam", 0.0)
                         ),
+                        "sklearn_calibration_applied": calibration_applied,
                     }
                 )
-                try:
-                    calibrator.save(artifact_path="sklearn_calibrator")
-                except Exception as e:
-                    LOGGER.warning(f"Failed to log calibrator: {e}")
+                if calibration_applied:
+                    try:
+                        calibrator.save(artifact_path="sklearn_calibrator")
+                    except Exception as e:
+                        LOGGER.warning(f"Failed to log calibrator: {e}")
 
             # model comparison plot
             with _suppress_output():
