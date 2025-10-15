@@ -31,6 +31,7 @@ from h2o.estimators.estimator_base import H2OEstimator
 
 from . import evaluation
 from . import imputation
+from . import calibration
 
 LOGGER = logging.getLogger(__name__)
 
@@ -365,6 +366,7 @@ def log_h2o_experiment(
     experiment_id: str,
     pos_label: PosLabelType,
     sample_weight_col: str = "sample_weight",
+    calibrate: bool = False,
     imputer: t.Optional[imputation.SklearnImputerWrapper] = None,
 ) -> pd.DataFrame:
     """
@@ -419,6 +421,10 @@ def log_h2o_experiment(
                 f"Completed logging on {model_num}/{len(top_model_ids)} top models..."
             )
 
+        per_model_calibrator = (
+            calibration.SklearnCalibratorWrapper() if calibrate else None
+        )
+
         # Setting threshold to 0.5 due to binary classification
         metrics = log_h2o_model(
             aml=aml,
@@ -427,6 +433,7 @@ def log_h2o_experiment(
             valid=valid,
             test=test,
             imputer=imputer,
+            calibrator=per_model_calibrator,
             target_col=target_col,
             primary_metric=aml.sort_metric,
             sample_weight_col=sample_weight_col,
@@ -535,6 +542,7 @@ def log_h2o_model(
     sample_weight_col: str = "sample_weight",
     target_col: str = "target",
     imputer: t.Optional[imputation.SklearnImputerWrapper] = None,
+    calibrator: t.Optional[calibration.SklearnCalibratorWrapper] = None,
     primary_metric: str = "logloss",
 ) -> dict | None:
     """
@@ -547,8 +555,17 @@ def log_h2o_model(
         # get model
         model = h2o.get_model(model_id)
 
+        if calibrator is not None and getattr(calibrator, "model", None) is None:
+            with _suppress_output():
+                preds_valid = model.predict(valid)
+            prob_col = _pick_pos_prob_column(preds_valid, pos_label)
+            p_val_raw = _to_pandas(preds_valid[prob_col]).to_numpy().reshape(-1)
+            y_val_raw = _to_pandas(valid[target_col]).values.flatten()
+            y_val = _binarize_targets(y_val_raw, pos_label)
+            calibrator.fit(p_val_raw, y_val)
+
         # compute scalar metrics once
-        metrics = evaluation.get_metrics_fixed_threshold_all_splits(
+        metrics, preds = evaluation.get_metrics_fixed_threshold_all_splits(
             model=model,
             train=train,
             valid=valid,
@@ -557,6 +574,7 @@ def log_h2o_model(
             pos_label=pos_label,
             threshold=threshold,
             sample_weight_col=sample_weight_col,
+            calibrator=calibrator,
         )
 
         # ensure clean run context
@@ -577,40 +595,44 @@ def log_h2o_model(
             except Exception as e:
                 LOGGER.debug(f"Skipping mlflow.set_tag (no real run / mocked env): {e}")
 
+            # save only if calibration actually applied
+            if calibrator is not None:
+                mlflow.log_params(
+                    {
+                        "sklearn_calibration_method": calibrator.method or "none",
+                        "sklearn_calibration_lam": getattr(calibrator, "lam", 0.0),
+                        "sklearn_calibration_applied": bool(
+                            getattr(calibrator, "method", None) == "platt_logits"
+                            and getattr(calibrator, "lam", 0.0) > 0.0
+                        ),
+                    }
+                )
+                try:
+                    calibrator.save(artifact_path="sklearn_calibrator")
+                except Exception as e:
+                    LOGGER.warning(f"Failed to log calibrator: {e}")
+
             # model comparison plot
-            # keep this where it is, but only silence its progress bars
             with _suppress_output():
                 evaluation.create_and_log_h2o_model_comparison(aml=aml)
 
             # per-split predictions, confusion matrix + plots
-            for split_name, frame in zip(
-                ("train", "val", "test"), (train, valid, test)
-            ):
-                df_split = _to_pandas(frame)
-
-                y_true_raw = _to_pandas(frame[target_col]).values.flatten()
-                y_true_bin = _binarize_targets(y_true_raw, pos_label)
-
-                with _suppress_output():
-                    preds = model.predict(frame)
-
-                prob_col = _pick_pos_prob_column(preds, pos_label)
-                y_proba = _to_pandas(preds[prob_col]).to_numpy().reshape(-1)
-                y_pred = (y_proba >= threshold).astype(int)
-
-                weights = None
-                if sample_weight_col and sample_weight_col in df_split.columns:
-                    weights = (
-                        df_split[sample_weight_col].astype(float).fillna(0.0).to_numpy()
-                    )
+            for split_name in ("train", "val", "test"):
+                split_label = "validate" if split_name == "val" else split_name
+                y_true = preds[split_label]["y_true_bin"]
+                p_cal = preds[split_label][
+                    "y_prob"
+                ]  # calibrated if calibrator is provided
+                w = preds[split_label]["weights"]
+                y_pred = (p_cal >= threshold).astype(int)
 
                 with _suppress_output():
                     evaluation.generate_all_classification_plots(
-                        y_true=y_true_bin,
+                        y_true=y_true,
                         y_pred=y_pred,
-                        y_proba=y_proba,
+                        y_proba=p_cal,
                         prefix=split_name,
-                        sample_weights=weights,
+                        sample_weights=w,
                     )
 
             # Log overfit score based on log loss and CV
