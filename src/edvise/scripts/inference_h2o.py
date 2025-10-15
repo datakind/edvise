@@ -213,7 +213,7 @@ class ModelInferenceTask:
         )
         self.write_delta(
             df=predicted_df,
-            table_name_suffix="predicted_dataset",
+            table_name_suffix=f"predicted_dataset_{self.args.db_run_id}",
             label="Prediction dataset",
         )
         support_scores = pd.DataFrame(
