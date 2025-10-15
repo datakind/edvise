@@ -31,9 +31,14 @@ from edvise.configs.pdp import (
     CheckpointLastInEnrollmentYearConfig,
 )
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("py4j").setLevel(logging.WARNING)  # Ignore Databricks logger
+# ---- Configure console logging right away (file handler attached later) ----
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logging.getLogger("py4j").setLevel(logging.WARNING)
+LOGGER = logging.getLogger(__name__)
 
 
 class PDPCheckpointsTask:
@@ -129,6 +134,9 @@ class PDPCheckpointsTask:
 
         raise ValueError(f"Unknown checkpoint type: {cp.type_}")
 
+    def _local_fs_path(self, p: str) -> str:
+        return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
+
     def run(self):
         """Executes the data preprocessing pipeline."""
         if self.args.job_type == "training":
@@ -139,9 +147,36 @@ class PDPCheckpointsTask:
             current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
         else:
             raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+
+        # --- Add file logging handler EARLY ---
+        local_run_path = self._local_fs_path(current_run_path)
+        os.makedirs(local_run_path, exist_ok=True)
+        log_file_path = os.path.join(local_run_path, "pdp_checkpoint.log")
+
+        # Avoid adding duplicate handlers if run() is called multiple times
+        root_logger = logging.getLogger()
+        if not any(
+            isinstance(h, logging.FileHandler)
+            and getattr(h, "baseFilename", None) == os.path.abspath(log_file_path)
+            for h in root_logger.handlers
+        ):
+            fh = logging.FileHandler(log_file_path, mode="w")
+            fh.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                )
+            )
+            root_logger.addHandler(fh)
+            LOGGER.info(
+                "File logging initialized. Logs will be saved to: %s", log_file_path
+            )
+
         df_student_terms = pd.read_parquet(f"{current_run_path}/student_terms.parquet")
 
         df_ckpt = self.checkpoint_generation(df_student_terms)
+
+        cohort_counts = df_ckpt["cohort"].value_counts(dropna=False).sort_index()
+        logging.info("Checkpoint Cohort breakdown:\n%s", cohort_counts.to_string())
 
         df_ckpt.to_parquet(f"{current_run_path}/checkpoint.parquet", index=False)
 
@@ -172,3 +207,10 @@ if __name__ == "__main__":
     #     logging.info("Running task with default schema")
     task = PDPCheckpointsTask(args)
     task.run()
+
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()

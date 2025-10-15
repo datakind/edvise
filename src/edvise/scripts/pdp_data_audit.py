@@ -49,8 +49,11 @@ from edvise.utils.data_cleaning import (
     log_pre_cohort_courses,
 )
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
 logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
@@ -154,6 +157,38 @@ class PDPDataAuditTask:
             current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
         else:
             raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+
+        def local_fs_path(p: str) -> str:
+            return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
+
+        # Convert to local filesystem path if using DBFS
+        local_run_path = local_fs_path(current_run_path)
+
+        # Make sure the folder exists on the local FS
+        os.makedirs(local_run_path, exist_ok=True)
+
+        # Build log file path (local FS form)
+        log_file_path = os.path.join(local_run_path, "pdp_data_audit.log")
+
+        # Attach file handler
+        try:
+            file_handler = logging.FileHandler(log_file_path, mode="w")
+            file_handler.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                )
+            )
+            logging.getLogger().addHandler(file_handler)
+            LOGGER.info(
+                "File logging initialized. Logs will be saved to: %s", log_file_path
+            )
+            # Quick existence check (should be True immediately)
+            if not os.path.exists(log_file_path):
+                LOGGER.warning("Log file does not appear yet: %s", log_file_path)
+        except Exception as e:
+            LOGGER.exception(
+                "Failed to initialize file logging at %s: %s", log_file_path, e
+            )
 
         # Determine file paths
         cohort_dataset_raw_path = self._pick_existing_path(
@@ -303,6 +338,11 @@ class PDPDataAuditTask:
 
         # Auto-populate only at training time to avoid training-inference skew
         if self.args.job_type == "training":
+            LOGGER.info(
+                "Existing config course IDs and subject areas: %s | %s",
+                self.cfg.preprocessing.features.key_course_ids,
+                self.cfg.preprocessing.features.key_course_subject_areas,
+            )
             if len(ids_cips[0]) <= 25 and len(ids_cips[1]) <= 25:
                 LOGGER.info(
                     " Auto-populating config with below course IDs and cip codes: change if necessary"
@@ -311,6 +351,11 @@ class PDPDataAuditTask:
                     self.args.config_file_path,
                     key_course_ids=ids_cips[0],
                     key_course_subject_areas=ids_cips[1],
+                )
+                LOGGER.info(
+                    "New config course IDs and subject areas: %s | %s",
+                    self.cfg.preprocessing.features.key_course_ids,
+                    self.cfg.preprocessing.features.key_course_subject_areas,
                 )
             else:
                 LOGGER.warning(
@@ -389,6 +434,7 @@ if __name__ == "__main__":
         course_converter_func = None
         LOGGER.info("Running task default course converter func")
         LOGGER.warning(f"Failed to load custom converter functions: {e}")
+
     # try:
     #     schemas = importlib.import_module("schemas")
     #     LOGGER.info("Running task with custom schema")
@@ -403,3 +449,10 @@ if __name__ == "__main__":
         course_converter_func=course_converter_func,
     )
     task.run()
+    # Ensure all logs are flushed to disk
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()
