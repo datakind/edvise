@@ -185,10 +185,29 @@ def test_log_h2o_model_basic(
     mock_model.predict.return_value = preds
 
     # eval metrics
-    mock_eval.get_metrics_fixed_threshold_all_splits.return_value = {
-        "validate_logloss": 0.3
-    }
-
+    mock_eval.get_metrics_fixed_threshold_all_splits.return_value = (
+        {"validate_logloss": 0.3},  # metrics dict
+        {  # preds_cache dict
+            "train": {
+                "y_true_bin": np.array([0, 1]),
+                "y_prob_raw": np.array([0.2, 0.8]),
+                "y_prob": np.array([0.2, 0.8]),
+                "weights": None,
+            },
+            "validate": {
+                "y_true_bin": np.array([0, 1]),
+                "y_prob_raw": np.array([0.2, 0.8]),
+                "y_prob": np.array([0.2, 0.8]),
+                "weights": None,
+            },
+            "test": {
+                "y_true_bin": np.array([0, 1]),
+                "y_prob_raw": np.array([0.2, 0.8]),
+                "y_prob": np.array([0.2, 0.8]),
+                "weights": None,
+            },
+        },
+    )
     # H2OFrame → pandas for target
     target_frame = mock.MagicMock()
     target_frame.as_data_frame.return_value = pd.DataFrame({"target": [0, 1]})

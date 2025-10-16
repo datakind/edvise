@@ -27,8 +27,13 @@ from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
 
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+logging.getLogger("py4j").setLevel(logging.WARNING)
+LOGGER = logging.getLogger(__name__)
 
 
 class ModelPrepTask:
@@ -60,16 +65,20 @@ class ModelPrepTask:
         )
         logging.info("Target breakdown (percents):\n%s", target_percents.to_string())
 
-        cohort_counts = df_labeled["cohort"].value_counts(dropna=False).sort_index()
-        logging.info("Cohort breakdown (counts):\n%s", cohort_counts.to_string())
-
-        cohort_target_pct = (
-            df_labeled[["cohort", "target"]]
-            .value_counts(dropna=False, normalize=True)
+        cohort_counts = (
+            df_labeled[["cohort", "cohort_term"]]
+            .value_counts(dropna=False)
             .sort_index()
         )
         logging.info(
-            "Cohort Target breakdown (percents):\n%s", cohort_target_pct.to_string()
+            "Cohort & Cohort Term breakdowns (counts):\n%s", cohort_counts.to_string()
+        )
+
+        cohort_target_counts = (
+            df_labeled[["cohort", "target"]].value_counts(dropna=False).sort_index()
+        )
+        logging.info(
+            "Cohort Target breakdown (counts):\n%s", cohort_target_counts.to_string()
         )
 
         return df_labeled
@@ -98,7 +107,7 @@ class ModelPrepTask:
             seed=self.cfg.random_state,
             stratify_col=self.cfg.target_col,
         )
-        logger.info(
+        LOGGER.info(
             "Dataset split distribution:\n%s",
             df[split_col].value_counts(normalize=True),
         )
@@ -121,7 +130,7 @@ class ModelPrepTask:
             target_col=self.cfg.target_col,
             class_weight=sample_class_weight,
         )
-        logger.info(
+        LOGGER.info(
             "Sample weight distribution:\n%s",
             df[sample_weight_col].value_counts(normalize=True),
         )
@@ -130,6 +139,34 @@ class ModelPrepTask:
     def run(self):
         # Read inputs using custom function
         current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
+
+        def local_fs_path(p: str) -> str:
+            return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
+
+        # Determine run path and set up a log file alongside outputs
+        local_run_path = local_fs_path(
+            f"{self.args.silver_volume_path}/{self.args.db_run_id}"
+        )
+        os.makedirs(local_run_path, exist_ok=True)
+        log_file_path = os.path.join(local_run_path, "pdp_model_prep.log")
+
+        # Avoid duplicate handlers if run() is called more than once
+        root_logger = logging.getLogger()
+        if not any(
+            isinstance(h, logging.FileHandler)
+            and getattr(h, "baseFilename", None) == os.path.abspath(log_file_path)
+            for h in root_logger.handlers
+        ):
+            fh = logging.FileHandler(log_file_path, mode="w")
+            fh.setFormatter(
+                logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                )
+            )
+            root_logger.addHandler(fh)
+            LOGGER.info(
+                "File logging initialized. Logs will be saved to: %s", log_file_path
+            )
 
         checkpoint_df = read_parquet(f"{current_run_path}/checkpoint.parquet")
         target_df = read_parquet(f"{current_run_path}/target.parquet")
@@ -166,3 +203,9 @@ if __name__ == "__main__":
     args = parse_arguments()
     task = ModelPrepTask(args)
     task.run()
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()

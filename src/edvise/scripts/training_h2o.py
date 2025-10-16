@@ -50,6 +50,7 @@ class TrainingParams(t.TypedDict, total=False):
     target_col: str
     split_col: t.Optional[str]
     pos_label: t.Optional[str | bool]
+    calibrate_underpred: t.Optional[bool]
     primary_metric: str
     timeout_minutes: int
     exclude_cols: t.List[str]
@@ -127,6 +128,10 @@ class TrainingTask:
         selection_params: t.Dict[str, t.Any] = fs.model_dump() if fs is not None else {}
         selection_params["non_feature_cols"] = self.cfg.non_feature_cols
 
+        # NOTE: keeping autolog disabled feature selection onwards
+        # otherwise, autolog will freak out during FS and
+        # it will create a new run if we are calibrating our models
+        # post h2o training
         mlflow.autolog(disable=True)
 
         df_selected = modeling.feature_selection.select_features(
@@ -141,8 +146,6 @@ class TrainingTask:
         return df_modeling
 
     def train_model(self, df_modeling: pd.DataFrame) -> str:
-        mlflow.autolog(disable=False)
-
         # KAYLA TODO: figure out how we want to create this - create a user email field in yml to deploy?
         # Use run as for now - this will work until we set this as a service account
         workspace_path = f"/Users/{self.args.ds_run_as}"
@@ -173,6 +176,12 @@ class TrainingTask:
             set((training_cfg.exclude_cols or []) + (self.cfg.student_group_cols or []))
         )
 
+        calibrate_underpred = (
+            self.cfg.model.calibrate_underpred
+            if self.cfg.model and self.cfg.model.calibrate_underpred
+            else False
+        )
+
         training_params: TrainingParams = {
             "db_run_id": db_run_id,
             "institution_id": self.cfg.institution_id,
@@ -180,6 +189,7 @@ class TrainingTask:
             "target_col": self.cfg.target_col,
             "split_col": split_col,
             "pos_label": pos_label,
+            "calibrate_underpred": calibrate_underpred,
             "primary_metric": training_cfg.primary_metric,
             "timeout_minutes": timeout_minutes,
             "exclude_cols": sorted(exclude_cols),
@@ -241,10 +251,14 @@ class TrainingTask:
                     self.cfg.pos_label if self.cfg.pos_label is not None else True
                 )
                 model = h2o_utils.load_h2o_model(run_id=run_id)
+                calibrator = modeling.h2o_ml.calibration.SklearnCalibratorWrapper.load(
+                    run_id=run_id
+                )
                 labels, probs = modeling.h2o_ml.inference.predict_h2o(
                     features=df_features_imp,
                     model=model,
                     pos_label=pos_label,
+                    calibrator=calibrator,
                 )
                 df_pred = df_modeling.assign(
                     **{

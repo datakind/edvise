@@ -156,7 +156,7 @@ resources:
                 package: pydantic~=2.10
         - task_key: targets
           depends_on:
-            - task_key: feature_generation
+            - task_key: checkpoint
           spark_python_task:
             python_file: src/edvise/scripts/pdp_targets.py
             source: GIT
@@ -191,7 +191,6 @@ resources:
                 package: pydantic~=2.10
         - task_key: model_prep
           depends_on:
-            - task_key: checkpoint
             - task_key: student_selection
             - task_key: targets
           spark_python_task:
@@ -308,9 +307,7 @@ resources:
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
-        git_tag: v0.1.4
-      tags:
-        dev: kayla_wilding
+        git_tag: v0.1.5
       queue:
         enabled: true
       parameters:

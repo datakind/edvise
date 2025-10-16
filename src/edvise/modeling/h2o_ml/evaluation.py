@@ -29,6 +29,7 @@ from h2o.estimators.estimator_base import H2OEstimator
 from . import training
 from . import utils
 from . import imputation
+from . import calibration
 from . import inference
 
 LOGGER = logging.getLogger(__name__)
@@ -46,20 +47,28 @@ def get_metrics_fixed_threshold_all_splits(
     pos_label: PosLabelType,
     threshold: float = 0.5,
     sample_weight_col: t.Optional[str] = None,
-) -> t.Dict[str, float]:
+    calibrator: t.Optional[calibration.SklearnCalibratorWrapper] = None,
+) -> tuple[t.Dict[str, float], dict]:
     """
-    Compute metrics at a fixed threshold (exact 0.5 by default) for all splits,
-    with proper positive-class handling and optional sample weights.
+    Compute metrics at a fixed threshold (default 0.5) for all splits.
+    If `calibrator` is given, metrics use calibrated probabilities.
+    If `return_cache=True`, also return the cached per-split arrays to avoid re-predicting.
     """
 
-    def _compute_metrics(frame: H2OFrame, label: str) -> t.Dict[str, float]:
+    def _compute_metrics(frame: H2OFrame, label: str) -> tuple[dict, dict]:
         preds = model.predict(frame)
         prob_col = utils._pick_pos_prob_column(preds, pos_label)
 
         # Pull data
         df = utils._to_pandas(frame)
         y_true = df[target_col].to_numpy()
-        y_prob = utils._to_pandas(preds[prob_col]).to_numpy().reshape(-1)
+        y_prob_raw = utils._to_pandas(preds[prob_col]).to_numpy().reshape(-1)
+
+        # Calibrate if provided
+        y_prob = (
+            calibrator.transform(y_prob_raw) if calibrator is not None else y_prob_raw
+        )
+
         w = None
         if sample_weight_col and sample_weight_col in df.columns:
             w = df[sample_weight_col].astype(float).fillna(0.0).to_numpy()
@@ -73,16 +82,14 @@ def get_metrics_fixed_threshold_all_splits(
         prec = precision_score(y_true_bin, y_pred, sample_weight=w, zero_division=0)
         rec = recall_score(y_true_bin, y_pred, sample_weight=w)
         f1 = f1_score(y_true_bin, y_pred, sample_weight=w)
-        # AUC/LogLoss expect true {0,1}; specify labels to be explicit
         auc = roc_auc_score(y_true_bin, y_prob, sample_weight=w)
         ll = log_loss(y_true_bin, y_prob, sample_weight=w, labels=[0, 1])
 
-        # Weighted confusion counts (for debugging/reporting parity, optional)
         tn, fp, fn, tp = confusion_matrix(
             y_true_bin, y_pred, labels=[0, 1], sample_weight=w
         ).ravel()
 
-        return {
+        metrics = {
             f"{label}_threshold": float(threshold),
             f"{label}_precision": float(prec),
             f"{label}_recall": float(rec),
@@ -95,13 +102,20 @@ def get_metrics_fixed_threshold_all_splits(
             f"{label}_false_positives": float(fp),
             f"{label}_false_negatives": float(fn),
         }
+        preds = {
+            "y_true_bin": np.array(y_true_bin),
+            "y_prob_raw": np.array(y_prob_raw),
+            "y_prob": np.array(y_prob),
+            "weights": np.array(w),
+        }
+        return metrics, preds
 
-    return {
-        "model_id": model.model_id,
-        **_compute_metrics(train, "train"),
-        **_compute_metrics(valid, "validate"),
-        **_compute_metrics(test, "test"),
-    }
+    metrics_train, preds_train = _compute_metrics(train, "train")
+    metrics_val, preds_val = _compute_metrics(valid, "validate")
+    metrics_test, preds_test = _compute_metrics(test, "test")
+
+    out = {"model_id": model.model_id, **metrics_train, **metrics_val, **metrics_test}
+    return out, {"train": preds_train, "validate": preds_val, "test": preds_test}
 
 
 def generate_all_classification_plots(
