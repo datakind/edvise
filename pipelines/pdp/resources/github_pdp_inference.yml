@@ -2,6 +2,10 @@ resources:
   jobs:
     edvise_github_sourced_pdp_inference_pipeline:
       name: edvise_github_sourced_pdp_inference_pipeline
+      #comment out the webhook notifications section if deploying to anything other than staging prod so we dont send unnecessary alerts
+      webhook_notifications:
+        on_failure:
+          - id: c51b737e-988d-45dd-ad9b-6f9024a6b56b
       max_concurrent_runs: 5
       tasks:
         - task_key: data_ingestion
