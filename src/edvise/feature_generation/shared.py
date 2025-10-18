@@ -6,7 +6,9 @@ from datetime import date
 
 import pandas as pd
 
-from edvise.utils import types
+from edvise.utils import types, data_cleaning
+
+from . import constants
 
 RE_YEAR_TERM = re.compile(
     r"(?P<start_yr>\d{4})-(?P<end_yr>\d{2}) (?P<term>FALL|WINTER|SPRING|SUMMER)",
@@ -116,3 +118,141 @@ def _year_term_to_dt(
         return date(yr, mo, dy)
     else:
         raise ValueError(f"invalid year_term value: {year_term}")
+
+
+def get_sum_hist_terms_or_courses_prefix(level):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Get prefix used to identify columns created using addition over time
+    for either course- or term-level features.
+
+    Args:
+        level (str): course or term
+
+    Raises:
+        Exception: if level is not one of "course" or "term"
+
+    Returns:
+        str
+    """
+    if level == "course":
+        return constants.TERM_COURSE_SUM_HIST_PREFIX
+    if level == "term":
+        return constants.TERM_FLAG_SUM_HIST_PREFIX
+    else:
+        raise Exception(f"Level {level} not expected. Try again!")
+
+
+def get_n_terms_or_courses_col(level):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Get column name of a student's total courses over time or total terms over time
+
+    Args:
+        level (str): course or term
+
+    Raises:
+        Exception: if level is not one of "course" or "term"
+
+    Returns:
+        str
+    """
+    if level == "course":
+        return (
+            constants.TERM_COURSE_SUM_HIST_PREFIX + "enrolled" + constants.HIST_SUFFIX
+        )
+    if level == "term":
+        return constants.TERM_NUMBER_COL
+    else:
+        raise Exception(f"Level {level} not expected. Try again!")
+
+
+def get_sum_hist_terms_or_courses_cols(df, level):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Get column names from a dataframe created using addition over time
+    for either course- or term-level features.
+
+    Args:
+        df (pd.DataFrame): contains column names prefixed by get_sum_hist_terms_or_courses_prefix()
+            and the column get_n_terms_or_courses_col()
+        level (str): course or term
+
+    Returns:
+        list[str]
+    """
+    orig_prefix = get_sum_hist_terms_or_courses_prefix(level)
+    denominator_col = get_n_terms_or_courses_col(level)
+    return [
+        col
+        for col in df.columns
+        if col.startswith(orig_prefix) and col != denominator_col
+    ]
+
+
+def calculate_pct_terms_or_courses_hist(df, level):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Calculate percent of terms or courses with a particular characteristic
+    across a student's history so far
+
+    Args:
+        df (pd.DataFrame): contains column names prefixed by get_sum_hist_terms_or_courses_prefix()
+            and the column get_n_terms_or_courses_col()
+        level (str): course or term
+
+    Returns:
+        pd.DataFrame: df with new percent of terms or courses columns
+    """
+    orig_prefix = get_sum_hist_terms_or_courses_prefix(level)
+    denominator_col = get_n_terms_or_courses_col(level)
+    numerator_cols = get_sum_hist_terms_or_courses_cols(df, level)
+
+    # removes duplicates, keeps order
+    numerator_cols = list(dict.fromkeys(numerator_cols))
+
+    print(f"Calculating percent of {level}s to date for {len(numerator_cols)} columns")
+    print(f"Sample of columns: {numerator_cols[:5]}")
+    print(f"Denominator column: {denominator_col}")
+    new_colnames = [
+        col.replace(orig_prefix, f"pct_{level}s_") for col in numerator_cols
+    ]
+    df[new_colnames] = df.loc[:, numerator_cols].div(df[denominator_col], axis=0)
+
+    # Convert only new feature columns those to snake_case
+    df.rename(
+        columns={col: data_cleaning.convert_to_snake_case(col) for col in new_colnames},
+        inplace=True,
+    )
+    return df
+
+
+def add_cumulative_nunique_col(df, sort_cols, groupby_cols, colname):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Calculate number of unique values within a group over time
+
+    Args:
+        df (pd.DataFrame): historical student data containing sort_cols, groupby_cols, and colname to count unique values
+        sort_cols (list[str]): list of columns to sort by. For example, term or date.
+        groupby_cols (list[str]): list of columns to group within. For example, Student ID.
+        colname (str): column name to count unique values of over time
+
+    Returns:
+        pd.DataFrame: original data frame with new nunique_ column calculated over time.
+    """
+    sorted_df = df.sort_values(groupby_cols + sort_cols)
+    new_colname = f"nunique_{colname}{constants.HIST_SUFFIX}"
+    sorted_df[new_colname] = (
+        sorted_df.drop_duplicates(groupby_cols + [colname])
+        .groupby(groupby_cols)
+        .cumcount()
+        + 1
+    )
+    sorted_df[new_colname] = sorted_df[new_colname].ffill()
+    return sorted_df
