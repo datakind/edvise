@@ -405,7 +405,8 @@ resources:
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
-        git_tag: v0.1.5
+        # git_tag: v0.1.5
+        git_branch: deploy_test
       queue:
         enabled: true
       parameters:
