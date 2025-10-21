@@ -165,28 +165,42 @@ class PDPDataAuditTask:
         # Make sure the folder exists on the local FS
         os.makedirs(local_run_path, exist_ok=True)
 
-        # Build log file path (local FS form)
-        log_file_path = os.path.join(local_run_path, "pdp_data_audit.log")
+        # Build log file name based on job type
+        if self.args.job_type == "inference":
+            log_file_name = "pdp_data_audit_inference.log"
+        elif self.args.job_type == "training":
+            log_file_name = "pdp_data_audit_training.log"
+        else:
+            log_file_name = f"pdp_data_audit_{self.args.job_type}.log"
 
-        # Attach file handler
+        # Build full path (local FS form)
+        log_file_path = os.path.join(local_run_path, log_file_name)
+
+        # Attach file handler safely
         try:
-            file_handler = logging.FileHandler(log_file_path, mode="w")
+            # Use append mode so logs persist between runs
+            file_handler = logging.FileHandler(log_file_path, mode="a")
             file_handler.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+            )
+
+            root_logger = logging.getLogger()
+            if not any(
+                isinstance(h, logging.FileHandler)
+                and getattr(h, "baseFilename", None) == os.path.abspath(log_file_path)
+                for h in root_logger.handlers
+            ):
+                root_logger.addHandler(file_handler)
+                LOGGER.info(
+                    "File logging initialized. Logs will be saved to: %s", log_file_path
                 )
-            )
-            logging.getLogger().addHandler(file_handler)
-            LOGGER.info(
-                "File logging initialized. Logs will be saved to: %s", log_file_path
-            )
+
             # Quick existence check (should be True immediately)
             if not os.path.exists(log_file_path):
                 LOGGER.warning("Log file does not appear yet: %s", log_file_path)
+
         except Exception as e:
-            LOGGER.exception(
-                "Failed to initialize file logging at %s: %s", log_file_path, e
-            )
+            LOGGER.exception("Failed to initialize file logging at %s: %s", log_file_path, e)
 
         # Determine file paths
         cohort_dataset_raw_path = self._pick_existing_path(

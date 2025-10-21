@@ -150,7 +150,16 @@ class PDPCheckpointsTask:
         # --- Add file logging handler EARLY ---
         local_run_path = local_fs_path(current_run_path)
         os.makedirs(local_run_path, exist_ok=True)
-        log_file_path = os.path.join(local_run_path, "pdp_checkpoint.log")
+
+        # Choose log file name based on job type
+        if self.args.job_type == "inference":
+            log_file_name = "pdp_checkpoint_inference.log"
+        elif self.args.job_type == "training":
+            log_file_name = "pdp_checkpoint_training.log"
+        else:
+            log_file_name = f"pdp_checkpoint_{self.args.job_type}.log"
+
+        log_file_path = os.path.join(local_run_path, log_file_name)
 
         # Avoid adding duplicate handlers if run() is called multiple times
         root_logger = logging.getLogger()
@@ -159,16 +168,14 @@ class PDPCheckpointsTask:
             and getattr(h, "baseFilename", None) == os.path.abspath(log_file_path)
             for h in root_logger.handlers
         ):
-            fh = logging.FileHandler(log_file_path, mode="w")
+            # Use append mode ("a") so logs aren't overwritten
+            fh = logging.FileHandler(log_file_path, mode="a")
             fh.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
+                logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
             )
             root_logger.addHandler(fh)
-            LOGGER.info(
-                "File logging initialized. Logs will be saved to: %s", log_file_path
-            )
+            LOGGER.info("File logging initialized. Logs will be saved to: %s", log_file_path)
+
 
         df_student_terms = pd.read_parquet(f"{current_run_path}/student_terms.parquet")
 
