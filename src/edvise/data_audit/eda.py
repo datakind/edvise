@@ -454,7 +454,7 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     )
     # Interpret "level" as the last up-to-3 digits of that token
     levels = pd.to_numeric(course_nums.str[-3:], errors="coerce")
-    has_upper_level_gateway = levels.gt(100).any()
+    has_upper_level_gateway = levels.ge(200).any()
 
     if has_upper_level_gateway:
         LOGGER.warning(
