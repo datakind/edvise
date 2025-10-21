@@ -370,9 +370,13 @@ class PDPDataAuditTask:
                     key_course_subject_areas=cips,
                 )
 
-                # keep memory in sync
-                self.cfg.preprocessing.features.key_course_ids = ids
-                self.cfg.preprocessing.features.key_course_subject_areas = cips
+                # keep memory in sync (append without overwriting)
+                existing_ids = set(self.cfg.preprocessing.features.key_course_ids or [])
+                existing_cips = set(self.cfg.preprocessing.features.key_course_subject_areas or [])
+
+                # extend while avoiding duplicates
+                self.cfg.preprocessing.features.key_course_ids = list(existing_ids.union(ids))
+                self.cfg.preprocessing.features.key_course_subject_areas = list(existing_cips.union(cips))
 
                 LOGGER.info(
                     "New config course IDs and subject areas: %s | %s",
