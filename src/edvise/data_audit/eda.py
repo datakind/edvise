@@ -431,7 +431,7 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
 
     if not e_ok and not m_ok:
         LOGGER.warning(
-            " ⚠️ Prefixes MAY be swapped (do NOT start with E for English, start with M for Math). Consider swapping E <-> M. E=%s, M=%s",
+            " ⚠️ Prefixes MAY be swapped (do NOT start with E for English and M for Math). Consider swapping E <-> M. E=%s, M=%s",
             pref_e.tolist(),
             pref_m.tolist(),
         )
@@ -440,7 +440,7 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
             " Prefixes look correct and not swapped (start with E for English, start with M for Math)."
         )
     else:
-        LOGGER.warning(" One group inconsistent. English OK=%s, Math OK=%s", e_ok, m_ok)
+        LOGGER.warning(" ⚠️ Prefixes MAY be incorrect, do NOT both start with E for English and M for Math; one group inconsistent, check with school: English OK=%s, Math OK=%s", e_ok, m_ok)
 
     LOGGER.info(" Final English (E) prefixes: %s", pref_e.tolist())
     LOGGER.info(" Final Math (M) prefixes: %s", pref_m.tolist())
