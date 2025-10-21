@@ -21,6 +21,7 @@ print("sys.path:", sys.path)
 from edvise import checkpoints
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.dataio.read import read_config
+from edvise.shared.logger import local_fs_path
 
 from edvise.configs.pdp import (
     CheckpointNthConfig,
@@ -134,8 +135,6 @@ class PDPCheckpointsTask:
 
         raise ValueError(f"Unknown checkpoint type: {cp.type_}")
 
-    def _local_fs_path(self, p: str) -> str:
-        return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
     def run(self):
         """Executes the data preprocessing pipeline."""
@@ -149,7 +148,7 @@ class PDPCheckpointsTask:
             raise ValueError(f"Unsupported job_type: {self.args.job_type}")
 
         # --- Add file logging handler EARLY ---
-        local_run_path = self._local_fs_path(current_run_path)
+        local_run_path = local_fs_path(current_run_path)
         os.makedirs(local_run_path, exist_ok=True)
         log_file_path = os.path.join(local_run_path, "pdp_checkpoint.log")
 

@@ -351,6 +351,9 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     - If CIP column is missing or has no values or gateway field unpopulated
     - Log prefixes for English (E) and Math (M) courses, with a note that they
     may need to be swapped if they don’t look right
+    - Detects if any gateway course has a course level >100 (based on the last
+    numeric token in course_number; typically the last 3 digits) and logs a warning &
+    returns a boolean flag `has_upper_level_gateway` to the caller.
     """
     if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(
         df_course.columns
@@ -442,7 +445,24 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     LOGGER.info(" Final English (E) prefixes: %s", pref_e.tolist())
     LOGGER.info(" Final Math (M) prefixes: %s", pref_m.tolist())
 
-    return [ids.tolist(), cips.tolist()]
+    # Extract the last numeric token from course_number and compare its last 3 digits.
+    course_nums = (
+        df_course.loc[mask, "course_number"]
+        .astype(str)
+        .str.extract(r'(\d+)(?!.*\d)')[0]   # last numeric token in the string
+        .dropna()
+    )
+    # Interpret "level" as the last up-to-3 digits of that token
+    levels = pd.to_numeric(course_nums.str[-3:], errors="coerce")
+    has_upper_level_gateway = levels.gt(100).any()
+
+    if has_upper_level_gateway:
+        LOGGER.warning(
+            " ⚠️ Warning: upper level courses (course level >100) found flagged as gateway courses; "
+            " This is unusual, contact school for more information"
+        )
+
+    return ids.tolist(), cips.tolist(), bool(has_upper_level_gateway)
 
 
 def log_record_drops(

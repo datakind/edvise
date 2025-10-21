@@ -25,6 +25,7 @@ from edvise.model_prep import cleanup_features as cleanup, training_params
 from edvise.dataio.read import read_parquet, read_config
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
+from edvise.shared.logger import local_fs_path
 
 
 logging.basicConfig(
@@ -139,9 +140,6 @@ class ModelPrepTask:
     def run(self):
         # Read inputs using custom function
         current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
-
-        def local_fs_path(p: str) -> str:
-            return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
         # Determine run path and set up a log file alongside outputs
         local_run_path = local_fs_path(

@@ -48,6 +48,7 @@ from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
     log_pre_cohort_courses,
 )
+from edvise.shared.logger import local_fs_path
 
 logging.basicConfig(
     level=logging.INFO,
@@ -157,9 +158,6 @@ class PDPDataAuditTask:
             current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
         else:
             raise ValueError(f"Unsupported job_type: {self.args.job_type}")
-
-        def local_fs_path(p: str) -> str:
-            return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
         # Convert to local filesystem path if using DBFS
         local_run_path = local_fs_path(current_run_path)
@@ -334,7 +332,7 @@ class PDPDataAuditTask:
         LOGGER.info(" Course data standardized.")
 
         # Log Math/English gateway courses and add to config
-        ids_cips = compute_gateway_course_ids_and_cips(df_course_standardized)
+        ids, cips, has_upper_level = compute_gateway_course_ids_and_cips(df_course_standardized)
 
         # Auto-populate only at training time to avoid training-inference skew
         if self.args.job_type == "training":
@@ -343,15 +341,25 @@ class PDPDataAuditTask:
                 self.cfg.preprocessing.features.key_course_ids,
                 self.cfg.preprocessing.features.key_course_subject_areas,
             )
-            if len(ids_cips[0]) <= 25 and len(ids_cips[1]) <= 25:
+            if has_upper_level:
+                LOGGER.warning(
+                    " Skipping auto-populating of config due to upper level gateway courses identified. "
+                    " Please check in with school and manually update config."
+                )
+            elif len(ids) <= 25 and len(cips) <= 25:
                 LOGGER.info(
                     " Auto-populating config with below course IDs and cip codes: change if necessary"
                 )
                 update_key_courses_and_cips(
                     self.args.config_file_path,
-                    key_course_ids=ids_cips[0],
-                    key_course_subject_areas=ids_cips[1],
+                    key_course_ids=ids,
+                    key_course_subject_areas=cips,
                 )
+
+                # keep memory in sync
+                self.cfg.preprocessing.features.key_course_ids = ids
+                self.cfg.preprocessing.features.key_course_subject_areas = cips
+
                 LOGGER.info(
                     "New config course IDs and subject areas: %s | %s",
                     self.cfg.preprocessing.features.key_course_ids,
@@ -359,7 +367,8 @@ class PDPDataAuditTask:
                 )
             else:
                 LOGGER.warning(
-                    " Skipping auto-populating of config due to too many IDs that were identified. Please manually update config."
+                    " Skipping auto-populating of config due to too many IDs that were identified."
+                    " Please check in with school and manually update config."
                 )
 
         # Log changes before and after pre-processing

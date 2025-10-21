@@ -102,3 +102,7 @@ def setup_logger(
     log_path = os.path.join(log_dir, log_file)
 
     return SimpleLogger(log_path=log_path, institution_id=institution_id)
+
+
+def local_fs_path(p: str) -> str:
+            return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
