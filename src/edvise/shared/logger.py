@@ -2,8 +2,10 @@ import os
 import sys
 import json
 import shutil
+import argparse
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from edvise.configs.pdp import PDPProjectConfig
 
 
 class SimpleLogger:
@@ -108,27 +110,23 @@ def local_fs_path(p: str) -> str:
             return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
 
-def resolve_run_path(args, cfg, silver_volume_path: str) -> str:
-    """
-    Returns the correct folder path (training or inference) for the current run:
-    <silver_volume_path>/<run_id>/<training|inference>/
-    """
+def resolve_run_path(
+    args: argparse.Namespace,
+    cfg: PDPProjectConfig,
+    silver_volume_path: str,
+) -> str:
     if args.job_type == "training":
         if not args.db_run_id:
             raise ValueError("db_run_id must be provided for training runs.")
         run_id = args.db_run_id
-        job_subdir = "training"
-
+        subdir = "training"
     elif args.job_type == "inference":
-        model_run_id = getattr(getattr(cfg, "model", None), "run_id", None)
-        if model_run_id is None:
+        model_run_id: Optional[str] = getattr(getattr(cfg, "model", None), "run_id", None)
+        if not model_run_id:
             raise ValueError("cfg.model.run_id must be set for inference runs.")
         run_id = model_run_id
-        job_subdir = "inference"
-
+        subdir = "inference"
     else:
         raise ValueError(f"Unsupported job_type: {args.job_type}")
 
-    current_run_path = os.path.join(silver_volume_path, run_id, job_subdir)
-    os.makedirs(current_run_path, exist_ok=True)
-    return current_run_path
+    return os.path.join(silver_volume_path, run_id, subdir)
