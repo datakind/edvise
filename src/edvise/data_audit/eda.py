@@ -340,7 +340,7 @@ def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> None:
             )
 
 
-def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
+def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> tuple[list[str], list[str], bool]:
     """
     Build a list of course IDs and CIP codes for Math/English gateway courses.
     Filter: math_or_english_gateway in {"M", "E"}
