@@ -10,7 +10,9 @@ from mlflow.tracking import MlflowClient
 from google.cloud import storage
 from google.api_core.exceptions import Forbidden, NotFound
 import google.auth
-from edvise.shared.logger import local_fs_path
+
+def local_fs_path(p: str) -> str:
+    return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
 
 def in_databricks() -> bool:
