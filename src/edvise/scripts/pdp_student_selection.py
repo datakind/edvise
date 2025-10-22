@@ -39,7 +39,9 @@ class StudentSelectionTask:
     def run(self):
         """Execute the student selection task."""
         # Ensure correct folder: training or inference
-        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
 
@@ -51,7 +53,6 @@ class StudentSelectionTask:
                 f"Missing student_terms.parquet at: {st_terms_path} (local: {st_terms_path_local})"
             )
         df_student_terms = pd.read_parquet(st_terms_path_local)
-
 
         # Pull selection criteria and ID column(s)
         student_criteria = self.cfg.preprocessing.selection.student_criteria

@@ -50,7 +50,9 @@ class PDPFeatureGenerationTask:
         key_course_ids = features_cfg.key_course_ids
 
         # Ensure correct folder: training or inference
-        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
         # Use local path for reading/writing so DBFS is handled correctly
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)

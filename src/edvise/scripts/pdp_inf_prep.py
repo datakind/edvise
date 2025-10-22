@@ -63,7 +63,9 @@ class InferencePrepTask:
         if getattr(self.args, "job_type", "inference") != "inference":
             raise ValueError("InferencePrepTask must be run with --job_type inference.")
 
-        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
         current_run_path_local = local_fs_path(current_run_path)
 
         # Read inputs (DBFS-safe)
@@ -73,9 +75,13 @@ class InferencePrepTask:
         sel_path_local = local_fs_path(sel_path)
 
         if not os.path.exists(ckpt_path_local):
-            raise FileNotFoundError(f"Missing checkpoint.parquet at: {ckpt_path} (local: {ckpt_path_local})")
+            raise FileNotFoundError(
+                f"Missing checkpoint.parquet at: {ckpt_path} (local: {ckpt_path_local})"
+            )
         if not os.path.exists(sel_path_local):
-            raise FileNotFoundError(f"Missing selected_students.parquet at: {sel_path} (local: {sel_path_local})")
+            raise FileNotFoundError(
+                f"Missing selected_students.parquet at: {sel_path} (local: {sel_path_local})"
+            )
 
         checkpoint_df = read_parquet(ckpt_path_local)
         selected_students = read_parquet(sel_path_local)
@@ -111,7 +117,13 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
-    parser.add_argument("--job_type", type=str, choices=["inference"], required=False, default="inference")
+    parser.add_argument(
+        "--job_type",
+        type=str,
+        choices=["inference"],
+        required=False,
+        default="inference",
+    )
     return parser.parse_args()
 
 

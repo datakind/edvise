@@ -244,7 +244,9 @@ if __name__ == "__main__":
     # Ensure inference_inputs exists before listdir/imports
     base_inputs = f"/Volumes/{args.DB_workspace}/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
     os.makedirs(local_fs_path(base_inputs), exist_ok=True)
-    logging.info("Files in inference inputs path: %s", os.listdir(local_fs_path(base_inputs)))
+    logging.info(
+        "Files in inference inputs path: %s", os.listdir(local_fs_path(base_inputs))
+    )
 
     # Optional dynamic imports for converters/schemas
     for name, attr, desc in [

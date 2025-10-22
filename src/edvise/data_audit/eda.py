@@ -340,7 +340,9 @@ def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> None:
             )
 
 
-def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> tuple[list[str], list[str], bool]:
+def compute_gateway_course_ids_and_cips(
+    df_course: pd.DataFrame,
+) -> tuple[list[str], list[str], bool]:
     """
     Build a list of course IDs and CIP codes for Math/English gateway courses.
     Filter: math_or_english_gateway in {"M", "E"}
@@ -440,13 +442,17 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> tuple[list[s
             " Prefixes look correct and not swapped (start with E or W for English, start with M or S for Math)."
         )
     else:
-        LOGGER.warning(" ⚠️ Prefixes MAY be incorrect, do NOT both start with E or W for English and M or S for Math; one group inconsistent, check with school: English OK=%s, Math OK=%s", e_ok, m_ok)
+        LOGGER.warning(
+            " ⚠️ Prefixes MAY be incorrect, do NOT both start with E or W for English and M or S for Math; one group inconsistent, check with school: English OK=%s, Math OK=%s",
+            e_ok,
+            m_ok,
+        )
 
     # Extract the last numeric token from course_number and compare its last 3 digits.
     course_nums = (
         df_course.loc[mask, "course_number"]
         .astype(str)
-        .str.extract(r'(\d+)(?!.*\d)')[0]   # last numeric token in the string
+        .str.extract(r"(\d+)(?!.*\d)")[0]  # last numeric token in the string
         .dropna()
     )
     # Interpret "level" as the last up-to-3 digits of that token

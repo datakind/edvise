@@ -73,7 +73,9 @@ class PDPTargetsTask:
         """Executes the target computation pipeline and saves result."""
         logging.info("Loading student-terms data...")
         # Resolve <silver>/<run_id>/<training|inference>/
-        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
 
@@ -114,7 +116,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
-    parser.add_argument("--job_type", type=str, choices=["training", "inference"], required=False)
+    parser.add_argument(
+        "--job_type", type=str, choices=["training", "inference"], required=False
+    )
     return parser.parse_args()
 
 
@@ -124,13 +128,21 @@ if __name__ == "__main__":
     try:
         cfg_for_infer = read_config(args.config_file_path, schema=PDPProjectConfig)
         if not getattr(args, "job_type", None):
-            inferred = "inference" if getattr(getattr(cfg_for_infer, "model", None), "run_id", None) else "training"
-            logging.info(f"No --job_type passed; inferring job_type='{inferred}' from config.")
+            inferred = (
+                "inference"
+                if getattr(getattr(cfg_for_infer, "model", None), "run_id", None)
+                else "training"
+            )
+            logging.info(
+                f"No --job_type passed; inferring job_type='{inferred}' from config."
+            )
             args.job_type = inferred
     except Exception as e:
         # If config read fails here, fall back to training (or re-raise if you prefer)
         if not getattr(args, "job_type", None):
-            logging.warning(f"Could not infer job_type from config ({e}); defaulting to 'training'.")
+            logging.warning(
+                f"Could not infer job_type from config ({e}); defaulting to 'training'."
+            )
             args.job_type = "training"
     # try:
     #     if args.custom_schemas_path:

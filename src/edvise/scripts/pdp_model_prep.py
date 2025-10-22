@@ -1,5 +1,5 @@
 ## TODO : edit so it works for training or inference (with and without targets)
-## Noreen- I took a stab at this, but idk if it works? 
+## Noreen- I took a stab at this, but idk if it works?
 
 import typing as t
 import argparse
@@ -140,7 +140,9 @@ class ModelPrepTask:
 
     def run(self):
         # Ensure correct folder: training or inference
-        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
 
         # Determine run path and set up a log file alongside outputs
         local_run_path = local_fs_path(current_run_path)
@@ -148,7 +150,9 @@ class ModelPrepTask:
 
         log_file_path = os.path.join(
             local_run_path,
-            "pdp_model_prep_training.log" if self.args.job_type == "training" else "pdp_model_prep_inference.log",
+            "pdp_model_prep_training.log"
+            if self.args.job_type == "training"
+            else "pdp_model_prep_inference.log",
         )
 
         # Avoid duplicate handlers if run() is called more than once
@@ -176,9 +180,13 @@ class ModelPrepTask:
         sel_path_local = local_fs_path(sel_path)
 
         if not os.path.exists(ckpt_path_local):
-            raise FileNotFoundError(f"Missing checkpoint.parquet at: {ckpt_path} (local: {ckpt_path_local})")
+            raise FileNotFoundError(
+                f"Missing checkpoint.parquet at: {ckpt_path} (local: {ckpt_path_local})"
+            )
         if not os.path.exists(sel_path_local):
-            raise FileNotFoundError(f"Missing selected_students.parquet at: {sel_path} (local: {sel_path_local})")
+            raise FileNotFoundError(
+                f"Missing selected_students.parquet at: {sel_path} (local: {sel_path_local})"
+            )
 
         checkpoint_df = read_parquet(ckpt_path_local)
         selected_students = read_parquet(sel_path_local)
@@ -190,10 +198,15 @@ class ModelPrepTask:
         if os.path.exists(target_path_local):
             try:
                 target_df = read_parquet(target_path_local)
-                LOGGER.info("Loaded target.parquet with shape %s", getattr(target_df, "shape", None))
+                LOGGER.info(
+                    "Loaded target.parquet with shape %s",
+                    getattr(target_df, "shape", None),
+                )
             except Exception as e:
-                LOGGER.warning("target.parquet present but failed to read (%s); proceeding without targets.", e)
-
+                LOGGER.warning(
+                    "target.parquet present but failed to read (%s); proceeding without targets.",
+                    e,
+                )
 
         # Merge & preprocess
         if target_df is not None:
@@ -215,7 +228,6 @@ class ModelPrepTask:
             df_preprocessed = self.cleanup_features(df_unlabeled)
             out_name = "preprocessed_unlabeled.parquet"
 
-
         # Write output using custom function
         out_path = os.path.join(current_run_path, out_name)
         write_parquet(
@@ -234,7 +246,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
-    parser.add_argument("--job_type", type=str, choices=["training", "inference"], required=False)
+    parser.add_argument(
+        "--job_type", type=str, choices=["training", "inference"], required=False
+    )
 
     return parser.parse_args()
 
@@ -245,12 +259,20 @@ if __name__ == "__main__":
     if not getattr(args, "job_type", None):
         try:
             _cfg = read_config(args.config_file_path, schema=PDPProjectConfig)
-            inferred = "inference" if getattr(getattr(_cfg, "model", None), "run_id", None) else "training"
-            logging.info(f"No --job_type passed; inferring job_type='{inferred}' from config.")
+            inferred = (
+                "inference"
+                if getattr(getattr(_cfg, "model", None), "run_id", None)
+                else "training"
+            )
+            logging.info(
+                f"No --job_type passed; inferring job_type='{inferred}' from config."
+            )
             args.job_type = inferred
         except Exception as e:
             # Fall back to training if config can’t be read here
-            logging.warning(f"Could not infer job_type from config ({e}); defaulting to 'training'.")
+            logging.warning(
+                f"Could not infer job_type from config ({e}); defaulting to 'training'."
+            )
             args.job_type = "training"
     task = ModelPrepTask(args)
     task.run()

@@ -149,7 +149,9 @@ class PDPDataAuditTask:
     def run(self):
         """Executes the data preprocessing pipeline."""
         # Ensure correct folder: training or inference
-        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
         os.makedirs(current_run_path, exist_ok=True)
 
         # Convert to local filesystem path if using DBFS
@@ -174,7 +176,9 @@ class PDPDataAuditTask:
             # Use append mode so logs persist between runs
             file_handler = logging.FileHandler(log_file_path, mode="a")
             file_handler.setFormatter(
-                logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+                logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                )
             )
 
             root_logger = logging.getLogger()
@@ -193,7 +197,9 @@ class PDPDataAuditTask:
                 LOGGER.warning("Log file does not appear yet: %s", log_file_path)
 
         except Exception as e:
-            LOGGER.exception("Failed to initialize file logging at %s: %s", log_file_path, e)
+            LOGGER.exception(
+                "Failed to initialize file logging at %s: %s", log_file_path, e
+            )
 
         # Determine file paths
         cohort_dataset_raw_path = self._pick_existing_path(
@@ -339,7 +345,9 @@ class PDPDataAuditTask:
         LOGGER.info(" Course data standardized.")
 
         # Log Math/English gateway courses and add to config
-        ids, cips, has_upper_level = compute_gateway_course_ids_and_cips(df_course_standardized)
+        ids, cips, has_upper_level = compute_gateway_course_ids_and_cips(
+            df_course_standardized
+        )
 
         # Auto-populate only at training time to avoid training-inference skew
         if self.args.job_type == "training":
@@ -365,11 +373,17 @@ class PDPDataAuditTask:
 
                 # keep memory in sync (append without overwriting)
                 existing_ids = set(self.cfg.preprocessing.features.key_course_ids or [])
-                existing_cips = set(self.cfg.preprocessing.features.key_course_subject_areas or [])
+                existing_cips = set(
+                    self.cfg.preprocessing.features.key_course_subject_areas or []
+                )
 
                 # extend while avoiding duplicates
-                self.cfg.preprocessing.features.key_course_ids = list(existing_ids.union(ids))
-                self.cfg.preprocessing.features.key_course_subject_areas = list(existing_cips.union(cips))
+                self.cfg.preprocessing.features.key_course_ids = list(
+                    existing_ids.union(ids)
+                )
+                self.cfg.preprocessing.features.key_course_subject_areas = list(
+                    existing_cips.union(cips)
+                )
 
                 LOGGER.info(
                     "New config course IDs and subject areas: %s | %s",

@@ -135,11 +135,12 @@ class PDPCheckpointsTask:
 
         raise ValueError(f"Unknown checkpoint type: {cp.type_}")
 
-
     def run(self):
         """Executes the data preprocessing pipeline."""
         # Ensure correct folder: training or inference
-        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
         # Use local path for reading/writing so DBFS is handled correctly
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
@@ -166,11 +167,14 @@ class PDPCheckpointsTask:
             # Use append mode ("a") so logs aren't overwritten
             fh = logging.FileHandler(log_file_path, mode="a")
             fh.setFormatter(
-                logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+                logging.Formatter(
+                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+                )
             )
             root_logger.addHandler(fh)
-            LOGGER.info("File logging initialized. Logs will be saved to: %s", log_file_path)
-
+            LOGGER.info(
+                "File logging initialized. Logs will be saved to: %s", log_file_path
+            )
 
         student_terms_path = os.path.join(current_run_path, "student_terms.parquet")
         student_terms_path_local = local_fs_path(student_terms_path)

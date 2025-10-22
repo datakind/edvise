@@ -423,7 +423,9 @@ class TrainingTask:
             raise ValueError("TrainingTask must be run with --job_type training.")
 
         # Ensure correct folder: training or inference
-        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
 
@@ -436,7 +438,6 @@ class TrainingTask:
             )
         df_preprocessed = pd.read_parquet(preproc_path_local)
 
-
         logging.info("Selecting features")
         df_modeling = self.feature_selection(df_preprocessed)
 
@@ -444,8 +445,7 @@ class TrainingTask:
         modeling_path = os.path.join(current_run_path, "modeling.parquet")
         df_modeling.to_parquet(local_fs_path(modeling_path), index=False)
         logging.info(f"Modeling file saved to {modeling_path}")
-        
-        
+
         logging.info("Training model")
         experiment_id = self.train_model(df_modeling)
 
@@ -484,7 +484,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--gold_table_path", type=str, required=True)
     parser.add_argument("--config_file_name", type=str, required=True)
-    parser.add_argument("--job_type", type=str, choices=["training", "inference"], required=False)
+    parser.add_argument(
+        "--job_type", type=str, choices=["training", "inference"], required=False
+    )
     return parser.parse_args()
 
 
@@ -492,12 +494,22 @@ if __name__ == "__main__":
     args = parse_arguments()
     if not getattr(args, "job_type", None):
         try:
-            _cfg = dataio.read.read_config(args.config_file_path, schema=configs.pdp.PDPProjectConfig)
-            inferred = "inference" if getattr(getattr(_cfg, "model", None), "run_id", None) else "training"
-            logging.info(f"No --job_type passed; inferring job_type='{inferred}' from config.")
+            _cfg = dataio.read.read_config(
+                args.config_file_path, schema=configs.pdp.PDPProjectConfig
+            )
+            inferred = (
+                "inference"
+                if getattr(getattr(_cfg, "model", None), "run_id", None)
+                else "training"
+            )
+            logging.info(
+                f"No --job_type passed; inferring job_type='{inferred}' from config."
+            )
             args.job_type = inferred
         except Exception as e:
-            logging.warning(f"Could not infer job_type from config ({e}); defaulting to 'training'.")
+            logging.warning(
+                f"Could not infer job_type from config ({e}); defaulting to 'training'."
+            )
             args.job_type = "training"
     # try:
     #     if args.custom_schemas_path:

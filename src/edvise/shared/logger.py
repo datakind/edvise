@@ -107,7 +107,7 @@ def setup_logger(
 
 
 def local_fs_path(p: str) -> str:
-            return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
+    return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
 
 def resolve_run_path(
@@ -121,7 +121,9 @@ def resolve_run_path(
         run_id = args.db_run_id
         subdir = "training"
     elif args.job_type == "inference":
-        model_run_id: Optional[str] = getattr(getattr(cfg, "model", None), "run_id", None)
+        model_run_id: Optional[str] = getattr(
+            getattr(cfg, "model", None), "run_id", None
+        )
         if not model_run_id:
             raise ValueError("cfg.model.run_id must be set for inference runs.")
         run_id = model_run_id

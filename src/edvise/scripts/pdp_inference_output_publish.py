@@ -67,11 +67,10 @@ def main():
         help="Fail on errors even on Databricks (default strict off on DBR, on elsewhere).",
     )
     args = parser.parse_args()
-    
+
     # Enforce inference mode explicitly
     if args.job_type != "inference":
         raise ValueError("This publish task only supports --job_type inference.")
-
 
     dbx = in_databricks()
     strict = args.strict or (not dbx)  # lenient on DBR by default, strict elsewhere

@@ -134,7 +134,9 @@ class ModelInferenceTask:
     def run(self) -> None:
         # Enforce inference mode
         if getattr(self.args, "job_type", "inference") != "inference":
-            raise ValueError("ModelInferenceTask must be run with --job_type inference.")
+            raise ValueError(
+                "ModelInferenceTask must be run with --job_type inference."
+            )
 
         if self.cfg.modeling is None or self.cfg.modeling.training is None:
             raise ValueError("Missing section of the config: modeling.training")
@@ -150,7 +152,9 @@ class ModelInferenceTask:
         if self.cfg.model is None or self.cfg.model.run_id is None:
             raise ValueError("cfg.model.run_id must be set for inference runs.")
         # Use canonical per-run folder: <silver>/<run_id>/inference/
-        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
         current_run_path_local = local_fs_path(current_run_path)
 
         # 1) Load UC model metadata (run_id + experiment_id)
@@ -322,7 +326,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--DK_CC_EMAIL", type=str, required=True)
     parser.add_argument("--features_table_path", type=str, required=False)
     parser.add_argument("--ds_run_as", type=str, required=False)
-    parser.add_argument("--job_type", type=str, choices=["inference"], default="inference")
+    parser.add_argument(
+        "--job_type", type=str, choices=["inference"], default="inference"
+    )
     return parser.parse_args()
 
 
