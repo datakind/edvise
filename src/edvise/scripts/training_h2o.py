@@ -37,12 +37,6 @@ from edvise.scripts.predictions_h2o import (
     run_predictions,
 )
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("py4j").setLevel(logging.WARNING)
-
-# comment to test
-
 
 class TrainingParams(t.TypedDict, total=False):
     db_run_id: str
@@ -526,5 +520,19 @@ if __name__ == "__main__":
     #     logging.info("Using default schemas")
 
     task = TrainingTask(args)
-    log_path = init_file_logging(args, task.cfg, logger_name=__name__)
+    # Attach per-run file logging under the resolved run folder
+    log_path = init_file_logging(
+        args,
+        task.cfg,
+        logger_name=__name__,
+        log_file_name="pdp_training.log",  # optional; omit to use default
+    )
     task.run()
+    # --- Final flush & shutdown ---
+    root_logger = logging.getLogger()
+    for h in root_logger.handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()

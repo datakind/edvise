@@ -21,13 +21,9 @@ print("sys.path:", sys.path)
 from edvise import student_selection
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.shared.logger import resolve_run_path, local_fs_path
+from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
 
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)
-
 
 class StudentSelectionTask:
     """Handles selection of students based on specified attribute criteria."""
@@ -95,4 +91,19 @@ if __name__ == "__main__":
     #     logging.info("Using default schema")
 
     task = StudentSelectionTask(args)
+    # Attach per-run file logging under the resolved run folder
+    log_path = init_file_logging(
+        args,
+        task.cfg,
+        logger_name=__name__,
+        log_file_name="pdp_student_selection.log",  # optional; omit to use <job_type>.log
+    )
+    logging.info("Logs will be written to %s", log_path)
     task.run()
+    # Ensure logs are flushed
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()

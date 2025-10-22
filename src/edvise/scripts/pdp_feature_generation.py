@@ -25,13 +25,11 @@ from edvise.configs.pdp import PDPProjectConfig
 from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
 
 class PDPFeatureGenerationTask:
-    """Encapsulates the  feature generationlogic for the SST pipeline."""
+    """Encapsulates the  feature generation logic for the SST pipeline."""
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
@@ -182,7 +180,8 @@ if __name__ == "__main__":
     #     logging.info("Running task with default schema")
 
     task = PDPFeatureGenerationTask(args)
-    init_file_logging(args, task.cfg, logger_name=__name__)
+    log_path = init_file_logging(args, task.cfg, logger_name=__name__)
+    logging.info("Logs will be written to %s", log_path)
     task.run()
 
     # Ensure all logs hit disk

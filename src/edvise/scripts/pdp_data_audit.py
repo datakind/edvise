@@ -160,16 +160,8 @@ class PDPDataAuditTask:
         # Make sure the folder exists on the local FS
         os.makedirs(local_run_path, exist_ok=True)
 
-        # Build log file name based on job type
-        if self.args.job_type == "inference":
-            log_file_name = "pdp_data_audit_inference.log"
-        elif self.args.job_type == "training":
-            log_file_name = "pdp_data_audit_training.log"
-        else:
-            log_file_name = f"pdp_data_audit_{self.args.job_type}.log"
-
         # Build full path (local FS form)
-        log_file_path = os.path.join(local_run_path, log_file_name)
+        log_file_path = os.path.join(local_run_path, "pdp_data_audit.log")
 
         # Attach file handler safely
         try:

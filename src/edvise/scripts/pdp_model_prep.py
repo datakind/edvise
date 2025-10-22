@@ -26,7 +26,7 @@ from edvise.model_prep import cleanup_features as cleanup, training_params
 from edvise.dataio.read import read_parquet, read_config
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.shared.logger import local_fs_path, resolve_run_path
+from edvise.shared.logger import local_fs_path, resolve_run_path, init_file_logging
 
 
 logging.basicConfig(
@@ -144,34 +144,9 @@ class ModelPrepTask:
             self.args, self.cfg, self.args.silver_volume_path
         )
 
-        # Determine run path and set up a log file alongside outputs
+        # Ensure local run path exists
         local_run_path = local_fs_path(current_run_path)
         os.makedirs(local_run_path, exist_ok=True)
-
-        log_file_path = os.path.join(
-            local_run_path,
-            "pdp_model_prep_training.log"
-            if self.args.job_type == "training"
-            else "pdp_model_prep_inference.log",
-        )
-
-        # Avoid duplicate handlers if run() is called more than once
-        root_logger = logging.getLogger()
-        if not any(
-            isinstance(h, logging.FileHandler)
-            and getattr(h, "baseFilename", None) == os.path.abspath(log_file_path)
-            for h in root_logger.handlers
-        ):
-            fh = logging.FileHandler(log_file_path, mode="a")
-            fh.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
-            )
-            root_logger.addHandler(fh)
-            LOGGER.info(
-                "File logging initialized. Logs will be saved to: %s", log_file_path
-            )
 
         # --- Load required inputs (DBFS-safe) ---
         ckpt_path = os.path.join(current_run_path, "checkpoint.parquet")
@@ -275,6 +250,13 @@ if __name__ == "__main__":
             )
             args.job_type = "training"
     task = ModelPrepTask(args)
+    # Attach per-run file logging (log lives under resolved run folder)
+    log_path = init_file_logging(
+        args,
+        task.cfg,
+        logger_name=__name__,
+        log_file_name="pdp_model_prep.log",  # optional; omit to use default
+    )
     task.run()
     for h in logging.getLogger().handlers:
         try:

@@ -135,42 +135,63 @@ def resolve_run_path(
     return os.path.join(silver_volume_path, run_id, subdir)
 
 
-def init_file_logging(args, cfg, logger_name=__name__) -> str:
+def init_file_logging(
+    args,
+    cfg,
+    logger_name: str = __name__,
+    log_file_name: str | None = None,
+) -> str:
     """
-    Attach a FileHandler to the root logger and keep StreamHandler to stdout.
-    Returns the local filesystem path to the log file.
+    Generic, Databricks-safe logger initializer.
+
+    Creates a per-run log file in the correct run directory and
+    attaches it to the root logger. Keeps console output (safe for Databricks).
+
+    Args:
+        args: argparse.Namespace containing at least silver_volume_path and job_type.
+        cfg:  loaded project config (for resolve_run_path).
+        logger_name: optional module logger name.
+        log_file_name: optional filename override; defaults to "<job_type>.log".
+
+    Returns:
+        str: local filesystem path to the log file.
     """
-    # Compute run path and local filesystem path
+    # Compute local run directory
     current_run_path = resolve_run_path(args, cfg, args.silver_volume_path)
     local_run_path = local_fs_path(current_run_path)
     os.makedirs(local_run_path, exist_ok=True)
 
-    # Name the log by job_type
-    log_file_name = f"pdp_feature_generation_{args.job_type}.log"
+    # Choose log filename (default = job_type.log or generic.log)
+    job_type = getattr(args, "job_type", None) or "generic"
+    log_file_name = log_file_name or f"{job_type}.log"
     log_file_path = os.path.join(local_run_path, log_file_name)
 
-    # Root logger setup
+    # Configure root logger
     root = logging.getLogger()
     root.setLevel(logging.INFO)
 
-    # Keep console logs
-    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
-        root.addHandler(logging.StreamHandler(sys.stdout))
+    # Remove problematic handlers (Databricks attaches an IPython OutStream)
+    for h in list(root.handlers):
+        root.removeHandler(h)
 
-    # Add file handler once
-    abs_target = os.path.abspath(log_file_path)
-    if not any(
-        isinstance(h, logging.FileHandler)
-        and getattr(h, "baseFilename", None) == abs_target
-        for h in root.handlers
-    ):
-        fh = logging.FileHandler(log_file_path, mode="a")
-        fh.setFormatter(
-            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        )
-        root.addHandler(fh)
-        logging.getLogger(logger_name).info(
-            "File logging initialized → %s", log_file_path
-        )
+    # Console handler using real stdout (avoids OSError 95 in Databricks)
+    console = logging.StreamHandler(stream=sys.__stdout__)
+    console.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    )
+    root.addHandler(console)
+
+    # File handler (create once, safe append)
+    fh = logging.FileHandler(log_file_path, mode="a", encoding="utf-8", delay=True)
+    fh.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+    root.addHandler(fh)
+
+    # Quiet noisy libraries
+    logging.getLogger("py4j").setLevel(logging.WARNING)
+
+    # Log the initialization
+    logging.getLogger(logger_name).info("File logging initialized → %s", log_file_path)
 
     return log_file_path

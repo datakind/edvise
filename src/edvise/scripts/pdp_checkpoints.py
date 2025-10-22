@@ -21,7 +21,7 @@ print("sys.path:", sys.path)
 from edvise import checkpoints
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.dataio.read import read_config
-from edvise.shared.logger import local_fs_path, resolve_run_path
+from edvise.shared.logger import local_fs_path, resolve_run_path, init_file_logging
 
 from edvise.configs.pdp import (
     CheckpointNthConfig,
@@ -32,14 +32,8 @@ from edvise.configs.pdp import (
     CheckpointLastInEnrollmentYearConfig,
 )
 
-# ---- Configure console logging right away (file handler attached later) ----
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+
 logging.getLogger("py4j").setLevel(logging.WARNING)
-LOGGER = logging.getLogger(__name__)
 
 
 class PDPCheckpointsTask:
@@ -145,36 +139,6 @@ class PDPCheckpointsTask:
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
 
-        # --- Add file logging handler EARLY ---
-        local_run_path = current_run_path_local
-
-        # Choose log file name based on job type
-        log_file_name = (
-            "pdp_checkpoint_training.log"
-            if self.args.job_type == "training"
-            else "pdp_checkpoint_inference.log"
-        )
-
-        log_file_path = os.path.join(local_run_path, log_file_name)
-
-        # Avoid adding duplicate handlers if run() is called multiple times
-        root_logger = logging.getLogger()
-        if not any(
-            isinstance(h, logging.FileHandler)
-            and getattr(h, "baseFilename", None) == os.path.abspath(log_file_path)
-            for h in root_logger.handlers
-        ):
-            # Use append mode ("a") so logs aren't overwritten
-            fh = logging.FileHandler(log_file_path, mode="a")
-            fh.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
-            )
-            root_logger.addHandler(fh)
-            LOGGER.info(
-                "File logging initialized. Logs will be saved to: %s", log_file_path
-            )
 
         student_terms_path = os.path.join(current_run_path, "student_terms.parquet")
         student_terms_path_local = local_fs_path(student_terms_path)
@@ -219,6 +183,15 @@ if __name__ == "__main__":
     # except Exception:
     #     logging.info("Running task with default schema")
     task = PDPCheckpointsTask(args)
+    # Attach per-run file logging (writes under the resolved run folder)
+    log_path = init_file_logging(
+        args,
+        task.cfg,
+        logger_name=__name__,
+        # optional: force a specific filename instead of <job_type>.log
+        log_file_name="pdp_checkpoint.log",
+    )
+    logging.info("Logs will be written to %s", log_path)
     task.run()
 
     for h in logging.getLogger().handlers:
