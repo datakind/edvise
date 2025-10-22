@@ -442,9 +442,6 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
     else:
         LOGGER.warning(" ⚠️ Prefixes MAY be incorrect, do NOT both start with E or W for English and M or S for Math; one group inconsistent, check with school: English OK=%s, Math OK=%s", e_ok, m_ok)
 
-    LOGGER.info(" Final English (E) prefixes: %s", pref_e.tolist())
-    LOGGER.info(" Final Math (M) prefixes: %s", pref_m.tolist())
-
     # Extract the last numeric token from course_number and compare its last 3 digits.
     course_nums = (
         df_course.loc[mask, "course_number"]
