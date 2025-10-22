@@ -180,7 +180,12 @@ if __name__ == "__main__":
     #     logging.info("Running task with default schema")
 
     task = PDPFeatureGenerationTask(args)
-    log_path = init_file_logging(args, task.cfg, logger_name=__name__)
+    log_path = init_file_logging(
+        args, 
+        task.cfg,
+        logger_name=__name__,
+        log_file_name="pdp_feature_generation.log", 
+    )
     logging.info("Logs will be written to %s", log_path)
     task.run()
 

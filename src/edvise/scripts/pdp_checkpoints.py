@@ -188,7 +188,6 @@ if __name__ == "__main__":
         args,
         task.cfg,
         logger_name=__name__,
-        # optional: force a specific filename instead of <job_type>.log
         log_file_name="pdp_checkpoint.log",
     )
     logging.info("Logs will be written to %s", log_path)

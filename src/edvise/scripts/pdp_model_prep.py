@@ -239,7 +239,7 @@ if __name__ == "__main__":
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_model_prep.log",  # optional; omit to use default
+        log_file_name="pdp_model_prep.log",  
     )
     task.run()
     for h in logging.getLogger().handlers:
