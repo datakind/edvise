@@ -28,6 +28,7 @@ from edvise import modeling, dataio, configs
 from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise import utils as edvise_utils
+from edvise.shared.logger import resolve_run_path, local_fs_path
 
 from edvise.scripts.predictions_h2o import (
     PredConfig,
@@ -354,7 +355,7 @@ class TrainingTask:
 
             # read modeling parquet for roc table
             modeling_df = dataio.read.read_parquet(
-                f"{current_run_path}/modeling.parquet"
+                local_fs_path(os.path.join(current_run_path, "modeling.parquet"))
             )
 
             # training-only logging
@@ -416,17 +417,35 @@ class TrainingTask:
         card.export_to_pdf()
 
     def run(self):
-        """Executes the target computation pipeline and saves result."""
-        current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
+        """Executes the training pipeline and saves result (training only)."""
+        # This task is for training runs only; enforce it explicitly.
+        if getattr(self.args, "job_type", "training") != "training":
+            raise ValueError("TrainingTask must be run with --job_type training.")
+
+        # Ensure correct folder: training or inference
+        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        current_run_path_local = local_fs_path(current_run_path)
+        os.makedirs(current_run_path_local, exist_ok=True)
 
         logging.info("Loading preprocessed data")
-        df_preprocessed = pd.read_parquet(f"{current_run_path}/preprocessed.parquet")
+        preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
+        preproc_path_local = local_fs_path(preproc_path)
+        if not os.path.exists(preproc_path_local):
+            raise FileNotFoundError(
+                f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
+            )
+        df_preprocessed = pd.read_parquet(preproc_path_local)
+
+
         logging.info("Selecting features")
         df_modeling = self.feature_selection(df_preprocessed)
 
         logging.info("Saving modeling data")
-        df_modeling.to_parquet(f"{current_run_path}/modeling.parquet", index=False)
-        logging.info(f"Modeling file saved to {current_run_path}/modeling.parquet")
+        modeling_path = os.path.join(current_run_path, "modeling.parquet")
+        df_modeling.to_parquet(local_fs_path(modeling_path), index=False)
+        logging.info(f"Modeling file saved to {modeling_path}")
+        
+        
         logging.info("Training model")
         experiment_id = self.train_model(df_modeling)
 
@@ -435,7 +454,7 @@ class TrainingTask:
 
         logging.info("Selecting best model")
         self.select_model(
-            experiment_id, [f"{current_run_path}/{self.args.config_file_name}"]
+            experiment_id, [os.path.join(current_run_path, self.args.config_file_name)]
         )
 
         logging.info("Generating training predictions & SHAP values")
@@ -448,9 +467,11 @@ class TrainingTask:
         self.create_model_card(model_name)
 
         logging.info("Updating folder name to model id")
-        os.rename(
-            current_run_path, f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
-        )
+        # Rename the RUN ROOT folder (one level up from the 'training' subdir) to model.run_id
+        run_root = os.path.dirname(current_run_path)
+        dest_root = os.path.join(self.args.silver_volume_path, self.cfg.model.run_id)
+        logging.info("Renaming run root:\n  from: %s\n    to: %s", run_root, dest_root)
+        os.replace(local_fs_path(run_root), local_fs_path(dest_root))
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -463,6 +484,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--gold_table_path", type=str, required=True)
     parser.add_argument("--config_file_name", type=str, required=True)
+    parser.add_argument("--job_type", type=str, choices=["training", "inference"], required=True)
     return parser.parse_args()
 
 

@@ -48,7 +48,7 @@ from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
     log_pre_cohort_courses,
 )
-from edvise.shared.logger import local_fs_path
+from edvise.shared.logger import local_fs_path, resolve_run_path
 
 logging.basicConfig(
     level=logging.INFO,
@@ -148,22 +148,8 @@ class PDPDataAuditTask:
 
     def run(self):
         """Executes the data preprocessing pipeline."""
-        # Create per-run root folder, with job-type subfolder (training/inference)
-        if self.args.job_type == "training":
-            if not self.args.db_run_id:
-                raise ValueError("db_run_id must be provided for training runs.")
-            run_id = self.args.db_run_id
-            job_subdir = "training"
-        elif self.args.job_type == "inference":
-            if self.cfg.model.run_id is None:
-                raise ValueError("cfg.model.run_id must be set for inference runs.")
-            run_id = self.cfg.model.run_id
-            job_subdir = "inference"
-        else:
-            raise ValueError(f"Unsupported job_type: {self.args.job_type}")
-
-        run_root = os.path.join(self.args.silver_volume_path, run_id)
-        current_run_path = os.path.join(run_root, job_subdir)
+        # Ensure correct folder: training or inference
+        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
         os.makedirs(current_run_path, exist_ok=True)
 
         # Convert to local filesystem path if using DBFS

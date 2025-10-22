@@ -22,6 +22,7 @@ print("sys.path:", sys.path)
 from edvise import feature_generation, utils
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
+from edvise.shared.logger import resolve_run_path, local_fs_path
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -48,22 +49,29 @@ class PDPFeatureGenerationTask:
         key_course_subject_areas = features_cfg.key_course_subject_areas
         key_course_ids = features_cfg.key_course_ids
 
-        if self.args.job_type == "training":
-            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
-        elif self.args.job_type == "inference":
-            if self.cfg.model.run_id is None:
-                raise ValueError("cfg.model.run_id must be set for inference runs.")
-            current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
-        else:
-            raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+        # Ensure correct folder: training or inference
+        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        # Use local path for reading/writing so DBFS is handled correctly
+        current_run_path_local = local_fs_path(current_run_path)
+        os.makedirs(current_run_path_local, exist_ok=True)
 
         # --- Load datasets ---
-        df_course = pd.read_parquet(
-            f"{current_run_path}/df_course_standardized.parquet"
-        )
-        df_cohort = pd.read_parquet(
-            f"{current_run_path}/df_cohort_standardized.parquet"
-        )
+        course_path = os.path.join(current_run_path, "df_course_standardized.parquet")
+        cohort_path = os.path.join(current_run_path, "df_cohort_standardized.parquet")
+        course_path_local = local_fs_path(course_path)
+        cohort_path_local = local_fs_path(cohort_path)
+
+        if not os.path.exists(course_path_local):
+            raise FileNotFoundError(
+                f"Missing df_course_standardized at: {course_path} (local: {course_path_local})"
+            )
+        if not os.path.exists(cohort_path_local):
+            raise FileNotFoundError(
+                f"Missing df_cohort_standardized at: {cohort_path} (local: {cohort_path_local})"
+            )
+
+        df_course = pd.read_parquet(course_path_local)
+        df_cohort = pd.read_parquet(cohort_path_local)
 
         # --- Generate student-term dataset ---
         df_student_terms = self.make_student_term_dataset(
@@ -78,9 +86,8 @@ class PDPFeatureGenerationTask:
         )
 
         # --- Write result ---
-        df_student_terms.to_parquet(
-            f"{current_run_path}/student_terms.parquet", index=False
-        )
+        out_path = os.path.join(current_run_path, "student_terms.parquet")
+        df_student_terms.to_parquet(local_fs_path(out_path), index=False)
 
     def make_student_term_dataset(
         self,

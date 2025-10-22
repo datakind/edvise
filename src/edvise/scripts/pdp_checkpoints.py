@@ -21,7 +21,7 @@ print("sys.path:", sys.path)
 from edvise import checkpoints
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.dataio.read import read_config
-from edvise.shared.logger import local_fs_path
+from edvise.shared.logger import local_fs_path, resolve_run_path
 
 from edvise.configs.pdp import (
     CheckpointNthConfig,
@@ -138,26 +138,21 @@ class PDPCheckpointsTask:
 
     def run(self):
         """Executes the data preprocessing pipeline."""
-        if self.args.job_type == "training":
-            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
-        elif self.args.job_type == "inference":
-            if self.cfg.model.run_id is None:
-                raise ValueError("cfg.model.run_id must be set for inference runs.")
-            current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
-        else:
-            raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+        # Ensure correct folder: training or inference
+        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        # Use local path for reading/writing so DBFS is handled correctly
+        current_run_path_local = local_fs_path(current_run_path)
+        os.makedirs(current_run_path_local, exist_ok=True)
 
         # --- Add file logging handler EARLY ---
-        local_run_path = local_fs_path(current_run_path)
-        os.makedirs(local_run_path, exist_ok=True)
+        local_run_path = current_run_path_local
 
         # Choose log file name based on job type
-        if self.args.job_type == "inference":
-            log_file_name = "pdp_checkpoint_inference.log"
-        elif self.args.job_type == "training":
-            log_file_name = "pdp_checkpoint_training.log"
-        else:
-            log_file_name = f"pdp_checkpoint_{self.args.job_type}.log"
+        log_file_name = (
+            "pdp_checkpoint_training.log"
+            if self.args.job_type == "training"
+            else "pdp_checkpoint_inference.log"
+        )
 
         log_file_path = os.path.join(local_run_path, log_file_name)
 
@@ -177,14 +172,22 @@ class PDPCheckpointsTask:
             LOGGER.info("File logging initialized. Logs will be saved to: %s", log_file_path)
 
 
-        df_student_terms = pd.read_parquet(f"{current_run_path}/student_terms.parquet")
+        student_terms_path = os.path.join(current_run_path, "student_terms.parquet")
+        student_terms_path_local = local_fs_path(student_terms_path)
+        if not os.path.exists(student_terms_path_local):
+            raise FileNotFoundError(
+                f"student_terms.parquet not found at: {student_terms_path} (local: {student_terms_path_local})"
+            )
+        df_student_terms = pd.read_parquet(student_terms_path_local)
 
         df_ckpt = self.checkpoint_generation(df_student_terms)
 
         cohort_counts = df_ckpt["cohort"].value_counts(dropna=False).sort_index()
         logging.info("Checkpoint Cohort breakdown:\n%s", cohort_counts.to_string())
 
-        df_ckpt.to_parquet(f"{current_run_path}/checkpoint.parquet", index=False)
+        out_ckpt_path = os.path.join(current_run_path, "checkpoint.parquet")
+        df_ckpt.to_parquet(local_fs_path(out_ckpt_path), index=False)
+        logging.info(f"Checkpoint log & file saved to {out_ckpt_path}")
 
 
 def parse_arguments() -> argparse.Namespace:
