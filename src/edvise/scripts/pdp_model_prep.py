@@ -1,4 +1,5 @@
 ## TODO : edit so it works for training or inference (with and without targets)
+## Noreen- I took a stab at this, but idk if it works? 
 
 import typing as t
 import argparse
@@ -233,13 +234,24 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
-    parser.add_argument("--job_type", type=str, choices=["training", "inference"], required=True)
+    parser.add_argument("--job_type", type=str, choices=["training", "inference"], required=False)
 
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
+    # Infer job_type if not provided
+    if not getattr(args, "job_type", None):
+        try:
+            _cfg = read_config(args.config_file_path, schema=PDPProjectConfig)
+            inferred = "inference" if getattr(getattr(_cfg, "model", None), "run_id", None) else "training"
+            logging.info(f"No --job_type passed; inferring job_type='{inferred}' from config.")
+            args.job_type = inferred
+        except Exception as e:
+            # Fall back to training if config can’t be read here
+            logging.warning(f"Could not infer job_type from config ({e}); defaulting to 'training'.")
+            args.job_type = "training"
     task = ModelPrepTask(args)
     task.run()
     for h in logging.getLogger().handlers:

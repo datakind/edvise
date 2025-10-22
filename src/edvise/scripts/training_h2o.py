@@ -484,12 +484,21 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--gold_table_path", type=str, required=True)
     parser.add_argument("--config_file_name", type=str, required=True)
-    parser.add_argument("--job_type", type=str, choices=["training", "inference"], required=True)
+    parser.add_argument("--job_type", type=str, choices=["training", "inference"], required=False)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
+    if not getattr(args, "job_type", None):
+        try:
+            _cfg = dataio.read.read_config(args.config_file_path, schema=configs.pdp.PDPProjectConfig)
+            inferred = "inference" if getattr(getattr(_cfg, "model", None), "run_id", None) else "training"
+            logging.info(f"No --job_type passed; inferring job_type='{inferred}' from config.")
+            args.job_type = inferred
+        except Exception as e:
+            logging.warning(f"Could not infer job_type from config ({e}); defaulting to 'training'.")
+            args.job_type = "training"
     # try:
     #     if args.custom_schemas_path:
     #         sys.path.append(args.custom_schemas_path)

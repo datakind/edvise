@@ -359,12 +359,12 @@ def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> tuple[list[s
         df_course.columns
     ):
         LOGGER.warning(" ⚠️ Cannot compute key_course_ids: required columns missing.")
-        return []
+        return ([], [], False)
 
     mask = df_course["math_or_english_gateway"].astype("string").isin({"M", "E"})
     if not mask.any():
         LOGGER.info(" No Math/English gateway courses found.")
-        return []
+        return ([], [], False)
 
     ids = df_course.loc[mask, "course_prefix"].fillna("") + df_course.loc[
         mask, "course_number"
