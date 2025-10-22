@@ -187,6 +187,8 @@ if __name__ == "__main__":
 
     # Ensure all logs hit disk
     for h in logging.getLogger().handlers:
-        try: h.flush()
-        except Exception: pass
+        try:
+            h.flush()
+        except Exception:
+            pass
     logging.shutdown()

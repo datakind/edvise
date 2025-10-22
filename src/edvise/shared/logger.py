@@ -159,17 +159,18 @@ def init_file_logging(args, cfg, logger_name=__name__) -> str:
 
     # Add file handler once
     abs_target = os.path.abspath(log_file_path)
-    if not any(isinstance(h, logging.FileHandler) and
-               getattr(h, "baseFilename", None) == abs_target
-               for h in root.handlers):
+    if not any(
+        isinstance(h, logging.FileHandler)
+        and getattr(h, "baseFilename", None) == abs_target
+        for h in root.handlers
+    ):
         fh = logging.FileHandler(log_file_path, mode="a")
-        fh.setFormatter(logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        ))
+        fh.setFormatter(
+            logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        )
         root.addHandler(fh)
         logging.getLogger(logger_name).info(
             "File logging initialized → %s", log_file_path
         )
 
     return log_file_path
-
