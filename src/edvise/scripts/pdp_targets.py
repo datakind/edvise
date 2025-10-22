@@ -124,26 +124,9 @@ def parse_arguments() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_arguments()
-    # Infer job_type if not provided: if cfg.model.run_id exists ⇒ inference, else training
-    try:
-        cfg_for_infer = read_config(args.config_file_path, schema=PDPProjectConfig)
-        if not getattr(args, "job_type", None):
-            inferred = (
-                "inference"
-                if getattr(getattr(cfg_for_infer, "model", None), "run_id", None)
-                else "training"
-            )
-            logging.info(
-                f"No --job_type passed; inferring job_type='{inferred}' from config."
-            )
-            args.job_type = inferred
-    except Exception as e:
-        # If config read fails here, fall back to training (or re-raise if you prefer)
-        if not getattr(args, "job_type", None):
-            logging.warning(
-                f"Could not infer job_type from config ({e}); defaulting to 'training'."
-            )
-            args.job_type = "training"
+    if not getattr(args, "job_type", None):
+        args.job_type = "training"
+        logging.info("No --job_type passed; defaulting to job_type='training'.")
     # try:
     #     if args.custom_schemas_path:
     #         sys.path.append(args.custom_schemas_path)
