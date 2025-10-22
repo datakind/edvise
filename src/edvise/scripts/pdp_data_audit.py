@@ -148,16 +148,24 @@ class PDPDataAuditTask:
 
     def run(self):
         """Executes the data preprocessing pipeline."""
-        # Create a folder to save all the files in
+        # Create top-level folders for training & inference and a per-run folder
+        base_training_dir = os.path.join(self.args.silver_volume_path, "training")
+        base_inference_dir = os.path.join(self.args.silver_volume_path, "inference")
+        os.makedirs(base_training_dir, exist_ok=True)
+        os.makedirs(base_inference_dir, exist_ok=True)
+
         if self.args.job_type == "training":
-            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
-            os.makedirs(current_run_path, exist_ok=True)
+            if not self.args.db_run_id:
+                raise ValueError("db_run_id must be provided for training runs.")
+            current_run_path = os.path.join(base_training_dir, self.args.db_run_id)
         elif self.args.job_type == "inference":
             if self.cfg.model.run_id is None:
                 raise ValueError("cfg.model.run_id must be set for inference runs.")
-            current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
+            current_run_path = os.path.join(base_inference_dir, self.cfg.model.run_id)
         else:
             raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+
+        os.makedirs(current_run_path, exist_ok=True)
 
         # Convert to local filesystem path if using DBFS
         local_run_path = local_fs_path(current_run_path)
@@ -410,11 +418,11 @@ class PDPDataAuditTask:
         # --- Write results ---
         write_parquet(
             df_cohort_standardized,
-            f"{current_run_path}/df_cohort_standardized.parquet",
+            os.path.join(current_run_path, "df_cohort_standardized.parquet"),
         )
         write_parquet(
             df_course_standardized,
-            f"{current_run_path}/df_course_standardized.parquet",
+            os.path.join(current_run_path, "df_course_standardized.parquet"),
         )
 
 
