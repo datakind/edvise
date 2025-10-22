@@ -136,8 +136,8 @@ def resolve_run_path(
 
 
 def init_file_logging(
-    args,
-    cfg,
+    args: argparse.Namespace,
+    cfg: Any,
     logger_name: str = __name__,
     log_file_name: str | None = None,
 ) -> str:
