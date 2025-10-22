@@ -21,7 +21,7 @@ print("sys.path:", sys.path)
 from edvise import targets as _targets
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.shared.logger import local_fs_path, resolve_run_path
+from edvise.shared.logger import local_fs_path, resolve_run_path, init_file_logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -153,4 +153,12 @@ if __name__ == "__main__":
     #     logging.info("Using default schemas")
 
     task = PDPTargetsTask(args)
+    log_path = init_file_logging(args, task.cfg, logger_name=__name__)
     task.run()
+    # Flush and cleanly close all log handlers
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()

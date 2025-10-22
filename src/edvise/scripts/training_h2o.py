@@ -28,7 +28,7 @@ from edvise import modeling, dataio, configs
 from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise import utils as edvise_utils
-from edvise.shared.logger import resolve_run_path, local_fs_path
+from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
 
 from edvise.scripts.predictions_h2o import (
     PredConfig,
@@ -471,6 +471,12 @@ class TrainingTask:
         run_root = os.path.dirname(current_run_path)
         dest_root = os.path.join(self.args.silver_volume_path, self.cfg.model.run_id)
         logging.info("Renaming run root:\n  from: %s\n    to: %s", run_root, dest_root)
+        for h in logging.getLogger().handlers:
+            try:
+                h.flush()
+            except Exception:
+                pass
+        logging.shutdown()
         os.replace(local_fs_path(run_root), local_fs_path(dest_root))
 
 
@@ -520,4 +526,5 @@ if __name__ == "__main__":
     #     logging.info("Using default schemas")
 
     task = TrainingTask(args)
+    log_path = init_file_logging(args, task.cfg, logger_name=__name__)
     task.run()

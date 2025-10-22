@@ -21,7 +21,7 @@ print("sys.path:", sys.path)
 from edvise import student_selection
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.shared.logger import resolve_run_path, local_fs_path
+from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
 
 
 # Configure logging
@@ -95,4 +95,13 @@ if __name__ == "__main__":
     #     logging.info("Using default schema")
 
     task = StudentSelectionTask(args)
+    # initialize file logging now that we have cfg
+    log_path = init_file_logging(args, task.cfg, logger_name=__name__)
     task.run()
+    # flush & shutdown logging
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()

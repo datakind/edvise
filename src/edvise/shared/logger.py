@@ -1,5 +1,6 @@
 import os
 import sys
+import logging
 import json
 import shutil
 import argparse
@@ -132,3 +133,43 @@ def resolve_run_path(
         raise ValueError(f"Unsupported job_type: {args.job_type}")
 
     return os.path.join(silver_volume_path, run_id, subdir)
+
+
+def init_file_logging(args, cfg, logger_name=__name__) -> str:
+    """
+    Attach a FileHandler to the root logger and keep StreamHandler to stdout.
+    Returns the local filesystem path to the log file.
+    """
+    # Compute run path and local filesystem path
+    current_run_path = resolve_run_path(args, cfg, args.silver_volume_path)
+    local_run_path = local_fs_path(current_run_path)
+    os.makedirs(local_run_path, exist_ok=True)
+
+    # Name the log by job_type
+    log_file_name = f"pdp_feature_generation_{args.job_type}.log"
+    log_file_path = os.path.join(local_run_path, log_file_name)
+
+    # Root logger setup
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    # Keep console logs
+    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+        root.addHandler(logging.StreamHandler(sys.stdout))
+
+    # Add file handler once
+    abs_target = os.path.abspath(log_file_path)
+    if not any(isinstance(h, logging.FileHandler) and
+               getattr(h, "baseFilename", None) == abs_target
+               for h in root.handlers):
+        fh = logging.FileHandler(log_file_path, mode="a")
+        fh.setFormatter(logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        ))
+        root.addHandler(fh)
+        logging.getLogger(logger_name).info(
+            "File logging initialized → %s", log_file_path
+        )
+
+    return log_file_path
+

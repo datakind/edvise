@@ -22,7 +22,7 @@ print("sys.path:", sys.path)
 from edvise import feature_generation, utils
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.shared.logger import resolve_run_path, local_fs_path
+from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -182,4 +182,11 @@ if __name__ == "__main__":
     #     logging.info("Running task with default schema")
 
     task = PDPFeatureGenerationTask(args)
+    init_file_logging(args, task.cfg, logger_name=__name__)
     task.run()
+
+    # Ensure all logs hit disk
+    for h in logging.getLogger().handlers:
+        try: h.flush()
+        except Exception: pass
+    logging.shutdown()
