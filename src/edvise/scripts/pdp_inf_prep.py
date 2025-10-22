@@ -24,6 +24,7 @@ from edvise.model_prep import cleanup_features as cleanup
 from edvise.dataio.read import read_parquet, read_config
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
+from edvise.shared.logger import resolve_run_path, local_fs_path
 
 
 logging.basicConfig(level=logging.INFO)
@@ -55,22 +56,38 @@ class InferencePrepTask:
         return cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled)
 
     def run(self):
+        # Enforce inference mode & resolve <silver>/<run_id>/inference/
         if self.cfg.model.run_id is None:
             raise ValueError("cfg.model.run_id must be set for inference runs.")
-        current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
-        # Read inputs using custom function
-        checkpoint_df = read_parquet(f"{current_run_path}/checkpoint.parquet")
-        selected_students = read_parquet(
-            f"{current_run_path}/selected_students.parquet"
-        )
+        # If the script is ever reused, require job_type=inference
+        if getattr(self.args, "job_type", "inference") != "inference":
+            raise ValueError("InferencePrepTask must be run with --job_type inference.")
+
+        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        current_run_path_local = local_fs_path(current_run_path)
+
+        # Read inputs (DBFS-safe)
+        ckpt_path = os.path.join(current_run_path, "checkpoint.parquet")
+        sel_path = os.path.join(current_run_path, "selected_students.parquet")
+        ckpt_path_local = local_fs_path(ckpt_path)
+        sel_path_local = local_fs_path(sel_path)
+
+        if not os.path.exists(ckpt_path_local):
+            raise FileNotFoundError(f"Missing checkpoint.parquet at: {ckpt_path} (local: {ckpt_path_local})")
+        if not os.path.exists(sel_path_local):
+            raise FileNotFoundError(f"Missing selected_students.parquet at: {sel_path} (local: {sel_path_local})")
+
+        checkpoint_df = read_parquet(ckpt_path_local)
+        selected_students = read_parquet(sel_path_local)
 
         df_labeled = self.merge_data(checkpoint_df, selected_students)
         df_preprocessed = self.cleanup_features(df_labeled)
 
         # Write output using custom function
+        out_path = os.path.join(current_run_path, "preprocessed.parquet")
         write_parquet(
             df_preprocessed,
-            file_path=f"{current_run_path}/preprocessed.parquet",
+            file_path=local_fs_path(out_path),
             index=False,
             overwrite=True,
             verbose=True,
@@ -80,8 +97,11 @@ class InferencePrepTask:
         model_type = (
             "h2o" if getattr(self.cfg.model, "framework", None) == "h2o" else "sklearn"
         )
-        dbutils.jobs.taskValues.set(key="model_type", value=model_type)
-        logger.info(f"Setting task parameter for 'model_type' as '{model_type}'")
+        if dbutils:
+            dbutils.jobs.taskValues.set(key="model_type", value=model_type)
+            logger.info(f"Setting task parameter for 'model_type' as '{model_type}'")
+        else:
+            logger.info(f"(no dbutils) model_type resolved as '{model_type}'")
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -91,6 +111,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
+    parser.add_argument("--job_type", type=str, choices=["inference"], required=False, default="inference")
     return parser.parse_args()
 
 

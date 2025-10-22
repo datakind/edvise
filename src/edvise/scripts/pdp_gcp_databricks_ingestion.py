@@ -10,6 +10,7 @@ from mlflow.tracking import MlflowClient
 from google.cloud import storage
 from google.api_core.exceptions import Forbidden, NotFound
 import google.auth
+from edvise.shared.logger import local_fs_path
 
 
 def in_databricks() -> bool:
@@ -156,18 +157,29 @@ class DataIngestionTask:
         latest_version = max(versions, key=lambda v: int(v.version))
         return str(latest_version.run_id)
 
-    def find_config_file_path(self, file_path: str) -> str:
+    def find_config_file_path(self, run_root: str) -> str:
         """
-        Given a directory, finds the first .toml file and returns its full path.
-        Raises an error if no TOML file is found.
+        Finds the first .toml config under the run root, compatible with either:
+          <silver>/<run_id>/ (root)   OR
+          <silver>/<run_id>/{training|inference}/
+        Returns the first match. Raises if none found.
         """
-        base = pathlib.Path(file_path)
-        toml_files = list(base.rglob("*.toml"))  # Use rglob to go into subfolders
-
-        if not toml_files:
-            raise FileNotFoundError(f"No TOML config file found in {file_path}")
-
-        return str(toml_files[0])
+        # Search order: run root, then training/, then inference/
+        candidates = [
+            run_root,
+            os.path.join(run_root, "training"),
+            os.path.join(run_root, "inference"),
+        ]
+        for cand in candidates:
+            base = pathlib.Path(local_fs_path(cand))
+            if not base.exists():
+                continue
+            toml_files = list(base.rglob("*.toml"))
+            if toml_files:
+                return str(toml_files[0])
+        raise FileNotFoundError(
+            f"No TOML config file found under: {run_root} (searched run root, training/, inference/)"
+        )
 
     def run(self):
         bronze_root = (
@@ -175,30 +187,37 @@ class DataIngestionTask:
             f"{self.args.databricks_institution_name}_bronze/bronze_volume"
         )
         landing_dir = os.path.join(bronze_root, "inference_inputs", self.args.db_run_id)
-        os.makedirs(landing_dir, exist_ok=True)
+        os.makedirs(local_fs_path(landing_dir), exist_ok=True)
 
         fpath_course, fpath_cohort = self.download_data_from_gcs(landing_dir)
 
-        if fpath_course:
-            self.dbutils.jobs.taskValues.set(
-                key="course_dataset_validated_path", value=fpath_course
-            )
-        if fpath_cohort:
-            self.dbutils.jobs.taskValues.set(
-                key="cohort_dataset_validated_path", value=fpath_cohort
-            )
+        # Only set task values if dbutils is available (Databricks context)
+        if self.dbutils:
+            if fpath_course:
+                self.dbutils.jobs.taskValues.set(
+                    key="course_dataset_validated_path", value=fpath_course
+                )
+            if fpath_cohort:
+                self.dbutils.jobs.taskValues.set(
+                    key="cohort_dataset_validated_path", value=fpath_cohort
+                )
 
         model_run_id = self.get_latest_uc_model_run_id(
             self.args.model_name,
             self.args.DB_workspace,
             self.args.databricks_institution_name,
         )
-        silver_path = f"/Volumes/{self.args.DB_workspace}/{self.args.databricks_institution_name}_silver/silver_volume/{model_run_id}"
-        config_file_path = self.find_config_file_path(silver_path)
-        logging.info("Using config file path: %s", config_file_path)
-        self.dbutils.jobs.taskValues.set(
-            key="config_file_path", value=str(config_file_path)
+        # Run root: <silver>/<model_run_id>/  (config may be here or in training/ or inference/)
+        silver_run_root = (
+            f"/Volumes/{self.args.DB_workspace}/"
+            f"{self.args.databricks_institution_name}_silver/silver_volume/{model_run_id}"
         )
+        config_file_path = self.find_config_file_path(silver_run_root)
+        logging.info("Using config file path: %s", config_file_path)
+        if self.dbutils:
+            self.dbutils.jobs.taskValues.set(
+                key="config_file_path", value=str(config_file_path)
+            )
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -224,8 +243,8 @@ if __name__ == "__main__":
 
     # Ensure inference_inputs exists before listdir/imports
     base_inputs = f"/Volumes/{args.DB_workspace}/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
-    os.makedirs(base_inputs, exist_ok=True)
-    logging.info("Files in inference inputs path: %s", os.listdir(base_inputs))
+    os.makedirs(local_fs_path(base_inputs), exist_ok=True)
+    logging.info("Files in inference inputs path: %s", os.listdir(local_fs_path(base_inputs)))
 
     # Optional dynamic imports for converters/schemas
     for name, attr, desc in [

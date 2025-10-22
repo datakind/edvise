@@ -56,11 +56,22 @@ def main():
     parser.add_argument("--db_run_id", required=True)
     parser.add_argument("--datakind_notification_email", required=True)
     parser.add_argument(
+        "--job_type",
+        choices=["inference"],
+        default="inference",
+        help="This task publishes inference outputs only.",
+    )
+    parser.add_argument(
         "--strict",
         action="store_true",
         help="Fail on errors even on Databricks (default strict off on DBR, on elsewhere).",
     )
     args = parser.parse_args()
+    
+    # Enforce inference mode explicitly
+    if args.job_type != "inference":
+        raise ValueError("This publish task only supports --job_type inference.")
+
 
     dbx = in_databricks()
     strict = args.strict or (not dbx)  # lenient on DBR by default, strict elsewhere
@@ -69,7 +80,7 @@ def main():
     # 1) Publish files to GCS
     try:
         logging.info(
-            "Publishing files to GCS bucket %s (run_id=%s)",
+            "Publishing inference outputs to GCS bucket %s (run_id=%s)",
             args.gcp_bucket_name,
             args.db_run_id,
         )

@@ -46,6 +46,7 @@ from edvise.configs.pdp import PDPProjectConfig
 from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session
 from edvise.modeling.inference import top_n_features, features_box_whiskers_table
+from edvise.shared.logger import resolve_run_path, local_fs_path
 
 # Shared predictions pipeline (your extracted module)
 from edvise.scripts.predictions_h2o import (
@@ -131,6 +132,10 @@ class ModelInferenceTask:
         logging.info("%s data written to: %s", table_name_suffix, table_path)
 
     def run(self) -> None:
+        # Enforce inference mode
+        if getattr(self.args, "job_type", "inference") != "inference":
+            raise ValueError("ModelInferenceTask must be run with --job_type inference.")
+
         if self.cfg.modeling is None or self.cfg.modeling.training is None:
             raise ValueError("Missing section of the config: modeling.training")
         if self.cfg.preprocessing is None:
@@ -144,16 +149,22 @@ class ModelInferenceTask:
 
         if self.cfg.model is None or self.cfg.model.run_id is None:
             raise ValueError("cfg.model.run_id must be set for inference runs.")
-        current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
+        # Use canonical per-run folder: <silver>/<run_id>/inference/
+        current_run_path = resolve_run_path(self.args, self.cfg, self.args.silver_volume_path)
+        current_run_path_local = local_fs_path(current_run_path)
 
         # 1) Load UC model metadata (run_id + experiment_id)
         self.load_mlflow_model_metadata()
         assert self.model_run_id and self.model_experiment_id
 
         # 2) Read the processed dataset
-        df_processed = dataio.read.read_parquet(
-            f"{current_run_path}/preprocessed.parquet"
-        )
+        preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
+        preproc_path_local = local_fs_path(preproc_path)
+        if not os.path.exists(preproc_path_local):
+            raise FileNotFoundError(
+                f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
+            )
+        df_processed = dataio.read.read_parquet(preproc_path_local)
 
         # 3) Notify via email
         self._send_kickoff_email()
@@ -311,6 +322,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--DK_CC_EMAIL", type=str, required=True)
     parser.add_argument("--features_table_path", type=str, required=False)
     parser.add_argument("--ds_run_as", type=str, required=False)
+    parser.add_argument("--job_type", type=str, choices=["inference"], default="inference")
     return parser.parse_args()
 
 
