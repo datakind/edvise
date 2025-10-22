@@ -176,9 +176,7 @@ def init_file_logging(
 
     # Console handler using real stdout (avoids OSError 95 in Databricks)
     console = logging.StreamHandler(stream=sys.__stdout__)
-    console.setFormatter(
-        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
-    )
+    console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
     root.addHandler(console)
 
     # File handler (create once, safe append)

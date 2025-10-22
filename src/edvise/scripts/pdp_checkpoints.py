@@ -139,7 +139,6 @@ class PDPCheckpointsTask:
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
 
-
         student_terms_path = os.path.join(current_run_path, "student_terms.parquet")
         student_terms_path_local = local_fs_path(student_terms_path)
         if not os.path.exists(student_terms_path_local):

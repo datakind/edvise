@@ -509,7 +509,7 @@ if __name__ == "__main__":
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_training.log", 
+        log_file_name="pdp_training.log",
     )
     task.run()
     # --- Final flush & shutdown ---

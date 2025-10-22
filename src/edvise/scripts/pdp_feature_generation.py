@@ -181,10 +181,10 @@ if __name__ == "__main__":
 
     task = PDPFeatureGenerationTask(args)
     log_path = init_file_logging(
-        args, 
+        args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_feature_generation.log", 
+        log_file_name="pdp_feature_generation.log",
     )
     logging.info("Logs will be written to %s", log_path)
     task.run()

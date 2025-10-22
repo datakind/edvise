@@ -25,6 +25,7 @@ from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logg
 
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
+
 class StudentSelectionTask:
     """Handles selection of students based on specified attribute criteria."""
 
@@ -96,7 +97,7 @@ if __name__ == "__main__":
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_student_selection.log",  
+        log_file_name="pdp_student_selection.log",
     )
     logging.info("Logs will be written to %s", log_path)
     task.run()

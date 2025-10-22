@@ -11,6 +11,7 @@ from google.cloud import storage
 from google.api_core.exceptions import Forbidden, NotFound
 import google.auth
 
+
 def local_fs_path(p: str) -> str:
     return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
