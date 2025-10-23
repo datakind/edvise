@@ -5,7 +5,9 @@ import typing as t
 import numpy as np
 import pandas as pd
 
-from . import constants, shared
+
+from edvise.utils.data_cleaning import convert_to_snake_case
+from . import constants, term, shared
 
 LOGGER = logging.getLogger(__name__)
 
@@ -569,6 +571,381 @@ def multicol_grade_aggs_by_group(
     )
 
 
+def add_historical_features_student_term_data(
+    df, student_id_col, sort_cols, gpa_cols, num_cols
+):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Append cumulative and rolling historical features to student-term level data
+
+    Args:
+        df (pd.DataFrame): data unique at the student-term level
+        student_id_col (str): name of column containing student IDs
+        sort_cols (list[str]): time or date-based columns to sort by. If the dataset contains
+            a date for the observation, enter this column only in the list.
+            If the dataset does not contain a date, include the year column as the first element of
+            the list, and the season column as the second element of the list. Year should be in
+            the format YYYY-YY of the academic year, and season should be one of Fall, Winter, Spring,
+            Summer
+        gpa_cols (list[str]): names of columns containing GPA data
+        num_cols (list[str]): names of other numeric columns. Note that columns starting with
+            'nunique_' and {constants.TERM_COURSE_SUM_PREFIX} are already included in the aggregations.
+
+    Note that any modification to these list arguments within the function will change
+    the objects permanently, if used outside of the function.
+
+    Returns:
+        pd.DataFrame: student-term level data, with appended cumulative and rolling historical features
+    """
+
+    if len(sort_cols) == 2:
+        year_col = sort_cols[0]
+        season_col = sort_cols[1]
+        df["term_end_date"] = df.apply(
+            lambda x: term.create_term_end_date(x[year_col], x[season_col]), axis=1
+        )
+        sort_cols += ["term_end_date"]
+
+    sorted_df = df.sort_values([student_id_col] + sort_cols, ascending=True)
+
+    # term number - note that this is the student's term number and they do not necessarily indicate consecutive terms enrolled
+    sorted_df[constants.TERM_NUMBER_COL] = (
+        sorted_df.groupby([student_id_col]).cumcount() + 1
+    )
+
+    num_cols.append(constants.TERM_N_COURSES_ENROLLED_COLNAME)
+    num_cols = list(set(num_cols))
+
+    # Note: The old way of implementing has been buggy:
+    # groupby().expanding().agg({column1: [fn1, fn2, fn3],
+    #                            column2: [fn1, fn3, fn4]})
+    # Since DataFrame.groupby().transform() does not accept a dictionary like DataFrame.transform() does,
+    # implementing this more verbose way for accuracy, even though there may be a more concise way of doing this
+    cumul_min_df = sorted_df.groupby(student_id_col)[num_cols + gpa_cols].transform(
+        "cummin"
+    )  # lowest X so far
+    cumul_min_df.columns = [
+        constants.MIN_PREFIX + orig_col + constants.HIST_SUFFIX
+        for orig_col in cumul_min_df.columns.values
+    ]
+
+    cumul_max_df = sorted_df.groupby(student_id_col)[num_cols + gpa_cols].transform(
+        "cummax"
+    )  # highest X so far
+    cumul_max_df.columns = [
+        constants.MAX_PREFIX + orig_col + constants.HIST_SUFFIX
+        for orig_col in cumul_max_df.columns.values
+    ]
+
+    # adding this only for numeric columns separate from GPA columns because it doesn't make sense to get a cumulative sum of GPA
+    dummy_sum_cols = [
+        dummy_sum_col
+        for dummy_sum_col in df.columns.values
+        if (
+            dummy_sum_col.startswith(
+                (constants.TERM_COURSE_SUM_PREFIX, constants.TERM_FLAG_PREFIX)
+            )
+            and (dummy_sum_col not in num_cols + gpa_cols)
+        )
+    ]
+    cumul_sum_df = sorted_df.groupby(student_id_col)[
+        list(set(num_cols + dummy_sum_cols))
+    ].transform("cumsum")  # total X so far
+    cumul_sum_df.columns = [
+        (
+            orig_col.replace(
+                constants.TERM_COURSE_SUM_PREFIX, constants.TERM_COURSE_SUM_HIST_PREFIX
+            )
+            + constants.HIST_SUFFIX
+            if orig_col.startswith(constants.TERM_COURSE_SUM_PREFIX)
+            else (
+                orig_col.replace(
+                    constants.TERM_FLAG_PREFIX, constants.TERM_FLAG_SUM_HIST_PREFIX
+                )
+                + constants.HIST_SUFFIX
+                if orig_col.startswith(constants.TERM_FLAG_PREFIX)
+                else constants.SUM_PREFIX + orig_col + constants.HIST_SUFFIX
+            )
+        )
+        for orig_col in cumul_sum_df.columns.values
+    ]
+
+    mean_cols = [
+        col
+        for col in sorted_df.columns.values
+        if col.startswith(("term_nunique_", f"term_{constants.MEAN_NAME}"))
+    ]
+    cumul_avg_df = (
+        sorted_df.groupby(student_id_col)[num_cols + gpa_cols + mean_cols]
+        .expanding()
+        .mean()
+        .reset_index()
+    )
+    cumul_avg_df = cumul_avg_df.drop(columns=[student_id_col, "level_1"])
+    cumul_avg_df.columns = [
+        constants.MEAN_NAME + "_" + orig_col + constants.HIST_SUFFIX
+        for orig_col in cumul_avg_df.columns.values
+    ]
+
+    # TODO: rolling std for num_cols + gpa_cols
+    # def std(x):  # ensure that we are using population standard deviation
+    #     return np.std(x, ddof=0)
+
+    student_term_hist_df = pd.concat(
+        [sorted_df, cumul_min_df, cumul_max_df, cumul_sum_df, cumul_avg_df], axis=1
+    )
+
+    # make sure no rows got dropped
+    assert (
+        cumul_max_df.shape[0]
+        == cumul_min_df.shape[0]
+        == cumul_sum_df.shape[0]
+        == cumul_avg_df.shape[0]
+        == sorted_df.shape[0]
+        == student_term_hist_df.shape[0]
+    )
+
+    # Identify new feature columns
+    new_feature_cols = set(student_term_hist_df.columns) - set(sorted_df.columns)
+
+    # Convert only new feature columns those to snake_case
+    student_term_hist_df.rename(
+        columns={col: convert_to_snake_case(col) for col in new_feature_cols},
+        inplace=True,
+    )
+
+    return student_term_hist_df
+
+
+def course_data_to_student_term_level(
+    df, groupby_cols, count_unique_cols, sum_cols, mean_cols, dummy_cols
+):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Convert student-course data to student-term data by aggregating the following:
+
+    Args:
+        df (pd.DataFrame): data unique by student and course
+        groupby_cols (list[str]): names of groupby columns for aggregation i.e. term columns,
+            student IDs and characteristics, any semester-level variables that
+            do not change across courses within a semester
+        count_unique_cols (list[str]): names of columns to count(distinct) values from at the
+            student-term level. Consider categorical columns with many possible values.
+        sum_cols (list[str]): names of numeric columns to sum to the student-term level,
+            for example - course credit columns (attempted, earned, etc.)
+        mean_cols (list[str]): names of numeric columns to calculate the mean at the student-term level,
+            for example - total class size
+        dummy_cols (list[str]): names of categorical columns to convert into dummy variables and
+            then sum up to the student-term level. Consider categorical columns with few possible
+            levels (<5-10) or whose values (although many) may have a significant impact on the outcome
+            variable.
+
+    Note that any modification to these list arguments within the function will change
+    the objects permanently, if used outside of the function.
+
+    This was developed with NSC data in mind. From our call with NSC,
+    we learned that data at the course level is less common, so we made
+    intentional choices to make less detailed calculations at the course level,
+    because we are thinking about how to generalize this module to other schools
+    and data outside of NSC. We could consider adding more defined course-level
+    features and aggregations later. For example, the "largest" course in terms
+    of credits attempted over time, but right now this adds a lot of complexity
+    to engineering historical features in a later processing step.
+
+    Returns:
+        pd.DataFrame: data unique by student and term
+    """
+
+    n_courses = (
+        df.groupby(groupby_cols)
+        .size()
+        .reset_index()
+        .rename(columns={0: constants.TERM_N_COURSES_ENROLLED_COLNAME})
+    )
+
+    dummies_df = (
+        pd.get_dummies(df[groupby_cols + dummy_cols], dummy_na=True, columns=dummy_cols)
+        .groupby(groupby_cols)
+        .agg(["sum", "mean"])
+    )
+    dummies_df.columns = [
+        (
+            (constants.TERM_COURSE_SUM_PREFIX + category)
+            if fn == "sum"
+            else (constants.TERM_COURSE_PROP_PREFIX + category)
+        )
+        for category, fn in dummies_df.columns
+    ]
+
+    derived_cols_dict = {
+        col: [] for col in set(count_unique_cols + sum_cols + mean_cols)
+    }
+    for count_unique_col in count_unique_cols:
+        derived_cols_dict[count_unique_col].append(("nunique", pd.Series.nunique))
+    for sum_col in sum_cols:
+        derived_cols_dict[sum_col].append((constants.SUM_NAME, "sum"))
+    for mean_col in mean_cols:
+        derived_cols_dict[mean_col].append((constants.MEAN_NAME, "mean"))
+    derived_df = df.groupby(groupby_cols).agg(derived_cols_dict).reset_index()
+    if derived_df.columns.nlevels == 2:
+        derived_df.columns = [
+            f"term_{col2}_{col1}" if col2 != "" else col1
+            for col1, col2 in derived_df.columns
+        ]
+
+    student_term_df = n_courses.merge(dummies_df.reset_index(), on=groupby_cols).merge(
+        derived_df, on=groupby_cols
+    )
+
+    # Identify new feature columns
+    new_feature_cols = set(student_term_df.columns) - set(df.columns)
+
+    # Convert only new feature columns those to snake_case
+    student_term_df.rename(
+        columns={col: convert_to_snake_case(col) for col in new_feature_cols},
+        inplace=True,
+    )
+
+    return student_term_df
+
+
+def calculate_pct_terms_unenrolled(
+    student_term_df,
+    possible_terms_list,
+    new_col_prefix,
+    term_rank_col="term_rank",
+    student_id_col="student_id",
+):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Calculate percent of a student's terms unenrolled to date.
+
+    Args:
+        student_term_df (pd.DataFrame): data at the student + term level, containing columns term_rank_col and student_id_col
+        possible_terms_list (list): list of possible terms to consider. This can be all possible terms or a subset of terms,
+            for example - only Fall/Spring terms
+        new_col_prefix (str): prefix of new column indicating percent of a student's terms unenrolled to date, according to the scope of possible_terms_list
+        term_rank_col (str, optional): column name of the column containing the student's term rank. Defaults to 'term_rank'.
+        student_id_col (str, optional): column name of the column containing student IDs. Defaults to 'Student.ID'.
+
+    Returns:
+        pd.DataFrame: student_term_df with a new column, new_col_prefix + hist_suffix
+    """
+    student_term_df["term_ranks_enrolled_to_date"] = (
+        student_term_df.sort_values(term_rank_col)
+        .groupby(student_id_col)[term_rank_col]
+        .transform(_cumulative_list_aggregation)
+    )
+    student_term_df["first_enrolled_term_rank"] = [
+        min(enrolled_ranks)
+        for enrolled_ranks in student_term_df["term_ranks_enrolled_to_date"]
+    ]
+    student_term_df["possible_term_ranks_to_date"] = [
+        [
+            rank
+            for rank in possible_terms_list
+            if (row["first_enrolled_term_rank"] <= rank <= row[term_rank_col])
+        ]
+        for _, row in student_term_df.iterrows()
+    ]
+    student_term_df["skipped_term_ranks_to_date"] = [
+        [
+            rank
+            for rank in row["possible_term_ranks_to_date"]
+            if (rank not in row["term_ranks_enrolled_to_date"])
+        ]
+        for _, row in student_term_df.iterrows()
+    ]
+
+    possible_n_terms_col = (
+        constants.TERM_FLAG_SUM_HIST_PREFIX + "possible" + constants.HIST_SUFFIX
+    )
+    unenrolled_n_terms_col = (
+        constants.TERM_FLAG_SUM_HIST_PREFIX + "unenrolled" + constants.HIST_SUFFIX
+    )
+    student_term_df[possible_n_terms_col] = [
+        len(possible_term_ranks)
+        for possible_term_ranks in student_term_df["possible_term_ranks_to_date"]
+    ]
+    student_term_df[unenrolled_n_terms_col] = [
+        len(skipped_term_ranks)
+        for skipped_term_ranks in student_term_df["skipped_term_ranks_to_date"]
+    ]
+    student_term_df[new_col_prefix + constants.HIST_SUFFIX] = (
+        student_term_df[unenrolled_n_terms_col] / student_term_df[possible_n_terms_col]
+    )
+    student_term_df = student_term_df.drop(
+        columns=[
+            "term_ranks_enrolled_to_date",
+            "first_enrolled_term_rank",
+            "possible_term_ranks_to_date",
+            "skipped_term_ranks_to_date",
+            possible_n_terms_col,
+            unenrolled_n_terms_col,
+        ]
+    )
+    return student_term_df
+
+
+def calculate_avg_credits_rolling(df, date_col, student_id_col, credit_col, n_days):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Calculate average credits per term enrolled within a time period.
+
+    Args:
+        df (pd.DataFrame): term dataset containing date_col, student_id_col, and credit_col
+        date_col (str): column name of column containing dates of terms to use in windowing function
+        student_id_col (str): column name of column containing student ID, for grouping the windowing function
+        credit_col (str): column name of column containing term-level credits to aggregate
+        n_days (int): number of days to calculate average credits across
+
+    Returns:
+        pd.DataFrame: df with new columns rolling_credit_col, rolling_n_terms_col, and rolling_avg_col
+    """
+    window = f"{n_days}d"
+    rolling_credit_col = (
+        constants.SUM_PREFIX + credit_col + "_" + window + constants.HIST_SUFFIX
+    )
+    rolling_n_terms_col = "n_terms_enrolled_" + window + constants.HIST_SUFFIX
+    rolling_avg_col = (
+        f"{constants.MEAN_NAME}_{credit_col}_" + window + constants.HIST_SUFFIX
+    )
+
+    # When rolling() is specified by an integer window, min_periods defaults to this integer.
+    # That means if, for example, we wanted to calculate something across a window of 4 terms,
+    # the rolling window is null early in the student's history when they don't yet have 4 terms.
+    # We use a timedelta window instead to avoid this.
+    grouped_rolling_df = (
+        df.sort_values(date_col)
+        .groupby(student_id_col)
+        .rolling(window=window, on=date_col)
+    )
+
+    attempted_credits_last_365 = (
+        grouped_rolling_df[credit_col]
+        .sum()
+        .reset_index()
+        .rename(columns={credit_col: rolling_credit_col})
+    )
+    terms_enrolled_last_365 = grouped_rolling_df[date_col].count()
+    terms_enrolled_last_365.name = rolling_n_terms_col
+
+    merged_df = (
+        df.merge(attempted_credits_last_365, on=[student_id_col, date_col])
+        .merge(terms_enrolled_last_365.reset_index(), on=[student_id_col, date_col])
+        .sort_values([student_id_col, date_col])
+    )
+    merged_df[rolling_avg_col] = (
+        merged_df[rolling_credit_col] / merged_df[rolling_n_terms_col]
+    )
+
+    return merged_df
+
+
 def _course_grade_is_failing_or_withdrawal(
     df: pd.DataFrame,
     min_passing_grade: float,
@@ -587,3 +964,27 @@ def _course_grade_above_section_avg(
     section_grade_numeric_col: str = "section_course_grade_numeric_mean",
 ) -> pd.Series:
     return df[grade_numeric_col].gt(df[section_grade_numeric_col])
+
+
+def _cumulative_list_aggregation(list_values_over_time):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Aggregate column values over time into
+    cumulative lists. Example use case: we have a student term dataset
+    containing the term numbers a student is enrolled in. Applying this
+    function to that dataset using
+    df.sort_values(term_rank_col).groupby(student_id_col).transform(cumulative_list_aggregation)
+    would give us, at each term, a list of the terms a student has been enrolled in
+    to date.
+
+    Args:
+        list_values_over_time (list): list of values to accumulate over time
+
+    Returns:
+        list of lists
+    """
+    out = [[]]
+    for x in list_values_over_time:
+        out.append(out[-1] + [x])
+    return out[1:]
