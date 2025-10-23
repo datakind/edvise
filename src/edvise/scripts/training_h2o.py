@@ -484,9 +484,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--gold_table_path", type=str, required=True)
     parser.add_argument("--config_file_name", type=str, required=True)
-    parser.add_argument(
-        "--job_type", type=str, choices=["training"], required=False
-    )
+    parser.add_argument("--job_type", type=str, choices=["training"], required=False)
     return parser.parse_args()
 
 
