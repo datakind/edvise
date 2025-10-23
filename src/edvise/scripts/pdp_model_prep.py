@@ -169,6 +169,22 @@ class ModelPrepTask:
         # Merge & preprocess
         if target_df is not None:
             df_labeled = self.merge_data(checkpoint_df, target_df, selected_students)
+            cohort_counts = (
+                df_labeled[["cohort", "cohort_term"]]
+                .value_counts(dropna=False)
+                .sort_index()
+            )
+            logging.info(
+                "Cohort & Cohort Term breakdowns (counts):\n%s",
+                cohort_counts.to_string(),
+            )
+            cohort_target_counts = (
+                df_labeled[["cohort", "target"]].value_counts(dropna=False).sort_index()
+            )
+            logging.info(
+                "Cohort Target breakdown (counts):\n%s",
+                cohort_target_counts.to_string(),
+            )
             df_preprocessed = self.cleanup_features(df_labeled)
             # Splits/weights require targets; only apply when present
             df_preprocessed = self.apply_dataset_splits(df_preprocessed)
@@ -181,6 +197,15 @@ class ModelPrepTask:
                 "preprocessed.parquet with shape %s",
                 getattr(df_preprocessed, "shape", None),
             )
+            target_counts = df_preprocessed["target"].value_counts(dropna=False)
+            logging.info("Target breakdown (counts):\n%s", target_counts.to_string())
+
+            target_percents = df_preprocessed["target"].value_counts(
+                normalize=True, dropna=False
+            )
+            logging.info(
+                "Target breakdown (percents):\n%s", target_percents.to_string()
+            )
         else:
             # Unlabeled path (e.g., inference): merge only checkpoint + selected students, then cleanup
             student_id_col = self.cfg.student_id_col
@@ -192,30 +217,6 @@ class ModelPrepTask:
             )
             df_preprocessed = self.cleanup_features(df_unlabeled)
             out_name = "preprocessed_unlabeled.parquet"
-
-        target_counts = df_preprocessed["target"].value_counts(dropna=False)
-        logging.info("Target breakdown (counts):\n%s", target_counts.to_string())
-
-        target_percents = df_preprocessed["target"].value_counts(
-            normalize=True, dropna=False
-        )
-        logging.info("Target breakdown (percents):\n%s", target_percents.to_string())
-
-        cohort_counts = (
-            df_preprocessed[["cohort", "cohort_term"]]
-            .value_counts(dropna=False)
-            .sort_index()
-        )
-        logging.info(
-            "Cohort & Cohort Term breakdowns (counts):\n%s", cohort_counts.to_string()
-        )
-
-        cohort_target_counts = (
-            df_labeled[["cohort", "target"]].value_counts(dropna=False).sort_index()
-        )
-        logging.info(
-            "Cohort Target breakdown (counts):\n%s", cohort_target_counts.to_string()
-        )
 
         # Write output using custom function
         out_path = os.path.join(current_run_path, out_name)
