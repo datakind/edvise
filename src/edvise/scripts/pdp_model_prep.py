@@ -140,14 +140,14 @@ class ModelPrepTask:
 
         selected_students = read_parquet(sel_path_local)
         LOGGER.info(
-                "Loaded selected_students.parquet with shape %s",
-                getattr(selected_students, "shape", None),
-            )
+            "Loaded selected_students.parquet with shape %s",
+            getattr(selected_students, "shape", None),
+        )
         checkpoint_df = read_parquet(ckpt_path_local)
         LOGGER.info(
-                "Loaded checkpoint.parquet with shape %s",
-                getattr(checkpoint_df, "shape", None),
-            )
+            "Loaded checkpoint.parquet with shape %s",
+            getattr(checkpoint_df, "shape", None),
+        )
 
         # target.parquet may be absent during inference; handle gracefully
         target_df = None
@@ -175,8 +175,8 @@ class ModelPrepTask:
             df_preprocessed = self.apply_sample_weights(df_preprocessed)
             out_name = "preprocessed.parquet"
             LOGGER.info(
-                    "Merged target.parquet with selected_students.parquet and checkpoint.parquet into preprocessed.parquet"
-                )
+                "Merged target.parquet with selected_students.parquet and checkpoint.parquet into preprocessed.parquet"
+            )
             LOGGER.info(
                 "preprocessed.parquet with shape %s",
                 getattr(df_preprocessed, "shape", None),
@@ -192,7 +192,7 @@ class ModelPrepTask:
             )
             df_preprocessed = self.cleanup_features(df_unlabeled)
             out_name = "preprocessed_unlabeled.parquet"
-        
+
         target_counts = df_preprocessed["target"].value_counts(dropna=False)
         logging.info("Target breakdown (counts):\n%s", target_counts.to_string())
 
