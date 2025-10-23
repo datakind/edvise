@@ -353,7 +353,7 @@ class PDPDataAuditTask:
                     " Skipping auto-populating of config due to upper level gateway courses identified. "
                     " Please check in with school and manually update config."
                 )
-            elif len(ids) <= 25 and len(cips) <= 25:
+            if len(ids) <= 25 and len(cips) <= 25:
                 LOGGER.info(
                     " Auto-populating config with below course IDs and cip codes: change if necessary"
                 )

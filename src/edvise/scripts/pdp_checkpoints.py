@@ -149,8 +149,8 @@ class PDPCheckpointsTask:
 
         df_ckpt = self.checkpoint_generation(df_student_terms)
 
-        cohort_counts = df_ckpt["cohort"].value_counts(dropna=False).sort_index()
-        logging.info("Checkpoint Cohort breakdown:\n%s", cohort_counts.to_string())
+        cohort_counts = df_ckpt[["cohort", "cohort_term"]].value_counts(dropna=False).sort_index()
+        logging.info("Checkpoint Cohort Term breakdown:\n%s", cohort_counts.to_string())
 
         out_ckpt_path = os.path.join(current_run_path, "checkpoint.parquet")
         df_ckpt.to_parquet(local_fs_path(out_ckpt_path), index=False)
