@@ -64,7 +64,7 @@ class ModelPrepTask:
         # )
         # df_labeled = pd.merge(df_labeled, target_df, how="inner", on=student_id_col)
         # return df_labeled
-            # Build a Series of selected IDs with the right column name to merge on
+        # Build a Series of selected IDs with the right column name to merge on
         selected_ids = pd.Series(selected_students.index, name=student_id_col)
 
         total_selected = selected_ids.shape[0]
@@ -78,11 +78,15 @@ class ModelPrepTask:
         )
 
         n_checkpoint_ok = df_checkpoint_ok[student_id_col].nunique()
-        pct_checkpoint_ok = (n_checkpoint_ok / total_selected * 100) if total_selected else 0.0
+        pct_checkpoint_ok = (
+            (n_checkpoint_ok / total_selected * 100) if total_selected else 0.0
+        )
 
         LOGGER.info(
             "Checkpoint subset: %d/%d criteria-selected students (%.2f%%) meet the checkpoint.",
-            n_checkpoint_ok, total_selected, pct_checkpoint_ok
+            n_checkpoint_ok,
+            total_selected,
+            pct_checkpoint_ok,
         )
 
         # Subset 2: from those, who can have a target evaluated
@@ -95,11 +99,13 @@ class ModelPrepTask:
 
         n_target_ok = df_labeled[student_id_col].nunique()
         base_for_target = max(n_checkpoint_ok, 1)  # avoid div by zero
-        pct_target_ok = (n_target_ok / base_for_target * 100)
+        pct_target_ok = n_target_ok / base_for_target * 100
 
         LOGGER.info(
             "Target-evaluable subset: %d/%d criteria-selected and checkpoint-met students (%.2f%%) can have a target evaluated.",
-            n_target_ok, n_checkpoint_ok, pct_target_ok
+            n_target_ok,
+            n_checkpoint_ok,
+            pct_target_ok,
         )
         return df_labeled
 
