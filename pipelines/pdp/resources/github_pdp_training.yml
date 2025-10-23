@@ -307,8 +307,7 @@ resources:
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
-        # git_tag: v0.1.5
-        git_branch: improve_data_audit
+        git_tag: v0.1.5
       queue:
         enabled: true
       parameters:
