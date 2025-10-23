@@ -58,31 +58,6 @@ class ModelPrepTask:
             on=student_id_col,
         )
         df_labeled = pd.merge(df_labeled, target_df, how="inner", on=student_id_col)
-
-        target_counts = df_labeled["target"].value_counts(dropna=False)
-        logging.info("Target breakdown (counts):\n%s", target_counts.to_string())
-
-        target_percents = df_labeled["target"].value_counts(
-            normalize=True, dropna=False
-        )
-        logging.info("Target breakdown (percents):\n%s", target_percents.to_string())
-
-        cohort_counts = (
-            df_labeled[["cohort", "cohort_term"]]
-            .value_counts(dropna=False)
-            .sort_index()
-        )
-        logging.info(
-            "Cohort & Cohort Term breakdowns (counts):\n%s", cohort_counts.to_string()
-        )
-
-        cohort_target_counts = (
-            df_labeled[["cohort", "target"]].value_counts(dropna=False).sort_index()
-        )
-        logging.info(
-            "Cohort Target breakdown (counts):\n%s", cohort_target_counts.to_string()
-        )
-
         return df_labeled
 
     def cleanup_features(self, df_labeled: pd.DataFrame) -> pd.DataFrame:
@@ -163,15 +138,15 @@ class ModelPrepTask:
                 f"Missing selected_students.parquet at: {sel_path} (local: {sel_path_local})"
             )
 
-        checkpoint_df = read_parquet(ckpt_path_local)
-        LOGGER.info(
-                "Loaded checkpoint.parquet with shape %s",
-                getattr(checkpoint_df, "shape", None),
-            )
         selected_students = read_parquet(sel_path_local)
         LOGGER.info(
                 "Loaded selected_students.parquet with shape %s",
                 getattr(selected_students, "shape", None),
+            )
+        checkpoint_df = read_parquet(ckpt_path_local)
+        LOGGER.info(
+                "Loaded checkpoint.parquet with shape %s",
+                getattr(checkpoint_df, "shape", None),
             )
 
         # target.parquet may be absent during inference; handle gracefully
@@ -217,6 +192,30 @@ class ModelPrepTask:
             )
             df_preprocessed = self.cleanup_features(df_unlabeled)
             out_name = "preprocessed_unlabeled.parquet"
+        
+        target_counts = df_preprocessed["target"].value_counts(dropna=False)
+        logging.info("Target breakdown (counts):\n%s", target_counts.to_string())
+
+        target_percents = df_preprocessed["target"].value_counts(
+            normalize=True, dropna=False
+        )
+        logging.info("Target breakdown (percents):\n%s", target_percents.to_string())
+
+        cohort_counts = (
+            df_preprocessed[["cohort", "cohort_term"]]
+            .value_counts(dropna=False)
+            .sort_index()
+        )
+        logging.info(
+            "Cohort & Cohort Term breakdowns (counts):\n%s", cohort_counts.to_string()
+        )
+
+        cohort_target_counts = (
+            df_labeled[["cohort", "target"]].value_counts(dropna=False).sort_index()
+        )
+        logging.info(
+            "Cohort Target breakdown (counts):\n%s", cohort_target_counts.to_string()
+        )
 
         # Write output using custom function
         out_path = os.path.join(current_run_path, out_name)
