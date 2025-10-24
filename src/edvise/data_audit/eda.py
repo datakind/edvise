@@ -374,14 +374,14 @@ def compute_gateway_course_ids_and_cips(
             .drop_duplicates()
             .tolist()
         )
-        return series
+        return list(series)
 
     def _last_level(num: pd.Series) -> pd.Series:
         """Parse last numeric token, then last up-to-3 digits as integer level."""
         tok = _s(num).str.extract(r"(\d+)(?!.*\d)", expand=True)[0]
         return pd.to_numeric(tok.str[-3:], errors="coerce")
 
-    def _starts_with_any(arr, prefixes: list[str]) -> bool:
+    def _starts_with_any(arr: list[str], prefixes: list[str]) -> bool:
         arr = list(arr)  # handles numpy arrays / pandas .unique()
         return len(arr) > 0 and all(
             any(str(p).upper().startswith(ch) for ch in prefixes) for p in arr
