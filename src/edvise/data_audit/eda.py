@@ -474,7 +474,7 @@ def compute_gateway_course_ids_and_cips(
         )
     else:
         LOGGER.warning(" ⚠️ No lower-level (<200) gateway courses detected.")
-    
+
     LOGGER.info(" English (E) prefixes: %s", list(pref_e))
     LOGGER.info(" Math (M) prefixes: %s", list(pref_m))
 
