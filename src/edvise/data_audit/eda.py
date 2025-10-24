@@ -413,9 +413,7 @@ def compute_gateway_course_ids_and_cips(
     ids = ids_series[
         ids_series.ne("") & ids_series.str.lower().ne("nan")
     ].drop_duplicates()
-    ids = ids.tolist()
     cips = cips[cips.ne("")].drop_duplicates()
-    cips = cips.tolist()
 
     LOGGER.info(" Identified %d unique gateway course IDs: %s", len(ids), ids.tolist())
     LOGGER.info(" Identified %d unique CIP codes: %s", len(cips), cips.tolist())
