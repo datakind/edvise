@@ -472,6 +472,7 @@ def compute_gateway_course_ids_and_cips(
     # Level = last up-to-3 digits of that token
     levels = pd.to_numeric(course_nums.str[-3:], errors="coerce")
     upper_mask = levels.ge(200).fillna(False)  # keep index aligned with ids_series
+    lower_mask = levels.lt(200).fillna(False)
 
     has_upper_level_gateway = bool(upper_mask.any())
 
