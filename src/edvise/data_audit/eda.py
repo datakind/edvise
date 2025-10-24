@@ -368,8 +368,12 @@ def compute_gateway_course_ids_and_cips(
         return ([], [], False)
 
     # Build IDs robustly (coerce to string, strip, drop 'nan')
-    id_left = df_course.loc[mask, "course_prefix"].fillna("").astype("string").str.strip()
-    id_right = df_course.loc[mask, "course_number"].fillna("").astype("string").str.strip()
+    id_left = (
+        df_course.loc[mask, "course_prefix"].fillna("").astype("string").str.strip()
+    )
+    id_right = (
+        df_course.loc[mask, "course_number"].fillna("").astype("string").str.strip()
+    )
     ids_series = (id_left + id_right).str.replace("^nan$", "", regex=True).str.strip()
 
     # CIP extraction (first two digits), robust to empties
@@ -381,15 +385,32 @@ def compute_gateway_course_ids_and_cips(
             df_course.loc[mask, "course_cip"]
             .astype("string")
             .str.strip()
-            .replace({"nan": "", "NaN": "", "NAN": "", "missing": "", "MISSING": "", "Missing": ""})
+            .replace(
+                {
+                    "nan": "",
+                    "NaN": "",
+                    "NAN": "",
+                    "missing": "",
+                    "MISSING": "",
+                    "Missing": "",
+                }
+            )
         )
         cip_two = cips_raw.str.extract(r"^(\d{2})", expand=True)
-        cips = cip_two[0].dropna().astype("string") if not cip_two.empty else pd.Series([], dtype="string")
+        cips = (
+            cip_two[0].dropna().astype("string")
+            if not cip_two.empty
+            else pd.Series([], dtype="string")
+        )
         if cips.empty or cips.eq("").all():
-            LOGGER.warning(" ⚠️ Column 'course_cip' is present but unpopulated for gateway courses.")
+            LOGGER.warning(
+                " ⚠️ Column 'course_cip' is present but unpopulated for gateway courses."
+            )
 
     # Finalize unique IDs/CIPs
-    ids = ids_series[ids_series.ne("") & ids_series.str.lower().ne("nan")].drop_duplicates()
+    ids = ids_series[
+        ids_series.ne("") & ids_series.str.lower().ne("nan")
+    ].drop_duplicates()
     cips = cips[cips.ne("")].drop_duplicates()
 
     LOGGER.info(" Identified %d unique gateway course IDs: %s", len(ids), ids.tolist())
@@ -397,31 +418,48 @@ def compute_gateway_course_ids_and_cips(
 
     # Sanity-check for prefixes and swap if clearly reversed
     pref_e = (
-        df_course.loc[df_course["math_or_english_gateway"].astype("string").eq("E"), "course_prefix"]
-        .dropna().astype("string").str.strip().unique()
+        df_course.loc[
+            df_course["math_or_english_gateway"].astype("string").eq("E"),
+            "course_prefix",
+        ]
+        .dropna()
+        .astype("string")
+        .str.strip()
+        .unique()
     )
     pref_m = (
-        df_course.loc[df_course["math_or_english_gateway"].astype("string").eq("M"), "course_prefix"]
-        .dropna().astype("string").str.strip().unique()
+        df_course.loc[
+            df_course["math_or_english_gateway"].astype("string").eq("M"),
+            "course_prefix",
+        ]
+        .dropna()
+        .astype("string")
+        .str.strip()
+        .unique()
     )
     LOGGER.info(" English (E) prefixes (raw): %s", list(pref_e))
     LOGGER.info(" Math (M) prefixes (raw): %s", list(pref_m))
 
     def looks(arr, ch_list):
-        return len(arr) > 0 and all(any(str(p).upper().startswith(ch) for ch in ch_list) for p in arr)
+        return len(arr) > 0 and all(
+            any(str(p).upper().startswith(ch) for ch in ch_list) for p in arr
+        )
 
     e_ok, m_ok = looks(pref_e, ["E", "W"]), looks(pref_m, ["M", "S"])
     if not e_ok and not m_ok:
         LOGGER.warning(
             " ⚠️ Prefixes MAY be swapped (do NOT start with E/W for English and M/S for Math). "
-            "Consider swapping E <-> M. E=%s, M=%s", list(pref_e), list(pref_m)
+            "Consider swapping E <-> M. E=%s, M=%s",
+            list(pref_e),
+            list(pref_m),
         )
     elif e_ok and m_ok:
         LOGGER.info(" Prefixes look correct (E/W for English, M/S for Math).")
     else:
         LOGGER.warning(
             " ⚠️ Prefixes MAY be incorrect; one group inconsistent. English OK=%s, Math OK=%s",
-            e_ok, m_ok
+            e_ok,
+            m_ok,
         )
 
     # ---- Upper-level course detection (>=200) and logging of specific IDs ----
@@ -450,6 +488,7 @@ def compute_gateway_course_ids_and_cips(
         LOGGER.info(" No gateway courses with level >=200 were detected.")
 
     return ids.tolist(), cips.tolist(), has_upper_level_gateway
+
 
 def log_record_drops(
     df_cohort_before: pd.DataFrame,
