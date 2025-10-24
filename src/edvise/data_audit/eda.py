@@ -488,11 +488,12 @@ def compute_gateway_course_ids_and_cips(
         )
     else:
         LOGGER.info(" No gateway courses with level >=200 were detected.")
-    
+
     if lower_ids:
         LOGGER.info(
             " ✅ %d lower-level (<200) gateway courses identified, manually populate config: %s",
-            len(lower_ids), lower_ids,
+            len(lower_ids),
+            lower_ids,
         )
     else:
         LOGGER.warning(" ⚠️ No lower-level (<200) gateway courses detected.")
