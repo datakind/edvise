@@ -353,32 +353,40 @@ def compute_gateway_course_ids_and_cips(
 
     # ---- helpers ----
     def _s(x: pd.Series) -> pd.Series:
-        """Normalize to string, strip, and remove literal 'nan'."""
-        s = x.astype("string")           
-        s = s.fillna("")                 
+        """Normalize to string, strip, and remove literal 'nan' (categorical-safe)."""
+        s = x.astype("string")      # cast before fillna to avoid Categorical fill errors
+        s = s.fillna("")
         s = s.str.strip().replace("^nan$", "", regex=True)
         return s
 
-    def _cip2(x: pd.Series) -> list[str]:
-        """Extract unique 2-digit CIP codes from a string series."""
-        return (
+    def _cip_series(x: pd.Series) -> list[str]:
+        """
+        Accept canonical CIP codes like '24', '24.02', '24.0201' and return unique 2-digit series (e.g., '24').
+        Ignores placeholders and malformed values.
+        """
+        s = (
             x.astype("string")
             .str.strip()
             .replace("^nan$", pd.NA, regex=True)
-            .str.extract(r"^(\d{2})", expand=True)[0]
+        )
+        # Strictly match valid CIP shapes and capture the 2-digit series as group 1
+        series = (
+            s.str.extract(r"^\s*(\d{2})(?:\.(\d{2})(?:\d{2})?)?\s*$", expand=True)[0]
             .dropna()
             .astype("string")
-            .loc[lambda s: s.ne("")]
+            .loc[lambda z: z.ne("")]
             .drop_duplicates()
             .tolist()
         )
+        return series
 
     def _last_level(num: pd.Series) -> pd.Series:
         """Parse last numeric token, then last up-to-3 digits as integer level."""
         tok = _s(num).str.extract(r"(\d+)(?!.*\d)", expand=True)[0]
         return pd.to_numeric(tok.str[-3:], errors="coerce")
 
-    def _starts_with_any(arr: np.ndarray, prefixes: list[str]) -> bool:
+    def _starts_with_any(arr, prefixes: list[str]) -> bool:
+        arr = list(arr)  # handles numpy arrays / pandas .unique()
         return len(arr) > 0 and all(any(str(p).upper().startswith(ch) for ch in prefixes) for p in arr)
 
     # ---- column checks ----
@@ -387,36 +395,36 @@ def compute_gateway_course_ids_and_cips(
         LOGGER.warning(" ⚠️ Cannot compute key_course_ids: required columns missing.")
         return ([], [], False, [], [])
 
-    # ---- filter to gateways (M/E) ----
+    # ---- full-length masks ----
     gate = _s(df_course["math_or_english_gateway"])
-    mask_gate = gate.isin({"M", "E"})
-    if not mask_gate.any():
+    is_gateway = gate.isin({"M", "E"})            # full-length
+    if not is_gateway.any():
         LOGGER.info(" No Math/English gateway courses found.")
         return ([], [], False, [], [])
 
-    # ---- IDs (all gateways) ----
-    ids_series = (_s(df_course.loc[mask_gate, "course_prefix"]) + _s(df_course.loc[mask_gate, "course_number"])).str.strip()
+    level = _last_level(df_course["course_number"])  # full-length
+    upper_mask = is_gateway & level.ge(200).fillna(False)
+    lower_mask = is_gateway & level.lt(200).fillna(False)
+    has_upper_level_gateway = bool(upper_mask.any())
+
+    # ---- IDs ----
+    ids_series = (_s(df_course.loc[is_gateway, "course_prefix"]) +
+                  _s(df_course.loc[is_gateway, "course_number"])).str.strip()
     ids = ids_series[ids_series.ne("")].drop_duplicates().tolist()
     LOGGER.info(" Identified %d unique gateway course IDs: %s", len(ids), ids)
 
-    # ---- levels & submasks aligned to mask_gate subset ----
-    levels = _last_level(df_course.loc[mask_gate, "course_number"])
-    upper_sub = levels.ge(200).fillna(False)
-    lower_sub = levels.lt(200).fillna(False)
-    has_upper_level_gateway = bool(upper_sub.any())
-
-    # Build lower_ids from the same subset index
-    lower_ids = ids_series[lower_sub].loc[lambda s: s.ne("")].drop_duplicates().tolist()
+    lower_ids_series = (_s(df_course.loc[lower_mask, "course_prefix"]) +
+                        _s(df_course.loc[lower_mask, "course_number"])).str.strip()
+    lower_ids = lower_ids_series[lower_ids_series.ne("")].drop_duplicates().tolist()
+    LOGGER.info(" Identified %d lower-level (<200) gateway IDs.", len(lower_ids))
 
     # ---- CIP extraction from LOWER rows only ----
     if "course_cip" in df_course.columns:
-        # Get the exact index positions for the lower subset rows
-        lower_idx = df_course.index[mask_gate][lower_sub]
-        lower_cips = _cip2(df_course.loc[lower_idx, "course_cip"])
-        cips = lower_cips.copy()
-        if not lower_cips:
+       lower_cips = _cip_series(df_course.loc[lower_mask, "course_cip"])
+       cips = lower_cips.copy()
+       if not lower_cips:
             LOGGER.warning(" ⚠️ 'course_cip' present but yielded no lower-level CIP codes.")
-        else:
+       else:
             LOGGER.info(" CIPs restricted to lower-level (<200) rows: %s", cips)
     else:
         cips, lower_cips = [], []
@@ -424,17 +432,16 @@ def compute_gateway_course_ids_and_cips(
 
     # ---- log upper-level anomalies (if any) ----
     if has_upper_level_gateway:
-        upper_ids = ids_series[upper_sub].loc[lambda s: s.ne("")].drop_duplicates().tolist()
+        upper_ids_series = (_s(df_course.loc[upper_mask, "course_prefix"]) +
+                            _s(df_course.loc[upper_mask, "course_number"])).str.strip()
+        upper_ids = upper_ids_series[upper_ids_series.ne("")].drop_duplicates().tolist()
         LOGGER.warning(
             " ⚠️ Warning: courses with level >=200 flagged as gateway (%d found). Course IDs: %s. "
             "This is unusual; contact the school for more information.",
-            len(upper_ids),
-            upper_ids,
+            len(upper_ids), upper_ids,
         )
-        if lower_ids:
-            LOGGER.info(" ✅ %d lower-level (<200) gateway courses identified: %s", len(lower_ids), lower_ids)
-        else:
-            LOGGER.warning(" ⚠️ No lower-level (<200) gateway courses detected.")
+        LOGGER.info(" ✅ Lower-level IDs found: %d; lower-level CIP codes found: %d",
+                    len(lower_ids), len(lower_cips))
     else:
         LOGGER.info(" No gateway courses with level >=200 were detected.")
 
@@ -451,7 +458,6 @@ def compute_gateway_course_ids_and_cips(
         LOGGER.warning(" ⚠️ Prefixes MAY be incorrect; one group inconsistent. English OK=%s, Math OK=%s", e_ok, m_ok)
 
     return ids, cips, has_upper_level_gateway, lower_ids, lower_cips
-
 
 
 def log_record_drops(
