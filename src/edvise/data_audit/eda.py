@@ -437,8 +437,8 @@ def compute_gateway_course_ids_and_cips(
         .str.strip()
         .unique()
     )
-    LOGGER.info(" English (E) prefixes (raw): %s", list(pref_e))
-    LOGGER.info(" Math (M) prefixes (raw): %s", list(pref_m))
+    LOGGER.info(" English (E) prefixes: %s", list(pref_e))
+    LOGGER.info(" Math (M) prefixes: %s", list(pref_m))
 
     def looks(arr, ch_list):
         return len(arr) > 0 and all(
@@ -454,7 +454,7 @@ def compute_gateway_course_ids_and_cips(
             list(pref_m),
         )
     elif e_ok and m_ok:
-        LOGGER.info(" Prefixes look correct (E/W for English, M/S for Math).")
+        LOGGER.info(" Prefix starts look correct (E/W for English, M/S for Math).")
     else:
         LOGGER.warning(
             " ⚠️ Prefixes MAY be incorrect; one group inconsistent. English OK=%s, Math OK=%s",
