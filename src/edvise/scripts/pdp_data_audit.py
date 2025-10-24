@@ -380,7 +380,7 @@ class PDPDataAuditTask:
                     )
 
                     LOGGER.info(
-                        "New config (lower-only) course IDs and subject areas: %s | %s",
+                        "New config course IDs and subject areas: %s | %s",
                         self.cfg.preprocessing.features.key_course_ids,
                         self.cfg.preprocessing.features.key_course_subject_areas,
                     )

@@ -343,136 +343,90 @@ def compute_gateway_course_ids_and_cips(
     df_course: pd.DataFrame,
 ) -> tuple[list[str], list[str], bool, list[str], list[str]]:
     """
-    Build a list of course IDs and CIP codes for Math/English gateway courses.
-    Filter: math_or_english_gateway in {"M", "E"}
-    ID format: "<course_prefix><course_number>" (both coerced to strings, trimmed)
-    CIP codes taken from 'course_cip' column
-
-    Logs:
-    - If CIP column is missing or has no values or gateway field unpopulated
-    - Log prefixes for English (E) and Math (M) courses, with a note that they
-      may need to be swapped if they don’t look right
-    - Detects if any gateway course has a course level >=200 (based on the last
-      numeric token in course_number; typically the last 3 digits), logs the list
-      of course IDs that match, and returns a boolean flag `has_upper_level_gateway`.
-    - lower_ids (only those with level <200),
-    - lower_cips (CIP 2-digit codes for lower_ids only)
+    Returns: (ids, cips, has_upper_level_gateway, lower_ids, lower_cips)
+      - ids: all gateway course IDs (M/E)
+      - cips: CIP 2-digit codes from LOWER-LEVEL rows only (same as lower_cips)
+      - has_upper_level_gateway: True if any gateway course has level >=200
+      - lower_ids: gateway IDs with level <200
+      - lower_cips: CIP 2-digit codes for lower_ids
     """
+
+    # ---- helpers ----
+    def _s(x: pd.Series) -> pd.Series:
+        """Normalize to string, strip, and remove literal 'nan'."""
+        return (
+            x.fillna("")
+            .astype("string")
+            .str.strip()
+            .replace("^nan$", "", regex=True)
+        )
+
+    def _cip2(x: pd.Series) -> list[str]:
+        """Extract unique 2-digit CIP codes from a string series."""
+        return (
+            x.astype("string")
+            .str.strip()
+            .replace("^nan$", pd.NA, regex=True)
+            .str.extract(r"^(\d{2})", expand=True)[0]
+            .dropna()
+            .astype("string")
+            .loc[lambda s: s.ne("")]
+            .drop_duplicates()
+            .tolist()
+        )
+
+    def _last_level(num: pd.Series) -> pd.Series:
+        """Parse last numeric token, then last up-to-3 digits as integer level."""
+        tok = _s(num).str.extract(r"(\d+)(?!.*\d)", expand=True)[0]
+        return pd.to_numeric(tok.str[-3:], errors="coerce")
+
+    def _starts_with_any(arr: np.ndarray, prefixes: list[str]) -> bool:
+        return len(arr) > 0 and all(any(str(p).upper().startswith(ch) for ch in prefixes) for p in arr)
+
+    # ---- column checks ----
     required = {"math_or_english_gateway", "course_prefix", "course_number"}
     if not required.issubset(df_course.columns):
         LOGGER.warning(" ⚠️ Cannot compute key_course_ids: required columns missing.")
-        return ([], [], False)
+        return ([], [], False, [], [])
 
-    # Filter to M/E gateways
-    mask = df_course["math_or_english_gateway"].astype("string").isin({"M", "E"})
-    if not mask.any():
+    # ---- filter to gateways (M/E) ----
+    gate = _s(df_course["math_or_english_gateway"])
+    mask_gate = gate.isin({"M", "E"})
+    if not mask_gate.any():
         LOGGER.info(" No Math/English gateway courses found.")
-        return ([], [], False)
+        return ([], [], False, [], [])
 
-    # Build IDs robustly (coerce to string, strip, drop 'nan')
-    id_left = (
-        df_course.loc[mask, "course_prefix"].fillna("").astype("string").str.strip()
-    )
-    id_right = (
-        df_course.loc[mask, "course_number"].fillna("").astype("string").str.strip()
-    )
-    ids_series = (id_left + id_right).str.replace("^nan$", "", regex=True).str.strip()
+    # ---- IDs (all gateways) ----
+    ids_series = (_s(df_course.loc[mask_gate, "course_prefix"]) + _s(df_course.loc[mask_gate, "course_number"])).str.strip()
+    ids = ids_series[ids_series.ne("")].drop_duplicates().tolist()
+    LOGGER.info(" Identified %d unique gateway course IDs: %s", len(ids), ids)
 
-    # CIP extraction (first two digits), robust to empties
-    if "course_cip" not in df_course.columns:
-        LOGGER.warning(" ⚠️ Column 'course_cip' is missing; no CIP codes extracted.")
-        cips = pd.Series([], dtype="string")
+    # ---- levels & submasks aligned to mask_gate subset ----
+    levels = _last_level(df_course.loc[mask_gate, "course_number"])
+    upper_sub = levels.ge(200).fillna(False)
+    lower_sub = levels.lt(200).fillna(False)
+    has_upper_level_gateway = bool(upper_sub.any())
+
+    # Build lower_ids from the same subset index
+    lower_ids = ids_series[lower_sub].loc[lambda s: s.ne("")].drop_duplicates().tolist()
+
+    # ---- CIP extraction from LOWER rows only ----
+    if "course_cip" in df_course.columns:
+        # Get the exact index positions for the lower subset rows
+        lower_idx = df_course.index[mask_gate][lower_sub]
+        lower_cips = _cip2(df_course.loc[lower_idx, "course_cip"])
+        cips = lower_cips.copy()
+        if not lower_cips:
+            LOGGER.warning(" ⚠️ 'course_cip' present but yielded no lower-level CIP codes.")
+        else:
+            LOGGER.info(" CIPs restricted to lower-level (<200) rows: %s", cips)
     else:
-        cips_raw = (
-            df_course.loc[mask, "course_cip"]
-            .astype("string")
-            .str.strip()
-            .replace(
-                {
-                    "nan": "",
-                    "NaN": "",
-                    "NAN": "",
-                    "missing": "",
-                    "MISSING": "",
-                    "Missing": "",
-                }
-            )
-        )
-        cip_two = cips_raw.str.extract(r"^(\d{2})", expand=True)
-        cips = (
-            cip_two[0].dropna().astype("string")
-            if not cip_two.empty
-            else pd.Series([], dtype="string")
-        )
-        if cips.empty or cips.eq("").all():
-            LOGGER.warning(
-                " ⚠️ Column 'course_cip' is present but unpopulated for gateway courses."
-            )
+        cips, lower_cips = [], []
+        LOGGER.info(" No 'course_cip' column; skipping CIP extraction.")
 
-    # Finalize unique IDs/CIPs
-    ids = ids_series[
-        ids_series.ne("") & ids_series.str.lower().ne("nan")
-    ].drop_duplicates()
-    cips = cips[cips.ne("")].drop_duplicates()
-
-    LOGGER.info(" Identified %d unique gateway course IDs: %s", len(ids), ids.tolist())
-    LOGGER.info(" Identified %d unique CIP codes: %s", len(cips), cips.tolist())
-
-    # Sanity-check for prefixes and swap if clearly reversed
-    pref_e = (
-        df_course.loc[
-            df_course["math_or_english_gateway"].astype("string").eq("E"),
-            "course_prefix",
-        ]
-        .dropna()
-        .astype("string")
-        .str.strip()
-        .unique()
-    )
-    pref_m = (
-        df_course.loc[
-            df_course["math_or_english_gateway"].astype("string").eq("M"),
-            "course_prefix",
-        ]
-        .dropna()
-        .astype("string")
-        .str.strip()
-        .unique()
-    )
-
-    # ---- Upper-level course detection (>=200) and logging of specific IDs ----
-    # Extract last numeric token from course_number aligned to the mask
-    course_nums = (
-        df_course.loc[mask, "course_number"]
-        .astype("string")
-        .str.extract(r"(\d+)(?!.*\d)", expand=True)[0]  # last numeric token
-    )
-    # Level = last up-to-3 digits of that token
-    levels = pd.to_numeric(course_nums.str[-3:], errors="coerce")
-    upper_mask = levels.ge(200).fillna(False)  # keep index aligned with ids_series
-    lower_mask = levels.lt(200).fillna(False)
-
-    has_upper_level_gateway = bool(upper_mask.any())
-    lower_ids_series = (
-        ids_series[lower_mask].str.strip().replace("^nan$", "", regex=True)
-    )
-    lower_ids = lower_ids_series[lower_ids_series.ne("")].drop_duplicates().tolist()
-
-    # Lower-only CIP set aligned to mask
-    if "course_cip" in df_course.columns and not cips_raw.empty:
-        lower_cips_raw = cips_raw[lower_mask]
-        lower_cips_two = (
-            lower_cips_raw.str.extract(r"^(\d{2})", expand=True)[0]
-            .dropna()
-            .astype("string")
-        )
-        lower_cips = lower_cips_two[lower_cips_two.ne("")].drop_duplicates().tolist()
-    else:
-        lower_cips = []
-
+    # ---- log upper-level anomalies (if any) ----
     if has_upper_level_gateway:
-        upper_ids = ids_series[upper_mask].str.strip().replace("^nan$", "", regex=True)
-        upper_ids = upper_ids[upper_ids.ne("")].drop_duplicates().tolist()
+        upper_ids = ids_series[upper_sub].loc[lambda s: s.ne("")].drop_duplicates().tolist()
         LOGGER.warning(
             " ⚠️ Warning: courses with level >=200 flagged as gateway (%d found). Course IDs: %s. "
             "This is unusual; contact the school for more information.",
@@ -480,42 +434,26 @@ def compute_gateway_course_ids_and_cips(
             upper_ids,
         )
         if lower_ids:
-            LOGGER.info(
-                " ✅ %d lower-level (<200) gateway courses identified: %s",
-                len(lower_ids),
-                lower_ids,
-            )
+            LOGGER.info(" ✅ %d lower-level (<200) gateway courses identified: %s", len(lower_ids), lower_ids)
         else:
             LOGGER.warning(" ⚠️ No lower-level (<200) gateway courses detected.")
     else:
         LOGGER.info(" No gateway courses with level >=200 were detected.")
 
-    LOGGER.info(" English (E) prefixes: %s", list(pref_e))
-    LOGGER.info(" Math (M) prefixes: %s", list(pref_m))
+    # ---- prefix sanity check (compact) ----
+    pref_e = _s(df_course.loc[gate.eq("E"), "course_prefix"]).replace("", pd.NA).dropna().unique()
+    pref_m = _s(df_course.loc[gate.eq("M"), "course_prefix"]).replace("", pd.NA).dropna().unique()
 
-    def looks(arr, ch_list):
-        return len(arr) > 0 and all(
-            any(str(p).upper().startswith(ch) for ch in ch_list) for p in arr
-        )
-
-    e_ok, m_ok = looks(pref_e, ["E", "W"]), looks(pref_m, ["M", "S"])
-    if not e_ok and not m_ok:
-        LOGGER.warning(
-            " ⚠️ Prefixes MAY be swapped (do NOT start with E/W for English and M/S for Math). "
-            "Consider swapping E <-> M. E=%s, M=%s",
-            list(pref_e),
-            list(pref_m),
-        )
-    elif e_ok and m_ok:
+    e_ok, m_ok = _starts_with_any(pref_e, ["E", "W"]), _starts_with_any(pref_m, ["M", "S"])
+    if e_ok and m_ok:
         LOGGER.info(" Prefix starts look correct (E/W for English, M/S for Math).")
+    elif not e_ok and not m_ok:
+        LOGGER.warning(" ⚠️ Prefixes MAY be swapped. Consider swapping E <-> M. E=%s, M=%s", list(pref_e), list(pref_m))
     else:
-        LOGGER.warning(
-            " ⚠️ Prefixes MAY be incorrect; one group inconsistent. English OK=%s, Math OK=%s",
-            e_ok,
-            m_ok,
-        )
+        LOGGER.warning(" ⚠️ Prefixes MAY be incorrect; one group inconsistent. English OK=%s, Math OK=%s", e_ok, m_ok)
 
     return ids, cips, has_upper_level_gateway, lower_ids, lower_cips
+
 
 
 def log_record_drops(
