@@ -354,12 +354,10 @@ def compute_gateway_course_ids_and_cips(
     # ---- helpers ----
     def _s(x: pd.Series) -> pd.Series:
         """Normalize to string, strip, and remove literal 'nan'."""
-        return (
-            x.fillna("")
-            .astype("string")
-            .str.strip()
-            .replace("^nan$", "", regex=True)
-        )
+        s = x.astype("string")           
+        s = s.fillna("")                 
+        s = s.str.strip().replace("^nan$", "", regex=True)
+        return s
 
     def _cip2(x: pd.Series) -> list[str]:
         """Extract unique 2-digit CIP codes from a string series."""
