@@ -478,14 +478,24 @@ def compute_gateway_course_ids_and_cips(
     if has_upper_level_gateway:
         upper_ids = ids_series[upper_mask].str.strip().replace("^nan$", "", regex=True)
         upper_ids = upper_ids[upper_ids.ne("")].drop_duplicates().tolist()
+        lower_ids = ids_series[lower_mask].str.strip().replace("^nan$", "", regex=True)
+        lower_ids = lower_ids[lower_ids.ne("")].drop_duplicates().tolist()
         LOGGER.warning(
-            " ⚠️ Warning: courses with level >=200 flagged as gateway (%d found). IDs: %s. "
+            " ⚠️ Warning: courses with level >=200 flagged as gateway (%d found). Course IDs: %s. "
             "This is unusual; contact the school for more information.",
             len(upper_ids),
             upper_ids,
         )
     else:
         LOGGER.info(" No gateway courses with level >=200 were detected.")
+    
+    if lower_ids:
+        LOGGER.info(
+            " ✅ %d lower-level (<200) gateway courses identified, manually populate config: %s",
+            len(lower_ids), lower_ids,
+        )
+    else:
+        LOGGER.warning(" ⚠️ No lower-level (<200) gateway courses detected.")
 
     return ids.tolist(), cips.tolist(), has_upper_level_gateway
 
