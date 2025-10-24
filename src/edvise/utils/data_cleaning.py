@@ -376,6 +376,8 @@ def remove_pre_cohort_courses(
                 " ⚠️ Could not log full pre-cohort groupings. Missing columns: %s",
                 ", ".join(missing),
             )
+    else:
+        LOGGER.info("remove_pre_cohort_courses: No pre-cohort course records found.")
 
     return df_filtered
 

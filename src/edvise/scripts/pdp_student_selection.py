@@ -21,10 +21,8 @@ print("sys.path:", sys.path)
 from edvise import student_selection
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
+from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
 
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
 
@@ -37,16 +35,21 @@ class StudentSelectionTask:
 
     def run(self):
         """Execute the student selection task."""
-        if self.args.job_type == "training":
-            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
-        elif self.args.job_type == "inference":
-            if self.cfg.model.run_id is None:
-                raise ValueError("cfg.model.run_id must be set for inference runs.")
-            current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
-        else:
-            raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+        # Ensure correct folder: training or inference
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
+        current_run_path_local = local_fs_path(current_run_path)
+        os.makedirs(current_run_path_local, exist_ok=True)
+
         # Load the student-term data
-        df_student_terms = pd.read_parquet(f"{current_run_path}/student_terms.parquet")
+        st_terms_path = os.path.join(current_run_path, "student_terms.parquet")
+        st_terms_path_local = local_fs_path(st_terms_path)
+        if not os.path.exists(st_terms_path_local):
+            raise FileNotFoundError(
+                f"Missing student_terms.parquet at: {st_terms_path} (local: {st_terms_path_local})"
+            )
+        df_student_terms = pd.read_parquet(st_terms_path_local)
 
         # Pull selection criteria and ID column(s)
         student_criteria = self.cfg.preprocessing.selection.student_criteria
@@ -62,9 +65,8 @@ class StudentSelectionTask:
         )
 
         # Save to parquet
-        df_selected_students.to_parquet(
-            f"{current_run_path}/selected_students.parquet", index=True
-        )
+        out_path = os.path.join(current_run_path, "selected_students.parquet")
+        df_selected_students.to_parquet(local_fs_path(out_path), index=True)
         logging.info(f"Saved {len(df_selected_students)} selected students.")
 
 
@@ -90,4 +92,19 @@ if __name__ == "__main__":
     #     logging.info("Using default schema")
 
     task = StudentSelectionTask(args)
+    # Attach per-run file logging under the resolved run folder
+    log_path = init_file_logging(
+        args,
+        task.cfg,
+        logger_name=__name__,
+        log_file_name="pdp_student_selection.log",
+    )
+    logging.info("Logs will be written to %s", log_path)
     task.run()
+    # Ensure logs are flushed
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()
