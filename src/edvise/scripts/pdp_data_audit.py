@@ -337,8 +337,8 @@ class PDPDataAuditTask:
         LOGGER.info(" Course data standardized.")
 
         # Log Math/English gateway courses and add to config
-        ids, cips, has_upper_level, lower_ids, lower_cips = compute_gateway_course_ids_and_cips(
-            df_course_standardized
+        ids, cips, has_upper_level, lower_ids, lower_cips = (
+            compute_gateway_course_ids_and_cips(df_course_standardized)
         )
 
         # Auto-populate only at training time to avoid training-inference skew
@@ -349,7 +349,12 @@ class PDPDataAuditTask:
                 self.cfg.preprocessing.features.key_course_subject_areas,
             )
             if has_upper_level:
-                if lower_ids and lower_cips and len(lower_ids) <= 25 and len(lower_cips) <= 25:
+                if (
+                    lower_ids
+                    and lower_cips
+                    and len(lower_ids) <= 25
+                    and len(lower_cips) <= 25
+                ):
                     LOGGER.warning(
                         " Upper-level (>=200) gateway courses detected. Auto-populating config with LOWER-level (<200) "
                         "gateway courses only. Please confirm with the school and adjust if needed."
@@ -360,11 +365,19 @@ class PDPDataAuditTask:
                         key_course_subject_areas=lower_cips,
                     )
 
-                    existing_ids = set(self.cfg.preprocessing.features.key_course_ids or [])
-                    existing_cips = set(self.cfg.preprocessing.features.key_course_subject_areas or [])
+                    existing_ids = set(
+                        self.cfg.preprocessing.features.key_course_ids or []
+                    )
+                    existing_cips = set(
+                        self.cfg.preprocessing.features.key_course_subject_areas or []
+                    )
 
-                    self.cfg.preprocessing.features.key_course_ids = list(existing_ids.union(lower_ids))
-                    self.cfg.preprocessing.features.key_course_subject_areas = list(existing_cips.union(lower_cips))
+                    self.cfg.preprocessing.features.key_course_ids = list(
+                        existing_ids.union(lower_ids)
+                    )
+                    self.cfg.preprocessing.features.key_course_subject_areas = list(
+                        existing_cips.union(lower_cips)
+                    )
 
                     LOGGER.info(
                         "New config (lower-only) course IDs and subject areas: %s | %s",
@@ -378,7 +391,9 @@ class PDPDataAuditTask:
                     )
 
             elif len(ids) <= 25 and len(cips) <= 25:
-                LOGGER.info(" Auto-populating config with below course IDs and CIP codes: change if necessary")
+                LOGGER.info(
+                    " Auto-populating config with below course IDs and CIP codes: change if necessary"
+                )
                 update_key_courses_and_cips(
                     self.args.config_file_path,
                     key_course_ids=ids,
@@ -386,10 +401,16 @@ class PDPDataAuditTask:
                 )
 
                 existing_ids = set(self.cfg.preprocessing.features.key_course_ids or [])
-                existing_cips = set(self.cfg.preprocessing.features.key_course_subject_areas or [])
+                existing_cips = set(
+                    self.cfg.preprocessing.features.key_course_subject_areas or []
+                )
 
-                self.cfg.preprocessing.features.key_course_ids = list(existing_ids.union(ids))
-                self.cfg.preprocessing.features.key_course_subject_areas = list(existing_cips.union(cips))
+                self.cfg.preprocessing.features.key_course_ids = list(
+                    existing_ids.union(ids)
+                )
+                self.cfg.preprocessing.features.key_course_subject_areas = list(
+                    existing_cips.union(cips)
+                )
 
                 LOGGER.info(
                     "New config course IDs and subject areas: %s | %s",

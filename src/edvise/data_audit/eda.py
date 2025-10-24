@@ -455,7 +455,9 @@ def compute_gateway_course_ids_and_cips(
     lower_mask = levels.lt(200).fillna(False)
 
     has_upper_level_gateway = bool(upper_mask.any())
-    lower_ids_series = ids_series[lower_mask].str.strip().replace("^nan$", "", regex=True)
+    lower_ids_series = (
+        ids_series[lower_mask].str.strip().replace("^nan$", "", regex=True)
+    )
     lower_ids = lower_ids_series[lower_ids_series.ne("")].drop_duplicates().tolist()
 
     # Lower-only CIP set aligned to mask
@@ -463,7 +465,8 @@ def compute_gateway_course_ids_and_cips(
         lower_cips_raw = cips_raw[lower_mask]
         lower_cips_two = (
             lower_cips_raw.str.extract(r"^(\d{2})", expand=True)[0]
-            .dropna().astype("string")
+            .dropna()
+            .astype("string")
         )
         lower_cips = lower_cips_two[lower_cips_two.ne("")].drop_duplicates().tolist()
     else:
