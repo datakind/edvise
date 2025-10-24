@@ -437,30 +437,6 @@ def compute_gateway_course_ids_and_cips(
         .str.strip()
         .unique()
     )
-    LOGGER.info(" English (E) prefixes: %s", list(pref_e))
-    LOGGER.info(" Math (M) prefixes: %s", list(pref_m))
-
-    def looks(arr, ch_list):
-        return len(arr) > 0 and all(
-            any(str(p).upper().startswith(ch) for ch in ch_list) for p in arr
-        )
-
-    e_ok, m_ok = looks(pref_e, ["E", "W"]), looks(pref_m, ["M", "S"])
-    if not e_ok and not m_ok:
-        LOGGER.warning(
-            " ⚠️ Prefixes MAY be swapped (do NOT start with E/W for English and M/S for Math). "
-            "Consider swapping E <-> M. E=%s, M=%s",
-            list(pref_e),
-            list(pref_m),
-        )
-    elif e_ok and m_ok:
-        LOGGER.info(" Prefix starts look correct (E/W for English, M/S for Math).")
-    else:
-        LOGGER.warning(
-            " ⚠️ Prefixes MAY be incorrect; one group inconsistent. English OK=%s, Math OK=%s",
-            e_ok,
-            m_ok,
-        )
 
     # ---- Upper-level course detection (>=200) and logging of specific IDs ----
     # Extract last numeric token from course_number aligned to the mask
@@ -498,6 +474,31 @@ def compute_gateway_course_ids_and_cips(
         )
     else:
         LOGGER.warning(" ⚠️ No lower-level (<200) gateway courses detected.")
+    
+    LOGGER.info(" English (E) prefixes: %s", list(pref_e))
+    LOGGER.info(" Math (M) prefixes: %s", list(pref_m))
+
+    def looks(arr, ch_list):
+        return len(arr) > 0 and all(
+            any(str(p).upper().startswith(ch) for ch in ch_list) for p in arr
+        )
+
+    e_ok, m_ok = looks(pref_e, ["E", "W"]), looks(pref_m, ["M", "S"])
+    if not e_ok and not m_ok:
+        LOGGER.warning(
+            " ⚠️ Prefixes MAY be swapped (do NOT start with E/W for English and M/S for Math). "
+            "Consider swapping E <-> M. E=%s, M=%s",
+            list(pref_e),
+            list(pref_m),
+        )
+    elif e_ok and m_ok:
+        LOGGER.info(" Prefix starts look correct (E/W for English, M/S for Math).")
+    else:
+        LOGGER.warning(
+            " ⚠️ Prefixes MAY be incorrect; one group inconsistent. English OK=%s, Math OK=%s",
+            e_ok,
+            m_ok,
+        )
 
     return ids.tolist(), cips.tolist(), has_upper_level_gateway
 
