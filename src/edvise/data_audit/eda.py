@@ -341,7 +341,7 @@ def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> None:
 
 def compute_gateway_course_ids_and_cips(
     df_course: pd.DataFrame,
-) -> tuple[list[str], list[str], bool]:
+) -> tuple[list[str], list[str], bool, list[str], list[str]]:
     """
     Build a list of course IDs and CIP codes for Math/English gateway courses.
     Filter: math_or_english_gateway in {"M", "E"}
@@ -355,6 +355,8 @@ def compute_gateway_course_ids_and_cips(
     - Detects if any gateway course has a course level >=200 (based on the last
       numeric token in course_number; typically the last 3 digits), logs the list
       of course IDs that match, and returns a boolean flag `has_upper_level_gateway`.
+    - lower_ids (only those with level <200),
+    - lower_cips (CIP 2-digit codes for lower_ids only)
     """
     required = {"math_or_english_gateway", "course_prefix", "course_number"}
     if not required.issubset(df_course.columns):
@@ -411,7 +413,9 @@ def compute_gateway_course_ids_and_cips(
     ids = ids_series[
         ids_series.ne("") & ids_series.str.lower().ne("nan")
     ].drop_duplicates()
+    ids = ids.tolist()
     cips = cips[cips.ne("")].drop_duplicates()
+    cips = cips.tolist()
 
     LOGGER.info(" Identified %d unique gateway course IDs: %s", len(ids), ids.tolist())
     LOGGER.info(" Identified %d unique CIP codes: %s", len(cips), cips.tolist())
@@ -451,12 +455,23 @@ def compute_gateway_course_ids_and_cips(
     lower_mask = levels.lt(200).fillna(False)
 
     has_upper_level_gateway = bool(upper_mask.any())
+    lower_ids_series = ids_series[lower_mask].str.strip().replace("^nan$", "", regex=True)
+    lower_ids = lower_ids_series[lower_ids_series.ne("")].drop_duplicates().tolist()
+
+    # Lower-only CIP set aligned to mask
+    if "course_cip" in df_course.columns and not cips_raw.empty:
+        lower_cips_raw = cips_raw[lower_mask]
+        lower_cips_two = (
+            lower_cips_raw.str.extract(r"^(\d{2})", expand=True)[0]
+            .dropna().astype("string")
+        )
+        lower_cips = lower_cips_two[lower_cips_two.ne("")].drop_duplicates().tolist()
+    else:
+        lower_cips = []
 
     if has_upper_level_gateway:
         upper_ids = ids_series[upper_mask].str.strip().replace("^nan$", "", regex=True)
         upper_ids = upper_ids[upper_ids.ne("")].drop_duplicates().tolist()
-        lower_ids = ids_series[lower_mask].str.strip().replace("^nan$", "", regex=True)
-        lower_ids = lower_ids[lower_ids.ne("")].drop_duplicates().tolist()
         LOGGER.warning(
             " ⚠️ Warning: courses with level >=200 flagged as gateway (%d found). Course IDs: %s. "
             "This is unusual; contact the school for more information.",
@@ -465,7 +480,7 @@ def compute_gateway_course_ids_and_cips(
         )
         if lower_ids:
             LOGGER.info(
-                " ✅ %d lower-level (<200) gateway courses identified, manually populate config: %s",
+                " ✅ %d lower-level (<200) gateway courses identified: %s",
                 len(lower_ids),
                 lower_ids,
             )
@@ -499,7 +514,7 @@ def compute_gateway_course_ids_and_cips(
             m_ok,
         )
 
-    return ids.tolist(), cips.tolist(), has_upper_level_gateway
+    return ids, cips, has_upper_level_gateway, lower_ids, lower_cips
 
 
 def log_record_drops(
