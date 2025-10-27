@@ -1,6 +1,3 @@
-## TODO : edit so it works for training or inference (with and without targets)
-## Noreen- I took a stab at this, but idk if it works?
-
 import typing as t
 import argparse
 import pandas as pd
@@ -56,14 +53,7 @@ class ModelPrepTask:
         """
         # student id col is read in config
         student_id_col = self.cfg.student_id_col
-        # df_labeled = pd.merge(
-        #     checkpoint_df,
-        #     pd.Series(selected_students.index, name=student_id_col),
-        #     how="inner",
-        #     on=student_id_col,
-        # )
-        # df_labeled = pd.merge(df_labeled, target_df, how="inner", on=student_id_col)
-        # return df_labeled
+
         # Build a Series of selected IDs with the right column name to merge on
         selected_ids = pd.Series(selected_students.index, name=student_id_col)
 
