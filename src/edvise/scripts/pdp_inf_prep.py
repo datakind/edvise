@@ -58,7 +58,9 @@ class InferencePrepTask:
         )
 
         n_checkpoint_ok = df_inf[student_id_col].nunique()
-        pct_checkpoint_ok = (n_checkpoint_ok / total_selected * 100) if total_selected else 0.0
+        pct_checkpoint_ok = (
+            (n_checkpoint_ok / total_selected * 100) if total_selected else 0.0
+        )
 
         logger.info(
             "Checkpoint-evaluable subset: %d/%d criteria-selected students (%.2f%%) meet the checkpoint.",
