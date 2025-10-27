@@ -7,8 +7,8 @@ from . import constants, shared
 
 LOGGER = logging.getLogger(__name__)
 
-NON_NUMERIC_GRADES = {"AUDIT", "A", "F", "I", "M", "O", "P", "W"}
-NON_PASS_FAIL_GRADES = {"AUDIT", "A", "I", "M", "O", "W"}
+NON_NUMERIC_GRADES = { "A", "F", "I", "M", "O", "P", "W"}
+NON_PASS_FAIL_GRADES = {"A", "I", "M", "O", "W"}
 NON_COMPLETE_GRADES = {"I", "W"}
 
 
