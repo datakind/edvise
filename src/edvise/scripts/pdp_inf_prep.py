@@ -41,13 +41,30 @@ class InferencePrepTask:
         checkpoint_df: pd.DataFrame,
         selected_students: pd.DataFrame,
     ) -> pd.DataFrame:
-        # student id col is reqd in config
+        # student id col is read in config
         student_id_col = self.cfg.student_id_col
+
+        # Build a Series of selected IDs with the right column name to merge on
+        selected_ids = pd.Series(selected_students.index, name=student_id_col)
+
+        total_selected = selected_ids.shape[0]
+
+        # Subset: selected students who meet the checkpoint (checkpoint-evaluable)
         df_inf = pd.merge(
             checkpoint_df,
-            pd.Series(selected_students.index, name=student_id_col),
+            selected_ids,
             how="inner",
             on=student_id_col,
+        )
+
+        n_checkpoint_ok = df_inf[student_id_col].nunique()
+        pct_checkpoint_ok = (n_checkpoint_ok / total_selected * 100) if total_selected else 0.0
+
+        logger.info(
+            "Checkpoint-evaluable subset: %d/%d criteria-selected students (%.2f%%) meet the checkpoint.",
+            n_checkpoint_ok,
+            total_selected,
+            pct_checkpoint_ok,
         )
         return df_inf
 
