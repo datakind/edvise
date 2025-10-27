@@ -24,11 +24,16 @@ from edvise.model_prep import cleanup_features as cleanup
 from edvise.dataio.read import read_parquet, read_config
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.shared.logger import resolve_run_path, local_fs_path
+from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
 
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
 logger = logging.getLogger(__name__)
+logging.getLogger("py4j").setLevel(logging.WARNING)
 
 
 class InferencePrepTask:
@@ -86,6 +91,15 @@ class InferencePrepTask:
             self.args, self.cfg, self.args.silver_volume_path
         )
         current_run_path_local = local_fs_path(current_run_path)
+        os.makedirs(current_run_path_local, exist_ok=True)
+
+        log_path = init_file_logging(
+            self.args,
+            self.cfg,
+            logger_name=__name__,
+            log_file_name="pdp_inference_prep.log",
+        )
+        logger.info("Per-run log file initialized at %s", log_path)
 
         # Read inputs (DBFS-safe)
         ckpt_path = os.path.join(current_run_path, "checkpoint.parquet")
@@ -150,3 +164,9 @@ if __name__ == "__main__":
     args = parse_arguments()
     task = InferencePrepTask(args)
     task.run()
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()
