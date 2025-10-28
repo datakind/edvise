@@ -121,3 +121,71 @@ def test_year_term_dt(df, col, bound, first_term_of_year, exp):
     )
     assert isinstance(obs, pd.Series) and not obs.empty
     assert obs.equals(exp) or obs.compare(exp).empty
+
+
+def test_calculate_pct_terms_or_courses_hist_course():
+    test_df = pd.DataFrame(
+        {
+            "total_n_courses_enrolled_to_date": [2, 2, 10],
+            "total_n_courses_subject_mth_to_date": [1, 2, 3],
+            "total_n_courses_subject_eng_to_date": [0, 0, 2],
+            "total_n_courses_grade_a_to_date": [2, 1, 0],
+            "pct_courses_subject_mth_to_date": [0.5, 1.0, 0.3],
+            "pct_courses_subject_eng_to_date": [0.0, 0.0, 0.2],
+            "pct_courses_grade_a_to_date": [1.0, 0.5, 0.0],
+        }
+    )
+    result_df = shared.calculate_pct_terms_or_courses_hist(
+        test_df.iloc[:, :4], level="course"
+    )
+    pd.testing.assert_frame_equal(result_df, test_df)
+
+
+def test_calculate_pct_terms_or_courses_hist_term():
+    test_df = pd.DataFrame(
+        {
+            "term_n": [1, 2, 4],
+            "n_terms_full_time": [1, 1, 2],
+            "n_terms_part_time": [0, 1, 1],
+            "pct_terms_full_time": [1.0, 0.5, 0.5],
+            "pct_terms_part_time": [0.0, 0.5, 0.25],
+        }
+    )
+    result_df = shared.calculate_pct_terms_or_courses_hist(
+        test_df.iloc[:, :3], level="term"
+    )
+    pd.testing.assert_frame_equal(result_df, test_df)
+
+
+def test_calculate_pct_terms_or_courses_hist_invalid_level():
+    with pytest.raises(Exception):
+        shared.calculate_pct_terms_or_courses_hist(pd.DataFrame(), "corse")
+
+
+def test_add_cumulative_nunique_col():
+    test_df = pd.DataFrame(
+        {
+            "student_id": [1, 1, 1, 2, 2, 2, 3, 3, 3],
+            "sort_col": [1, 2, 3, 1, 3, 2, 1, 2, 3],
+            "other_col": [0, 0, 0, 0, 0, 2, 1, 1, 1],
+            "major": [
+                "Math",
+                "Chem",
+                "Bio",
+                "Math",
+                "Math",
+                "Chem",
+                "None",
+                "None",
+                "Something",
+            ],
+            "nunique_major_to_date": [1.0, 2.0, 3.0, 1.0, 2.0, 2.0, 1.0, 1.0, 2.0],
+        }
+    )
+    result_df = shared.add_cumulative_nunique_col(
+        test_df.iloc[:, :-1],
+        sort_cols=["sort_col"],
+        groupby_cols=["student_id"],
+        colname="major",
+    )
+    pd.testing.assert_frame_equal(result_df, test_df, check_like=True)
