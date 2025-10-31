@@ -18,7 +18,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11.11"
 
       - name: Install dependencies
         run: |
@@ -58,7 +58,7 @@ jobs:
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
             --var="pip_install_branch=${{ github.head_ref || github.ref_name }}" \
             --var="custom_schemas_path=$SCHEMAS_PATH"
-          databricks bundle run github_sourced_pdp_inference_pipeline --target dev
+          databricks bundle run edvise_github_sourced_pdp_inference_pipeline --target dev
 
   deploy-to-staging:
     name: Deploy DAB to Staging 
