@@ -309,8 +309,6 @@ resources:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
         git_tag: ${var.git_ref}
-      tags:
-        dev: kayla_wilding
       queue:
         enabled: true
       parameters:
