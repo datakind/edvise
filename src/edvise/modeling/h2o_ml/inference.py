@@ -21,6 +21,7 @@ from h2o.estimators.estimator_base import H2OEstimator
 import shap
 
 from . import utils
+from . import calibration
 
 LOGGER = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ def predict_h2o(
     pos_label: utils.PosLabelType = True,
     feature_names: t.Optional[list[str]] = None,
     threshold: float = 0.5,
+    calibrator: t.Optional[calibration.SklearnCalibratorWrapper] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Predict labels and probabilities using an H2O model.
 
@@ -95,7 +97,19 @@ def predict_h2o(
 
     # Get probability column for the positive class
     prob_col = utils._pick_pos_prob_column(pred_df, pos_label)
-    probs = pred_df[prob_col].to_numpy(dtype=float)
+    probs_raw = pred_df[prob_col].to_numpy(dtype=float)
+
+    # Optionally calibrate
+    if calibrator is not None:
+        try:
+            probs = calibrator.transform(probs_raw)
+        except Exception as e:
+            LOGGER.warning(
+                f"Calibrator.transform failed, using raw probabilities. Error: {e}"
+            )
+            probs = probs_raw
+    else:
+        probs = probs_raw
 
     # Apply threshold to get binary predictions
     preds = (probs >= float(threshold)).astype(int)

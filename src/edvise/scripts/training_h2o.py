@@ -28,6 +28,7 @@ from edvise import modeling, dataio, configs
 from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise import utils as edvise_utils
+from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
 
 from edvise.scripts.predictions_h2o import (
     PredConfig,
@@ -35,12 +36,6 @@ from edvise.scripts.predictions_h2o import (
     RunType,
     run_predictions,
 )
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("py4j").setLevel(logging.WARNING)
-
-# comment to test
 
 
 class TrainingParams(t.TypedDict, total=False):
@@ -50,6 +45,7 @@ class TrainingParams(t.TypedDict, total=False):
     target_col: str
     split_col: t.Optional[str]
     pos_label: t.Optional[str | bool]
+    calibrate_underpred: t.Optional[bool]
     primary_metric: str
     timeout_minutes: int
     exclude_cols: t.List[str]
@@ -127,6 +123,10 @@ class TrainingTask:
         selection_params: t.Dict[str, t.Any] = fs.model_dump() if fs is not None else {}
         selection_params["non_feature_cols"] = self.cfg.non_feature_cols
 
+        # NOTE: keeping autolog disabled feature selection onwards
+        # otherwise, autolog will freak out during FS and
+        # it will create a new run if we are calibrating our models
+        # post h2o training
         mlflow.autolog(disable=True)
 
         df_selected = modeling.feature_selection.select_features(
@@ -141,8 +141,6 @@ class TrainingTask:
         return df_modeling
 
     def train_model(self, df_modeling: pd.DataFrame) -> str:
-        mlflow.autolog(disable=False)
-
         # KAYLA TODO: figure out how we want to create this - create a user email field in yml to deploy?
         # Use run as for now - this will work until we set this as a service account
         workspace_path = f"/Users/{self.args.ds_run_as}"
@@ -173,6 +171,12 @@ class TrainingTask:
             set((training_cfg.exclude_cols or []) + (self.cfg.student_group_cols or []))
         )
 
+        calibrate_underpred = (
+            self.cfg.model.calibrate_underpred
+            if self.cfg.model and self.cfg.model.calibrate_underpred
+            else False
+        )
+
         training_params: TrainingParams = {
             "db_run_id": db_run_id,
             "institution_id": self.cfg.institution_id,
@@ -180,6 +184,7 @@ class TrainingTask:
             "target_col": self.cfg.target_col,
             "split_col": split_col,
             "pos_label": pos_label,
+            "calibrate_underpred": calibrate_underpred,
             "primary_metric": training_cfg.primary_metric,
             "timeout_minutes": timeout_minutes,
             "exclude_cols": sorted(exclude_cols),
@@ -241,10 +246,14 @@ class TrainingTask:
                     self.cfg.pos_label if self.cfg.pos_label is not None else True
                 )
                 model = h2o_utils.load_h2o_model(run_id=run_id)
+                calibrator = modeling.h2o_ml.calibration.SklearnCalibratorWrapper.load(
+                    run_id=run_id
+                )
                 labels, probs = modeling.h2o_ml.inference.predict_h2o(
                     features=df_features_imp,
                     model=model,
                     pos_label=pos_label,
+                    calibrator=calibrator,
                 )
                 df_pred = df_modeling.assign(
                     **{
@@ -340,7 +349,7 @@ class TrainingTask:
 
             # read modeling parquet for roc table
             modeling_df = dataio.read.read_parquet(
-                f"{current_run_path}/modeling.parquet"
+                local_fs_path(os.path.join(current_run_path, "modeling.parquet"))
             )
 
             # training-only logging
@@ -402,17 +411,35 @@ class TrainingTask:
         card.export_to_pdf()
 
     def run(self):
-        """Executes the target computation pipeline and saves result."""
-        current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
+        """Executes the training pipeline and saves result (training only)."""
+        # This task is for training runs only; enforce it explicitly.
+        if getattr(self.args, "job_type", "training") != "training":
+            raise ValueError("TrainingTask must be run with --job_type training.")
+
+        # Ensure correct folder: training or inference
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
+        current_run_path_local = local_fs_path(current_run_path)
+        os.makedirs(current_run_path_local, exist_ok=True)
 
         logging.info("Loading preprocessed data")
-        df_preprocessed = pd.read_parquet(f"{current_run_path}/preprocessed.parquet")
+        preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
+        preproc_path_local = local_fs_path(preproc_path)
+        if not os.path.exists(preproc_path_local):
+            raise FileNotFoundError(
+                f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
+            )
+        df_preprocessed = pd.read_parquet(preproc_path_local)
+
         logging.info("Selecting features")
         df_modeling = self.feature_selection(df_preprocessed)
 
         logging.info("Saving modeling data")
-        df_modeling.to_parquet(f"{current_run_path}/modeling.parquet", index=False)
-        logging.info(f"Modeling file saved to {current_run_path}/modeling.parquet")
+        modeling_path = os.path.join(current_run_path, "modeling.parquet")
+        df_modeling.to_parquet(local_fs_path(modeling_path), index=False)
+        logging.info(f"Modeling file saved to {modeling_path}")
+
         logging.info("Training model")
         experiment_id = self.train_model(df_modeling)
 
@@ -421,7 +448,7 @@ class TrainingTask:
 
         logging.info("Selecting best model")
         self.select_model(
-            experiment_id, [f"{current_run_path}/{self.args.config_file_name}"]
+            experiment_id, [os.path.join(current_run_path, self.args.config_file_name)]
         )
 
         logging.info("Generating training predictions & SHAP values")
@@ -434,9 +461,17 @@ class TrainingTask:
         self.create_model_card(model_name)
 
         logging.info("Updating folder name to model id")
-        os.rename(
-            current_run_path, f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
-        )
+        # Rename the RUN ROOT folder (one level up from the 'training' subdir) to model.run_id
+        run_root = os.path.dirname(current_run_path)
+        dest_root = os.path.join(self.args.silver_volume_path, self.cfg.model.run_id)
+        logging.info("Renaming run root:\n  from: %s\n    to: %s", run_root, dest_root)
+        for h in logging.getLogger().handlers:
+            try:
+                h.flush()
+            except Exception:
+                pass
+        logging.shutdown()
+        os.replace(local_fs_path(run_root), local_fs_path(dest_root))
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -449,11 +484,15 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--gold_table_path", type=str, required=True)
     parser.add_argument("--config_file_name", type=str, required=True)
+    parser.add_argument("--job_type", type=str, choices=["training"], required=False)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
+    if not getattr(args, "job_type", None):
+        args.job_type = "training"
+        logging.info("No --job_type passed; defaulting to job_type='training'.")
     # try:
     #     if args.custom_schemas_path:
     #         sys.path.append(args.custom_schemas_path)
@@ -463,4 +502,19 @@ if __name__ == "__main__":
     #     logging.info("Using default schemas")
 
     task = TrainingTask(args)
+    # Attach per-run file logging under the resolved run folder
+    log_path = init_file_logging(
+        args,
+        task.cfg,
+        logger_name=__name__,
+        log_file_name="pdp_training.log",
+    )
     task.run()
+    # --- Final flush & shutdown ---
+    root_logger = logging.getLogger()
+    for h in root_logger.handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()

@@ -4,6 +4,7 @@ import typing as t
 from collections.abc import Collection
 
 import pandas as pd
+import numpy as np
 
 from edvise.utils import types
 from . import constants, shared
@@ -125,6 +126,140 @@ def term_in_subset(
     df: pd.DataFrame, terms_subset: set[types.TermType], term_col: str = "academic_term"
 ) -> pd.Series:
     return df[term_col].isin(terms_subset).astype("boolean")
+
+
+def create_terms_lkp(min_year, max_year, possible_seasons):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Create a dataframe of all possible terms.
+
+    Args:
+        min_year (str or int): earliest possible academic year
+        max_year (str or int): latest possible academic year
+        possible_seasons (pd.DataFrame): contains columns "season" and "order",
+            where "season" indicates fall, spring, etc. in the format the school
+            uses, and "order" is used to sort the seasons
+
+    Returns:
+        pd.DataFrame: all possible terms across the time frame, along with the rank order of each term,
+            term_rank, the academic and calendar year, and the season
+    """
+    years = list(range(int(min_year), int(max_year) + 1))
+    years = pd.DataFrame({"academic_year": [str(year) for year in years]})
+
+    # doing this cross-join because one of our custom schools dropped the S2 term, but
+    # for our definition of the outcome variable, we need each year to have the same number of terms
+    terms_lkp = years.merge(possible_seasons, how="cross")
+    terms_lkp["term_order"] = (
+        terms_lkp["academic_year"] + terms_lkp["order"].astype(str)
+    ).astype(int)
+    # For one of our custom schools, term_order indicates the year of the fall of that academic year.
+    # We define the calendar year as the next year for any season other than the Fall.
+    terms_lkp["calendar_year"] = np.where(
+        terms_lkp["season"] != "FA",
+        terms_lkp["academic_year"].astype(int) + 1,
+        terms_lkp["academic_year"],
+    ).astype(int)
+    terms_lkp["term"] = terms_lkp["calendar_year"].astype(str) + terms_lkp["season"]
+
+    # The date created here itself is somewhat arbitrary
+    # but can be used for windowing functions are better to look back 365 days rather
+    # than x rows, etc.
+    terms_lkp["term_end_date"] = terms_lkp[["season", "calendar_year"]].apply(
+        lambda x: pd.to_datetime(
+            str(_assign_month_to_season(x.season)) + "-01-" + str(x.calendar_year)
+        ),
+        axis=1,
+    )
+
+    terms_lkp["term_rank"] = terms_lkp["term_order"].rank(method="dense")
+    return terms_lkp.sort_values("term_rank")
+
+
+def create_term_end_date(academic_year, season):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Create term end date from an academic year and season
+
+    Args:
+        academic_year (str): school year in the format YYYY-YY
+        season (str): Fall, Winter, Spring, or Summer
+
+    Raises:
+        Exception: if season is not one of the standard NSC seasons
+
+    Returns:
+        datetime
+    """
+    if season == "Fall":
+        year = academic_year.split("-")[0]
+    elif season in ["Winter", "Spring", "Summer"]:
+        year = "20" + academic_year.split("-")[1]
+    else:
+        raise Exception(f"Invalid season {season}")
+
+    month = _assign_month_to_season(season)
+
+    return pd.to_datetime(f"{month}-01-{year}")
+
+
+def extract_year_season(term_data):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Extract calendar year and season from term.
+
+    Args:
+        term_data (pd.Series): column of term data in the format YYYYTT, where
+           YYYY is the calendar year, and TT denotes the term. For example, FA
+           is Fall, SP is Spring, S1 and S2 are summer terms.
+
+    Returns:
+        pd.DataFrame: containing two columns - year and season
+    """
+    year_season_cols = term_data.str.extract(
+        "^([0-9]{4})([a-zA-Z0-9]{2})$", expand=True
+    )
+    null_bool_index = year_season_cols.isna().any(axis=1)
+    if (null_bool_index.sum() > 0) and (term_data[null_bool_index].notnull().sum() > 0):
+        raise Exception(
+            f"Term format not expected: {term_data[null_bool_index].unique()} Please revise the function and try again!"
+        )
+    year_season_cols[0] = pd.to_numeric(year_season_cols[0])
+    return year_season_cols
+
+
+# TODO: test
+def _assign_month_to_season(season):
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Assign a season to a month, for creating a datetime object.
+
+    Args:
+        season (str): season indicator, with possible values: Fall, FA,
+            Winter, Spring, SP, S1, Summer, S2
+
+    Raises:
+        Exception: Season indicator not expected.
+
+    Returns:
+        int: month number of season
+    """
+    if season in ["Fall", "FA"]:
+        return 12
+    if season in ["Winter"]:
+        return 2
+    if season in ["Spring", "SP"]:
+        return 6
+    if season in ["S1"]:
+        return 7
+    if season in ["Summer", "S2"]:
+        return 8
+    else:
+        raise Exception(f"Season {season} not expected. Try again!")
 
 
 def _get_unique_sorted_terms_df(

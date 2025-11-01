@@ -21,6 +21,7 @@ print("sys.path:", sys.path)
 from edvise import checkpoints
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.dataio.read import read_config
+from edvise.shared.logger import local_fs_path, resolve_run_path, init_file_logging
 
 from edvise.configs.pdp import (
     CheckpointNthConfig,
@@ -31,9 +32,8 @@ from edvise.configs.pdp import (
     CheckpointLastInEnrollmentYearConfig,
 )
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("py4j").setLevel(logging.WARNING)  # Ignore Databricks logger
+
+logging.getLogger("py4j").setLevel(logging.WARNING)
 
 
 class PDPCheckpointsTask:
@@ -131,19 +131,32 @@ class PDPCheckpointsTask:
 
     def run(self):
         """Executes the data preprocessing pipeline."""
-        if self.args.job_type == "training":
-            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
-        elif self.args.job_type == "inference":
-            if self.cfg.model.run_id is None:
-                raise ValueError("cfg.model.run_id must be set for inference runs.")
-            current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
-        else:
-            raise ValueError(f"Unsupported job_type: {self.args.job_type}")
-        df_student_terms = pd.read_parquet(f"{current_run_path}/student_terms.parquet")
+        # Ensure correct folder: training or inference
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
+        # Use local path for reading/writing so DBFS is handled correctly
+        current_run_path_local = local_fs_path(current_run_path)
+        os.makedirs(current_run_path_local, exist_ok=True)
+
+        student_terms_path = os.path.join(current_run_path, "student_terms.parquet")
+        student_terms_path_local = local_fs_path(student_terms_path)
+        if not os.path.exists(student_terms_path_local):
+            raise FileNotFoundError(
+                f"student_terms.parquet not found at: {student_terms_path} (local: {student_terms_path_local})"
+            )
+        df_student_terms = pd.read_parquet(student_terms_path_local)
 
         df_ckpt = self.checkpoint_generation(df_student_terms)
 
-        df_ckpt.to_parquet(f"{current_run_path}/checkpoint.parquet", index=False)
+        cohort_counts = (
+            df_ckpt[["cohort", "cohort_term"]].value_counts(dropna=False).sort_index()
+        )
+        logging.info("Checkpoint Cohort Term breakdown:\n%s", cohort_counts.to_string())
+
+        out_ckpt_path = os.path.join(current_run_path, "checkpoint.parquet")
+        df_ckpt.to_parquet(local_fs_path(out_ckpt_path), index=False)
+        logging.info(f"Checkpoint log & file saved to {out_ckpt_path}")
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -171,4 +184,19 @@ if __name__ == "__main__":
     # except Exception:
     #     logging.info("Running task with default schema")
     task = PDPCheckpointsTask(args)
+    # Attach per-run file logging (writes under the resolved run folder)
+    log_path = init_file_logging(
+        args,
+        task.cfg,
+        logger_name=__name__,
+        log_file_name="pdp_checkpoint.log",
+    )
+    logging.info("Logs will be written to %s", log_path)
     task.run()
+
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()

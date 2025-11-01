@@ -25,7 +25,7 @@
 # we need to manually install a certain version of pandas and scikit-learn in order
 # for our models to load and run properly.
 
-# %pip install git+https://github.com/datakind/edvise.git@v0.1.4
+# %pip install git+https://github.com/datakind/edvise.git@v0.1.6
 # %restart_python
 
 # COMMAND ----------
@@ -154,6 +154,9 @@ features_df = df_test.loc[:, model_feature_names]
 unique_ids = df_test[cfg.student_id_col]
 
 # COMMAND ----------
+
+# Try to load a calibrator (ok if missing)
+calibrator = h2o_ml.calibration.SklearnCalibratorWrapper.load(run_id=cfg.model.run_id)
 
 pred_labels, pred_probs = h2o_ml.inference.predict_h2o(
     features_df,
