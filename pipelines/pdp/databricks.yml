@@ -34,9 +34,17 @@ targets:
     # - Any job schedules and triggers are paused by default.
     # See also https://docs.databricks.com/dev-tools/bundles/deployment-modes.html.
     mode: development
+    variables:
+      git_ref: ${bundle.git.branch}
+      DB_workspace: "dev-sst-02"
+      databricks_institution_name: "synthetic_2"
+      cohort_file_name: 
     default: true
   prod:
     mode: production
+    variables:
+      git_ref: ${bundle.git.tag}
+      DB_workspace: "staging-sst-01"
     workspace:
       root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
 

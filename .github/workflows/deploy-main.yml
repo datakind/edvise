@@ -1,0 +1,70 @@
+name: deploy-main
+
+on:
+  # deploy only when version tags are pushed 
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy DAB to Prod
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.11'
+
+      - name: Install uv and Databricks CLI
+        run: |
+          python -m pip install --upgrade pip pipx
+          pipx ensurepath
+          pipx install uv
+          pipx install databricks
+
+      - name: Install project dependencies (uv)
+        run: |
+          uv venv
+          uv pip install .
+
+      - name: Authenticate Databricks (Prod/Staging workspace)
+        env:
+          DATABRICKS_HOST:   ${{ secrets.DATABRICKS_STAGING_HOST }}
+          DATABRICKS_ID:     ${{ secrets.STAGING_DB_CLIENT_ID }}
+          DATABRICKS_SECRET: ${{ secrets.STAGING_DB_SECRET }}
+        run: |
+          databricks auth login --host "$DATABRICKS_HOST" \
+            --client-id "$DATABRICKS_ID" --client-secret "$DATABRICKS_SECRET"
+          databricks auth validate
+
+      - name: Deploy bundle (prod target)
+        env:
+          DB_WORKSPACE:         ${{ secrets.STAGING_DB_WORKSPACE }}
+          SA_EXECUTER:          ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
+          SP_RUN_AS:            ${{ secrets.STAGING_SERVICE_PRINCIPAL_RUN_AS }}
+          GROUP_TO_MANAGE:      ${{ secrets.STAGING_GROUP_TO_MANAGE }}
+          PIPELINE_SA_EMAIL:    ${{ secrets.STAGING_PIPELINE_SA_EMAIL }}
+          END_USER_EMAIL:       ${{ secrets.STAGING_END_USER_EMAIL }}
+          DATAKIND_EMAIL:       ${{ secrets.STAGING_DATAKIND_EMAIL }}
+          SCHEMAS_PATH:         ${{ secrets.STAGING_CUSTOM_SCHEMAS_PATH }}
+        run: |
+          echo "Deploying DAB to prod for tag $GITHUB_REF_NAME..."
+          databricks bundle deploy \
+            --target=prod \
+            --var="DB_workspace=$DB_WORKSPACE" \
+            --var="service_account_executer=$SA_EXECUTER" \
+            --var="service_principal_run_as=$SP_RUN_AS" \
+            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+            --var="pipeline_sa_email=$PIPELINE_SA_EMAIL" \
+            --var="end_user_notification_email=$END_USER_EMAIL" \
+            --var="datakind_notification_email=$DATAKIND_EMAIL" \
+            --var="custom_schemas_path=$SCHEMAS_PATH" \
+            --var="git_ref=${GITHUB_REF_NAME}"

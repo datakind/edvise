@@ -1,0 +1,90 @@
+name: release-branch-ci-dev
+
+on:
+  # run when release branch is created from git flow
+  push:
+    branches:
+      - 'release/*'
+
+concurrency:
+  group: release-branch-ci-dev-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dev-train-infer:
+    name: Train + Inference on Dev (release branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CONFIG_FILE: prod_default.toml
+      DB_RUN_ID_PREFIX: rel-${{ github.sha }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11.11" }
+
+      - name: Install uv and Databricks CLI
+        run: |
+          python -m pip install --upgrade pip pipx
+          pipx ensurepath
+          pipx install uv
+          pipx install databricks
+        shell: bash
+
+      - name: Install project dependencies (uv)
+        run: |
+          uv venv
+          uv pip install .
+        shell: bash
+
+      - name: Authenticate Databricks (Dev)
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_DEV_TOKEN }}
+        run: |
+          databricks auth login --host "$DATABRICKS_HOST" --token "$DATABRICKS_TOKEN"
+          databricks auth validate
+
+      - name: Deploy bundle to Dev (pin to release commit)
+        env:
+          DB_WORKSPACE: ${{ secrets.DEV_DB_WORKSPACE }}
+          SA_EXECUTER: ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
+          SP_RUN_AS: ${{ secrets.DEV_SERVICE_PRINCIPAL_RUN_AS }}
+          GROUP_TO_MANAGE: ${{ secrets.DEV_GROUP_TO_MANAGE }}
+          PIPELINE_SA_EMAIL: ${{ secrets.DEV_PIPELINE_SA_EMAIL }}
+          END_USER_EMAIL: ${{ secrets.DEV_END_USER_EMAIL }}
+          DATAKIND_EMAIL: ${{ secrets.DEV_DATAKIND_EMAIL }}
+          SCHEMAS_PATH: ${{ secrets.DEV_CUSTOM_SCHEMAS_PATH }}
+        run: |
+          databricks bundle deploy \
+            --target=dev \
+            --var="DB_workspace=$DB_WORKSPACE" \
+            --var="service_account_executer=$SA_EXECUTER" \
+            --var="service_principal_run_as=$SP_RUN_AS" \
+            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+            --var="pipeline_sa_email=$PIPELINE_SA_EMAIL" \
+            --var="end_user_notification_email=$END_USER_EMAIL" \
+            --var="datakind_notification_email=$DATAKIND_EMAIL" \
+            --var="custom_schemas_path=$SCHEMAS_PATH" \
+            --var="git_ref=${{ github.sha }}"
+
+      - name: TRAIN (Dev)
+        run: |
+          databricks bundle run github_sourced_pdp_training_pipeline --target dev \
+            --params-json '{
+              "config_file_name": "'"$CONFIG_FILE"'",
+              "job_type": "training",
+              "db_run_id": "'"$DB_RUN_ID_PREFIX"'-train"
+            }'
+
+      - name: INFER (Dev)
+        run: |
+          databricks bundle run edvise_github_sourced_pdp_inference_pipeline --target dev \
+            --params-json '{
+              "config_file_name": "'"$CONFIG_FILE"'",
+              "job_type": "inference",
+              "db_run_id": "'"$DB_RUN_ID_PREFIX"'-infer"
+            }'
