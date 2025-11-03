@@ -6,7 +6,8 @@ on:
     - cron: "0 11 * * 1"   # Mondays 11:00 UTC -> we can adjust this as needed
   workflow_dispatch: {}    # allow manual runs
   push:
-    - feature/ci_cd_github_actions
+    branches:
+      - feature/ci_cd_github_actions 
 
 concurrency:
   group: weekly-develop-integration
