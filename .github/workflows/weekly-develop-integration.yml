@@ -1,13 +1,13 @@
 name: weekly-develop-integration
 
-on: 
-  # weekly health monitor for develop branch 
+on:
+  # weekly health monitor for develop branch
   schedule:
-    - cron: "0 11 * * 1"   # Mondays 11:00 UTC -> we can adjust this as needed
-  workflow_dispatch: {}    # allow manual runs
+    - cron: "0 11 * * 1"            # Mondays 11:00 UTC
+  workflow_dispatch: {}
   push:
     branches:
-      - feature/ci_cd_github_actions 
+      - feature/ci_cd_github_actions
 
 concurrency:
   group: weekly-develop-integration
@@ -26,17 +26,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: develop
+          # On the cron, test develop; on push/dispatch, use the current ref
+          ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref_name }}
           fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11.11"
 
+      # NEW CLI install (drop pip databricks-cli)
       - name: Install uv and Databricks CLI
         run: |
           python -m pip install --upgrade pip
-          pip install uv databricks-cli
+          pip install uv
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+          databricks -v
         shell: bash
 
       - name: Install project dependencies (uv)
@@ -45,16 +49,18 @@ jobs:
           uv pip install .
         shell: bash
 
-      - name: Authenticate Databricks (Dev)
+      # No 'auth login' needed with PAT in CI; set env and go
+      - name: Configure Databricks env (Dev)
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_DEV_TOKEN }}
         run: |
-          databricks auth login --host "$DATABRICKS_HOST" --token "$DATABRICKS_TOKEN"
-          databricks auth validate
+          databricks version
 
-      - name: Deploy bundle to Dev (pin to develop HEAD)
+      - name: Deploy bundle to Dev (pin to current commit)
         env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_DEV_TOKEN }}
           DB_WORKSPACE: ${{ secrets.DEV_DB_WORKSPACE }}
           SA_EXECUTER: ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
           SP_RUN_AS: ${{ secrets.DEV_SERVICE_PRINCIPAL_RUN_AS }}
@@ -73,10 +79,13 @@ jobs:
             --var="pipeline_sa_email=$PIPELINE_SA_EMAIL" \
             --var="end_user_notification_email=$END_USER_EMAIL" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
-            --var="custom_schemas_path=$SCHEMAS_PATH"
-            # If you template git_source, add: --var="git_ref=${{ github.sha }}"
+            --var="custom_schemas_path=$SCHEMAS_PATH" \
+            --var="git_ref=${{ github.sha }}"
 
       - name: TRAIN (Dev – develop-health-check)
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_DEV_TOKEN }}
         run: |
           databricks bundle run github_sourced_pdp_training_pipeline --target dev \
             --params-json '{
@@ -86,6 +95,9 @@ jobs:
             }'
 
       - name: INFER (Dev – develop-health-check)
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_DEV_TOKEN }}
         run: |
           databricks bundle run edvise_github_sourced_pdp_inference_pipeline --target dev \
             --params-json '{
