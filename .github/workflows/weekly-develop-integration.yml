@@ -57,16 +57,8 @@ jobs:
         run: |
           databricks version
 
-      - name: Debug paths
-        run: |
-          echo "pwd:"
-          pwd
-          echo "ls -la (repo root):"
-          ls -la
-          echo "ls -la pipelines/pdp:"
-          ls -la pipelines/pdp || true
-
       - name: Deploy bundle to Dev (pin to current commit)
+        working-directory: pipelines/pdp
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_DEV_TOKEN }}
