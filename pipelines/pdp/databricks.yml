@@ -4,8 +4,8 @@ bundle:
   uuid: 99992898-07ae-4641-b086-dd3ba80ffc2f
     
 include:
-  - pipelines/pdp/resources/github_pdp_training.yml
-  - pipelines/pdp/resources/github_pdp_inference.yml
+  - resources/github_pdp_training.yml
+  - resources/github_pdp_inference.yml
 
 variables:
   DB_workspace:
