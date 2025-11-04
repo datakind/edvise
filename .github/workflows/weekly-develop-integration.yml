@@ -76,7 +76,7 @@ jobs:
             --var "git_ref=${GITHUB_SHA}" \
             --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
-            --var="service_principal_run_as=$SP_RUN_AS" \
+            --var="ds_run_as=$SP_RUN_AS" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="pipeline_sa_email=$PIPELINE_SA_EMAIL" \
             --var="end_user_notification_email=$END_USER_EMAIL" \
