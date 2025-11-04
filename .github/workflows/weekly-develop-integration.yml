@@ -73,6 +73,7 @@ jobs:
         run: |
           databricks bundle deploy \
             --target=dev \
+            --var "git_ref=${GITHUB_SHA}" \
             --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
             --var="service_principal_run_as=$SP_RUN_AS" \

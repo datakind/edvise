@@ -8,6 +8,9 @@ include:
   - resources/github_pdp_inference.yml
 
 variables:
+  git_ref:
+    description: "Branch / tag / commit SHA to fetch for git_source.git_tag"
+    default: ${bundle.git.branch}
   DB_workspace:
     description: "Databricks workspace"
   datakind_notification_email:
