@@ -49,6 +49,17 @@ jobs:
           uv pip install .
         shell: bash
 
+      - name: Auth preflight
+        run: |
+          echo "Host: $DATABRICKS_HOST"
+          if [ -n "$DATABRICKS_TOKEN" ]; then echo "Using PAT auth"; fi
+          if [ -n "$DATABRICKS_CLIENT_ID" ] && [ -n "$DATABRICKS_CLIENT_SECRET" ]; then echo "Using SP OAuth"; fi
+          databricks -v
+          databricks auth env || true
+          # Simple API call to verify creds:
+          databricks current-user me
+
+
       # No 'auth login' needed with PAT in CI; set env and go
       - name: Configure Databricks env (Dev)
         env:
