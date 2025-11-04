@@ -38,7 +38,6 @@ targets:
       git_ref: ${bundle.git.branch}
       DB_workspace: "dev_sst_02"
       databricks_institution_name: "synthetic"
-      cohort_file_name: 
     default: true
   prod:
     mode: production
