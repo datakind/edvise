@@ -51,8 +51,8 @@ jobs:
 
       - name: Auth preflight
         run: |
-          echo "Host: $DATABRICKS_HOST"
-          if [ -n "$DATABRICKS_TOKEN" ]; then echo "Using PAT auth"; fi
+          echo "Host: $DATABRICKS_DEV_HOST"
+          if [ -n "$DATABRICKS_DEV_TOKEN" ]; then echo "Using PAT auth"; fi
           if [ -n "$DATABRICKS_CLIENT_ID" ] && [ -n "$DATABRICKS_CLIENT_SECRET" ]; then echo "Using SP OAuth"; fi
           databricks -v
           databricks auth env || true
