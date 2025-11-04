@@ -66,7 +66,6 @@ jobs:
           SA_EXECUTER: ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
           SP_RUN_AS: ${{ secrets.DEV_SERVICE_PRINCIPAL_RUN_AS }}
           GROUP_TO_MANAGE: ${{ secrets.DEV_GROUP_TO_MANAGE }}
-          PIPELINE_SA_EMAIL: ${{ secrets.DEV_PIPELINE_SA_EMAIL }}
           END_USER_EMAIL: ${{ secrets.DEV_END_USER_EMAIL }}
           DATAKIND_EMAIL: ${{ secrets.DEV_DATAKIND_EMAIL }}
           SCHEMAS_PATH: ${{ secrets.DEV_CUSTOM_SCHEMAS_PATH }}
@@ -78,7 +77,6 @@ jobs:
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$SP_RUN_AS" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
-            --var="pipeline_sa_email=$PIPELINE_SA_EMAIL" \
             --var="end_user_notification_email=$END_USER_EMAIL" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
             --var="custom_schemas_path=$SCHEMAS_PATH" \
