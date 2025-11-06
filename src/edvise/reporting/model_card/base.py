@@ -293,11 +293,23 @@ class ModelCard(t.Generic[C]):
         Styles card using CSS.
         """
         # Convert Markdown to HTML
-        html_content = markdown.markdown(
-            self.md_content,
-            extensions=["extra", "tables", "sane_lists", "toc", "smarty"],
+        html_content = markdown.Markdown(
+            extensions=[
+                "extra",         # superset: code, tables, etc.
+                "tables",
+                "sane_lists",
+                "attr_list",     # <— enables {#custom-id} on headings
+                "toc",           # <— generates anchors & [TOC]
+                "smarty",
+            ],
+            extension_configs={
+                # Optional: tweak TOC behavior/levels
+                "toc": {
+                    "permalink": False,   # set to '¶' if you want anchor markers
+                    "toc_depth": "2-6",   # which heading levels to include
+                }
+            }
         )
-
         # Load CSS from external file
         css_path = self._resolve("edvise.reporting.template.styles", "model_card.css")
         with open(css_path, "r") as f:

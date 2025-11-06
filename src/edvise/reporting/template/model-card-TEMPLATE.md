@@ -3,21 +3,30 @@
 
 ## Model Card: {institution_name}
 
-### Overview
+### Contents {#contents}
+- [Overview](#overview)
+- [Intended Use](#intended-use)
+- [Methodology](#methodology)
+- [Performance](#performance)
+- [Quantitative Bias Analysis](#bias)
+- [Important Features](#features)
+- [Appendix](#appendix)
+
+### Overview {#overview}
 - {outcome_section}
 - {checkpoint_section}
 - {development_note_section}
-- If there are questions or concerns about the model, you can contact **education@datakind.org** or your client success manager.
+- If there are questions or concerns about the model, you can contact **education@datakind.org** or your customer success manager.
 
-### Intended Use
+### Intended Use {#intended-use}
 - **Primary Purpose**
     - Identify students who may need support in order to either retain or graduate on time. 
-    - Empower academic advisors who provide intervention strategies with information on the factors impacting their need for support.
+    - Empower academic advisors who provide intervention strategies with information on the factors impacting their students' need for support.
 - **Out-of-Scope Uses**
     - Outside of the target population:  _see below_
     - Without intervention strategies carefully designed by academic advisors, student success professionals, and researchers. 
 
-### Methodology
+### Methodology {#methodology}
 - **Sample Development**
     - Our first step was our data audit & validation, which included handling null and duplicate values, checking for any inconsistencies between files, and ensuring all student IDs are unique.
     - After validation, we then proceeded with exploratory data analysis (EDA) to develop a deeper understanding of the raw dataset prior to our feature engineering & model development, ensuring alignment with stakeholders through an iterative process.
@@ -56,7 +65,7 @@
     - Utilized SHAP (Shapley Additive Explanations) values to quantify the contribution of individual features in top-performing models.
     - Leveraged SHAP to enhance interpretability & model transparency, while making model outputs more explainable and actionable.
 
-### Performance
+### Performance {#performance}
 - **Model Performance Metric**
 {primary_metric_section}
 
@@ -66,9 +75,9 @@
 {test_roc_curve}
 {test_histogram}
 
-### Quantitative Bias Analysis
+### Quantitative Bias Analysis {#bias}
 - **Model Bias Metric**
-    - Our bias evaluation metric for our model includes utilizing _False Negative Rate Parity_, which measures the disproportionate rate of false negatives across subgroups. 
+    - Our bias evaluation metric for our model includes utilizing _False Negative Rate (FNR) Parity_, which measures the disproportionate rate of false negatives across subgroups. 
     - FNR Parity helps assess whether the model is underperforming for any specific group in terms of incorrectly predicting that a student is not in need of support when the true outcome is that the student is in need of support.
 
 - **Analyzing Bias Across Student Groups**
@@ -77,7 +86,7 @@
 
 {bias_summary_section}
 
-### Important Features
+### Important Features {#features}
 - **Analyzing Feature Importance**
     - SHAP (Shapley Additive Explanations) is a method based on cooperative game theory that quantifies the contribution of each feature to a model's prediction for an individual instance. It helps us understand how much did a particular feature contribute to predicting whether a student needs more or less support.
     - SHAP provides detailed insight into how much each feature contributed for each individual, as well as Whether higher or lower feature values are associated with higher or lower need for support.
@@ -95,7 +104,7 @@
 
 {feature_importances_by_shap_plot}
 
-### Appendix
+### Appendix {#appendix}
 
 {performance_by_splits_section}
 

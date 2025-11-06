@@ -95,3 +95,7 @@ ol ol {
 ol ol ol {
     list-style-type: lower-roman;
 }
+
+/* PDF-friendly links */
+a { text-decoration: underline; color: inherit; }
+a:visited { color: inherit; }
