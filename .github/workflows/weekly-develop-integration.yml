@@ -49,6 +49,19 @@ jobs:
           uv pip install .
         shell: bash
   
+      - name: Auth preflight
+        run: |
+          if [ -z "${DATABRICKS_HOST:-}" ]; then echo "::error::DATABRICKS_HOST missing"; exit 1; fi
+          if [ -z "${DATABRICKS_CLIENT_ID:-}" ]; then echo "::error::DATABRICKS_CLIENT_ID missing"; exit 1; fi
+          if [ -z "${DATABRICKS_CLIENT_SECRET:-}" ]; then echo "::error::DATABRICKS_CLIENT_SECRET missing"; exit 1; fi
+
+          databricks -v
+          echo "Auth env:"
+          databricks auth env || true
+
+          echo "Who am I?"
+          databricks current-user me
+
       # No 'auth login' needed with PAT in CI; set env and go
       - name: Configure Databricks env (Dev)
         env:
@@ -62,7 +75,7 @@ jobs:
         working-directory: pipelines/pdp
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
-          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_CLIENT_ID }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
           DB_WORKSPACE: ${{ secrets.DEV_DB_WORKSPACE }}
           SA_EXECUTER: ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
