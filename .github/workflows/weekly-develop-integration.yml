@@ -60,16 +60,21 @@ jobs:
 
       - name: Auth preflight
         run: |
-          if [ -z "${DATABRICKS_DEV_HOST:-}" ]; then echo "::error::DATABRICKS_DEV_HOST missing"; exit 1; fi
-          if [ -z "${DATABRICKS_DEV_CLIENT_ID:-}" ]; then echo "::error::DATABRICKS_DEV_CLIENT_ID missing"; exit 1; fi
-          if [ -z "${DATABRICKS_DEV_CLIENT_SECRET:-}" ]; then echo "::error::DATABRICKS_DEV_CLIENT_SECRET missing"; exit 1; fi
+          if [ -z "${DATABRICKS_HOST:-}" ]; then echo "::error::DATABRICKS_HOST missing"; exit 1; fi
+          if [ -z "${DATABRICKS_CLIENT_ID:-}" ]; then echo "::error::DATABRICKS_CLIENT_ID missing"; exit 1; fi
+          if [ -z "${DATABRICKS_CLIENT_SECRET:-}" ]; then echo "::error::DATABRICKS_CLIENT_SECRET missing"; exit 1; fi
+
+          echo "Host: $DATABRICKS_HOST"
+          echo "Client ID present? $( [ -n "$DATABRICKS_CLIENT_ID" ] && echo yes || echo no )"
+          echo "Secret present? $( [ -n "$DATABRICKS_CLIENT_SECRET" ] && echo yes || echo no )"
 
           databricks -v
-          echo "Auth env:"
           databricks auth env || true
-
-          echo "Who am I?"
-          databricks current-user me
+          databricks current-user me || true
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DEV_SP_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DEV_SP_CLIENT_SECRET }}
 
 
       - name: Deploy bundle to Dev (pin to current commit)
