@@ -51,9 +51,9 @@ jobs:
   
       - name: Auth preflight
         run: |
-          if [ -z "${DATABRICKS_HOST:-}" ]; then echo "::error::DATABRICKS_HOST missing"; exit 1; fi
-          if [ -z "${DATABRICKS_CLIENT_ID:-}" ]; then echo "::error::DATABRICKS_CLIENT_ID missing"; exit 1; fi
-          if [ -z "${DATABRICKS_CLIENT_SECRET:-}" ]; then echo "::error::DATABRICKS_CLIENT_SECRET missing"; exit 1; fi
+          if [ -z "${secrets.DATABRICKS_HOST:-}" ]; then echo "::error::DATABRICKS_HOST missing"; exit 1; fi
+          if [ -z "${secrets.DATABRICKS_CLIENT_ID:-}" ]; then echo "::error::DATABRICKS_CLIENT_ID missing"; exit 1; fi
+          if [ -z "${secrets.DATABRICKS_CLIENT_SECRET:-}" ]; then echo "::error::DATABRICKS_CLIENT_SECRET missing"; exit 1; fi
 
           databricks -v
           echo "Auth env:"
