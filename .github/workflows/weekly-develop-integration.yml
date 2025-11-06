@@ -73,8 +73,8 @@ jobs:
           databricks current-user me || true
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
-          DATABRICKS_CLIENT_ID: ${{ secrets.DEV_SP_CLIENT_ID }}
-          DATABRICKS_CLIENT_SECRET: ${{ secrets.DEV_SP_CLIENT_SECRET }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
 
 
       - name: Deploy bundle to Dev (pin to current commit)
