@@ -48,20 +48,19 @@ jobs:
 
       - name: Deploy bundle to Dev (pin to release commit)
         env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_DEV_TOKEN }}
           DB_WORKSPACE: ${{ secrets.DEV_DB_WORKSPACE }}
           SA_EXECUTER: ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
-          SP_RUN_AS: ${{ secrets.DEV_SERVICE_PRINCIPAL_RUN_AS }}
-          GROUP_TO_MANAGE: ${{ secrets.DEV_GROUP_TO_MANAGE }}
-          PIPELINE_SA_EMAIL: ${{ secrets.DEV_PIPELINE_SA_EMAIL }}
-          END_USER_EMAIL: ${{ secrets.DEV_END_USER_EMAIL }}
-          DATAKIND_EMAIL: ${{ secrets.DEV_DATAKIND_EMAIL }}
-          SCHEMAS_PATH: ${{ secrets.DEV_CUSTOM_SCHEMAS_PATH }}
+          DS_RUN_AS: ${{ secrets.DEV_DS_RUN_AS }}
+          GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
+          DATAKIND_EMAIL: ${{ secrets.DATAKIND_EMAIL }}
         run: |
           databricks bundle deploy \
             --target=dev \
             --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
-            --var="service_principal_run_as=$SP_RUN_AS" \
+            --var="ds_run_as=$DS_RUN_AS" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="pipeline_sa_email=$PIPELINE_SA_EMAIL" \
             --var="end_user_notification_email=$END_USER_EMAIL" \

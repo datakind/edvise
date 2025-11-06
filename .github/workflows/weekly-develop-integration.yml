@@ -48,31 +48,6 @@ jobs:
           uv venv
           uv pip install .
         shell: bash
-
-      - name: Auth preflight
-        run: |
-          if [ -z "${DATABRICKS_HOST:-}" ]; then
-            echo "::error::DATABRICKS_HOST is empty or not visible to this job."
-          else
-            echo "✅ DATABRICKS_HOST is set (value masked for security)."
-          fi
-
-          if [ -n "${DATABRICKS_TOKEN:-}" ]; then
-            echo "✅ DATABRICKS_TOKEN is set (PAT auth)."
-          elif [ -n "${DATABRICKS_CLIENT_ID:-}" ] && [ -n "${DATABRICKS_CLIENT_SECRET:-}" ]; then
-            echo "✅ Service principal auth is set (client ID/secret)."
-          else
-            echo "::error::No valid Databricks authentication env vars found."
-          fi
-
-          echo "Databricks CLI version:"
-          databricks -v
-
-          echo "Auth env:"
-          databricks auth env || true
-
-          echo "Testing current-user API:"
-          databricks current-user me || echo "::error::Auth test failed"
   
       # No 'auth login' needed with PAT in CI; set env and go
       - name: Configure Databricks env (Dev)
@@ -89,16 +64,16 @@ jobs:
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_DEV_TOKEN }}
           DB_WORKSPACE: ${{ secrets.DEV_DB_WORKSPACE }}
           SA_EXECUTER: ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
-          SP_RUN_AS: ${{ secrets.DEV_SERVICE_PRINCIPAL_RUN_AS }}
-          GROUP_TO_MANAGE: ${{ secrets.DEV_GROUP_TO_MANAGE }}
-          DATAKIND_EMAIL: ${{ secrets.DEV_DATAKIND_EMAIL }}
+          DS_RUN_AS: ${{ secrets.DEV_DS_RUN_AS }}
+          GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
+          DATAKIND_EMAIL: ${{ secrets.DATAKIND_EMAIL }}
         run: |
           databricks bundle deploy \
             --target=dev \
             --var "git_ref=${GITHUB_SHA}" \
             --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
-            --var="ds_run_as=$SP_RUN_AS" \
+            --var="ds_run_as=$DS_RUN_AS" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
 
