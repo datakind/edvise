@@ -307,7 +307,8 @@ resources:
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
-        git_tag: v0.1.6
+        # git_tag: v0.1.6
+        git_branch: feat/model-card-revision
       queue:
         enabled: true
       parameters:
