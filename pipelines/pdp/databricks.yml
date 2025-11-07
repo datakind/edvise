@@ -17,8 +17,10 @@ variables:
     description: "Databricks workspace"
   datakind_notification_email:
     description: "Datakind address used to send email notifications"
+    default: ""
   DK_CC_email:
     description: "Datakind address used to CC email notifications"
+    default: ""
   service_account_executer:
     description: "Service account to execute the pipeline"
   ds_run_as:
