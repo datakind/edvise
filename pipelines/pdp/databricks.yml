@@ -1,16 +1,18 @@
-# This is the pipeline to run the pdp training
 bundle:
   name: Edvise pdp training pipeline
   uuid: 99992898-07ae-4641-b086-dd3ba80ffc2f
-    
+
 include:
   - resources/github_pdp_training.yml
   - resources/github_pdp_inference.yml
 
 variables:
-  git_ref:
-    description: "Branch / tag / commit SHA to fetch for git_source.git_tag"
-    default: ${bundle.git.branch}
+  # Choose one at runtime; only one is used per target
+  git_commit:
+    description: "Commit SHA to fetch (dev/CI)"
+  git_tag:
+    description: "Release tag to fetch (prod)"
+
   DB_workspace:
     description: "Databricks workspace"
   datakind_notification_email:
@@ -18,7 +20,7 @@ variables:
   service_account_executer:
     description: "Service account to execute the pipeline"
   ds_run_as:
-    description: "Account to run the pipeline"
+    description: "Account to run the pipeline (Databricks SP client/app ID)"
   databricks_institution_name:
     description: "Institution ID to use for the pdp training"
   config_file_name:
@@ -29,17 +31,12 @@ variables:
 
 run_as:
   service_principal_name: ${var.ds_run_as}
-    
+
 targets:
-  dev:
-    # The default target uses 'mode: development' to create a development copy.
-    # - Deployed resources get prefixed with '[dev my_user_name]'
-    # - Any job schedules and triggers are paused by default.
-    # See also https://docs.databricks.com/dev-tools/bundles/deployment-modes.html.
   dev:
     mode: development
     variables:
-      git_ref: ${bundle.git.commit}   # default to current commit in dev
+      git_commit: ${bundle.git.commit}    # default to current commit on CI runs
       DB_workspace: "dev_sst_02"
       databricks_institution_name: "synthetic"
     resources:
@@ -48,19 +45,30 @@ targets:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
-            git_commit: ${var.git_ref}    # no git_tag here
+            git_commit: ${var.git_commit}   # ONLY commit in dev
         edvise_github_sourced_pdp_inference_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
-            git_commit: ${var.git_ref}    # no git_tag here
+            git_commit: ${var.git_commit}   # ONLY commit in dev
     default: true
+
   prod:
     mode: production
     variables:
-      git_ref: ${bundle.git.tag}
+      git_tag: ${bundle.git.tag}           # default to current tag on release
       DB_workspace: "staging_sst_01"
+    resources:
+      jobs:
+        github_sourced_pdp_training_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}        # ONLY tag in prod
+        edvise_github_sourced_pdp_inference_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}        # ONLY tag in prod
     workspace:
       root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
-
-

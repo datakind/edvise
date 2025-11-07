@@ -304,10 +304,6 @@ resources:
             data_security_mode: SINGLE_USER
             runtime_engine: STANDARD
             num_workers: 0  
-      git_source:
-        git_url: https://github.com/datakind/edvise
-        git_provider: gitHub
-        git_tag: ${var.git_ref}
       queue:
         enabled: true
       parameters:
