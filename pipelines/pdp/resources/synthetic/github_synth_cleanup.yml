@@ -37,19 +37,18 @@ resources:
               - "{{job.parameters.model_name_prefix}}"
               - --allowlist_tables_json
               - "{{job.parameters.allowlist_tables_json}}"
-          job_cluster_key: single_node
 
-      job_clusters:
-        - job_cluster_key: single_node
-          new_cluster:
-            spark_version: 15.4.x-cpu-ml-scala2.12
-            node_type_id: n2-standard-8
-            num_workers: 0
-            spark_conf:
-              spark.master: local[*, 4]
-              spark.databricks.cluster.profile: singleNode
-            data_security_mode: SINGLE_USER
-            runtime_engine: STANDARD
+        job_clusters:
+          - job_cluster_key: cleanup-jn
+            new_cluster:
+              num_workers: 0
+              node_type_id: n2-standard-4
+              spark_version: 15.4.x-cpu-ml-scala2.12
+              data_security_mode: SINGLE_USER
+              single_user_name: ${var.service_account_executer}
+              autotermination_minutes: 15
+              spark_conf:
+                spark.databricks.cluster.profile: singleNode
 
       parameters:
         - name: DB_workspace

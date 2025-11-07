@@ -5,7 +5,7 @@ bundle:
 include:
   - resources/github_pdp_training.yml
   - resources/github_pdp_inference.yml
-  # - resources/synthetic/github_synth_cleanup.yml
+  - resources/synthetic/github_synth_cleanup.yml
 
 variables:
   git_commit:

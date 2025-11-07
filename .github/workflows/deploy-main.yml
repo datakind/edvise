@@ -60,8 +60,5 @@ jobs:
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$DS_RUN_AS" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
-            --var="pipeline_sa_email=$PIPELINE_SA_EMAIL" \
-            --var="end_user_notification_email=$END_USER_EMAIL" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
-            --var="custom_schemas_path=$SCHEMAS_PATH" \
             --var="git_tag=${GITHUB_REF_NAME}"
