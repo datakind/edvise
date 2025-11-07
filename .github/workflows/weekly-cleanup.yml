@@ -38,7 +38,7 @@ jobs:
             --var "git_commit=${GITHUB_SHA}" \
             --var "DB_workspace=${{ secrets.DEV_DB_WORKSPACE }}" \
             --var "databricks_institution_name=synthetic_integration" \
-            --var "datakind_notification_email=${{ secrets.DEV_DATAKIND_EMAIL }}" \
+            --var "datakind_notification_email=${{ secrets.DATAKIND_EMAIL }}" \
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
             --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
             --var "datakind_group_to_manage_workflow=${{ secrets.GROUP_TO_MANAGE }}"

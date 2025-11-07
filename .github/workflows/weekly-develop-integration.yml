@@ -76,6 +76,7 @@ jobs:
             --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$DS_RUN_AS" \
+            --var "databricks_institution_name=synthetic_integration" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
 
