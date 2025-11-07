@@ -1,22 +1,19 @@
+# pipelines/pdp/resources/synthetic/github_synth_cleanup.yml
 resources:
   jobs:
     edvise_cleanup_synthetic:
       name: edvise_cleanup_synthetic
       max_concurrent_runs: 1
 
-      # This is only used for synthetic integration data but can be applicable
-      # to all synthetic data. 
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
-        # In dev we set git_commit via bundle var, in prod we set git_tag.
-        # You already template these in your bundle targets:
-        #   dev  -> ${var.git_commit}
-        #   prod -> ${var.git_tag}
-        # The bundle will inject one or the other at deploy time.
+        # In dev, the bundle sets var.git_commit; in prod, var.git_tag
+        # Your bundle targets inject one of these (no need to specify here).
 
       tasks:
         - task_key: cleanup
+          job_cluster_key: cleanup-jn
           spark_python_task:
             source: GIT
             python_file: src/edvise/scripts/cleanup_synthetic.py
@@ -38,17 +35,17 @@ resources:
               - --allowlist_tables_json
               - "{{job.parameters.allowlist_tables_json}}"
 
-        job_clusters:
-          - job_cluster_key: cleanup-jn
-            new_cluster:
-              num_workers: 0
-              node_type_id: n2-standard-4
-              spark_version: 15.4.x-cpu-ml-scala2.12
-              data_security_mode: SINGLE_USER
-              single_user_name: ${var.service_account_executer}
-              autotermination_minutes: 15
-              spark_conf:
-                spark.databricks.cluster.profile: singleNode
+      job_clusters:
+        - job_cluster_key: cleanup-jn
+          new_cluster:
+            num_workers: 0
+            node_type_id: n2-standard-4
+            spark_version: 15.4.x-cpu-ml-scala2.12
+            data_security_mode: SINGLE_USER
+            single_user_name: ${var.service_account_executer}
+            autotermination_minutes: 15
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
 
       parameters:
         - name: DB_workspace
@@ -56,13 +53,13 @@ resources:
         - name: databricks_institution_name
           default: ${var.databricks_institution_name}
         - name: retention_days
-          default: "0"            # set to "30" for a 30-day retention window
+          default: "0"
         - name: dry_run
-          default: "true"         # first pass: preview only
+          default: "true"
         - name: clean_volumes
-          default: "true"         # also remove files in Volumes
+          default: "true"
         - name: delete_models
-          default: "true"        # on by default
+          default: "false"         # recommend false by default
         - name: model_name_prefix
           default: "synthetic_"
         - name: allowlist_tables_json
