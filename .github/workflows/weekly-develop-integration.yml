@@ -101,7 +101,7 @@ jobs:
         env:
           DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
           DATABRICKS_CLIENT_ID:    ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
-          DATABRICKS_CLIENT_SECRET:${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
           databricks bundle run edvise_github_sourced_pdp_inference_pipeline --target dev \
             --var "git_commit=${GITHUB_SHA}" \
