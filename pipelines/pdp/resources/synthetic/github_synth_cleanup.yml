@@ -46,6 +46,10 @@ resources:
             autotermination_minutes: 15
             spark_conf:
               spark.databricks.cluster.profile: singleNode
+              spark.master: local[*]
+            custom_tags:
+              ResourceClass: SingleNode      
+            
 
       parameters:
         - name: DB_workspace
@@ -59,7 +63,7 @@ resources:
         - name: clean_volumes
           default: "true"
         - name: delete_models
-          default: "false"         # recommend false by default
+          default: "false"
         - name: model_name_prefix
           default: "synthetic_"
         - name: allowlist_tables_json

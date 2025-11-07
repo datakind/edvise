@@ -53,13 +53,12 @@ targets:
       jobs:
         github_sourced_pdp_training_pipeline:
           git_source:
-            git_url: https://github.com/datakind/edvise
-            git_provider: gitHub
             git_commit: ${var.git_commit}
         edvise_github_sourced_pdp_inference_pipeline:
           git_source:
-            git_url: https://github.com/datakind/edvise
-            git_provider: gitHub
+            git_commit: ${var.git_commit}
+        edvise_cleanup_synthetic:                 # <-- add this
+          git_source:
             git_commit: ${var.git_commit}
     default: true
 
@@ -72,13 +71,12 @@ targets:
       jobs:
         github_sourced_pdp_training_pipeline:
           git_source:
-            git_url: https://github.com/datakind/edvise
-            git_provider: gitHub
             git_tag: ${var.git_tag}
         edvise_github_sourced_pdp_inference_pipeline:
           git_source:
-            git_url: https://github.com/datakind/edvise
-            git_provider: gitHub
+            git_tag: ${var.git_tag}
+        edvise_cleanup_synthetic:                 # <-- add this
+          git_source:
             git_tag: ${var.git_tag}
     workspace:
       root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
