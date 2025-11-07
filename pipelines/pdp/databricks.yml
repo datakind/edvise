@@ -49,7 +49,6 @@ targets:
     variables:
       git_commit: ${bundle.git.commit}
       DB_workspace: "dev_sst_02"
-      databricks_institution_name: "synthetic"
     resources:
       jobs:
         github_sourced_pdp_training_pipeline:
