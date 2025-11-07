@@ -36,11 +36,22 @@ targets:
     # - Deployed resources get prefixed with '[dev my_user_name]'
     # - Any job schedules and triggers are paused by default.
     # See also https://docs.databricks.com/dev-tools/bundles/deployment-modes.html.
+  dev:
     mode: development
     variables:
-      git_ref: ${bundle.git.branch}
+      git_ref: ${bundle.git.commit}   # default to current commit in dev
       DB_workspace: "dev_sst_02"
       databricks_institution_name: "synthetic"
+    resources:
+      jobs:
+        github_sourced_pdp_training_pipeline:
+          git_source:
+            git_tag: null             # remove the tag field for dev
+            git_commit: ${var.git_ref}
+        edvise_github_sourced_pdp_inference_pipeline:
+          git_source:
+            git_tag: null
+            git_commit: ${var.git_ref}
     default: true
   prod:
     mode: production
