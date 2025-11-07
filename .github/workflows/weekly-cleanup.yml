@@ -1,0 +1,54 @@
+# .github/workflows/weekly-cleanup.yml
+name: weekly-cleanup
+
+on:
+  schedule:
+    - cron: "0 16 * * 1"  # Mondays at 11 AM EST (16:00 UTC)
+  workflow_dispatch: {}
+
+jobs:
+  cleanup-synthetic:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: develop, fetch-depth: 0 }
+
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11.11" }
+
+      - name: Install uv and Databricks CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+
+      - name: Install project deps
+        run: |
+          uv venv
+          uv pip install .
+
+      - name: Deploy bundle (dev)
+        working-directory: pipelines/pdp
+        env:
+          DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
+        run: |
+          databricks bundle deploy --target dev \
+            --var "git_commit=${GITHUB_SHA}" \
+            --var "DB_workspace=${{ secrets.DEV_DB_WORKSPACE }}" \
+            --var "databricks_institution_name=synthetic_integration" \
+            --var "datakind_notification_email=${{ secrets.DEV_DATAKIND_EMAIL }}" \
+            --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
+            --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
+            --var "datakind_group_to_manage_workflow=${{ secrets.GROUP_TO_MANAGE }}"
+
+      - name: CLEANUP
+        working-directory: pipelines/pdp
+        env:
+          DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
+        run: |
+          databricks bundle run edvise_cleanup_synthetic --target dev \
+            --params dry_run=false,retention_days=0,databricks_institution_name=synthetic_integration

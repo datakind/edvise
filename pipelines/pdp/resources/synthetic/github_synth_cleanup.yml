@@ -1,0 +1,76 @@
+resources:
+  jobs:
+    edvise_cleanup_synthetic:
+      name: edvise_cleanup_synthetic
+      max_concurrent_runs: 1
+
+      # This is only used for synthetic integration data but can be applicable
+      # to all synthetic data. 
+      git_source:
+        git_url: https://github.com/datakind/edvise
+        git_provider: gitHub
+        # In dev we set git_commit via bundle var, in prod we set git_tag.
+        # You already template these in your bundle targets:
+        #   dev  -> ${var.git_commit}
+        #   prod -> ${var.git_tag}
+        # The bundle will inject one or the other at deploy time.
+
+      tasks:
+        - task_key: cleanup
+          spark_python_task:
+            source: GIT
+            python_file: src/edvise/scripts/cleanup_synthetic.py
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --retention_days
+              - "{{job.parameters.retention_days}}"
+              - --dry_run
+              - "{{job.parameters.dry_run}}"
+              - --clean_volumes
+              - "{{job.parameters.clean_volumes}}"
+              - --delete_models
+              - "{{job.parameters.delete_models}}"
+              - --model_name_prefix
+              - "{{job.parameters.model_name_prefix}}"
+              - --allowlist_tables_json
+              - "{{job.parameters.allowlist_tables_json}}"
+          job_cluster_key: single_node
+
+      job_clusters:
+        - job_cluster_key: single_node
+          new_cluster:
+            spark_version: 15.4.x-cpu-ml-scala2.12
+            node_type_id: n2-standard-8
+            num_workers: 0
+            spark_conf:
+              spark.master: local[*, 4]
+              spark.databricks.cluster.profile: singleNode
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+
+      parameters:
+        - name: DB_workspace
+          default: ${var.DB_workspace}
+        - name: databricks_institution_name
+          default: ${var.databricks_institution_name}
+        - name: retention_days
+          default: "0"            # set to "30" for a 30-day retention window
+        - name: dry_run
+          default: "true"         # first pass: preview only
+        - name: clean_volumes
+          default: "true"         # also remove files in Volumes
+        - name: delete_models
+          default: "true"        # on by default
+        - name: model_name_prefix
+          default: "synthetic_"
+        - name: allowlist_tables_json
+          default: "[]"
+
+      permissions:
+        - group_name: ${var.datakind_group_to_manage_workflow}
+          level: CAN_MANAGE
+        - user_name: ${var.service_account_executer}
+          level: CAN_MANAGE_RUN
