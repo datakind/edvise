@@ -66,7 +66,7 @@ jobs:
             --var="end_user_notification_email=$END_USER_EMAIL" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
             --var="custom_schemas_path=$SCHEMAS_PATH" \
-            --var="git_ref=${{ github.sha }}"
+            --var="git_commit=${{ github.sha }}"
 
       - name: TRAIN (Dev)
         run: |

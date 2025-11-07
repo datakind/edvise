@@ -72,7 +72,7 @@ jobs:
         run: |
           databricks bundle deploy \
             --target=dev \
-            --var "git_ref=${GITHUB_SHA}" \
+            --var "git_commit=${GITHUB_SHA}" \
             --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$DS_RUN_AS" \
@@ -87,7 +87,7 @@ jobs:
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
           databricks bundle run github_sourced_pdp_training_pipeline --target dev \
-            --var "git_ref=${GITHUB_SHA}" \
+            --var "git_commit=${GITHUB_SHA}" \
             --var "DB_workspace=${{ secrets.DEV_DB_WORKSPACE }}" \
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
             --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
@@ -104,7 +104,7 @@ jobs:
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
           databricks bundle run edvise_github_sourced_pdp_inference_pipeline --target dev \
-            --var "git_ref=${GITHUB_SHA}" \
+            --var "git_commit=${GITHUB_SHA}" \
             --var "DB_workspace=${{ secrets.DEV_DB_WORKSPACE }}" \
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
             --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
