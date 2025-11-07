@@ -70,7 +70,7 @@ jobs:
 
       - name: TRAIN (Dev)
         run: |
-          databricks bundle run github_sourced_pdp_training_pipeline --target dev \
+          databricks bundle run github_sourced_pdp_training_pipeline --target prod \
             --params-json '{
               "config_file_name": "'"$CONFIG_FILE"'",
               "job_type": "training",
@@ -79,7 +79,7 @@ jobs:
 
       - name: INFER (Dev)
         run: |
-          databricks bundle run edvise_github_sourced_pdp_inference_pipeline --target dev \
+          databricks bundle run edvise_github_sourced_pdp_inference_pipeline --target prod \
             --params-json '{
               "config_file_name": "'"$CONFIG_FILE"'",
               "job_type": "inference",

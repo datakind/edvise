@@ -11,7 +11,7 @@ variables:
     description: "Commit SHA to fetch (dev/CI)"
     default: ""
   git_tag:
-    description: "Release tag to fetch (prod)"
+    description: "Release tag to fetch for deployment (prod)"
     default: ""
   DB_workspace:
     description: "Databricks workspace"
@@ -36,7 +36,7 @@ targets:
   dev:
     mode: development
     variables:
-      git_commit: ${bundle.git.commit}    # default to current commit on CI runs
+      git_commit: ${bundle.git.commit}
       DB_workspace: "dev_sst_02"
       databricks_institution_name: "synthetic"
     resources:
@@ -45,18 +45,18 @@ targets:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
-            git_commit: ${var.git_commit}   # ONLY commit in dev
+            git_commit: ${var.git_commit}
         edvise_github_sourced_pdp_inference_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
-            git_commit: ${var.git_commit}   # ONLY commit in dev
+            git_commit: ${var.git_commit}
     default: true
 
   prod:
     mode: production
     variables:
-      git_tag: ${bundle.git.tag}           # default to current tag on release
+      git_tag: ${bundle.git.tag}
       DB_workspace: "staging_sst_01"
     resources:
       jobs:
@@ -64,11 +64,11 @@ targets:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
-            git_tag: ${var.git_tag}        # ONLY tag in prod
+            git_tag: ${var.git_tag}
         edvise_github_sourced_pdp_inference_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
-            git_tag: ${var.git_tag}        # ONLY tag in prod
+            git_tag: ${var.git_tag}
     workspace:
       root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
