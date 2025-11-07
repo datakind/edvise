@@ -7,6 +7,12 @@ include:
   - resources/github_pdp_inference.yml
 
 variables:
+  git_commit:
+    description: "Commit SHA to fetch (dev/CI)"
+    default: ""
+  git_tag:
+    description: "Release tag to fetch (prod)"
+    default: ""
   DB_workspace:
     description: "Databricks workspace"
   datakind_notification_email:
