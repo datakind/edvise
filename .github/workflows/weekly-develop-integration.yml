@@ -99,8 +99,8 @@ jobs:
       - name: INFER (Dev – develop-health-check)
         working-directory: pipelines/pdp
         env:
-          DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
-          DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
           databricks bundle run edvise_github_sourced_pdp_inference_pipeline --target dev \
@@ -110,7 +110,10 @@ jobs:
             --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
             --var "datakind_group_to_manage_workflow=${{ secrets.GROUP_TO_MANAGE }}" \
             --var "databricks_institution_name=synthetic" \
-            --var "model_name=synthetic_retention_2_year_time_first_within_cohort" \
-            --var "model_type=h2o" \
             --var "datakind_notification_email=${{ secrets.DEV_DATAKIND_EMAIL }}" \
-            --params config_file_name="$CONFIG_FILE",job_type=inference,db_run_id="${DB_RUN_ID_PREFIX}-inference"
+            --params \
+              model_name=synthetic_retention_2_year_time_first_within_cohort,\
+              model_type=h2o,\
+              config_file_name="$CONFIG_FILE",\
+              job_type=inference,\
+              db_run_id="${DB_RUN_ID_PREFIX}-inference"
