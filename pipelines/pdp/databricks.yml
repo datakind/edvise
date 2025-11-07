@@ -48,12 +48,12 @@ targets:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
-            git_commit: ${var.git_commit}    # no git_tag here
+            git_commit: ${var.git_ref}    # no git_tag here
         edvise_github_sourced_pdp_inference_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
-            git_commit: ${var.git_commit}    # no git_tag here
+            git_commit: ${var.git_ref}    # no git_tag here
     default: true
   prod:
     mode: production
