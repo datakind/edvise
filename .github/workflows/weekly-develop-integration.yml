@@ -82,8 +82,9 @@ jobs:
       - name: TRAIN (Dev – develop-health-check)
         working-directory: pipelines/pdp
         env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_DEV_TOKEN }}
+          DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
           databricks bundle run github_sourced_pdp_training_pipeline --target dev \
             --params config_file_name="$CONFIG_FILE",job_type=training,db_run_id="${DB_RUN_ID_PREFIX}-train"
@@ -92,8 +93,9 @@ jobs:
       - name: INFER (Dev – develop-health-check)
         working-directory: pipelines/pdp
         env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
-          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_DEV_TOKEN }}
+          DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
           databricks bundle run edvise_github_sourced_pdp_inference_pipeline --target dev \
           --params config_file_name="$CONFIG_FILE",job_type=inference,db_run_id="${DB_RUN_ID_PREFIX}-infer"
