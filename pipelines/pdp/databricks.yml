@@ -18,7 +18,7 @@ variables:
   datakind_notification_email:
     description: "Datakind address used to send email notifications"
     default: ""
-  DK_CC_email:
+  DK_CC_EMAIL:
     description: "Datakind address used to CC email notifications"
     default: ""
   service_account_executer:
