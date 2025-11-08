@@ -14,7 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with: { ref: develop, fetch-depth: 0 }
+        with:
+          # On the cron, test develop; on push/dispatch, use the current ref
+          ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref_name }}
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with: { python-version: "3.11.11" }
