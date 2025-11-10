@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "0 17 * * 1"  # Mondays at noon EST (17:00 UTC)
   workflow_dispatch: {}
+  push:
+    branches:
+      - feature/ci_cd_github_actions
 
 concurrency:
   group: weekly-develop-integration

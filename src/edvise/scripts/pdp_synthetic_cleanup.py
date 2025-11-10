@@ -21,6 +21,7 @@ from mlflow.tracking import MlflowClient
 # Utilities & helpers
 # -------------------------
 
+
 def log(msg: str) -> None:
     print(f"[cleanup] {msg}", flush=True)
 
@@ -34,6 +35,7 @@ def to_bool(s: str | bool) -> bool:
 def path_exists(spark: SparkSession, path: str) -> bool:
     """Return True if the given DBFS/Volumes path exists."""
     from pyspark.dbutils import DBUtils  # type: ignore
+
     dbutils = DBUtils(spark)
     try:
         dbutils.fs.ls(path)
@@ -45,6 +47,7 @@ def path_exists(spark: SparkSession, path: str) -> bool:
 def list_dir(spark: SparkSession, path: str) -> list[str]:
     """List immediate children (paths) under a DBFS/Volumes directory."""
     from pyspark.dbutils import DBUtils  # type: ignore
+
     dbutils = DBUtils(spark)
     try:
         entries = dbutils.fs.ls(path)
@@ -61,9 +64,7 @@ def list_tables_in_schema(spark: SparkSession, fq_schema: str) -> list[str]:
     return [f"{fq_schema}.{r['tableName']}" for r in rows]
 
 
-def list_tables_older_than(
-    spark: SparkSession, fq_schema: str, days: int
-) -> list[str]:
+def list_tables_older_than(spark: SparkSession, fq_schema: str, days: int) -> list[str]:
     """
     Return fully-qualified table names in `fq_schema` filtered by creation time if available.
     If information_schema isn't accessible, fall back to returning all tables in the schema.
@@ -103,12 +104,14 @@ def drop_table(spark: SparkSession, fqtn: str, dry_run: bool) -> None:
 def rm_path(spark: SparkSession, path: str, recurse: bool, dry_run: bool) -> None:
     """Remove a path (file or directory). Does NOT check existence beforehand."""
     from pyspark.dbutils import DBUtils  # type: ignore
+
     dbutils = DBUtils(spark)
     if dry_run:
         log(f"DRY-RUN: dbutils.fs.rm('{path}', recurse={recurse})")
     else:
         log(f"EXEC: dbutils.fs.rm('{path}', recurse={recurse})")
         dbutils.fs.rm(path, recurse=recurse)
+
 
 # --- UC-safe model deletion (replaces stage transition logic) ---
 def delete_uc_model_completely(client: MlflowClient, name: str, dry_run: bool) -> None:
@@ -118,6 +121,7 @@ def delete_uc_model_completely(client: MlflowClient, name: str, dry_run: bool) -
       - delete all versions
       - delete the registered model
     """
+
     def _log(msg: str) -> None:
         print(f"[cleanup] {msg}", flush=True)
 
@@ -132,7 +136,9 @@ def delete_uc_model_completely(client: MlflowClient, name: str, dry_run: bool) -
     aliases = getattr(rm, "aliases", None)
     if aliases:
         for alias, ver in list(aliases.items()):
-            _log(f"{'DRY-RUN' if dry_run else 'DELETE'} alias: {name}@{alias} -> v{ver}")
+            _log(
+                f"{'DRY-RUN' if dry_run else 'DELETE'} alias: {name}@{alias} -> v{ver}"
+            )
             if not dry_run:
                 # MLflow >= 2.9
                 try:
@@ -164,16 +170,25 @@ def delete_uc_model_completely(client: MlflowClient, name: str, dry_run: bool) -
             _log(f"Warn: delete_registered_model failed for {name}: {e}")
 
 
-
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Cleanup synthetic UC tables & volumes")
-    p.add_argument("--DB_workspace", default="dev_sst_02", required=True, help="UC catalog (e.g., dev_sst_02)")
     p.add_argument(
-        "--databricks_institution_name", default="synthetic_integration", required=True, help="Institution slug (e.g., synthetic)"
+        "--DB_workspace",
+        default="dev_sst_02",
+        required=True,
+        help="UC catalog (e.g., dev_sst_02)",
     )
     p.add_argument(
-        "--retention_days", type=int, default=0,
-        help="Only drop tables older than N days (via information_schema if available); 0 = drop all"
+        "--databricks_institution_name",
+        default="synthetic_integration",
+        required=True,
+        help="Institution slug (e.g., synthetic)",
+    )
+    p.add_argument(
+        "--retention_days",
+        type=int,
+        default=0,
+        help="Only drop tables older than N days (via information_schema if available); 0 = drop all",
     )
     p.add_argument("--dry_run", type=str, default="true", help="true/false")
     p.add_argument("--clean_volumes", type=str, default="true", help="true/false")
@@ -222,7 +237,9 @@ if __name__ == "__main__":
 
     for fq_schema in schemas:
         log(f"Scanning schema: {fq_schema}")
-        candidates: list[str] = list_tables_older_than(spark, fq_schema, args.retention_days)
+        candidates: list[str] = list_tables_older_than(
+            spark, fq_schema, args.retention_days
+        )
         for fqtn in sorted(set(candidates)):
             if fqtn in allowlist:
                 log(f"SKIP allowlisted: {fqtn}")
@@ -238,7 +255,9 @@ if __name__ == "__main__":
             if not children:
                 log(f"Silver volume is already empty: {silver_root}")
             for child in children:
-                rm_path(spark, child, recurse=True, dry_run=dry_run)  # deletes child + contents
+                rm_path(
+                    spark, child, recurse=True, dry_run=dry_run
+                )  # deletes child + contents
         else:
             log(f"SKIP (not found): {silver_root}")
 
