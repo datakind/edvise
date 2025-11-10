@@ -113,9 +113,9 @@ def rm_path(spark: SparkSession, path: str, recurse: bool, dry_run: bool) -> Non
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Cleanup synthetic UC tables & volumes")
-    p.add_argument("--DB_workspace", required=True, help="UC catalog (e.g., dev_sst_02)")
+    p.add_argument("--DB_workspace", default="dev_sst_02", required=True, help="UC catalog (e.g., dev_sst_02)")
     p.add_argument(
-        "--databricks_institution_name", required=True, help="Institution slug (e.g., synthetic)"
+        "--databricks_institution_name", default="synthetic_integration", required=True, help="Institution slug (e.g., synthetic)"
     )
     p.add_argument(
         "--retention_days", type=int, default=0,
@@ -124,11 +124,6 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dry_run", type=str, default="true", help="true/false")
     p.add_argument("--clean_volumes", type=str, default="true", help="true/false")
     p.add_argument("--delete_models", type=str, default="false", help="true/false")
-    p.add_argument("--model_name_prefix", type=str, default="synthetic_integration_", help="prefix for model deletion")
-    p.add_argument(
-        "--allowlist_tables_json", type=str, default="[]",
-        help="JSON list of fully qualified tables to KEEP (never drop)"
-    )
     return p.parse_args()
 
 
@@ -217,7 +212,7 @@ if __name__ == "__main__":
             found_any = False
             for rm in client.search_registered_models():
                 name: str = rm.name
-                if name.startswith(args.model_name_prefix):
+                if name.startswith(f"{catalog}.{inst}_gold.{inst}"):
                     found_any = True
                     log(f"{'DRY-RUN' if dry_run else 'DELETE'} model: {name}")
                     if not dry_run:
@@ -234,7 +229,7 @@ if __name__ == "__main__":
                         # Delete the registered model
                         client.delete_registered_model(name)
             if not found_any:
-                log(f"No registered models found with prefix '{args.model_name_prefix}'.")
+                log(f"No registered models found with prefix '{inst}'.")
         except Exception as e:
             log(f"Model deletion skipped due to error: {e}")
 

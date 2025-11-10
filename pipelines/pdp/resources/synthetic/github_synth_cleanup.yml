@@ -72,8 +72,6 @@ resources:
           default: "false"
         - name: model_name_prefix
           default: "synthetic_integration_"
-        - name: allowlist_tables_json
-          default: "[]"
 
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
