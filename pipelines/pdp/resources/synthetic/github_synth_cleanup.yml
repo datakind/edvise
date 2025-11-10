@@ -13,7 +13,7 @@ resources:
 
       tasks:
         - task_key: cleanup
-          job_cluster_key: cleanup-jn
+          job_cluster_key: edvise-synthetic-cleanup-pipeline-cluster
           spark_python_task:
             source: GIT
             python_file: src/edvise/scripts/cleanup_synthetic.py
