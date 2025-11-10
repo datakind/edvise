@@ -80,15 +80,15 @@ def drop_table(spark: SparkSession, fqtn: str, dry_run: bool) -> None:
         spark.sql(cmd)
 
 
-def rm_path(spark: SparkSession, path: str, recursive: bool, dry_run: bool) -> None:
+def rm_path(spark: SparkSession, path: str, recurse: bool, dry_run: bool) -> None:
     from pyspark.dbutils import DBUtils  # type: ignore
 
     dbutils = DBUtils(spark)
     if dry_run:
-        log(f"DRY-RUN: dbutils.fs.rm('{path}', recursive={recursive})")
+        log(f"DRY-RUN: dbutils.fs.rm('{path}', recurse={recurse})")
     else:
-        log(f"EXEC: dbutils.fs.rm('{path}', recursive={recursive})")
-        dbutils.fs.rm(path, recursive=recursive)
+        log(f"EXEC: dbutils.fs.rm('{path}', recurse={recurse})")
+        dbutils.fs.rm(path, recurse=recurse)
 
 
 def parse_args() -> argparse.Namespace:
@@ -183,7 +183,7 @@ if __name__ == "__main__":
             f"/Volumes/{catalog}/{inst}_gold/gold_volume/model_cards",
         ]
         for p in volume_paths:
-            rm_path(spark, p, recursive=True, dry_run=dry_run)
+            rm_path(spark, p, recurse=True, dry_run=dry_run)
 
     # 3) (Optional) Delete registered models by prefix (dangerous; off by default)
     if delete_models and mlflow is not None and MlflowClient is not None:
