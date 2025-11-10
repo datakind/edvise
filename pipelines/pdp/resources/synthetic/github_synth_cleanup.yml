@@ -36,19 +36,25 @@ resources:
               - "{{job.parameters.allowlist_tables_json}}"
 
       job_clusters:
-        - job_cluster_key: cleanup-jn
+        - job_cluster_key: edvise-synthetic-cleanup-pipeline-cluster
           new_cluster:
-            num_workers: 0
-            node_type_id: n2-standard-4
+            cluster_name: ""
             spark_version: 15.4.x-cpu-ml-scala2.12
-            data_security_mode: SINGLE_USER
-            single_user_name: ${var.service_account_executer}
-            autotermination_minutes: 15
             spark_conf:
+              spark.master: local[*, 4]
               spark.databricks.cluster.profile: singleNode
-              spark.master: local[*]
+            gcp_attributes:
+              use_preemptible_executors: false
+              availability: ON_DEMAND_GCP
+              zone_id: HA
+            node_type_id: n2-standard-16
             custom_tags:
-              ResourceClass: SingleNode      
+              ResourceClass: SingleNode
+              x-databricks-nextgen-cluster: "true"
+            enable_elastic_disk: true
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            num_workers: 0
             
 
       parameters:
