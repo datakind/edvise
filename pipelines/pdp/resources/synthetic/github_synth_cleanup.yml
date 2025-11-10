@@ -30,10 +30,6 @@ resources:
               - "{{job.parameters.clean_volumes}}"
               - --delete_models
               - "{{job.parameters.delete_models}}"
-              - --model_name_prefix
-              - "{{job.parameters.model_name_prefix}}"
-              - --allowlist_tables_json
-              - "{{job.parameters.allowlist_tables_json}}"
 
       job_clusters:
         - job_cluster_key: edvise-synthetic-cleanup-pipeline-cluster
