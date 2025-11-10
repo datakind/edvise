@@ -49,13 +49,13 @@ jobs:
             --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
             --var "datakind_group_to_manage_workflow=${{ secrets.GROUP_TO_MANAGE }}"
 
-        - name: CLEANUP
-          working-directory: pipelines/pdp
-          env:
-            DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
-            DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
-            DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
-          run: |
-            databricks bundle run edvise_cleanup_synthetic --target dev \
-              --var "datakind_group_to_manage_workflow=${{ secrets.GROUP_TO_MANAGE }}" \
-              --params dry_run=true,retention_days=0,databricks_institution_name=synthetic_integration
+      - name: CLEANUP
+        working-directory: pipelines/pdp
+        env:
+          DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
+        run: |
+          databricks bundle run edvise_cleanup_synthetic --target dev \
+            --var "datakind_group_to_manage_workflow=${{ secrets.GROUP_TO_MANAGE }}" \
+            --params dry_run=true,retention_days=0,databricks_institution_name=synthetic_integration
