@@ -110,6 +110,60 @@ def rm_path(spark: SparkSession, path: str, recurse: bool, dry_run: bool) -> Non
         log(f"EXEC: dbutils.fs.rm('{path}', recurse={recurse})")
         dbutils.fs.rm(path, recurse=recurse)
 
+# --- UC-safe model deletion (replaces stage transition logic) ---
+def delete_uc_model_completely(client: MlflowClient, name: str, dry_run: bool) -> None:
+    """
+    Delete a UC-registered model:
+      - remove any aliases
+      - delete all versions
+      - delete the registered model
+    """
+    def _log(msg: str) -> None:
+        print(f"[cleanup] {msg}", flush=True)
+
+    try:
+        rm = client.get_registered_model(name)
+    except Exception as e:
+        _log(f"Skip (cannot load model '{name}'): {e}")
+        return
+
+    # 1) Remove aliases (if the SDK exposes them)
+    # MLflow >= 2.9: RegisteredModel has `aliases` (dict[str, str]) mapping alias -> version
+    aliases = getattr(rm, "aliases", None)
+    if aliases:
+        for alias, ver in list(aliases.items()):
+            _log(f"{'DRY-RUN' if dry_run else 'DELETE'} alias: {name}@{alias} -> v{ver}")
+            if not dry_run:
+                # MLflow >= 2.9
+                try:
+                    client.delete_registered_model_alias(name, alias)
+                except Exception as e:
+                    _log(f"Warn: failed to delete alias {alias} for {name}: {e}")
+
+    # 2) Delete all versions
+    try:
+        versions = list(client.search_model_versions(f"name='{name}'"))
+    except Exception as e:
+        _log(f"Warn: cannot list versions for {name}: {e}")
+        versions = []
+
+    for v in versions:
+        _log(f"{'DRY-RUN' if dry_run else 'DELETE'} model version: {name} v{v.version}")
+        if not dry_run:
+            try:
+                client.delete_model_version(name, v.version)
+            except Exception as e:
+                _log(f"Warn: delete_model_version failed for {name} v{v.version}: {e}")
+
+    # 3) Delete the registered model
+    _log(f"{'DRY-RUN' if dry_run else 'DELETE'} registered model: {name}")
+    if not dry_run:
+        try:
+            client.delete_registered_model(name)
+        except Exception as e:
+            _log(f"Warn: delete_registered_model failed for {name}: {e}")
+
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Cleanup synthetic UC tables & volumes")
@@ -203,34 +257,16 @@ if __name__ == "__main__":
         else:
             log(f"SKIP (not found): {gold_root}")
 
-    # 3) (Optional) Delete models by prefix (dangerous; off by default)
-    if delete_models:
-        try:
-            # In Databricks jobs, tracking URI is preconfigured. If not, you can set:
-            # mlflow.set_tracking_uri("databricks")
-            client: MlflowClient = MlflowClient()
-            found_any = False
-            for rm in client.search_registered_models():
-                name: str = rm.name
-                if name.startswith(f"{catalog}.{inst}_gold.{inst}"):
-                    found_any = True
-                    log(f"{'DRY-RUN' if dry_run else 'DELETE'} model: {name}")
-                    if not dry_run:
-                        # Delete versions first (archive stage to be safe)
-                        for v in client.search_model_versions(f"name='{name}'"):
-                            try:
-                                client.transition_model_version_stage(name, v.version, stage="Archived")
-                            except Exception as e:
-                                log(f"Warn: transition stage failed for {name} v{v.version}: {e}")
-                            try:
-                                client.delete_model_version(name, v.version)
-                            except Exception as e:
-                                log(f"Warn: delete version failed for {name} v{v.version}: {e}")
-                        # Delete the registered model
-                        client.delete_registered_model(name)
-            if not found_any:
-                log(f"No registered models found with prefix '{inst}'.")
-        except Exception as e:
-            log(f"Model deletion skipped due to error: {e}")
+        # 3) (Optional) Delete models by prefix (dangerous; off by default)
+        if delete_models:
+            try:
+                client = MlflowClient()
+                for rm in client.search_registered_models():
+                    name = rm.name  # In UC this is "<catalog>.<schema>.<model_name>"
+                    if name.startswith(f"{catalog}.{inst}_gold.{inst}"):
+                        log(f"DELETE model: {name}")
+                        delete_uc_model_completely(client, name, dry_run)
+            except Exception as e:
+                log(f"Model deletion skipped due to error: {e}")
 
     log("Cleanup complete" + (" (dry-run)" if dry_run else ""))
