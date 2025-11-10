@@ -193,6 +193,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--dry_run", type=str, default="true", help="true/false")
     p.add_argument("--clean_volumes", type=str, default="true", help="true/false")
     p.add_argument("--delete_models", type=str, default="false", help="true/false")
+    p.add_argument("--delete_experiments", type=str, default="false", help="true/false")
     return p.parse_args()
 
 
@@ -246,7 +247,7 @@ if __name__ == "__main__":
                 continue
             drop_table(spark, fqtn, dry_run)
 
-    # 2) Clean Volumes (optional)
+    # 2) (Optional) Clean Volumes
     if clean_volumes:
         # SILVER: delete each immediate subfolder (UUID run IDs, logs, parquet batches) entirely
         silver_root = f"/Volumes/{catalog}/{inst}_silver/silver_volume"
@@ -276,16 +277,81 @@ if __name__ == "__main__":
         else:
             log(f"SKIP (not found): {gold_root}")
 
-        # 3) (Optional) Delete models by prefix (dangerous; off by default)
-        if delete_models:
-            try:
-                client = MlflowClient()
-                for rm in client.search_registered_models():
-                    name = rm.name  # In UC this is "<catalog>.<schema>.<model_name>"
-                    if name.startswith(f"{catalog}.{inst}_gold.{inst}"):
-                        log(f"DELETE model: {name}")
-                        delete_uc_model_completely(client, name, dry_run)
-            except Exception as e:
-                log(f"Model deletion skipped due to error: {e}")
+    # 3) (Optional) Delete models by prefix (dangerous; off by default)
+    if delete_models:
+        try:
+            client = MlflowClient()
+            for rm in client.search_registered_models():
+                name = rm.name  # In UC this is "<catalog>.<schema>.<model_name>"
+                if name.startswith(f"{catalog}.{inst}_gold.{inst}"):
+                    log(f"DELETE model: {name}")
+                    delete_uc_model_completely(client, name, dry_run)
+        except Exception as e:
+            log(f"Model deletion skipped due to error: {e}")
+
+    # 4) (Optional) Delete experiments by prefix
+
+    delete_experiments: bool = to_bool(getattr(args, "delete_experiments", "false"))
+
+    if delete_experiments and mlflow is not None and MlflowClient is not None:
+        try:
+            client = MlflowClient()
+            contains = (args.experiment_name_contains or "").lower()
+            now_millis_utc = int(datetime.now(timezone.utc).timestamp() * 1000)
+            cutoff_ms = now_millis_utc - (args.experiment_retention_days * 24 * 60 * 60 * 1000)
+
+            # List experiments (Mlflow may return many; Databricks caps page size—client handles paging)
+            exps = client.search_experiments()  # type: ignore[attr-defined]  # Databricks supports this
+
+            for exp in exps:
+                name = (exp.name or "")
+                if contains not in name.lower():
+                    continue
+
+                log(f"Scanning experiment: {name} (id={exp.experiment_id})")
+
+                # Delete old runs first
+                try:
+                    # Filter on attributes.start_time (ms since epoch)
+                    runs = client.search_runs(
+                        [exp.experiment_id],
+                        filter_string=f"attributes.start_time < {cutoff_ms}",
+                        max_results=10000,
+                    )
+                except Exception:
+                    # Fallback: list without filter, then filter in client
+                    runs = client.search_runs([exp.experiment_id], max_results=10000)
+                    runs = [r for r in runs if r.info.start_time and r.info.start_time < cutoff_ms]
+
+                if not runs:
+                    log(f"No runs older than {args.experiment_retention_days}d in: {name}")
+                for r in runs:
+                    if dry_run:
+                        log(f"DRY-RUN: delete run {r.info.run_id} in {name}")
+                    else:
+                        try:
+                            client.delete_run(r.info.run_id)
+                        except Exception as e:
+                            log(f"Warn: delete_run failed for {r.info.run_id}: {e}")
+
+                # If the experiment has no remaining runs, optionally delete the experiment
+                try:
+                    remaining = client.search_runs([exp.experiment_id], max_results=1)
+                except Exception:
+                    remaining = []
+                if not remaining:
+                    if dry_run:
+                        log(f"DRY-RUN: delete experiment {name} (id={exp.experiment_id})")
+                    else:
+                        try:
+                            # Soft delete
+                            client.delete_experiment(exp.experiment_id)
+                            log(f"Deleted experiment: {name} (soft)")
+                        except Exception as e:
+                            log(f"Warn: delete_experiment failed for {name}: {e}")
+
+        except Exception as e:
+            log(f"Experiment cleanup skipped due to error: {e}")
+
 
     log("Cleanup complete" + (" (dry-run)" if dry_run else ""))

@@ -30,6 +30,8 @@ resources:
               - "{{job.parameters.clean_volumes}}"
               - --delete_models
               - "{{job.parameters.delete_models}}"
+              - --delete_experiments
+              - "{{job.parameters.delete_experiments}}"
 
       job_clusters:
         - job_cluster_key: edvise-synthetic-cleanup-pipeline-cluster
@@ -66,8 +68,8 @@ resources:
           default: "true"
         - name: delete_models
           default: "false"
-        - name: model_name_prefix
-          default: "synthetic_integration_"
+        - name: delete_experiments
+          default: "false"
 
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
