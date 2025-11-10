@@ -57,5 +57,11 @@ jobs:
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
           databricks bundle run edvise_cleanup_synthetic --target dev \
+            --var "git_commit=${GITHUB_SHA}" \
+            --var "DB_workspace=${{ secrets.DEV_DB_WORKSPACE }}" \
+            --var "databricks_institution_name=synthetic_integration" \
+            --var "datakind_notification_email=${{ secrets.DATAKIND_EMAIL }}" \
+            --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
+            --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
             --var "datakind_group_to_manage_workflow=${{ secrets.GROUP_TO_MANAGE }}" \
             --params dry_run=true,retention_days=0,databricks_institution_name=synthetic_integration
