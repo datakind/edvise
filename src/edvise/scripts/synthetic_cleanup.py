@@ -43,7 +43,7 @@ def list_tables_older_than(
         df = spark.sql(q)
         if days <= 0:
             return [t["fqtn"] for t in df.select("fqtn").collect()]
-        cutoff = datetime.utcnow() - timedelta(days=days)
+        cutoff = datetime.datetime.now(datetime.UTC) - timedelta(days=days)
         return [
             r["fqtn"] for r in df.collect() if r["created"] and r["created"] < cutoff
         ]
@@ -159,10 +159,9 @@ if __name__ == "__main__":
     # 2) Clean Volumes (optional)
     if clean_volumes:
         volume_paths: t.List[str] = [
-            f"/Volumes/{catalog}/{inst}_bronze/bronze_volume",
             f"/Volumes/{catalog}/{inst}_silver/silver_volume",
             f"/Volumes/{catalog}/{inst}_gold/gold_volume/inference_jobs",
-            f"/Volumes/{catalog}/{inst}_gold/gold_volume/training_jobs",
+            f"/Volumes/{catalog}/{inst}_gold/gold_volume/model_cards",
         ]
         for p in volume_paths:
             rm_path(spark, p, recursive=True, dry_run=dry_run)
