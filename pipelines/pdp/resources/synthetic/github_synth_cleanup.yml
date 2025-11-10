@@ -16,7 +16,7 @@ resources:
           job_cluster_key: edvise-synthetic-cleanup-pipeline-cluster
           spark_python_task:
             source: GIT
-            python_file: src/edvise/scripts/cleanup_synthetic.py
+            python_file: src/edvise/scripts/pdp_synthetic_cleanup.py
             parameters:
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
