@@ -303,7 +303,7 @@ if __name__ == "__main__":
             exps = client.search_experiments()  # type: ignore[attr-defined]  # Databricks supports this
 
             for exp in exps:
-                name = (exp.name or "")
+                name = exp.name or ""
                 if inst not in name.lower():
                     continue
 
@@ -320,7 +320,11 @@ if __name__ == "__main__":
                 except Exception:
                     # Fallback: list without filter, then filter in client
                     runs = client.search_runs([exp.experiment_id], max_results=10000)
-                    runs = [r for r in runs if r.info.start_time and r.info.start_time < cutoff_ms]
+                    runs = [
+                        r
+                        for r in runs
+                        if r.info.start_time and r.info.start_time < cutoff_ms
+                    ]
 
                 if not runs:
                     log(f"No runs older than {args.retention_days}d in: {name}")
@@ -340,7 +344,9 @@ if __name__ == "__main__":
                     remaining = []
                 if not remaining:
                     if dry_run:
-                        log(f"DRY-RUN: delete experiment {name} (id={exp.experiment_id})")
+                        log(
+                            f"DRY-RUN: delete experiment {name} (id={exp.experiment_id})"
+                        )
                     else:
                         try:
                             # Soft delete
@@ -351,6 +357,5 @@ if __name__ == "__main__":
 
         except Exception as e:
             log(f"Experiment cleanup skipped due to error: {e}")
-
 
     log("Cleanup complete" + (" (dry-run)" if dry_run else ""))
