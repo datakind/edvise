@@ -296,16 +296,15 @@ if __name__ == "__main__":
     if delete_experiments and mlflow is not None and MlflowClient is not None:
         try:
             client = MlflowClient()
-            contains = (args.experiment_name_contains or "").lower()
             now_millis_utc = int(datetime.now(timezone.utc).timestamp() * 1000)
-            cutoff_ms = now_millis_utc - (args.experiment_retention_days * 24 * 60 * 60 * 1000)
+            cutoff_ms = now_millis_utc - (args.retention_days * 24 * 60 * 60 * 1000)
 
             # List experiments (Mlflow may return many; Databricks caps page size—client handles paging)
             exps = client.search_experiments()  # type: ignore[attr-defined]  # Databricks supports this
 
             for exp in exps:
                 name = (exp.name or "")
-                if contains not in name.lower():
+                if inst not in name.lower():
                     continue
 
                 log(f"Scanning experiment: {name} (id={exp.experiment_id})")
@@ -324,7 +323,7 @@ if __name__ == "__main__":
                     runs = [r for r in runs if r.info.start_time and r.info.start_time < cutoff_ms]
 
                 if not runs:
-                    log(f"No runs older than {args.experiment_retention_days}d in: {name}")
+                    log(f"No runs older than {args.retention_days}d in: {name}")
                 for r in runs:
                     if dry_run:
                         log(f"DRY-RUN: delete run {r.info.run_id} in {name}")
