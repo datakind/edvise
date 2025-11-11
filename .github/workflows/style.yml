@@ -3,16 +3,55 @@ name: style
 on:
   pull_request:  # any pull request
 
+permissions:
+  contents: read
+  pull-requests: write  # lets the checker leave review comments
+
 jobs:
-  style:
+  semantic-pr:
+    name: PR title follows Conventional Commits
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' }}
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        with:
+          # Validate only the PR title (since we squash-merge)
+          titleOnly: true
+          validateSingleCommit: false
+          # The types we accept
+          types: |
+            feat
+            fix
+            chore
+            docs
+            refactor
+            test
+            ci
+            perf
+            build
+            revert
+            style
+          # Optional: enforce a scope
+          requireScope: false
+          # Optional: ignore release PRs, etc.
+          # ignoreLabels: |
+          #   release-please: pending
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  style:
+    name: Ruff style checks
+    runs-on: ubuntu-latest
+    needs: semantic-pr   # block style run if title isn't conventional
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
       - name: Set up Python environment
         uses: ./.github/actions/setup-python-env
         with:
           python-version: "3.10"
+
       - name: Get changed files
         id: changed-files
         uses: step-security/changed-files@v45.0.1
@@ -20,10 +59,12 @@ jobs:
           files: |
             **.py
             **.ipynb
+
       - name: Run linter
         if: steps.changed-files.outputs.any_changed == 'true'
         run: |
           uv tool run ruff check --diff ${{ steps.changed-files.outputs.all_changed_files }}
+
       - name: Run formatter
         if: steps.changed-files.outputs.any_changed == 'true'
         run: |
