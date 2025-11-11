@@ -3,7 +3,7 @@ name: weekly-cleanup
 
 on:
   schedule:
-    - cron: "0 16 * * 1"  # Mondays at 11 AM EST (16:00 UTC)
+    - cron: "0 16 1-7 * 1"  # First Monday of every month at 16:00 UTC
   workflow_dispatch: {}
   push:
     branches:
@@ -63,4 +63,4 @@ jobs:
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
             --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
             --var "datakind_group_to_manage_workflow=${{ secrets.GROUP_TO_MANAGE }}" \
-            --params dry_run=false,delete_models=true,delete_experiments=true,retention_days=30,databricks_institution_name=synthetic_integration
+            --params dry_run=false,delete_models=true,delete_experiments=true,retention_days=0,databricks_institution_name=synthetic_integration
