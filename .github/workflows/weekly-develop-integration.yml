@@ -3,7 +3,7 @@ name: weekly-develop-integration
 on:
   # weekly health monitor for develop branch
   schedule:
-    - cron: "0 17 * * 1"  # Mondays at noon EST (17:00 UTC)
+    - cron: "10 17 * * 1"  # Mondays at noon EST (17:10 UTC)
   workflow_dispatch: {}
 
 concurrency:

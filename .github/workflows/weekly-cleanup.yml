@@ -3,11 +3,9 @@ name: weekly-cleanup
 
 on:
   schedule:
-    - cron: "0 16 1-7 * 1"  # First Monday of every month at 16:00 UTC
+    - cron: "10 16 1-7 * 1"  # First Monday of every month at 16:10 UTC
   workflow_dispatch: {}
-  push:
-    branches:
-      - feature/ci_cd_github_actions
+
 jobs:
   cleanup-synthetic:
     runs-on: ubuntu-latest
