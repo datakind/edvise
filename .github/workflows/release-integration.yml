@@ -1,13 +1,10 @@
 name: release-branch-ci-dev
 
 on:
-  # run when release branch is created from git flow
-  # push:
-  #   branches:
-  #     - 'release/*'
+  run when release branch is created from git flow
   push:
     branches:
-      - 'feature/ci_cd_github_actions'
+      - 'release/*'
 
 
 concurrency:
