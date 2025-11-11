@@ -81,16 +81,19 @@ targets:
     resources:
       jobs:
         github_sourced_pdp_training_pipeline:
+          id: 934241226133956
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_commit: ${var.git_commit}
         edvise_github_sourced_pdp_inference_pipeline:
+          id: 992358554912563
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_commit: ${var.git_commit}
         edvise_cleanup_synthetic:
+          id: 353949607924981
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
