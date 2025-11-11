@@ -31,7 +31,6 @@ jobs:
         with:
           python-version: "3.11.11"
 
-      # NEW CLI install (drop pip databricks-cli)
       - name: Install uv and Databricks CLI
         run: |
           python -m pip install --upgrade pip

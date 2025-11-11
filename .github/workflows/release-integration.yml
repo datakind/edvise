@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
-      CONFIG_FILE: prod_default.toml
+      CONFIG_FILE: config.toml
       DB_RUN_ID_PREFIX: rel-${{ github.sha }}
 
     steps:
@@ -33,7 +33,9 @@ jobs:
       - name: Install uv and Databricks CLI
         run: |
           python -m pip install --upgrade pip
-          pip install uv databricks-cli
+          pip install uv
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+          databricks -v
         shell: bash
 
       - name: Install project dependencies (uv)
@@ -42,7 +44,6 @@ jobs:
           uv pip install .
         shell: bash
 
-      # No 'auth login' needed with PAT in CI; set env and go
       - name: Configure Databricks env (Dev)
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
