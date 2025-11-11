@@ -5,11 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import typing as t
 from datetime import datetime, timedelta, timezone
 
-import os
-import sys
 
 from pyspark.sql import SparkSession
 
