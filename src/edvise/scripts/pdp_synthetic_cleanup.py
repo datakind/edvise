@@ -12,7 +12,7 @@ from pyspark.sql import SparkSession
 
 import mlflow
 from mlflow.tracking import MlflowClient
-from mlflow.entities import Run 
+from mlflow.entities import Run
 
 # -------------------------
 # Utilities & helpers
@@ -319,9 +319,14 @@ if __name__ == "__main__":
                     )
                 except Exception:
                     # Fallback: list without filter, then filter in client
-                    runs_unfiltered = client.search_runs([exp.experiment_id], max_results=10000)
-                    runs = [r for r in runs_unfiltered if r.info.start_time and r.info.start_time < cutoff_ms]
-
+                    runs_unfiltered = client.search_runs(
+                        [exp.experiment_id], max_results=10000
+                    )
+                    runs = [
+                        r
+                        for r in runs_unfiltered
+                        if r.info.start_time and r.info.start_time < cutoff_ms
+                    ]
 
                 if not runs:
                     log(f"No runs older than {args.retention_days}d in: {name}")
@@ -337,7 +342,9 @@ if __name__ == "__main__":
                 # If the experiment has no remaining runs, optionally delete the experiment
                 remaining: list[Run]
                 try:
-                    remaining = list(client.search_runs([exp.experiment_id], max_results=1))
+                    remaining = list(
+                        client.search_runs([exp.experiment_id], max_results=1)
+                    )
                 except Exception:
                     remaining = []
 
