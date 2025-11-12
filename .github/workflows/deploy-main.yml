@@ -2,9 +2,12 @@ name: deploy-main
 
 on:
   # deploy only when version tags are pushed
+  # push:
+  #   tags:
+  #     - 'v*'
   push:
-    tags:
-      - 'v*'
+    branches:
+      - 'feature/ci_cd_github_actions'
   # optional: allow ad-hoc runs from the UI (pick a tag or leave default)
   workflow_dispatch:
     inputs:
@@ -19,61 +22,61 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # PROD (staging-sst-01)
-  deploy-staging:
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
-    name: Deploy DAB to staging_sst_01 instance
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.ref || github.ref }}
+  # # PROD (staging-sst-01)
+  # deploy-staging:
+  #   if: ${{ startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' }}
+  #   name: Deploy DAB to staging_sst_01 instance
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 60
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #       with:
+  #         ref: ${{ inputs.ref || github.ref }}
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11.11'
+  #     - uses: actions/setup-python@v5
+  #       with:
+  #         python-version: '3.11.11'
 
-      - name: Install uv and Databricks CLI
-        run: |
-          python -m pip install --upgrade pip pipx
-          pipx ensurepath
-          pipx install uv
-          pipx install databricks
+  #     - name: Install uv and Databricks CLI
+  #       run: |
+  #         python -m pip install --upgrade pip pipx
+  #         pipx ensurepath
+  #         pipx install uv
+  #         pipx install databricks
 
-      - name: Install project dependencies (uv)
-        run: |
-          uv venv
-          uv pip install .
+  #     - name: Install project dependencies (uv)
+  #       run: |
+  #         uv venv
+  #         uv pip install .
 
-      - name: Authenticate Databricks (Prod/Staging workspace)
-        env:
-          DATABRICKS_HOST:   ${{ secrets.DATABRICKS_STAGING_HOST }}
-          DATABRICKS_ID:     ${{ secrets.STAGING_DB_CLIENT_ID }}
-          DATABRICKS_SECRET: ${{ secrets.STAGING_DB_SECRET }}
-        run: |
-          databricks auth login --host "$DATABRICKS_HOST" \
-            --client-id "$DATABRICKS_ID" --client-secret "$DATABRICKS_SECRET"
-          databricks auth validate
+  #     - name: Authenticate Databricks (Prod/Staging workspace)
+  #       env:
+  #         DATABRICKS_HOST:   ${{ secrets.DATABRICKS_STAGING_HOST }}
+  #         DATABRICKS_ID:     ${{ secrets.STAGING_DB_CLIENT_ID }}
+  #         DATABRICKS_SECRET: ${{ secrets.STAGING_DB_SECRET }}
+  #       run: |
+  #         databricks auth login --host "$DATABRICKS_HOST" \
+  #           --client-id "$DATABRICKS_ID" --client-secret "$DATABRICKS_SECRET"
+  #         databricks auth validate
 
-      - name: Deploy bundle (prod target → staging_sst_01)
-        env:
-          DB_WORKSPACE:         ${{ secrets.STAGING_DB_WORKSPACE }}
-          SA_EXECUTER:          ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
-          DS_RUN_AS:            ${{ secrets.STAGING_DS_RUN_AS }}
-          GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
-          DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
-        run: |
-          echo "Deploying DAB to prod for tag $GITHUB_REF_NAME..."
-          databricks bundle validate --target=prod
-          databricks bundle deploy \
-            --target=prod \
-            --var="DB_workspace=$DB_WORKSPACE" \
-            --var="service_account_executer=$SA_EXECUTER" \
-            --var="ds_run_as=$DS_RUN_AS" \
-            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
-            --var="datakind_notification_email=$DATAKIND_EMAIL" \
-            --var="git_tag=${GITHUB_REF_NAME}"
+  #     - name: Deploy bundle (prod target → staging_sst_01)
+  #       env:
+  #         DB_WORKSPACE:         ${{ secrets.STAGING_DB_WORKSPACE }}
+  #         SA_EXECUTER:          ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
+  #         DS_RUN_AS:            ${{ secrets.STAGING_DS_RUN_AS }}
+  #         GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
+  #         DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
+  #       run: |
+  #         echo "Deploying DAB to prod for tag $GITHUB_REF_NAME..."
+  #         databricks bundle validate --target=prod
+  #         databricks bundle deploy \
+  #           --target=prod \
+  #           --var="DB_workspace=$DB_WORKSPACE" \
+  #           --var="service_account_executer=$SA_EXECUTER" \
+  #           --var="ds_run_as=$DS_RUN_AS" \
+  #           --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+  #           --var="datakind_notification_email=$DATAKIND_EMAIL" \
+  #           --var="git_tag=${GITHUB_REF_NAME}"
 
   # DEV (dev-sst-02)
   deploy-dev:
@@ -120,8 +123,9 @@ jobs:
           DS_RUN_AS:            ${{ secrets.DEV_DS_RUN_AS }}
           GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
           DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
+          REF_NAME: v0.1.6
         run: |
-          echo "Deploying PROD target to dev_sst_02 for tag $GITHUB_REF_NAME..."
+          echo "Deploying PROD target to dev_sst_02 for tag $REF_NAME..."
           databricks bundle validate --target=prod
           databricks bundle deploy \
             --target=prod \
@@ -130,4 +134,4 @@ jobs:
             --var="ds_run_as=$DS_RUN_AS" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
-            --var="git_tag=${GITHUB_REF_NAME}"
+            --var="git_tag=${REF_NAME}"

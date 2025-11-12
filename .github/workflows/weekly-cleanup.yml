@@ -61,4 +61,4 @@ jobs:
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
             --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
             --var "datakind_group_to_manage_workflow=${{ secrets.GROUP_TO_MANAGE }}" \
-            --params dry_run=false,delete_models=true,delete_experiments=true,retention_days=0,databricks_institution_name=synthetic_integration
+            --params dry_run=false,delete_models=true,delete_experiments=true,retention_days=30,databricks_institution_name=synthetic_integration
