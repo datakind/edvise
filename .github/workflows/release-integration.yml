@@ -108,3 +108,4 @@ jobs:
             --var "datakind_notification_email=${{ secrets.DATAKIND_EMAIL }}" \
             --var "DK_CC_EMAIL=${{ secrets.DATAKIND_EMAIL }}" \
             --params "model_name=synthetic_integration_retention_2_year_time_first_within_cohort,model_type=h2o,config_file_name=${CONFIG_FILE},job_type=inference,db_run_id=${DB_RUN_ID_PREFIX}_inference"
+  
