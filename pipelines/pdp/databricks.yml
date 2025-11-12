@@ -68,37 +68,6 @@ targets:
             git_commit: ${var.git_commit}
     default: true
 
-  dev_prod:
-  # context: we will be using dev_prod during our release integration tests to test
-  # on dev_sst_02 but on target=prod. This will be part of CI process, so that we 
-  # can use git_commit (tag isn't ready yet), while taking a step towards prod.
-  # using dev is also optional here, but we chose to use dev_prod (dev_sst_02, prod) 
-  # as a step in between dev (dev_sst_02, dev) and prod (staging_sst_01, prod).
-    mode: production
-    variables:
-      git_commit: ${bundle.git.commit}
-      DB_workspace: "dev_sst_02"
-    resources:
-      jobs:
-        github_sourced_pdp_training_pipeline:
-          git_source:
-            git_url: https://github.com/datakind/edvise
-            git_provider: gitHub
-            git_commit: ${var.git_commit}
-        edvise_github_sourced_pdp_inference_pipeline:
-          git_source:
-            git_url: https://github.com/datakind/edvise
-            git_provider: gitHub
-            git_commit: ${var.git_commit}
-        edvise_cleanup_synthetic:
-          git_source:
-            git_url: https://github.com/datakind/edvise
-            git_provider: gitHub
-            git_commit: ${var.git_commit}
-    workspace:
-      # keeping a separate path so it doesn't collide with true prod
-      root_path: /Workspace/Shared/bundles/${bundle.name}/dev-prod
-
   prod:
     mode: production
     variables:

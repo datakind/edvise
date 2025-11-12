@@ -2,10 +2,12 @@ name: release-branch-ci-dev
 
 on:
   run when release branch is created from git flow
+  # push:
+  #   branches:
+  #     - 'release/*'
   push:
     branches:
-      - 'release/*'
-
+      - 'feature/ci_cd_github_actions'
 
 concurrency:
   group: release-branch-ci-dev-${{ github.ref }}
@@ -62,7 +64,7 @@ jobs:
           DATAKIND_EMAIL: ${{ secrets.DATAKIND_EMAIL }}
         run: |
           databricks bundle deploy \
-            --target=dev_prod \
+            --target=dev \
             --var "git_commit=${GITHUB_SHA}" \
             --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
@@ -78,7 +80,7 @@ jobs:
           DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
-          databricks bundle run github_sourced_pdp_training_pipeline --target dev_prod \
+          databricks bundle run github_sourced_pdp_training_pipeline --target dev \
             --var "git_commit=${GITHUB_SHA}" \
             --var "DB_workspace=${{ secrets.DEV_DB_WORKSPACE }}" \
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
@@ -96,7 +98,7 @@ jobs:
           DATABRICKS_CLIENT_ID:    ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
-          databricks bundle run edvise_github_sourced_pdp_inference_pipeline --target dev_prod \
+          databricks bundle run edvise_github_sourced_pdp_inference_pipeline --target dev \
             --var "git_commit=${GITHUB_SHA}" \
             --var "DB_workspace=${{ secrets.DEV_DB_WORKSPACE }}" \
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
