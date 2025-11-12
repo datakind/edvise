@@ -12,7 +12,7 @@ from pyspark.sql import SparkSession
 
 import mlflow
 from mlflow.tracking import MlflowClient
-
+from mlflow.entities import Run 
 
 # -------------------------
 # Utilities & helpers
@@ -307,21 +307,21 @@ if __name__ == "__main__":
                 log(f"Scanning experiment: {name} (id={exp.experiment_id})")
 
                 # Delete old runs first
+                runs: list[Run]  # establish the type for all paths
                 try:
                     # Filter on attributes.start_time (ms since epoch)
-                    runs = client.search_runs(
-                        [exp.experiment_id],
-                        filter_string=f"attributes.start_time < {cutoff_ms}",
-                        max_results=10000,
+                    runs = list(
+                        client.search_runs(
+                            [exp.experiment_id],
+                            filter_string=f"attributes.start_time < {cutoff_ms}",
+                            max_results=10000,
+                        )
                     )
                 except Exception:
                     # Fallback: list without filter, then filter in client
-                    runs = client.search_runs([exp.experiment_id], max_results=10000)
-                    runs = [
-                        r
-                        for r in runs
-                        if r.info.start_time and r.info.start_time < cutoff_ms
-                    ]
+                    runs_unfiltered = client.search_runs([exp.experiment_id], max_results=10000)
+                    runs = [r for r in runs_unfiltered if r.info.start_time and r.info.start_time < cutoff_ms]
+
 
                 if not runs:
                     log(f"No runs older than {args.retention_days}d in: {name}")
@@ -335,10 +335,12 @@ if __name__ == "__main__":
                             log(f"Warn: delete_run failed for {r.info.run_id}: {e}")
 
                 # If the experiment has no remaining runs, optionally delete the experiment
+                remaining: list[Run]
                 try:
-                    remaining = client.search_runs([exp.experiment_id], max_results=1)
+                    remaining = list(client.search_runs([exp.experiment_id], max_results=1))
                 except Exception:
                     remaining = []
+
                 if not remaining:
                     if dry_run:
                         log(
