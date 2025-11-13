@@ -129,7 +129,7 @@ jobs:
         run: |
           echo "Deploying PROD target to dev_sst_02 for tag $REF_NAME..."
           databricks bundle deploy \
-            --target=prod \
+            --target=dev \
             --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$DS_RUN_AS" \
