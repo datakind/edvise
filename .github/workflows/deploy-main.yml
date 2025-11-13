@@ -83,7 +83,7 @@ jobs:
 
   # DEV (dev-sst-02)
   deploy-dev:
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || ${{ startsWith(github.ref, 'refs/branches/feature/ci_cd_github_actions') 
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/branches/feature/ci_cd_github_actions') }}
 
     name: Deploy DAB to dev_sst_02 instance
     runs-on: ubuntu-latest
@@ -146,4 +146,4 @@ jobs:
             --var="databricks_institution_name=synthetic" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
-            --var="git_tag=v0.1.6" \
+            --var="git_tag=v0.1.6"
