@@ -1,26 +1,24 @@
 """
 Summary:
   • Normalize headers & clean DataFrames
-  • Infer robust dtypes with thresholds (avoid train–infer skew)
+  • Learn robust training-time dtypes with thresholds (avoid train–infer skew)
   • Freeze per-dataset schemas and assemble a multi-dataset **preprocess schema**
   • Enforce schemas at inference
   • Save/load the schema
 
 Notes:
-  - Uses pandas nullable dtypes: Int64, Float64, boolean, string. 
-        - This is so we can handle nulls applicable to any schema or any number of datasets. 
+  - Uses pandas nullable dtypes: Int64, Float64, boolean, string.
+        - This is so we can handle nulls applicable to any schema or any number of datasets.
         - This differs from PDP, where we use sklearn dtypes (non-nullable), which is due to
-        the fact that the PDP schema & pipeline are narrow and well-defined in scope. 
+          the fact that the PDP schema & pipeline are narrow and well-defined in scope.
         - Unfortunately, this differs greatly from custom schools.
-  - Uses schema enforcement at inference. 
+  - Uses schema enforcement at inference.
         - This is critical for data reliability and to ensure visibility with training-inference skew.
-        - The enforcement is meant to be: strict with dtypes, primary keys and extra datasets, and 
-        lenient with dataset shape extra columns (drop with a warning), or missing columns (filled with NA).
-  - Date parsing uses coercion + success-rate thresholds
+        - The enforcement is meant to be: strict with dtypes, primary keys and extra datasets, and
+          lenient with dataset shape extra columns (drop with a warning), or missing columns (filled with NA).
+  - Date parsing uses coercion + type-confidence thresholds and minimum non-null counts
   - No categorical vocabulary capture or version fields
 """
-
-from __future__ import annotations
 
 import typing as t
 import logging
@@ -36,6 +34,7 @@ import pandas as pd
 from edvise.utils.data_cleaning import convert_to_snake_case
 
 LOGGER = logging.getLogger(__name__)
+
 
 # ---------------------------
 # Create datasets object for processing
@@ -63,6 +62,7 @@ def create_datasets(df, bronze, *, include_empty: bool = False) -> dict:
             out[out_key] = val
     return out
 
+
 # ---------------------------
 # Column normalization
 # ---------------------------
@@ -87,30 +87,60 @@ def normalize_columns(cols: t.Iterable[str]) -> tuple[pd.Index, dict[str, list[s
 
     return norm, mapping
 
+
 # ---------------------------
-# Robust dtype inference (nullable dtypes only)
+# Robust training-time dtype inference (nullable dtypes only)
 # ---------------------------
 @dataclass
 class InferenceOptions:
     date_formats: tuple[str, ...] = ("%m/%d/%Y",)
-    success_threshold: float = 0.75  # accept a type if >= this fraction become non-null
+    # Accept a type at training-time if at least this fraction of values
+    # can be successfully coerced to that type.
+    dtype_confidence_threshold: float = 0.75
+    # Also require at least this many non-null values to trust the inference.
+    min_non_null: int = 10
     boolean_map: dict[str, bool] = field(
         default_factory=lambda: {
-            "true": True, "false": False, "yes": True, "no": False, "1": True, "0": False
+            "true": True,
+            "false": False,
+            "yes": True,
+            "no": False,
+            "1": True,
+            "0": False,
         }
     )
 
-def infer_column_dtype(series: pd.Series, opts: InferenceOptions | None = None) -> pd.Series:
-    """Infer dtype with coercion & acceptance threshold. Returns a converted Series (nullable dtypes)."""
+
+def learn_column_training_dtype(
+    series: pd.Series, opts: InferenceOptions | None = None
+) -> pd.Series:
+    """
+    Learn a training-time dtype for a column using coercion & confidence thresholds.
+    Returns a converted Series using pandas nullable dtypes.
+
+    NOTE: This is intended for training-time schema learning only.
+    At inference-time, use `enforce_schema` with a frozen schema instead of
+    calling this again (to avoid train–inference skew). The dtypes could also
+    be inferred differently if columns are missing more (or less) values at
+    inference vs. training time.
+    """
     if not isinstance(series, pd.Series):
         return series
+
     opts = opts or InferenceOptions()
     s = series.copy()
+
+    def _enough_non_null(mask: pd.Series | np.ndarray) -> bool:
+        # mask is boolean or notna() result
+        count = int(mask.sum())
+        frac = float(count) / len(s) if len(s) else 0.0
+        return count >= opts.min_non_null and frac >= opts.dtype_confidence_threshold
 
     # Try declared date formats with coercion
     for fmt in opts.date_formats:
         dt = pd.to_datetime(s, format=fmt, errors="coerce")
-        if dt.notna().mean() >= opts.success_threshold:
+        mask = dt.notna()
+        if _enough_non_null(mask):
             return dt
 
     # Try inferred datetime (quietly suppress the "could not infer format" warning)
@@ -121,12 +151,12 @@ def infer_column_dtype(series: pd.Series, opts: InferenceOptions | None = None) 
             category=UserWarning,
         )
         dt_inf = pd.to_datetime(s, errors="coerce")
-    if dt_inf.notna().mean() >= opts.success_threshold:
+    if _enough_non_null(dt_inf.notna()):
         return dt_inf
 
     # Try numeric with coercion (nullable pandas dtypes)
     num = pd.to_numeric(s, errors="coerce")
-    if num.notna().mean() >= opts.success_threshold:
+    if _enough_non_null(num.notna()):
         non_na = num.dropna()
         if len(non_na) and np.all(np.isclose(non_na % 1, 0)):
             return num.astype("Int64")
@@ -141,15 +171,25 @@ def infer_column_dtype(series: pd.Series, opts: InferenceOptions | None = None) 
     # Fallback: nullable string
     return s.astype("string")
 
-def infer_dataframe_dtypes(df: pd.DataFrame, opts: InferenceOptions | None = None) -> pd.DataFrame:
+
+def learn_training_dtypes(
+    df: pd.DataFrame, opts: InferenceOptions | None = None
+) -> pd.DataFrame:
+    """
+    Learn training-time dtypes for an entire DataFrame.
+
+    NOTE: Use only on training data. At inference time, rely on `enforce_schema`
+    using a schema frozen from the trained data.
+    """
     opts = opts or InferenceOptions()
     out = df.copy()
     for col in out.columns:
         try:
-            out[col] = infer_column_dtype(out[col], opts=opts)
+            out[col] = learn_column_training_dtype(out[col], opts=opts)
         except Exception as e:
             LOGGER.warning("Failed to infer dtype for column %s: %s", col, e)
     return out
+
 
 # ---------------------------
 # Cleaning
@@ -160,11 +200,15 @@ class CleanSpec:
     non_null_columns: list[str] | None = None
     unique_keys: list[str] | None = None
     # Optional custom hooks
+    student_id_alias: str | None = None
     dedupe_fn: t.Callable[[pd.DataFrame], pd.DataFrame] | None = None
     term_order_fn: t.Callable[[pd.DataFrame, str], pd.DataFrame] | None = None
     term_column: str = "term"
+
     # For schema mapping
     _orig_cols_: list[str] | None = None
+
+
 
 def clean_dataset(
     df: pd.DataFrame,
@@ -172,16 +216,30 @@ def clean_dataset(
     dataset_name: str = "",
     inference_opts: InferenceOptions | None = None,
     enforce_uniqueness: bool = True,
+    learn_dtypes: bool = True,
 ) -> pd.DataFrame:
     """
-    End-to-end cleaner with robust dtype inference and consistent policies.
-    Compatible with training and inference (prior to enforce_schema).
+    End-to-end cleaner with robust training-time dtype inference and consistent policies.
+
+    Typical pattern:
+      - TRAINING:
+          clean_dataset(..., learn_dtypes=True)
+          -> build_preprocess_schema(...)
+      - INFERENCE:
+          clean_dataset(..., learn_dtypes=False)  # if you still want cleaning hooks
+          then enforce_schema(...) using the frozen schema.
+
+    `learn_dtypes=False` is useful at inference to avoid re-learning dtypes
+    and introducing train–inference skew; instead, `enforce_schema` should dictate
+    the final dtypes.
     """
     inference_opts = inference_opts or InferenceOptions()
     if isinstance(spec, dict):
         spec = CleanSpec(
             drop_columns=(spec.get("drop columns") or spec.get("drop_columns")),
-            non_null_columns=(spec.get("non-null columns") or spec.get("non_null_columns")),
+            non_null_columns=(
+                spec.get("non-null columns") or spec.get("non_null_columns")
+            ),
             unique_keys=spec.get("unique keys") or spec.get("unique_keys"),
             dedupe_fn=spec.get("dedupe_fn"),
             term_order_fn=spec.get("term_order_fn"),
@@ -196,35 +254,72 @@ def clean_dataset(
     norm, mapping = normalize_columns(g.columns)
     collisions = {n: srcs for n, srcs in mapping.items() if len(srcs) > 1}
     if collisions:
-        raise ValueError(f"{dataset_name} - Column-name collisions after normalization: {collisions}")
+        raise ValueError(
+            f"{dataset_name} - Column-name collisions after normalization: {collisions}"
+        )
     g.columns = norm
 
-    # 2) canonical renames
-    if "student_id_randomized_datakind" in g.columns and "student_id" not in g.columns:
-        g = g.rename(columns={"student_id_randomized_datakind": "student_id"})
-    if not g.columns.is_unique:
-        raise ValueError(f"{dataset_name} - Duplicate column names found after cleaning.")
+    # 2) canonical student_id rename
+    alias = spec.student_id_alias or "student_id_randomized_datakind"
+
+    if alias in g.columns:
+        # If alias exists and student_id does NOT already exist
+        if alias != "student_id" and "student_id" not in g.columns:
+            LOGGER.info(
+                "%s - Renaming student ID alias '%s' -> 'student_id'",
+                dataset_name,
+                alias,
+            )
+            g = g.rename(columns={alias: "student_id"})
+
+            # Keep primary-key spec in sync
+            if spec.unique_keys:
+                spec.unique_keys = [
+                    "student_id" if k == alias else k
+                    for k in spec.unique_keys
+                ]
+
+        # If both alias and student_id exist → ambiguous
+        elif alias != "student_id" and "student_id" in g.columns:
+            LOGGER.warning(
+                "%s - Found both 'student_id' and alias '%s'; leaving both unchanged.",
+                dataset_name,
+                alias,
+            )
 
     # 3) normalize null tokens & whitespace
     g = g.replace("(Blank)", np.nan)
     obj_cols = g.select_dtypes(include=["object", "string"]).columns
     if len(obj_cols):
-        g[obj_cols] = g[obj_cols].apply(lambda s: s.replace(r"^\s*$", pd.NA, regex=True))
+        g[obj_cols] = g[obj_cols].apply(
+            lambda s: s.replace(r"^\s*$", pd.NA, regex=True)
+        )
 
     # 4) drop requested columns (never drop student_id)
     to_drop = set(spec.drop_columns or [])
     to_drop.discard("student_id")
     if to_drop:
         g = g.drop(columns=list(to_drop), errors="ignore")
-        LOGGER.info("%s - Dropping columns: %s | shape=%s", dataset_name, sorted(to_drop), g.shape)
+        LOGGER.info(
+            "%s - Dropping columns: %s | shape=%s",
+            dataset_name,
+            sorted(to_drop),
+            g.shape,
+        )
 
     # 5) drop rows requiring non-nulls
     if spec.non_null_columns:
         g = g.dropna(subset=list(spec.non_null_columns), how="any")
-        LOGGER.info("%s - Dropped rows missing %s | shape=%s", dataset_name, spec.non_null_columns, g.shape)
+        LOGGER.info(
+            "%s - Dropped rows missing %s | shape=%s",
+            dataset_name,
+            spec.non_null_columns,
+            g.shape,
+        )
 
-    # 6) infer dtypes
-    g = infer_dataframe_dtypes(g, opts=inference_opts)
+    # 6) learn dtypes at training-time
+    if learn_dtypes:
+        g = learn_training_dtypes(g, opts=inference_opts)
     if "student_id" in g.columns:
         g["student_id"] = g["student_id"].astype("string")
 
@@ -235,16 +330,26 @@ def clean_dataset(
     # 8) drop full row duplicates
     before = len(g)
     g = g.drop_duplicates().reset_index(drop=True)
-    LOGGER.info("%s - Removed full row duplicates: %d removed | shape=%s", dataset_name, before - len(g), g.shape)
+    LOGGER.info(
+        "%s - Removed full row duplicates: %d removed | shape=%s",
+        dataset_name,
+        before - len(g),
+        g.shape,
+    )
 
     if enforce_uniqueness:
         # 9) deduplicate rows based on primary keys
         before = len(g)
         if spec.unique_keys:
-            g = g.drop_duplicates(subset=spec.unique_keys, keep="first").reset_index(drop=True)
+            g = g.drop_duplicates(subset=spec.unique_keys, keep="first").reset_index(
+                drop=True
+            )
         LOGGER.info(
             "%s - Deduplicated rows based on primary keys %s | %d removed | shape=%s",
-            dataset_name, spec.unique_keys, before - len(g), g.shape
+            dataset_name,
+            spec.unique_keys,
+            before - len(g),
+            g.shape,
         )
 
         # 10) enforce uniqueness by primary keys
@@ -256,33 +361,54 @@ def clean_dataset(
                 )
 
     # 11) optional term order
-    if spec.term_order_fn and callable(spec.term_order_fn) and spec.term_column in g.columns:
+    if (
+        spec.term_order_fn
+        and callable(spec.term_order_fn)
+        and spec.term_column in g.columns
+    ):
         LOGGER.info(
-            "%s - Applying term order function to column '%s'", dataset_name, spec.term_column
+            "%s - Applying term order function to column '%s'",
+            dataset_name,
+            spec.term_column,
         )
         g = spec.term_order_fn(g, spec.term_column)
 
     return g
 
-def clean_all_datasets_map(datasets: t.Dict[str, t.Dict], enforce_uniqueness: bool = True) -> t.Dict[str, pd.DataFrame]:
+
+def clean_all_datasets_map(
+    datasets: t.Dict[str, t.Dict],
+    enforce_uniqueness: bool = True,
+    learn_dtypes: bool = True,
+) -> t.Dict[str, pd.DataFrame]:
     """
     Clean each dataset bundle and return {name: cleaned_df}.
     Each bundle must be shaped like {"data": df, "...spec keys..."}.
+
+    `learn_dtypes` is passed through to `clean_dataset`, so you can also
+    reuse this at inference-time by setting it to False and then applying
+    `enforce_preprocess_schema` / `enforce_schema`.
     """
     cleaned: dict[str, pd.DataFrame] = {}
     for key, bundle in datasets.items():
         if "data" not in bundle:
             raise KeyError(f"Dataset '{key}' is missing required 'data' key")
-        LOGGER.info("%s - Starting cleaning; shape=%s", key, getattr(bundle["data"], "shape", None))
+        LOGGER.info(
+            "%s - Starting cleaning; shape=%s",
+            key,
+            getattr(bundle["data"], "shape", None),
+        )
         spec = {k: v for k, v in bundle.items() if k != "data"}
         cleaned[key] = clean_dataset(
             df=bundle["data"],
             dataset_name=key,
             spec=spec,
             enforce_uniqueness=enforce_uniqueness,
+            learn_dtypes=learn_dtypes,
         )
         LOGGER.info("%s - Finished cleaning; final shape=%s", key, cleaned[key].shape)
     return cleaned
+
 
 # ---------------------------
 # Schema freezing & enforcing
@@ -291,6 +417,7 @@ def clean_all_datasets_map(datasets: t.Dict[str, t.Dict], enforce_uniqueness: bo
 class FreezeOptions:
     include_column_order_hash: bool = True
 
+
 def _hash_list(values: list[str]) -> str:
     h = hashlib.sha256()
     for v in values:
@@ -298,28 +425,44 @@ def _hash_list(values: list[str]) -> str:
         h.update(b"\x00")
     return "sha256:" + h.hexdigest()
 
-def freeze_schema(df: pd.DataFrame, spec: dict, opts: FreezeOptions | None = None) -> dict:
+
+def freeze_schema(
+    df: pd.DataFrame, spec: dict, opts: FreezeOptions | None = None
+) -> dict:
     """Freeze names, dtypes, non-null policy, unique keys. No vocab, no version."""
     opts = opts or FreezeOptions()
     schema = {
-        "normalized_columns": {o: n for o, n in zip(spec.get("_orig_cols_", list(df.columns)), df.columns)},
-        "dtypes": {c: str(df[c].dtype) for c in df.columns},  # expect Int64, Float64, boolean, string, datetime64[ns]
+        "normalized_columns": {
+            o: n for o, n in zip(spec.get("_orig_cols_", list(df.columns)), df.columns)
+        },
+        "dtypes": {
+            c: str(df[c].dtype) for c in df.columns
+        },  # expect Int64, Float64, boolean, string, datetime64[ns]
         "non_null_columns": list(spec.get("non-null columns", []) or []),
         "unique_keys": list(spec.get("unique keys", []) or []),
         "null_tokens": ["(Blank)"],
-        "boolean_map": {"true": True, "false": False, "yes": True, "no": False, "1": True, "0": False},
-        "date_parsing": {},  # optional
+        "boolean_map": {
+            "true": True,
+            "false": False,
+            "yes": True,
+            "no": False,
+            "1": True,
+            "0": False,
+        },
     }
     if opts.include_column_order_hash:
         schema["column_order_hash"] = _hash_list(list(df.columns))
     return schema
+
 
 def enforce_schema(df: pd.DataFrame, schema: dict) -> pd.DataFrame:
     g = df.copy()
 
     # 1) normalize columns identically
     g.columns = (
-        pd.Index(g.columns).str.strip().str.lower()
+        pd.Index(g.columns)
+        .str.strip()
+        .str.lower()
         .str.replace(r"[\s/\-]+", "_", regex=True)
         .str.replace(r"[^a-z0-9_]", "", regex=True)
     )
@@ -335,7 +478,10 @@ def enforce_schema(df: pd.DataFrame, schema: dict) -> pd.DataFrame:
     g = g[expected]
 
     # 3) cast to frozen (nullable) dtypes
-    bmap = schema.get("boolean_map", {"true": True, "false": False, "yes": True, "no": False, "1": True, "0": False})
+    bmap = schema.get(
+        "boolean_map",
+        {"true": True, "false": False, "yes": True, "no": False, "1": True, "0": False},
+    )
     for c, dt in schema["dtypes"].items():
         try:
             if dt.startswith("datetime64"):
@@ -379,17 +525,23 @@ def enforce_schema(df: pd.DataFrame, schema: dict) -> pd.DataFrame:
     if keys:
         dups = g.duplicated(subset=keys)
         if dups.any():
-            raise ValueError(f"Duplicate rows on unique keys {keys} at inference. Count={int(dups.sum())}")
+            raise ValueError(
+                f"Duplicate rows on unique keys {keys} at inference. Count={int(dups.sum())}"
+            )
 
     return g
+
 
 # ---------------------------
 # Multi-dataset preprocess schema
 # ---------------------------
 @dataclass
 class SchemaContractMeta:
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
     null_tokens: list[str] = field(default_factory=lambda: ["(Blank)"])
+
 
 def build_preprocess_schema(
     cleaned_map: dict[str, pd.DataFrame],
@@ -412,6 +564,7 @@ def build_preprocess_schema(
         "datasets": datasets,
     }
 
+
 def enforce_preprocess_schema(
     raw_map: dict[str, pd.DataFrame], preprocess_schema: dict
 ) -> dict[str, pd.DataFrame]:
@@ -422,6 +575,7 @@ def enforce_preprocess_schema(
         out[name] = enforce_schema(df, preprocess_schema["datasets"][name])
     return out
 
+
 # ---------------------------
 # Serialization helpers
 # ---------------------------
@@ -429,14 +583,16 @@ def save_preprocess_schema(preprocess_schema: dict, path: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(preprocess_schema, f, indent=2, ensure_ascii=False)
 
+
 def load_preprocess_schema(path: str) -> dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
+
 __all__ = [
     "InferenceOptions",
-    "infer_column_dtype",
-    "infer_dataframe_dtypes",
+    "learn_column_training_dtype",
+    "learn_training_dtypes",
     "CleanSpec",
     "clean_dataset",
     "FreezeOptions",

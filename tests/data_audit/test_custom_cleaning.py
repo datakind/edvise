@@ -1,6 +1,5 @@
 import types
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -9,8 +8,8 @@ from edvise.data_audit.custom_cleaning import (
     create_datasets,
     normalize_columns,
     InferenceOptions,
-    infer_column_dtype,
-    infer_dataframe_dtypes,
+    learn_column_training_dtype,
+    learn_training_dtypes,
     CleanSpec,
     clean_dataset,
     clean_all_datasets_map,
@@ -23,6 +22,7 @@ from edvise.data_audit.custom_cleaning import (
     save_preprocess_schema,
     load_preprocess_schema,
 )
+
 
 # -------------------------------------------------------------------
 # create_datasets
@@ -76,42 +76,63 @@ def test_normalize_columns_uses_convert_to_snake_case(monkeypatch):
 
 
 # -------------------------------------------------------------------
-# infer_column_dtype / infer_dataframe_dtypes
+# learn_column_training_dtype / learn_training_dtypes
 # -------------------------------------------------------------------
-def test_infer_column_dtype_date_numeric_boolean_string():
-    # Date
-    s_date = pd.Series(["01/01/2020", "02/01/2020", None, "not a date"])
-    opts = InferenceOptions(success_threshold=0.5, date_formats=("%m/%d/%Y",))
-    out_date = infer_column_dtype(s_date, opts)
+def test_learn_column_training_dtype_date_numeric_boolean_string():
+    # Use relaxed options so small synthetic series can still be typed
+    # realistically: we want to *exercise* the paths, not mimic production thresholds.
+    opts = InferenceOptions(
+        dtype_confidence_threshold=0.5,
+        min_non_null=1,
+        date_formats=("%m/%d/%Y",),
+    )
+
+    # --- Date inference ---
+    s_date = pd.Series(
+        [
+            "01/01/2020", "02/01/2020", "03/01/2020", "04/01/2020",
+            "05/01/2020", "06/01/2020", "07/01/2020", "08/01/2020",
+            "09/01/2020", "10/01/2020", "01/01/2020", "02/01/2020",
+            None, "not a date",
+        ]
+    )
+    out_date = learn_column_training_dtype(s_date, opts)
     assert str(out_date.dtype).startswith("datetime64")
     assert out_date.iloc[0] == pd.Timestamp("2020-01-01")
 
-    # Numeric -> Int64 vs Float64
+    # --- Numeric: Int64 vs Float64 ---
     s_int = pd.Series(["1", "2", None])
     s_float = pd.Series(["1.5", "2.0", None])
 
-    out_int = infer_column_dtype(s_int)
-    out_float = infer_column_dtype(s_float)
+    out_int = learn_column_training_dtype(s_int, opts)
+    out_float = learn_column_training_dtype(s_float, opts)
 
+    # integer-like → nullable Int64
     assert str(out_int.dtype) == "Int64"
     assert list(out_int.astype("Int64")) == [1, 2, pd.NA]
 
+    # non-integer numeric → nullable Float64
     assert str(out_float.dtype) == "Float64"
     assert out_float.iloc[0] == 1.5
 
-    # Boolean
+    # --- Boolean ---
     s_bool = pd.Series(["Yes", "no", "TRUE", None])
-    out_bool = infer_column_dtype(s_bool)
+    out_bool = learn_column_training_dtype(s_bool, opts)
     assert str(out_bool.dtype) == "boolean"
     assert list(out_bool.astype("boolean")) == [True, False, True, pd.NA]
 
-    # Fallback string
+    # --- Fallback string ---
     s_str = pd.Series(["foo", "bar", None])
-    out_str = infer_column_dtype(s_str)
+    out_str = learn_column_training_dtype(s_str, opts)
     assert str(out_str.dtype) == "string"
 
+def test_learn_training_dtypes_columnwise():
+    opts = InferenceOptions(
+        dtype_confidence_threshold=0.5,
+        min_non_null=1,
+        date_formats=("%m/%d/%Y",),
+    )
 
-def test_infer_dataframe_dtypes_columnwise():
     df = pd.DataFrame(
         {
             "date_col": ["01/01/2020", "01/02/2020"],
@@ -119,7 +140,7 @@ def test_infer_dataframe_dtypes_columnwise():
         }
     )
 
-    out = infer_dataframe_dtypes(df)
+    out = learn_training_dtypes(df, opts)
 
     assert str(out["date_col"].dtype).startswith("datetime64")
     assert str(out["num_col"].dtype) == "Int64"
@@ -252,7 +273,9 @@ def test_freeze_schema_and_enforce_schema_main_flow(caplog):
     assert str(out["id"].dtype) == "Int64"
     assert str(out["val"].dtype) == "Float64"
     assert str(out["flag"].dtype) == "boolean"
-    assert any("Unexpected columns at inference" in r.getMessage() for r in caplog.records)
+    assert any(
+        "Unexpected columns at inference" in r.getMessage() for r in caplog.records
+    )
 
 
 def test_enforce_schema_raises_on_unique_key_duplicates():
