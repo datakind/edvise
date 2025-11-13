@@ -45,7 +45,6 @@ jobs:
           uv pip install .
         shell: bash
 
-      # No 'auth login' needed with PAT in CI; set env and go
       - name: Configure Databricks env (Dev)
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
