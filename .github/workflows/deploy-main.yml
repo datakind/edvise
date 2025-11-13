@@ -130,11 +130,11 @@ jobs:
         run: |
           echo "Deploying PROD target to dev_sst_02 for tag v0.1.6..."
           databricks bundle deploy \
-            --target=dev \
+            --target=prod \
             --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$DS_RUN_AS" \
             --var="databricks_institution_name=synthetic" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
-            --var="git_commit=${GITHUB_SHA}" \
+            --var="git_tag=v0.1.6" \
