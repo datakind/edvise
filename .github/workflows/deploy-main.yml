@@ -58,7 +58,9 @@ jobs:
       #   run: |
       #     databricks version
 
-  #     - name: Deploy bundle (prod target → staging_sst_01)
+  #     - name: Deploy bundle (prod target -> staging_sst_01)
+#          working-directory: pipelines/pdp
+
   #       env:
   #         DB_WORKSPACE:         ${{ secrets.STAGING_DB_WORKSPACE }}
   #         SA_EXECUTER:          ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
@@ -114,7 +116,8 @@ jobs:
         run: |
           databricks version
 
-      - name: Deploy bundle (prod target → dev_sst_02)
+      - name: Deploy bundle (prod target -> dev_sst_02)
+        working-directory: pipelines/pdp
         env:
           # You can hardcode DB_WORKSPACE=dev_sst_02, or keep as a secret if you prefer
           DB_WORKSPACE:         secrets.DEV_DB_WORKSPACE
