@@ -125,9 +125,8 @@ jobs:
           DS_RUN_AS:            ${{ secrets.DEV_DS_RUN_AS }}
           GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
           DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
-          REF_NAME: v0.1.6
         run: |
-          echo "Deploying PROD target to dev_sst_02 for tag $REF_NAME..."
+          echo "Deploying PROD target to dev_sst_02 for tag v0.1.6..."
           databricks bundle deploy \
             --target=dev \
             --var="DB_workspace=$DB_WORKSPACE" \
@@ -135,4 +134,4 @@ jobs:
             --var="ds_run_as=$DS_RUN_AS" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
-            --var="git_tag=${REF_NAME}"
+            --var="git_tag=v0.1.6"
