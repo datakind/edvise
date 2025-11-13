@@ -119,7 +119,9 @@ jobs:
       - name: Deploy bundle (prod target -> dev_sst_02)
         working-directory: pipelines/pdp
         env:
-          # You can hardcode DB_WORKSPACE=dev_sst_02, or keep as a secret if you prefer
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }} 
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
           DB_WORKSPACE:         secrets.DEV_DB_WORKSPACE
           SA_EXECUTER:          ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
           DS_RUN_AS:            ${{ secrets.DEV_DS_RUN_AS }}
