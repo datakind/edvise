@@ -33,6 +33,8 @@ from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
 
+from edvise.utils.data_cleaning import convert_to_snake_case
+
 LOGGER = logging.getLogger(__name__)
 
 # ---------------------------
@@ -65,17 +67,24 @@ def create_datasets(df, bronze, *, include_empty: bool = False) -> dict:
 # Column normalization
 # ---------------------------
 def normalize_columns(cols: t.Iterable[str]) -> tuple[pd.Index, dict[str, list[str]]]:
-    orig = list(cols)
-    norm = (
-        pd.Index(orig)
-        .str.strip()
-        .str.lower()
-        .str.replace(r"[\s/\-]+", "_", regex=True)
-        .str.replace(r"[^a-z0-9_]", "", regex=True)
-    )
+    """
+    Normalize column names to snake_case using `convert_to_snake_case`,
+    and return:
+      - normalized pd.Index
+      - mapping {normalized_name: [original_names...]} to detect collisions.
+    """
+    # Ensure we are working with strings
+    orig = [str(c) for c in cols]
+
+    # Reuse single-string snake-case logic for every column
+    norm_list = [convert_to_snake_case(c) for c in orig]
+    norm = pd.Index(norm_list)
+
+    # Build mapping: normalized -> list of original names
     mapping: dict[str, list[str]] = {}
     for o, n in zip(orig, norm):
         mapping.setdefault(n, []).append(o)
+
     return norm, mapping
 
 # ---------------------------
