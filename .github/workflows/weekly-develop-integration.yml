@@ -1,7 +1,6 @@
 name: weekly-develop-integration
 
 on:
-  # weekly health monitor for develop branch
   schedule:
     - cron: "10 17 * * 1"  # Mondays at noon EST (17:10 UTC)
   workflow_dispatch: {}
@@ -23,7 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # On the cron, test develop; on push/dispatch, use the current ref
           ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref_name }}
           fetch-depth: 0
 
