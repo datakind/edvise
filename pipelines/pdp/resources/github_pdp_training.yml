@@ -329,6 +329,6 @@ resources:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
         - service_principal_name: ${var.ds_run_as}               # SP that runs jobs
-            level: CAN_MANAGE
+          level: CAN_MANAGE
         - service_principal_name: ${var.service_account_executer} # SP you use to deploy, if applicable
-            level: CAN_MANAGE
+          level: CAN_MANAGE
