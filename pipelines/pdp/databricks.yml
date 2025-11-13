@@ -47,7 +47,6 @@ targets:
   dev:
     mode: development
     variables:
-      git_commit: ${bundle.git.commit}
       DB_workspace: "dev_sst_02"
     resources:
       jobs:
@@ -71,7 +70,6 @@ targets:
   prod:
     mode: production
     variables:
-      git_tag: ${bundle.git.tag}
       DB_workspace: "staging_sst_01"
     resources:
       jobs:
