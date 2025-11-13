@@ -6,7 +6,6 @@ on:
     tags:
       - 'v*'
 
-  # optional: allow ad-hoc runs from the UI (pick a tag or leave default)
   workflow_dispatch:
     inputs:
       ref:
@@ -15,7 +14,6 @@ on:
         default: ''
 
 concurrency:
-  # include job name in the group so the two jobs don't block each other
   group: deploy-prod-${{ github.ref_name }}-${{ github.job }}
   cancel-in-progress: false
 
