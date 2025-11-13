@@ -128,7 +128,7 @@ jobs:
           REF_NAME: v0.1.6
         run: |
           echo "Deploying PROD target to dev_sst_02 for tag $REF_NAME..."
-          databricks bundle validate --target=prod
+          databricks bundle validate --target=dev
           databricks bundle deploy \
             --target=prod \
             --var="DB_workspace=$DB_WORKSPACE" \
