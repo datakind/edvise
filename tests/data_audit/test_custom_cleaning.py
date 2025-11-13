@@ -90,10 +90,20 @@ def test_learn_column_training_dtype_date_numeric_boolean_string():
     # --- Date inference ---
     s_date = pd.Series(
         [
-            "01/01/2020", "02/01/2020", "03/01/2020", "04/01/2020",
-            "05/01/2020", "06/01/2020", "07/01/2020", "08/01/2020",
-            "09/01/2020", "10/01/2020", "01/01/2020", "02/01/2020",
-            None, "not a date",
+            "01/01/2020",
+            "02/01/2020",
+            "03/01/2020",
+            "04/01/2020",
+            "05/01/2020",
+            "06/01/2020",
+            "07/01/2020",
+            "08/01/2020",
+            "09/01/2020",
+            "10/01/2020",
+            "01/01/2020",
+            "02/01/2020",
+            None,
+            "not a date",
         ]
     )
     out_date = learn_column_training_dtype(s_date, opts)
@@ -125,6 +135,7 @@ def test_learn_column_training_dtype_date_numeric_boolean_string():
     s_str = pd.Series(["foo", "bar", None])
     out_str = learn_column_training_dtype(s_str, opts)
     assert str(out_str.dtype) == "string"
+
 
 def test_learn_training_dtypes_columnwise():
     opts = InferenceOptions(

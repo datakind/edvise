@@ -209,7 +209,6 @@ class CleanSpec:
     _orig_cols_: list[str] | None = None
 
 
-
 def clean_dataset(
     df: pd.DataFrame,
     spec: dict | CleanSpec,
@@ -275,8 +274,7 @@ def clean_dataset(
             # Keep primary-key spec in sync
             if spec.unique_keys:
                 spec.unique_keys = [
-                    "student_id" if k == alias else k
-                    for k in spec.unique_keys
+                    "student_id" if k == alias else k for k in spec.unique_keys
                 ]
 
         # If both alias and student_id exist → ambiguous
