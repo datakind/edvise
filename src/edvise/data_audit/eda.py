@@ -734,8 +734,8 @@ def validate_student_term_consistency(
     semester_df: pd.DataFrame,
     course_df: pd.DataFrame,
     *,
-    id_col: str ="student_id",
-    sem_col: str ="semester_code",
+    id_col: str = "student_id",
+    sem_col: str = "semester_code",
     student_id_col: t.Optional[str] = None,
 ) -> t.Dict[str, t.Any]:
     """
