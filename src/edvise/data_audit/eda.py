@@ -729,7 +729,7 @@ def print_credential_types_and_retention(df_cohort: pd.DataFrame) -> None:
     )
 
 
-def validate_student_term_consistency(
+def validate_ids_terms_consistency(
     student_df: t.Optional[pd.DataFrame],
     semester_df: pd.DataFrame,
     course_df: pd.DataFrame,
@@ -851,7 +851,7 @@ def validate_student_term_consistency(
     }
 
 
-def validate_semester_credit_consistency(
+def validate_credit_consistency(
     semester_df: pd.DataFrame,
     course_df: pd.DataFrame,
     *,
