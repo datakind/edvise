@@ -1,7 +1,7 @@
 """
 Summary:
   • Normalize headers & clean DataFrames
-  • Learn robust training-time dtypes with thresholds (avoid train–infer skew)
+  • Geneate robust training-time dtypes with thresholds (avoid train–infer skew)
   • Freeze per-dataset schemas and assemble a multi-dataset **preprocess schema**
   • Enforce schemas at inference
   • Save/load the schema
@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
+from pandas.api import types as ptypes
 
 from edvise.utils.data_cleaning import convert_to_snake_case
 
@@ -111,11 +112,11 @@ class InferenceOptions:
     )
 
 
-def learn_column_training_dtype(
+def generate_column_training_dtype(
     series: pd.Series, opts: InferenceOptions | None = None
 ) -> pd.Series:
     """
-    Learn a training-time dtype for a column using coercion & confidence thresholds.
+    Generate a training-time dtype for a column using coercion & confidence thresholds.
     Returns a converted Series using pandas nullable dtypes.
 
     NOTE: This is intended for training-time schema learning only.
@@ -129,6 +130,25 @@ def learn_column_training_dtype(
 
     opts = opts or InferenceOptions()
     s = series.copy()
+
+    # --- Short-circuit for already-typed columns --------------------------
+
+    # Already datetime-like → keep as datetime (no thresholds needed)
+    if ptypes.is_datetime64_any_dtype(s) or ptypes.is_datetime64tz_dtype(s):
+        return s
+
+    # Already boolean → normalize to pandas nullable boolean
+    if ptypes.is_bool_dtype(s):
+        return s.astype("boolean")
+
+    # Already numeric → normalize to nullable numeric
+    if ptypes.is_integer_dtype(s) or ptypes.is_float_dtype(s):
+        non_na = s.dropna()
+        if len(non_na) and np.all(np.isclose(non_na % 1, 0)):
+            return s.astype("Int64")
+        return s.astype("Float64")
+
+    # --- From here on, we assume "string-ish" / object data ---------------
 
     def _enough_non_null(mask: pd.Series | np.ndarray) -> bool:
         # mask is boolean or notna() result
@@ -172,11 +192,13 @@ def learn_column_training_dtype(
     return s.astype("string")
 
 
-def learn_training_dtypes(
+def generate_training_dtypes(
     df: pd.DataFrame, opts: InferenceOptions | None = None
 ) -> pd.DataFrame:
     """
-    Learn training-time dtypes for an entire DataFrame.
+    Generate training-time dtypes for an entire DataFrame. This is needed since
+    many of our custom schools give us CSV files, which do not save dtypes (everything
+    is usually nullable string type). 
 
     NOTE: Use only on training data. At inference time, rely on `enforce_schema`
     using a schema frozen from the trained data.
@@ -185,7 +207,7 @@ def learn_training_dtypes(
     out = df.copy()
     for col in out.columns:
         try:
-            out[col] = learn_column_training_dtype(out[col], opts=opts)
+            out[col] = generate_column_training_dtype(out[col], opts=opts)
         except Exception as e:
             LOGGER.warning("Failed to infer dtype for column %s: %s", col, e)
     return out
@@ -215,20 +237,20 @@ def clean_dataset(
     dataset_name: str = "",
     inference_opts: InferenceOptions | None = None,
     enforce_uniqueness: bool = True,
-    learn_dtypes: bool = True,
+    generate_dtypes: bool = True,
 ) -> pd.DataFrame:
     """
     End-to-end cleaner with robust training-time dtype inference and consistent policies.
 
     Typical pattern:
       - TRAINING:
-          clean_dataset(..., learn_dtypes=True)
+          clean_dataset(..., generate_dtypes=True)
           -> build_preprocess_schema(...)
       - INFERENCE:
-          clean_dataset(..., learn_dtypes=False)  # if you still want cleaning hooks
+          clean_dataset(..., generate_dtypes=False)  # if you still want cleaning hooks
           then enforce_schema(...) using the frozen schema.
 
-    `learn_dtypes=False` is useful at inference to avoid re-learning dtypes
+    `generate_dtypes=False` is useful at inference to avoid re-generating dtypes
     and introducing train–inference skew; instead, `enforce_schema` should dictate
     the final dtypes.
     """
@@ -315,9 +337,9 @@ def clean_dataset(
             g.shape,
         )
 
-    # 6) learn dtypes at training-time
-    if learn_dtypes:
-        g = learn_training_dtypes(g, opts=inference_opts)
+    # 6) generate dtypes at training-time
+    if generate_dtypes:
+        g = generate_training_dtypes(g, opts=inference_opts)
     if "student_id" in g.columns:
         g["student_id"] = g["student_id"].astype("string")
 
@@ -377,13 +399,13 @@ def clean_dataset(
 def clean_all_datasets_map(
     datasets: t.Dict[str, t.Dict],
     enforce_uniqueness: bool = True,
-    learn_dtypes: bool = True,
+    generate_dtypes: bool = True,
 ) -> t.Dict[str, pd.DataFrame]:
     """
     Clean each dataset bundle and return {name: cleaned_df}.
     Each bundle must be shaped like {"data": df, "...spec keys..."}.
 
-    `learn_dtypes` is passed through to `clean_dataset`, so you can also
+    `generate_dtypes` is passed through to `clean_dataset`, so you can also
     reuse this at inference-time by setting it to False and then applying
     `enforce_preprocess_schema` / `enforce_schema`.
     """
@@ -402,7 +424,7 @@ def clean_all_datasets_map(
             dataset_name=key,
             spec=spec,
             enforce_uniqueness=enforce_uniqueness,
-            learn_dtypes=learn_dtypes,
+            generate_dtypes=generate_dtypes,
         )
         LOGGER.info("%s - Finished cleaning; final shape=%s", key, cleaned[key].shape)
     return cleaned
@@ -589,8 +611,8 @@ def load_preprocess_schema(path: str) -> dict:
 
 __all__ = [
     "InferenceOptions",
-    "learn_column_training_dtype",
-    "learn_training_dtypes",
+    "generate_column_training_dtype",
+    "generate_training_dtypes",
     "CleanSpec",
     "clean_dataset",
     "FreezeOptions",

@@ -1,6 +1,7 @@
 import types
 
 import pandas as pd
+import logging
 import pytest
 
 from edvise.data_audit import custom_cleaning as m
@@ -8,8 +9,8 @@ from edvise.data_audit.custom_cleaning import (
     create_datasets,
     normalize_columns,
     InferenceOptions,
-    learn_column_training_dtype,
-    learn_training_dtypes,
+    generate_column_training_dtype,
+    generate_training_dtypes,
     CleanSpec,
     clean_dataset,
     clean_all_datasets_map,
@@ -76,9 +77,9 @@ def test_normalize_columns_uses_convert_to_snake_case(monkeypatch):
 
 
 # -------------------------------------------------------------------
-# learn_column_training_dtype / learn_training_dtypes
+# generate_column_training_dtype / generate_training_dtypes
 # -------------------------------------------------------------------
-def test_learn_column_training_dtype_date_numeric_boolean_string():
+def test_generate_column_training_dtype_date_numeric_boolean_string():
     # Use relaxed options so small synthetic series can still be typed
     # realistically: we want to *exercise* the paths, not mimic production thresholds.
     opts = InferenceOptions(
@@ -106,7 +107,7 @@ def test_learn_column_training_dtype_date_numeric_boolean_string():
             "not a date",
         ]
     )
-    out_date = learn_column_training_dtype(s_date, opts)
+    out_date = generate_column_training_dtype(s_date, opts)
     assert str(out_date.dtype).startswith("datetime64")
     assert out_date.iloc[0] == pd.Timestamp("2020-01-01")
 
@@ -114,8 +115,8 @@ def test_learn_column_training_dtype_date_numeric_boolean_string():
     s_int = pd.Series(["1", "2", None])
     s_float = pd.Series(["1.5", "2.0", None])
 
-    out_int = learn_column_training_dtype(s_int, opts)
-    out_float = learn_column_training_dtype(s_float, opts)
+    out_int = generate_column_training_dtype(s_int, opts)
+    out_float = generate_column_training_dtype(s_float, opts)
 
     # integer-like → nullable Int64
     assert str(out_int.dtype) == "Int64"
@@ -127,17 +128,17 @@ def test_learn_column_training_dtype_date_numeric_boolean_string():
 
     # --- Boolean ---
     s_bool = pd.Series(["Yes", "no", "TRUE", None])
-    out_bool = learn_column_training_dtype(s_bool, opts)
+    out_bool = generate_column_training_dtype(s_bool, opts)
     assert str(out_bool.dtype) == "boolean"
     assert list(out_bool.astype("boolean")) == [True, False, True, pd.NA]
 
     # --- Fallback string ---
     s_str = pd.Series(["foo", "bar", None])
-    out_str = learn_column_training_dtype(s_str, opts)
+    out_str = generate_column_training_dtype(s_str, opts)
     assert str(out_str.dtype) == "string"
 
 
-def test_learn_training_dtypes_columnwise():
+def test_generate_training_dtypes_columnwise():
     opts = InferenceOptions(
         dtype_confidence_threshold=0.5,
         min_non_null=1,
@@ -151,7 +152,7 @@ def test_learn_training_dtypes_columnwise():
         }
     )
 
-    out = learn_training_dtypes(df, opts)
+    out = generate_training_dtypes(df, opts)
 
     assert str(out["date_col"].dtype).startswith("datetime64")
     assert str(out["num_col"].dtype) == "Int64"
@@ -177,6 +178,8 @@ def test_clean_dataset_raises_on_column_collision(monkeypatch):
 
 
 def test_clean_dataset_student_id_rename_null_handling_and_pk_uniqueness(caplog):
+    caplog.set_level(logging.INFO, logger="edvise.data_audit.custom_cleaning")
+
     df = pd.DataFrame(
         {
             "student_id_randomized_datakind": ["001", "002", "002"],
@@ -222,9 +225,11 @@ def test_clean_dataset_raises_when_primary_key_not_unique_after_cleaning():
     df = pd.DataFrame({"id": [1, 1], "x": [10, 11]})
     spec = CleanSpec(unique_keys=["id"])
 
-    with pytest.raises(ValueError) as exc:
-        clean_dataset(df, spec, dataset_name="tbl", enforce_uniqueness=True)
-    assert "Duplicate rows detected on primary keys" in str(exc.value)
+    out = clean_dataset(df, spec, dataset_name="tbl", enforce_uniqueness=True)
+    # We expect deduplication on primary key, not an exception
+    assert len(out) == 1
+    assert out["id"].is_unique
+    assert set(out["id"].tolist()) == {1}
 
 
 def test_clean_all_datasets_map_happy_path():
