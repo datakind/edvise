@@ -71,7 +71,6 @@ jobs:
           DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
         run: |
           echo "Deploying DAB to prod for tag v0.1.6..."
-          databricks bundle validate --target=prod
           databricks bundle deploy \
             --target=prod \
             --var="DB_workspace=$DB_WORKSPACE" \
