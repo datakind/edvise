@@ -18,10 +18,10 @@ from edvise.data_audit.custom_cleaning import (
     freeze_schema,
     enforce_schema,
     SchemaContractMeta,
-    build_preprocess_schema,
-    enforce_preprocess_schema,
-    save_preprocess_schema,
-    load_preprocess_schema,
+    build_schema_contract,
+    enforce_schema_contract,
+    save_schema_contract,
+    load_schema_contract,
 )
 
 
@@ -309,9 +309,9 @@ def test_enforce_schema_raises_on_unique_key_duplicates():
 
 
 # -------------------------------------------------------------------
-# build_preprocess_schema / enforce_preprocess_schema
+# build_schema_contract / enforce_schema_contract
 # -------------------------------------------------------------------
-def test_build_preprocess_schema_and_enforce_preprocess_schema_wiring(monkeypatch):
+def test_build_schema_contract_and_enforce_schema_contract_wiring(monkeypatch):
     cleaned = {
         "students": pd.DataFrame({"id": pd.Series([1], dtype="Int64")}),
         "courses": pd.DataFrame({"course_id": pd.Series([10], dtype="Int64")}),
@@ -325,9 +325,9 @@ def test_build_preprocess_schema_and_enforce_preprocess_schema_wiring(monkeypatc
         null_tokens=["(Blank)"],
     )
 
-    preprocess_schema = build_preprocess_schema(cleaned, specs, meta=meta)
-    assert preprocess_schema["created_at"] == "2024-01-01T00:00:00Z"
-    assert set(preprocess_schema["datasets"].keys()) == {"students", "courses"}
+    schema_contract = build_schema_contract(cleaned, specs, meta=meta)
+    assert schema_contract["created_at"] == "2024-01-01T00:00:00Z"
+    assert set(schema_contract["datasets"].keys()) == {"students", "courses"}
 
     calls = []
 
@@ -342,7 +342,7 @@ def test_build_preprocess_schema_and_enforce_preprocess_schema_wiring(monkeypatc
         "courses": pd.DataFrame({"course_id": [10]}),
     }
 
-    out = enforce_preprocess_schema(raw, preprocess_schema)
+    out = enforce_schema_contract(raw, schema_contract)
     assert set(out.keys()) == {"students", "courses"}
     assert out["students"]["processed"].all()
     assert out["courses"]["processed"].all()
@@ -350,9 +350,9 @@ def test_build_preprocess_schema_and_enforce_preprocess_schema_wiring(monkeypatc
 
 
 # -------------------------------------------------------------------
-# save_preprocess_schema / load_preprocess_schema
+# save_schema_contract / load_schema_contract
 # -------------------------------------------------------------------
-def test_save_and_load_preprocess_schema_roundtrip(tmp_path):
+def test_save_and_load_schema_contract_roundtrip(tmp_path):
     schema = {
         "created_at": "2024-01-01T00:00:00Z",
         "null_tokens": ["(Blank)"],
@@ -362,7 +362,7 @@ def test_save_and_load_preprocess_schema_roundtrip(tmp_path):
     }
 
     path = tmp_path / "schema.json"
-    save_preprocess_schema(schema, str(path))
-    loaded = load_preprocess_schema(str(path))
+    save_schema_contract(schema, str(path))
+    loaded = load_schema_contract(str(path))
 
     assert loaded == schema

@@ -252,7 +252,7 @@ def clean_dataset(
     Typical pattern:
       - TRAINING:
           clean_dataset(..., generate_dtypes=True)
-          -> build_preprocess_schema(...)
+          -> build_schema_contract(...)
       - INFERENCE:
           clean_dataset(..., generate_dtypes=False)  # if you still want cleaning hooks
           then enforce_schema(...) using the frozen schema.
@@ -414,7 +414,7 @@ def clean_all_datasets_map(
 
     `generate_dtypes` is passed through to `clean_dataset`, so you can also
     reuse this at inference-time by setting it to False and then applying
-    `enforce_preprocess_schema` / `enforce_schema`.
+    `enforce_schema_contract` / `enforce_schema`.
     """
     cleaned: dict[str, pd.DataFrame] = {}
     for key, bundle in datasets.items():
@@ -570,7 +570,7 @@ class SchemaContractMeta:
     null_tokens: list[str] = field(default_factory=lambda: ["(Blank)"])
 
 
-def build_preprocess_schema(
+def build_schema_contract(
     cleaned_map: dict[str, pd.DataFrame],
     specs: dict[str, dict[str, t.Any] | CleanSpec],
     *,
@@ -606,26 +606,26 @@ def build_preprocess_schema(
     }
 
 
-def enforce_preprocess_schema(
-    raw_map: dict[str, pd.DataFrame], preprocess_schema: dict
+def enforce_schema_contract(
+    raw_map: dict[str, pd.DataFrame], schema_contract: dict
 ) -> dict[str, pd.DataFrame]:
     out: dict[str, pd.DataFrame] = {}
     for name, df in raw_map.items():
-        if name not in preprocess_schema["datasets"]:
-            raise KeyError(f"Dataset '{name}' is not present in preprocess_schema")
-        out[name] = enforce_schema(df, preprocess_schema["datasets"][name])
+        if name not in schema_contract["datasets"]:
+            raise KeyError(f"Dataset '{name}' is not present in schema_contract")
+        out[name] = enforce_schema(df, schema_contract["datasets"][name])
     return out
 
 
 # ---------------------------
 # Serialization helpers
 # ---------------------------
-def save_preprocess_schema(preprocess_schema: dict, path: str) -> None:
+def save_schema_contract(schema_contract: dict, path: str) -> None:
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(preprocess_schema, f, indent=2, ensure_ascii=False)
+        json.dump(schema_contract, f, indent=2, ensure_ascii=False)
 
 
-def load_preprocess_schema(path: str) -> dict[str, t.Any]:
+def load_schema_contract(path: str) -> dict[str, t.Any]:
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     return t.cast(dict[str, t.Any], data)
@@ -641,10 +641,10 @@ __all__ = [
     "freeze_schema",
     "enforce_schema",
     "SchemaContractMeta",
-    "build_preprocess_schema",
-    "enforce_preprocess_schema",
-    "save_preprocess_schema",
-    "load_preprocess_schema",
+    "build_schema_contract",
+    "enforce_schema_contract",
+    "save_schema_contract",
+    "load_schema_contract",
     "normalize_columns",
     "create_datasets",
     "clean_all_datasets_map",
