@@ -246,7 +246,7 @@ def rank_local_dfwi_courses(
     df["key"] = course_id(df)
     g = df[grade_col].astype("string").str.strip().str.upper()
 
-    is_D = g.isin(D_grades) # could be 
+    is_D = g.isin(D_grades)  # could be
     is_F = g.isin(F_grades)  # F, WF, NP
     is_W = g.isin(W_grades)
     is_I = g.isin(I_grades)  # optional add to numerator
