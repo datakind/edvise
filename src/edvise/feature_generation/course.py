@@ -230,11 +230,11 @@ def rank_local_dfwi_courses(
     prefix_col: str = "course_prefix",
     number_col: str = "course_number",
     min_enrollments: int = 30,  # ignore tiny Ns
-    D_grades: dict = {"D", "DD"},
-    F_grades: dict = {"F", "NP", "WF"},
-    W_grades: dict = {"W"},
-    I_grades: dict = {"I"},
-    completed_grades: dict = {"A", "B", "C", "P"},
+    D_grades: set[str] = {"D", "DD"},
+    F_grades: set[str] = {"F", "NP", "WF"},
+    W_grades: set[str] = {"W"},
+    I_grades: set[str] = {"I"},
+    completed_grades: set[str] = {"A", "B", "C", "P"},
 ) -> pd.DataFrame:
     """
     Returns per-course DFW/DFWI ranking with robust metrics:
