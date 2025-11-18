@@ -230,6 +230,11 @@ def rank_local_dfwi_courses(
     prefix_col: str = "course_prefix",
     number_col: str = "course_number",
     min_enrollments: int = 30,  # ignore tiny Ns
+    D_grades: dict = {"D", "DD"},
+    F_grades: dict = {"F", "NP", "WF"},
+    W_grades: dict = {"W"},
+    I_grades: dict = {"I"},
+    completed_grades: dict = {"A", "B", "C", "P"},
 ) -> pd.DataFrame:
     """
     Returns per-course DFW/DFWI ranking with robust metrics:
@@ -241,11 +246,11 @@ def rank_local_dfwi_courses(
     df["key"] = course_id(df)
     g = df[grade_col].astype("string").str.strip().str.upper()
 
-    is_D = g.isin({"D", "DD"})
-    is_F = g.isin({"F", "NP", "WF"})  # F, WF, NP
-    is_W = g.isin({"W"})
-    is_I = g.isin({"I"})  # optional add to numerator
-    completed = g.isin({"A", "B", "C", "P"})
+    is_D = g.isin(D_grades) # could be 
+    is_F = g.isin(F_grades)  # F, WF, NP
+    is_W = g.isin(W_grades)
+    is_I = g.isin(I_grades)  # optional add to numerator
+    completed = g.isin(completed_grades)
     in_den = completed | is_W  # denominator = graded OR withdrew
 
     # Aggregate per course key
