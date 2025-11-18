@@ -8,13 +8,13 @@ from edvise.data_audit import custom_cleaning as m
 from edvise.data_audit.custom_cleaning import (
     create_datasets,
     normalize_columns,
-    InferenceOptions,
+    DtypeGenerationOptions,
     generate_column_training_dtype,
     generate_training_dtypes,
     CleanSpec,
     clean_dataset,
     clean_all_datasets_map,
-    FreezeOptions,
+    SchemaFreezeOptions,
     freeze_schema,
     enforce_schema,
     SchemaContractMeta,
@@ -82,7 +82,7 @@ def test_normalize_columns_uses_convert_to_snake_case(monkeypatch):
 def test_generate_column_training_dtype_date_numeric_boolean_string():
     # Use relaxed options so small synthetic series can still be typed
     # realistically: we want to *exercise* the paths, not mimic production thresholds.
-    opts = InferenceOptions(
+    opts = DtypeGenerationOptions(
         dtype_confidence_threshold=0.5,
         min_non_null=1,
         date_formats=("%m/%d/%Y",),
@@ -139,7 +139,7 @@ def test_generate_column_training_dtype_date_numeric_boolean_string():
 
 
 def test_generate_training_dtypes_columnwise():
-    opts = InferenceOptions(
+    opts = DtypeGenerationOptions(
         dtype_confidence_threshold=0.5,
         min_non_null=1,
         date_formats=("%m/%d/%Y",),
@@ -266,7 +266,9 @@ def test_freeze_schema_and_enforce_schema_main_flow(caplog):
         "unique keys": ["id"],
     }
 
-    schema = freeze_schema(df, spec, opts=FreezeOptions(include_column_order_hash=True))
+    schema = freeze_schema(
+        df, spec, opts=SchemaFreezeOptions(include_column_order_hash=True)
+    )
     assert schema["dtypes"] == {
         "id": "Int64",
         "val": "Float64",
