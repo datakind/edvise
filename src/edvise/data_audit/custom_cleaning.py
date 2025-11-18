@@ -40,7 +40,12 @@ LOGGER = logging.getLogger(__name__)
 # ---------------------------
 # Create datasets object for processing
 # ---------------------------
-def create_datasets(df, bronze, *, include_empty: bool = False) -> dict:
+def create_datasets(
+    df: pd.DataFrame,
+    bronze: t.Mapping[str, t.Any] | t.Any,
+    *,
+    include_empty: bool = False,
+) -> dict:
     """
     Normalize a df + bronze config into a single entry.
     - Maps: drop_cols -> "drop columns", non_null_cols -> "non-null columns", primary_keys -> "unique keys"
@@ -90,15 +95,15 @@ def normalize_columns(cols: t.Iterable[str]) -> tuple[pd.Index, dict[str, list[s
 
 
 # ---------------------------
-# Robust training-time dtype inference (nullable dtypes only)
+# Robust training-time dtype generation (nullable dtypes only)
 # ---------------------------
 @dataclass
-class InferenceOptions:
+class DtypeGenerationOptions:
     date_formats: tuple[str, ...] = ("%m/%d/%Y",)
     # Accept a type at training-time if at least this fraction of values
     # can be successfully coerced to that type.
     dtype_confidence_threshold: float = 0.75
-    # Also require at least this many non-null values to trust the inference.
+    # Also require at least this many non-null values to trust the generated dtype.
     min_non_null: int = 10
     boolean_map: dict[str, bool] = field(
         default_factory=lambda: {
@@ -113,7 +118,7 @@ class InferenceOptions:
 
 
 def generate_column_training_dtype(
-    series: pd.Series, opts: InferenceOptions | None = None
+    series: pd.Series, opts: DtypeGenerationOptions | None = None
 ) -> pd.Series:
     """
     Generate a training-time dtype for a column using coercion & confidence thresholds.
@@ -128,7 +133,9 @@ def generate_column_training_dtype(
     if not isinstance(series, pd.Series):
         return series
 
-    opts = opts or InferenceOptions()
+    if opts is None:
+        opts = DtypeGenerationOptions()
+
     s = series.copy()
 
     # --- Short-circuit for already-typed columns --------------------------
@@ -193,17 +200,17 @@ def generate_column_training_dtype(
 
 
 def generate_training_dtypes(
-    df: pd.DataFrame, opts: InferenceOptions | None = None
+    df: pd.DataFrame, opts: DtypeGenerationOptions | None = None
 ) -> pd.DataFrame:
     """
     Generate training-time dtypes for an entire DataFrame. This is needed since
     many of our custom schools give us CSV files, which do not save dtypes (everything
-    is usually nullable string type). 
+    is usually nullable string type).
 
     NOTE: Use only on training data. At inference time, rely on `enforce_schema`
     using a schema frozen from the trained data.
     """
-    opts = opts or InferenceOptions()
+    opts = opts or DtypeGenerationOptions()
     out = df.copy()
     for col in out.columns:
         try:
@@ -235,12 +242,12 @@ def clean_dataset(
     df: pd.DataFrame,
     spec: dict | CleanSpec,
     dataset_name: str = "",
-    inference_opts: InferenceOptions | None = None,
+    inference_opts: DtypeGenerationOptions | None = None,
     enforce_uniqueness: bool = True,
     generate_dtypes: bool = True,
 ) -> pd.DataFrame:
     """
-    End-to-end cleaner with robust training-time dtype inference and consistent policies.
+    End-to-end cleaner with robust training-time dtype generation and consistent policies.
 
     Typical pattern:
       - TRAINING:
@@ -254,7 +261,7 @@ def clean_dataset(
     and introducing train–inference skew; instead, `enforce_schema` should dictate
     the final dtypes.
     """
-    inference_opts = inference_opts or InferenceOptions()
+    inference_opts = inference_opts or DtypeGenerationOptions()
     if isinstance(spec, dict):
         spec = CleanSpec(
             drop_columns=(spec.get("drop columns") or spec.get("drop_columns")),
@@ -434,7 +441,7 @@ def clean_all_datasets_map(
 # Schema freezing & enforcing
 # ---------------------------
 @dataclass
-class FreezeOptions:
+class SchemaFreezeOptions:
     include_column_order_hash: bool = True
 
 
@@ -447,10 +454,10 @@ def _hash_list(values: list[str]) -> str:
 
 
 def freeze_schema(
-    df: pd.DataFrame, spec: dict, opts: FreezeOptions | None = None
-) -> dict:
+    df: pd.DataFrame, spec: dict[str, t.Any], opts: SchemaFreezeOptions | None = None
+) -> dict[str, t.Any]:
     """Freeze names, dtypes, non-null policy, unique keys. No vocab, no version."""
-    opts = opts or FreezeOptions()
+    opts = opts or SchemaFreezeOptions()
     schema = {
         "normalized_columns": {
             o: n for o, n in zip(spec.get("_orig_cols_", list(df.columns)), df.columns)
@@ -565,19 +572,33 @@ class SchemaContractMeta:
 
 def build_preprocess_schema(
     cleaned_map: dict[str, pd.DataFrame],
-    specs: dict[str, dict | CleanSpec],
+    specs: dict[str, dict[str, t.Any] | CleanSpec],
     *,
     meta: SchemaContractMeta | None = None,
-    freeze_opts: FreezeOptions | None = None,
+    freeze_opts: SchemaFreezeOptions | None = None,
 ) -> dict:
     meta = meta or SchemaContractMeta()
-    freeze_opts = freeze_opts or FreezeOptions()
-    datasets = {}
+    freeze_opts = freeze_opts or SchemaFreezeOptions()
+    datasets: dict[str, t.Any] = {}
+
     for name, df in cleaned_map.items():
-        # Ensure spec carries _orig_cols_ for normalized_columns mapping
-        spec = specs[name] if isinstance(specs[name], dict) else {}
-        spec.setdefault("_orig_cols_", list(df.columns))
-        datasets[name] = freeze_schema(df, spec, opts=freeze_opts)
+        raw_spec = specs[name]
+
+        # Always convert raw_spec into a dict[str, Any] for freeze_schema
+        if isinstance(raw_spec, CleanSpec):
+            spec_dict: dict[str, t.Any] = {
+                # Only the keys freeze_schema actually cares about
+                "non-null columns": raw_spec.non_null_columns,
+                "unique keys": raw_spec.unique_keys,
+                "_orig_cols_": raw_spec._orig_cols_ or list(df.columns),
+            }
+        else:
+            # raw_spec is already a dict[str, Any]
+            spec_dict = dict(raw_spec)
+            spec_dict.setdefault("_orig_cols_", list(df.columns))
+
+        datasets[name] = freeze_schema(df, spec_dict, opts=freeze_opts)
+
     return {
         "created_at": meta.created_at,
         "null_tokens": meta.null_tokens,
@@ -604,18 +625,19 @@ def save_preprocess_schema(preprocess_schema: dict, path: str) -> None:
         json.dump(preprocess_schema, f, indent=2, ensure_ascii=False)
 
 
-def load_preprocess_schema(path: str) -> dict:
+def load_preprocess_schema(path: str) -> dict[str, t.Any]:
     with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        data = json.load(f)
+    return t.cast(dict[str, t.Any], data)
 
 
 __all__ = [
-    "InferenceOptions",
+    "DtypeGenerationOptions",
     "generate_column_training_dtype",
     "generate_training_dtypes",
     "CleanSpec",
     "clean_dataset",
-    "FreezeOptions",
+    "SchemaFreezeOptions",
     "freeze_schema",
     "enforce_schema",
     "SchemaContractMeta",
