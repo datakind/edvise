@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-
+import numpy as np
 from edvise.feature_generation import constants, course
 
 
@@ -245,3 +245,67 @@ def test_convert_number_of_courses_to_term_flag_col():
         test_df.iloc[:, :3], col_prefix="term_n_courses_", orig_col="something"
     )
     pd.testing.assert_frame_equal(result_df, test_df.iloc[:, 2:])
+
+
+def test_rank_local_dfwi_courses():
+    data = {
+        "student_id": (list(range(1, 11)) + list(range(101, 107))),
+        "course_prefix": ["MATH"] * 10 + ["HIST"] * 6,
+        "course_number": ["101"] * 10 + ["201"] * 6,
+        "grade": [
+            "A",
+            "B",
+            "C",
+            "d",
+            "f",
+            "np",
+            "wf",
+            "w",
+            "i",
+            "  a  ",
+            "A",
+            "B",
+            "C",
+            "W",
+            "I",
+            "F",
+        ],
+    }
+    df = pd.DataFrame(data)
+    out = course.rank_local_dfwi_courses(df, min_enrollments=1)
+
+    assert list(out.columns) == [
+        "key",
+        "enrollments_den",
+        "D",
+        "F",
+        "W",
+        "I",
+        "dfwi_count",
+        "rate",
+    ]
+    assert len(out) == 2
+    row0 = out.iloc[0]
+    row1 = out.iloc[1]
+
+    assert row0["enrollments_den"] == 5
+    assert row0["D"] == 1
+    assert row0["F"] == 3
+    assert row0["W"] == 1
+    assert row0["I"] == 1
+    assert row0["dfwi_count"] == 6
+    assert np.isclose(row0["rate"], 6 / 5)
+
+    assert row1["enrollments_den"] == 4
+    assert row1["D"] == 0
+    assert row1["F"] == 1
+    assert row1["W"] == 1
+    assert row1["I"] == 1
+    assert row1["dfwi_count"] == 3
+    assert np.isclose(row1["rate"], 3 / 4)
+
+    out_filtered = course.rank_local_dfwi_courses(df, min_enrollments=5)
+    assert len(out_filtered) == 1
+    rowf = out_filtered.iloc[0]
+    assert rowf["enrollments_den"] == 5
+    assert np.isclose(rowf["rate"], 6 / 5)
