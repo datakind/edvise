@@ -84,7 +84,7 @@ jobs:
 
   # DEV (dev-sst-02)
   deploy-dev:
-    if: ${{ startsWith(github.ref, 'refs/tags/v')
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
 
     name: Deploy DAB to dev_sst_02 instance
     runs-on: ubuntu-latest
