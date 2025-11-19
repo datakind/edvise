@@ -1,8 +1,8 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # SST Train and Evaluate H2O Model
+# MAGIC # SST Preprocess Custom Data
 # MAGIC
-# MAGIC Third step in the process of transforming raw data into actionable, data-driven insights for advisors: load a prepared modeling dataset, configure experiment tracking framework, then train and evaluate a predictive model.
+# MAGIC First step in the process of transforming raw data into actionable, data-driven insights for advisors: load raw data, build a schema contract to enhance data & pipeline reliability, and ensure limited training-inference skew.
 # MAGIC
 # MAGIC ### References
 # MAGIC
@@ -79,7 +79,7 @@ cfg
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # read raw datasets
+# MAGIC ## read raw datasets
 
 # COMMAND ----------
 
@@ -99,7 +99,7 @@ semester_raw_df = dataio.read.from_csv_file(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # clean datasets & build schema contract
+# MAGIC ## clean datasets & build schema contract
 
 # COMMAND ----------
 
