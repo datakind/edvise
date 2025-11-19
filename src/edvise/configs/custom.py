@@ -275,7 +275,7 @@ class PreprocessingConfig(pyd.BaseModel):
 
 
 class CleaningConfig(pyd.BaseModel):
-    schema_contract_path: str = pyd.Field(
+    schema_contract_path: t.Optional[str] = pyd.Field(
         default=None,
         description=(
             "Absolute path on volumes to the schema_contract.json file "
