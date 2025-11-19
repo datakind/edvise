@@ -119,7 +119,7 @@ dedupe_fn_by_dataset: dict[str, custom_cleaning.DedupeFn] = {
 }
 
 # Pull cleaning config
-cleaning_cfg = cfg.preprocessing.cleaning
+cleaning_cfg = getattr(getattr(cfg, "preprocessing", None), "cleaning", None)
 cleaning_cfg
 
 # COMMAND ----------
