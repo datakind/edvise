@@ -275,7 +275,7 @@ class PreprocessingConfig(pyd.BaseModel):
 
 
 class CleaningConfig(pyd.BaseModel):
-    schema_contract_path: str = pyd.Field(
+    schema_contract_path: t.Optional[str] = pyd.Field(
         default=None,
         description=(
             "Absolute path on volumes to the schema_contract.json file "
@@ -284,7 +284,7 @@ class CleaningConfig(pyd.BaseModel):
             "for data reliability and to ensure minimal training-inference skew."
         ),
     )
-    student_id_alias: str = pyd.Field(
+    student_id_alias: t.Optional[str] = pyd.Field(
         default=None,
         description=(
             "Sometimes custom schools give us a 'student_id' column, "
