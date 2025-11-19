@@ -78,6 +78,11 @@ calibrate = false
 [preprocessing]
 splits = { train = 0.6, test = 0.2, validate = 0.2 }
 sample_class_weight = "balanced"
+
+[preprocessing.cleaning]
+null_tokens = ["(Blank)"]
+dtype_confidence_threshold = 0.75
+min_non_null = 10
 schema_contract_path = "/Volumes/CATALOG/INST_ID_bronze/.../schema_contract.json"
 
 [preprocessing.selection]

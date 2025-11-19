@@ -33,8 +33,14 @@ import pandas as pd
 from pandas.api import types as ptypes
 
 from edvise.utils.data_cleaning import convert_to_snake_case
+from edvise.configs.custom import CustomProjectConfig, CleaningConfig
 
 LOGGER = logging.getLogger(__name__)
+
+
+# Type aliases for clarity
+TermOrderFn = t.Callable[[pd.DataFrame, str], pd.DataFrame]
+DedupeFn = t.Callable[[pd.DataFrame], pd.DataFrame]
 
 
 # ---------------------------
@@ -67,6 +73,64 @@ def create_datasets(
         if include_empty or val not in (None, [], {}, ()):
             out[out_key] = val
     return out
+
+
+def build_datasets_from_bronze(
+    cfg: CustomProjectConfig,
+    df_map: t.Dict[str, t.Tuple[str, pd.DataFrame]],
+) -> dict[str, dict]:
+    return {
+        name: create_datasets(
+            df,
+            cfg.datasets.bronze[raw_key],
+        )
+        for name, (raw_key, df) in df_map.items()
+    }
+
+
+def attach_cleaning_hooks(
+    datasets: dict[str, dict],
+    cleaning_cfg: t.Optional[CleaningConfig] = None,
+    *,
+    # global defaults
+    default_term_order_fn: t.Optional[TermOrderFn] = None,
+    default_term_col: str = "term",
+    default_dedupe_fn: t.Optional[DedupeFn] = None,
+    # per-dataset overrides
+    term_order_by_dataset: t.Optional[dict[str, t.Tuple[TermOrderFn, str]]] = None,
+    dedupe_fn_by_dataset: t.Optional[dict[str, DedupeFn]] = None,
+) -> None:
+    """
+    Mutate `datasets` in-place to attach cleaning hooks for each bundle.
+
+    Precedence:
+      - term_order_by_dataset[name] → (fn, col)
+      - default_term_order_fn / default_term_col
+
+      - dedupe_fn_by_dataset[name]
+      - default_dedupe_fn
+
+    Also propagates CleaningConfig.student_id_alias down into each bundle.
+    """
+    for name, bundle in datasets.items():
+        # --- term_order_fn + term_column (per-dataset first) ---
+        if term_order_by_dataset and name in term_order_by_dataset:
+            fn, col = term_order_by_dataset[name]
+            bundle.setdefault("term_order_fn", fn)
+            bundle.setdefault("term_column", col)
+        elif default_term_order_fn is not None:
+            bundle.setdefault("term_order_fn", default_term_order_fn)
+            bundle.setdefault("term_column", default_term_col)
+
+        # --- student_id alias from global CleaningConfig ---
+        if cleaning_cfg and cleaning_cfg.student_id_alias:
+            bundle.setdefault("student_id_alias", cleaning_cfg.student_id_alias)
+
+        # --- dedupe_fn (per-dataset first) ---
+        if dedupe_fn_by_dataset and name in dedupe_fn_by_dataset:
+            bundle.setdefault("dedupe_fn", dedupe_fn_by_dataset[name])
+        elif default_dedupe_fn is not None:
+            bundle.setdefault("dedupe_fn", default_dedupe_fn)
 
 
 # ---------------------------
@@ -117,6 +181,19 @@ class DtypeGenerationOptions:
     )
 
 
+def dtype_opts_from_cleaning_config(
+    cfg: "CleaningConfig | None",
+) -> DtypeGenerationOptions:
+    if cfg is None:
+        return DtypeGenerationOptions()
+    return DtypeGenerationOptions(
+        date_formats=cfg.date_formats,
+        dtype_confidence_threshold=cfg.dtype_confidence_threshold,
+        min_non_null=cfg.min_non_null,
+        boolean_map=cfg.boolean_map,
+    )
+
+
 def generate_column_training_dtype(
     series: pd.Series, opts: DtypeGenerationOptions | None = None
 ) -> pd.Series:
@@ -141,7 +218,7 @@ def generate_column_training_dtype(
     # --- Short-circuit for already-typed columns --------------------------
 
     # Already datetime-like → keep as datetime (no thresholds needed)
-    if ptypes.is_datetime64_any_dtype(s) or ptypes.is_datetime64tz_dtype(s):
+    if ptypes.is_datetime64_any_dtype(s):
         return s
 
     # Already boolean → normalize to pandas nullable boolean
@@ -245,6 +322,7 @@ def clean_dataset(
     inference_opts: DtypeGenerationOptions | None = None,
     enforce_uniqueness: bool = True,
     generate_dtypes: bool = True,
+    cleaning_cfg: "CleaningConfig | None" = None,
 ) -> pd.DataFrame:
     """
     End-to-end cleaner with robust training-time dtype generation and consistent policies.
@@ -261,7 +339,11 @@ def clean_dataset(
     and introducing train–inference skew; instead, `enforce_schema` should dictate
     the final dtypes.
     """
-    inference_opts = inference_opts or DtypeGenerationOptions()
+    if cleaning_cfg is not None:
+        inference_opts = dtype_opts_from_cleaning_config(cleaning_cfg)
+    else:
+        inference_opts = inference_opts or DtypeGenerationOptions()
+
     if isinstance(spec, dict):
         spec = CleanSpec(
             drop_columns=(spec.get("drop columns") or spec.get("drop_columns")),
@@ -273,8 +355,11 @@ def clean_dataset(
             term_order_fn=spec.get("term_order_fn"),
             term_column=spec.get("term_column", "term"),
             _orig_cols_=spec.get("_orig_cols_", list(df.columns)),
+            # NEW: pick up alias from cleaning_cfg if not present
+            student_id_alias=spec.get("student_id_alias")
+            if "student_id_alias" in spec
+            else (cleaning_cfg.student_id_alias if cleaning_cfg else None),
         )
-
     g = df.copy()
 
     # 1) normalize column names
@@ -315,12 +400,15 @@ def clean_dataset(
             )
 
     # 3) normalize null tokens & whitespace
-    g = g.replace("(Blank)", np.nan)
+    null_tokens = cleaning_cfg.null_tokens if cleaning_cfg else ["(Blank)"]
+    g = g.replace(null_tokens, np.nan)
+
     obj_cols = g.select_dtypes(include=["object", "string"]).columns
-    if len(obj_cols):
-        g[obj_cols] = g[obj_cols].apply(
-            lambda s: s.replace(r"^\s*$", pd.NA, regex=True)
-        )
+    if cleaning_cfg is None or cleaning_cfg.treat_empty_strings_as_null:
+        if len(obj_cols):
+            g[obj_cols] = g[obj_cols].apply(
+                lambda s: s.replace(r"^\s*$", pd.NA, regex=True)
+            )
 
     # 4) drop requested columns (never drop student_id)
     to_drop = set(spec.drop_columns or [])
@@ -407,6 +495,7 @@ def clean_all_datasets_map(
     datasets: t.Dict[str, t.Dict],
     enforce_uniqueness: bool = True,
     generate_dtypes: bool = True,
+    cleaning_cfg: "CleaningConfig | None" = None,
 ) -> t.Dict[str, pd.DataFrame]:
     """
     Clean each dataset bundle and return {name: cleaned_df}.
@@ -432,9 +521,51 @@ def clean_all_datasets_map(
             spec=spec,
             enforce_uniqueness=enforce_uniqueness,
             generate_dtypes=generate_dtypes,
+            cleaning_cfg=cleaning_cfg,  # <-- NEW
         )
         LOGGER.info("%s - Finished cleaning; final shape=%s", key, cleaned[key].shape)
     return cleaned
+
+
+def clean_bronze_datasets(
+    cfg: CustomProjectConfig,
+    df_map: t.Dict[str, t.Tuple[str, pd.DataFrame]],
+    run_type: str,
+    *,
+    cleaning_cfg: CleaningConfig | None = None,
+    # global defaults
+    default_term_order_fn: TermOrderFn | None = None,
+    default_term_col: str = "term",
+    default_dedupe_fn: DedupeFn | None = None,
+    # per-dataset overrides
+    term_order_by_dataset: t.Optional[dict[str, t.Tuple[TermOrderFn, str]]] = None,
+    dedupe_fn_by_dataset: t.Optional[dict[str, DedupeFn]] = None,
+) -> dict[str, pd.DataFrame]:
+    """
+    Convenience wrapper for:
+      - build_datasets_from_bronze(...)
+      - attach_cleaning_hooks(...)
+      - clean_all_datasets_map(...)
+    """
+    datasets = build_datasets_from_bronze(cfg, df_map)
+
+    attach_cleaning_hooks(
+        datasets,
+        cleaning_cfg=cleaning_cfg,
+        default_term_order_fn=default_term_order_fn,
+        default_term_col=default_term_col,
+        default_dedupe_fn=default_dedupe_fn,
+        term_order_by_dataset=term_order_by_dataset,
+        dedupe_fn_by_dataset=dedupe_fn_by_dataset,
+    )
+
+    generate_dtypes = run_type == "train"
+    return clean_all_datasets_map(
+        datasets,
+        enforce_uniqueness=True,
+        generate_dtypes=generate_dtypes,
+        cleaning_cfg=cleaning_cfg,
+    )
 
 
 # ---------------------------
@@ -615,6 +746,36 @@ def enforce_schema_contract(
             raise KeyError(f"Dataset '{name}' is not present in schema_contract")
         out[name] = enforce_schema(df, schema_contract["datasets"][name])
     return out
+
+
+def load_or_build_schema_contract(
+    cfg: CustomProjectConfig,
+    run_type: str,
+    cleaned: dict[str, pd.DataFrame],
+    specs: dict[str, dict[str, t.Any] | CleanSpec],
+) -> dict[str, t.Any]:
+    """
+    If run_type=="train": build + save the schema_contract to
+    cfg.preprocessing.cleaning.schema_contract_path.
+
+    Otherwise: load it from that path.
+    """
+    cleaning_cfg: CleaningConfig | None = getattr(
+        getattr(cfg, "preprocessing", None), "cleaning", None
+    )
+    schema_path = cleaning_cfg.schema_contract_path if cleaning_cfg else None
+    if not schema_path:
+        raise ValueError(
+            "preprocessing.cleaning.schema_contract_path must be set "
+            "on CustomProjectConfig for schema contract I/O."
+        )
+
+    if run_type == "train":
+        schema_contract = build_schema_contract(cleaned, specs=specs)
+        save_schema_contract(schema_contract, schema_path)
+    else:
+        schema_contract = load_schema_contract(schema_path)
+    return schema_contract
 
 
 # ---------------------------

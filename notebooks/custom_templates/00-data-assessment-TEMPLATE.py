@@ -45,11 +45,11 @@ from py4j.protocol import Py4JJavaError
 from edvise import dataio, configs, data_audit
 
 try:
-  # Get the pipeline type from job definition
-  run_type = dbutils.widgets.get("run_type") # noqa: F821
+    # Get the pipeline type from job definition
+    run_type = dbutils.widgets.get("run_type")  # noqa: F821
 except Py4JJavaError:
-  # Run script interactively
-  run_type = 'train'
+    # Run script interactively
+    run_type = "train"
 
 logging.basicConfig(level=logging.INFO, force=True)
 logging.getLogger("py4j").setLevel(logging.WARNING)  # ignore databricks logger
@@ -81,14 +81,14 @@ cfg
 # COMMAND ----------
 
 student_raw_df = dataio.read.from_csv_file(
-    cfg.datasets.bronze['raw_cohort'].file_path,
+    cfg.datasets.bronze["raw_cohort"].file_path,
     spark_session=spark,
 )
 course_raw_df = dataio.read.from_csv_file(
-    cfg.datasets.bronze['raw_course'].file_path,
+    cfg.datasets.bronze["raw_course"].file_path,
     spark_session=spark,
 )
 semester_raw_df = dataio.read.from_csv_file(
-    cfg.datasets.bronze['raw_semester'].file_path,
+    cfg.datasets.bronze["raw_semester"].file_path,
     spark_session=spark,
 )

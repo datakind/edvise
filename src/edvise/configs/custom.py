@@ -241,6 +241,7 @@ class ModelConfig(pyd.BaseModel):
 
 
 class PreprocessingConfig(pyd.BaseModel):
+    cleaning: "CleaningConfig"
     selection: "SelectionConfig"
     checkpoint: "CheckpointConfig"
     target: "TargetConfig"
@@ -263,16 +264,6 @@ class PreprocessingConfig(pyd.BaseModel):
         )
     )
 
-    schema_contract_path: t.Optional[str] = pyd.Field(
-        default=None,
-        description=(
-            "Absolute path on volumes to the schema_contract.json file "
-            "This file contains the frozen multi-dataset schema contract "
-            "used for schema enforcement for custom schools. This is needed "
-            "for data reliability and to ensure minimal training-inference skew."
-        ),
-    )
-
     @pyd.field_validator("splits", mode="after")
     @classmethod
     def check_split_fractions(cls, value: dict) -> dict:
@@ -281,6 +272,72 @@ class PreprocessingConfig(pyd.BaseModel):
                 f"split fractions must sum up to 1.0, but input sums up to {sum_fracs}"
             )
         return value
+
+
+class CleaningConfig(pyd.BaseModel):
+    schema_contract_path: str = pyd.Field(
+        default=None,
+        description=(
+            "Absolute path on volumes to the schema_contract.json file "
+            "This file contains the frozen multi-dataset schema contract "
+            "used for schema enforcement for custom schools. This is needed "
+            "for data reliability and to ensure minimal training-inference skew."
+        ),
+    )
+    student_id_alias: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Sometimes custom schools give us a 'student_id' column, "
+            "but it's notated differently. Zogotech infamously gives us a column "
+            "called 'student_id_datakind_randomized'. This needs to be normalized "
+            "back to 'student_id' for our own sanity."
+        ),
+    )
+    null_tokens: t.Optional[list[str]] = pyd.Field(
+        default=["(Blank)"],
+        description=(
+            "Tokens that should be treated as null/NA during cleaning. "
+            "These will be replaced with pandas NA before dtype generation."
+        ),
+    )
+    treat_empty_strings_as_null: t.Optional[bool] = pyd.Field(
+        default=True,
+        description=(
+            "If True, whitespace-only and empty strings are treated as null values."
+        ),
+    )
+    date_formats: t.Optional[tuple[str, ...]] = pyd.Field(
+        default=("%m/%d/%Y",),
+        description="Candidate date formats to try before falling back to generic parsing.",
+    )
+    dtype_confidence_threshold: t.Optional[float] = pyd.Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum fraction of successfully coerced values required to accept a generated dtype."
+        ),
+    )
+    min_non_null: t.Optional[int] = pyd.Field(
+        default=10,
+        ge=0,
+        description=(
+            "Minimum number of non-null values required to trust a generated dtype."
+        ),
+    )
+    boolean_map: t.Optional[dict[str, bool]] = pyd.Field(
+        default_factory=lambda: {
+            "true": True,
+            "false": False,
+            "yes": True,
+            "no": False,
+            "1": True,
+            "0": False,
+        },
+        description=(
+            "Mapping for interpreting string tokens as booleans during dtype generation."
+        ),
+    )
 
 
 class CheckpointConfig(pyd.BaseModel):
