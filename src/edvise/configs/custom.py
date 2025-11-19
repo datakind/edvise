@@ -241,7 +241,7 @@ class ModelConfig(pyd.BaseModel):
 
 
 class PreprocessingConfig(pyd.BaseModel):
-    cleaning: t.Optional["CleaningConfig"]
+    cleaning: t.Optional["CleaningConfig"] = None
     selection: "SelectionConfig"
     checkpoint: "CheckpointConfig"
     target: "TargetConfig"
