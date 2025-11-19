@@ -93,9 +93,9 @@ def attach_cleaning_hooks(
     cleaning_cfg: t.Optional[CleaningConfig] = None,
     *,
     # global defaults
-    default_term_order_fn: t.Optional[TermOrderFn] = None,
-    default_term_col: str = "term",
-    default_dedupe_fn: t.Optional[DedupeFn] = None,
+    term_order_fn: t.Optional[TermOrderFn] = None,
+    term_col: str = "term",
+    dedupe_fn: t.Optional[DedupeFn] = None,
     # per-dataset overrides
     term_order_by_dataset: t.Optional[dict[str, t.Tuple[TermOrderFn, str]]] = None,
     dedupe_fn_by_dataset: t.Optional[dict[str, DedupeFn]] = None,
@@ -105,10 +105,10 @@ def attach_cleaning_hooks(
 
     Precedence:
       - term_order_by_dataset[name] → (fn, col)
-      - default_term_order_fn / default_term_col
+      - term_order_fn / term_col
 
       - dedupe_fn_by_dataset[name]
-      - default_dedupe_fn
+      - dedupe_fn
 
     Also propagates CleaningConfig.student_id_alias down into each bundle.
     """
@@ -118,9 +118,9 @@ def attach_cleaning_hooks(
             fn, col = term_order_by_dataset[name]
             bundle.setdefault("term_order_fn", fn)
             bundle.setdefault("term_column", col)
-        elif default_term_order_fn is not None:
-            bundle.setdefault("term_order_fn", default_term_order_fn)
-            bundle.setdefault("term_column", default_term_col)
+        elif term_order_fn is not None:
+            bundle.setdefault("term_order_fn", term_order_fn)
+            bundle.setdefault("term_column", term_col)
 
         # --- student_id alias from global CleaningConfig ---
         if cleaning_cfg and cleaning_cfg.student_id_alias:
@@ -129,8 +129,8 @@ def attach_cleaning_hooks(
         # --- dedupe_fn (per-dataset first) ---
         if dedupe_fn_by_dataset and name in dedupe_fn_by_dataset:
             bundle.setdefault("dedupe_fn", dedupe_fn_by_dataset[name])
-        elif default_dedupe_fn is not None:
-            bundle.setdefault("dedupe_fn", default_dedupe_fn)
+        elif dedupe_fn is not None:
+            bundle.setdefault("dedupe_fn", dedupe_fn)
 
 
 # ---------------------------
@@ -533,10 +533,9 @@ def clean_bronze_datasets(
     run_type: str,
     *,
     cleaning_cfg: CleaningConfig | None = None,
-    # global defaults
-    default_term_order_fn: TermOrderFn | None = None,
-    default_term_col: str = "term",
-    default_dedupe_fn: DedupeFn | None = None,
+    term_order_fn: TermOrderFn | None = None,
+    term_col: str = "term",
+    dedupe_fn: DedupeFn | None = None,
     # per-dataset overrides
     term_order_by_dataset: t.Optional[dict[str, t.Tuple[TermOrderFn, str]]] = None,
     dedupe_fn_by_dataset: t.Optional[dict[str, DedupeFn]] = None,
@@ -552,9 +551,9 @@ def clean_bronze_datasets(
     attach_cleaning_hooks(
         datasets,
         cleaning_cfg=cleaning_cfg,
-        default_term_order_fn=default_term_order_fn,
-        default_term_col=default_term_col,
-        default_dedupe_fn=default_dedupe_fn,
+        default_term_order_fn=term_order_fn,
+        default_term_col=term_col,
+        default_dedupe_fn=dedupe_fn,
         term_order_by_dataset=term_order_by_dataset,
         dedupe_fn_by_dataset=dedupe_fn_by_dataset,
     )
