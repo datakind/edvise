@@ -77,6 +77,8 @@ framework = "sklearn"
 [preprocessing]
 splits = { train = 0.6, test = 0.2, validate = 0.2 }
 sample_class_weight = "balanced"
+schema_contract_path = "/Volumes/CATALOG/INST_ID_bronze/.../schema_contract.json"
+
 
 [preprocessing.selection]
 student_criteria = { enrollment_type = "FIRST-TIME", credential_type_sought_year_1 = "Bachelor's Degree" }

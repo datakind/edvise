@@ -263,6 +263,16 @@ class PreprocessingConfig(pyd.BaseModel):
         )
     )
 
+    schema_contract_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Absolute path on volumes to the schema_contract.json file "
+            "This file contains the frozen multi-dataset schema contract "
+            "used for schema enforcement for custom schools. This is needed "
+            "for data reliability and to ensure minimal training-inference skew."
+        ),
+    )
+
     @pyd.field_validator("splits", mode="after")
     @classmethod
     def check_split_fractions(cls, value: dict) -> dict:
