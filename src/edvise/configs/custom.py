@@ -241,7 +241,7 @@ class ModelConfig(pyd.BaseModel):
 
 
 class PreprocessingConfig(pyd.BaseModel):
-    cleaning: "CleaningConfig"
+    cleaning: t.Optional["CleaningConfig"]
     selection: "SelectionConfig"
     checkpoint: "CheckpointConfig"
     target: "TargetConfig"
@@ -275,7 +275,7 @@ class PreprocessingConfig(pyd.BaseModel):
 
 
 class CleaningConfig(pyd.BaseModel):
-    schema_contract_path: t.Optional[str] = pyd.Field(
+    schema_contract_path: str = pyd.Field(
         default=None,
         description=(
             "Absolute path on volumes to the schema_contract.json file "
@@ -284,7 +284,7 @@ class CleaningConfig(pyd.BaseModel):
             "for data reliability and to ensure minimal training-inference skew."
         ),
     )
-    student_id_alias: t.Optional[str] = pyd.Field(
+    student_id_alias: str = pyd.Field(
         default=None,
         description=(
             "Sometimes custom schools give us a 'student_id' column, "
@@ -293,24 +293,24 @@ class CleaningConfig(pyd.BaseModel):
             "back to 'student_id' for our own sanity."
         ),
     )
-    null_tokens: t.Optional[list[str]] = pyd.Field(
+    null_tokens: list[str] = pyd.Field(
         default=["(Blank)"],
         description=(
             "Tokens that should be treated as null/NA during cleaning. "
             "These will be replaced with pandas NA before dtype generation."
         ),
     )
-    treat_empty_strings_as_null: t.Optional[bool] = pyd.Field(
+    treat_empty_strings_as_null: bool = pyd.Field(
         default=True,
         description=(
             "If True, whitespace-only and empty strings are treated as null values."
         ),
     )
-    date_formats: t.Optional[tuple[str, ...]] = pyd.Field(
+    date_formats: tuple[str, ...] = pyd.Field(
         default=("%m/%d/%Y",),
         description="Candidate date formats to try before falling back to generic parsing.",
     )
-    dtype_confidence_threshold: t.Optional[float] = pyd.Field(
+    dtype_confidence_threshold: float = pyd.Field(
         default=0.75,
         ge=0.0,
         le=1.0,
@@ -318,14 +318,14 @@ class CleaningConfig(pyd.BaseModel):
             "Minimum fraction of successfully coerced values required to accept a generated dtype."
         ),
     )
-    min_non_null: t.Optional[int] = pyd.Field(
+    min_non_null: int = pyd.Field(
         default=10,
         ge=0,
         description=(
             "Minimum number of non-null values required to trust a generated dtype."
         ),
     )
-    boolean_map: t.Optional[dict[str, bool]] = pyd.Field(
+    boolean_map: dict[str, bool] = pyd.Field(
         default_factory=lambda: {
             "true": True,
             "false": False,
