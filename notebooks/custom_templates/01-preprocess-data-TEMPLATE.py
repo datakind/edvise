@@ -105,8 +105,8 @@ semester_raw_df = dataio.read.from_csv_file(
 
 # Map logical dataset names -> (bronze_config_key, raw_dataframe)
 DF_MAP: Dict[str, Tuple[str, pd.DataFrame]] = {
-    "student_df":  ("raw_student", student_raw_df),
-    "course_df":   ("raw_course", course_raw_df),
+    "student_df": ("raw_student", student_raw_df),
+    "course_df": ("raw_course", course_raw_df),
     "semester_df": ("raw_semester", semester_raw_df),
     # Add more as needed...
 }
@@ -127,7 +127,7 @@ cleaning_cfg
 # COMMAND ----------
 
 # Clean bronze datasets
-# Either use one term_order_fn/dedupe_fn for all datasets 
+# Either use one term_order_fn/dedupe_fn for all datasets
 # OR use per-dataset hooks from above
 cleaned = custom_cleaning.clean_bronze_datasets(
     cfg=cfg,
@@ -141,7 +141,7 @@ cleaned = custom_cleaning.clean_bronze_datasets(
     dedupe_fn_by_dataset=dedupe_fn_by_dataset,
 )
 
-# Build specs 
+# Build specs
 datasets_spec = custom_cleaning.build_datasets_from_bronze(cfg, DF_MAP)
 
 # Build or load schema contract
@@ -158,6 +158,6 @@ if run_type == "train":
 else:
     aligned = custom_cleaning.enforce_schema_contract(cleaned, schema_contract)
 
-student_df  = aligned["student_df"]
-course_df   = aligned["course_df"]
+student_df = aligned["student_df"]
+course_df = aligned["course_df"]
 semester_df = aligned["semester_df"]

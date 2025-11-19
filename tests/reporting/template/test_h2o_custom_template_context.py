@@ -53,6 +53,13 @@ class DummySelectionConfig:
         }
 
 
+class DummyCleaningConfig:
+    def __init__(self):
+        self.schema_contract_path = (
+            "\Volumes\custom_inst_id_bronze\...\schema_contract.json"
+        )
+
+
 class DummyFeaturesConfig:
     def __init__(self):
         self.min_passing_grade = 1.0
@@ -68,6 +75,7 @@ class DummyPreprocessingConfig:
         self.checkpoint = DummyCheckpointConfig()
         self.target = DummyTargetConfig()
         self.features = DummyFeaturesConfig()
+        self.cleaning = DummyCleaningConfig()
 
 
 class DummyDatasetsConfig:

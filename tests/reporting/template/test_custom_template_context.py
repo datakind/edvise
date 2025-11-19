@@ -62,12 +62,20 @@ class DummyFeaturesConfig:
         self.key_course_ids = ["ENGL101"]
 
 
+class DummyCleaningConfig:
+    def __init__(self):
+        self.schema_contract_path = (
+            "\Volumes\custom_inst_id_bronze\...\schema_contract.json"
+        )
+
+
 class DummyPreprocessingConfig:
     def __init__(self):
         self.selection = DummySelectionConfig()
         self.checkpoint = DummyCheckpointConfig()
         self.target = DummyTargetConfig()
         self.features = DummyFeaturesConfig()
+        self.cleaning = DummyCleaningConfig()
 
 
 class DummyDatasetsConfig:
