@@ -551,9 +551,9 @@ def clean_bronze_datasets(
     attach_cleaning_hooks(
         datasets,
         cleaning_cfg=cleaning_cfg,
-        default_term_order_fn=term_order_fn,
-        default_term_col=term_col,
-        default_dedupe_fn=dedupe_fn,
+        term_order_fn=term_order_fn,
+        term_col=term_col,
+        dedupe_fn=dedupe_fn,
         term_order_by_dataset=term_order_by_dataset,
         dedupe_fn_by_dataset=dedupe_fn_by_dataset,
     )
