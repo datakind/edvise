@@ -64,7 +64,7 @@ jobs:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_STAGING_HOST }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_STAGING_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_STAGING_CLIENT_SECRET }}
-          DB_WORKSPACE:         ${{ secrets.STAGING_DB_WORKSPACE }}
+          DB_WORKSPACE:         staging_sst_01
           SA_EXECUTER:          ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
           DS_RUN_AS:            ${{ secrets.STAGING_DS_RUN_AS }}
           GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
@@ -75,7 +75,7 @@ jobs:
           databricks bundle deploy \
             --target=prod \
             --force-lock \
-            --var="DB_workspace=staging_sst_01" \
+            --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$DS_RUN_AS" \
             --var="databricks_institution_name=midway_uni" \
@@ -143,4 +143,4 @@ jobs:
             --var="databricks_institution_name=synthetic" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
-            --var="git_tag=v0.1.6" \
+            --var="git_tag=v0.1.6" 
