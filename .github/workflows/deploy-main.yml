@@ -70,6 +70,7 @@ jobs:
           GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
           DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
         run: |
+          databricks current-user get
           echo "Deploying DAB to prod for tag v0.1.6..."
           databricks bundle deploy \
             --target=prod \
@@ -131,6 +132,7 @@ jobs:
           GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
           DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
         run: |
+          databricks current-user get
           echo "Deploying PROD target to dev_sst_02 for tag v0.1.6..."
           databricks bundle deploy \
             --target=prod \
