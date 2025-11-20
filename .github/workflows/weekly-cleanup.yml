@@ -37,7 +37,7 @@ jobs:
         run: |
           databricks bundle deploy --target dev \
             --var "git_commit=${GITHUB_SHA}" \
-            --var "DB_workspace=${{ secrets.DEV_DB_WORKSPACE }}" \
+            --var "DB_workspace=dev_sst_02" \
             --var "databricks_institution_name=synthetic_integration" \
             --var "datakind_notification_email=${{ secrets.DATAKIND_EMAIL }}" \
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
@@ -53,7 +53,7 @@ jobs:
         run: |
           databricks bundle run edvise_cleanup_synthetic --target dev \
             --var "git_commit=${GITHUB_SHA}" \
-            --var "DB_workspace=${{ secrets.DEV_DB_WORKSPACE }}" \
+            --var "DB_workspace=dev_sst_02" \
             --var "databricks_institution_name=synthetic_integration" \
             --var "datakind_notification_email=${{ secrets.DATAKIND_EMAIL }}" \
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
