@@ -1,0 +1,78 @@
+# pipelines/pdp/resources/synthetic/github_synth_cleanup.yml
+resources:
+  jobs:
+    edvise_cleanup_synthetic:
+      name: edvise_cleanup_synthetic
+      max_concurrent_runs: 1
+
+      git_source:
+        git_url: https://github.com/datakind/edvise
+        git_provider: gitHub
+        # In dev, the bundle sets var.git_commit; in prod, var.git_tag
+        # Your bundle targets inject one of these (no need to specify here).
+
+      tasks:
+        - task_key: cleanup
+          job_cluster_key: edvise-synthetic-cleanup-pipeline-cluster
+          spark_python_task:
+            source: GIT
+            python_file: src/edvise/scripts/pdp_synthetic_cleanup.py
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --retention_days
+              - "{{job.parameters.retention_days}}"
+              - --dry_run
+              - "{{job.parameters.dry_run}}"
+              - --clean_volumes
+              - "{{job.parameters.clean_volumes}}"
+              - --delete_models
+              - "{{job.parameters.delete_models}}"
+              - --delete_experiments
+              - "{{job.parameters.delete_experiments}}"
+
+      job_clusters:
+        - job_cluster_key: edvise-synthetic-cleanup-pipeline-cluster
+          new_cluster:
+            cluster_name: ""
+            spark_version: 15.4.x-cpu-ml-scala2.12
+            spark_conf:
+              spark.master: local[*, 4]
+              spark.databricks.cluster.profile: singleNode
+            gcp_attributes:
+              use_preemptible_executors: false
+              availability: ON_DEMAND_GCP
+              zone_id: HA
+            node_type_id: n2-standard-16
+            custom_tags:
+              ResourceClass: SingleNode
+              x-databricks-nextgen-cluster: "true"
+            enable_elastic_disk: true
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            num_workers: 0
+            
+
+      parameters:
+        - name: DB_workspace
+          default: ${var.DB_workspace}
+        - name: databricks_institution_name
+          default: ${var.databricks_institution_name}
+        - name: retention_days
+          default: "0"
+        - name: dry_run
+          default: "true"
+        - name: clean_volumes
+          default: "true"
+        - name: delete_models
+          default: "false"
+        - name: delete_experiments
+          default: "false"
+
+      permissions:
+        - group_name: ${var.datakind_group_to_manage_workflow}
+          level: CAN_MANAGE
+        - user_name: ${var.service_account_executer}
+          level: CAN_MANAGE_RUN

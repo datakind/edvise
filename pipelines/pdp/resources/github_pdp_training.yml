@@ -304,10 +304,6 @@ resources:
             data_security_mode: SINGLE_USER
             runtime_engine: STANDARD
             num_workers: 0  
-      git_source:
-        git_url: https://github.com/datakind/edvise
-        git_provider: gitHub
-        git_tag: v0.1.6
       queue:
         enabled: true
       parameters:
@@ -332,5 +328,7 @@ resources:
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
+        - service_principal_name: ${var.ds_run_as}
+          level: CAN_MANAGE
         - user_name: ${var.service_account_executer}
-          level: CAN_MANAGE_RUN
+          level: CAN_MANAGE

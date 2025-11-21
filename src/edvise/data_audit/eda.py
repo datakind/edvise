@@ -727,3 +727,232 @@ def print_credential_types_and_retention(df_cohort: pd.DataFrame) -> None:
         " Percent breakdown for credential types: \n%s ",
         pct_credentials.to_string(),
     )
+
+
+def validate_ids_terms_consistency(
+    student_df: t.Optional[pd.DataFrame],
+    semester_df: pd.DataFrame,
+    course_df: pd.DataFrame,
+    *,
+    id_col: str = "student_id",
+    sem_col: str = "semester_code",
+    student_id_col: t.Optional[str] = None,
+) -> t.Dict[str, t.Any]:
+    """
+    Check key-level and ID-level consistency between Course, Semester and Student.
+
+    Returns:
+    {
+        "summary": {....},
+        "unmatched_course_side": DataFrame[(id, sem)],
+        "unmatched_semester_side": DataFrame[(id, sem)],
+        "course_ids_not_in_semester": DataFrame[id],
+        "course_ids_not_in_student": DataFrame[id],
+        "semester_ids_not_in_student": DataFrame[id],
+        "course_terms_not_in_semester_terms": DataFrame[sem],
+        "null_course_keys": DataFrame[(id, sem)],
+        "null_semester_keys": DataFrame[(id, sem)],
+    }
+    """
+    student_id_col = student_id_col or id_col
+    c_keys = course_df[[id_col, sem_col]].copy()
+    s_keys = semester_df[[id_col, sem_col]].copy()
+
+    st = None
+    if student_df is not None:
+        st = student_df[[student_id_col]].drop_duplicates().copy()
+        if student_id_col != id_col:
+            st = st.rename(columns={student_id_col: id_col})
+
+    null_course_keys = course_df.loc[
+        course_df[id_col].isna() | course_df[sem_col].isna(),
+        [id_col, sem_col],
+    ].drop_duplicates()
+
+    null_semester_keys = semester_df.loc[
+        semester_df[id_col].isna() | semester_df[sem_col].isna(),
+        [id_col, sem_col],
+    ].drop_duplicates()
+
+    course_keys = c_keys.drop_duplicates()
+    sem_keys = s_keys.drop_duplicates()
+
+    unmatched_course_side = (
+        course_keys.merge(sem_keys, on=[id_col, sem_col], how="left", indicator=True)
+        .loc[lambda df: df["_merge"].eq("left_only"), [id_col, sem_col]]
+        .sort_values([id_col, sem_col])
+        .reset_index(drop=True)
+    )
+
+    unmatched_semester_side = (
+        sem_keys.merge(course_keys, on=[id_col, sem_col], how="left", indicator=True)
+        .loc[lambda df: df["_merge"].eq("left_only"), [id_col, sem_col]]
+        .sort_values([id_col, sem_col])
+        .reset_index(drop=True)
+    )
+
+    course_ids = course_df[[id_col]].dropna().drop_duplicates()
+    semester_ids = semester_df[[id_col]].dropna().drop_duplicates()
+
+    course_ids_not_in_semester = (
+        course_ids.merge(semester_ids, on=id_col, how="left", indicator=True)
+        .loc[lambda df: df["_merge"].eq("left_only"), [id_col]]
+        .sort_values(id_col)
+        .reset_index(drop=True)
+    )
+
+    if st is not None:
+        course_ids_not_in_student = (
+            course_ids.merge(st, on=id_col, how="left", indicator=True)
+            .loc[lambda df: df["_merge"].eq("left_only"), [id_col]]
+            .sort_values(id_col)
+            .reset_index(drop=True)
+        )
+        semester_ids_not_in_student = (
+            semester_ids.merge(st, on=id_col, how="left", indicator=True)
+            .loc[lambda df: df["_merge"].eq("left_only"), [id_col]]
+            .sort_values(id_col)
+            .reset_index(drop=True)
+        )
+    else:
+        course_ids_not_in_student = pd.DataFrame(columns=[id_col])
+        semester_ids_not_in_student = pd.DataFrame(columns=[id_col])
+
+    course_terms = set(course_df[sem_col].dropna().unique())
+    semester_terms = set(semester_df[sem_col].dropna().unique())
+    course_terms_missing = sorted(course_terms - semester_terms)
+    course_terms_not_in_semester_terms = pd.DataFrame({sem_col: course_terms_missing})
+
+    summary = {
+        "total_semesters_in_semester_file": int(len(semester_df)),
+        "unique_student_semesters_in_courses": int(len(course_keys)),
+        "unmatched_course_keys": int(len(unmatched_course_side)),
+        "unmatched_semester_keys": int(len(unmatched_semester_side)),
+        "course_ids_not_in_semester": int(len(course_ids_not_in_semester)),
+        "course_ids_not_in_student": int(len(course_ids_not_in_student)),
+        "semester_ids_not_in_student": int(len(semester_ids_not_in_student)),
+        "course_terms_not_in_semester_terms": int(
+            len(course_terms_not_in_semester_terms)
+        ),
+        "course_rows_with_null_keys": int(len(null_course_keys)),
+        "semester_rows_with_null_keys": int(len(null_semester_keys)),
+    }
+
+    return {
+        "summary": summary,
+        "unmatched_course_side": unmatched_course_side,
+        "unmatched_semester_side": unmatched_semester_side,
+        "course_ids_not_in_semester": course_ids_not_in_semester,
+        "course_ids_not_in_student": course_ids_not_in_student,
+        "semester_ids_not_in_student": semester_ids_not_in_student,
+        "course_terms_not_in_semester_terms": course_terms_not_in_semester_terms,
+        "null_course_keys": null_course_keys,
+        "null_semester_keys": null_semester_keys,
+    }
+
+
+def validate_credit_consistency(
+    semester_df: pd.DataFrame,
+    course_df: pd.DataFrame,
+    *,
+    id_col: str = "student_id",
+    sem_col: str = "semester_code",
+    course_credits_attempted_col: str = "credits_attempted",
+    course_credits_earned_col: str = "credits_earned",
+    semester_credits_attempted_col: str = "number_of_semester_credits_attempted",
+    semester_credits_earned_col: str = "number_of_semester_credits_earned",
+    semester_courses_count_col: str = "number_of_semester_courses_enrolled",
+    credit_tol: float = 0.0,
+) -> t.Dict[str, t.Any]:
+    """
+    Reconcile semester-level aggregates against course-level details.
+    """
+
+    c = course_df[
+        [id_col, sem_col, course_credits_attempted_col, course_credits_earned_col]
+    ].copy()
+    s = semester_df[
+        [
+            id_col,
+            sem_col,
+            semester_credits_attempted_col,
+            semester_credits_earned_col,
+            semester_courses_count_col,
+        ]
+    ].copy()
+
+    agg = (
+        c.groupby([id_col, sem_col], dropna=False)
+        .agg(
+            course_sum_attempted=(course_credits_attempted_col, "sum"),
+            course_sum_earned=(course_credits_earned_col, "sum"),
+            course_count=(course_credits_attempted_col, "size"),
+        )
+        .reset_index()
+    )
+
+    merged = s.merge(agg, on=[id_col, sem_col], how="left", indicator="_merge_agg")
+    merged["has_course_rows"] = merged["_merge_agg"].eq("both")
+    merged["course_sum_attempted"] = merged["course_sum_attempted"].fillna(0.0)
+    merged["course_sum_earned"] = merged["course_sum_earned"].fillna(0.0)
+    merged["course_count"] = merged["course_count"].fillna(0.0)
+
+    for col in (
+        semester_credits_attempted_col,
+        semester_credits_earned_col,
+        semester_courses_count_col,
+    ):
+        if not pd.api.types.is_numeric_dtype(merged[col]):
+            merged[col] = pd.to_numeric(merged[col], errors="coerce")
+
+    merged["diff_attempted"] = (
+        merged["course_sum_attempted"] - merged[semester_credits_attempted_col]
+    )
+    merged["diff_earned"] = (
+        merged["course_sum_earned"] - merged[semester_credits_earned_col]
+    )
+    merged["diff_courses"] = merged["course_count"] - merged[
+        semester_courses_count_col
+    ].fillna(0.0)
+
+    merged["match_attempted"] = merged["diff_attempted"].abs() <= credit_tol
+    merged["match_earned"] = merged["diff_earned"].abs() <= credit_tol
+    merged["match_courses"] = merged["diff_courses"] == 0.0
+
+    mismatches = (
+        merged.loc[
+            ~(
+                merged["match_attempted"]
+                & merged["match_earned"]
+                & merged["match_courses"]
+            ),
+            [
+                id_col,
+                sem_col,
+                semester_credits_attempted_col,
+                "course_sum_attempted",
+                "diff_attempted",
+                semester_credits_earned_col,
+                "course_sum_earned",
+                "diff_earned",
+                semester_courses_count_col,
+                "course_count",
+                "diff_courses",
+                "has_course_rows",
+            ],
+        ]
+        .sort_values([id_col, sem_col])
+        .reset_index(drop=True)
+    )
+
+    summary = {
+        "total_semesters_in_semester_file": int(len(s)),
+        "unique_student_semesters_in_courses": int(len(agg)),
+        "rows_with_mismatches": int(len(mismatches)),
+    }
+
+    return {
+        "summary": summary,
+        "mismatches": mismatches,
+        "merged_detail": merged,
+    }
