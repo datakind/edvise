@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from datetime import datetime, timedelta, timezone
 
 
@@ -216,8 +215,6 @@ if __name__ == "__main__":
     clean_volumes: bool = to_bool(args.clean_volumes)
     delete_models: bool = to_bool(args.delete_models)
 
-    allowlist = set()
-
     spark: SparkSession = SparkSession.builder.getOrCreate()
 
     # 1) Drop UC tables (respect retention & allowlist)
@@ -233,9 +230,6 @@ if __name__ == "__main__":
             spark, fq_schema, args.retention_days
         )
         for fqtn in sorted(set(candidates)):
-            if fqtn in allowlist:
-                log(f"SKIP allowlisted: {fqtn}")
-                continue
             drop_table(spark, fqtn, dry_run)
 
     # 2) (Optional) Clean Volumes
