@@ -289,7 +289,7 @@ class CleaningConfig(pyd.BaseModel):
         description=(
             "Sometimes custom schools give us a 'student_id' column, "
             "but it's notated differently. Zogotech infamously gives us a column "
-            "called 'student_id_datakind_randomized'. This needs to be normalized "
+            "called 'student_id_randomized_datakind'. This needs to be normalized "
             "back to 'student_id' for our own sanity."
         ),
     )

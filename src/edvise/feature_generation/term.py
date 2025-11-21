@@ -110,6 +110,82 @@ def term_rank(
     )
 
 
+def add_term_order(
+    df: pd.DataFrame,
+    term_col: str = "term",
+    season_order_map: dict[str, int] | None = None,
+) -> pd.DataFrame:
+    """
+    *CUSTOM SCHOOL FUNCTION*
+
+    Given a dataframe with a term string like:
+      'Fall 2020', 'Spring 2020', 'Summer 2020', 'Winter 2020'
+
+    Add:
+      - season         (normalized season name, e.g. 'Spring')
+      - year           (nullable Int64)
+      - season_order   (1 to 4)
+      - is_core_term   (Spring/Fall -> True; others -> False)
+      - term_order     (nullable Int64, e.g. 20201, 20203, etc.)
+
+    Term order construction mirrors `add_term_order`:
+      term_order = year * 10 + season_order
+    """
+    if term_col not in df.columns:
+        raise KeyError(f"DataFrame must contain column '{term_col}'")
+
+    g = df.copy()
+
+    # safer string handling
+    s = g[term_col].astype("string").str.strip()
+
+    # extract season (first word) and year (4-digit number)
+    season_raw = s.str.extract(r"^([A-Za-z]+)", expand=False)
+    year_str = s.str.extract(r"(\d{4})", expand=False)
+
+    # normalize to lowercase for internal logic
+    season_norm = season_raw.str.lower()
+
+    # use default map if none provided, normalize keys to lowercase
+    if season_order_map is None:
+        season_order_map = constants.DEFAULT_SEASON_ORDER_MAP
+    else:
+        season_order_map = {k.lower(): v for k, v in season_order_map.items()}
+
+    valid_seasons = set(season_order_map.keys())
+
+    # compute unexpected based on normalized seasons
+    found_seasons = set(season_norm.dropna().unique())
+    unexpected = found_seasons - valid_seasons
+    if unexpected:
+        LOGGER.warning(
+            f"Unexpected seasons: {unexpected}. "
+            f"Filtering to valid seasons: {valid_seasons}"
+        )
+        mask = season_norm.isin(valid_seasons)
+        g = g[mask]
+        season_norm = season_norm[mask]
+        year_str = year_str[mask]
+
+    # pretty season for output (title-cased)
+    g["season"] = season_norm.str.title()
+
+    # year as nullable Int64
+    g["year"] = pd.to_numeric(year_str, errors="coerce").astype("Int64")
+
+    # map to order using normalized season
+    g["season_order"] = season_norm.map(season_order_map).astype("Int64")
+
+    # core terms (still hard-coded to Spring/Fall, but via normalized keys)
+    core_terms_norm = {"spring", "fall"}
+    g["is_core_term"] = season_norm.isin(core_terms_norm)
+
+    # nullable Int64 composite key
+    g["term_order"] = (g["year"] * 10 + g["season_order"]).astype("Int64")
+
+    return g
+
+
 def term_in_peak_covid(
     df: pd.DataFrame,
     *,

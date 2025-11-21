@@ -33,6 +33,7 @@ import pandas as pd
 from pandas.api import types as ptypes
 
 from edvise.utils.data_cleaning import convert_to_snake_case
+from edvise.feature_generation.term import add_term_order
 from edvise.configs.custom import CustomProjectConfig, CleaningConfig
 
 LOGGER = logging.getLogger(__name__)
@@ -93,7 +94,7 @@ def attach_cleaning_hooks(
     cleaning_cfg: t.Optional[CleaningConfig] = None,
     *,
     # global defaults
-    term_order_fn: t.Optional[TermOrderFn] = None,
+    term_order_fn: t.Optional[TermOrderFn] = add_term_order,
     term_col: str = "term",
     dedupe_fn: t.Optional[DedupeFn] = None,
     # per-dataset overrides
@@ -533,7 +534,7 @@ def clean_bronze_datasets(
     run_type: str,
     *,
     cleaning_cfg: CleaningConfig | None = None,
-    term_order_fn: TermOrderFn | None = None,
+    term_order_fn: TermOrderFn | None = add_term_order,
     term_col: str = "term",
     dedupe_fn: DedupeFn | None = None,
     # per-dataset overrides

@@ -20,7 +20,7 @@ disabilityflag = "Disability Status"
 
 [datasets.bronze]
 
-[datasets.bronze.raw_cohort]
+[datasets.bronze.raw_student]
 primary_keys = ["student_id"]
 non_null_cols = ["acad_year"]
 train_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_cohort_train.csv"

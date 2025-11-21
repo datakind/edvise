@@ -247,3 +247,55 @@ def test_create_terms_lkp():
         "term_rank",
     ]
     assert terms_lkp.term_rank.min() == 1
+
+
+def test_add_term_order_with_extended_custom_season_map():
+    # Custom season map adding two new "summer" subterms
+    custom_map = {
+        "spring": 1,
+        "summer1": 2,
+        "summer2": 3,
+        "fall": 4,
+        "winter": 5,
+    }
+
+    df = pd.DataFrame(
+        {
+            "term": [
+                "Summer 1 2020",
+                "Summer 2 2020",
+                "Spring 2020",
+                "Fall 2020",
+            ]
+        }
+    )
+
+    result = term.add_term_order(df, season_order_map=custom_map)
+
+    # Extract season column (title-cased)
+    assert list(result["season"]) == [
+        "Summer1",
+        "Summer2",
+        "Spring",
+        "Fall",
+    ]
+
+    # Season order values should follow the custom map
+    expected_orders = {
+        "Summer1": 2,
+        "Summer2": 3,
+        "Spring": 1,
+        "Fall": 4,
+    }
+    actual_orders = dict(zip(result["season"], result["season_order"]))
+    assert actual_orders == expected_orders
+
+    # Term order uses the new mapping: year * 10 + season_order
+    expected_term_order = {
+        "Summer 1 2020": 2020 * 10 + 2,
+        "Summer 2 2020": 2020 * 10 + 3,
+        "Spring 2020":   2020 * 10 + 1,
+        "Fall 2020":     2020 * 10 + 4,
+    }
+    actual_term_order = dict(zip(result["term"], result["term_order"]))
+    assert actual_term_order == expected_term_order
