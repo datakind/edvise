@@ -5,6 +5,7 @@ from collections.abc import Collection
 
 import pandas as pd
 import numpy as np
+import re
 
 from edvise.utils import types
 from . import constants, shared
