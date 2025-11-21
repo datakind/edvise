@@ -249,21 +249,19 @@ def test_create_terms_lkp():
     assert terms_lkp.term_rank.min() == 1
 
 
-def test_add_term_order_with_extended_custom_season_map():
-    # Custom season map adding two new "summer" subterms
+def test_add_term_order_with_extended_custom_season_map_sessions():
     custom_map = {
-        "spring": 1,
-        "summer1": 2,
-        "summer2": 3,
-        "fall": 4,
-        "winter": 5,
+        "Spring": 1,
+        "Summer Session 1": 4,
+        "Summer Session 2": 5,
+        "Fall": 6,
     }
 
     df = pd.DataFrame(
         {
             "term": [
-                "Summer 1 2020",
-                "Summer 2 2020",
+                "Summer Session 1 2020",
+                "Summer Session 2 2020",
                 "Spring 2020",
                 "Fall 2020",
             ]
@@ -272,30 +270,24 @@ def test_add_term_order_with_extended_custom_season_map():
 
     result = term.add_term_order(df, season_order_map=custom_map)
 
-    # Extract season column (title-cased)
+    # Season labels are pretty-printed from normalized keys
     assert list(result["season"]) == [
-        "Summer1",
-        "Summer2",
+        "Summer Session 1",
+        "Summer Session 2",
         "Spring",
         "Fall",
     ]
 
-    # Season order values should follow the custom map
-    expected_orders = {
-        "Summer1": 2,
-        "Summer2": 3,
-        "Spring": 1,
-        "Fall": 4,
-    }
-    actual_orders = dict(zip(result["season"], result["season_order"]))
-    assert actual_orders == expected_orders
+    # Season orders follow our custom map
+    term_to_order = dict(zip(result["term"], result["season_order"]))
+    assert term_to_order["Spring 2020"] == 1
+    assert term_to_order["Summer Session 1 2020"] == 4
+    assert term_to_order["Summer Session 2 2020"] == 5
+    assert term_to_order["Fall 2020"] == 6
 
-    # Term order uses the new mapping: year * 10 + season_order
-    expected_term_order = {
-        "Summer 1 2020": 2020 * 10 + 2,
-        "Summer 2 2020": 2020 * 10 + 3,
-        "Spring 2020":   2020 * 10 + 1,
-        "Fall 2020":     2020 * 10 + 4,
-    }
-    actual_term_order = dict(zip(result["term"], result["term_order"]))
-    assert actual_term_order == expected_term_order
+    # term_order uses year * 10 + season_order
+    term_to_term_order = dict(zip(result["term"], result["term_order"]))
+    assert term_to_term_order["Spring 2020"] == 2020 * 10 + 1
+    assert term_to_term_order["Summer Session 1 2020"] == 2020 * 10 + 4
+    assert term_to_term_order["Summer Session 2 2020"] == 2020 * 10 + 5
+    assert term_to_term_order["Fall 2020"] == 2020 * 10 + 6

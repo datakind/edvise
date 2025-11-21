@@ -15,7 +15,7 @@ DEFAULT_PEAK_COVID_TERMS = {
 DEFAULT_SEASON_ORDER_MAP = {
     "spring": 1,
     "summer": 2,
-    "fall":   3,
+    "fall": 3,
     "winter": 4,
 }
 
