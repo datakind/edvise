@@ -247,3 +247,47 @@ def test_create_terms_lkp():
         "term_rank",
     ]
     assert terms_lkp.term_rank.min() == 1
+
+
+def test_add_term_order_with_extended_custom_season_map_sessions():
+    custom_map = {
+        "Spring": 1,
+        "Summer Session 1": 4,
+        "Summer Session 2": 5,
+        "Fall": 6,
+    }
+
+    df = pd.DataFrame(
+        {
+            "term": [
+                "Summer Session 1 2020",
+                "Summer Session 2 2020",
+                "Spring 2020",
+                "Fall 2020",
+            ]
+        }
+    )
+
+    result = term.add_term_order(df, season_order_map=custom_map)
+
+    # Season labels are pretty-printed from normalized keys
+    assert list(result["season"]) == [
+        "Summer Session 1",
+        "Summer Session 2",
+        "Spring",
+        "Fall",
+    ]
+
+    # Season orders follow our custom map
+    term_to_order = dict(zip(result["term"], result["season_order"]))
+    assert term_to_order["Spring 2020"] == 1
+    assert term_to_order["Summer Session 1 2020"] == 4
+    assert term_to_order["Summer Session 2 2020"] == 5
+    assert term_to_order["Fall 2020"] == 6
+
+    # term_order uses year * 10 + season_order
+    term_to_term_order = dict(zip(result["term"], result["term_order"]))
+    assert term_to_term_order["Spring 2020"] == 2020 * 10 + 1
+    assert term_to_term_order["Summer Session 1 2020"] == 2020 * 10 + 4
+    assert term_to_term_order["Summer Session 2 2020"] == 2020 * 10 + 5
+    assert term_to_term_order["Fall 2020"] == 2020 * 10 + 6
