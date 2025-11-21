@@ -111,7 +111,6 @@ def term_rank(
     )
 
 
-
 def _norm_token(s: str | None) -> str | None:
     if s is None:
         return None
