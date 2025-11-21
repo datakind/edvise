@@ -1,21 +1,31 @@
-# This is the pipeline to run the pdp training
 bundle:
   name: Edvise pdp training pipeline
   uuid: 99992898-07ae-4641-b086-dd3ba80ffc2f
-    
+
 include:
   - resources/github_pdp_training.yml
   - resources/github_pdp_inference.yml
+  - resources/synthetic/github_synth_cleanup.yml
 
 variables:
+  git_commit:
+    description: "Commit SHA to fetch (dev/CI)"
+    default: ""
+  git_tag:
+    description: "Release tag to fetch for deployment (prod)"
+    default: ""
   DB_workspace:
     description: "Databricks workspace"
   datakind_notification_email:
-    description: "Datakind address used for email notifications"
+    description: "Datakind address used to send email notifications"
+    default: ""
+  DK_CC_EMAIL:
+    description: "Datakind address used to CC email notifications"
+    default: ""
   service_account_executer:
     description: "Service account to execute the pipeline"
   ds_run_as:
-    description: "Account to run the pipeline"
+    description: "Account to run the pipeline (Databricks SP client/app ID)"
   databricks_institution_name:
     description: "Institution ID to use for the pdp training"
   config_file_name:
@@ -23,21 +33,60 @@ variables:
     default: "config.toml"
   datakind_group_to_manage_workflow:
     description: "Group with permissions to manage the job"
+  model_name:
+    description: "Name of the model once it's registered and ready to be used for inference"
+    default: ""
+  model_type:
+    description: "Type of model; sklearn vs. h2o"
+    default: "h2o"
 
 run_as:
   service_principal_name: ${var.ds_run_as}
-    
+
 targets:
   dev:
-    # The default target uses 'mode: development' to create a development copy.
-    # - Deployed resources get prefixed with '[dev my_user_name]'
-    # - Any job schedules and triggers are paused by default.
-    # See also https://docs.databricks.com/dev-tools/bundles/deployment-modes.html.
     mode: development
+    variables:
+      DB_workspace: "dev_sst_02"
+    resources:
+      jobs:
+        github_sourced_pdp_training_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
+        edvise_github_sourced_pdp_inference_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
+        edvise_cleanup_synthetic:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
     default: true
+
   prod:
     mode: production
+    variables:
+      DB_workspace: "staging_sst_01"
+    resources:
+      jobs:
+        github_sourced_pdp_training_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}
+        edvise_github_sourced_pdp_inference_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}
+        edvise_cleanup_synthetic:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}
     workspace:
       root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
-
-
