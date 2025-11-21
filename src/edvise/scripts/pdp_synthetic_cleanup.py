@@ -172,14 +172,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--DB_workspace",
         default="dev_sst_02",
-        required=True,
         help="UC catalog (e.g., dev_sst_02)",
     )
     p.add_argument(
         "--databricks_institution_name",
         default="synthetic_integration",
-        required=True,
-        help="Institution slug (e.g., synthetic)",
+        help="Institution (e.g., synthetic)",
     )
     p.add_argument(
         "--retention_days",
@@ -194,35 +192,31 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-# -------------------------
-# Main
-# -------------------------
-
 if __name__ == "__main__":
     args = parse_args()
 
     # --- HARD SAFETY ASSERTIONS ---
     inst = args.databricks_institution_name.lower()
-    assert "synthetic" in inst, (
-        f"❌ Unable to run cleanup: databricks_institution_name='{args.databricks_institution_name}' "
-        "does not contain 'synthetic'. Cleanup is restricted to synthetic schemas only."
-    )
-
     catalog = args.DB_workspace.lower()
-    assert "dev" in catalog, (
-        f"❌ Unable to run cleanup: DB_workspace='{args.DB_workspace}' "
-        "does not contain 'dev'. Cleanup is restricted to dev instances only."
-    )
+
+    if "synthetic" not in inst:
+        raise SystemExit(
+            f"❌ Unable to run cleanup: databricks_institution_name='{args.databricks_institution_name}' "
+            "does not contain 'synthetic'. Cleanup is restricted to synthetic schemas only."
+        )
+
+    if "dev" not in catalog:
+        raise SystemExit(
+            f"❌ Unable to run cleanup: DB_workspace='{args.DB_workspace}' "
+            "does not contain 'dev'. Cleanup is restricted to dev instances only."
+        )
     # -------------------------------
 
     dry_run: bool = to_bool(args.dry_run)
     clean_volumes: bool = to_bool(args.clean_volumes)
     delete_models: bool = to_bool(args.delete_models)
 
-    try:
-        allowlist: set[str] = set(json.loads(args.allowlist_tables_json))
-    except Exception:
-        allowlist = set()
+    allowlist = set()
 
     spark: SparkSession = SparkSession.builder.getOrCreate()
 
@@ -274,7 +268,7 @@ if __name__ == "__main__":
         else:
             log(f"SKIP (not found): {gold_root}")
 
-    # 3) (Optional) Delete models by prefix (dangerous; off by default)
+    # 3) (Optional) Delete models by prefix
     if delete_models:
         try:
             client = MlflowClient()

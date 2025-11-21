@@ -6,13 +6,6 @@ on:
     tags:
       - 'v*'
 
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: 'Git ref (tag/branch/commit) to deploy'
-        required: false
-        default: ''
-
 concurrency:
   group: deploy-prod-${{ github.ref_name }}-${{ github.job }}
   cancel-in-progress: false
