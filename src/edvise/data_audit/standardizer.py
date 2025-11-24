@@ -10,7 +10,11 @@ from edvise.utils.data_cleaning import (
     strip_trailing_decimal_strings,
     replace_na_firstgen_and_pell,
 )
-from .eda import log_high_null_columns, print_credential_types_and_retention, log_grade_distribution
+from .eda import (
+    log_high_null_columns,
+    print_credential_types_and_retention,
+    log_grade_distribution,
+)
 
 # TODO think of a better name than standardizer
 

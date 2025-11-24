@@ -134,7 +134,7 @@ class InferencePrepTask:
             .sort_index()
         )
         logging.info(
-             "Cohort & Cohort Term breakdowns (counts):\n%s",
+            "Cohort & Cohort Term breakdowns (counts):\n%s",
             cohort_counts.to_string(),
         )
         df_preprocessed = self.cleanup_features(df_labeled)

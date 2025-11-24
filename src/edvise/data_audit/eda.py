@@ -957,6 +957,7 @@ def validate_credit_consistency(
         "merged_detail": merged,
     }
 
+
 def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") -> None:
     """
     Logs value counts of the 'grade' column and flags if 'M' grades exceed 5%.
@@ -990,8 +991,6 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
                 m_pct,
             )
         else:
-            LOGGER.info(
-                "'M' grades: %d (%.1f%% of non-null grades).", m_count, m_pct
-            )
+            LOGGER.info("'M' grades: %d (%.1f%% of non-null grades).", m_count, m_pct)
     else:
         LOGGER.info("'M' grade not found or no valid grade data available.")
