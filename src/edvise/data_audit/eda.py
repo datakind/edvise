@@ -957,20 +957,31 @@ def validate_credit_consistency(
         "merged_detail": merged,
     }
 
+
 def find_dupes(df, primary_keys, sort=None, summarize=False, n=20):
     """
     Quickly find and summarize duplicates by primary key columns for each dataset (cohort, course, and semester).
     """
     if summarize:
-        out = df.groupby(primary_keys).size().value_counts().rename_axis('dup_count').reset_index(name='n_groups')
+        out = (
+            df.groupby(primary_keys)
+            .size()
+            .value_counts()
+            .rename_axis("dup_count")
+            .reset_index(name="n_groups")
+        )
         print(out.head(10))
         return out
     dupes = df[df.duplicated(primary_keys, keep=False)]
-    if sort: dupes = dupes.sort_values(sort, ignore_index=True)
+    if sort:
+        dupes = dupes.sort_values(sort, ignore_index=True)
     print(f"{len(dupes)} duplicates based on {primary_keys}")
     return dupes
 
-def check_credit_earned_attempted_consistency(df, earned_col="inst_tot_credits_earned", attempted_col="inst_tot_credits_attempted"):
+
+def check_credit_earned_attempted_consistency(
+    df, earned_col="inst_tot_credits_earned", attempted_col="inst_tot_credits_attempted"
+):
     """
     Checks that:
       1. Credits earned <= credits attempted
@@ -991,13 +1002,18 @@ def check_credit_earned_attempted_consistency(df, earned_col="inst_tot_credits_e
     anomalies["earned_when_no_attempt"] = earned_when_no_attempt
 
     # Summary
-    summary = pd.DataFrame({
-        "earned_gt_attempted": [earned_gt_attempted.sum()],
-        "earned_when_no_attempt": [earned_when_no_attempt.sum()],
-        "total_anomalous_rows": [(earned_gt_attempted | earned_when_no_attempt).sum()]
-    })
+    summary = pd.DataFrame(
+        {
+            "earned_gt_attempted": [earned_gt_attempted.sum()],
+            "earned_when_no_attempt": [earned_when_no_attempt.sum()],
+            "total_anomalous_rows": [
+                (earned_gt_attempted | earned_when_no_attempt).sum()
+            ],
+        }
+    )
 
     return anomalies, summary
+
 
 def check_pf_grade_consistency(
     df,
@@ -1005,8 +1021,55 @@ def check_pf_grade_consistency(
     pf_col="pass_fail_flag",
     credits_col="credits_earned",
     *,
-    passing_grades=("P","P*","A","A-","B+","B","B-","C+","C","C-","D+","D","D-","REP","S", "^C-","^D-","^D","^D+","ZD-","ZD","^C","CH"),
-    failing_grades=("F","E","^E","F*","REF","ZE","NR", "W","W*","WI","WE","WC","WA","WB+","WB","WB-","WD","WD-","WC+","WC-","WA-", "I"),
+    passing_grades=(
+        "P",
+        "P*",
+        "A",
+        "A-",
+        "B+",
+        "B",
+        "B-",
+        "C+",
+        "C",
+        "C-",
+        "D+",
+        "D",
+        "D-",
+        "REP",
+        "S",
+        "^C-",
+        "^D-",
+        "^D",
+        "^D+",
+        "ZD-",
+        "ZD",
+        "^C",
+        "CH",
+    ),
+    failing_grades=(
+        "F",
+        "E",
+        "^E",
+        "F*",
+        "REF",
+        "ZE",
+        "NR",
+        "W",
+        "W*",
+        "WI",
+        "WE",
+        "WC",
+        "WA",
+        "WB+",
+        "WB",
+        "WB-",
+        "WD",
+        "WD-",
+        "WC+",
+        "WC-",
+        "WA-",
+        "I",
+    ),
     pass_flags=("P",),
     fail_flags=("F",),
 ):
@@ -1021,27 +1084,33 @@ def check_pf_grade_consistency(
     out = df.copy()
 
     # Normalize
-    g  = out[grade_col].astype(str).str.strip().str.upper()
+    g = out[grade_col].astype(str).str.strip().str.upper()
     pf = out[pf_col].astype(str).str.strip().str.upper()
     credits = pd.to_numeric(out[credits_col], errors="coerce")  # keep NaNs as NaN
 
     # Pass/fail from grade (for disagreement only)
     pfg = pd.Series(
-        np.where(g.isin(passing_grades), True,
-        np.where(g.isin(failing_grades), False, np.nan)),
-        index=out.index, dtype="object"
+        np.where(
+            g.isin(passing_grades),
+            True,
+            np.where(g.isin(failing_grades), False, np.nan),
+        ),
+        index=out.index,
+        dtype="object",
     )
 
     # Pass/fail from flag (drives credit rules)
     pff = pd.Series(
-        np.where(pf.isin(pass_flags), True,
-        np.where(pf.isin(fail_flags), False, np.nan)),
-        index=out.index, dtype="object"
+        np.where(
+            pf.isin(pass_flags), True, np.where(pf.isin(fail_flags), False, np.nan)
+        ),
+        index=out.index,
+        dtype="object",
     )
 
     # Credit rules (PF-based only)
-    earned_with_failing_pf   = (pff == False) & credits.notna() & (credits > 0)
-    no_credits_with_passing  = (pff == True)  & credits.notna() & (credits == 0)
+    earned_with_failing_pf = (pff == False) & credits.notna() & (credits > 0)
+    no_credits_with_passing = (pff == True) & credits.notna() & (credits == 0)
 
     # Grade vs PF disagreement (only where both known)
     grade_pf_disagree = pfg.notna() & pff.notna() & (pfg != pff)
@@ -1050,15 +1119,19 @@ def check_pf_grade_consistency(
     mask = earned_with_failing_pf | no_credits_with_passing | grade_pf_disagree
     anomalies = out.loc[mask].copy()
     anomalies["earned_with_failing_grade"] = earned_with_failing_pf.loc[anomalies.index]
-    anomalies["no_credits_with_passing_grade"] = no_credits_with_passing.loc[anomalies.index]
+    anomalies["no_credits_with_passing_grade"] = no_credits_with_passing.loc[
+        anomalies.index
+    ]
     anomalies["grade_pf_disagree"] = grade_pf_disagree.loc[anomalies.index]
 
     # Summary
-    summary = pd.DataFrame({
-        "earned_with_failing_grade": [int(earned_with_failing_pf.sum())],
-        "no_credits_with_passing_grade": [int(no_credits_with_passing.sum())],
-        "grade_pf_disagree": [int(grade_pf_disagree.sum())],
-        "total_anomalous_rows": [int(mask.sum())],
-    })
+    summary = pd.DataFrame(
+        {
+            "earned_with_failing_grade": [int(earned_with_failing_pf.sum())],
+            "no_credits_with_passing_grade": [int(no_credits_with_passing.sum())],
+            "grade_pf_disagree": [int(grade_pf_disagree.sum())],
+            "total_anomalous_rows": [int(mask.sum())],
+        }
+    )
 
     return anomalies, summary
