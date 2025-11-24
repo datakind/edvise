@@ -352,8 +352,8 @@ class PDPDataAuditTask:
                 if (
                     lower_ids
                     and lower_cips
-                    and len(lower_ids) <= 25
-                    and len(lower_cips) <= 25
+                    and len(lower_ids) <= 10
+                    and len(lower_cips) <= 10
                 ):
                     LOGGER.warning(
                         " Upper-level (>=200) gateway courses detected. Auto-populating config with LOWER-level (<200) "

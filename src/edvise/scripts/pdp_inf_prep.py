@@ -117,9 +117,26 @@ class InferencePrepTask:
             )
 
         checkpoint_df = read_parquet(ckpt_path_local)
+        logging.info(
+            "Loaded checkpoint.parquet with shape %s",
+            getattr(checkpoint_df, "shape", None),
+        )
         selected_students = read_parquet(sel_path_local)
+        logging.info(
+            "Loaded selected_students.parquet with shape %s",
+            getattr(selected_students, "shape", None),
+        )
 
         df_labeled = self.merge_data(checkpoint_df, selected_students)
+        cohort_counts = (
+            df_labeled[["cohort", "cohort_term"]]
+            .value_counts(dropna=False)
+            .sort_index()
+        )
+        logging.info(
+             "Cohort & Cohort Term breakdowns (counts):\n%s",
+            cohort_counts.to_string(),
+        )
         df_preprocessed = self.cleanup_features(df_labeled)
 
         # Write output using custom function
