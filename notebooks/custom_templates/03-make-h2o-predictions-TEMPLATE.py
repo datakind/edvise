@@ -255,7 +255,7 @@ with mlflow.start_run(run_id=cfg.model.run_id):
     roc_logs = h2o_ml.evaluation.log_roc_table(
         institution_id=cfg.institution_id,
         automl_run_id=cfg.model.run_id,
-        modeling_df=df_test, # this path expect a dataframe
+        modeling_df=df_test,  # this path expect a dataframe
     )
 
 # COMMAND ----------
