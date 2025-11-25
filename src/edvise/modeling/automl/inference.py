@@ -557,7 +557,7 @@ def support_score_distribution_table(
         )
 
         # --- Bin support scores for histogram (e.g., 0.0 to 1.0 in 0.1 steps) ---
-        bin_width = 0.2 / 5   # 0.04
+        bin_width = 0.2 / 5  # 0.04
         bins = np.arange(0.0, 1.0 + bin_width, bin_width)  # 0.00 ... 1.00
 
         counts, bin_edges = np.histogram(result["Support Score"], bins=bins)
@@ -567,13 +567,15 @@ def support_score_distribution_table(
         support_score = (bin_lower + bin_upper) / 2
         pct = counts / counts.sum()
 
-        bin_summary = pd.DataFrame({
-            "bin_lower": bin_lower,
-            "bin_upper": bin_upper,
-            "support_score": support_score,
-            "count_of_students": counts,
-            "pct": pct,
-        })
+        bin_summary = pd.DataFrame(
+            {
+                "bin_lower": bin_lower,
+                "bin_upper": bin_upper,
+                "support_score": support_score,
+                "count_of_students": counts,
+                "pct": pct,
+            }
+        )
 
         return bin_summary
 
