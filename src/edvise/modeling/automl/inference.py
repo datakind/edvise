@@ -557,37 +557,25 @@ def support_score_distribution_table(
         )
 
         # --- Bin support scores for histogram (e.g., 0.0 to 1.0 in 0.1 steps) ---
-        bins = np.arange(0.1, 1.1, 0.1)
-        result["score_bin"] = pd.cut(
-            result["Support Score"], bins=bins, include_lowest=True, right=False
-        )
+        bin_width = 0.2 / 5   # 0.04
+        bins = np.arange(0.0, 1.0 + bin_width, bin_width)  # 0.00 ... 1.00
 
-        # Group and count
-        bin_counts = (
-            result.groupby("score_bin", observed=True)
-            .size()
-            .reset_index(name="count_of_students")
-        )
+        counts, bin_edges = np.histogram(result["Support Score"], bins=bins)
 
-        # Extract bin boundaries
-        bin_counts["bin_lower"] = bin_counts["score_bin"].apply(
-            lambda x: round(x.left, 2)
-        )
-        bin_counts["bin_upper"] = bin_counts["score_bin"].apply(
-            lambda x: round(x.right, 2)
-        )
-        bin_counts["support_score"] = bin_counts["score_bin"].apply(
-            lambda x: round((x.left + x.right) / 2, 2)
-        )
+        bin_lower = bin_edges[:-1]
+        bin_upper = bin_edges[1:]
+        support_score = (bin_lower + bin_upper) / 2
+        pct = counts / counts.sum()
 
-        total_students = len(result)
-        bin_counts["pct"] = (
-            bin_counts["count_of_students"] / total_students * 100
-        ).round(2)
+        bin_summary = pd.DataFrame({
+            "bin_lower": bin_lower,
+            "bin_upper": bin_upper,
+            "support_score": support_score,
+            "count_of_students": counts,
+            "pct": pct,
+        })
 
-        return bin_counts[
-            ["bin_lower", "bin_upper", "support_score", "count_of_students", "pct"]
-        ]
+        return bin_summary
 
     except Exception:
         import traceback
