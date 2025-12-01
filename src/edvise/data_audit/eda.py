@@ -905,7 +905,7 @@ def check_earned_vs_attempted(
     return {"anomalies": anomalies, "summary": summary}
 
 
-def validates_credit_consistency(
+def validate_credit_consistency(
     semester_df: pd.DataFrame,
     course_df: pd.DataFrame,
     cohort_df: pd.DataFrame,
