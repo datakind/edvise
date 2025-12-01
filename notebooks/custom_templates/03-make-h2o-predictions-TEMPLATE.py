@@ -137,9 +137,6 @@ if cfg.split_col and cfg.split_col in df.columns:
 else:
     df_test = df.copy(deep=True)
 
-if run_type == "train":
-    df_test = df_test.sample(n=min(200, len(df_test)), random_state=cfg.random_state)
-
 # transform with imputer
 df_test = imputer.transform(df_test)
 
@@ -258,7 +255,7 @@ with mlflow.start_run(run_id=cfg.model.run_id):
     roc_logs = h2o_ml.evaluation.log_roc_table(
         institution_id=cfg.institution_id,
         automl_run_id=cfg.model.run_id,
-        modeling_dataset_name=cfg.datasets.silver["modeling"].train_table_path,
+        modeling_df=df_test,  # this path expect a dataframe
     )
 
 # COMMAND ----------
@@ -273,7 +270,7 @@ shap_feature_importance
 
 # COMMAND ----------
 
-# save sample advisor output dataset
+# save shap feature importance dataset
 dataio.write.to_delta_table(
     shap_feature_importance,
     f"staging_sst_01.{cfg.institution_id}_silver.training_{cfg.model.run_id}_shap_feature_importance",
