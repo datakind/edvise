@@ -851,22 +851,90 @@ def validate_ids_terms_consistency(
     }
 
 
-def validate_credit_consistency(
+def find_dupes(df, primary_keys, sort=None, summarize=False, n=20):
+    """
+    Quickly find and summarize duplicates by primary key columns for each dataset (cohort, course, and semester).
+    """
+    if summarize:
+        out = (
+            df.groupby(primary_keys)
+            .size()
+            .value_counts()
+            .rename_axis("dup_count")
+            .reset_index(name="n_groups")
+        )
+        print(out.head(10))
+        return out
+    dupes = df[df.duplicated(primary_keys, keep=False)]
+    if sort:
+        dupes = dupes.sort_values(sort, ignore_index=True)
+    print(f"{len(dupes)} duplicates based on {primary_keys}")
+    return dupes
+
+
+def check_earned_vs_attempted(
+    df: pd.DataFrame,
+    *,
+    earned_col: str,
+    attempted_col: str,
+) -> t.Dict[str, pd.DataFrame]:
+    """
+    Row-wise checks that:
+      1. credits_earned <= credits_attempted
+      2. credits_earned = 0 when credits_attempted = 0
+    """
+    earned = pd.to_numeric(df[earned_col], errors="coerce")
+    attempted = pd.to_numeric(df[attempted_col], errors="coerce")
+
+    earned_gt_attempted = earned > attempted
+    earned_when_no_attempt = (attempted == 0) & (earned > 0)
+    mask = earned_gt_attempted | earned_when_no_attempt
+
+    anomalies = df[mask].copy()
+    anomalies["earned_gt_attempted"] = earned_gt_attempted[mask]
+    anomalies["earned_when_no_attempt"] = earned_when_no_attempt[mask]
+
+    summary = pd.DataFrame(
+        {
+            "earned_gt_attempted": [int(earned_gt_attempted.sum())],
+            "earned_when_no_attempt": [int(earned_when_no_attempt.sum())],
+            "total_anomalous_rows": [int(mask.sum())],
+        }
+    )
+
+    return {"anomalies": anomalies, "summary": summary}
+
+
+def validates_credit_consistency(
     semester_df: pd.DataFrame,
     course_df: pd.DataFrame,
+    cohort_df: pd.DataFrame,
     *,
     id_col: str = "student_id",
     sem_col: str = "semester_code",
+    # course-level credit columns
     course_credits_attempted_col: str = "credits_attempted",
     course_credits_earned_col: str = "credits_earned",
+    # semester-level credit columns
     semester_credits_attempted_col: str = "number_of_semester_credits_attempted",
     semester_credits_earned_col: str = "number_of_semester_credits_earned",
     semester_courses_count_col: str = "number_of_semester_courses_enrolled",
+    # cohort-level credit columns (df_cohort)
+    cohort_credits_attempted_col: str = "inst_tot_credits_attempted",
+    cohort_credits_earned_col: str = "inst_tot_credits_earned",
     credit_tol: float = 0.0,
 ) -> t.Dict[str, t.Any]:
     """
-    Reconcile semester-level aggregates against course-level details.
+    Unified credit validation:
+
+    1) Reconcile semester-level aggregates (semester_df) against
+       course-level details (course_df).
+
+    2) Check row-wise consistency of credits earned vs attempted
+       on cohort_df (df_cohort).
     """
+
+    # ---------- 1) RECONCILIATION: semester vs course ----------
 
     c = course_df[
         [id_col, sem_col, course_credits_attempted_col, course_credits_earned_col]
@@ -897,6 +965,7 @@ def validate_credit_consistency(
     merged["course_sum_earned"] = merged["course_sum_earned"].fillna(0.0)
     merged["course_count"] = merged["course_count"].fillna(0.0)
 
+    # Ensure numeric semester columns
     for col in (
         semester_credits_attempted_col,
         semester_credits_earned_col,
@@ -945,74 +1014,27 @@ def validate_credit_consistency(
         .reset_index(drop=True)
     )
 
-    summary = {
+    reconciliation_summary = {
         "total_semesters_in_semester_file": int(len(s)),
         "unique_student_semesters_in_courses": int(len(agg)),
         "rows_with_mismatches": int(len(mismatches)),
     }
 
-    return {
-        "summary": summary,
-        "mismatches": mismatches,
-        "merged_detail": merged,
-    }
+    # ---------- 2) COHORT-LEVEL ROW-WISE CHECKS ----------
 
-
-def find_dupes(df, primary_keys, sort=None, summarize=False, n=20):
-    """
-    Quickly find and summarize duplicates by primary key columns for each dataset (cohort, course, and semester).
-    """
-    if summarize:
-        out = (
-            df.groupby(primary_keys)
-            .size()
-            .value_counts()
-            .rename_axis("dup_count")
-            .reset_index(name="n_groups")
-        )
-        print(out.head(10))
-        return out
-    dupes = df[df.duplicated(primary_keys, keep=False)]
-    if sort:
-        dupes = dupes.sort_values(sort, ignore_index=True)
-    print(f"{len(dupes)} duplicates based on {primary_keys}")
-    return dupes
-
-
-def validate_credit_consistency_single_df(
-    df, earned_col="inst_tot_credits_earned", attempted_col="inst_tot_credits_attempted"
-):
-    """
-    Checks that:
-      1. Credits earned <= credits attempted
-      2. Credits earned = 0 when credits attempted = 0
-    Returns (anomalies_df, summary_df)
-    """
-    # Ensure numeric columns
-    earned = pd.to_numeric(df[earned_col], errors="coerce")
-    attempted = pd.to_numeric(df[attempted_col], errors="coerce")
-
-    # Rules
-    earned_gt_attempted = earned > attempted
-    earned_when_no_attempt = (attempted == 0) & (earned > 0)
-
-    # Combine anomalies
-    anomalies = df[earned_gt_attempted | earned_when_no_attempt].copy()
-    anomalies["earned_gt_attempted"] = earned_gt_attempted
-    anomalies["earned_when_no_attempt"] = earned_when_no_attempt
-
-    # Summary
-    summary = pd.DataFrame(
-        {
-            "earned_gt_attempted": [earned_gt_attempted.sum()],
-            "earned_when_no_attempt": [earned_when_no_attempt.sum()],
-            "total_anomalous_rows": [
-                (earned_gt_attempted | earned_when_no_attempt).sum()
-            ],
-        }
+    cohort_checks = check_earned_vs_attempted(
+        cohort_df,
+        earned_col=cohort_credits_earned_col,
+        attempted_col=cohort_credits_attempted_col,
     )
 
-    return anomalies, summary
+    return {
+        "reconciliation_summary": reconciliation_summary,
+        "reconciliation_mismatches": mismatches,
+        "reconciliation_merged_detail": merged,
+        "cohort_anomalies": cohort_checks["anomalies"],
+        "cohort_anomalies_summary": cohort_checks["summary"],
+    }
 
 
 def check_pf_grade_consistency(
@@ -1143,3 +1165,147 @@ def check_pf_grade_consistency(
     )
 
     return anomalies, summary
+
+
+# DEPRECATED - replaced by validates_credit_consistency. Keeping in comments incase needed.
+
+# def validate_credit_consistency(
+#     semester_df: pd.DataFrame,
+#     course_df: pd.DataFrame,
+#     *,
+#     id_col: str = "student_id",
+#     sem_col: str = "semester_code",
+#     course_credits_attempted_col: str = "credits_attempted",
+#     course_credits_earned_col: str = "credits_earned",
+#     semester_credits_attempted_col: str = "number_of_semester_credits_attempted",
+#     semester_credits_earned_col: str = "number_of_semester_credits_earned",
+#     semester_courses_count_col: str = "number_of_semester_courses_enrolled",
+#     credit_tol: float = 0.0,
+# ) -> t.Dict[str, t.Any]:
+#     """
+#     Reconcile semester-level aggregates against course-level details.
+#     """
+
+#     c = course_df[
+#         [id_col, sem_col, course_credits_attempted_col, course_credits_earned_col]
+#     ].copy()
+#     s = semester_df[
+#         [
+#             id_col,
+#             sem_col,
+#             semester_credits_attempted_col,
+#             semester_credits_earned_col,
+#             semester_courses_count_col,
+#         ]
+#     ].copy()
+
+#     agg = (
+#         c.groupby([id_col, sem_col], dropna=False)
+#         .agg(
+#             course_sum_attempted=(course_credits_attempted_col, "sum"),
+#             course_sum_earned=(course_credits_earned_col, "sum"),
+#             course_count=(course_credits_attempted_col, "size"),
+#         )
+#         .reset_index()
+#     )
+
+#     merged = s.merge(agg, on=[id_col, sem_col], how="left", indicator="_merge_agg")
+#     merged["has_course_rows"] = merged["_merge_agg"].eq("both")
+#     merged["course_sum_attempted"] = merged["course_sum_attempted"].fillna(0.0)
+#     merged["course_sum_earned"] = merged["course_sum_earned"].fillna(0.0)
+#     merged["course_count"] = merged["course_count"].fillna(0.0)
+
+#     for col in (
+#         semester_credits_attempted_col,
+#         semester_credits_earned_col,
+#         semester_courses_count_col,
+#     ):
+#         if not pd.api.types.is_numeric_dtype(merged[col]):
+#             merged[col] = pd.to_numeric(merged[col], errors="coerce")
+
+#     merged["diff_attempted"] = (
+#         merged["course_sum_attempted"] - merged[semester_credits_attempted_col]
+#     )
+#     merged["diff_earned"] = (
+#         merged["course_sum_earned"] - merged[semester_credits_earned_col]
+#     )
+#     merged["diff_courses"] = merged["course_count"] - merged[
+#         semester_courses_count_col
+#     ].fillna(0.0)
+
+#     merged["match_attempted"] = merged["diff_attempted"].abs() <= credit_tol
+#     merged["match_earned"] = merged["diff_earned"].abs() <= credit_tol
+#     merged["match_courses"] = merged["diff_courses"] == 0.0
+
+#     mismatches = (
+#         merged.loc[
+#             ~(
+#                 merged["match_attempted"]
+#                 & merged["match_earned"]
+#                 & merged["match_courses"]
+#             ),
+#             [
+#                 id_col,
+#                 sem_col,
+#                 semester_credits_attempted_col,
+#                 "course_sum_attempted",
+#                 "diff_attempted",
+#                 semester_credits_earned_col,
+#                 "course_sum_earned",
+#                 "diff_earned",
+#                 semester_courses_count_col,
+#                 "course_count",
+#                 "diff_courses",
+#                 "has_course_rows",
+#             ],
+#         ]
+#         .sort_values([id_col, sem_col])
+#         .reset_index(drop=True)
+#     )
+
+#     summary = {
+#         "total_semesters_in_semester_file": int(len(s)),
+#         "unique_student_semesters_in_courses": int(len(agg)),
+#         "rows_with_mismatches": int(len(mismatches)),
+#     }
+
+#     return {
+#         "summary": summary,
+#         "mismatches": mismatches,
+#         "merged_detail": merged,
+#     }
+
+# def validate_credit_consistency_single_df(
+#     df_cohort, earned_col="inst_tot_credits_earned", attempted_col="inst_tot_credits_attempted"
+# ):
+#     """
+#     Checks that:
+#       1. Credits earned <= credits attempted
+#       2. Credits earned = 0 when credits attempted = 0
+#     Returns (anomalies_df, summary_df)
+#     """
+#     # Ensure numeric columns
+#     earned = pd.to_numeric(df_cohort[earned_col], errors="coerce")
+#     attempted = pd.to_numeric(df_cohort[attempted_col], errors="coerce")
+
+#     # Rules
+#     earned_gt_attempted = earned > attempted
+#     earned_when_no_attempt = (attempted == 0) & (earned > 0)
+
+#     # Combine anomalies
+#     anomalies = df_cohort[earned_gt_attempted | earned_when_no_attempt].copy()
+#     anomalies["earned_gt_attempted"] = earned_gt_attempted
+#     anomalies["earned_when_no_attempt"] = earned_when_no_attempt
+
+#     # Summary
+#     summary = pd.DataFrame(
+#         {
+#             "earned_gt_attempted": [earned_gt_attempted.sum()],
+#             "earned_when_no_attempt": [earned_when_no_attempt.sum()],
+#             "total_anomalous_rows": [
+#                 (earned_gt_attempted | earned_when_no_attempt).sum()
+#             ],
+#         }
+#     )
+
+#     return anomalies, summary
