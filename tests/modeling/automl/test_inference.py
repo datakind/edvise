@@ -710,11 +710,12 @@ def test_support_score_distribution_table(
         "pct",
     }
     assert result["count_of_students"].sum() == len(unique_ids)
-    assert np.isclose(result["pct"].sum(), 100.0, atol=0.01)
+    assert np.isclose(result["pct"].sum(), 1.0, atol=1e-6)
 
+    bin_width = 0.2 / 5
     # Binning logic checks
     for _, row in result.iterrows():
-        expected_midpoint = round((row["bin_lower"] + row["bin_upper"]) / 2, 2)
-        assert row["support_score"] == expected_midpoint
-        assert round(row["bin_upper"] - row["bin_lower"], 2) == 0.1
-        assert 0.1 <= row["bin_lower"] < row["bin_upper"] <= 1.0
+        expected_midpoint = (row["bin_lower"] + row["bin_upper"]) / 2.0
+        assert np.isclose(row["support_score"], expected_midpoint, atol=1e-8)
+        assert np.isclose(row["bin_upper"] - row["bin_lower"], bin_width, atol=1e-8)
+        assert 0.0 <= row["bin_lower"] < row["bin_upper"] <= 1.0
