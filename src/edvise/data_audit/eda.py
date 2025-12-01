@@ -698,7 +698,7 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
 
     if pct_dropped < 0.1:
         LOGGER.warning(
-            " ⚠️ inspect_misjoined_records: These mismatches will later result in dropping %d students (<0.1%% of all students).",
+            " ⚠️ inspect_misjoined_records: These mismatches will later result in dropping %d students (<0.1 percent of all students).",
             dropped_students,
         )
     else:
@@ -1309,3 +1309,39 @@ def check_pf_grade_consistency(
 #     )
 
 #     return anomalies, summary
+def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") -> None:
+    """
+    Logs value counts of the 'grade' column and flags if 'M' grades exceed 5%.
+
+    Args:
+        df (pd.DataFrame): The course or student dataset.
+        grade_col (str): Name of the grade column to analyze (default is "grade").
+
+    Logs:
+        - Value counts for all grades
+        - Percentage of 'M' grades
+        - Warning if 'M' grades exceed 5% of all non-null grades
+    """
+    if grade_col not in df_course.columns:
+        LOGGER.warning("Column '%s' not found in DataFrame.", grade_col)
+        return
+
+    grade_counts = df_course[grade_col].value_counts(dropna=False).sort_index()
+    total_grades = df_course[grade_col].notna().sum()
+
+    LOGGER.info("Grade value counts:\n%s", grade_counts.to_string())
+
+    if "M" in grade_counts.index and total_grades > 0:
+        m_count = grade_counts["M"]
+        m_pct = (m_count / total_grades) * 100
+
+        if m_pct > 5:
+            LOGGER.warning(
+                "High proportion of 'M' grades: %d (%.1f%% of non-null grades). Consider reaching out to schoool for additional information.",
+                m_count,
+                m_pct,
+            )
+        else:
+            LOGGER.info("'M' grades: %d (%.1f%% of non-null grades).", m_count, m_pct)
+    else:
+        LOGGER.info("'M' grade not found or no valid grade data available.")

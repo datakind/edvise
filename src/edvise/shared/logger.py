@@ -180,7 +180,7 @@ def init_file_logging(
     root.addHandler(console)
 
     # File handler (create once, safe append)
-    fh = logging.FileHandler(log_file_path, mode="a", encoding="utf-8", delay=True)
+    fh = logging.FileHandler(log_file_path, mode="w", encoding="utf-8", delay=True)
     fh.setFormatter(
         logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     )

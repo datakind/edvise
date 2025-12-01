@@ -163,30 +163,38 @@ class PDPDataAuditTask:
         # Build full path (local FS form)
         log_file_path = os.path.join(local_run_path, "pdp_data_audit.log")
 
-        # Attach file handler safely
+        # Build full path (local FS form)
+        log_file_path = os.path.join(local_run_path, "pdp_data_audit.log")
+        abs_log_file_path = os.path.abspath(log_file_path)
+
         try:
-            # Use append mode so logs persist between runs
-            file_handler = logging.FileHandler(log_file_path, mode="a")
+            root_logger = logging.getLogger()
+
+            # --- IMPORTANT PART 1: remove any existing handlers for this file ---
+            for h in list(root_logger.handlers):
+                if (
+                    isinstance(h, logging.FileHandler)
+                    and getattr(h, "baseFilename", None) == abs_log_file_path
+                ):
+                    root_logger.removeHandler(h)
+                    try:
+                        h.close()
+                    except Exception:
+                        pass
+
+            # --- IMPORTANT PART 2: open in write mode so we overwrite each run ---
+            file_handler = logging.FileHandler(abs_log_file_path, mode="w")
             file_handler.setFormatter(
                 logging.Formatter(
                     "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
                 )
             )
 
-            root_logger = logging.getLogger()
-            if not any(
-                isinstance(h, logging.FileHandler)
-                and getattr(h, "baseFilename", None) == os.path.abspath(log_file_path)
-                for h in root_logger.handlers
-            ):
-                root_logger.addHandler(file_handler)
-                LOGGER.info(
-                    "File logging initialized. Logs will be saved to: %s", log_file_path
-                )
-
-            # Quick existence check (should be True immediately)
-            if not os.path.exists(log_file_path):
-                LOGGER.warning("Log file does not appear yet: %s", log_file_path)
+            root_logger.addHandler(file_handler)
+            LOGGER.info(
+                "File logging initialized. Logs will be overwritten at: %s",
+                log_file_path,
+            )
 
         except Exception as e:
             LOGGER.exception(
@@ -352,8 +360,8 @@ class PDPDataAuditTask:
                 if (
                     lower_ids
                     and lower_cips
-                    and len(lower_ids) <= 25
-                    and len(lower_cips) <= 25
+                    and len(lower_ids) <= 10
+                    and len(lower_cips) <= 10
                 ):
                     LOGGER.warning(
                         " Upper-level (>=200) gateway courses detected. Auto-populating config with LOWER-level (<200) "

@@ -10,7 +10,11 @@ from edvise.utils.data_cleaning import (
     strip_trailing_decimal_strings,
     replace_na_firstgen_and_pell,
 )
-from .eda import log_high_null_columns, print_credential_types_and_retention
+from .eda import (
+    log_high_null_columns,
+    print_credential_types_and_retention,
+    log_grade_distribution,
+)
 
 # TODO think of a better name than standardizer
 
@@ -109,6 +113,7 @@ class PDPCourseStandardizer(BaseStandardizer):
         df = strip_trailing_decimal_strings(df)
         df = drop_course_rows_missing_identifiers(df)
         log_high_null_columns(df)
+        log_grade_distribution(df)
         cols_to_drop = [
             # student demographics found in raw cohort dataset
             "cohort",
