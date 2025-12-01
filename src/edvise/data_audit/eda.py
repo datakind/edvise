@@ -1308,6 +1308,7 @@ def check_pf_grade_consistency(
 #         }
 #     )
 
+
 #     return anomalies, summary
 def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") -> None:
     """
