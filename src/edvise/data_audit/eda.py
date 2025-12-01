@@ -1116,9 +1116,15 @@ def check_pf_grade_consistency(
     rows_with_grade_pf_disagree = pfg.notna() & pff.notna() & (pfg != pff)
 
     # Collect anomalies
-    mask = rows_with_earned_with_failing_pf | rows_with_no_credits_with_passing | rows_with_grade_pf_disagree
+    mask = (
+        rows_with_earned_with_failing_pf
+        | rows_with_no_credits_with_passing
+        | rows_with_grade_pf_disagree
+    )
     anomalies = out.loc[mask].copy()
-    anomalies["earned_with_failing_grade"] = rows_with_earned_with_failing_pf.loc[anomalies.index]
+    anomalies["earned_with_failing_grade"] = rows_with_earned_with_failing_pf.loc[
+        anomalies.index
+    ]
     anomalies["no_credits_with_passing_grade"] = rows_with_no_credits_with_passing.loc[
         anomalies.index
     ]
@@ -1128,7 +1134,9 @@ def check_pf_grade_consistency(
     summary = pd.DataFrame(
         {
             "earned_with_failing_grade": [int(rows_with_earned_with_failing_pf.sum())],
-            "no_credits_with_passing_grade": [int(rows_with_no_credits_with_passing.sum())],
+            "no_credits_with_passing_grade": [
+                int(rows_with_no_credits_with_passing.sum())
+            ],
             "grade_pf_disagree": [int(rows_with_grade_pf_disagree.sum())],
             "total_anomalous_rows": [int(mask.sum())],
         }
