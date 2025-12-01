@@ -170,9 +170,12 @@ class PDPDataAuditTask:
         try:
             root_logger = logging.getLogger()
 
-            # --- IMPORTANT PART 1: remove any existing handlers for this file --- 
+            # --- IMPORTANT PART 1: remove any existing handlers for this file ---
             for h in list(root_logger.handlers):
-                if isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None) == abs_log_file_path:
+                if (
+                    isinstance(h, logging.FileHandler)
+                    and getattr(h, "baseFilename", None) == abs_log_file_path
+                ):
                     root_logger.removeHandler(h)
                     try:
                         h.close()
