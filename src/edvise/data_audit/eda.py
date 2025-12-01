@@ -851,22 +851,90 @@ def validate_ids_terms_consistency(
     }
 
 
+def find_dupes(df, primary_keys, sort=None, summarize=False, n=20):
+    """
+    Quickly find and summarize duplicates by primary key columns for each dataset (cohort, course, and semester).
+    """
+    if summarize:
+        out = (
+            df.groupby(primary_keys)
+            .size()
+            .value_counts()
+            .rename_axis("dup_count")
+            .reset_index(name="n_groups")
+        )
+        print(out.head(10))
+        return out
+    dupes = df[df.duplicated(primary_keys, keep=False)]
+    if sort:
+        dupes = dupes.sort_values(sort, ignore_index=True)
+    print(f"{len(dupes)} duplicates based on {primary_keys}")
+    return dupes
+
+
+def check_earned_vs_attempted(
+    df: pd.DataFrame,
+    *,
+    earned_col: str,
+    attempted_col: str,
+) -> t.Dict[str, pd.DataFrame]:
+    """
+    Row-wise checks that:
+      1. credits_earned <= credits_attempted
+      2. credits_earned = 0 when credits_attempted = 0
+    """
+    earned = pd.to_numeric(df[earned_col], errors="coerce")
+    attempted = pd.to_numeric(df[attempted_col], errors="coerce")
+
+    earned_gt_attempted = earned > attempted
+    earned_when_no_attempt = (attempted == 0) & (earned > 0)
+    mask = earned_gt_attempted | earned_when_no_attempt
+
+    anomalies = df[mask].copy()
+    anomalies["earned_gt_attempted"] = earned_gt_attempted[mask]
+    anomalies["earned_when_no_attempt"] = earned_when_no_attempt[mask]
+
+    summary = pd.DataFrame(
+        {
+            "earned_gt_attempted": [int(earned_gt_attempted.sum())],
+            "earned_when_no_attempt": [int(earned_when_no_attempt.sum())],
+            "total_anomalous_rows": [int(mask.sum())],
+        }
+    )
+
+    return {"anomalies": anomalies, "summary": summary}
+
+
 def validate_credit_consistency(
     semester_df: pd.DataFrame,
     course_df: pd.DataFrame,
+    cohort_df: pd.DataFrame,
     *,
     id_col: str = "student_id",
     sem_col: str = "semester_code",
+    # course-level credit columns
     course_credits_attempted_col: str = "credits_attempted",
     course_credits_earned_col: str = "credits_earned",
+    # semester-level credit columns
     semester_credits_attempted_col: str = "number_of_semester_credits_attempted",
     semester_credits_earned_col: str = "number_of_semester_credits_earned",
     semester_courses_count_col: str = "number_of_semester_courses_enrolled",
+    # cohort-level credit columns (df_cohort)
+    cohort_credits_attempted_col: str = "inst_tot_credits_attempted",
+    cohort_credits_earned_col: str = "inst_tot_credits_earned",
     credit_tol: float = 0.0,
 ) -> t.Dict[str, t.Any]:
     """
-    Reconcile semester-level aggregates against course-level details.
+    Unified credit validation:
+
+    1) Reconcile semester-level aggregates (semester_df) against
+       course-level details (course_df).
+
+    2) Check row-wise consistency of credits earned vs attempted
+       on cohort_df (df_cohort).
     """
+
+    # ---------- 1) RECONCILIATION: semester vs course ----------
 
     c = course_df[
         [id_col, sem_col, course_credits_attempted_col, course_credits_earned_col]
@@ -897,6 +965,7 @@ def validate_credit_consistency(
     merged["course_sum_earned"] = merged["course_sum_earned"].fillna(0.0)
     merged["course_count"] = merged["course_count"].fillna(0.0)
 
+    # Ensure numeric semester columns
     for col in (
         semester_credits_attempted_col,
         semester_credits_earned_col,
@@ -945,17 +1014,157 @@ def validate_credit_consistency(
         .reset_index(drop=True)
     )
 
-    summary = {
+    reconciliation_summary = {
         "total_semesters_in_semester_file": int(len(s)),
         "unique_student_semesters_in_courses": int(len(agg)),
         "rows_with_mismatches": int(len(mismatches)),
     }
 
+    # ---------- 2) COHORT-LEVEL ROW-WISE CHECKS ----------
+
+    cohort_checks = check_earned_vs_attempted(
+        cohort_df,
+        earned_col=cohort_credits_earned_col,
+        attempted_col=cohort_credits_attempted_col,
+    )
+
     return {
-        "summary": summary,
-        "mismatches": mismatches,
-        "merged_detail": merged,
+        "reconciliation_summary": reconciliation_summary,
+        "reconciliation_mismatches": mismatches,
+        "reconciliation_merged_detail": merged,
+        "cohort_anomalies": cohort_checks["anomalies"],
+        "cohort_anomalies_summary": cohort_checks["summary"],
     }
+
+
+def check_pf_grade_consistency(
+    df,
+    grade_col="grade",
+    pf_col="pass_fail_flag",
+    credits_col="credits_earned",
+    *,
+    passing_grades=(
+        "P",
+        "P*",
+        "A",
+        "A-",
+        "B+",
+        "B",
+        "B-",
+        "C+",
+        "C",
+        "C-",
+        "D+",
+        "D",
+        "D-",
+        "REP",
+        "S",
+        "^C-",
+        "^D-",
+        "^D",
+        "^D+",
+        "ZD-",
+        "ZD",
+        "^C",
+        "CH",
+    ),
+    failing_grades=(
+        "F",
+        "E",
+        "^E",
+        "F*",
+        "REF",
+        "ZE",
+        "NR",
+        "W",
+        "W*",
+        "WI",
+        "WE",
+        "WC",
+        "WA",
+        "WB+",
+        "WB",
+        "WB-",
+        "WD",
+        "WD-",
+        "WC+",
+        "WC-",
+        "WA-",
+        "I",
+    ),
+    pass_flags=("P",),
+    fail_flags=("F",),
+):
+    """
+    Checks that:
+      1. Students NEVER earn credits for failing grades.
+      2. Students DO always earn credits for passing grades.
+      3. Grade and pass_fail_flag are consistent.
+
+    Returns (anomalies_df, summary_df)
+    """
+    out = df.copy()
+
+    # Normalize
+    g = out[grade_col].astype(str).str.strip().str.upper()
+    pf = out[pf_col].astype(str).str.strip().str.upper()
+    credits = pd.to_numeric(out[credits_col], errors="coerce")  # keep NaNs as NaN
+
+    # Pass/fail from grade (for disagreement only)
+    pfg = pd.Series(
+        np.where(
+            g.isin(passing_grades),
+            True,
+            np.where(g.isin(failing_grades), False, np.nan),
+        ),
+        index=out.index,
+        dtype="object",
+    )
+
+    # Pass/fail from flag (drives credit rules)
+    pff = pd.Series(
+        np.where(
+            pf.isin(pass_flags), True, np.where(pf.isin(fail_flags), False, np.nan)
+        ),
+        index=out.index,
+        dtype="object",
+    )
+
+    # Credit rules (PF-based only)
+    rows_with_earned_with_failing_pf = (pff == False) & credits.notna() & (credits > 0)
+    rows_with_no_credits_with_passing = (pff == True) & credits.notna() & (credits == 0)
+
+    # Grade vs PF disagreement (only where both known)
+    rows_with_grade_pf_disagree = pfg.notna() & pff.notna() & (pfg != pff)
+
+    # Collect anomalies
+    mask = (
+        rows_with_earned_with_failing_pf
+        | rows_with_no_credits_with_passing
+        | rows_with_grade_pf_disagree
+    )
+    anomalies = out.loc[mask].copy()
+    anomalies["earned_with_failing_grade"] = rows_with_earned_with_failing_pf.loc[
+        anomalies.index
+    ]
+    anomalies["no_credits_with_passing_grade"] = rows_with_no_credits_with_passing.loc[
+        anomalies.index
+    ]
+    anomalies["grade_pf_disagree"] = rows_with_grade_pf_disagree.loc[anomalies.index]
+
+    # Summary
+    summary = pd.DataFrame(
+        {
+            "earned_with_failing_grade": [int(rows_with_earned_with_failing_pf.sum())],
+            "no_credits_with_passing_grade": [
+                int(rows_with_no_credits_with_passing.sum())
+            ],
+            "grade_pf_disagree": [int(rows_with_grade_pf_disagree.sum())],
+            "total_anomalous_rows": [int(mask.sum())],
+        }
+    )
+
+    return anomalies, summary
 
 
 def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") -> None:
