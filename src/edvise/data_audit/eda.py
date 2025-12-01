@@ -979,7 +979,7 @@ def find_dupes(df, primary_keys, sort=None, summarize=False, n=20):
     return dupes
 
 
-def check_credit_earned_attempted_consistency(
+def validate_credit_consistency_single_df(
     df, earned_col="inst_tot_credits_earned", attempted_col="inst_tot_credits_attempted"
 ):
     """
@@ -1109,27 +1109,27 @@ def check_pf_grade_consistency(
     )
 
     # Credit rules (PF-based only)
-    earned_with_failing_pf = (pff == False) & credits.notna() & (credits > 0)
-    no_credits_with_passing = (pff == True) & credits.notna() & (credits == 0)
+    rows_with_earned_with_failing_pf = (pff == False) & credits.notna() & (credits > 0)
+    rows_with_no_credits_with_passing = (pff == True) & credits.notna() & (credits == 0)
 
     # Grade vs PF disagreement (only where both known)
-    grade_pf_disagree = pfg.notna() & pff.notna() & (pfg != pff)
+    rows_with_grade_pf_disagree = pfg.notna() & pff.notna() & (pfg != pff)
 
     # Collect anomalies
-    mask = earned_with_failing_pf | no_credits_with_passing | grade_pf_disagree
+    mask = rows_with_earned_with_failing_pf | rows_with_no_credits_with_passing | rows_with_grade_pf_disagree
     anomalies = out.loc[mask].copy()
-    anomalies["earned_with_failing_grade"] = earned_with_failing_pf.loc[anomalies.index]
-    anomalies["no_credits_with_passing_grade"] = no_credits_with_passing.loc[
+    anomalies["earned_with_failing_grade"] = rows_with_earned_with_failing_pf.loc[anomalies.index]
+    anomalies["no_credits_with_passing_grade"] = rows_with_no_credits_with_passing.loc[
         anomalies.index
     ]
-    anomalies["grade_pf_disagree"] = grade_pf_disagree.loc[anomalies.index]
+    anomalies["grade_pf_disagree"] = rows_with_grade_pf_disagree.loc[anomalies.index]
 
     # Summary
     summary = pd.DataFrame(
         {
-            "earned_with_failing_grade": [int(earned_with_failing_pf.sum())],
-            "no_credits_with_passing_grade": [int(no_credits_with_passing.sum())],
-            "grade_pf_disagree": [int(grade_pf_disagree.sum())],
+            "earned_with_failing_grade": [int(rows_with_earned_with_failing_pf.sum())],
+            "no_credits_with_passing_grade": [int(rows_with_no_credits_with_passing.sum())],
+            "grade_pf_disagree": [int(rows_with_grade_pf_disagree.sum())],
             "total_anomalous_rows": [int(mask.sum())],
         }
     )
