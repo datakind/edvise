@@ -15,7 +15,7 @@ concurrency:
 jobs:
   PROD (staging-sst-01)
   deploy-staging:
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    # if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     name: Deploy DAB to staging_sst_01 instance
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -63,7 +63,7 @@ jobs:
           DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
         run: |
           databricks current-user me
-          echo "Deploying DAB to prod for tag ${{ github.ref_name }}..."
+          echo "Deploying DAB to prod for tag v0.1.6..."
           databricks bundle deploy \
             --target=prod \
             --force-lock \
@@ -73,7 +73,7 @@ jobs:
             --var="databricks_institution_name=midway_uni" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
-            --var="git_tag=${{ github.ref_name }}"
+            --var="git_tag=v0.1.6"
 
   # DEV (dev-sst-02)
   deploy-dev:
