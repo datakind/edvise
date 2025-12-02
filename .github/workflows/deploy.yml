@@ -2,9 +2,9 @@ name: deploy
 
 on:
   # deploy only when version tags are pushed
-  push:
-    tags:
-      - 'v*'
+  # push:
+  #   tags:
+  #     - 'v*'
   push:
     branches:
       - 'fix/sa_yml_privs'
