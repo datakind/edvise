@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  PROD (staging-sst-01)
+  # PROD (staging-sst-01)
   deploy-staging:
     # if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     
