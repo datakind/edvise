@@ -5,7 +5,9 @@ on:
   push:
     tags:
       - 'v*'
-
+  push:
+    branches:
+      - 'fix/sa_yml_privs'
 concurrency:
   group: deploy-prod-${{ github.ref_name }}-${{ github.job }}
   cancel-in-progress: false

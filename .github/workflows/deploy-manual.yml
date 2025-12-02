@@ -7,9 +7,6 @@ on:
       tag:
         description: 'Tag to deploy (e.g. v0.1.6)'
         required: true
-  push:
-    branches:
-      - 'fix/sa_yml_privs'
 
 concurrency:
   # avoid overlapping manual deploys for the same tag
