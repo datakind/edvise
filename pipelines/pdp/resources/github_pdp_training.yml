@@ -332,3 +332,4 @@ resources:
           level: CAN_MANAGE
         - user_name: ${var.service_account_executer}
           level: CAN_MANAGE
+
