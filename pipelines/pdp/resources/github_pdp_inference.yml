@@ -439,4 +439,4 @@ resources:
         - service_principal_name: ${var.ds_run_as}
           level: CAN_MANAGE
         - user_name: ${var.service_account_executer}
-          level: CAN_MANAGE
+          level: CAN_MANAGE_RUN
