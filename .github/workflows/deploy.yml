@@ -135,4 +135,4 @@ jobs:
             --var="databricks_institution_name=synthetic" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
-            --var="git_tag=${{ github.ref_name }}" 
+            --var="git_branch=${{ github.ref_name }}" 
