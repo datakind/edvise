@@ -125,7 +125,7 @@ jobs:
           DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
         run: |
           databricks current-user me
-          echo "Deploying PROD target to dev_sst_02 for tag ${{ github.ref_name }}..."
+          echo "Deploying PROD target to dev_sst_02 for tag v0.1.6..."
           databricks bundle deploy \
             --target=prod \
             --force-lock \
@@ -135,4 +135,4 @@ jobs:
             --var="databricks_institution_name=synthetic" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
-            --var="git_branch=${{ github.ref_name }}" 
+            --var="git_tag=v0.1.6" 
