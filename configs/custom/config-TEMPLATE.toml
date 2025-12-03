@@ -20,7 +20,7 @@ disabilityflag = "Disability Status"
 
 [datasets.bronze]
 
-[datasets.bronze.raw_cohort]
+[datasets.bronze.raw_student]
 primary_keys = ["student_id"]
 non_null_cols = ["acad_year"]
 train_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_cohort_train.csv"
@@ -77,6 +77,12 @@ framework = "sklearn"
 [preprocessing]
 splits = { train = 0.6, test = 0.2, validate = 0.2 }
 sample_class_weight = "balanced"
+
+[preprocessing.cleaning]
+null_tokens = ["(Blank)"]
+dtype_confidence_threshold = 0.75
+min_non_null = 10
+schema_contract_path = "/Volumes/CATALOG/INST_ID_bronze/.../schema_contract.json"
 
 [preprocessing.selection]
 student_criteria = { enrollment_type = "FIRST-TIME", credential_type_sought_year_1 = "Bachelor's Degree" }

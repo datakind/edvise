@@ -323,7 +323,7 @@ def remove_pre_cohort_courses(
     if n_removed > 0:
         if pct_removed < 0.1:
             LOGGER.info(
-                " remove_pre_cohort_courses: %d pre-cohort course records safely removed (<0.1%% of data).",
+                " remove_pre_cohort_courses: %d pre-cohort course records safely removed (<0.1 percent of data).",
                 n_removed,
             )
         else:
@@ -602,7 +602,7 @@ def handling_duplicates(df_course: pd.DataFrame) -> pd.DataFrame:
     pct_dup = (len(dupe_rows) / len(df_course)) * 100
     if pct_dup < 0.1:
         LOGGER.warning(
-            " ⚠️ %s (<0.1%% of data) true duplicate rows found & dropped",
+            " ⚠️ %s (<0.1 percent of data) true duplicate rows found & dropped",
             len(dupe_rows) // 2,  # integer count of dropped pairs
         )
     else:
