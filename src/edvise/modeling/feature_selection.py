@@ -245,10 +245,10 @@ def drop_collinear_features_iteratively(
             grouped = df_features[duplicated_cols].T.groupby(
                 lambda x: tuple(df_features[x].values), sort=False
             )
-        for _, group in grouped:
-            dup_cols = list(group.index)
-            if len(dup_cols) <= 1:
-                continue
+            for _, group in grouped:
+                dup_cols = list(group.index)
+                if len(dup_cols) <= 1:
+                    continue
 
             # Prefer to keep force-included columns
             force_included = [col for col in dup_cols if col in force_include_cols]
