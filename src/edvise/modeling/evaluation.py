@@ -658,7 +658,11 @@ def log_custom_job(
     }
     custom_job_endpoint_url = f"https://staging-sst.datakind.org/api/v1/{inst_id}/add-custom-school-job/{job_run_id}?model_name={model_name}"
     endpoint_result = requests.post(custom_job_endpoint_url, headers=custom_job_headers)
-    return_response = endpoint_result.json() if endpoint_result.json() else "Check API Staging logs to debug this error"
+    return_response = (
+        endpoint_result.json()
+        if endpoint_result.json()
+        else {"Check API Staging logs to debug this error"}
+    )
     return return_response
 
 
