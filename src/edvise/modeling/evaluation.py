@@ -638,7 +638,7 @@ def log_roc_table(
 
 def log_custom_job(
     inst_id: str, job_run_id: str, model_name: str, api_key: str
-) -> dict[dict, str]:
+) -> dict:
     "Retrieve access token and log custom job ids on the GCP Cloud SQL JobTable"
 
     # Retrieve API token
