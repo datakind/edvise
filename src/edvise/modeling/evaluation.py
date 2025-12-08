@@ -636,10 +636,12 @@ def log_roc_table(
         ) from e
 
 
-def log_custom_job(inst_id: str, job_run_id: str, model_name: str, api_key: str) -> dict[dict, str]:
+def log_custom_job(
+    inst_id: str, job_run_id: str, model_name: str, api_key: str
+) -> dict[dict, str]:
     "Retrieve access token and log custom job ids on the GCP Cloud SQL JobTable"
-    
-    #Retrieve API token
+
+    # Retrieve API token
     headers = {
         "X-API-KEY": api_key,
         "Content-Type": "application/json",
@@ -649,7 +651,7 @@ def log_custom_job(inst_id: str, job_run_id: str, model_name: str, api_key: str)
     r = requests.post(access_token_url, headers=headers)
     access_token = r.json()["access_token"]
 
-    #Log custom jobs in JobTable
+    # Log custom jobs in JobTable
     custom_job_headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
@@ -658,6 +660,7 @@ def log_custom_job(inst_id: str, job_run_id: str, model_name: str, api_key: str)
     endpoint_result = requests.post(custom_job_endpoint_url, headers=custom_job_headers)
 
     return endpoint_result.json()
+
 
 ############
 ## PLOTS! ##
