@@ -337,8 +337,6 @@ class CleaningConfig(pyd.BaseModel):
             "Mapping for interpreting string tokens as booleans during dtype generation."
         ),
     )
-
-    # NEW: force-override dtype assignments during training-time dtype inference
     forced_dtypes: dict[str, str] = pyd.Field(
         default_factory=dict,
         description=(
@@ -347,8 +345,6 @@ class CleaningConfig(pyd.BaseModel):
             "These overrides are applied BEFORE dtype inference across ALL datasets."
         ),
     )
-
-    # NEW: strictness control (optional but recommended)
     allow_forced_cast_fallback: bool = pyd.Field(
         default=True,
         description=(
