@@ -180,10 +180,10 @@ class DtypeGenerationOptions:
             "0": False,
         }
     )
-    # NEW: forced dtype overrides by normalized column name.
+    # forced dtype overrides by normalized column name.
     # e.g. {"student_id": "string", "term_order": "Int64"}
     forced_dtypes: dict[str, str] = field(default_factory=dict)
-    # NEW: if False, a failed forced cast will raise instead of falling back
+    # if False, a failed forced cast will raise instead of falling back
     allow_forced_cast_fallback: bool = True
 
 
@@ -437,7 +437,7 @@ def clean_dataset(
             term_order_fn=spec.get("term_order_fn"),
             term_column=spec.get("term_column", "term"),
             _orig_cols_=spec.get("_orig_cols_", list(df.columns)),
-            # NEW: pick up alias from cleaning_cfg if not present
+            # pick up alias from cleaning_cfg if not present
             student_id_alias=spec.get("student_id_alias")
             if "student_id_alias" in spec
             else (cleaning_cfg.student_id_alias if cleaning_cfg else None),
@@ -603,7 +603,7 @@ def clean_all_datasets_map(
             spec=spec,
             enforce_uniqueness=enforce_uniqueness,
             generate_dtypes=generate_dtypes,
-            cleaning_cfg=cleaning_cfg,  # <-- NEW
+            cleaning_cfg=cleaning_cfg,
         )
         LOGGER.info("%s - Finished cleaning; final shape=%s", key, cleaned[key].shape)
     return cleaned
