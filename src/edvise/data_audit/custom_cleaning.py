@@ -180,6 +180,11 @@ class DtypeGenerationOptions:
             "0": False,
         }
     )
+    # NEW: forced dtype overrides by normalized column name.
+    # e.g. {"student_id": "string", "term_order": "Int64"}
+    forced_dtypes: dict[str, str] = field(default_factory=dict)
+    # NEW: if False, a failed forced cast will raise instead of falling back
+    allow_forced_cast_fallback: bool = True
 
 
 def dtype_opts_from_cleaning_config(
@@ -192,7 +197,54 @@ def dtype_opts_from_cleaning_config(
         dtype_confidence_threshold=cfg.dtype_confidence_threshold,
         min_non_null=cfg.min_non_null,
         boolean_map=cfg.boolean_map,
+        forced_dtypes=getattr(cfg, "forced_dtypes", {}) or {},
+        allow_forced_cast_fallback=getattr(cfg, "allow_forced_cast_fallback", True),
     )
+
+
+def _cast_series_to_nullable_dtype(
+    s: pd.Series,
+    dtype_str: str,
+    boolean_map: dict[str, bool],
+) -> pd.Series:
+    """
+    Cast a Series to one of our supported nullable dtypes.
+
+    Shared between training-time forced dtypes and inference-time schema enforcement.
+    """
+    try:
+        if dtype_str.startswith("datetime64"):
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message="Could not infer format, so each element will be parsed individually",
+                    category=UserWarning,
+                )
+                return pd.to_datetime(s, errors="coerce")
+
+        if dtype_str == "Int64":
+            return pd.to_numeric(s, errors="coerce").astype("Int64")
+
+        if dtype_str == "Float64":
+            return pd.to_numeric(s, errors="coerce").astype("Float64")
+
+        if dtype_str == "boolean":
+            return (
+                s.astype("string")
+                .str.strip()
+                .str.lower()
+                .map(boolean_map)
+                .astype("boolean")
+            )
+
+        if dtype_str == "string":
+            return s.astype("string")
+
+        # fallback: let pandas handle it (for forward compatibility)
+        return s.astype(dtype_str)
+
+    except Exception as e:
+        raise ValueError(f"Failed to cast Series to {dtype_str}: {e}")
 
 
 def generate_column_training_dtype(
@@ -285,16 +337,48 @@ def generate_training_dtypes(
     many of our custom schools give us CSV files, which do not save dtypes (everything
     is usually nullable string type).
 
+    Honors any `forced_dtypes` configured in `DtypeGenerationOptions` before applying
+    heuristic inference.
+
     NOTE: Use only on training data. At inference time, rely on `enforce_schema`
     using a schema frozen from the trained data.
     """
     opts = opts or DtypeGenerationOptions()
     out = df.copy()
+
     for col in out.columns:
+        # 1) Forced dtype override, if configured for this normalized column
+        forced = opts.forced_dtypes.get(col)
+        if forced is not None:
+            try:
+                out[col] = _cast_series_to_nullable_dtype(
+                    out[col],
+                    forced,
+                    boolean_map=opts.boolean_map,
+                )
+                LOGGER.info(
+                    "Applied forced dtype override: column=%s dtype=%s", col, forced
+                )
+                # Skip heuristic inference for this column
+                continue
+            except Exception as e:
+                msg = (
+                    f"Failed to apply forced dtype '{forced}' "
+                    f"for column '{col}': {e}"
+                )
+                if opts.allow_forced_cast_fallback:
+                    LOGGER.warning("%s; falling back to inferred dtype", msg)
+                    # Fall through to normal inference
+                else:
+                    # Strict mode: fail fast
+                    raise
+
+        # 2) Normal heuristic inference for all other columns
         try:
             out[col] = generate_column_training_dtype(out[col], opts=opts)
         except Exception as e:
             LOGGER.warning("Failed to infer dtype for column %s: %s", col, e)
+
     return out
 
 
@@ -642,32 +726,7 @@ def enforce_schema(df: pd.DataFrame, schema: dict) -> pd.DataFrame:
     )
     for c, dt in schema["dtypes"].items():
         try:
-            if dt.startswith("datetime64"):
-                with warnings.catch_warnings():
-                    warnings.filterwarnings(
-                        "ignore",
-                        message="Could not infer format, so each element will be parsed individually",
-                        category=UserWarning,
-                    )
-                    g[c] = pd.to_datetime(g[c], errors="coerce")
-            elif dt == "Int64":
-                g[c] = pd.to_numeric(g[c], errors="coerce").astype("Int64")
-            elif dt == "Float64":
-                g[c] = pd.to_numeric(g[c], errors="coerce").astype("Float64")
-            elif dt == "boolean":
-                g[c] = (
-                    g[c]
-                    .astype("string")
-                    .str.strip()
-                    .str.lower()
-                    .map(bmap)
-                    .astype("boolean")
-                )
-            elif dt == "string":
-                g[c] = g[c].astype("string")
-            else:
-                # fallback: attempt exact cast (kept for forward compatibility)
-                g[c] = g[c].astype(dt)
+            g[c] = _cast_series_to_nullable_dtype(g[c], dt, bmap)
         except Exception as e:
             raise ValueError(f"Failed to cast column {c} to {dt}: {e}")
 
