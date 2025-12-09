@@ -362,10 +362,7 @@ def generate_training_dtypes(
                 # Skip heuristic inference for this column
                 continue
             except Exception as e:
-                msg = (
-                    f"Failed to apply forced dtype '{forced}' "
-                    f"for column '{col}': {e}"
-                )
+                msg = f"Failed to apply forced dtype '{forced}' for column '{col}': {e}"
                 if opts.allow_forced_cast_fallback:
                     LOGGER.warning("%s; falling back to inferred dtype", msg)
                     # Fall through to normal inference
