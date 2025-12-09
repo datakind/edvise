@@ -366,3 +366,31 @@ def test_save_and_load_schema_contract_roundtrip(tmp_path):
     loaded = load_schema_contract(str(path))
 
     assert loaded == schema
+
+
+def test_generate_training_dtypes_respects_forced_dtypes():
+    # Without forcing, both columns would be inferred as numeric:
+    # - "id" → Int64
+    # - "gpa" → Float64
+    df = pd.DataFrame(
+        {
+            "id": ["1", "2"],
+            "gpa": ["3.5", "4.0"],
+        }
+    )
+
+    opts = DtypeGenerationOptions(
+        dtype_confidence_threshold=0.9,
+        min_non_null=10,
+        date_formats=("%m/%d/%Y",),
+        forced_dtypes={
+            "id": "string",  # force string instead of inferred Int64
+            "gpa": "Float64",  # explicitly force Float64 (still exercises the path)
+        },
+    )
+
+    out = generate_training_dtypes(df, opts)
+
+    # Forced overrides should win over heuristic inference
+    assert str(out["id"].dtype) == "string"
+    assert str(out["gpa"].dtype) == "Float64"
