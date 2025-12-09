@@ -3,7 +3,7 @@
 
 ## Model Card: {institution_name}
 
-### Contents {#contents}
+### Contents {{#contents}}
 - [Overview](#overview)
 - [Intended Use](#intended-use)
 - [Methodology](#methodology)
@@ -12,13 +12,13 @@
 - [Important Features](#features)
 - [Appendix](#appendix)
 
-### Overview {#overview}
+### Overview {{#overview}}
 - {outcome_section}
 - {checkpoint_section}
 - {development_note_section}
 - If there are questions or concerns about the model, you can contact **education@datakind.org** or your customer success manager.
 
-### Intended Use {#intended-use}
+### Intended Use {{#intended-use}}
 - **Primary Purpose**
     - Identify students who may need support in order to either retain or graduate on time. 
     - Empower academic advisors who provide intervention strategies with information on the factors impacting their students' need for support.
@@ -26,7 +26,7 @@
     - Outside of the target population:  _see below_
     - Without intervention strategies carefully designed by academic advisors, student success professionals, and researchers. 
 
-### Methodology {#methodology}
+### Methodology {{#methodology}}
 - **Sample Development**
     - Our first step was our data audit & validation, which included handling null and duplicate values, checking for any inconsistencies between files, and ensuring all student IDs are unique.
     - After validation, we then proceeded with exploratory data analysis (EDA) to develop a deeper understanding of the raw dataset prior to our feature engineering & model development, ensuring alignment with stakeholders through an iterative process.
@@ -75,7 +75,7 @@
 {test_roc_curve}
 {test_histogram}
 
-### Quantitative Bias Analysis {#bias}
+### Quantitative Bias Analysis {{#bias}}
 - **Model Bias Metric**
     - Our bias evaluation metric for our model includes utilizing _False Negative Rate (FNR) Parity_, which measures the disproportionate rate of false negatives across subgroups. 
     - FNR Parity helps assess whether the model is underperforming for any specific group in terms of incorrectly predicting that a student is not in need of support when the true outcome is that the student is in need of support.
@@ -86,7 +86,7 @@
 
 {bias_summary_section}
 
-### Important Features {#features}
+### Important Features {{#features}}
 - **Analyzing Feature Importance**
     - SHAP (Shapley Additive Explanations) is a method based on cooperative game theory that quantifies the contribution of each feature to a model's prediction for an individual instance. It helps us understand how much did a particular feature contribute to predicting whether a student needs more or less support.
     - SHAP provides detailed insight into how much each feature contributed for each individual, as well as Whether higher or lower feature values are associated with higher or lower need for support.
@@ -104,7 +104,7 @@
 
 {feature_importances_by_shap_plot}
 
-### Appendix {#appendix}
+### Appendix {{#appendix}}
 
 {performance_by_splits_section}
 
