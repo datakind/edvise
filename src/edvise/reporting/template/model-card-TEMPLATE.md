@@ -65,7 +65,7 @@
     - Utilized SHAP (Shapley Additive Explanations) values to quantify the contribution of individual features in top-performing models.
     - Leveraged SHAP to enhance interpretability & model transparency, while making model outputs more explainable and actionable.
 
-### Performance {#performance}
+### Performance {{#performance}}
 - **Model Performance Metric**
 {primary_metric_section}
 
