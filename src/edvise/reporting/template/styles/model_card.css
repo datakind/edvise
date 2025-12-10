@@ -34,6 +34,43 @@ body {
 }
 
 /* ================================
+   Contents / TOC Styling
+   (for: ### Contents {#contents} + the list that follows)
+================================ */
+
+/* Tighten gap between "Contents" heading and the list */
+#contents {
+    margin-bottom: 0.4em;
+}
+
+/* Style the Contents list like a professional report TOC */
+#contents + ul {
+    list-style: none;          /* no bullets */
+    margin-left: 0;
+    padding-left: 0;
+    font-size: 0.95em;         /* slightly smaller than body */
+    margin-bottom: 1.5em;      /* space before next section */
+}
+
+/* Individual TOC items */
+#contents + ul li {
+    margin: 2px 0;
+}
+
+/* Links inside TOC: subtle underline via border, not default link underline */
+#contents + ul a {
+    text-decoration: none;
+    border-bottom: 0.5px solid #000;
+}
+
+/* Optional: a bit stronger underline when viewed on screen */
+@media screen {
+    #contents + ul a:hover {
+        border-bottom-width: 1px;
+    }
+}
+
+/* ================================
    Table Styling
 ================================ */
 table {
@@ -96,6 +133,13 @@ ol ol ol {
     list-style-type: lower-roman;
 }
 
-/* PDF-friendly links */
-a { text-decoration: underline; color: inherit; }
-a:visited { color: inherit; }
+/* ================================
+   PDF-friendly links
+================================ */
+a {
+    text-decoration: underline;
+    color: inherit;
+}
+a:visited {
+    color: inherit;
+}
