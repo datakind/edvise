@@ -1,0 +1,193 @@
+name: deploy-manual
+
+on:
+  # manual: deploy a specific tag to STAGING and DEV
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to deploy (e.g. v0.1.6)'
+        required: true
+
+concurrency:
+  # avoid overlapping manual deploys for the same tag
+  group: deploy-manual-${{ github.event.inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  # STAGING (staging-sst-01)
+  deploy-staging:
+    name: Manually deploy DAB to staging_sst_01
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history + tags
+
+      - name: Validate and checkout tag
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          echo "Requested tag: $TAG"
+
+          # Basic format check
+          if [[ "$TAG" != v* ]]; then
+            echo "Error: tag ($TAG) must start with 'v' (e.g. v0.1.6)"
+            exit 1
+          fi
+
+          # Make sure we have tags locally
+          git fetch --tags --force
+
+          # Check that the tag actually exists
+          if ! git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Error: tag '$TAG' does not exist in this repository."
+            echo "Available tags:"
+            git tag --list "v*"
+            exit 1
+          fi
+
+          # Checkout the tag so we're deploying that exact revision
+          git checkout "refs/tags/$TAG"
+
+          echo "Using tag: $TAG"
+          echo "DEPLOY_TAG=$TAG" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.11'
+
+      - name: Install uv and Databricks CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+          databricks -v
+        shell: bash
+
+      - name: Install project dependencies (uv)
+        run: |
+          uv venv
+          uv pip install .
+
+      - name: Configure Databricks env (Staging)
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_STAGING_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_STAGING_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_STAGING_CLIENT_SECRET }}
+        run: |
+          databricks version
+
+      - name: Deploy bundle (prod target -> staging_sst_01)
+        working-directory: pipelines/pdp
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_STAGING_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_STAGING_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_STAGING_CLIENT_SECRET }}
+          DB_WORKSPACE:         staging_sst_01
+          SA_EXECUTER:          ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
+          DS_RUN_AS:            ${{ secrets.STAGING_DS_RUN_AS }}
+          GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
+          DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
+        run: |
+          databricks current-user me
+          echo "Deploying DAB to staging_sst_01 for tag $DEPLOY_TAG..."
+
+          databricks bundle deploy \
+            --target=prod \
+            --force-lock \
+            --var="DB_workspace=$DB_WORKSPACE" \
+            --var="service_account_executer=$SA_EXECUTER" \
+            --var="ds_run_as=$DS_RUN_AS" \
+            --var="databricks_institution_name=midway_uni" \
+            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+            --var="datakind_notification_email=$DATAKIND_EMAIL" \
+            --var="git_tag=$DEPLOY_TAG"
+
+  # DEV (dev-sst-02)
+  deploy-dev:
+    name: Manually deploy DAB to dev_sst_02
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: deploy-staging  # optional: remove this line if you don't want dev to depend on staging
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate and checkout tag
+        run: |
+          TAG="${{ github.event.inputs.tag }}"
+          echo "Requested tag: $TAG"
+
+          if [[ "$TAG" != v* ]]; then
+            echo "Error: tag ($TAG) must start with 'v' (e.g. v0.1.6)"
+            exit 1
+          fi
+
+          git fetch --tags --force
+
+          if ! git rev-parse "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Error: tag '$TAG' does not exist in this repository."
+            echo "Available tags:"
+            git tag --list "v*"
+            exit 1
+          fi
+
+          git checkout "refs/tags/$TAG"
+
+          echo "Using tag: $TAG"
+          echo "DEPLOY_TAG=$TAG" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.11'
+
+      - name: Install uv and Databricks CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+          databricks -v
+        shell: bash
+
+      - name: Install project dependencies (uv)
+        run: |
+          uv venv
+          uv pip install .
+
+      - name: Configure Databricks env (Dev)
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
+        run: |
+          databricks version
+
+      - name: Deploy bundle (prod target -> dev_sst_02)
+        working-directory: pipelines/pdp
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }} 
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
+          DB_WORKSPACE:         dev_sst_02
+          SA_EXECUTER:          ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
+          DS_RUN_AS:            ${{ secrets.DEV_DS_RUN_AS }}
+          GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
+          DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
+        run: |
+          databricks current-user me
+          echo "Deploying PROD target to dev_sst_02 for tag $DEPLOY_TAG..."
+
+          databricks bundle deploy \
+            --target=prod \
+            --force-lock \
+            --var="DB_workspace=$DB_WORKSPACE" \
+            --var="service_account_executer=$SA_EXECUTER" \
+            --var="ds_run_as=$DS_RUN_AS" \
+            --var="databricks_institution_name=synthetic" \
+            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+            --var="datakind_notification_email=$DATAKIND_EMAIL" \
+            --var="git_tag=$DEPLOY_TAG"

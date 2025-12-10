@@ -12,6 +12,12 @@ DEFAULT_PEAK_COVID_TERMS = {
     ("2020-21", "SPRING"),  # Spring 2021
     ("2020-21", "SUMMER"),  # Summer 2021
 }
+DEFAULT_SEASON_ORDER_MAP = {
+    "spring": 1,
+    "summer": 2,
+    "fall": 3,
+    "winter": 4,
+}
 
 NUM_COURSE_FEATURE_COL_PREFIX = "num_courses"
 FRAC_COURSE_FEATURE_COL_PREFIX = "frac_courses"

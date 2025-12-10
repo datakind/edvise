@@ -241,6 +241,7 @@ class ModelConfig(pyd.BaseModel):
 
 
 class PreprocessingConfig(pyd.BaseModel):
+    cleaning: t.Optional["CleaningConfig"] = None
     selection: "SelectionConfig"
     checkpoint: "CheckpointConfig"
     target: "TargetConfig"
@@ -271,6 +272,86 @@ class PreprocessingConfig(pyd.BaseModel):
                 f"split fractions must sum up to 1.0, but input sums up to {sum_fracs}"
             )
         return value
+
+
+class CleaningConfig(pyd.BaseModel):
+    schema_contract_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Absolute path on volumes to the schema_contract.json file. "
+            "This file contains the frozen multi-dataset schema contract "
+            "used for schema enforcement for custom schools. This is needed "
+            "for data reliability and to ensure minimal training–inference skew."
+        ),
+    )
+    student_id_alias: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Optional alternate name for the student_id column. "
+            "E.g., Zogotech uses 'student_id_randomized_datakind'. "
+            "If provided, it will be normalized to 'student_id'."
+        ),
+    )
+    null_tokens: list[str] = pyd.Field(
+        default=["(Blank)"],
+        description=(
+            "Tokens that should be treated as null/NA during cleaning. "
+            "These will be replaced with pandas NA before dtype generation."
+        ),
+    )
+    treat_empty_strings_as_null: bool = pyd.Field(
+        default=True,
+        description=(
+            "If True, whitespace-only and empty strings are treated as null values."
+        ),
+    )
+    date_formats: tuple[str, ...] = pyd.Field(
+        default=("%m/%d/%Y",),
+        description="Candidate date formats to try before falling back to generic parsing.",
+    )
+    dtype_confidence_threshold: float = pyd.Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum fraction of successfully coerced values required to accept a generated dtype."
+        ),
+    )
+    min_non_null: int = pyd.Field(
+        default=10,
+        ge=0,
+        description=(
+            "Minimum number of non-null values required to trust a generated dtype."
+        ),
+    )
+    boolean_map: dict[str, bool] = pyd.Field(
+        default_factory=lambda: {
+            "true": True,
+            "false": False,
+            "yes": True,
+            "no": False,
+            "1": True,
+            "0": False,
+        },
+        description=(
+            "Mapping for interpreting string tokens as booleans during dtype generation."
+        ),
+    )
+    forced_dtypes: dict[str, str] = pyd.Field(
+        default_factory=dict,
+        description=(
+            "Optional mapping of normalized column names → forced pandas nullable dtypes "
+            "(e.g. {'student_id': 'string', 'term_order': 'Int64'}). "
+            "These overrides are applied BEFORE dtype inference across ALL datasets."
+        ),
+    )
+    allow_forced_cast_fallback: bool = pyd.Field(
+        default=True,
+        description=(
+            "If True, failures to cast a forced dtype fall back to inferred dtype with a warning. "
+            "If False, such failures raise an exception."
+        ),
+    )
 
 
 class CheckpointConfig(pyd.BaseModel):

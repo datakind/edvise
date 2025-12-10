@@ -5,6 +5,7 @@ from collections.abc import Collection
 
 import pandas as pd
 import numpy as np
+import re
 
 from edvise.utils import types
 from . import constants, shared
@@ -108,6 +109,107 @@ def term_rank(
         .rename(None)
         .astype("Int8")
     )
+
+
+def _norm_token(s: str | None) -> str | None:
+    if s is None:
+        return None
+    s = str(s)
+    s = re.sub(r"\s+", " ", s.strip().lower())
+    return s or None
+
+
+def add_term_order(
+    df: pd.DataFrame,
+    term_col: str = "term",
+    season_order_map: dict[str, int] | None = None,
+) -> pd.DataFrame:
+    """
+    Season extraction is driven by `season_order_map` keys:
+
+    - Keys are normalized to lowercase + single spaces.
+    - For each term, we try to match the **longest** key that is a prefix of the
+      normalized term string.
+    - If nothing matches, we fall back to the first word (for default maps).
+    """
+    if term_col not in df.columns:
+        raise KeyError(f"DataFrame must contain column '{term_col}'")
+
+    g = df.copy()
+
+    # safer string handling
+    s = g[term_col].astype("string").str.strip()
+
+    # year is still just "first 4-digit number in the string"
+    year_str = s.str.extract(r"(\d{4})", expand=False)
+
+    # Use default map if none provided
+    if season_order_map is None:
+        season_order_map = constants.DEFAULT_SEASON_ORDER_MAP
+
+    # Normalize map keys
+    norm_map: dict[str, int] = {}
+    for k, v in season_order_map.items():
+        nk = _norm_token(k)
+        if nk is not None:
+            norm_map[nk] = v
+
+    # Precompute keys sorted by length (longest first) for prefix matching
+    norm_keys = sorted(norm_map.keys(), key=len, reverse=True)
+
+    def extract_season_token(term: str | None) -> str | None:
+        if term is None:
+            return None
+        t_norm = _norm_token(term)
+        if t_norm is None:
+            return None
+
+        # Try to match the longest prefix from season_order_map
+        for key in norm_keys:
+            if t_norm.startswith(key):
+                return key
+
+        # Fallback: first word (useful for default "Spring/Summer/Fall/Winter")
+        first_word = t_norm.split(" ", 1)[0]
+        if first_word in norm_map:
+            return first_word
+
+        return None
+
+    # Vectorized-ish extraction via Series.apply (map size is tiny, so perf is fine)
+    season_norm = s.apply(extract_season_token)
+
+    found_seasons = set(season_norm.dropna().unique())
+    valid_seasons = set(norm_map.keys())
+    unexpected = found_seasons - valid_seasons
+    if unexpected:
+        LOGGER.warning(
+            f"Unexpected seasons: {unexpected}. "
+            f"Filtering to valid seasons: {valid_seasons}"
+        )
+        mask = season_norm.isin(valid_seasons)
+        g = g[mask]
+        season_norm = season_norm[mask]
+        year_str = year_str[mask]
+
+    # Pretty season for output: title-case + keep spaces & digits
+    # e.g. "summer session 1" -> "Summer Session 1"
+    g["season"] = season_norm.astype("string").str.title()
+
+    # year as nullable Int64
+    g["year"] = pd.to_numeric(year_str, errors="coerce").astype("Int64")
+
+    # Map normalized season token -> order
+    g["season_order"] = season_norm.map(norm_map).astype("Int64")
+
+    # Core term definition is now up to you; simplest is still Spring/Fall:
+    core_norm = {"spring", "fall"}
+    g["is_core_term"] = season_norm.isin(core_norm)
+
+    # Composite key
+    g["term_order"] = (g["year"] * 10 + g["season_order"]).astype("Int64")
+
+    return g
 
 
 def term_in_peak_covid(
