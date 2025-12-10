@@ -19,18 +19,18 @@
 - If there are questions or concerns about the model, you can contact **education@datakind.org** or your customer success manager.
 
 ### Intended Use {{#intended-use}}
-- **Primary Purpose**
+- #### Primary Purpose
     - Identify students who may need support to retain or graduate on time. 
     - Empower academic advisors to provide strategic interventions based on the factors contributing to students' need for support.
-- **Out-of-Scope Uses**
-    - Outside of the target population:  _see below_
+- #### Out-of-Scope Uses
+    - Outside of the [target population](#target_population)
     - Without intervention strategies carefully designed by academic advisors, student success professionals, and researchers. 
 
 ### Methodology {{#methodology}}
-- **Sample Development**
-    - Our first step was our data audit & validation, which included handling null and duplicate values, checking for any inconsistencies between files, and ensuring all student IDs are unique.
+- #### Sample Development
+    - Our first step was our data audit & validation, which included handling null and duplicate values, checking for inconsistencies between files, and ensuring all student IDs are unique.
     - After validation, we then proceeded with exploratory data analysis (EDA) to develop a deeper understanding of the raw dataset prior to our feature engineering & model development, ensuring alignment with stakeholders through an iterative process.
-- **Feature Development**
+- #### Feature Development
     - We then proceeded with feature engineering, which involved transforming raw data into meaningful representations by applying semantic abstractions, aggregating at varying levels of term, course, or section analysis, and comparing values cumulatively over time.
     - Stakeholder collaboration was also essential to our feature engineering effort, ensuring domain and use-case knowledge shaped the development of insightful features.
     - Then, our next step was feature selection, applying the following processing below.
@@ -44,16 +44,16 @@
             - Threshold Applied: Removed features with {incomplete_threshold}% or more missing values.
             - Explanation: Features with a high percentage of missing values may introduce noise or require extensive imputation.
     - After our feature selection processes, {number_of_features} actionable, relevant, and non-redundant features were retained for modeling.
-- **Target Population**
+- #### Target Population {{#target population}}
 {target_population_section}
     - This resulted in a training dataset of {training_dataset_size} students within the target timeframe.
-- **Model Development**
+- #### Model Development
 {sample_weight_section}
     - Model Experimentation Data Split
 
 {data_split_table}
 
-- **Model Evaluation**
+- #### Model Evaluation
     - Evaluated top 10 models for performance across key metrics: accuracy, precision, AUC, recall, log loss, F-1.
     - Evaluated SHAP values indicating relative importance in the models of key features for top-performing models.
     - Evaluated initial model output for interpretability and actionability.
@@ -61,37 +61,37 @@
 
 {model_comparison_plot}
 
-- **Model Interpretability** 
+- #### Model Interpretability
     - Utilized SHAP (Shapley Additive Explanations) values to quantify the contribution of individual features in top-performing models.
     - Leveraged SHAP to enhance interpretability & model transparency, while making model outputs more explainable and actionable.
 
 ### Performance {{#performance}}
-- **Model Performance Metric**
+- #### Model Performance Metric
 {primary_metric_section}
 
-- **Model Performance Plots**
+- #### Model Performance Plots
 {test_confusion_matrix}
 {test_calibration_curve}
 {test_roc_curve}
 {test_histogram}
 
 ### Quantitative Bias Analysis {{#bias}}
-- **Model Bias Metric**
+- #### Model Bias Metric
     - Our bias evaluation metric for our model includes utilizing _False Negative Rate (FNR) Parity_, which measures the disproportionate rate of false negatives across subgroups. 
     - FNR Parity helps assess whether the model is underperforming for any specific group in terms of incorrectly predicting that a student is not in need of support when the true outcome is that the student is in need of support.
 
-- **Analyzing Bias Across Student Groups**
+- #### Analyzing Bias Across Student Groups
 {bias_groups_section}
     - We evaluated FNR across these student groups and tested for statistically significant disparities.
 
 {bias_summary_section}
 
 ### Important Features {{#features}}
-- **Analyzing Feature Importance**
+- #### Analyzing Feature Importance
     - SHAP (Shapley Additive Explanations) is a method based on cooperative game theory that quantifies the contribution of each feature to a model's prediction for an individual instance. It helps us understand how much did a particular feature contribute to predicting whether a student needs more or less support.
     - SHAP provides detailed insight into how much each feature contributed for each individual, as well as Whether higher or lower feature values are associated with higher or lower need for support.
 
-- **Feature Importance Plot**
+- #### Feature Importance Plot
     - This figure below helps explain how individual features contribute to the model’s prediction for each student-term record. 
     - Here are some guidelines for how to interpret the plot below.
         - Each dot represents a single student record.
