@@ -21,6 +21,13 @@
     }
 }
 
+/* Suppress header on the first page */
+@page:first {
+    @top-center {
+        content: "";
+    }
+}
+
 @page wide-page {
     size: A4 landscape; /* Used for extra-wide tables */
     margin: 20mm;
@@ -45,35 +52,13 @@ h2:first-of-type {
 }
 
 /* ================================
-   Font Selection & Section Counters
+   Font Selection
 ================================ */
 em {
     font-style: italic;
 }
 body {
     font-family: "Georgia", "Times New Roman", serif;
-    counter-reset: section; /* reset section counter for numbered h3s */
-}
-
-/* Numbered h3 headings: 1. Overview, 2. Intended Use, etc. */
-h3 {
-    counter-increment: section;
-}
-
-/* Do NOT number the Contents heading */
-h3#contents {
-    counter-increment: none;
-}
-
-/* Prefix most h3s with their section number */
-h3::before {
-    content: counter(section) ". ";
-    font-weight: normal;
-}
-
-/* But not for Contents */
-h3#contents::before {
-    content: "";
 }
 
 /* ================================
@@ -100,16 +85,16 @@ h3#contents::before {
     margin: 2px 0;
 }
 
-/* Links inside TOC: subtle underline via border, not default link underline */
+/* Links inside TOC: make them clearly visible */
 #contents + ul a {
-    text-decoration: none;
-    border-bottom: 0.5px solid #000;
+    text-decoration: underline;  /* use standard underline for reliability */
+    font-weight: 500;            /* slightly bolder so they stand out */
 }
 
 /* Optional: a bit stronger underline when viewed on screen */
 @media screen {
     #contents + ul a:hover {
-        border-bottom-width: 1px;
+        text-decoration-thickness: 1.5px;
     }
 }
 

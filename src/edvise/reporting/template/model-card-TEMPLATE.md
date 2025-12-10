@@ -20,8 +20,8 @@
 
 ### Intended Use {{#intended-use}}
 - **Primary Purpose**
-    - Identify students who may need support in order to either retain or graduate on time. 
-    - Empower academic advisors who provide intervention strategies with information on the factors impacting their students' need for support.
+    - Identify students who may need support to retain or graduate on time. 
+    - Empower academic advisors to provide strategic interventions based on the factors contributing to students' need for support.
 - **Out-of-Scope Uses**
     - Outside of the target population:  _see below_
     - Without intervention strategies carefully designed by academic advisors, student success professionals, and researchers. 
