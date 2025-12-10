@@ -4,7 +4,23 @@
 @page {
     size: A4; /* Standard portrait page */
     margin: 20mm;
+
+    /* Running header with document title */
+    @top-center {
+        content: string(docTitle);
+        font-size: 10px;
+        font-style: italic;
+        font-family: "Georgia", "Times New Roman", serif;
+    }
+
+    /* Page numbers in footer */
+    @bottom-center {
+        content: "Page " counter(page) " of " counter(pages);
+        font-size: 10px;
+        font-family: "Georgia", "Times New Roman", serif;
+    }
 }
+
 @page wide-page {
     size: A4 landscape; /* Used for extra-wide tables */
     margin: 20mm;
@@ -23,14 +39,41 @@ h3, h4, h5, h6, p {
     text-align: left;
 }
 
+/* Capture the first h2 (Model Card title) for running header */
+h2:first-of-type {
+    string-set: docTitle content();
+}
+
 /* ================================
-   Font Selection
+   Font Selection & Section Counters
 ================================ */
 em {
     font-style: italic;
 }
 body {
     font-family: "Georgia", "Times New Roman", serif;
+    counter-reset: section; /* reset section counter for numbered h3s */
+}
+
+/* Numbered h3 headings: 1. Overview, 2. Intended Use, etc. */
+h3 {
+    counter-increment: section;
+}
+
+/* Do NOT number the Contents heading */
+h3#contents {
+    counter-increment: none;
+}
+
+/* Prefix most h3s with their section number */
+h3::before {
+    content: counter(section) ". ";
+    font-weight: normal;
+}
+
+/* But not for Contents */
+h3#contents::before {
+    content: "";
 }
 
 /* ================================
