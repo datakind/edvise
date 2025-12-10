@@ -23,7 +23,7 @@
     - Identify students who may need support to retain or graduate on time. 
     - Empower academic advisors to provide strategic interventions based on the factors contributing to students' need for support.
 - #### Out-of-Scope Uses
-    - Outside of the [target population](#target_population)
+    - Outside of the [target population](#target-population)
     - Without intervention strategies carefully designed by academic advisors, student success professionals, and researchers. 
 
 ### Methodology {{#methodology}}
@@ -43,13 +43,13 @@
         - Missing Data Threshold
             - Threshold Applied: Removed features with {incomplete_threshold}% or more missing values.
             - Explanation: Features with a high percentage of missing values may introduce noise or require extensive imputation.
-    - After our feature selection processes, {number_of_features} actionable, relevant, and non-redundant features were retained for modeling.
-- #### Target Population {{#target population}}
+    - After our feature selection process, {number_of_features} actionable features were retained for modeling.
+- #### Target Population {{#target-population}}
 {target_population_section}
     - This resulted in a training dataset of {training_dataset_size} students within the target timeframe.
 - #### Model Development
 {sample_weight_section}
-    - Model Experimentation Data Split
+    - Dataset Split
 
 {data_split_table}
 
@@ -60,10 +60,6 @@
     - Prioritized model quality with transparent and interpretable model outputs.
 
 {model_comparison_plot}
-
-- #### Model Interpretability
-    - Utilized SHAP (Shapley Additive Explanations) values to quantify the contribution of individual features in top-performing models.
-    - Leveraged SHAP to enhance interpretability & model transparency, while making model outputs more explainable and actionable.
 
 ### Performance {{#performance}}
 - #### Model Performance Metric
@@ -77,8 +73,8 @@
 
 ### Quantitative Bias Analysis {{#bias}}
 - #### Model Bias Metric
-    - Our bias evaluation metric for our model includes utilizing _False Negative Rate (FNR) Parity_, which measures the disproportionate rate of false negatives across subgroups. 
-    - FNR Parity helps assess whether the model is underperforming for any specific group in terms of incorrectly predicting that a student is not in need of support when the true outcome is that the student is in need of support.
+    - Our bias evaluation metric is _False Negative Rate (FNR)_, which measures the rate at which the model is incorrectly predicting students in need of support as NOT in need of support. 
+    - FNR Parity helps us assess whether the model is underpredicting students in need of support at _disproportionate_ rates for any particular subgroup. In other words, it checks whether the model is incorrectly classifying students who need support more often in some demographic groups than in others
 
 - #### Analyzing Bias Across Student Groups
 {bias_groups_section}
@@ -87,6 +83,9 @@
 {bias_summary_section}
 
 ### Important Features {{#features}}
+- #### Model Interpretability
+    - Utilized SHAP (Shapley Additive Explanations) values to quantify the contribution of individual features in top-performing models.
+    - Leveraged SHAP to enhance interpretability & model transparency, while making model outputs more explainable and actionable.
 - #### Analyzing Feature Importance
     - SHAP (Shapley Additive Explanations) is a method based on cooperative game theory that quantifies the contribution of each feature to a model's prediction for an individual instance. It helps us understand how much did a particular feature contribute to predicting whether a student needs more or less support.
     - SHAP provides detailed insight into how much each feature contributed for each individual, as well as Whether higher or lower feature values are associated with higher or lower need for support.
