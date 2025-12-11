@@ -5,4 +5,5 @@ from . import (
     infer_data_terms,
     types,
     update_config,
+    api_requests,
 )
