@@ -278,19 +278,18 @@ class CleaningConfig(pyd.BaseModel):
     schema_contract_path: t.Optional[str] = pyd.Field(
         default=None,
         description=(
-            "Absolute path on volumes to the schema_contract.json file "
+            "Absolute path on volumes to the schema_contract.json file. "
             "This file contains the frozen multi-dataset schema contract "
             "used for schema enforcement for custom schools. This is needed "
-            "for data reliability and to ensure minimal training-inference skew."
+            "for data reliability and to ensure minimal training–inference skew."
         ),
     )
     student_id_alias: t.Optional[str] = pyd.Field(
         default=None,
         description=(
-            "Sometimes custom schools give us a 'student_id' column, "
-            "but it's notated differently. Zogotech infamously gives us a column "
-            "called 'student_id_randomized_datakind'. This needs to be normalized "
-            "back to 'student_id' for our own sanity."
+            "Optional alternate name for the student_id column. "
+            "E.g., Zogotech uses 'student_id_randomized_datakind'. "
+            "If provided, it will be normalized to 'student_id'."
         ),
     )
     null_tokens: list[str] = pyd.Field(
@@ -336,6 +335,21 @@ class CleaningConfig(pyd.BaseModel):
         },
         description=(
             "Mapping for interpreting string tokens as booleans during dtype generation."
+        ),
+    )
+    forced_dtypes: dict[str, str] = pyd.Field(
+        default_factory=dict,
+        description=(
+            "Optional mapping of normalized column names → forced pandas nullable dtypes "
+            "(e.g. {'student_id': 'string', 'term_order': 'Int64'}). "
+            "These overrides are applied BEFORE dtype inference across ALL datasets."
+        ),
+    )
+    allow_forced_cast_fallback: bool = pyd.Field(
+        default=True,
+        description=(
+            "If True, failures to cast a forced dtype fall back to inferred dtype with a warning. "
+            "If False, such failures raise an exception."
         ),
     )
 
