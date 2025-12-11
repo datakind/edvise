@@ -1,5 +1,5 @@
 import requests
-
+import typing as t
 
 def log_custom_job(
     inst_id: str, job_run_id: str, model_name: str, api_key: str
