@@ -29,24 +29,22 @@
 }
 
 @page wide-page {
-    size: A4 landscape; /* Used for extra-wide tables */
+    size: A4 landscape;
     margin: 20mm;
 }
 
 /* ================================
    Heading Alignment
 ================================ */
-/* Center-align all h1/h2 (#/## in Markdown) */
 h1, h2 {
     text-align: center;
 }
 
-/* Left-align all other headings and paragraphs */
 h3, h4, h5, h6, p {
     text-align: left;
 }
 
-/* Capture the first h2 (Model Card title) for running header */
+/* Capture title for running header */
 h2:first-of-type {
     string-set: docTitle content();
 }
@@ -61,37 +59,65 @@ body {
     font-family: "Georgia", "Times New Roman", serif;
 }
 
+/* Ensure bold/italic show properly */
+strong, b {
+    font-weight: bold;
+}
+em, i {
+    font-style: italic;
+}
+strong em,
+em strong {
+    font-weight: bold;
+    font-style: italic;
+}
+
+/* ================================
+   Compact Inline h4 Headings
+   (for #### headings inside list items)
+================================ */
+h4 {
+    font-size: 1em;        /* same as paragraph text */
+    font-weight: bold;
+    margin: 0;             /* remove block spacing */
+    padding: 0;
+    display: inline;       /* makes it behave like inline bold text */
+}
+
+/* Ensure bullets keep correct spacing */
+li h4 {
+    display: inline;
+}
+
+/* Add a space after inline heading to match natural reading flow */
+h4::after {
+    content: " ";
+}
+
 /* ================================
    Contents / TOC Styling
-   (for: ### Contents {#contents} + the list that follows)
 ================================ */
-
-/* Tighten gap between "Contents" heading and the list */
 #contents {
     margin-bottom: 0.4em;
 }
 
-/* Style the Contents list like a professional report TOC */
 #contents + ul {
-    list-style: none;          /* no bullets */
+    list-style: none;
     margin-left: 0;
     padding-left: 0;
-    font-size: 0.95em;         /* slightly smaller than body */
-    margin-bottom: 1.5em;      /* space before next section */
+    font-size: 0.95em;
+    margin-bottom: 1.5em;
 }
 
-/* Individual TOC items */
 #contents + ul li {
     margin: 2px 0;
 }
 
-/* Links inside TOC: make them clearly visible */
 #contents + ul a {
-    text-decoration: underline;  /* use standard underline for reliability */
-    font-weight: 500;            /* slightly bolder so they stand out */
+    text-decoration: underline;
+    font-weight: 500;
 }
 
-/* Optional: a bit stronger underline when viewed on screen */
 @media screen {
     #contents + ul a:hover {
         text-decoration-thickness: 1.5px;
@@ -110,6 +136,7 @@ table {
     break-inside: avoid;
     page-break-inside: avoid;
 }
+
 th, td {
     border: 1px solid #000;
     padding: 4px;
@@ -118,17 +145,16 @@ th, td {
     white-space: normal;
 }
 
-/* Allow page-breaks within table content if necessary */
 thead, tbody, tr, td, th {
     page-break-inside: auto;
     break-inside: auto;
 }
+
 tr {
     page-break-after: auto;
     break-after: auto;
 }
 
-/* Repeat table header on every printed page */
 thead {
     display: table-header-group;
 }
@@ -136,27 +162,27 @@ thead {
 /* ================================
    List Styling
 ================================ */
-/* Consistent list indentation */
 ul, ol, ul ul, ol ul, ul ol, ol ol {
     margin-left: 1.5em;
     padding-left: 0;
 }
 
-/* Bullet types by depth */
 ul {
     list-style-type: disc;
 }
+
 ul ul, ul ul ul {
     list-style-type: circle;
 }
 
-/* Numbering types by depth */
 ol {
     list-style-type: decimal;
 }
+
 ol ol {
     list-style-type: lower-alpha;
 }
+
 ol ol ol {
     list-style-type: lower-roman;
 }
