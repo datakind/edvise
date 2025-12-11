@@ -1,6 +1,6 @@
 [project]
 name = "edvise"
-version = "0.1.6"
+version = "0.1.8"
 description = "School-agnostic lib for implementing Student Success Tool workflows."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
