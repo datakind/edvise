@@ -10,7 +10,7 @@ pred_col = "pred"
 pred_prob_col = "pred_prob"
 pos_label = true
 random_state = 12345
-pipeline_version = "v0.1.2"
+pipeline_version = "v0.1.8"
 
 [datasets]
 raw_course = "FILE_NAME_COURSE.csv"
