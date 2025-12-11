@@ -1,5 +1,6 @@
 import requests
 
+
 def log_custom_job(
     inst_id: str, job_run_id: str, model_name: str, api_key: str
 ) -> t.Any:
@@ -28,4 +29,3 @@ def log_custom_job(
         else {"Check API Staging logs to debug this error"}
     )
     return return_response
-

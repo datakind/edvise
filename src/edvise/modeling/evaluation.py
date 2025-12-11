@@ -634,6 +634,7 @@ def log_roc_table(
             f"Failed to log ROC table for run {automl_run_id}: {e}"
         ) from e
 
+
 ############
 ## PLOTS! ##
 ############
