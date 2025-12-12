@@ -118,11 +118,6 @@ h4::after {
     margin: 2px 0;
 }
 
-#contents + ul a {
-    text-decoration: underline;
-    font-weight: 500;
-}
-
 @media screen {
     #contents + ul a:hover {
         text-decoration-thickness: 1.5px;
@@ -133,31 +128,25 @@ h4::after {
    TOC with dot leaders + page numbers (WeasyPrint)
 ================================ */
 
-/* Keep your existing TOC list reset */
-#contents + ul {
-    list-style: none;
-    margin-left: 0;
-    padding-left: 0;
-}
-
 /* Each TOC row */
 #contents + ul li {
     margin: 2px 0;
 }
 
-/* Make the link span the line so dots work nicely */
+/* Make each link a flex row: title on left, dots+page on right */
 #contents + ul li a {
-    display: block;
-    text-decoration: none;   /* optional: cleaner TOC */
+    display: flex;
+    text-decoration: none; /* optional */
     color: inherit;
 }
 
-/* Dot leaders + page numbers */
+/* Dots + page number */
 #contents + ul li a::after {
     content: leader(".") " " target-counter(attr(href), page);
-    float: right;
+    flex: 1;               /* <-- gives leader() width to fill */
+    text-align: right;
+    margin-left: 0.5em;
 }
-
 
 /* ================================
    Table Styling
