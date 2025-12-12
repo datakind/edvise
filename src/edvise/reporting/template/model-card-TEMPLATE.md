@@ -97,7 +97,7 @@
             - For True/False variables:
                 - <span class="dk-red">True</span> is represented by a _high_ feature value (1) (<span class="dk-red">red</span>).
                 - <span class="dk-blue">False</span> is represented by a _low_ feature value (0) (<span class="dk-blue">blue</span>).
-            - <span class="dk-gray">Categorical features</span>, which are not continuous numeric features (e.g., enrollment type), are grayed out.
+            - <span class="dk-gray">Categorical features</span>, which are not continuous numeric features (e.g., enrollment type), are represented in <span class="dk-gray">gray</span>.
         - Example: _Students with a lower percentage of grades above the section’s average tend to have SHAP values further to the right, indicating that this feature contributes to the model predicting a higher likelihood of needing support._
 
 {feature_importances_by_shap_plot}
