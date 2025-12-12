@@ -2,7 +2,7 @@ name: weekly-cleanup
 
 on:
   schedule:
-    - cron: "10 16 1-7 * 1"  # First Monday of every month at 16:10 UTC
+    - cron: "10 17 * * 5"  # Fridays at noon EST (17:10 UTC)
   workflow_dispatch: {}
 
 jobs:
