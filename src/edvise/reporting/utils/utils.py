@@ -82,6 +82,20 @@ def download_artifact(
         return local_path
 
 
+def wrap_table(table_markdown_or_html: str, caption: str) -> str:
+    """
+    Wraps a rendered markdown/html table in a <figure class="table"> with a caption.
+    Works fine when embedded inside Markdown because Python-Markdown will pass
+    the HTML block through as-is.
+    """
+    return (
+        f'<figure class="table">'
+        f'<figcaption>{caption}</figcaption>'
+        f'{table_markdown_or_html}'
+        f'</figure>'
+    )
+
+
 def download_static_asset(
     description: str,
     static_path: Traversable,
