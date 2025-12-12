@@ -86,19 +86,19 @@
     - SHAP provides detailed insight into how much each feature contributed for each individual, as well as whether higher or lower feature values are associated with higher or lower need for support.
 
 - #### Feature Importance Plot
-    - This figure below helps explain how individual features contribute to the model’s prediction for each student-term record. 
+    - This figure below helps explain how individual features contribute to the model’s predictions for each student-term record.
     - Here are some guidelines for how to interpret the plot below.
-        - Each dot represents a single student record.
+        - Each dot represents a single student-term record.
         - Features are ordered from top to bottom by their overall importance to the model — the most influential features appear at the top.
-        - SHAP values (x-axis, left to right) → Represents how strongly the feature impacts model output 
-            - More left (-) → feature value is more likely to classify student not in need of support
-            - More right (+) → feature value is more likely to classify student in need of support 
-        - Feature values (y-axis, top to bottom ) → The numeric value of that feature; high or low
-        - For True/False variables:
-            - True is represented by a high feature value (1) in red.
-            - False is represented by a low feature value (0) in blue.
-        ◦ Categorical features, which are not continuous numeric features, such as enrollment type, are grayed out. 
-        - Example: _Example: If students have a lower percentage of grades above the section’s average, they tend to more positive SHAP values on the right of the plot, indicating a higher likelihood of needing support._
+        - **SHAP values (x-axis)** → indicate how a feature’s value influences the model’s prediction:
+            - Values further to the left (<span class="shap-negative">−</span>) indicate that the feature value contributes to the model predicting a <span class="shap-negative">lower likelihood of needing support</span>
+            - Values further to the right (<span class="shap-positive">+</span>) indicate that the feature value contributes to the model predicting a <span class="shap-positive">higher likelihood of needing support</span>
+        - **Feature values (y-axis)** → represent the magnitude of the feature for each student-term record
+        - For binary (True/False) features:
+            - <span class="shap-high">Higher feature values</span> (True) may contribute differently to the model’s prediction than <span class="shap-low">lower feature values</span> (False), depending on the feature
+        - <span class="shap-categorical">Categorical features</span>, such as enrollment type, are displayed in gray
+        - Example: _Students with a lower percentage of grades above the section’s average tend to have SHAP values further to the right, indicating that this feature contributes to the model predicting a higher likelihood of needing support._
+
 
 {feature_importances_by_shap_plot}
 

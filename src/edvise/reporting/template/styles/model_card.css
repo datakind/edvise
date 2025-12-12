@@ -68,9 +68,7 @@ body {
 strong, b {
     font-weight: bold;
 }
-em, i {
-    font-style: italic;
-}
+em { font-style: italic !important; }
 strong em,
 em strong {
     font-weight: bold;
@@ -210,6 +208,40 @@ figure.table figcaption::before {
     content: "Table " counter(tbl) ": ";
     font-style: normal;
     font-weight: bold;
+}
+
+
+/* ================================
+   SHAP Semantic Coloring (Print-safe)
+================================ */
+
+/* Positive contribution (right side of plot) */
+.shap-positive {
+    color: #1a7f37;   /* muted green */
+    font-weight: 600;
+}
+
+/* Negative contribution (left side of plot) */
+.shap-negative {
+    color: #b42318;   /* muted red */
+    font-weight: 600;
+}
+
+/* High feature values */
+.shap-high {
+    color: #0b5fff;   /* muted blue */
+    font-weight: 600;
+}
+
+/* Low feature values */
+.shap-low {
+    color: #6b7280;   /* neutral gray */
+}
+
+/* Categorical features */
+.shap-categorical {
+    color: #555555;
+    font-style: italic;
 }
 
 
