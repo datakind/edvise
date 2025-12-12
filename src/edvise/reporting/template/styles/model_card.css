@@ -1,159 +1,141 @@
 /* ================================
    Page Settings
 ================================ */
-@font-face {
-    font-family: "BodySerif";
-    src: url("fonts/LiberationSerif-Regular.ttf");
-    font-style: normal;
-    font-weight: normal;
-  }
-  
-  @font-face {
-    font-family: "BodySerif";
-    src: url("fonts/LiberationSerif-Italic.ttf");
-    font-style: italic;
-    font-weight: normal;
-  }
-  
-  @font-face {
-    font-family: "BodySerif";
-    src: url("fonts/LiberationSerif-Bold.ttf");
-    font-style: normal;
-    font-weight: bold;
-  }
-  
-  @font-face {
-    font-family: "BodySerif";
-    src: url("fonts/LiberationSerif-BoldItalic.ttf");
-    font-style: italic;
-    font-weight: bold;
-  }
-  
-  @page {
+
+@page {
     size: A4;
     margin: 20mm;
   
+    /* Running header with document title */
     @top-center {
       content: string(docTitle);
       font-size: 10px;
-      font-family: "BodySerif";
-      font-style: italic;
+      font-family: "Times New Roman", serif;
+      font-style: italic; /* may or may not render depending on font availability */
     }
   
+    /* Page numbers in footer */
     @bottom-center {
       content: "Page " counter(page) " of " counter(pages);
       font-size: 10px;
-      font-family: "BodySerif";
+      font-family: "Times New Roman", serif;
     }
   }
   
-  body {
-    font-family: "BodySerif";
-  }
-  
-
-/* Suppress header on the first page */
-@page:first {
+  /* Suppress header on the first page */
+  @page:first {
     @top-center {
-        content: "";
+      content: "";
     }
-}
-
-@page wide-page {
+  }
+  
+  @page wide-page {
     size: A4 landscape;
     margin: 20mm;
-}
-
-/* ================================
-   Heading Alignment
-================================ */
-h1, h2 {
+  }
+  
+  /* ================================
+     Heading Alignment
+  ================================ */
+  h1, h2 {
     text-align: center;
-}
-
-h3, h4, h5, h6, p {
+  }
+  
+  h3, h4, h5, h6, p {
     text-align: left;
-}
-
-h3, h4 {
+  }
+  
+  h3, h4 {
     page-break-after: avoid;
-}
-
-
-/* Capture title for running header */
-h2:first-of-type {
+  }
+  
+  /* Capture title for running header */
+  h2:first-of-type {
     string-set: docTitle content();
-}
-
-/* Ensure bold/italic show properly */
-strong, b {
+  }
+  
+  /* ================================
+     Font Selection
+  ================================ */
+  body {
+    font-family: "Times New Roman", serif;
+  }
+  
+  /* Ensure bold/italic show properly */
+  strong, b {
     font-weight: bold;
-}
-em { font-style: italic !important; }
-strong em,
-em strong {
+  }
+  
+  em, i {
+    font-style: italic;
+  }
+  
+  strong em,
+  em strong,
+  strong i,
+  i strong {
     font-weight: bold;
     font-style: italic;
-}
-
-/* ================================
-   Compact Inline h4 Headings
-   (for #### headings inside list items)
-================================ */
-h4 {
+  }
+  
+  /* ================================
+     Compact Inline h4 Headings
+     (for #### headings inside list items)
+  ================================ */
+  h4 {
     font-size: 1em;        /* same as paragraph text */
     font-weight: bold;
     margin: 0;             /* remove block spacing */
     padding: 0;
     display: inline;       /* makes it behave like inline bold text */
-}
-
-/* Ensure bullets keep correct spacing */
-li h4 {
+  }
+  
+  /* Ensure bullets keep correct spacing */
+  li h4 {
     display: inline;
-}
-
-/* Add a space after inline heading to match natural reading flow */
-h4::after {
+  }
+  
+  /* Add a space after inline heading to match natural reading flow */
+  h4::after {
     content: " ";
-}
-
-/* ================================
-   Contents / TOC Styling (leader dots + page numbers)
-   (works with WeasyPrint 60.x — avoid flex)
-================================ */
-#contents {
+  }
+  
+  /* ================================
+     Contents / TOC Styling (leader dots + page numbers)
+     (works with WeasyPrint 60.x — avoid flex)
+  ================================ */
+  #contents {
     margin-bottom: 0.4em;
-}
-
-#contents + ul {
+  }
+  
+  #contents + ul {
     list-style: none;
     margin: 0 0 1.2em 0;
     padding: 0;
     font-size: 0.95em;
-}
-
-#contents + ul li {
+  }
+  
+  #contents + ul li {
     margin: 1px 0;
-}
-
-/* Keep the link as a block so it uses the full line width */
-#contents + ul li a {
+  }
+  
+  /* Keep the link as a block so it uses the full line width */
+  #contents + ul li a {
     display: block;
     text-decoration: none;
     color: inherit;
     font-weight: 500;
-}
-
-/* Inline leader + page number at the end of the same line */
-#contents + ul li a::after {
+  }
+  
+  /* Inline leader + page number at the end of the same line */
+  #contents + ul li a::after {
     content: leader(".") " " target-counter(attr(href), page);
-}
-
-/* ================================
-   Table Styling
-================================ */
-table {
+  }
+  
+  /* ================================
+     Table Styling
+  ================================ */
+  table {
     width: 100%;
     border-collapse: collapse;
     margin-bottom: 1em;
@@ -161,116 +143,125 @@ table {
     white-space: normal;
     break-inside: auto;
     page-break-inside: auto;
-}
-
-
-th, td {
+  }
+  
+  th, td {
     border: 1px solid #000;
     padding: 4px;
     text-align: center;
     vertical-align: middle;
     white-space: normal;
-}
-
-thead, tbody, tr, td, th {
+  }
+  
+  thead, tbody, tr, td, th {
     page-break-inside: auto;
     break-inside: auto;
-}
-
-tr {
+  }
+  
+  tr {
     page-break-after: auto;
     break-after: auto;
-}
-
-thead {
+  }
+  
+  thead {
     display: table-header-group;
-}
-
-/* ================================
-   Figure & Table Captions
-================================ */
-figure.figure,
-figure.table {
+  }
+  
+  /* ================================
+     Figure & Table Captions
+  ================================ */
+  figure.figure,
+  figure.table {
     margin: 0.75em 0 1.0em 0;
     break-inside: avoid;
     page-break-inside: avoid;
-}
-
-/* Figure captions (below images) */
-figure.figure figcaption {
+  }
+  
+  /* Figure captions (below images) */
+  figure.figure figcaption {
     font-size: 0.9em;
     font-style: italic;
     text-align: center;
     margin-top: 0.3em;
-}
-
-/* Table captions (above tables, journal style) */
-figure.table figcaption {
+  }
+  
+  /* Table captions (above tables, journal style) */
+  figure.table figcaption {
     font-size: 0.9em;
     font-style: italic;
     text-align: left;
     margin-bottom: 0.3em;
-}
-
-/* Auto-number figures and tables */
-body { counter-reset: fig tbl; }
-
-/* Figures */
-figure.figure { counter-increment: fig; }
-figure.figure figcaption::before {
+  }
+  
+  /* Auto-number figures and tables */
+  body {
+    counter-reset: fig tbl;
+  }
+  
+  /* Figures */
+  figure.figure {
+    counter-increment: fig;
+  }
+  
+  figure.figure figcaption::before {
     content: "Figure " counter(fig) ": ";
-    font-style: normal;     /* label not italic */
+    font-style: normal; /* label not italic */
     font-weight: bold;
-}
-
-/* Tables */
-figure.table { counter-increment: tbl; }
-figure.table figcaption::before {
+  }
+  
+  /* Tables */
+  figure.table {
+    counter-increment: tbl;
+  }
+  
+  figure.table figcaption::before {
     content: "Table " counter(tbl) ": ";
     font-style: normal;
     font-weight: bold;
-}
-
-/* Inline color accents */
-.dk-red  { color: #b42318; font-weight: 600; }  /* muted red */
-.dk-blue { color: #0b5fff; font-weight: 600; }  /* muted blue */
-.dk-gray { color: #666666; font-style: italic; }
-
-/* ================================
-   List Styling
-================================ */
-ul, ol, ul ul, ol ul, ul ol, ol ol {
+  }
+  
+  /* Inline color accents */
+  .dk-red  { color: #b42318; font-weight: 600; }  /* muted red */
+  .dk-blue { color: #0b5fff; font-weight: 600; }  /* muted blue */
+  .dk-gray { color: #666666; font-style: italic; }
+  
+  /* ================================
+     List Styling
+  ================================ */
+  ul, ol, ul ul, ol ul, ul ol, ol ol {
     margin-left: 1.5em;
     padding-left: 0;
-}
-
-ul {
+  }
+  
+  ul {
     list-style-type: disc;
-}
-
-ul ul, ul ul ul {
+  }
+  
+  ul ul, ul ul ul {
     list-style-type: circle;
-}
-
-ol {
+  }
+  
+  ol {
     list-style-type: decimal;
-}
-
-ol ol {
+  }
+  
+  ol ol {
     list-style-type: lower-alpha;
-}
-
-ol ol ol {
+  }
+  
+  ol ol ol {
     list-style-type: lower-roman;
-}
-
-/* ================================
-   PDF-friendly links
-================================ */
-a {
+  }
+  
+  /* ================================
+     PDF-friendly links
+  ================================ */
+  a {
     text-decoration: none;
     color: inherit;
-}
-a:visited {
+  }
+  
+  a:visited {
     color: inherit;
-}
+  }
+  
