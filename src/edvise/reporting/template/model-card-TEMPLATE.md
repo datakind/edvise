@@ -17,7 +17,7 @@
 - {outcome_section}
 - {checkpoint_section}
 - {development_note_section}
-- Key technical and evaluation terms are defined in the [Glossary](#glossary).
+- Key technical and evaluation terms are defined in the **[Glossary](#glossary)**.
 - If there are questions or concerns about the model, you can contact **education@datakind.org** or your customer success manager.
 
 ### Intended Use {{#intended-use}}
@@ -113,65 +113,87 @@
 
 _This section defines technical, statistical, and modeling terms used throughout this model card._
 
-**Actionable Feature**  
-A model input designed to reflect behaviors or outcomes that can plausibly be influenced through academic advising or institutional interventions (e.g., recent course performance, enrollment patterns).
-
-**AUC (Area Under the ROC Curve)**  
-A performance metric that measures the model’s ability to distinguish between students who need support and those who do not. Values range from 0.5 (no better than chance) to 1.0 (perfect discrimination).
-
-**Bias (Model Bias)**  
-Systematic differences in model performance across student subgroups. In this model card, bias is assessed using False Negative Rate (FNR) parity across demographic and academic groups.
-
-**Calibration Curve**  
-A plot that compares predicted probabilities to observed outcomes, indicating whether the model’s confidence levels align with real-world frequencies.
-
-**Checkpoint**  
-A specific point in time (e.g., after a term or credit threshold) at which a prediction is generated for a student. Checkpoints ensure predictions are made using only information available up to that moment.
-
-**Collinearity (Multicollinearity)**  
-A condition where two or more features contain highly overlapping information, which can destabilize model estimates and reduce interpretability.
-
-**Confusion Matrix**  
-A table summarizing model predictions versus actual outcomes, showing counts of true positives, true negatives, false positives, and false negatives.
-
-**False Negative Rate (FNR)**  
-The proportion of students who truly need support but are predicted by the model as *not* needing support. Lower FNR is especially important in student success contexts to avoid missed interventions.
-
-**FNR Parity**  
-A fairness measure that evaluates whether false negative rates are similar across different student groups. Large disparities may indicate potential bias.
-
-**Feature Engineering**  
-The process of transforming raw data into meaningful variables by aggregating, normalizing, or deriving new representations that capture student behavior or academic progress.
-
-**Feature Importance**  
-A measure of how much each feature contributes to the model’s predictions. In this model card, feature importance is assessed using SHAP values.
-
-**Log Loss**  
-A performance metric that evaluates how well predicted probabilities align with actual outcomes, penalizing confident but incorrect predictions more heavily.
-
-**Low Variance Feature**  
-A feature that changes very little across students. Such features typically provide limited predictive value and are removed during feature selection.
+#### Model & Data Concepts
 
 **Model Card**  
 A structured document that summarizes a model’s purpose, data, methodology, performance, limitations, and ethical considerations to promote transparency and responsible use.
-
-**Precision**  
-The proportion of students predicted to need support who actually do need support. High precision means fewer false alarms.
-
-**Recall**  
-The proportion of students who truly need support that the model successfully identifies. Recall is closely related to False Negative Rate.
-
-**ROC Curve (Receiver Operating Characteristic Curve)**  
-A plot showing the tradeoff between true positive rate and false positive rate across different decision thresholds.
-
-**Sample Weighting**  
-A technique that assigns different importance to observations during model training, often used to address class imbalance or emphasize specific outcomes.
-
-**SHAP (Shapley Additive Explanations)**  
-An interpretability method based on game theory that quantifies how much each feature contributes to an individual prediction, enabling transparent and student-level explanations.
 
 **Target Population**  
 The specific group of students for whom the model is designed and validated. Predictions outside this population are considered out of scope.
 
 **Training Dataset**  
 The subset of data used to fit the model, consisting only of students and records that meet the target population and checkpoint criteria.
+
+**Checkpoint**  
+A specific point in time (e.g., after a term or credit threshold) at which a prediction is generated for a student.
+
+---
+
+#### Features & Modeling
+
+**Actionable Feature**  
+A model input designed to reflect behaviors or outcomes that can plausibly be influenced through academic advising or institutional interventions.
+
+**Feature Engineering**  
+The process of transforming raw data into meaningful variables by aggregating, normalizing, or deriving new representations.
+
+**Feature Importance**  
+A measure of how much each feature contributes to the model’s predictions, assessed using SHAP values.
+
+**Low Variance Feature**  
+A feature that changes very little across students and is typically removed during feature selection.
+
+**Collinearity (Multicollinearity)**  
+A condition where two or more features contain highly overlapping information.
+
+---
+
+#### Evaluation & Performance Metrics
+
+**AUC (Area Under the ROC Curve)**  
+A metric measuring the model’s ability to distinguish between students who need support and those who do not.
+
+**Precision**  
+The proportion of students predicted to need support who actually do need support.
+
+**Recall**  
+The proportion of students who truly need support that the model successfully identifies.
+
+**Log Loss**  
+A metric that penalizes confident but incorrect probability predictions.
+
+**Confusion Matrix**  
+A table summarizing model predictions versus actual outcomes.
+
+**ROC Curve (Receiver Operating Characteristic Curve)**  
+A plot showing the tradeoff between true positive and false positive rates.
+
+**Calibration Curve**  
+A plot comparing predicted probabilities to observed outcomes.
+
+---
+
+#### Fairness & Bias
+
+**Bias (Model Bias)**  
+Systematic differences in model performance across student subgroups.
+
+**False Negative Rate (FNR)**  
+The proportion of students who need support but are predicted as not needing support.
+
+**FNR Parity**  
+A measure assessing whether false negative rates are similar across student groups.
+
+---
+
+#### Interpretability
+
+**SHAP (Shapley Additive Explanations)**  
+A game-theoretic method that explains how individual features contribute to model predictions.
+
+---
+
+#### Training & Optimization
+
+**Sample Weighting**  
+A technique that assigns different importance to observations during model training.

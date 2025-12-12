@@ -2,38 +2,55 @@
    Page Settings
 ================================ */
 @font-face {
-    font-family: "TNR";
-    src: local("Times New Roman Italic");
-    font-style: italic;
-}
-
-@font-face {
-    font-family: "TNR";
-    src: local("Times New Roman");
+    font-family: "BodySerif";
+    src: url("fonts/LiberationSerif-Regular.ttf");
     font-style: normal;
-}
-@top-center {
-    font-family: "TNR", serif;
+    font-weight: normal;
+  }
+  
+  @font-face {
+    font-family: "BodySerif";
+    src: url("fonts/LiberationSerif-Italic.ttf");
     font-style: italic;
-}
-
-@page {
+    font-weight: normal;
+  }
+  
+  @font-face {
+    font-family: "BodySerif";
+    src: url("fonts/LiberationSerif-Bold.ttf");
+    font-style: normal;
+    font-weight: bold;
+  }
+  
+  @font-face {
+    font-family: "BodySerif";
+    src: url("fonts/LiberationSerif-BoldItalic.ttf");
+    font-style: italic;
+    font-weight: bold;
+  }
+  
+  @page {
     size: A4;
     margin: 20mm;
-
+  
     @top-center {
-        content: string(docTitle);
-        font-size: 10px;
-        font-family: "Times New Roman", serif;
-        font-style: italic;
+      content: string(docTitle);
+      font-size: 10px;
+      font-family: "BodySerif";
+      font-style: italic;
     }
-
+  
     @bottom-center {
-        content: "Page " counter(page) " of " counter(pages);
-        font-size: 10px;
-        font-family: "Times New Roman", serif;
+      content: "Page " counter(page) " of " counter(pages);
+      font-size: 10px;
+      font-family: "BodySerif";
     }
-}
+  }
+  
+  body {
+    font-family: "BodySerif";
+  }
+  
 
 /* Suppress header on the first page */
 @page:first {

@@ -339,9 +339,10 @@ class ModelCard(t.Generic[C]):
         # Styles card using model_card.css
         self.style_card()
 
-        # Define PDF path
-        base_path = os.path.dirname(self.output_path) or "."
+        # Define PDF, CSS, and base paths
         self.pdf_path = self.output_path.replace(".md", ".pdf")
+        css_path = self._resolve("edvise.reporting.template.styles", "model_card.css")
+        base_path = os.fspath(css_path.parent)
 
         # Render PDF
         try:
@@ -356,6 +357,7 @@ class ModelCard(t.Generic[C]):
             catalog=self.catalog,
             institution_id=self.cfg.institution_id,
         )
+
 
     def _build_output_path(self) -> str:
         """
