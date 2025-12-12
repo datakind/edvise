@@ -6,7 +6,7 @@ from mlflow.tracking import MlflowClient
 
 # export .md to .pdf
 import markdown
-from weasyprint import HTML
+from weasyprint import HTML, CSS
 import tempfile
 
 # resolving files in templates module within package
@@ -331,27 +331,26 @@ class ModelCard(t.Generic[C]):
         self.html_content = style + html_body
         LOGGER.info("Applied CSS styling")
 
+
     def export_to_pdf(self):
-        """
-        Export CSS styled HTML to PDF utilizing weasyprint for conversion.
-        Also logs the card, so it can be accessed as a PDF in the run artifacts.
-        """
-        # Styles card using model_card.css
         self.style_card()
 
-        # Define PDF, CSS, and base paths
+        # Where your generated markdown/html assets live (images are relative to this)
+        base_path = os.path.dirname(self.output_path) or "."
         self.pdf_path = self.output_path.replace(".md", ".pdf")
-        css_path = self._resolve("edvise.reporting.template.styles", "model_card.css")
-        base_path = os.fspath(css_path.parent)
 
-        # Render PDF
+        # Where your CSS lives (fonts are relative to this)
+        css_path = self._resolve("edvise.reporting.template.styles", "model_card.css")
+
         try:
-            HTML(string=self.html_content, base_url=base_path).write_pdf(self.pdf_path)
+            HTML(string=self.html_content, base_url=base_path).write_pdf(
+                self.pdf_path,
+                stylesheets=[CSS(filename=os.fspath(css_path))],
+            )
             LOGGER.info(f"✅ PDF model card saved to {self.pdf_path}")
         except Exception as e:
             raise RuntimeError(f"Failed to create PDF: {e}")
 
-        # Save model card into gold volume for access web app compatibility
         utils.save_card_to_gold_volume(
             filename=self.pdf_path,
             catalog=self.catalog,
