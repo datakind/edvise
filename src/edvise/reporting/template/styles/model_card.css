@@ -130,6 +130,36 @@ h4::after {
 }
 
 /* ================================
+   TOC with dot leaders + page numbers (WeasyPrint)
+================================ */
+
+/* Keep your existing TOC list reset */
+#contents + ul {
+    list-style: none;
+    margin-left: 0;
+    padding-left: 0;
+}
+
+/* Each TOC row */
+#contents + ul li {
+    margin: 2px 0;
+}
+
+/* Make the link span the line so dots work nicely */
+#contents + ul li a {
+    display: block;
+    text-decoration: none;   /* optional: cleaner TOC */
+    color: inherit;
+}
+
+/* Dot leaders + page numbers */
+#contents + ul li a::after {
+    content: leader(".") " " target-counter(attr(href), page);
+    float: right;
+}
+
+
+/* ================================
    Table Styling
 ================================ */
 table {
