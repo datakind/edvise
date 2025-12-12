@@ -341,11 +341,12 @@ class ModelCard(t.Generic[C]):
 
         # Where your CSS lives (fonts are relative to this)
         css_path = self._resolve("edvise.reporting.template.styles", "model_card.css")
+        css_dir = os.fspath(css_path.parent)
 
         try:
             HTML(string=self.html_content, base_url=base_path).write_pdf(
                 self.pdf_path,
-                stylesheets=[CSS(filename=os.fspath(css_path))],
+                stylesheets=[CSS(filename=os.fspath(css_path), base_url=css_dir)],
             )
             LOGGER.info(f"✅ PDF model card saved to {self.pdf_path}")
         except Exception as e:
