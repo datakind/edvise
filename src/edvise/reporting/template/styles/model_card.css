@@ -85,16 +85,6 @@ h2:first-of-type {
     string-set: docTitle content();
 }
 
-/* ================================
-   Font Selection
-================================ */
-em {
-    font-style: italic;
-}
-body {
-    font-family: "Georgia", "Times New Roman", serif;
-}
-
 /* Ensure bold/italic show properly */
 strong, b {
     font-weight: bold;
