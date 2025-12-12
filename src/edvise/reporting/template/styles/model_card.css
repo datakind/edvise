@@ -1,6 +1,22 @@
 /* ================================
    Page Settings
 ================================ */
+@font-face {
+    font-family: "TNR";
+    src: local("Times New Roman Italic");
+    font-style: italic;
+}
+
+@font-face {
+    font-family: "TNR";
+    src: local("Times New Roman");
+    font-style: normal;
+}
+@top-center {
+    font-family: "TNR", serif;
+    font-style: italic;
+}
+
 @page {
     size: A4;
     margin: 20mm;
