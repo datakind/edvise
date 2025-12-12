@@ -300,21 +300,62 @@ def create_confusion_matrix_plot(
         y_true, y_pred, normalize="true", sample_weight=sample_weights
     )
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(8, 4.8))
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot(ax=ax, cmap="Blues", colorbar=False)
 
-    # Remove default annotations
+    ax.set_title("Normalized Confusion Matrix")
+
+    # Remove default annotations from ConfusionMatrixDisplay
     for txt in ax.texts:
         txt.set_visible(False)
 
-    # Dynamic contrast-aware text overlay
+    # Dynamic contrast-aware text overlay (cell values)
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
             value = cm[i, j]
-            # Use white text on dark blue, black on light blue
             text_color = "black" if value < 0.5 else "white"
             ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=text_color)
+
+    # --- Side annotations (like your screenshot) ---
+    green = "#2ca02c"
+    red = "#d62728"
+
+    # Place text in axes coordinates so it stays anchored outside the plot
+    # y positions correspond to row centers: row 0 ~ 0.75, row 1 ~ 0.25
+    y_row0 = 0.75
+    y_row1 = 0.25
+
+    # Left side: interpret by TRUE label rows
+    ax.text(
+        -0.35, y_row0,
+        "True Negatives\nDoes Not Need Support;\nCorrectly Classified",
+        transform=ax.transAxes, ha="right", va="center",
+        color=green, fontsize=10, fontweight="bold"
+    )
+    ax.text(
+        -0.35, y_row1,
+        "False Negatives\nNeeds Support;\nIncorrectly Classified",
+        transform=ax.transAxes, ha="right", va="center",
+        color=red, fontsize=10, fontweight="bold"
+    )
+
+    # Right side: interpret by PREDICTED label columns (using the same row y-positions)
+    ax.text(
+        1.35, y_row0,
+        "False Positives\nDoes NOT Need Support;\nIncorrectly Classified",
+        transform=ax.transAxes, ha="left", va="center",
+        color=red, fontsize=10, fontweight="bold"
+    )
+    ax.text(
+        1.35, y_row1,
+        "True Positives\nNeeds Support;\nCorrectly Classified",
+        transform=ax.transAxes, ha="left", va="center",
+        color=green, fontsize=10, fontweight="bold"
+    )
+
+    # Make room for the outside text
+    fig.subplots_adjust(left=0.30, right=0.70)
 
     plt.tight_layout()
     plt.close(fig)

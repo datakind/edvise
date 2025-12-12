@@ -49,8 +49,6 @@
     - This resulted in a training dataset of {training_dataset_size} students within the target timeframe.
 - #### Model Development
 {sample_weight_section}
-    - Dataset Split
-
 {data_split_table}
 
 - #### Model Evaluation
