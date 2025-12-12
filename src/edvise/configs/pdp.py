@@ -9,7 +9,15 @@ from edvise.utils import types
 
 
 # allowed primary metrics by framework
-_ALLOWED_PRIMARY_METRICS = {"logloss", "auc", "aucpr", "rmse", "mae", "mean_per_class_error"}
+_ALLOWED_PRIMARY_METRICS = {
+    "logloss",
+    "auc",
+    "aucpr",
+    "rmse",
+    "mae",
+    "mean_per_class_error",
+}
+
 
 class PDPProjectConfig(pyd.BaseModel):
     """Configuration schema for SST PDP projects."""
@@ -86,7 +94,11 @@ class PDPProjectConfig(pyd.BaseModel):
 
     @pyd.model_validator(mode="after")
     def _normalize_and_validate_primary_metric(self) -> "PDPProjectConfig":
-        if self.modeling and self.modeling.training and self.modeling.training.primary_metric:
+        if (
+            self.modeling
+            and self.modeling.training
+            and self.modeling.training.primary_metric
+        ):
             pm = self.modeling.training.primary_metric
 
             # Normalize legacy spelling to H2O spelling
@@ -111,6 +123,7 @@ class PDPProjectConfig(pyd.BaseModel):
                     "For H2O, inference.background_data_sample must be between 500 and 2000."
                 )
         return self
+
 
 class DatasetsConfig(pyd.BaseModel):
     raw_course: str

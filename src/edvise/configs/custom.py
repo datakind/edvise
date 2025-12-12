@@ -4,8 +4,14 @@ import typing as t
 import pydantic as pyd
 
 # allowed primary metrics for h2o
-_ALLOWED_PRIMARY_METRICS = {"logloss", "auc", "aucpr", "rmse", "mae", "mean_per_class_error"}
-
+_ALLOWED_PRIMARY_METRICS = {
+    "logloss",
+    "auc",
+    "aucpr",
+    "rmse",
+    "mae",
+    "mean_per_class_error",
+}
 
 
 class CustomProjectConfig(pyd.BaseModel):
@@ -111,7 +117,11 @@ class CustomProjectConfig(pyd.BaseModel):
 
     @pyd.model_validator(mode="after")
     def _normalize_and_validate_primary_metric(self) -> "CustomProjectConfig":
-        if self.modeling and self.modeling.training and self.modeling.training.primary_metric:
+        if (
+            self.modeling
+            and self.modeling.training
+            and self.modeling.training.primary_metric
+        ):
             pm = self.modeling.training.primary_metric
 
             # Normalize legacy spelling to H2O spelling
@@ -127,7 +137,6 @@ class CustomProjectConfig(pyd.BaseModel):
             self.modeling.training.primary_metric = pm
         return self
 
-
     @pyd.model_validator(mode="after")
     def _validate_inference_background_sample(self) -> "CustomProjectConfig":
         if self.inference and self.inference.background_data_sample is not None:
@@ -137,7 +146,6 @@ class CustomProjectConfig(pyd.BaseModel):
                     "For H2O, inference.background_data_sample must be between 500 and 2000."
                 )
         return self
-
 
 
 class DatasetConfig(pyd.BaseModel):
