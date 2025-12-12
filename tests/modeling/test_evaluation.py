@@ -22,56 +22,6 @@ def test_check_array_of_arrays_false():
     assert not evaluation._check_array_of_arrays(input_array)
 
 
-@pytest.mark.parametrize(
-    ["data", "metric", "expected_order", "expected_columns"],
-    [
-        (
-            {
-                "tags.model_type": ["Model A", "Model B", "Model C"],
-                "metrics.val_recall_score": [0.92, 0.88, 0.93],
-            },
-            "recall",
-            ["Model C", "Model A", "Model B"],
-            ["tags.model_type", "metrics.val_recall_score"],
-        ),
-        (
-            {
-                "tags.model_type": ["Model D", "Model E", "Model F"],
-                "metrics.val_f1_score": [0.80, 0.78, 0.81],
-            },
-            "f1",
-            ["Model F", "Model D", "Model E"],
-            ["tags.model_type", "metrics.val_f1_score"],
-        ),
-        (
-            {
-                "tags.model_type": ["Model G", "Model H", "Model I"],
-                "metrics.val_log_loss": [0.4521, 0.3501, 0.5502],
-            },
-            "log_loss",
-            ["Model H", "Model G", "Model I"],
-            ["tags.model_type", "metrics.val_log_loss"],
-        ),
-    ],
-)
-def test_compare_trained_models(
-    data, metric, expected_order, expected_columns, patch_mlflow, monkeypatch
-):
-    def _search_runs_patch(experiment_ids, output_format):
-        return pd.DataFrame(data)
-
-    monkeypatch.setattr(mlflow, "search_runs", _search_runs_patch)
-    result, _ = evaluation.compare_trained_models("dummy_id", metric)
-    print(result["tags.model_type"].tolist())
-    assert isinstance(result, pd.DataFrame), "The result should be a pandas DataFrame."
-    assert result["tags.model_type"].tolist() == expected_order, (
-        "Models are not sorted in ascending order based on the metric."
-    )
-    assert all(column in result.columns for column in expected_columns), (
-        "DataFrame should contain specific columns."
-    )
-
-
 @pytest.fixture
 def mock_runs_df():
     """Mock MLflow run data for testing."""

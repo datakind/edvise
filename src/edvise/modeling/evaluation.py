@@ -331,42 +331,6 @@ def compute_classification_perf_metrics(
     return result
 
 
-def compare_trained_models(
-    automl_experiment_id: str, automl_metric: str
-) -> tuple[pd.DataFrame, str]:
-    """
-    Retrieve, aggregate and sort performance data for models trained in a specified AutoML experiment.
-    The validation dataset is used to tune hyperparameters. Metrics on the validation dataset are used to rank models, so we also use this metric to compare across models.
-
-    Args:
-        automl_experiment_id: Experiment ID of the AutoML experiment
-        automl_metric: Chosen AutoML optimization metric
-
-    Returns:
-        DataFrame containing model types and highest scores for the given metric.
-    """
-    runs = mlflow.search_runs(
-        experiment_ids=[automl_experiment_id], output_format="pandas"
-    )
-    assert isinstance(runs, pd.DataFrame)  # type guard
-    metric = str.lower(automl_metric)
-    metric_score_column = (
-        f"metrics.val_{metric}"
-        if metric == "log_loss"
-        else f"metrics.val_{metric}_score"
-    )
-
-    runs = runs[["tags.model_type", metric_score_column]].dropna()
-
-    ascending = metric == "log_loss"
-    df_sorted = (
-        runs.groupby("tags.model_type", as_index=False)
-        .agg({metric_score_column: ("min" if ascending else "max")})
-        .sort_values(by=metric_score_column, ascending=ascending)
-    )
-    return df_sorted, metric_score_column
-
-
 def log_confusion_matrix(
     institution_id: str,
     *,
@@ -490,85 +454,6 @@ def create_evaluation_plots(
         data[y_true_col], data[risk_score_col], "Overall", title_suffix, pos_label
     )
     return hist_fig, cal_fig
-
-
-def plot_trained_models_comparison(
-    automl_experiment_id: str, automl_metric: str
-) -> matplotlib.figure.Figure:
-    """
-    Create a plot to evaluate all the models trained by AutoML.
-
-    Args:
-        automl_experiment_id: Experiment ID of the AutoML experiment
-        automl_metric: Chosen AutoML optimization metric
-
-    Returns:
-        bar chart of model performance on test data by optimization metric.
-    """
-    df_sorted, metric_score_column = compare_trained_models(
-        automl_experiment_id, automl_metric
-    )
-
-    df_sorted = df_sorted.sort_values(
-        by=metric_score_column,
-        ascending=True if not automl_metric == "log_loss" else False,
-    )
-    fig, ax = plt.subplots()
-
-    ax.set_xlim(
-        0,
-        (
-            df_sorted[metric_score_column].max() + 0.2
-            if automl_metric == "log_loss"
-            else 1
-        ),
-    )  # setting buffer after max log_loss to 0.2, for better viz
-
-    colors = ["#A9A9A9"] * len(df_sorted)
-    colors[-1] = "#5bc0de"  # Bright blue color for the best model
-
-    bars = ax.barh(
-        df_sorted["tags.model_type"], df_sorted[metric_score_column], color=colors
-    )
-
-    for bar in bars:
-        ax.text(
-            bar.get_width()
-            - (
-                max(df_sorted[metric_score_column]) * 0.005
-            ),  # Position the text inside the bar
-            bar.get_y() + bar.get_height() / 2,
-            f"{bar.get_width():.4f}",
-            va="center",
-            ha="right",
-            fontweight="bold",
-            color="white",
-            fontsize=12,
-        )
-
-    sort_order = (
-        "Lowest to Highest" if automl_metric == "log_loss" else "Highest to Lowest"
-    )
-    automl_metric = (
-        automl_metric
-        if automl_metric == "log_loss"
-        else f"{automl_metric.capitalize()} Score"
-    )
-
-    ax.set(
-        title=f"{automl_metric} by Model Type {sort_order}",
-        facecolor="none",
-        frame_on=False,
-    )
-    ax.tick_params(axis="y", which="both", left=False, right=False, labelleft=True)
-    ax.tick_params(axis="x", colors="lightgrey", which="both")  # Color of ticks
-    ax.xaxis.grid(True, color="lightgrey", linestyle="--", linewidth=0.5)
-    fig.tight_layout()
-
-    mlflow.log_figure(fig, "model_comparison.png")
-    plt.close()
-
-    return fig
 
 
 def plot_calibration_curve(
