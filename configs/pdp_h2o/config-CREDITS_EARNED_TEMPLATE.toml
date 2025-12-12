@@ -19,7 +19,6 @@ raw_cohort = "FILE_NAME_COHORT.csv"
 [model]
 experiment_id = "EXPERIMENT_ID"
 run_id = "RUN_ID"
-framework = "sklearn"
 
 [preprocessing]
 splits = { train = 0.6, test = 0.2, validate = 0.2 }

@@ -329,8 +329,6 @@ resources:
           default: ${var.datakind_notification_email}
         - name: service_account_executer
           default: ${var.service_account_executer}
-        - name: model_type
-          default: h2o
         - name: job_type
           default: inference
         - name: model_name
