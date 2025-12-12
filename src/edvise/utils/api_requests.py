@@ -2,7 +2,7 @@ import requests
 import typing as t
 
 
-def get_access_tokens(api_key: str):
+def get_access_tokens(api_key: str) -> t.Any:
     if not api_key or not isinstance(api_key, str):
         return {
             "ok": False,
