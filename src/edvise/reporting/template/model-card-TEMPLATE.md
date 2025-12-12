@@ -38,17 +38,17 @@
     - Then, our next step was feature selection, applying the following processing below.
         - **Collinearity Threshold**
             - Threshold Applied: Removed features with VIF greater than {collinearity_threshold} were removed to reduce multicollinearity and improve model stability.
-            - Explanation: Variance Inflation Factor (VIF) measures how much a feature is linearly correlated with other features. A VIF of 1 would imply no multicollinearity, while a VIF of 10 indicates high collinearity, meaning the feature's information is largely redundant.
+            - Explanation: Variance Inflation Factor (VIF) measures multicollinearity between features (see **[Glossary](#glossary)**).
         - **Low Variance Threshold**
             - Threshold Applied: Removed features with variance less than {low_variance_threshold}.
-            - Explanation: Features with very low variance do not vary much across observations, meaning they carry little predictive signal. For example, features with variance below 0.01 are often considered near-constant.
+            - Explanation: Features with very low variance do not vary much across observations, meaning they carry little predictive signal.
         - **Missing Data Threshold**
             - Threshold Applied: Removed features with {incomplete_threshold}% or more missing values.
             - Explanation: Features with a high percentage of missing values may introduce noise or require extensive imputation.
     - After our feature selection process, **{number_of_features} actionable features** were retained for modeling.
 - #### Target Population {{#target-population}}
 {target_population_section}
-    - This resulted in a training dataset of **{training_dataset_size}** students within the target timeframe.
+    - This resulted in a training dataset of **{training_dataset_size} students** within the target timeframe.
 - #### Model Development
 {sample_weight_section}
 {data_split_table}
@@ -73,8 +73,8 @@
 
 ### Quantitative Bias Analysis {{#bias}}
 - #### Model Bias Metric
-    - Our bias evaluation metric is _False Negative Rate (FNR)_, which measures the rate at which the model is incorrectly predicting students in need of support as NOT in need of support. 
-    - FNR Parity helps us assess whether the model is underpredicting students in need of support at disproportionate rates for any particular subgroup. In other words, it checks whether the model is incorrectly classifying students who need support more often in some demographic groups than in others
+    - Our bias evaluation metric is _False Negative Rate (FNR)_ (see **[Glossary](#glossary)**).
+    - We assess **FNR Parity** to determine whether underprediction occurs at disproportionate rates across student subgroups.
 
 - #### Analyzing Bias Across Student Groups
 {bias_groups_section}
@@ -84,19 +84,15 @@
 
 ### Important Features {{#features}}
 - #### Analyzing Feature Importance
-    - SHAP (Shapley Additive Explanations) helps us understand how much a particular feature contributed to predicting whether a student needs more or less support.
-    - This figure below helps explain how individual features contribute to the model’s predictions for each student-term record.
-    - Guidelines to interpret the plot below:
+    - This figure shows how individual features contribute to the model’s predictions for each student-term record using SHAP values (see **[Glossary](#glossary)**).
+        - Guidelines to interpret the plot:
         - Each dot represents a single student-term record.
-        - Features are ordered from top to bottom by their overall importance to the model — the most influential features appear at the top.
-        - **SHAP values (x-axis, left to right)** → indicate how a feature’s value influences the model’s prediction:
-            - More left (-) → feature value contributes to the model predicting a lower likelihood of needing support
-            - More right (+) → feature value contributes to the model predicting a higher likelihood of needing support
-            - **Feature values (y-axis, top to bottom)** → the numeric value of that feature; <span class="dk-red">high</span> or <span class="dk-blue">low</span>
-            - For True/False variables:
-                - <span class="dk-red">True</span> is represented by a _high_ feature value (1) in <span class="dk-red">red</span>.
-                - <span class="dk-blue">False</span> is represented by a _low_ feature value (0) in <span class="dk-blue">blue</span>.
-            - <span class="dk-gray">Categorical features</span>, which are not continuous numeric features (e.g., enrollment type), are represented in <span class="dk-gray">gray</span>.
+        - Features are ordered by overall importance, with the most influential at the top.
+        - **SHAP values (x-axis)** indicate whether a feature increases (+) or decreases (–) the predicted likelihood of needing support.
+        - **Color** reflects the feature’s value for that student:
+            - <span class="dk-red">High</span> values in red
+            - <span class="dk-blue">Low</span> values in blue
+            - <span class="dk-gray">Categorical features</span> in gray
         - Example: _Students with a lower percentage of grades above the section’s average tend to have SHAP values further to the right, indicating that this feature contributes to the model predicting a higher likelihood of needing support._
 
 {feature_importances_by_shap_plot}
@@ -113,48 +109,25 @@
 
 _This section defines technical, statistical, and modeling terms used throughout this model card._
 
-#### Model & Data Concepts
-
-**Model Card**  
-A structured document that summarizes a model’s purpose, data, methodology, performance, limitations, and ethical considerations to promote transparency and responsible use.
-
-**Target Population**  
-The specific group of students for whom the model is designed and validated. Predictions outside this population are considered out of scope.
-
-**Training Dataset**  
-The subset of data used to fit the model, consisting only of students and records that meet the target population and checkpoint criteria.
-
-**Checkpoint**  
-A specific point in time (e.g., after a term or credit threshold) at which a prediction is generated for a student.
-
----
-
-#### Features & Modeling
-
-**Actionable Feature**  
-A model input designed to reflect behaviors or outcomes that can plausibly be influenced through academic advising or institutional interventions.
-
-**Feature Engineering**  
-The process of transforming raw data into meaningful variables by aggregating, normalizing, or deriving new representations.
-
-**Feature Importance**  
-A measure of how much each feature contributes to the model’s predictions, assessed using SHAP values.
-
-**Low Variance Feature**  
-A feature that changes very little across students and is typically removed during feature selection.
-
-**Collinearity (Multicollinearity)**  
-A condition where two or more features contain highly overlapping information.
-
-**Sample Weighting**  
-A technique that assigns different importance to observations during model training.
-
----
-
 #### Evaluation & Performance Metrics
+
+**Accuracy**  
+The proportion of all predictions that the model classifies correctly, including both students who need support and those who do not.
 
 **AUC (Area Under the ROC Curve)**  
 A metric measuring the model’s ability to distinguish between students who need support and those who do not.
+
+**Calibration Curve**  
+A plot comparing predicted probabilities to observed outcomes.
+
+**Confusion Matrix**  
+A table summarizing model predictions versus actual outcomes.
+
+**F1 Score**  
+A metric that balances precision and recall, particularly useful when classes are imbalanced.
+
+**Log Loss**  
+A metric that penalizes confident but incorrect probability predictions.
 
 **Precision**  
 The proportion of students predicted to need support who actually do need support.
@@ -162,17 +135,11 @@ The proportion of students predicted to need support who actually do need suppor
 **Recall**  
 The proportion of students who truly need support that the model successfully identifies.
 
-**Log Loss**  
-A metric that penalizes confident but incorrect probability predictions.
-
-**Confusion Matrix**  
-A table summarizing model predictions versus actual outcomes.
-
 **ROC Curve (Receiver Operating Characteristic Curve)**  
 A plot showing the tradeoff between true positive and false positive rates.
 
-**Calibration Curve**  
-A plot comparing predicted probabilities to observed outcomes.
+**Threshold**  
+The probability cutoff used to convert model scores into binary predictions (e.g., “needs support” vs. “does not need support”).
 
 ---
 
@@ -187,9 +154,57 @@ The proportion of students who need support but are predicted as not needing sup
 **FNR Parity**  
 A measure assessing whether false negative rates are similar across student groups.
 
+**Subgroup**  
+A defined subset of students (e.g., by demographic or academic characteristic) used to evaluate model performance and fairness.
+
+---
+
+#### Features & Modeling
+
+**Actionable Feature**  
+A model input designed to reflect behaviors or outcomes that can plausibly be influenced through academic advising or institutional interventions.
+
+**Collinearity (Multicollinearity)**  
+A condition where two or more features contain highly overlapping information.
+
+**Feature Engineering**  
+The process of transforming raw data into meaningful variables by aggregating, normalizing, or deriving new representations.
+
+**Feature Importance**  
+A measure of how much each feature contributes to the model’s predictions, assessed using SHAP values.
+
+**Feature Selection**  
+The process of identifying and retaining a subset of features that provide the most predictive signal while improving model stability and interpretability.
+
+**Imputation**  
+The process of filling in missing data values using statistical or model-based methods.
+
+**Low Variance Feature**  
+A feature that changes very little across students and is typically removed during feature selection.
+
+**Sample Weighting**  
+A technique that assigns different importance to observations during model training.
+
+**Variance Inflation Factor (VIF)**  
+A statistic used to quantify multicollinearity by measuring how strongly a feature is correlated with other features.
+
 ---
 
 #### Interpretability
 
 **SHAP (Shapley Additive Explanations)**  
-A game-theoretic method that explains how individual features contribute to model predictions.
+A game-theoretic method used to explain model predictions by quantifying how much each feature contributes to a prediction. SHAP values indicate both the **direction** (whether a feature increases or decreases the predicted likelihood of needing support) and the **magnitude** of that contribution. When aggregated across students, SHAP values provide insight into which features are most influential overall.
+
+
+---
+
+#### Model & Data Concepts
+
+**Checkpoint**  
+A specific point in time (e.g., after a term or credit threshold) at which a prediction is generated for a student.
+
+**Target Population**  
+The specific group of students for whom the model is designed and validated. Predictions outside this population are considered out of scope.
+
+**Training Dataset**  
+The subset of data used to fit the model, consisting only of students and records that meet the target population and checkpoint criteria.
