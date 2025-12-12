@@ -1,7 +1,6 @@
 import argparse
 import pandas as pd
 import logging
-from databricks.sdk.runtime import dbutils
 
 import os
 import sys
