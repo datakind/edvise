@@ -28,7 +28,7 @@ from h2o.estimators.estimator_base import H2OEstimator
 
 from edvise import modeling, dataio
 from edvise.modeling.h2o_ml import utils as h2o_utils
-from edvise.modeling import inference 
+from edvise.modeling import inference
 
 
 class RunType(str, Enum):

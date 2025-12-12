@@ -4,8 +4,6 @@ import shutil
 import typing as t
 import uuid
 from collections.abc import Sequence
-from typing import Optional, List
-import matplotlib.colors as mcolors
 import matplotlib.figure
 import matplotlib.pyplot as plt
 import mlflow
@@ -13,10 +11,7 @@ import mlflow.artifacts
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import shap
-import sklearn.inspection
 import sklearn.metrics
-import sklearn.utils
 from sklearn.calibration import calibration_curve
 from sklearn.preprocessing import MinMaxScaler
 from statsmodels.nonparametric.smoothers_lowess import lowess
@@ -336,42 +331,6 @@ def compute_classification_perf_metrics(
     return result
 
 
-def get_sensitivity_of_top_q_pctl_thresh(
-    y_true: pd.Series | Sequence,
-    risk_score: pd.Series | Sequence,
-    q: float,
-    pos_label: PosLabelType,
-) -> float:
-    """
-    Report sensitivity (AKA recall score) using some percentile threshold.
-
-    Calculation:
-        number of true positivies / (number of true positives + number of false negatives)
-        OR
-        number of true positives / total number of actual true class
-
-    Args:
-        y_true: true outcome class, of length n_samples
-        risk_score: predicted risk scores, of length n_samples
-        q: probability for the quantiles to compute
-        pos_label: label identifying the positive class in y_true
-    """
-    if not isinstance(y_true, pd.Series):
-        y_true = pd.Series(y_true)
-    if not isinstance(risk_score, pd.Series):
-        risk_score = pd.Series(risk_score)
-
-    prob_thresh = np.quantile(risk_score, q)
-    high_risk = risk_score >= prob_thresh
-
-    # convert actual outcome to booleans to match high_risk array
-    y_true = y_true.apply(lambda x: True if x == pos_label else False)
-
-    result = sklearn.metrics.recall_score(y_true, high_risk)
-    assert isinstance(result, float)
-    return result
-
-
 def compare_trained_models(
     automl_experiment_id: str, automl_metric: str
 ) -> tuple[pd.DataFrame, str]:
@@ -406,48 +365,6 @@ def compare_trained_models(
         .sort_values(by=metric_score_column, ascending=ascending)
     )
     return df_sorted, metric_score_column
-
-
-def compute_feature_permutation_importance(
-    model: sklearn.base.BaseEstimator,
-    features: pd.DataFrame,
-    target: pd.Series,
-    *,
-    n_repeats: int = 5,
-    scoring: t.Optional[str | t.Callable] = None,
-    sample_weight: t.Optional[np.ndarray] = None,
-    random_state: t.Optional[int] = None,
-) -> sklearn.utils.Bunch:
-    """
-    Compute model features' permutation importance.
-
-    Args:
-        model
-        features
-        target
-        n_repeats
-        scoring
-        sample_weight
-        random_state
-
-    References:
-        - https://scikit-learn.org/stable/modules/generated/sklearn.inspection.permutation_importance.html
-        - https://scikit-learn.org/stable/modules/model_evaluation.html#callable-scorers
-
-    See Also:
-        - :func:`plot_feature_permutation_importances()`
-    """
-    result = sklearn.inspection.permutation_importance(
-        model,
-        features,
-        target,
-        scoring=scoring,
-        n_repeats=n_repeats,
-        sample_weight=sample_weight,
-        random_state=random_state,
-    )
-    assert isinstance(result, sklearn.utils.Bunch)  # type guard
-    return result
 
 
 def log_confusion_matrix(
@@ -541,100 +458,6 @@ def log_confusion_matrix(
         raise
 
 
-def log_roc_table(
-    institution_id: str,
-    *,
-    automl_run_id: str,
-    catalog: str = "staging_sst_01",
-    target_col: str = "target",
-    modeling_df: pd.DataFrame,
-    split_col: Optional[str] = None,
-) -> None:
-    """
-    Computes and saves an ROC curve table (FPR, TPR, threshold, etc.) for a given MLflow run
-    by reloading the test dataset and the trained model.
-
-    Args:
-        institution_id (str): Institution ID prefix for table name.
-        automl_experiment_id (str): MLflow run ID of the trained model.
-        experiment_id
-        catalog (str): Destination catalog/schema for the ROC curve table.
-    """
-    try:
-        from databricks.connect import DatabricksSession
-
-        spark = DatabricksSession.builder.getOrCreate()
-    except Exception:
-        print("⚠️ Databricks Connect failed. Falling back to local Spark.")
-        from pyspark.sql import SparkSession
-
-        spark = (
-            SparkSession.builder.master("local[*]").appName("Fallback").getOrCreate()
-        )
-
-    split_col = split_col or "split"
-
-    table_path = (
-        f"{catalog}.{institution_id}_silver.training_{automl_run_id}_roc_curve.parquet"
-    )
-
-    try:
-        df = modeling_df
-        test_df = df[df[split_col] == "test"].copy()
-
-        # Load model + features
-        model = mlflow.sklearn.load_model(f"runs:/{automl_run_id}/model")
-        feature_names: List[str] = model.named_steps["column_selector"].get_params()[
-            "cols"
-        ]
-
-        # Prepare inputs for ROC
-        y_true = test_df[target_col].values
-        X_test = test_df[feature_names]
-        y_scores = model.predict_proba(X_test)[:, 1]  # probabilities for class 1
-
-        # Calculate ROC table manually and plot all thresholds.
-        # Down the line, we might want to specify a threshold to reduce plot density
-        thresholds = np.sort(np.unique(y_scores))[::-1]
-        rounded_thresholds = sorted(
-            set([round(t, 4) for t in thresholds]), reverse=True
-        )
-
-        P, N = np.sum(y_true == 1), np.sum(y_true == 0)
-
-        rows = []
-        for thresh in rounded_thresholds:
-            y_pred = (y_scores >= thresh).astype(int)
-            TP = np.sum((y_pred == 1) & (y_true == 1))
-            FP = np.sum((y_pred == 1) & (y_true == 0))
-            TN = np.sum((y_pred == 0) & (y_true == 0))
-            FN = np.sum((y_pred == 0) & (y_true == 1))
-            TPR = TP / P if P else 0
-            FPR = FP / N if N else 0
-            rows.append(
-                {
-                    "threshold": round(thresh, 4),
-                    "true_positive_rate": round(TPR, 4),
-                    "false_positive_rate": round(FPR, 4),
-                    "true_positive": int(TP),
-                    "false_positives": int(FP),
-                    "true_negatives": int(TN),
-                    "false_negatives": int(FN),
-                }
-            )
-
-        roc_df = pd.DataFrame(rows)
-        spark_df = spark.createDataFrame(roc_df)
-        spark_df.write.mode("overwrite").saveAsTable(table_path)
-        logging.info(
-            "ROC table written to table '%s' for run_id=%s", table_path, automl_run_id
-        )
-    except Exception as e:
-        raise RuntimeError(
-            f"Failed to log ROC table for run {automl_run_id}: {e}"
-        ) from e
-
-
 ############
 ## PLOTS! ##
 ############
@@ -667,53 +490,6 @@ def create_evaluation_plots(
         data[y_true_col], data[risk_score_col], "Overall", title_suffix, pos_label
     )
     return hist_fig, cal_fig
-
-
-def create_evaluation_plots_by_subgroup(
-    data: pd.DataFrame,
-    risk_score_col: str,
-    y_true_col: str,
-    pos_label: PosLabelType,
-    group_col: str,
-    split_type: str,
-) -> matplotlib.figure.Figure:
-    """
-    Create calibration curve plots to evaluate a model by group
-
-    Args:
-        data: containing predicted and actual outcome data, as well as group label
-        risk_score_col: column name containing data of predicted risk scores
-        y_true_col: column name containing data of actual outcome classes
-        pos_label: label identifying the positive class in y_true
-        group_col: column name containing data of subgroup labels
-        split_type: type of data being plotted for labeling plots - train, test, or validation
-
-    Returns:
-        calibration curve figures by group
-    """
-    title_suffix = f"{split_type} data - {group_col}"
-
-    grouped_data = data.groupby(group_col).agg(list)
-
-    ys = grouped_data[y_true_col]
-    scores = grouped_data[risk_score_col]
-
-    subgroups = grouped_data.index
-    n_counts = [len(subgroup_scores) for subgroup_scores in scores]
-    names = [
-        subgroup_name + f" (N={n})" for subgroup_name, n in zip(subgroups, n_counts)
-    ]
-
-    if len(subgroups) > 4:
-        lowess_frac = 0.7
-    else:
-        lowess_frac = 0.6
-
-    cal_subgroup_plot = plot_calibration_curve(
-        ys, scores, names, title_suffix, pos_label, lowess_frac=lowess_frac
-    )
-
-    return cal_subgroup_plot
 
 
 def plot_trained_models_comparison(
@@ -885,103 +661,6 @@ def plot_support_score_histogram(
         xlabel="Support Score", title=f"Distribution of support scores - {title_suffix}"
     )
     return fig
-
-
-def plot_features_permutation_importance(
-    result: sklearn.utils.Bunch, feature_cols: pd.Index
-) -> matplotlib.figure.Figure:
-    """
-    Plot features' permutation importances (computed previously).
-
-    Args:
-        result
-        feature_cols
-
-    See Also:
-        - :func:`compute_feature_permutation_importance()`
-    """
-    sorted_importances_idx = result.importances_mean.argsort()
-    df_importances = pd.DataFrame(
-        data=result.importances[sorted_importances_idx].T,
-        columns=feature_cols[sorted_importances_idx],
-    )
-
-    fig, ax = plt.subplots(layout="constrained", figsize=(10, 10))
-    df_importances.plot.box(vert=False, whis=10, ax=ax)
-    ax.set_title("Permutation Feature Importances")
-    ax.axvline(x=0, color="k", linestyle="--")
-    ax.set_xlabel("decrease in model score")
-    return fig
-
-
-def plot_shap_beeswarm(shap_values):
-    # Define the color palette
-    start_color = (0.34, 0.79, 0.55)  # Green
-    middle_color = (0.98, 0.82, 0.22)  # Yellow
-    end_color = (0.95, 0.60, 0.19)  # Orange
-    colors = [start_color, middle_color, end_color]
-    cmap = mcolors.LinearSegmentedColormap.from_list("custom_cmap", colors, 256)
-
-    plt.figure(figsize=(5, 6))  # Adjust height as needed.
-
-    # Plot the beeswarm
-    ax = shap.plots.beeswarm(
-        shap_values,
-        show=False,
-        max_display=25,
-        color=cmap,
-        color_bar=False,
-        plot_size=(5, 25),
-    )
-
-    # Get the current y-axis tick labels (feature names)
-    y_ticks_labels = [label.get_text() for label in ax.get_yticklabels()]
-
-    # Modify the feature names
-    modified_labels = [label.replace("_", " ").title() for label in y_ticks_labels]
-
-    # Set the modified labels back to the y-axis
-    ax.set_yticklabels(modified_labels)
-
-    # Add horizontal lines
-    # Get the y-axis tick positions
-    y_ticks = ax.get_yticks()
-    for y in y_ticks:
-        # Add a dashed gray line
-        ax.axhline(y=y, color="gray", linestyle="-", linewidth=0.5)
-
-    # Add colorbar above chart
-    cbar = plt.colorbar(
-        plt.cm.ScalarMappable(
-            cmap=cmap,
-        ),
-        ax=ax,
-        location="top",
-        shrink=0.5,
-        aspect=20,
-        ticks=[],
-        pad=0.02,
-    )
-    cbar.outline.set_visible(False)
-    cbar.set_label("Feature Value", loc="center", labelpad=10)
-    # Add labels to the left and right of the colorbar
-    cbar.ax.text(
-        -0.1,  # Adjust horizontal position for left label
-        0.5,  # Vertical position (middle of colorbar)
-        "Low",  # Left label text
-        va="center",
-        ha="right",
-        transform=cbar.ax.transAxes,
-    )
-    cbar.ax.text(
-        1.1,  # Adjust horizontal position for right label
-        0.5,  # Vertical position (middle of colorbar)
-        "High",  # Right label text
-        va="center",
-        ha="left",
-        transform=cbar.ax.transAxes,
-    )
-    return plt.gcf()
 
 
 def _check_array_of_arrays(input_array: pd.Series) -> bool:

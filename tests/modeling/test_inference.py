@@ -1,9 +1,6 @@
-import collections
-
 import numpy as np
 import pandas as pd
 import pytest
-from pandas.api.types import is_numeric_dtype
 from unittest.mock import patch
 
 from edvise.modeling.inference import (
@@ -13,7 +10,6 @@ from edvise.modeling.inference import (
     top_shap_features,
     support_score_distribution_table,
 )
-
 
 
 @pytest.mark.parametrize(
@@ -448,7 +444,7 @@ def test_empty_input():
         top_shap_features(features, unique_ids, shap_values)
 
 
-@patch("edvise.modeling.automl.inference.select_top_features_for_display")
+@patch("edvise.modeling.inference.select_top_features_for_display")
 @pytest.mark.parametrize(
     [
         "features",
