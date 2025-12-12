@@ -8,6 +8,7 @@ import pathlib
 from importlib.abc import Traversable
 from importlib.resources import as_file
 import tempfile
+import markdown as md
 
 
 LOGGER = logging.getLogger(__name__)
@@ -82,16 +83,18 @@ def download_artifact(
         return local_path
 
 
-def wrap_table(table_markdown_or_html: str, caption: str) -> str:
+
+def wrap_table(table_markdown: str, caption: str) -> str:
     """
-    Wraps a rendered markdown/html table in a <figure class="table"> with a caption.
-    Works fine when embedded inside Markdown because Python-Markdown will pass
-    the HTML block through as-is.
+    Convert markdown table -> HTML, then wrap in <figure class="table"> with caption.
+    This is required because Markdown inside raw HTML blocks isn't parsed.
     """
+    table_html = md.markdown(table_markdown, extensions=["tables"])
+
     return (
         f'<figure class="table">'
         f'<figcaption>{caption}</figcaption>'
-        f'{table_markdown_or_html}'
+        f'{table_html}'
         f'</figure>'
     )
 
