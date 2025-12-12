@@ -150,7 +150,7 @@ class H2OCustomModelCard(ModelCard[CustomProjectConfig]):
             ),
         }
         return {
-            key: utils.download_artifact(
+            key: reporting_utils.download_artifact(
                 run_id=self.run_id,
                 description=description,
                 artifact_path=path,
