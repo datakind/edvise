@@ -100,15 +100,13 @@ h4::after {
 }
 
 /* ================================
-   Contents / TOC Styling (with dot leaders + page numbers)
+   Contents / TOC Styling (leader dots + page numbers)
+   (works with WeasyPrint 60.x — avoid flex)
 ================================ */
-
-/* "Contents" heading spacing */
 #contents {
     margin-bottom: 0.4em;
 }
 
-/* TOC list container */
 #contents + ul {
     list-style: none;
     margin: 0 0 1.2em 0;
@@ -116,35 +114,21 @@ h4::after {
     font-size: 0.95em;
 }
 
-/* Individual TOC rows */
 #contents + ul li {
     margin: 1px 0;
 }
 
-/* Each TOC entry is a single flex row */
+/* Keep the link as a block so it uses the full line width */
 #contents + ul li a {
-    display: flex;
-    width: 100%;
-    align-items: baseline;
-    text-decoration: none;   /* clean, print-style TOC */
+    display: block;
+    text-decoration: none;
     color: inherit;
     font-weight: 500;
 }
 
-/* Dot leaders + page number */
+/* Inline leader + page number at the end of the same line */
 #contents + ul li a::after {
     content: leader(".") " " target-counter(attr(href), page);
-    flex: 1;                 /* gives leader() room to fill */
-    margin-left: 0.6em;
-    text-align: right;
-    white-space: nowrap;
-}
-
-/* Optional: subtle hover affordance for screen viewing only */
-@media screen {
-    #contents + ul li a:hover {
-        text-decoration: underline;
-    }
 }
 
 /* ================================
