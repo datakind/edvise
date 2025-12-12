@@ -148,7 +148,7 @@ class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
             ),
         }
         return {
-            key: reporting_utils.download_artifact(
+            key: reporting_utils.utils.download_artifact(
                 run_id=self.run_id,
                 description=description,
                 artifact_path=path,
