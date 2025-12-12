@@ -44,6 +44,11 @@ h3, h4, h5, h6, p {
     text-align: left;
 }
 
+h3, h4 {
+    page-break-after: avoid;
+}
+
+
 /* Capture title for running header */
 h2:first-of-type {
     string-set: docTitle content();
@@ -133,9 +138,10 @@ table {
     margin-bottom: 1em;
     font-size: 12px;
     white-space: normal;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    break-inside: auto;
+    page-break-inside: auto;
 }
+
 
 th, td {
     border: 1px solid #000;
