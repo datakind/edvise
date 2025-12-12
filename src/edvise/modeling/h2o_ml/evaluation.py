@@ -37,6 +37,14 @@ LOGGER = logging.getLogger(__name__)
 
 PosLabelType = t.Union[bool, str]
 
+H2O_FRAMEWORK_DISPLAY_NAMES = {
+    "GBM": "Boosted Decision Trees (GBM)",
+    "XGBoost": "Boosted Decision Trees (XGBoost)",
+    "DRF": "Random Forest (DRF)",
+    "XRT": "Random Forest (XRT)",
+    "GLM": "Linear Model (GLM)",
+}
+
 
 def get_metrics_fixed_threshold_all_splits(
     model: H2OEstimator,
@@ -250,9 +258,13 @@ def create_and_log_h2o_model_comparison(
         .reset_index(drop=True)
     )
 
+    best["framework_display"] = (
+        best["framework"].map(H2O_FRAMEWORK_DISPLAY_NAMES).fillna(best["framework"])
+    )
+
     # Plot
     fig, ax = plt.subplots(figsize=(8, 5))
-    bars = ax.barh(best["framework"], best["logloss"])
+    bars = ax.barh(best["framework_display"], best["logloss"])
 
     if len(bars):
         bars[0].set_alpha(1.0)
@@ -268,9 +280,9 @@ def create_and_log_h2o_model_comparison(
             )
 
     ax.set_xlabel("log_loss")
-    ax.set_title("log_loss by Model Type (lowest to highest)")
     ax.set_xlim(left=0)
     ax.invert_yaxis()
+    plt.subplots_adjust(left=0.35)
     plt.tight_layout()
 
     if mlflow.active_run():
@@ -304,7 +316,6 @@ def create_confusion_matrix_plot(
             text_color = "black" if value < 0.5 else "white"
             ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=text_color)
 
-    ax.set_title("Normalized Confusion Matrix")
     plt.tight_layout()
     plt.close(fig)
     return fig
@@ -321,7 +332,6 @@ def create_roc_curve_plot(
     fig, ax = plt.subplots()
     ax.plot(fpr, tpr, label=f"ROC Curve (AUC = {auc_score:.2f})")
     ax.plot([0, 1], [0, 1], linestyle="--", color="gray")
-    ax.set_title("ROC Curve")
     ax.set_xlabel("False Positive Rate")
     ax.set_ylabel("True Positive Rate")
     ax.legend()
@@ -341,7 +351,6 @@ def create_precision_recall_curve_plot(
 
     fig, ax = plt.subplots()
     ax.plot(recall, precision, label=f"Precision-Recall (AP = {ap_score:.2f})")
-    ax.set_title("Precision-Recall Curve")
     ax.set_xlabel("Recall")
     ax.set_ylabel("Precision")
     ax.legend()
@@ -363,7 +372,6 @@ def create_calibration_curve_plot(
     ax.plot([0, 1], [0, 1], linestyle="--", color="gray", label="Perfect Calibration")
 
     # Labels and legend
-    ax.set_title("Calibration Curve")
     ax.set_xlabel("Mean Predicted Probability")
     ax.set_ylabel("Fraction of Positives")
     ax.set_xlim(0, 1)

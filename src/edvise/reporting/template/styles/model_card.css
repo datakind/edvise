@@ -166,6 +166,32 @@ thead {
 }
 
 /* ================================
+   Figure & Table Captions
+================================ */
+figure.figure,
+figure.table {
+    margin: 0.75em 0 1.0em 0;
+    break-inside: avoid;
+    page-break-inside: avoid;
+}
+
+/* Figure captions (below images) */
+figure.figure figcaption {
+    font-size: 0.9em;
+    font-style: italic;
+    text-align: center;
+    margin-top: 0.3em;
+}
+
+/* Table captions (above tables, journal style) */
+figure.table figcaption {
+    font-size: 0.9em;
+    font-style: italic;
+    text-align: left;
+    margin-bottom: 0.3em;
+}
+
+/* ================================
    List Styling
 ================================ */
 ul, ol, ul ul, ol ul, ul ol, ol ol {

@@ -37,6 +37,7 @@ def download_artifact(
     local_folder: str,
     artifact_path: str,
     description: t.Optional[str] = None,
+    caption: t.Optional[str] = None,
     fixed_width: str = "125mm",
 ) -> t.Optional[str]:
     """
@@ -70,7 +71,13 @@ def download_artifact(
     if local_path.lower().endswith((".png", ".jpg", ".jpeg")):
         if description is None:
             description = os.path.basename(local_path)
-        return embed_image(description, local_path)
+        return embed_image(
+            description=description,
+            local_path=local_path,
+            fixed_width=fixed_width,
+            alignment="center",
+            caption=caption,
+        )
     else:
         return local_path
 
@@ -157,6 +164,7 @@ def embed_image(
     local_path: t.Optional[str | pathlib.Path],
     fixed_width: str = "125mm",
     alignment: str = "center",
+    caption: t.Optional[str] = None,
 ) -> t.Optional[str]:
     """
     Embeds image in markdown with inline CSS to control rendering in WeasyPrint.
@@ -183,7 +191,15 @@ def embed_image(
 
     style = f"{css_alignment} width: {fixed_width}; height: auto; max-width: 100%;"
 
-    return f'<img src="{rel_path}" alt="{description}" style="{style}">'
+    img_html = f'<img src="{rel_path}" alt="{description}" style="{style}">'
+
+    if not caption:
+        return img_html
+
+    # Wrap in <figure> so WeasyPrint can keep caption + image together
+    return (
+        f'<figure class="figure">{img_html}<figcaption>{caption}</figcaption></figure>'
+    )
 
 
 def list_paths_in_directory(run_id: str, directory: str) -> t.List[str]:

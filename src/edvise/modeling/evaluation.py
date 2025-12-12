@@ -661,10 +661,9 @@ def create_evaluation_plots(
     Returns:
         risk score histogram and calibration curve at low alert rates figures
     """
-    title_suffix = f"{split_type} data - Overall"
-    hist_fig = plot_support_score_histogram(data[risk_score_col], title_suffix)
+    hist_fig = plot_support_score_histogram(data[risk_score_col])
     cal_fig = plot_calibration_curve(
-        data[y_true_col], data[risk_score_col], "Overall", title_suffix, pos_label
+        data[y_true_col], data[risk_score_col], "Overall", pos_label
     )
     return hist_fig, cal_fig
 
@@ -691,8 +690,6 @@ def create_evaluation_plots_by_subgroup(
     Returns:
         calibration curve figures by group
     """
-    title_suffix = f"{split_type} data - {group_col}"
-
     grouped_data = data.groupby(group_col).agg(list)
 
     ys = grouped_data[y_true_col]
@@ -710,7 +707,7 @@ def create_evaluation_plots_by_subgroup(
         lowess_frac = 0.6
 
     cal_subgroup_plot = plot_calibration_curve(
-        ys, scores, names, title_suffix, pos_label, lowess_frac=lowess_frac
+        ys, scores, names, pos_label, lowess_frac=lowess_frac
     )
 
     return cal_subgroup_plot
@@ -779,11 +776,6 @@ def plot_trained_models_comparison(
         else f"{automl_metric.capitalize()} Score"
     )
 
-    ax.set(
-        title=f"{automl_metric} by Model Type {sort_order}",
-        facecolor="none",
-        frame_on=False,
-    )
     ax.tick_params(axis="y", which="both", left=False, right=False, labelleft=True)
     ax.tick_params(axis="x", colors="lightgrey", which="both")  # Color of ticks
     ax.xaxis.grid(True, color="lightgrey", linestyle="--", linewidth=0.5)
@@ -799,7 +791,6 @@ def plot_calibration_curve(
     y_true: pd.Series,
     risk_score: pd.Series,
     keys: str | list[str],
-    title_suffix: str,
     pos_label: PosLabelType,
     lowess_frac: t.Optional[float] = None,
 ) -> matplotlib.figure.Figure:
@@ -810,7 +801,6 @@ def plot_calibration_curve(
         y_true (array-like of shape (n_samples,) or (n_groups,)): overall or group-level true outcome class
         risk_score (array-like of shape (n_samples,) or (n_groups,)): overall or group level predicted risk scores
         keys: overall or subgroup level labels for labeling lines
-        title_suffix: suffix for plot title
         pos_label: label identifying the positive class. Defaults to True.
 
     Returns:
@@ -861,7 +851,6 @@ def plot_calibration_curve(
     ax.set(
         xlabel="Mean predicted value",
         ylabel="Fraction of positives",
-        title=f"Calibration Curve - {title_suffix}",
     )
     ax.set_xlim(left=-0.05, right=1.05)
     ax.set_ylim(bottom=-0.05, top=1.05)
@@ -877,12 +866,11 @@ def plot_support_score_histogram(
 
     Args:
         support_scores: support scores
-        title_suffix: suffix for plot title
     """
     fig, ax = plt.subplots()
     sns.histplot(x=support_scores, ax=ax, color=PALETTE[1])
     ax.set(
-        xlabel="Support Score", title=f"Distribution of support scores - {title_suffix}"
+        xlabel="Support Score",
     )
     return fig
 
@@ -908,7 +896,6 @@ def plot_features_permutation_importance(
 
     fig, ax = plt.subplots(layout="constrained", figsize=(10, 10))
     df_importances.plot.box(vert=False, whis=10, ax=ax)
-    ax.set_title("Permutation Feature Importances")
     ax.axvline(x=0, color="k", linestyle="--")
     ax.set_xlabel("decrease in model score")
     return fig
