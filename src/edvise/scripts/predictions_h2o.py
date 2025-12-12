@@ -28,7 +28,7 @@ from h2o.estimators.estimator_base import H2OEstimator
 
 from edvise import modeling, dataio
 from edvise.modeling.h2o_ml import utils as h2o_utils
-from edvise.modeling.automl import inference as automl_inference
+from edvise.modeling import inference 
 
 
 class RunType(str, Enum):
@@ -206,7 +206,7 @@ def build_and_log_ranked_feature_table(
     Returns the DataFrame (or None if generation fails).
     """
     try:
-        sfi = automl_inference.generate_ranked_feature_table(
+        sfi = inference.generate_ranked_feature_table(
             features=grouped_features,
             shap_values=grouped_contribs_df.to_numpy(),
             features_table=features_table,
@@ -314,7 +314,7 @@ def run_predictions(
     )
 
     # ----- Tables -----
-    top_features_result = automl_inference.select_top_features_for_display(
+    top_features_result = inference.select_top_features_for_display(
         features=grouped_features,
         unique_ids=unique_ids,
         predicted_probabilities=list(pred_probs),
@@ -336,7 +336,7 @@ def run_predictions(
         "num_top_features": 5,
         "min_prob_pos_label": 0.5,
     }
-    ssd = automl_inference.support_score_distribution_table(
+    ssd = inference.support_score_distribution_table(
         df_serving=grouped_features,
         unique_ids=unique_ids,
         pred_probs=pred_probs,
