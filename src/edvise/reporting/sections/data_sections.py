@@ -28,13 +28,16 @@ def register_data_sections(card, registry):
                 for k in ["train", "validate", "test"]
             ]
 
-            return "\n".join(
+            table_md = "\n".join(
                 [
                     "| Split      | Students | Percentage |",
                     "|------------|----------|------------|",
                     *rows,
                 ]
             )
+
+            return utils.wrap_table(table_md, "Dataset Split Summary")
+
         else:
             LOGGER.warning(
                 "Unable to produce data split table. No splits found in config."
@@ -70,7 +73,9 @@ def register_data_sections(card, registry):
 
             table_markdown = "\n".join([headers, separator] + rows)
 
-            return f"{title}\n{subtitle}{table_markdown}"
+            table_block = utils.wrap_table(table_markdown, subtitle)
+
+            return f"{title}\n{table_block}"
 
         except Exception as e:
             LOGGER.warning(f"Could not load feature importance table: {str(e)}")

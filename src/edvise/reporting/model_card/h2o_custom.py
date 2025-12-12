@@ -140,7 +140,7 @@ class H2OCustomModelCard(ModelCard[CustomProjectConfig]):
                 "Test Histogram",
                 "preds/test_hist.png",
                 "125mm",
-                "Test Support Score Histogram"
+                "Test Support Score Histogram",
             ),
             "feature_importances_by_shap_plot": (
                 "Feature Importances",
@@ -157,10 +157,10 @@ class H2OCustomModelCard(ModelCard[CustomProjectConfig]):
                 local_folder=self.assets_folder,
                 fixed_width=width,
                 caption=caption,
-            ) or ""
+            )
+            or ""
             for key, (description, path, width, caption) in plots.items()
         }
-
 
     def _register_sections(self):
         """

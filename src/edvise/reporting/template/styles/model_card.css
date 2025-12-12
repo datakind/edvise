@@ -245,7 +245,7 @@ ol ol ol {
    PDF-friendly links
 ================================ */
 a {
-    text-decoration: underline;
+    text-decoration: none;
     color: inherit;
 }
 a:visited {

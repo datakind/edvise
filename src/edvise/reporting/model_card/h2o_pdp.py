@@ -138,7 +138,7 @@ class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
                 "Test Histogram",
                 "preds/test_hist.png",
                 "125mm",
-                "Test Support Score Histogram"
+                "Test Support Score Histogram",
             ),
             "feature_importances_by_shap_plot": (
                 "Feature Importances",
@@ -155,7 +155,8 @@ class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
                 local_folder=self.assets_folder,
                 fixed_width=width,
                 caption=caption,
-            ) or ""
+            )
+            or ""
             for key, (description, path, width, caption) in plots.items()
         }
 

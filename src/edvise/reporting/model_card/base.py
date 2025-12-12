@@ -227,37 +227,37 @@ class ModelCard(t.Generic[C]):
                 "Model Comparison",
                 "model_comparison.png",
                 "125mm",
-                "Training Model Comparison by H2O Architecture"
+                "Training Model Comparison by H2O Architecture",
             ),
             "test_calibration_curve": (
                 "Test Calibration Curve",
                 "calibration/test_calibration.png",
                 "125mm",
-                "Test Calibration Curve"
+                "Test Calibration Curve",
             ),
             "test_roc_curve": (
                 "Test ROC Curve",
                 "test_roc_curve_plot.png",
                 "125mm",
-                "Test ROC Curve"
+                "Test ROC Curve",
             ),
             "test_confusion_matrix": (
                 "Test Confusion Matrix",
                 "test_confusion_matrix.png",
                 "125mm",
-                "Test Confusion Matrix"
+                "Test Confusion Matrix",
             ),
             "test_histogram": (
                 "Test Histogram",
                 "preds/test_hist.png",
                 "125mm",
-                "Test Support Score Histogram"
+                "Test Support Score Histogram",
             ),
             "feature_importances_by_shap_plot": (
                 "Feature Importances",
                 "feature_importances_by_shap_plot.png",
                 "150mm",
-                "Feature Importances by SHAP on Test Data"
+                "Feature Importances by SHAP on Test Data",
             ),
         }
         return {
@@ -268,7 +268,8 @@ class ModelCard(t.Generic[C]):
                 local_folder=self.assets_folder,
                 fixed_width=width,
                 caption=caption,
-            ) or ""
+            )
+            or ""
             for key, (description, path, width, caption) in plots.items()
         }
 
