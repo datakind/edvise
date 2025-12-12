@@ -82,23 +82,23 @@
 
 ### Important Features {{#features}}
 - #### Analyzing Feature Importance
-    - SHAP (Shapley Additive Explanations) is a method based on cooperative game theory that quantifies the contribution of each feature to a model's prediction for an individual instance. It helps us understand how much a particular feature contributed to predicting whether a student needs more or less support.
-    - SHAP provides detailed insight into how much each feature contributed for each individual, as well as whether higher or lower feature values are associated with higher or lower need for support.
+    - SHAP (Shapley Additive Explanations) is a method based on cooperative game theory that quantifies the contribution of each feature to a model's prediction for an individual instance. 
+    - It helps us understand how much a particular feature contributed to predicting whether a student needs more or less support.
 
 - #### Feature Importance Plot
     - This figure below helps explain how individual features contribute to the model’s predictions for each student-term record.
-    - Here are some guidelines for how to interpret the plot below.
+    - Guidelines to interpret the plot below:
         - Each dot represents a single student-term record.
         - Features are ordered from top to bottom by their overall importance to the model — the most influential features appear at the top.
         - **SHAP values (x-axis)** → indicate how a feature’s value influences the model’s prediction:
-            - Values further to the left (<span class="shap-negative">−</span>) indicate that the feature value contributes to the model predicting a <span class="shap-negative">lower likelihood of needing support</span>
-            - Values further to the right (<span class="shap-positive">+</span>) indicate that the feature value contributes to the model predicting a <span class="shap-positive">higher likelihood of needing support</span>
-        - **Feature values (y-axis)** → represent the magnitude of the feature for each student-term record
-        - For binary (True/False) features:
-            - <span class="shap-high">Higher feature values</span> (True) may contribute differently to the model’s prediction than <span class="shap-low">lower feature values</span> (False), depending on the feature
-        - <span class="shap-categorical">Categorical features</span>, such as enrollment type, are displayed in gray
+            - More left (-) → feature value contributes to the model predicting a lower likelihood of needing support
+            - More right (+) → feature value contributes to the model predicting a higher likelihood of needing support
+            - **Feature values (y-axis)** → the numeric value of that feature (<span class="dk-red">high</span>  or <span class="dk-blue">low</span>)
+            - For True/False variables:
+                - <span class="dk-red">True</span> is represented by a _high_ feature value (1) (<span class="dk-red">red</span>).
+                - <span class="dk-blue">False</span> is represented by a _low_ feature value (0) (<span class="dk-blue">blue</span>).
+            - <span class="dk-gray">Categorical features</span>, which are not continuous numeric features (e.g., enrollment type), are grayed out.
         - Example: _Students with a lower percentage of grades above the section’s average tend to have SHAP values further to the right, indicating that this feature contributes to the model predicting a higher likelihood of needing support._
-
 
 {feature_importances_by_shap_plot}
 
