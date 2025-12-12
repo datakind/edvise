@@ -155,7 +155,6 @@ class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
                 local_folder=self.assets_folder,
                 fixed_width=width,
                 caption=caption,
-                figure_class="figure",
             ) or ""
             for key, (description, path, width, caption) in plots.items()
         }

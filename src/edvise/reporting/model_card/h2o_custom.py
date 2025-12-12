@@ -157,7 +157,6 @@ class H2OCustomModelCard(ModelCard[CustomProjectConfig]):
                 local_folder=self.assets_folder,
                 fixed_width=width,
                 caption=caption,
-                figure_class="figure",
             ) or ""
             for key, (description, path, width, caption) in plots.items()
         }
