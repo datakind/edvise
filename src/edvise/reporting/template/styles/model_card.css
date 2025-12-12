@@ -191,6 +191,26 @@ figure.table figcaption {
     margin-bottom: 0.3em;
 }
 
+/* Auto-number figures and tables */
+body { counter-reset: fig tbl; }
+
+/* Figures */
+figure.figure { counter-increment: fig; }
+figure.figure figcaption::before {
+    content: "Figure " counter(fig) ": ";
+    font-style: normal;     /* label not italic */
+    font-weight: bold;
+}
+
+/* Tables */
+figure.table { counter-increment: tbl; }
+figure.table figcaption::before {
+    content: "Table " counter(tbl) ": ";
+    font-style: normal;
+    font-weight: bold;
+}
+
+
 /* ================================
    List Styling
 ================================ */

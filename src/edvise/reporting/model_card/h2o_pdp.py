@@ -114,37 +114,37 @@ class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
                 "Model Comparison",
                 "model_comparison.png",
                 "125mm",
-                "Figure: Training Model Comparison",
+                "Training Model Comparison",
             ),
             "test_calibration_curve": (
                 "Test Calibration Curve",
                 "test_calibration_curve.png",
                 "125mm",
-                "Figure: Test Calibration Curve",
+                "Test Calibration Curve",
             ),
             "test_roc_curve": (
                 "Test ROC Curve",
                 "test_roc_curve.png",
                 "125mm",
-                "Figure: Test ROC Curve",
+                "Test ROC Curve",
             ),
             "test_confusion_matrix": (
                 "Test Confusion Matrix",
                 "test_confusion_matrix.png",
                 "125mm",
-                "Figure: Test Confusion Matrix",
+                "Test Confusion Matrix",
             ),
             "test_histogram": (
                 "Test Histogram",
                 "preds/test_hist.png",
                 "125mm",
-                "Figure: Test Support Score Histogram"
+                "Test Support Score Histogram"
             ),
             "feature_importances_by_shap_plot": (
                 "Feature Importances",
                 "h2o_feature_importances_by_shap_plot.png",
                 "150mm",
-                "Figure: Feature Importances by SHAP on Test Data",
+                "Feature Importances by SHAP on Test Data",
             ),
         }
         return {
