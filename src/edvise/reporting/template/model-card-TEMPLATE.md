@@ -90,13 +90,13 @@
     - Guidelines to interpret the plot below:
         - Each dot represents a single student-term record.
         - Features are ordered from top to bottom by their overall importance to the model — the most influential features appear at the top.
-        - **SHAP values (x-axis)** → indicate how a feature’s value influences the model’s prediction:
+        - **SHAP values (x-axis, left to right)** → indicate how a feature’s value influences the model’s prediction:
             - More left (-) → feature value contributes to the model predicting a lower likelihood of needing support
             - More right (+) → feature value contributes to the model predicting a higher likelihood of needing support
-            - **Feature values (y-axis)** → the numeric value of that feature (<span class="dk-red">high</span>  or <span class="dk-blue">low</span>)
+            - **Feature values (y-axis, top to bottom)** → the numeric value of that feature; <span class="dk-red">high</span> or <span class="dk-blue">low</span>
             - For True/False variables:
-                - <span class="dk-red">True</span> is represented by a _high_ feature value (1) (<span class="dk-red">red</span>).
-                - <span class="dk-blue">False</span> is represented by a _low_ feature value (0) (<span class="dk-blue">blue</span>).
+                - <span class="dk-red">True</span> is represented by a _high_ feature value (1) in <span class="dk-red">red</span>.
+                - <span class="dk-blue">False</span> is represented by a _low_ feature value (0) in (<span class="dk-blue">blue</span>).
             - <span class="dk-gray">Categorical features</span>, which are not continuous numeric features (e.g., enrollment type), are represented in <span class="dk-gray">gray</span>.
         - Example: _Students with a lower percentage of grades above the section’s average tend to have SHAP values further to the right, indicating that this feature contributes to the model predicting a higher likelihood of needing support._
 

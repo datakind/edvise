@@ -2,22 +2,20 @@
    Page Settings
 ================================ */
 @page {
-    size: A4; /* Standard portrait page */
+    size: A4;
     margin: 20mm;
 
-    /* Running header with document title */
     @top-center {
         content: string(docTitle);
         font-size: 10px;
+        font-family: "Times New Roman", serif;
         font-style: italic;
-        font-family: "Georgia", "Times New Roman", serif;
     }
 
-    /* Page numbers in footer */
     @bottom-center {
         content: "Page " counter(page) " of " counter(pages);
         font-size: 10px;
-        font-family: "Georgia", "Times New Roman", serif;
+        font-family: "Times New Roman", serif;
     }
 }
 
