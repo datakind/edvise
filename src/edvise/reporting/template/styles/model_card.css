@@ -100,52 +100,51 @@ h4::after {
 }
 
 /* ================================
-   Contents / TOC Styling
+   Contents / TOC Styling (with dot leaders + page numbers)
 ================================ */
+
+/* "Contents" heading spacing */
 #contents {
     margin-bottom: 0.4em;
 }
 
+/* TOC list container */
 #contents + ul {
     list-style: none;
-    margin-left: 0;
-    padding-left: 0;
+    margin: 0 0 1.2em 0;
+    padding: 0;
     font-size: 0.95em;
-    margin-bottom: 1.5em;
 }
 
+/* Individual TOC rows */
 #contents + ul li {
-    margin: 2px 0;
+    margin: 1px 0;
 }
 
-@media screen {
-    #contents + ul a:hover {
-        text-decoration-thickness: 1.5px;
-    }
-}
-
-/* ================================
-   TOC with dot leaders + page numbers (WeasyPrint)
-================================ */
-
-/* Each TOC row */
-#contents + ul li {
-    margin: 2px 0;
-}
-
-/* Make each link a flex row: title on left, dots+page on right */
+/* Each TOC entry is a single flex row */
 #contents + ul li a {
     display: flex;
-    text-decoration: none; /* optional */
+    width: 100%;
+    align-items: baseline;
+    text-decoration: none;   /* clean, print-style TOC */
     color: inherit;
+    font-weight: 500;
 }
 
-/* Dots + page number */
+/* Dot leaders + page number */
 #contents + ul li a::after {
     content: leader(".") " " target-counter(attr(href), page);
-    flex: 1;               /* <-- gives leader() width to fill */
+    flex: 1;                 /* gives leader() room to fill */
+    margin-left: 0.6em;
     text-align: right;
-    margin-left: 0.5em;
+    white-space: nowrap;
+}
+
+/* Optional: subtle hover affordance for screen viewing only */
+@media screen {
+    #contents + ul li a:hover {
+        text-decoration: underline;
+    }
 }
 
 /* ================================
