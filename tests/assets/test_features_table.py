@@ -2,7 +2,7 @@ import pytest
 import os
 from edvise.dataio.read import from_toml_file
 import re
-from edvise.modeling.automl.inference import _get_mapped_feature_name
+from edvise.modeling.inference import _get_mapped_feature_name
 
 
 @pytest.fixture
