@@ -17,7 +17,7 @@
 - {outcome_section}
 - {checkpoint_section}
 - {development_note_section}
-- Key technical and evaluation terms are defined in the **[Glossary](#glossary)**.
+- Key technical and evaluation terms are defined in the [Glossary](#glossary) section.
 - If there are questions or concerns about the model, you can contact **education@datakind.org** or your customer success manager.
 
 ### Intended Use {{#intended-use}}
@@ -38,7 +38,7 @@
     - Then, our next step was feature selection, applying the following processing below.
         - **Collinearity Threshold**
             - Threshold Applied: Removed features with VIF greater than {collinearity_threshold} were removed to reduce multicollinearity and improve model stability.
-            - Explanation: Variance Inflation Factor (VIF) measures multicollinearity between features (see **[Glossary](#glossary)**).
+            - Explanation: [Variance Inflation Factor (VIF)](#glossary-vif) measures multicollinearity between features.
         - **Low Variance Threshold**
             - Threshold Applied: Removed features with variance less than {low_variance_threshold}.
             - Explanation: Features with very low variance do not vary much across observations, meaning they carry little predictive signal.
@@ -54,8 +54,8 @@
 {data_split_table}
 
 - #### Model Evaluation
-    - Evaluated top 10 models for performance across key metrics: accuracy, precision, AUC, recall, log loss, F-1.
-    - Evaluated SHAP values indicating relative importance in the models of key features for top-performing models.
+    - Evaluated top models across standard classification metrics such as [AUC](#glossary-auc), [Precision](#glossary-precision), and [Recall](#glossary-recall).
+    - Evaluated [SHAP values](#glossary-shap) to assess the relative importance of key features.
     - Evaluated initial model output for interpretability and actionability.
     - Prioritized model quality with transparent and interpretable model outputs.
 
@@ -72,9 +72,9 @@
 {test_histogram}
 
 ### Quantitative Bias Analysis {{#bias}}
-- #### Model Bias Metric
-    - Our bias evaluation metric is _False Negative Rate (FNR)_ (see **[Glossary](#glossary)**).
-    - We assess **FNR Parity** to determine whether underprediction occurs at disproportionate rates across student subgroups.
+#### Model Bias Metric
+- Our bias evaluation metric is [_False Negative Rate (FNR)_](#glossary-fnr).
+- We assess [FNR Parity](#glossary-fnr-parity) to determine whether underprediction occurs at disproportionate rates across student subgroups.
 
 - #### Analyzing Bias Across Student Groups
 {bias_groups_section}
@@ -84,7 +84,7 @@
 
 ### Important Features {{#features}}
 - #### Analyzing Feature Importance
-    - This figure shows how individual features contribute to the model’s predictions for each student-term record using SHAP values (see **[Glossary](#glossary)**).
+    - This figure shows how individual features contribute to the model’s predictions for each student-term record using [SHAP values](#glossary-shap).
         - Guidelines to interpret the plot:
         - Each dot represents a single student-term record.
         - Features are ordered by overall importance, with the most influential at the top.
@@ -111,88 +111,109 @@ _This section defines technical, statistical, and modeling terms used throughout
 
 #### Evaluation & Performance Metrics
 
+<a id="glossary-accuracy"></a>
 **Accuracy**  
-The proportion of all predictions that the model classifies correctly, including both students who need support and those who do not.
+The proportion of all predictions that the model classifies correctly.
 
+<a id="glossary-auc"></a>
 **AUC (Area Under the ROC Curve)**  
 A metric measuring the model’s ability to distinguish between students who need support and those who do not.
 
+<a id="glossary-calibration-curve"></a>
 **Calibration Curve**  
 A plot comparing predicted probabilities to observed outcomes.
 
+<a id="glossary-confusion-matrix"></a>
 **Confusion Matrix**  
 A table summarizing model predictions versus actual outcomes.
 
+<a id="glossary-f1"></a>
 **F1 Score**  
 A metric that balances precision and recall, particularly useful when classes are imbalanced.
 
+<a id="glossary-log-loss"></a>
 **Log Loss**  
 A metric that penalizes confident but incorrect probability predictions.
 
+<a id="glossary-precision"></a>
 **Precision**  
 The proportion of students predicted to need support who actually do need support.
 
+<a id="glossary-recall"></a>
 **Recall**  
 The proportion of students who truly need support that the model successfully identifies.
 
+<a id="glossary-roc"></a>
 **ROC Curve (Receiver Operating Characteristic Curve)**  
 A plot showing the tradeoff between true positive and false positive rates.
 
+<a id="glossary-threshold"></a>
 **Threshold**  
-The probability cutoff used to convert model scores into binary predictions (e.g., “needs support” vs. “does not need support”).
+The probability cutoff used to convert model scores into binary predictions.
 
 ---
 
 #### Fairness & Bias
 
+<a id="glossary-bias"></a>
 **Bias (Model Bias)**  
 Systematic differences in model performance across student subgroups.
 
+<a id="glossary-fnr"></a>
 **False Negative Rate (FNR)**  
 The proportion of students who need support but are predicted as not needing support.
 
+<a id="glossary-fnr-parity"></a>
 **FNR Parity**  
 A measure assessing whether false negative rates are similar across student groups.
 
+<a id="glossary-subgroup"></a>
 **Subgroup**  
-A defined subset of students (e.g., by demographic or academic characteristic) used to evaluate model performance and fairness.
+A defined subset of students used to evaluate model performance and fairness.
 
 ---
 
 #### Features & Modeling
 
+<a id="glossary-actionable-feature"></a>
 **Actionable Feature**  
-A model input designed to reflect behaviors or outcomes that can plausibly be influenced through academic advising or institutional interventions.
+A model input representing outcomes that can plausibly be influenced through intervention.
 
+<a id="glossary-collinearity"></a>
 **Collinearity (Multicollinearity)**  
 A condition where two or more features contain highly overlapping information.
 
+<a id="glossary-feature-engineering"></a>
 **Feature Engineering**  
-The process of transforming raw data into meaningful variables by aggregating, normalizing, or deriving new representations.
+The process of transforming raw data into meaningful variables.
 
+<a id="glossary-feature-importance"></a>
 **Feature Importance**  
-A measure of how much each feature contributes to the model’s predictions, assessed using SHAP values.
+A measure of how much each feature contributes to the model’s predictions.
 
+<a id="glossary-feature-selection"></a>
 **Feature Selection**  
-The process of identifying and retaining a subset of features that provide the most predictive signal while improving model stability and interpretability.
+The process of retaining a subset of features that provide the strongest predictive signal.
 
+<a id="glossary-imputation"></a>
 **Imputation**  
-The process of filling in missing data values using statistical or model-based methods.
+The process of filling in missing data values.
 
+<a id="glossary-low-variance"></a>
 **Low Variance Feature**  
-A feature that changes very little across students and is typically removed during feature selection.
+A feature that changes very little across students.
 
-**Sample Weighting**  
+**Sample Weighting** <a id="glossary-sample-weighting"></a>
 A technique that assigns different importance to observations during model training.
 
-**Variance Inflation Factor (VIF)**  
-A statistic used to quantify multicollinearity by measuring how strongly a feature is correlated with other features.
+**Variance Inflation Factor (VIF)** <a id="glossary-vif"></a>
+A statistic used to quantify multicollinearity between features.
 
 ---
 
 #### Interpretability
 
-**SHAP (Shapley Additive Explanations)**  
+**SHAP (Shapley Additive Explanations)** <a id="glossary-shap"></a>
 A game-theoretic method used to explain model predictions by quantifying how much each feature contributes to a prediction. SHAP values indicate both the **direction** (whether a feature increases or decreases the predicted likelihood of needing support) and the **magnitude** of that contribution. When aggregated across students, SHAP values provide insight into which features are most influential overall.
 
 
@@ -200,11 +221,11 @@ A game-theoretic method used to explain model predictions by quantifying how muc
 
 #### Model & Data Concepts
 
-**Checkpoint**  
-A specific point in time (e.g., after a term or credit threshold) at which a prediction is generated for a student.
+**Checkpoint**  <a id="glossary-checkpoint"></a>
+A specific point in time at which a prediction is generated for a student.
 
-**Target Population**  
-The specific group of students for whom the model is designed and validated. Predictions outside this population are considered out of scope.
+**Target Population** <a id="glossary-target-population"></a>
+The group of students for whom the model is designed and validated.
 
-**Training Dataset**  
-The subset of data used to fit the model, consisting only of students and records that meet the target population and checkpoint criteria.
+ **Training Dataset** <a id="glossary-training-dataset"></a>
+The subset of data used to fit the model.
