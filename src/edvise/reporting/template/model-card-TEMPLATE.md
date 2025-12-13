@@ -31,11 +31,11 @@
 ### Methodology {{#methodology}}
 - #### Sample Development
     - Our first step was our data audit & validation, which included handling null and duplicate values, checking for inconsistencies between files, and ensuring all student IDs are unique.
-    - After validation, we then proceeded with exploratory data analysis (EDA) to develop a deeper understanding of the raw dataset prior to our feature engineering & model development, ensuring alignment with stakeholders through an iterative process.
+    - After validation, we then proceeded with exploratory data analysis (EDA) to develop a deeper understanding of the raw dataset prior to our [feature engineering](#glossary-feature-engineering) & model development, ensuring alignment with stakeholders through an iterative process.
 - #### Feature Development
-    - We then proceeded with feature engineering, which involved transforming raw data into meaningful representations by applying semantic abstractions, aggregating at varying levels of term, course, or section analysis, and comparing values cumulatively over time.
-    - Stakeholder collaboration was also essential to our feature engineering effort, ensuring domain and use-case knowledge shaped the development of insightful features.
-    - Then, our next step was feature selection, applying the following processing below.
+    - We then proceeded with [feature engineering](#glossary-feature-engineering), which involved transforming raw data into meaningful representations by applying semantic abstractions, aggregating at varying levels of term, course, or section analysis, and comparing values cumulatively over time.
+    - Stakeholder collaboration was also essential to our [feature engineering](#glossary-feature-engineering) effort, ensuring domain and use-case knowledge shaped the development of insightful features.
+    - Then, our next step was [feature selection](#glossary-feature-selection), applying the following processing below.
         - **Collinearity Threshold**
             - Threshold Applied: Removed features with VIF greater than {collinearity_threshold} were removed to reduce multicollinearity and improve model stability.
             - Explanation: [Variance Inflation Factor (VIF)](#glossary-vif) measures multicollinearity between features.
@@ -78,7 +78,7 @@
 
 - #### Analyzing Bias Across Student Groups
 {bias_groups_section}
-    - We evaluated FNR across these student groups and tested for statistically significant disparities.
+    - We evaluated [FNR](#glossary-fnr) across these student groups and tested for statistically significant disparities.
 
 {bias_summary_section}
 
@@ -88,7 +88,7 @@
         - Guidelines to interpret the plot:
         - Each dot represents a single student-term record.
         - Features are ordered by overall importance, with the most influential at the top.
-        - **SHAP values (x-axis)** indicate whether a feature increases (+) or decreases (–) the predicted likelihood of needing support.
+        - **[SHAP values](#glossary-shap) (x-axis)** indicate whether a feature increases (+) or decreases (–) the predicted likelihood of needing support.
         - **Color** reflects the feature’s value for that student:
             - <span class="dk-red">High</span> values in red
             - <span class="dk-blue">Low</span> values in blue
