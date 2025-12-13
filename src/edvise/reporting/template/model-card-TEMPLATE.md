@@ -111,121 +111,99 @@ _This section defines technical, statistical, and modeling terms used throughout
 
 #### Evaluation & Performance Metrics
 
-<a id="glossary-accuracy"></a>
-**Accuracy**  
+***Accuracy*** <a id="glossary-accuracy"></a>  
 The proportion of all predictions that the model classifies correctly.
 
-<a id="glossary-auc"></a>
-**AUC (Area Under the ROC Curve)**  
+***AUC (Area Under the ROC Curve)*** <a id="glossary-auc"></a>  
 A metric measuring the model’s ability to distinguish between students who need support and those who do not.
 
-<a id="glossary-calibration-curve"></a>
-**Calibration Curve**  
+***Calibration Curve*** <a id="glossary-calibration-curve"></a>  
 A plot comparing predicted probabilities to observed outcomes.
 
-<a id="glossary-confusion-matrix"></a>
-**Confusion Matrix**  
+***Confusion Matrix*** <a id="glossary-confusion-matrix"></a>  
 A table summarizing model predictions versus actual outcomes.
 
-<a id="glossary-f1"></a>
-**F1 Score**  
+***F1 Score*** <a id="glossary-f1"></a>  
 A metric that balances precision and recall, particularly useful when classes are imbalanced.
 
-<a id="glossary-log-loss"></a>
-**Log Loss**  
+***Log Loss*** <a id="glossary-log-loss"></a>  
 A metric that penalizes confident but incorrect probability predictions.
 
-<a id="glossary-precision"></a>
-**Precision**  
+***Precision*** <a id="glossary-precision"></a>  
 The proportion of students predicted to need support who actually do need support.
 
-<a id="glossary-recall"></a>
-**Recall**  
+***Recall*** <a id="glossary-recall"></a>  
 The proportion of students who truly need support that the model successfully identifies.
 
-<a id="glossary-roc"></a>
-**ROC Curve (Receiver Operating Characteristic Curve)**  
+***ROC Curve (Receiver Operating Characteristic Curve)*** <a id="glossary-roc"></a>  
 A plot showing the tradeoff between true positive and false positive rates.
 
-<a id="glossary-threshold"></a>
-**Threshold**  
+***Threshold*** <a id="glossary-threshold"></a>  
 The probability cutoff used to convert model scores into binary predictions.
 
 ---
 
 #### Fairness & Bias
 
-<a id="glossary-bias"></a>
-**Bias (Model Bias)**  
+***Bias (Model Bias)*** <a id="glossary-bias"></a>  
 Systematic differences in model performance across student subgroups.
 
-<a id="glossary-fnr"></a>
-**False Negative Rate (FNR)**  
+***False Negative Rate (FNR)*** <a id="glossary-fnr"></a>  
 The proportion of students who need support but are predicted as not needing support.
 
-<a id="glossary-fnr-parity"></a>
-**FNR Parity**  
+***FNR Parity*** <a id="glossary-fnr-parity"></a>  
 A measure assessing whether false negative rates are similar across student groups.
 
-<a id="glossary-subgroup"></a>
-**Subgroup**  
+***Subgroup*** <a id="glossary-subgroup"></a>  
 A defined subset of students used to evaluate model performance and fairness.
 
 ---
 
 #### Features & Modeling
 
-<a id="glossary-actionable-feature"></a>
-**Actionable Feature**  
+***Actionable Feature*** <a id="glossary-actionable-feature"></a>  
 A model input representing outcomes that can plausibly be influenced through intervention.
 
-<a id="glossary-collinearity"></a>
-**Collinearity (Multicollinearity)**  
+***Collinearity (Multicollinearity)*** <a id="glossary-collinearity"></a>  
 A condition where two or more features contain highly overlapping information.
 
-<a id="glossary-feature-engineering"></a>
-**Feature Engineering**  
+***Feature Engineering*** <a id="glossary-feature-engineering"></a>  
 The process of transforming raw data into meaningful variables.
 
-<a id="glossary-feature-importance"></a>
-**Feature Importance**  
+***Feature Importance*** <a id="glossary-feature-importance"></a>  
 A measure of how much each feature contributes to the model’s predictions.
 
-<a id="glossary-feature-selection"></a>
-**Feature Selection**  
+***Feature Selection*** <a id="glossary-feature-selection"></a>  
 The process of retaining a subset of features that provide the strongest predictive signal.
 
-<a id="glossary-imputation"></a>
-**Imputation**  
+***Imputation*** <a id="glossary-imputation"></a>  
 The process of filling in missing data values.
 
-<a id="glossary-low-variance"></a>
-**Low Variance Feature**  
+***Low Variance Feature*** <a id="glossary-low-variance"></a>  
 A feature that changes very little across students.
 
-**Sample Weighting** <a id="glossary-sample-weighting"></a>
+***Sample Weighting*** <a id="glossary-sample-weighting"></a>  
 A technique that assigns different importance to observations during model training.
 
-**Variance Inflation Factor (VIF)** <a id="glossary-vif"></a>
+***Variance Inflation Factor (VIF)*** <a id="glossary-vif"></a>  
 A statistic used to quantify multicollinearity between features.
 
 ---
 
 #### Interpretability
 
-**SHAP (Shapley Additive Explanations)** <a id="glossary-shap"></a>
+***SHAP (Shapley Additive Explanations)*** <a id="glossary-shap"></a>  
 A game-theoretic method used to explain model predictions by quantifying how much each feature contributes to a prediction. SHAP values indicate both the **direction** (whether a feature increases or decreases the predicted likelihood of needing support) and the **magnitude** of that contribution. When aggregated across students, SHAP values provide insight into which features are most influential overall.
-
 
 ---
 
 #### Model & Data Concepts
 
-**Checkpoint**  <a id="glossary-checkpoint"></a>
+***Checkpoint*** <a id="glossary-checkpoint"></a>  
 A specific point in time at which a prediction is generated for a student.
 
-**Target Population** <a id="glossary-target-population"></a>
+***Target Population*** <a id="glossary-target-population"></a>  
 The group of students for whom the model is designed and validated.
 
- **Training Dataset** <a id="glossary-training-dataset"></a>
+***Training Dataset*** <a id="glossary-training-dataset"></a>  
 The subset of data used to fit the model.
