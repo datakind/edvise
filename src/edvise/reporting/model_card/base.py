@@ -333,21 +333,17 @@ class ModelCard(t.Generic[C]):
 
 
     def export_to_pdf(self):
+        """
+        Exports markdown to weasyprint with CSS styling.
+        """
         self.style_card()
 
-        # Where your generated markdown/html assets live (images are relative to this)
+        # Images are relative to the generated markdown/html location
         base_path = os.path.dirname(self.output_path) or "."
         self.pdf_path = self.output_path.replace(".md", ".pdf")
 
-        # Where your CSS lives (fonts are relative to this)
-        css_path = self._resolve("edvise.reporting.template.styles", "model_card.css")
-        css_dir = os.fspath(css_path.parent)
-
         try:
-            HTML(string=self.html_content, base_url=base_path).write_pdf(
-                self.pdf_path,
-                stylesheets=[CSS(filename=os.fspath(css_path), base_url=css_dir)],
-            )
+            HTML(string=self.html_content, base_url=base_path).write_pdf(self.pdf_path)
             LOGGER.info(f"✅ PDF model card saved to {self.pdf_path}")
         except Exception as e:
             raise RuntimeError(f"Failed to create PDF: {e}")

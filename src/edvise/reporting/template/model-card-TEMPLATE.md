@@ -176,6 +176,9 @@ A measure of how much each feature contributes to the model’s predictions.
 ***Feature Selection*** <a id="glossary-feature-selection"></a>  
 The process of retaining a subset of features that provide the strongest predictive signal.
 
+***H2O AutoML*** <a id="glossary-h2o-automl"></a>  
+An automated machine learning framework that trains, tunes, and evaluates multiple model types (such as generalized linear models, gradient boosting machines, random forests, and stacked ensembles) to identify high-performing models based on specified evaluation metrics.
+
 ***Imputation*** <a id="glossary-imputation"></a>  
 The process of filling in missing data values.
 
