@@ -83,7 +83,6 @@ def download_artifact(
         return local_path
 
 
-
 def wrap_table(table_markdown: str, caption: str) -> str:
     """
     Convert markdown table -> HTML, then wrap in <figure class="table"> with caption.
@@ -92,10 +91,7 @@ def wrap_table(table_markdown: str, caption: str) -> str:
     table_html = md.markdown(table_markdown, extensions=["tables"])
 
     return (
-        f'<figure class="table">'
-        f'<figcaption>{caption}</figcaption>'
-        f'{table_html}'
-        f'</figure>'
+        f'<figure class="table"><figcaption>{caption}</figcaption>{table_html}</figure>'
     )
 
 

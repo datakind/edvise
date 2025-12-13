@@ -6,7 +6,7 @@ from mlflow.tracking import MlflowClient
 
 # export .md to .pdf
 import markdown
-from weasyprint import HTML, CSS
+from weasyprint import HTML
 import tempfile
 
 # resolving files in templates module within package
@@ -331,7 +331,6 @@ class ModelCard(t.Generic[C]):
         self.html_content = style + html_body
         LOGGER.info("Applied CSS styling")
 
-
     def export_to_pdf(self):
         """
         Exports markdown to weasyprint with CSS styling.
@@ -353,7 +352,6 @@ class ModelCard(t.Generic[C]):
             catalog=self.catalog,
             institution_id=self.cfg.institution_id,
         )
-
 
     def _build_output_path(self) -> str:
         """

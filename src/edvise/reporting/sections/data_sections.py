@@ -69,7 +69,7 @@ def register_data_sections(card, registry):
             ]
 
             title = f"{card.format.header_level(4)}Selected Features\n"
-            subtitle = f"Full List of Selected Features Ranked by Importance"
+            subtitle = "Full List of Selected Features Ranked by Importance"
 
             table_markdown = "\n".join([headers, separator] + rows)
 

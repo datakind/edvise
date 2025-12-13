@@ -859,7 +859,7 @@ def plot_calibration_curve(
 
 
 def plot_support_score_histogram(
-    support_scores: str | Sequence, title_suffix: str
+    support_scores: str | Sequence,
 ) -> matplotlib.figure.Figure:
     """
     Plot histogram of support scores.

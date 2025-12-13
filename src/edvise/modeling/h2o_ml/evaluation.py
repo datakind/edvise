@@ -328,30 +328,50 @@ def create_confusion_matrix_plot(
 
     # Left side: interpret by TRUE label rows
     ax.text(
-        -0.35, y_row0,
+        -0.35,
+        y_row0,
         "True Negatives\nDoes Not Need Support;\nCorrectly Classified",
-        transform=ax.transAxes, ha="right", va="center",
-        color=green, fontsize=10, fontweight="bold"
+        transform=ax.transAxes,
+        ha="right",
+        va="center",
+        color=green,
+        fontsize=10,
+        fontweight="bold",
     )
     ax.text(
-        -0.35, y_row1,
+        -0.35,
+        y_row1,
         "False Negatives\nNeeds Support;\nIncorrectly Classified",
-        transform=ax.transAxes, ha="right", va="center",
-        color=red, fontsize=10, fontweight="bold"
+        transform=ax.transAxes,
+        ha="right",
+        va="center",
+        color=red,
+        fontsize=10,
+        fontweight="bold",
     )
 
     # Right side: interpret by PREDICTED label columns (using the same row y-positions)
     ax.text(
-        1.35, y_row0,
+        1.35,
+        y_row0,
         "False Positives\nDoes NOT Need Support;\nIncorrectly Classified",
-        transform=ax.transAxes, ha="left", va="center",
-        color=red, fontsize=10, fontweight="bold"
+        transform=ax.transAxes,
+        ha="left",
+        va="center",
+        color=red,
+        fontsize=10,
+        fontweight="bold",
     )
     ax.text(
-        1.35, y_row1,
+        1.35,
+        y_row1,
         "True Positives\nNeeds Support;\nCorrectly Classified",
-        transform=ax.transAxes, ha="left", va="center",
-        color=green, fontsize=10, fontweight="bold"
+        transform=ax.transAxes,
+        ha="left",
+        va="center",
+        color=green,
+        fontsize=10,
+        fontweight="bold",
     )
 
     # Make room for the outside text
