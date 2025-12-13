@@ -37,6 +37,14 @@ LOGGER = logging.getLogger(__name__)
 
 PosLabelType = t.Union[bool, str]
 
+H2O_FRAMEWORK_DISPLAY_NAMES = {
+    "GBM": "Boosted Decision Trees (GBM)",
+    "XGBoost": "Boosted Decision Trees (XGBoost)",
+    "DRF": "Random Forest (DRF)",
+    "XRT": "Random Forest (XRT)",
+    "GLM": "Linear Model (GLM)",
+}
+
 
 def get_metrics_fixed_threshold_all_splits(
     model: H2OEstimator,
@@ -250,9 +258,13 @@ def create_and_log_h2o_model_comparison(
         .reset_index(drop=True)
     )
 
+    best["framework_display"] = (
+        best["framework"].map(H2O_FRAMEWORK_DISPLAY_NAMES).fillna(best["framework"])
+    )
+
     # Plot
     fig, ax = plt.subplots(figsize=(8, 5))
-    bars = ax.barh(best["framework"], best["logloss"])
+    bars = ax.barh(best["framework_display"], best["logloss"])
 
     if len(bars):
         bars[0].set_alpha(1.0)
@@ -268,9 +280,9 @@ def create_and_log_h2o_model_comparison(
             )
 
     ax.set_xlabel("log_loss")
-    ax.set_title("log_loss by Model Type (lowest to highest)")
     ax.set_xlim(left=0)
     ax.invert_yaxis()
+    plt.subplots_adjust(left=0.35)
     plt.tight_layout()
 
     if mlflow.active_run():
@@ -288,23 +300,83 @@ def create_confusion_matrix_plot(
         y_true, y_pred, normalize="true", sample_weight=sample_weights
     )
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(8, 4.8))
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot(ax=ax, cmap="Blues", colorbar=False)
 
-    # Remove default annotations
+    ax.set_title("Normalized Confusion Matrix")
+
+    # Remove default annotations from ConfusionMatrixDisplay
     for txt in ax.texts:
         txt.set_visible(False)
 
-    # Dynamic contrast-aware text overlay
+    # Dynamic contrast-aware text overlay (cell values)
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
             value = cm[i, j]
-            # Use white text on dark blue, black on light blue
             text_color = "black" if value < 0.5 else "white"
             ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=text_color)
 
-    ax.set_title("Normalized Confusion Matrix")
+    # --- Side annotations (like your screenshot) ---
+    green = "#2ca02c"
+    red = "#d62728"
+
+    # Place text in axes coordinates so it stays anchored outside the plot
+    # y positions correspond to row centers: row 0 ~ 0.75, row 1 ~ 0.25
+    y_row0 = 0.75
+    y_row1 = 0.25
+
+    # Left side: interpret by TRUE label rows
+    ax.text(
+        -0.35,
+        y_row0,
+        "True Negatives\nDoes Not Need Support;\nCorrectly Classified",
+        transform=ax.transAxes,
+        ha="right",
+        va="center",
+        color=green,
+        fontsize=10,
+        fontweight="bold",
+    )
+    ax.text(
+        -0.35,
+        y_row1,
+        "False Negatives\nNeeds Support;\nIncorrectly Classified",
+        transform=ax.transAxes,
+        ha="right",
+        va="center",
+        color=red,
+        fontsize=10,
+        fontweight="bold",
+    )
+
+    # Right side: interpret by PREDICTED label columns (using the same row y-positions)
+    ax.text(
+        1.35,
+        y_row0,
+        "False Positives\nDoes NOT Need Support;\nIncorrectly Classified",
+        transform=ax.transAxes,
+        ha="left",
+        va="center",
+        color=red,
+        fontsize=10,
+        fontweight="bold",
+    )
+    ax.text(
+        1.35,
+        y_row1,
+        "True Positives\nNeeds Support;\nCorrectly Classified",
+        transform=ax.transAxes,
+        ha="left",
+        va="center",
+        color=green,
+        fontsize=10,
+        fontweight="bold",
+    )
+
+    # Make room for the outside text
+    fig.subplots_adjust(left=0.30, right=0.70)
+
     plt.tight_layout()
     plt.close(fig)
     return fig
@@ -321,7 +393,6 @@ def create_roc_curve_plot(
     fig, ax = plt.subplots()
     ax.plot(fpr, tpr, label=f"ROC Curve (AUC = {auc_score:.2f})")
     ax.plot([0, 1], [0, 1], linestyle="--", color="gray")
-    ax.set_title("ROC Curve")
     ax.set_xlabel("False Positive Rate")
     ax.set_ylabel("True Positive Rate")
     ax.legend()
@@ -341,7 +412,6 @@ def create_precision_recall_curve_plot(
 
     fig, ax = plt.subplots()
     ax.plot(recall, precision, label=f"Precision-Recall (AP = {ap_score:.2f})")
-    ax.set_title("Precision-Recall Curve")
     ax.set_xlabel("Recall")
     ax.set_ylabel("Precision")
     ax.legend()
@@ -363,7 +433,6 @@ def create_calibration_curve_plot(
     ax.plot([0, 1], [0, 1], linestyle="--", color="gray", label="Perfect Calibration")
 
     # Labels and legend
-    ax.set_title("Calibration Curve")
     ax.set_xlabel("Mean Predicted Probability")
     ax.set_ylabel("Fraction of Positives")
     ax.set_xlim(0, 1)
