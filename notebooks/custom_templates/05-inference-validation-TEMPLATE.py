@@ -21,7 +21,7 @@
 # we need to manually install a certain version of pandas and scikit-learn in order
 # for our models to load and run properly.
 
-# %pip install git+https://github.com/datakind/edvise.git@v0.1.7
+# %pip install git+https://github.com/datakind/edvise.git@v0.1.8
 # %restart_python
 
 # COMMAND ----------

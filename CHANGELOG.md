@@ -1,3 +1,9 @@
+## 0.1.8 (2025-12-11)
+- fix: adding exclude_frameworks into training script 
+- fix: dtype overrides in custom cleaning module
+- fix: indent issue in the case of no duplicated cols 
+- feat: added printing enrollment type to data audit EDA 
+
 ## 0.1.7 (2025-12-02)
 - fix: support distribution bug 
 - feat: adding 3 functions for custom school data audits 

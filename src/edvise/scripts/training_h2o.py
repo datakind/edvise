@@ -49,6 +49,7 @@ class TrainingParams(t.TypedDict, total=False):
     primary_metric: str
     timeout_minutes: int
     exclude_cols: t.List[str]
+    exclude_frameworks: t.Optional[t.List[str]]
     target_name: str
     checkpoint_name: str
     workspace_path: str
@@ -188,6 +189,7 @@ class TrainingTask:
             "primary_metric": training_cfg.primary_metric,
             "timeout_minutes": timeout_minutes,
             "exclude_cols": sorted(exclude_cols),
+            "exclude_frameworks": training_cfg.exclude_frameworks,
             "target_name": preprocessing_cfg.target.name,
             "checkpoint_name": preprocessing_cfg.checkpoint.name,
             "workspace_path": workspace_path,
