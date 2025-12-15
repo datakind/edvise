@@ -296,18 +296,20 @@ def create_confusion_matrix_plot(
     y_true: np.ndarray, y_pred: np.ndarray, sample_weights: t.Optional[np.ndarray]
 ) -> plt.Figure:
     # Normalize confusion matrix by true labels
+    labels = [0, 1]
     cm = confusion_matrix(
-        y_true,
-        y_pred,
+        y_true, y_pred,
+        labels=labels,
         normalize="true",
         sample_weight=sample_weights,
     )
 
-    fig, ax = plt.subplots(
-        figsize=(11, 6.5),
-        dpi=125,
-        constrained_layout=True,
-    )
+    fig = plt.figure(figsize=(11, 6.5), dpi=200)
+    gs = fig.add_gridspec(1, 3, width_ratios=[1.2, 2.0, 1.2], wspace=0.05)
+
+    axL = fig.add_subplot(gs[0, 0]); axL.axis("off")
+    ax  = fig.add_subplot(gs[0, 1])
+    axR = fig.add_subplot(gs[0, 2]); axR.axis("off")
 
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot(ax=ax, cmap="Blues", colorbar=False)
@@ -316,75 +318,30 @@ def create_confusion_matrix_plot(
     for txt in ax.texts:
         txt.set_visible(False)
 
-    # Custom cell values
+    # Custom cell values (tie-break matches your old logic: 0.50 -> white)
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
-            value = cm[i, j]
+            v = cm[i, j]
             ax.text(
-                j,
-                i,
-                f"{value:.2f}",
-                ha="center",
-                va="center",
-                color="white" if value > 0.5 else "black",
-                fontsize=12,
-                fontweight="bold",
+                j, i, f"{v:.2f}",
+                ha="center", va="center",
+                color=("white" if v >= 0.5 else "black"),
+                fontsize=12, fontweight="bold",
             )
 
-    green = "#2ca02c"
-    red = "#d62728"
+    green, red = "#2ca02c", "#d62728"
 
-    y_row0, y_row1 = 0.75, 0.25
+    axL.text(1.0, 0.75, "True Negatives\nDoes Not Need Support;\nCorrectly Classified",
+             ha="right", va="center", color=green, fontsize=12, fontweight="bold")
+    axL.text(1.0, 0.25, "False Negatives\nNeeds Support;\nIncorrectly Classified",
+             ha="right", va="center", color=red, fontsize=12, fontweight="bold")
 
-    ax.text(
-        -0.35,
-        y_row0,
-        "True Negatives\nDoes Not Need Support;\nCorrectly Classified",
-        transform=ax.transAxes,
-        ha="right",
-        va="center",
-        color=green,
-        fontsize=12,
-        fontweight="bold",
-    )
-    ax.text(
-        -0.35,
-        y_row1,
-        "False Negatives\nNeeds Support;\nIncorrectly Classified",
-        transform=ax.transAxes,
-        ha="right",
-        va="center",
-        color=red,
-        fontsize=12,
-        fontweight="bold",
-    )
-
-    ax.text(
-        1.35,
-        y_row0,
-        "False Positives\nDoes NOT Need Support;\nIncorrectly Classified",
-        transform=ax.transAxes,
-        ha="left",
-        va="center",
-        color=red,
-        fontsize=12,
-        fontweight="bold",
-    )
-    ax.text(
-        1.35,
-        y_row1,
-        "True Positives\nNeeds Support;\nCorrectly Classified",
-        transform=ax.transAxes,
-        ha="left",
-        va="center",
-        color=green,
-        fontsize=12,
-        fontweight="bold",
-    )
+    axR.text(0.0, 0.75, "False Positives\nDoes NOT Need Support;\nIncorrectly Classified",
+             ha="left", va="center", color=red, fontsize=12, fontweight="bold")
+    axR.text(0.0, 0.25, "True Positives\nNeeds Support;\nCorrectly Classified",
+             ha="left", va="center", color=green, fontsize=12, fontweight="bold")
 
     ax.set_aspect("equal", adjustable="box")
-    fig.subplots_adjust(left=0.28, right=0.72)
-
     return fig
 
 
