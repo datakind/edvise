@@ -304,8 +304,8 @@ def create_confusion_matrix_plot(
     )
 
     fig, ax = plt.subplots(
-        figsize=(11, 6.5),   # ← bigger figure
-        dpi=125,             # ← higher DPI
+        figsize=(11, 6.5),
+        dpi=125,
         constrained_layout=True,
     )
 
@@ -386,7 +386,6 @@ def create_confusion_matrix_plot(
     fig.subplots_adjust(left=0.28, right=0.72)
 
     return fig
-
 
 
 def create_roc_curve_plot(
