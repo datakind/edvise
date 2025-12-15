@@ -33,8 +33,8 @@
     - Our first step was our data audit & validation, which included handling null and duplicate values, checking for inconsistencies between files, and ensuring all student IDs are unique.
     - After validation, we then proceeded with exploratory data analysis (EDA) to develop a deeper understanding of the raw dataset prior to our [feature engineering](#glossary-feature-engineering) & model development, ensuring alignment with stakeholders through an iterative process.
 - #### Feature Development
-    - We then proceeded with [feature engineering](#glossary-feature-engineering), which involved transforming raw data into meaningful representations by applying semantic abstractions, aggregating at varying levels of term, course, or section analysis, and comparing values cumulatively over time.
-    - Stakeholder collaboration was also essential to our [feature engineering](#glossary-feature-engineering) effort, ensuring domain and use-case knowledge shaped the development of insightful features.
+    - We then proceeded with feature engineering, which involved transforming raw data into meaningful representations by applying semantic abstractions, aggregating at varying levels of term, course, or section analysis, and comparing values cumulatively over time.
+    - Stakeholder collaboration was also essential to our feature engineering effort, ensuring domain and use-case knowledge shaped the development of insightful features.
     - Then, our next step was [feature selection](#glossary-feature-selection), applying the following processing below.
         - **Collinearity Threshold**
             - Threshold Applied: Removed features with VIF greater than {collinearity_threshold} were removed to reduce multicollinearity and improve model stability.
@@ -54,8 +54,8 @@
 {data_split_table}
 
 - #### Model Evaluation
-    - Evaluated top models across standard classification metrics such as [AUC](#glossary-auc), [Precision](#glossary-precision), and [Recall](#glossary-recall).
-    - Evaluated [SHAP values](#glossary-shap) to assess the relative importance of key features.
+    - Evaluated top models across standard classification metrics such as [Accuracy](#glossary-accuracy), [AUC](#glossary-auc), [F1-Score](#glossary-f1), [Log Loss](#glossary-log-loss), [Precision](#glossary-precision), [Recall](#glossary-recall).
+    - Evaluated [SHAP](#glossary-shap) values to assess the relative importance of key features.
     - Evaluated initial model output for interpretability and actionability.
     - Prioritized model quality with transparent and interpretable model outputs.
 
@@ -84,11 +84,11 @@
 
 ### Important Features {{#features}}
 - #### Analyzing Feature Importance
-    - This figure shows how individual features contribute to the model’s predictions for each student-term record using [SHAP values](#glossary-shap).
+    - This figure shows how individual features contribute to the model’s predictions for each student-term record using [SHAP](#glossary-shap) values.
         - Guidelines to interpret the plot:
             - Each dot represents a single student-term record.
             - Features are ordered by overall importance, with the most influential at the top.
-            - **[SHAP values](#glossary-shap) (x-axis)** indicate whether a feature increases (+) or decreases (–) the predicted likelihood of needing support.
+            - **SHAP values (x-axis)** indicate whether a feature increases (+) or decreases (–) the predicted likelihood of needing support.
             - **Color** reflects the feature’s value for that student:
                 - <span class="dk-red">High</span> values in red
                 - <span class="dk-blue">Low</span> values in blue
@@ -196,7 +196,7 @@ A statistic used to quantify multicollinearity between features.
 #### Interpretability
 
 ***SHAP (Shapley Additive Explanations)*** <a id="glossary-shap"></a>  
-A game-theoretic method used to explain model predictions by quantifying how much each feature contributes to a prediction. SHAP values indicate both the **direction** (whether a feature increases or decreases the predicted likelihood of needing support) and the **magnitude** of that contribution. When aggregated across students, SHAP values provide insight into which features are most influential overall.
+A method used to explain model predictions by quantifying how much each feature contributes to a prediction. SHAP values indicate both the **direction** (whether a feature increases or decreases the predicted likelihood of needing support) and the **magnitude** of that contribution. When aggregated across students, SHAP values provide insight into which features are most influential overall.
 
 ---
 
