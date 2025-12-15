@@ -130,7 +130,7 @@ class H2OCustomModelCard(ModelCard[CustomProjectConfig]):
             "test_confusion_matrix": (
                 "Test Confusion Matrix",
                 "test_confusion_matrix.png",
-                "225mm",
+                "125mm",
                 "Test Confusion Matrix",
             ),
             "test_histogram": (
