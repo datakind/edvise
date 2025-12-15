@@ -111,7 +111,7 @@ class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
                 "Model Comparison",
                 "model_comparison.png",
                 "125mm",
-                "Training Model Comparison",
+                "Model Comparison by Architecture",
             ),
             "test_calibration_curve": (
                 "Test Calibration Curve",

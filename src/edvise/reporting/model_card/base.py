@@ -227,7 +227,7 @@ class ModelCard(t.Generic[C]):
                 "Model Comparison",
                 "model_comparison.png",
                 "125mm",
-                "Training Model Comparison by H2O Architecture",
+                "Model Comparison by Architecture",
             ),
             "test_calibration_curve": (
                 "Test Calibration Curve",

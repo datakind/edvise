@@ -113,7 +113,7 @@ class H2OCustomModelCard(ModelCard[CustomProjectConfig]):
                 "Model Comparison",
                 "model_comparison.png",
                 "125mm",
-                "Training Model Comparison",
+                "Model Comparison by Architecture",
             ),
             "test_calibration_curve": (
                 "Test Calibration Curve",
