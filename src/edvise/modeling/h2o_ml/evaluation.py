@@ -329,16 +329,19 @@ def create_confusion_matrix_plot(y_true, y_pred, sample_weights=None):
     green, red = "#2ca02c", "#d62728"
 
     axL.text(1.0, 0.75, "True Negatives\nDoes Not Need Support;\nCorrectly Classified",
-             ha="right", va="center", color=green, fontsize=10, fontweight="bold")
+             ha="right", va="center", color=green, fontsize=12, fontweight="bold")
     axL.text(1.0, 0.25, "False Negatives\nNeeds Support;\nIncorrectly Classified",
-             ha="right", va="center", color=red, fontsize=10, fontweight="bold")
+             ha="right", va="center", color=red, fontsize=12, fontweight="bold")
 
     axR.text(0.0, 0.75, "False Positives\nDoes NOT Need Support;\nIncorrectly Classified",
-             ha="left", va="center", color=red, fontsize=10, fontweight="bold")
+             ha="left", va="center", color=red, fontsize=12, fontweight="bold")
     axR.text(0.0, 0.25, "True Positives\nNeeds Support;\nCorrectly Classified",
-             ha="left", va="center", color=green, fontsize=10, fontweight="bold")
+             ha="left", va="center", color=green, fontsize=12, fontweight="bold")
 
     ax.set_aspect("equal", adjustable="box")
+
+    fig.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.06)
+
     return fig
 
 
