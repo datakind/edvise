@@ -4,14 +4,13 @@
 ## Model Card: {institution_name}
 
 ### Contents {{#contents}}
-- [Overview](#overview)
-- [Intended Use](#intended-use)
-- [Methodology](#methodology)
-- [Performance](#performance)
-- [Quantitative Bias Analysis](#bias)
-- [Important Features](#features)
-- [Appendix](#appendix)
-- [Glossary](#glossary)
+- [<span class="toc-label">Overview</span>](#overview)
+- [<span class="toc-label">Methodology</span>](#methodology)
+- [<span class="toc-label">Performance</span>](#performance)
+- [<span class="toc-label">Quantitative Bias Analysis</span>](#bias)
+- [<span class="toc-label">Important Features</span>](#features)
+- [<span class="toc-label">Appendix</span>](#appendix)
+- [<span class="toc-label">Glossary</span>](#glossary)
 
 ### Overview {{#overview}}
 - {outcome_section}
@@ -88,7 +87,7 @@
         - Guidelines to interpret the plot:
             - Each dot represents a single student-term record.
             - Features are ordered by overall importance, with the most influential at the top.
-            - **SHAP values (x-axis)** indicate whether a feature increases (+) or decreases (–) the predicted likelihood of needing support.
+            - SHAP values (x-axis) indicate whether a feature increases (+) or decreases (–) the predicted likelihood of needing support.
             - **Color** reflects the feature’s value for that student:
                 - <span class="dk-red">High</span> values in red
                 - <span class="dk-blue">Low</span> values in blue
@@ -112,10 +111,10 @@ _This section defines technical, statistical, and modeling terms used throughout
 #### Evaluation & Performance Metrics
 
 ***Accuracy*** <a id="glossary-accuracy"></a>  
-The proportion of all predictions that the model classifies correctly.
+Shows the share of all predictions the model gets right. Typical values range from 0.6–0.8, but accuracy alone can be misleading when groups are imbalanced.
 
 ***AUC (Area Under the ROC Curve)*** <a id="glossary-auc"></a>  
-A metric measuring the model’s ability to distinguish between students who need support and those who do not.
+Shows how well the model separates students who need support from those who do not. Typical values range from 0.6–0.8; higher is better.
 
 ***Calibration Curve*** <a id="glossary-calibration-curve"></a>  
 A plot comparing predicted probabilities to observed outcomes.
@@ -124,16 +123,16 @@ A plot comparing predicted probabilities to observed outcomes.
 A table summarizing model predictions versus actual outcomes.
 
 ***F1 Score*** <a id="glossary-f1"></a>  
-A metric that balances precision and recall, particularly useful when classes are imbalanced.
+A metric that balances precision and recall, particularly useful when classes are imbalanced. Typical values range from 0.6–0.8; higher is better.
 
 ***Log Loss*** <a id="glossary-log-loss"></a>  
-A metric that penalizes confident but incorrect probability predictions.
+Shows how accurate the model’s probability estimates are. Lower values mean the model assigns more reliable likelihoods. Typical values for this model fall between 0.4–0.6; lower is better.
 
 ***Precision*** <a id="glossary-precision"></a>  
-The proportion of students predicted to need support who actually do need support.
+The proportion of students predicted to need support who actually do need support. Typical values range from 0.6–0.8; higher is better.
 
 ***Recall*** <a id="glossary-recall"></a>  
-The proportion of students who truly need support that the model successfully identifies.
+Shows how many students who truly need support the model successfully identifies. Typical values range from 0.6–0.8; higher is better.
 
 ***ROC Curve (Receiver Operating Characteristic Curve)*** <a id="glossary-roc"></a>  
 A plot showing the tradeoff between true positive and false positive rates.
