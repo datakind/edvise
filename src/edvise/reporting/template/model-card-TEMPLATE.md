@@ -48,7 +48,7 @@
     - After our feature selection process, **{number_of_features} actionable features** were retained for modeling.
 - #### Target Population {{#target-population}}
 {target_population_section}
-    - This resulted in a training dataset of **{training_dataset_size} students** within the target timeframe.
+    - This resulted in a dataset of **{training_dataset_size} students** within the target timeframe.
 - #### Model Development
 {sample_weight_section}
 {data_split_table}

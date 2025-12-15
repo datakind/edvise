@@ -137,10 +137,7 @@ class ModelCard(t.Generic[C]):
                     f"Configured split_col '{self.cfg.split_col}' is not present in modeling data columns: "
                     f"{list(self.modeling_data.columns)}"
                 )
-            self.training_data = self.modeling_data[
-                self.modeling_data[self.cfg.split_col] == "train"
-            ]
-        self.context["training_dataset_size"] = self.training_data.shape[0]
+        self.context["training_dataset_size"] = self.modeling_data.shape[0]
         self.context["num_runs_in_experiment"] = utils.safe_count_runs(
             self.experiment_id
         )
