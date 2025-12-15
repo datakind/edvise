@@ -20,34 +20,41 @@
 - If there are questions or concerns about the model, you can contact **education@datakind.org** or your customer success manager.
 
 ### Intended Use {{#intended-use}}
+
 - #### Primary Purpose
     - Identify students who may need support to retain or graduate on time. 
     - Empower academic advisors to provide strategic interventions based on the factors contributing to students' need for support.
+
 - #### Out-of-Scope Uses
     - Outside of the [target population](#target-population)
     - Without intervention strategies carefully designed by academic advisors, student success professionals, and researchers. 
 
 ### Methodology {{#methodology}}
+
 - #### Sample Development
     - Our first step was our data audit & validation, which included handling null and duplicate values, checking for inconsistencies between files, and ensuring all student IDs are unique.
     - After validation, we then proceeded with exploratory data analysis (EDA) to develop a deeper understanding of the raw dataset prior to our [feature engineering](#glossary-feature-engineering) & model development, ensuring alignment with stakeholders through an iterative process.
+
 - #### Feature Development
     - We then proceeded with feature engineering, which involved transforming raw data into meaningful representations by applying semantic abstractions, aggregating at varying levels of term, course, or section analysis, and comparing values cumulatively over time.
     - Stakeholder collaboration was also essential to our feature engineering effort, ensuring domain and use-case knowledge shaped the development of insightful features.
-### Feature Selection
-    - **Collinearity Threshold**
+
+- #### Feature Selection
+    - Collinearity Threshold
         - Threshold Applied: Removed features with VIF greater than {collinearity_threshold} were removed to reduce multicollinearity and improve model stability.
         - Explanation: [Variance Inflation Factor (VIF)](#glossary-vif) measures multicollinearity between features.
-    - **Low Variance Threshold**
+    - Low Variance Threshold
         - Threshold Applied: Removed features with variance less than {low_variance_threshold}.
         - Explanation: Features with very low variance do not vary much across observations, meaning they carry little predictive signal.
-    - **Missing Data Threshold**
+    - Missing Data Threshold
         - Threshold Applied: Removed features with {incomplete_threshold}% or more missing values.
         - Explanation: Features with a high percentage of missing values may introduce noise or require extensive imputation.
     - After our feature selection process, **{number_of_features} actionable features** were retained for modeling.
+
 - #### Target Population {{#target-population}}
 {target_population_section}
     - This resulted in a dataset of **{training_dataset_size} students** within the target timeframe.
+
 - #### Model Development
 {sample_weight_section}
 {data_split_table}
@@ -71,6 +78,7 @@
 {test_histogram}
 
 ### Quantitative Bias Analysis {{#bias}}
+
 #### Model Bias Metric
 - Our bias evaluation metric is [_False Negative Rate (FNR)_](#glossary-fnr).
 - We assess [FNR Parity](#glossary-fnr-parity) to determine whether underprediction occurs at disproportionate rates across student subgroups.
