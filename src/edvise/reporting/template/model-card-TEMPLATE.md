@@ -34,16 +34,16 @@
 - #### Feature Development
     - We then proceeded with feature engineering, which involved transforming raw data into meaningful representations by applying semantic abstractions, aggregating at varying levels of term, course, or section analysis, and comparing values cumulatively over time.
     - Stakeholder collaboration was also essential to our feature engineering effort, ensuring domain and use-case knowledge shaped the development of insightful features.
-    - Then, our next step was [feature selection](#glossary-feature-selection), applying the following processing below.
-        - **Collinearity Threshold**
-            - Threshold Applied: Removed features with VIF greater than {collinearity_threshold} were removed to reduce multicollinearity and improve model stability.
-            - Explanation: [Variance Inflation Factor (VIF)](#glossary-vif) measures multicollinearity between features.
-        - **Low Variance Threshold**
-            - Threshold Applied: Removed features with variance less than {low_variance_threshold}.
-            - Explanation: Features with very low variance do not vary much across observations, meaning they carry little predictive signal.
-        - **Missing Data Threshold**
-            - Threshold Applied: Removed features with {incomplete_threshold}% or more missing values.
-            - Explanation: Features with a high percentage of missing values may introduce noise or require extensive imputation.
+### Feature Selection
+    - **Collinearity Threshold**
+        - Threshold Applied: Removed features with VIF greater than {collinearity_threshold} were removed to reduce multicollinearity and improve model stability.
+        - Explanation: [Variance Inflation Factor (VIF)](#glossary-vif) measures multicollinearity between features.
+    - **Low Variance Threshold**
+        - Threshold Applied: Removed features with variance less than {low_variance_threshold}.
+        - Explanation: Features with very low variance do not vary much across observations, meaning they carry little predictive signal.
+    - **Missing Data Threshold**
+        - Threshold Applied: Removed features with {incomplete_threshold}% or more missing values.
+        - Explanation: Features with a high percentage of missing values may introduce noise or require extensive imputation.
     - After our feature selection process, **{number_of_features} actionable features** were retained for modeling.
 - #### Target Population {{#target-population}}
 {target_population_section}
