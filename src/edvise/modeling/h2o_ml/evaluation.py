@@ -292,10 +292,7 @@ def create_and_log_h2o_model_comparison(
     return best
 
 
-def create_confusion_matrix_plot(
-    y_true: np.ndarray, y_pred: np.ndarray, sample_weights: t.Optional[np.ndarray]
-) -> plt.Figure:
-    # Normalize confusion matrix by true labels
+def create_confusion_matrix_plot(y_true, y_pred, sample_weights=None):
     labels = [0, 1]
     cm = confusion_matrix(
         y_true, y_pred,
@@ -305,7 +302,7 @@ def create_confusion_matrix_plot(
     )
 
     fig = plt.figure(figsize=(11, 6.5), dpi=200)
-    gs = fig.add_gridspec(1, 3, width_ratios=[1.2, 2.0, 1.2], wspace=0.05)
+    gs = fig.add_gridspec(1, 3, width_ratios=[1.2, 2.0, 1.2], wspace=0.18)
 
     axL = fig.add_subplot(gs[0, 0]); axL.axis("off")
     ax  = fig.add_subplot(gs[0, 1])
@@ -332,14 +329,14 @@ def create_confusion_matrix_plot(
     green, red = "#2ca02c", "#d62728"
 
     axL.text(1.0, 0.75, "True Negatives\nDoes Not Need Support;\nCorrectly Classified",
-             ha="right", va="center", color=green, fontsize=12, fontweight="bold")
+             ha="right", va="center", color=green, fontsize=10, fontweight="bold")
     axL.text(1.0, 0.25, "False Negatives\nNeeds Support;\nIncorrectly Classified",
-             ha="right", va="center", color=red, fontsize=12, fontweight="bold")
+             ha="right", va="center", color=red, fontsize=10, fontweight="bold")
 
     axR.text(0.0, 0.75, "False Positives\nDoes NOT Need Support;\nIncorrectly Classified",
-             ha="left", va="center", color=red, fontsize=12, fontweight="bold")
+             ha="left", va="center", color=red, fontsize=10, fontweight="bold")
     axR.text(0.0, 0.25, "True Positives\nNeeds Support;\nCorrectly Classified",
-             ha="left", va="center", color=green, fontsize=12, fontweight="bold")
+             ha="left", va="center", color=green, fontsize=10, fontweight="bold")
 
     ax.set_aspect("equal", adjustable="box")
     return fig
