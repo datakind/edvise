@@ -173,8 +173,8 @@
   figure.figure,
   figure.table {
     margin: 0.75em 0 1.0em 0;
-    break-inside: avoid;
-    page-break-inside: avoid;
+    break-inside: auto;
+    page-break-inside: auto;
   }
   
   /* Figure captions (below images) */
@@ -254,14 +254,20 @@
   }
   
   /* ================================
-     PDF-friendly links
+    Link Styling (inline + TOC)
   ================================ */
+
   a {
-    text-decoration: none;
-    color: inherit;
+    color: #0b5fff;
+    text-decoration: underline;
   }
-  
+
   a:visited {
-    color: inherit;
+    color: #0847c4;
+  }
+
+  /* Keep TOC layout clean (leader dots not underlined) */
+  #contents + ul li a::after {
+    text-decoration: none;
   }
   
