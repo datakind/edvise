@@ -342,6 +342,7 @@ def create_confusion_matrix_plot(y_true, y_pred, sample_weights=None):
 
     fig.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.06)
 
+    plt.close(fig)
     return fig
 
 
