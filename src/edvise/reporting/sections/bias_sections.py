@@ -138,6 +138,6 @@ def register_bias_sections(card, registry):
             return f"{card.format.italic('No statistically significant disparities were found on test dataset across groups.')}"
 
         section_header = (
-            f"{card.format.header_level(4)}Disparities by Student Group\n\n"
+            f"\n{card.format.header_level(4)}Disparities by Student Group\n\n"
         )
         return section_header + "\n\n".join(all_blocks)
