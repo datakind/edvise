@@ -244,7 +244,7 @@ class ModelCard(t.Generic[C]):
             "test_confusion_matrix": (
                 "Test Confusion Matrix",
                 "test_confusion_matrix.png",
-                "125mm",
+                "175mm",
                 "Test Confusion Matrix",
             ),
             "test_histogram": (
