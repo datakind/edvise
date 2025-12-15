@@ -297,36 +297,45 @@ def create_confusion_matrix_plot(
 ) -> plt.Figure:
     # Normalize confusion matrix by true labels
     cm = confusion_matrix(
-        y_true, y_pred, normalize="true", sample_weight=sample_weights
+        y_true,
+        y_pred,
+        normalize="true",
+        sample_weight=sample_weights,
     )
 
-    fig, ax = plt.subplots(figsize=(8, 4.8))
+    fig, ax = plt.subplots(
+        figsize=(11, 6.5),   # ← bigger figure
+        dpi=125,             # ← higher DPI
+        constrained_layout=True,
+    )
+
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot(ax=ax, cmap="Blues", colorbar=False)
 
-    ax.set_title("Normalized Confusion Matrix")
-
-    # Remove default annotations from ConfusionMatrixDisplay
+    # Hide default annotations
     for txt in ax.texts:
         txt.set_visible(False)
 
-    # Dynamic contrast-aware text overlay (cell values)
+    # Custom cell values
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
             value = cm[i, j]
-            text_color = "black" if value < 0.5 else "white"
-            ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=text_color)
+            ax.text(
+                j,
+                i,
+                f"{value:.2f}",
+                ha="center",
+                va="center",
+                color="white" if value > 0.5 else "black",
+                fontsize=12,
+                fontweight="bold",
+            )
 
-    # --- Side annotations (like your screenshot) ---
     green = "#2ca02c"
     red = "#d62728"
 
-    # Place text in axes coordinates so it stays anchored outside the plot
-    # y positions correspond to row centers: row 0 ~ 0.75, row 1 ~ 0.25
-    y_row0 = 0.75
-    y_row1 = 0.25
+    y_row0, y_row1 = 0.75, 0.25
 
-    # Left side: interpret by TRUE label rows
     ax.text(
         -0.35,
         y_row0,
@@ -335,7 +344,7 @@ def create_confusion_matrix_plot(
         ha="right",
         va="center",
         color=green,
-        fontsize=10,
+        fontsize=12,
         fontweight="bold",
     )
     ax.text(
@@ -346,11 +355,10 @@ def create_confusion_matrix_plot(
         ha="right",
         va="center",
         color=red,
-        fontsize=10,
+        fontsize=12,
         fontweight="bold",
     )
 
-    # Right side: interpret by PREDICTED label columns (using the same row y-positions)
     ax.text(
         1.35,
         y_row0,
@@ -359,7 +367,7 @@ def create_confusion_matrix_plot(
         ha="left",
         va="center",
         color=red,
-        fontsize=10,
+        fontsize=12,
         fontweight="bold",
     )
     ax.text(
@@ -370,16 +378,15 @@ def create_confusion_matrix_plot(
         ha="left",
         va="center",
         color=green,
-        fontsize=10,
+        fontsize=12,
         fontweight="bold",
     )
 
-    # Make room for the outside text
-    fig.subplots_adjust(left=0.30, right=0.70)
+    ax.set_aspect("equal", adjustable="box")
+    fig.subplots_adjust(left=0.28, right=0.72)
 
-    plt.tight_layout()
-    plt.close(fig)
     return fig
+
 
 
 def create_roc_curve_plot(

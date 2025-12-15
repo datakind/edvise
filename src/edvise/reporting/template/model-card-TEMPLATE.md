@@ -86,13 +86,13 @@
 - #### Analyzing Feature Importance
     - This figure shows how individual features contribute to the model’s predictions for each student-term record using [SHAP values](#glossary-shap).
         - Guidelines to interpret the plot:
-        - Each dot represents a single student-term record.
-        - Features are ordered by overall importance, with the most influential at the top.
-        - **[SHAP values](#glossary-shap) (x-axis)** indicate whether a feature increases (+) or decreases (–) the predicted likelihood of needing support.
-        - **Color** reflects the feature’s value for that student:
-            - <span class="dk-red">High</span> values in red
-            - <span class="dk-blue">Low</span> values in blue
-            - <span class="dk-gray">Categorical features</span> in gray
+            - Each dot represents a single student-term record.
+            - Features are ordered by overall importance, with the most influential at the top.
+            - **[SHAP values](#glossary-shap) (x-axis)** indicate whether a feature increases (+) or decreases (–) the predicted likelihood of needing support.
+            - **Color** reflects the feature’s value for that student:
+                - <span class="dk-red">High</span> values in red
+                - <span class="dk-blue">Low</span> values in blue
+                - <span class="dk-gray">Categorical features</span> in gray
         - Example: _Students with a lower percentage of grades above the section’s average tend to have SHAP values further to the right, indicating that this feature contributes to the model predicting a higher likelihood of needing support._
 
 {feature_importances_by_shap_plot}
