@@ -68,6 +68,7 @@ class DummyConfig:
     def __init__(self):
         self.institution_id = "test_uni"
         self.institution_name = "Test University"
+        self.model = {"run_id": "abc", "experiment_id": "cde"}
         self.modeling = DummyModelingConfig()
         self.preprocessing = DummyPreprocessingConfig()
 

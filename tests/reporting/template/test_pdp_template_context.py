@@ -69,6 +69,7 @@ class DummyConfig:
     def __init__(self):
         self.institution_id = "test_uni"
         self.institution_name = "Test University"
+        self.model = {"run_id": "abc", "experiment_id": "cde"}
         self.modeling = DummyModelingConfig()
         self.preprocessing = DummyPreprocessingConfig()
 
@@ -78,7 +79,7 @@ def make_pdp_config() -> PDPProjectConfig:
     return PDPProjectConfig(
         institution_id="inst_id",
         institution_name="Inst Name",
-        model={"experiment_id": "exp123", "run_id": "abc", "framework": "sklearn"},
+        model={"experiment_id": "exp123", "run_id": "abc"},
         datasets={
             "raw_course": "dummy.csv",
             "raw_cohort": "dummy.csv",
