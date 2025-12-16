@@ -390,4 +390,4 @@ class ModelCard(t.Generic[C]):
                 f"config.model.run_id is required for ModelCard '{self.model_name}', "
                 "but it was missing (config.model is None or run_id is empty)."
             )
-        return run_id
+        return str(run_id)
