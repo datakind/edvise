@@ -354,7 +354,9 @@ class ModelCard(t.Generic[C]):
         """
         Builds the output path for the model card.
         """
-        out_dir = os.path.join(tempfile.gettempdir(), "model_cards", self.run_id)
+        out_dir = os.path.join(
+            tempfile.gettempdir(), "model_cards", self.cfg.model.run_id
+        )
         os.makedirs(out_dir, exist_ok=True)
         filename = f"model-card-{self.model_name}.md"
         return os.path.join(out_dir, filename)
