@@ -49,7 +49,7 @@
     - Missing Data Threshold
         - Threshold Applied: Removed features with {incomplete_threshold}% or more missing values.
         - Explanation: Features with a high percentage of missing values may introduce noise or require extensive imputation.
-    - After our feature selection process, **{number_of_features} actionable features** were retained for modeling.
+    - After our [feature selection](#glossary-feature-selection) process, **{number_of_features} actionable features** were retained for modeling.
 
 - #### Target Population {{#target-population}}
 {target_population_section}
@@ -82,8 +82,6 @@
 - #### Model Bias Metric
     - Our bias evaluation metric is [_False Negative Rate (FNR)_](#glossary-fnr).
     - We assess [FNR Parity](#glossary-fnr-parity) to determine whether underprediction occurs at disproportionate rates across student subgroups.
-
-- #### Analyzing Bias Across Student Groups
 {bias_groups_section}
     - We evaluated [FNR](#glossary-fnr) across these student groups and tested for statistically significant disparities.
 
@@ -134,7 +132,7 @@ A table summarizing model predictions versus actual outcomes.
 A metric that balances precision and recall, particularly useful when classes are imbalanced. Typical values range from 0.6–0.8; higher is better.
 
 ***Log Loss*** <a id="glossary-log-loss"></a>  
-Shows how accurate the model’s probability estimates are. Lower values mean the model assigns more reliable likelihoods. Typical values for this model fall between 0.4–0.6; lower is better.
+Shows how accurate the model’s probability estimates are. Lower values mean the model assigns more reliable likelihoods. Typical values for this range between 0.4–0.6; lower is better.
 
 ***Precision*** <a id="glossary-precision"></a>  
 The proportion of students predicted to need support who actually do need support. Typical values range from 0.6–0.8; higher is better.
