@@ -123,7 +123,7 @@ def register_bias_sections(card, registry):
         """
         Returns just a filler text that can be used across any platform.
         """
-        intro = f"{card.format.indent_level(1)}- Our assessment for FNR Parity was conducted across several student groups.\n"
+        intro = f"Our assessment for FNR Parity was conducted across several student groups.\n"
         return intro
 
     @registry.register("bias_summary_section")

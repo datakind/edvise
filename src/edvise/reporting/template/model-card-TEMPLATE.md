@@ -82,7 +82,9 @@
 - #### Model Bias Metric
     - Our bias evaluation metric is [_False Negative Rate (FNR)_](#glossary-fnr).
     - We assess [FNR Parity](#glossary-fnr-parity) to determine whether underprediction occurs at disproportionate rates across student subgroups.
-{bias_groups_section}
+
+- #### Analyzing Bias Across Student Groups
+    {bias_groups_section}
     - We evaluated [FNR](#glossary-fnr) across these student groups and tested for statistically significant disparities.
 
 {bias_summary_section}
