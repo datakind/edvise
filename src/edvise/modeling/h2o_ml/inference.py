@@ -126,12 +126,21 @@ def prepare_glm_enum_alignment_inputs(
         if in_dom.empty:
             return None
 
-        # mode() can return multiple values; take the first deterministically
+        # Try mode first
         try:
-            return in_dom.mode(dropna=True).iloc[0]
+            mode_vals = in_dom.mode(dropna=True)
+            if not mode_vals.empty:
+                val = mode_vals.iloc[0]
+                return val if isinstance(val, str) else None
         except Exception:
-            # robust fallback if mode behaves oddly
-            return in_dom.value_counts(dropna=True).idxmax()
+            pass
+
+        # Fallback: value_counts
+        try:
+            val = in_dom.value_counts(dropna=True).idxmax()
+            return val if isinstance(val, str) else None
+        except Exception:
+            return None
 
     def _recode_unseen_to_baseline(
         df_in: t.Optional[pd.DataFrame],
@@ -442,9 +451,13 @@ def compute_h2o_shap_contributions(
     # NOTE: GLMs due to not handle unseen categories well, so we need to impute
     if is_glm:
         if background_data is None:
-            raise ValueError("GLM predict_contributions requires background_data/background_frame.")
+            raise ValueError(
+                "GLM predict_contributions requires background_data/background_frame."
+            )
         else:
-            df_proc, bg_proc = prepare_glm_enum_alignment_inputs(model, df_proc, bg_proc)
+            df_proc, bg_proc = prepare_glm_enum_alignment_inputs(
+                model, df_proc, bg_proc
+            )
 
     # Convert features & background data to H2OFrames
     missing_flags = [c for c in df_proc.columns if c.endswith("_missing_flag")]
