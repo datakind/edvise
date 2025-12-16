@@ -26,6 +26,187 @@ from . import calibration
 LOGGER = logging.getLogger(__name__)
 
 
+def prepare_glm_enum_alignment_inputs(
+    model: H2OEstimator,
+    df: pd.DataFrame,
+    background_data: t.Optional[pd.DataFrame],
+    *,
+    cip_like_cols: t.Optional[t.Sequence[str]] = None,
+) -> t.Tuple[pd.DataFrame, t.Optional[pd.DataFrame]]:
+    """
+    GLM-only preprocessing to avoid H2O domain issues in contributions with background_frame:
+      1) Normalize CIP-like columns by stripping trailing '.0' (e.g. '131202.0' -> '131202')
+      2) Recode unseen Enum levels (w.r.t. model training domains) to a baseline category
+
+    Returns:
+      (df_proc, bg_proc)
+    """
+    if cip_like_cols is None:
+        cip_like_cols = (
+            "term_program_of_study",
+            "program_of_study_year_1",
+            "program_of_study_term_1",
+        )
+
+    out = model._model_json["output"]
+    names = list(out["names"])
+    col_types = list(out["column_types"])
+    domains = list(out["domains"])
+
+    params = model.actual_params
+    response = (
+        (out.get("response_column") or {}).get("name")
+        or params.get("response_column")
+        or params.get("y")
+    )
+
+    non_predictors = set()
+    if response:
+        non_predictors.add(response)
+    for k in ("weights_column", "offset_column", "fold_column"):
+        v = params.get(k)
+        if isinstance(v, dict):
+            v = v.get("column_name")
+        if v:
+            non_predictors.add(v)
+
+    enum_predictors = [
+        (col, domains[idx])
+        for idx, (col, typ) in enumerate(zip(names, col_types))
+        if typ == "Enum" and col not in non_predictors and domains[idx] is not None
+    ]
+
+    def _normalize_cip_like_columns(
+        df_in: t.Optional[pd.DataFrame], label: str
+    ) -> t.Optional[pd.DataFrame]:
+        if df_in is None:
+            return None
+
+        df_out = df_in.copy()
+        for col in cip_like_cols:
+            if col not in df_out.columns:
+                continue
+
+            s = df_out[col].astype(str)
+
+            # only values that look like '123456.0' / '123456.000'
+            mask = s.str.match(r"^-?\d+\.0+$")
+            if not mask.any():
+                continue
+
+            before = s[mask].head().tolist()
+            s.loc[mask] = s.loc[mask].str.replace(r"\.0+$", "", regex=True)
+            after = s[mask].head().tolist()
+            df_out[col] = s
+
+            LOGGER.info(
+                "[%s] Normalized CIP-like column '%s': %d value(s) stripped '.0'; "
+                "examples before=%s after=%s",
+                label,
+                col,
+                int(mask.sum()),
+                before,
+                after,
+            )
+        return df_out
+
+    def _pick_mode_in_domain(
+        series: pd.Series,
+        train_dom_set: set[str],
+    ) -> t.Optional[str]:
+        """
+        Pick the most frequent value in `series` that is also in the training domain.
+        Returns None if no in-domain values exist.
+        """
+        if series is None:
+            return None
+
+        s = series.astype(str)
+        in_dom = s[s.isin(train_dom_set)]
+        if in_dom.empty:
+            return None
+
+        # mode() can return multiple values; take the first deterministically
+        try:
+            return in_dom.mode(dropna=True).iloc[0]
+        except Exception:
+            # robust fallback if mode behaves oddly
+            return in_dom.value_counts(dropna=True).idxmax()
+
+    def _recode_unseen_to_baseline(
+        df_in: t.Optional[pd.DataFrame],
+        label: str,
+        *,
+        baseline_source_df: t.Optional[pd.DataFrame] = None,
+    ) -> t.Optional[pd.DataFrame]:
+        """
+        Recode values not in the model's training domain for Enum predictors.
+        Baseline is chosen as:
+          1) mode(in-domain) from `baseline_source_df[col]` if provided,
+          2) else mode(in-domain) from `df_in[col]`,
+          3) else train_dom[0].
+        """
+        if df_in is None:
+            return None
+
+        df_out = df_in.copy()
+
+        for col, train_dom in enum_predictors:
+            if col not in df_out.columns:
+                continue
+
+            train_dom = [str(x) for x in train_dom]
+            train_dom_set = set(train_dom)
+
+            s = df_out[col].astype(str)
+            mask = ~s.isin(train_dom_set)
+            if not mask.any():
+                df_out[col] = s
+                continue
+
+            bad_vals = sorted(s[mask].unique())
+
+            # Pick baseline using the most representative in-domain value
+            baseline = None
+            if baseline_source_df is not None and col in baseline_source_df.columns:
+                baseline = _pick_mode_in_domain(baseline_source_df[col], train_dom_set)
+
+            if baseline is None:
+                baseline = _pick_mode_in_domain(s, train_dom_set)
+
+            if baseline is None:
+                baseline = train_dom[0]  # last-resort fallback
+
+            LOGGER.warning(
+                "[%s] Column '%s': %d value(s) outside training domain; "
+                "example unseen values: %s. Recoding to baseline '%s'.",
+                label,
+                col,
+                int(mask.sum()),
+                bad_vals[:5],
+                baseline,
+            )
+            s.loc[mask] = baseline
+            df_out[col] = s
+
+        return df_out
+
+    df_proc = _normalize_cip_like_columns(df, "features")
+    bg_proc = _normalize_cip_like_columns(background_data, "background")
+
+    # Baseline selection strategy:
+    # - When recoding features, prefer the background distribution (if present)
+    # - When recoding background, prefer itself
+    df_proc = _recode_unseen_to_baseline(
+        df_proc, "features", baseline_source_df=bg_proc
+    )
+    bg_proc = _recode_unseen_to_baseline(
+        bg_proc, "background", baseline_source_df=bg_proc
+    )
+
+    return df_proc, bg_proc
+
+
 def get_h2o_used_features(model: H2OEstimator) -> t.List[str]:
     """
     Extracts the actual feature names used by the H2O model (excluding dropped/constant columns).
@@ -115,133 +296,6 @@ def predict_h2o(
     preds = (probs >= float(threshold)).astype(int)
 
     return preds, probs
-
-
-def _prepare_glm_enum_alignment_inputs(
-    model: H2OEstimator,
-    df: pd.DataFrame,
-    background_data: t.Optional[pd.DataFrame],
-    *,
-    cip_like_cols: t.Optional[t.Sequence[str]] = None,
-) -> t.Tuple[pd.DataFrame, t.Optional[pd.DataFrame]]:
-    """
-    GLM-only preprocessing to avoid H2O domain issues in contributions with background_frame:
-      1) Normalize CIP-like columns by stripping trailing '.0' (e.g. '131202.0' -> '131202')
-      2) Recode unseen Enum levels (w.r.t. model training domains) to a baseline category
-
-    Returns:
-      (df_proc, bg_proc)
-    """
-    if cip_like_cols is None:
-        cip_like_cols = (
-            "term_program_of_study",
-            "program_of_study_year_1",
-            "program_of_study_term_1",
-        )
-
-    out = model._model_json["output"]
-    names = list(out["names"])
-    col_types = list(out["column_types"])
-    domains = list(out["domains"])
-
-    params = model.actual_params
-    response = (
-        (out.get("response_column") or {}).get("name")
-        or params.get("response_column")
-        or params.get("y")
-    )
-
-    non_predictors = set()
-    if response:
-        non_predictors.add(response)
-    for k in ("weights_column", "offset_column", "fold_column"):
-        v = params.get(k)
-        if isinstance(v, dict):
-            v = v.get("column_name")
-        if v:
-            non_predictors.add(v)
-
-    enum_predictors = [
-        (col, domains[idx])
-        for idx, (col, typ) in enumerate(zip(names, col_types))
-        if typ == "Enum" and col not in non_predictors and domains[idx] is not None
-    ]
-
-    def _normalize_cip_like_columns(
-        df_in: t.Optional[pd.DataFrame], label: str
-    ) -> t.Optional[pd.DataFrame]:
-        if df_in is None:
-            return None
-
-        df_out = df_in.copy()
-        for col in cip_like_cols:
-            if col not in df_out.columns:
-                continue
-
-            s = df_out[col].astype(str)
-
-            # only values that look like '123456.0' / '123456.000'
-            mask = s.str.match(r"^-?\d+\.0+$")
-            if not mask.any():
-                continue
-
-            before = s[mask].head().tolist()
-            s.loc[mask] = s.loc[mask].str.replace(r"\.0+$", "", regex=True)
-            after = s[mask].head().tolist()
-            df_out[col] = s
-
-            LOGGER.info(
-                "[%s] Normalized CIP-like column '%s': %d value(s) stripped '.0'; "
-                "examples before=%s after=%s",
-                label,
-                col,
-                int(mask.sum()),
-                before,
-                after,
-            )
-        return df_out
-
-    def _recode_unseen_to_baseline(
-        df_in: t.Optional[pd.DataFrame], label: str
-    ) -> t.Optional[pd.DataFrame]:
-        if df_in is None:
-            return None
-
-        df_out = df_in.copy()
-        for col, train_dom in enum_predictors:
-            if col not in df_out.columns:
-                continue
-
-            train_dom = [str(x) for x in train_dom]
-            train_dom_set = set(train_dom)
-
-            s = df_out[col].astype(str)
-            mask = ~s.isin(train_dom_set)
-            if mask.any():
-                bad_vals = sorted(s[mask].unique())
-                baseline = train_dom[0]
-                LOGGER.warning(
-                    "[%s] Column '%s': %d value(s) outside training domain; "
-                    "example unseen values: %s. Recoding to baseline '%s'.",
-                    label,
-                    col,
-                    int(mask.sum()),
-                    bad_vals[:5],
-                    baseline,
-                )
-                s.loc[mask] = baseline
-
-            df_out[col] = s
-
-        return df_out
-
-    df_proc = _normalize_cip_like_columns(df, "features")
-    bg_proc = _normalize_cip_like_columns(background_data, "background")
-
-    df_proc = _recode_unseen_to_baseline(df_proc, "features")
-    bg_proc = _recode_unseen_to_baseline(bg_proc, "background")
-
-    return df_proc, bg_proc
 
 
 def predict_contribs_batched(
@@ -390,7 +444,7 @@ def compute_h2o_shap_contributions(
         if background_data is None:
             raise ValueError("GLM predict_contributions requires background_data/background_frame.")
         else:
-            df_proc, bg_proc = _prepare_glm_enum_alignment_inputs(model, df_proc, bg_proc)
+            df_proc, bg_proc = prepare_glm_enum_alignment_inputs(model, df_proc, bg_proc)
 
     # Convert features & background data to H2OFrames
     missing_flags = [c for c in df_proc.columns if c.endswith("_missing_flag")]
