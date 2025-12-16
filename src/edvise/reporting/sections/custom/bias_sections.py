@@ -163,6 +163,6 @@ def register_bias_sections(card, registry):
             )
 
         section_header = (
-            f"{card.format.header_level(4)}Disparities by Student Group\n\n"
+            f"\n{card.format.header_level(4)}Disparities by Student Group\n\n"
         )
         return section_header + "\n\n".join(all_blocks)
