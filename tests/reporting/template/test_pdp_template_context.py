@@ -2,6 +2,7 @@ import pytest
 import pandas as pd
 import re
 from unittest.mock import patch
+from types import SimpleNamespace
 from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.model_card.pdp import PDPModelCard
 from edvise.configs.pdp import PDPProjectConfig
@@ -67,11 +68,18 @@ class DummyPreprocessingConfig:
 # Dummy config for base ModelCard
 class DummyConfig:
     def __init__(self):
-        self.institution_id = "test_uni"
-        self.institution_name = "Test University"
-        self.model = {"run_id": "abc", "experiment_id": "cde"}
-        self.modeling = DummyModelingConfig()
-        self.preprocessing = DummyPreprocessingConfig()
+        self.institution_id = "test_inst"
+        self.institution_name = "Test Institution"
+        self.split_col = None
+
+        self.model = SimpleNamespace(
+            run_id="dummy_run_id",
+            experiment_id="dummy_experiment_id",
+            mlflow_model_uri="models:/dummy/Production",
+            framework="sklearn",
+        )
+
+        self.modeling = None
 
 
 # Valid PDPProjectConfig

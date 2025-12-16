@@ -70,7 +70,6 @@ class DummyConfig:
         self.institution_name = "Test Institution"
         self.split_col = None
 
-        # 👇 REQUIRED under new ModelCard contract
         self.model = SimpleNamespace(
             run_id="dummy_run_id",
             experiment_id="dummy_experiment_id",
@@ -78,7 +77,6 @@ class DummyConfig:
             framework="sklearn",
         )
 
-        # Include anything else the template/context expects
         self.modeling = None
 
 
