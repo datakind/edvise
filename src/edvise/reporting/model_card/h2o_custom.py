@@ -62,10 +62,7 @@ class H2OCustomModelCard(ModelCard[CustomProjectConfig]):
                     f"Configured split_col '{self.cfg.split_col}' is not present in modeling data columns: "
                     f"{list(self.modeling_data.columns)}"
                 )
-            self.training_data = self.modeling_data[
-                self.modeling_data[self.cfg.split_col] == "train"
-            ]
-        self.context["training_dataset_size"] = self.training_data.shape[0]
+        self.context["training_dataset_size"] = self.modeling_data.shape[0]
         self.context["num_runs_in_experiment"] = (
             h2o_ml.evaluation.extract_number_of_runs_from_model_training(
                 self.experiment_id
@@ -116,31 +113,37 @@ class H2OCustomModelCard(ModelCard[CustomProjectConfig]):
                 "Model Comparison",
                 "model_comparison.png",
                 "125mm",
+                "Model Comparison by Architecture",
             ),
             "test_calibration_curve": (
                 "Test Calibration Curve",
                 "test_calibration_curve.png",
                 "125mm",
+                "Test Calibration Curve",
             ),
             "test_roc_curve": (
                 "Test ROC Curve",
                 "test_roc_curve.png",
                 "125mm",
+                "Test ROC Curve",
             ),
             "test_confusion_matrix": (
                 "Test Confusion Matrix",
                 "test_confusion_matrix.png",
-                "125mm",
+                "175mm",
+                "Test Confusion Matrix",
             ),
             "test_histogram": (
                 "Test Histogram",
                 "preds/test_hist.png",
                 "125mm",
+                "Test Support Score Histogram",
             ),
             "feature_importances_by_shap_plot": (
                 "Feature Importances",
                 "h2o_feature_importances_by_shap_plot.png",
                 "150mm",
+                "Feature Importances by SHAP on Test Data",
             ),
         }
         return {
@@ -150,9 +153,10 @@ class H2OCustomModelCard(ModelCard[CustomProjectConfig]):
                 artifact_path=path,
                 local_folder=self.assets_folder,
                 fixed_width=width,
+                caption=caption,
             )
             or ""
-            for key, (description, path, width) in plots.items()
+            for key, (description, path, width, caption) in plots.items()
         }
 
     def _register_sections(self):

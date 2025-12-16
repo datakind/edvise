@@ -35,7 +35,7 @@ def register_attribute_sections(card, registry):
 
         if outcome_type == "retention":
             outcome = "non-retention into the student's second academic year"
-            description = f"The model predicts the likelihood of {outcome} based on student, course, and academic data."
+            description = f"This model predicts the likelihood of {outcome} based on student, course, and academic data."
         else:
             limits = card.cfg.preprocessing.selection.intensity_time_limits
 
@@ -60,7 +60,7 @@ def register_attribute_sections(card, registry):
                 return f"{card.format.bold('Timeframe for Outcome Variable Not Found')}"
 
             full_str = card.format.format_intensity_time_limit(full_time)
-            description = f"The model predicts the likelihood of {outcome} within {full_str} for full-time students"
+            description = f"This model predicts the likelihood of {outcome} within {full_str} for full-time students"
 
             if part_time:
                 part_str = card.format.format_intensity_time_limit(part_time)

@@ -28,11 +28,27 @@ def test_data_split_table_renders_correctly(mock_card_with_splits):
     register_data_sections(mock_card_with_splits, registry)
 
     rendered = registry.render_all()
-    output = rendered["data_split_table"]
-    assert "| Split      | Students | Percentage |" in output
-    assert "| Training   | 70       | 70%       |" in output
-    assert "| Validation | 15       | 15%       |" in output
-    assert "| Test       | 15       | 15%       |" in output
+    html = rendered["data_split_table"]
+
+    # Table structure
+    assert '<figure class="table">' in html
+    assert "<figcaption>Dataset Split Summary</figcaption>" in html
+
+    # Headers
+    assert "<th>Split</th>" in html
+    assert "<th>Students</th>" in html
+    assert "<th>Percentage</th>" in html
+
+    # Rows
+    assert "<td>Training</td>" in html
+    assert "<td>70</td>" in html
+    assert "<td>70%</td>" in html
+
+    assert "<td>Validation</td>" in html
+    assert "<td>15</td>" in html
+    assert "<td>15%</td>" in html
+
+    assert "<td>Test</td>" in html
 
 
 def test_data_split_table_missing_splits(mock_card_no_splits):
