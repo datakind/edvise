@@ -348,6 +348,7 @@ class ModelCard(t.Generic[C]):
             filename=self.pdf_path,
             catalog=self.catalog,
             institution_id=self.cfg.institution_id,
+            run_id=self.cfg.model.run_id
         )
 
     def _build_output_path(self) -> str:

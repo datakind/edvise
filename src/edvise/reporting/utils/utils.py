@@ -136,7 +136,7 @@ def download_static_asset(
         return dst_path
 
 
-def save_card_to_gold_volume(filename: str, catalog: str, institution_id: str) -> None:
+def save_card_to_gold_volume(filename: str, catalog: str, institution_id: str, run_id: str) -> None:
     """
     Saves the model card PDF to a subdirectory of "model_cards" in a Unity Catalog-backed gold volume.
 
@@ -150,7 +150,7 @@ def save_card_to_gold_volume(filename: str, catalog: str, institution_id: str) -
         schema = f"{institution_id}_gold"
         file_volume = "gold_volume"
         volume_dir = f"/Volumes/{catalog}/{schema}/{file_volume}"
-        model_card_dir = os.path.join(volume_dir, "model_cards")
+        model_card_dir = os.path.join(volume_dir, "model_cards", run_id)
         dst_path = os.path.join(model_card_dir, os.path.basename(filename))
 
         # Check if the volume exists
