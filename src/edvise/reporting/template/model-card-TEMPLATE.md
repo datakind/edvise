@@ -84,7 +84,7 @@
     - We assess [FNR Parity](#glossary-fnr-parity) to determine whether underprediction occurs at disproportionate rates across student subgroups.
 
 - #### Analyzing Bias Across Student Groups
-    {bias_groups_section}
+{bias_groups_section}
     - We evaluated [FNR](#glossary-fnr) across these student groups and tested for statistically significant disparities.
 
 {bias_summary_section}
