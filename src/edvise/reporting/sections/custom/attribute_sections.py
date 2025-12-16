@@ -36,7 +36,7 @@ def register_attribute_sections(card, registry):
 
             if outcome_type == "retention":
                 outcome = "non-retention into the student's second academic year"
-                description = f"The model predicts the likelihood of {outcome} based on student, course, and academic data."
+                description = f"This model predicts the likelihood of {outcome} based on student, course, and academic data."
             else:
                 outcome = "not graduating on time"
                 unit = card.cfg.preprocessing.target.unit
@@ -65,7 +65,7 @@ def register_attribute_sections(card, registry):
                     timeframe_phrase = f"within {unit_str}"
 
                 description = (
-                    f"The model predicts the likelihood of {outcome} {timeframe_phrase}, "
+                    f"This model predicts the likelihood of {outcome} {timeframe_phrase}, "
                     "based on student, course, and academic data."
                 )
 

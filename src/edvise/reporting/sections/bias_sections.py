@@ -103,7 +103,8 @@ def register_bias_sections(card, registry):
                 run_id=card.run_id,
                 local_folder=card.assets_folder,
                 artifact_path=plot_artifact_path,
-                description=f"False Negative Parity Rate for {group_name} on Test Data",
+                description=f"False Negative Rate Parity for {group_name} on Test Data",
+                caption=f"FNR Parity for {group_name} on Test Data",
             )
         except Exception as e:
             LOGGER.warning(f"Could not load plot for {group_name}: {str(e)}")
@@ -137,6 +138,6 @@ def register_bias_sections(card, registry):
             return f"{card.format.italic('No statistically significant disparities were found on test dataset across groups.')}"
 
         section_header = (
-            f"{card.format.header_level(4)}Disparities by Student Group\n\n"
+            f"\n{card.format.header_level(4)}Disparities by Student Group\n\n"
         )
         return section_header + "\n\n".join(all_blocks)
