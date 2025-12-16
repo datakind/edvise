@@ -160,7 +160,7 @@ def make_custom_project_config():
             "gold": {
                 "advisor_output": {"predict_table_path": "dummy"},
             },
-        }
+        },
     )
 
 

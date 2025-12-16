@@ -136,7 +136,9 @@ def download_static_asset(
         return dst_path
 
 
-def save_card_to_gold_volume(filename: str, catalog: str, institution_id: str, run_id: str) -> None:
+def save_card_to_gold_volume(
+    filename: str, catalog: str, institution_id: str, run_id: str
+) -> None:
     """
     Saves the model card PDF to a subdirectory of "model_cards" in a Unity Catalog-backed gold volume.
 

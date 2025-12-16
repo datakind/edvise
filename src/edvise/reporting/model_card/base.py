@@ -359,11 +359,11 @@ class ModelCard(t.Generic[C]):
         run_id = getattr(self, "run_id", None)
 
         if not run_id:
-            raise RuntimeError("ModelCard.run_id must be set before building output path")
-    
-        out_dir = os.path.join(
-            tempfile.gettempdir(), "model_cards", run_id
-        )
+            raise RuntimeError(
+                "ModelCard.run_id must be set before building output path"
+            )
+
+        out_dir = os.path.join(tempfile.gettempdir(), "model_cards", run_id)
         os.makedirs(out_dir, exist_ok=True)
         filename = f"model-card-{self.model_name}.md"
         return os.path.join(out_dir, filename)

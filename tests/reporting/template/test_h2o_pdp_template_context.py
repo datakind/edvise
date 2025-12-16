@@ -1,6 +1,7 @@
 import pytest
 import pandas as pd
 import re
+from types import SimpleNamespace
 from unittest.mock import patch
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise.configs.pdp import PDPProjectConfig
@@ -63,14 +64,22 @@ class DummyPreprocessingConfig:
         self.features = DummyFeaturesConfig()
 
 
-# Dummy config for base ModelCard
 class DummyConfig:
     def __init__(self):
-        self.institution_id = "test_uni"
-        self.institution_name = "Test University"
-        self.model = {"run_id": "abc", "experiment_id": "cde"}
-        self.modeling = DummyModelingConfig()
-        self.preprocessing = DummyPreprocessingConfig()
+        self.institution_id = "test_inst"
+        self.institution_name = "Test Institution"
+        self.split_col = None
+
+        # 👇 REQUIRED under new ModelCard contract
+        self.model = SimpleNamespace(
+            run_id="dummy_run_id",
+            experiment_id="dummy_experiment_id",
+            mlflow_model_uri="models:/dummy/Production",
+            framework="sklearn",
+        )
+
+        # Include anything else the template/context expects
+        self.modeling = None
 
 
 # Valid PDPProjectConfig
