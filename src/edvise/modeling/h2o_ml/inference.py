@@ -117,6 +117,133 @@ def predict_h2o(
     return preds, probs
 
 
+def _prepare_glm_enum_alignment_inputs(
+    model: H2OEstimator,
+    df: pd.DataFrame,
+    background_data: t.Optional[pd.DataFrame],
+    *,
+    cip_like_cols: t.Optional[t.Sequence[str]] = None,
+) -> t.Tuple[pd.DataFrame, t.Optional[pd.DataFrame]]:
+    """
+    GLM-only preprocessing to avoid H2O domain issues in contributions with background_frame:
+      1) Normalize CIP-like columns by stripping trailing '.0' (e.g. '131202.0' -> '131202')
+      2) Recode unseen Enum levels (w.r.t. model training domains) to a baseline category
+
+    Returns:
+      (df_proc, bg_proc)
+    """
+    if cip_like_cols is None:
+        cip_like_cols = (
+            "term_program_of_study",
+            "program_of_study_year_1",
+            "program_of_study_term_1",
+        )
+
+    out = model._model_json["output"]
+    names = list(out["names"])
+    col_types = list(out["column_types"])
+    domains = list(out["domains"])
+
+    params = model.actual_params
+    response = (
+        (out.get("response_column") or {}).get("name")
+        or params.get("response_column")
+        or params.get("y")
+    )
+
+    non_predictors = set()
+    if response:
+        non_predictors.add(response)
+    for k in ("weights_column", "offset_column", "fold_column"):
+        v = params.get(k)
+        if isinstance(v, dict):
+            v = v.get("column_name")
+        if v:
+            non_predictors.add(v)
+
+    enum_predictors = [
+        (col, domains[idx])
+        for idx, (col, typ) in enumerate(zip(names, col_types))
+        if typ == "Enum" and col not in non_predictors and domains[idx] is not None
+    ]
+
+    def _normalize_cip_like_columns(
+        df_in: t.Optional[pd.DataFrame], label: str
+    ) -> t.Optional[pd.DataFrame]:
+        if df_in is None:
+            return None
+
+        df_out = df_in.copy()
+        for col in cip_like_cols:
+            if col not in df_out.columns:
+                continue
+
+            s = df_out[col].astype(str)
+
+            # only values that look like '123456.0' / '123456.000'
+            mask = s.str.match(r"^-?\d+\.0+$")
+            if not mask.any():
+                continue
+
+            before = s[mask].head().tolist()
+            s.loc[mask] = s.loc[mask].str.replace(r"\.0+$", "", regex=True)
+            after = s[mask].head().tolist()
+            df_out[col] = s
+
+            LOGGER.info(
+                "[%s] Normalized CIP-like column '%s': %d value(s) stripped '.0'; "
+                "examples before=%s after=%s",
+                label,
+                col,
+                int(mask.sum()),
+                before,
+                after,
+            )
+        return df_out
+
+    def _recode_unseen_to_baseline(
+        df_in: t.Optional[pd.DataFrame], label: str
+    ) -> t.Optional[pd.DataFrame]:
+        if df_in is None:
+            return None
+
+        df_out = df_in.copy()
+        for col, train_dom in enum_predictors:
+            if col not in df_out.columns:
+                continue
+
+            train_dom = [str(x) for x in train_dom]
+            train_dom_set = set(train_dom)
+
+            s = df_out[col].astype(str)
+            mask = ~s.isin(train_dom_set)
+            if mask.any():
+                bad_vals = sorted(s[mask].unique())
+                baseline = train_dom[0]
+                LOGGER.warning(
+                    "[%s] Column '%s': %d value(s) outside training domain; "
+                    "example unseen values: %s. Recoding to baseline '%s'.",
+                    label,
+                    col,
+                    int(mask.sum()),
+                    bad_vals[:5],
+                    baseline,
+                )
+                s.loc[mask] = baseline
+
+            df_out[col] = s
+
+        return df_out
+
+    df_proc = _normalize_cip_like_columns(df, "features")
+    bg_proc = _normalize_cip_like_columns(background_data, "background")
+
+    df_proc = _recode_unseen_to_baseline(df_proc, "features")
+    bg_proc = _recode_unseen_to_baseline(bg_proc, "background")
+
+    return df_proc, bg_proc
+
+
 def predict_contribs_batched(
     model: H2OEstimator,
     hf: h2o.H2OFrame,
@@ -250,20 +377,34 @@ def compute_h2o_shap_contributions(
 
     LOGGER.info("Preparing data for H2O inference...")
 
-    # Convert features & background data to H2OFrames
-    missing_flags = [c for c in df.columns if c.endswith("_missing_flag")]
-    h2o_features = utils._to_h2o(df, force_enum_cols=missing_flags)
+    algo = getattr(model, "algo", None)
+    is_glm = algo == "glm"
+    LOGGER.info("algo=%s (is_glm=%s)", algo, is_glm)
 
-    if background_data is not None:
-        missing_flags = [
-            c for c in background_data.columns if c.endswith("_missing_flag")
-        ]
-        h2o_bd = utils._to_h2o(background_data, force_enum_cols=missing_flags)
+    df_proc = df.copy()
+    bg_proc = background_data.copy() if background_data is not None else None
+
+    # GLM-only alignment
+    # NOTE: GLMs due to not handle unseen categories well, so we need to impute
+    if is_glm:
+        if background_data is None:
+            raise ValueError("GLM predict_contributions requires background_data/background_frame.")
+        else:
+            df_proc, bg_proc = _prepare_glm_enum_alignment_inputs(model, df_proc, bg_proc)
+
+    # Convert features & background data to H2OFrames
+    missing_flags = [c for c in df_proc.columns if c.endswith("_missing_flag")]
+    h2o_features = utils._to_h2o(df_proc, force_enum_cols=missing_flags)
+
+    if bg_proc is not None:
+        missing_flags_bg = [c for c in bg_proc.columns if c.endswith("_missing_flag")]
+        h2o_bd = utils._to_h2o(bg_proc, force_enum_cols=missing_flags_bg)
     else:
         h2o_bd = None
 
-    # Select only the features the model actually uses
     used_features = get_h2o_used_features(model)
+    LOGGER.info("Model used_features (%d)", len(used_features))
+
     if used_features:
         hf_subset = h2o_features[used_features]
         bg_subset = h2o_bd[used_features] if h2o_bd is not None else None
