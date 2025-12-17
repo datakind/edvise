@@ -461,14 +461,16 @@ class TrainingTask:
 
         logging.info("Generating model card")
         self.create_model_card(model_name)
-    
+
         logging.info("Updating pipeline version in config")
         # Persist the runtime pipeline version (git tag / commit used by the job)
         if getattr(self.args, "pipeline_version", None):
             edvise_utils.update_config.update_pipeline_version(
                 config_path=self.args.config_file_path,
                 pipeline_version=self.args.pipeline_version,
-                extra_save_paths=[os.path.join(current_run_path, self.args.config_file_name)],
+                extra_save_paths=[
+                    os.path.join(current_run_path, self.args.config_file_name)
+                ],
             )
         else:
             logging.info("No pipeline_version provided; skipping config update.")
