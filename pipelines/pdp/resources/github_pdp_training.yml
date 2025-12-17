@@ -307,6 +307,8 @@ resources:
       queue:
         enabled: true
       parameters:
+        - name: pipeline_version
+          default: "{{job.parameters.pipeline_version}}"
         - name: databricks_institution_name
           default: ${var.databricks_institution_name}
         - name: db_run_id
