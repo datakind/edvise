@@ -48,7 +48,12 @@ from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
     log_pre_cohort_courses,
 )
-from edvise.shared.logger import local_fs_path, resolve_run_path
+from edvise.shared.logger import (
+    resolve_run_path,
+    local_fs_path,
+    require,
+    warn_if,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -240,6 +245,21 @@ class PDPDataAuditTask:
             raise ValueError(
                 " Failed to parse course data with all known datetime formats."
             )
+
+        # Ensure cohort/course files are non-empty
+        require(len(df_cohort_raw) > 0, "Raw cohort dataset is empty (0 rows).")
+        require(len(df_course_raw) > 0, "Raw course dataset is empty (0 rows).")
+
+        # Ensure cohort/course files have our student ID column
+        student_id_col = getattr(self.cfg, "student_id_col", None) or "student_id"
+        require(
+            student_id_col in df_cohort_raw.columns,
+            f"Raw cohort missing required column: {student_id_col}",
+        )
+        require(
+            student_id_col in df_course_raw.columns,
+            f"Raw course missing required column: {student_id_col}",
+        )
 
         LOGGER.info(
             " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "

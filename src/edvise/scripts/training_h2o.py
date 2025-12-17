@@ -28,7 +28,14 @@ from edvise import modeling, dataio, configs
 from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise import utils as edvise_utils
-from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
+from edvise.shared.logger import (
+    resolve_run_path,
+    local_fs_path,
+    init_file_logging,
+    require,
+    warn_if,
+)
+
 
 from edvise.scripts.predictions_h2o import (
     PredConfig,
