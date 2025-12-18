@@ -21,7 +21,12 @@ print("sys.path:", sys.path)
 from edvise import checkpoints
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.dataio.read import read_config
-from edvise.shared.logger import local_fs_path, resolve_run_path, init_file_logging
+from edvise.shared.logger import (
+    local_fs_path,
+    resolve_run_path,
+    init_file_logging,
+    require,
+)
 
 from edvise.configs.pdp import (
     CheckpointNthConfig,
@@ -66,6 +71,19 @@ class PDPCheckpointsTask:
         # sort_cols: str | list[str] in schema; most functions accept list[str] or str.
         sort_cols = cp.sort_cols
         include_cols = cp.include_cols
+
+        sort_cols_list = [sort_cols] if isinstance(sort_cols, str) else list(sort_cols)
+        missing = [c for c in sort_cols_list if c not in df_student_terms.columns]
+        require(
+            not missing, f"Checkpoint sort_cols not found in student_terms: {missing}"
+        )
+
+        if include_cols:
+            missing_inc = [c for c in include_cols if c not in df_student_terms.columns]
+            require(
+                not missing_inc,
+                f"Checkpoint include_cols not found in student_terms: {missing_inc}",
+            )
 
         # Prefer isinstance() to narrow the union:
         if isinstance(cp, CheckpointNthConfig):
@@ -147,7 +165,27 @@ class PDPCheckpointsTask:
             )
         df_student_terms = pd.read_parquet(student_terms_path_local)
 
+        # --- High-level input sanity ---
+        student_id_col = self.cfg.student_id_col
+        require(
+            student_id_col in df_student_terms.columns,
+            f"student_terms missing {student_id_col}",
+        )
+        require(
+            df_student_terms[student_id_col].isna().sum() == 0,
+            f"student_terms has null {student_id_col}",
+        )
+
+        # --- Generate checkpoint ---
         df_ckpt = self.checkpoint_generation(df_student_terms)
+
+        # --- Check that generated checkpoint dataset isn't empty and has no duplicate student_ids ---
+        require(len(df_ckpt) > 0, "Checkpoint generation produced 0 rows.")
+
+        dup = df_ckpt.duplicated(subset=[student_id_col]).sum()
+        require(
+            dup == 0, f"Checkpoint output has {dup} duplicate {student_id_col} rows."
+        )
 
         cohort_counts = (
             df_ckpt[["cohort", "cohort_term"]].value_counts(dropna=False).sort_index()

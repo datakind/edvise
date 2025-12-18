@@ -149,8 +149,6 @@ class TrainingTask:
         return df_modeling
 
     def train_model(self, df_modeling: pd.DataFrame) -> str:
-        # KAYLA TODO: figure out how we want to create this - create a user email field in yml to deploy?
-        # Use run as for now - this will work until we set this as a service account
         workspace_path = f"/Users/{self.args.ds_run_as}"
 
         if self.cfg.modeling is None or self.cfg.modeling.training is None:

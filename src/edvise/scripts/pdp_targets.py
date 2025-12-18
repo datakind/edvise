@@ -21,7 +21,13 @@ print("sys.path:", sys.path)
 from edvise import targets as _targets
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.shared.logger import local_fs_path, resolve_run_path, init_file_logging
+from edvise.shared.logger import (
+    local_fs_path,
+    resolve_run_path,
+    init_file_logging,
+    require,
+    warn_if,
+)
 
 
 # Configure logging
@@ -98,6 +104,26 @@ class PDPTargetsTask:
 
         logging.info("Generating target labels...")
         target_series = self.target_generation(df_student_terms, df_ckpt)
+
+        # --- High-level input sanity ---
+        require(not target_series.empty, "Target generation produced an empty Series.")
+        require(
+            target_series.dtype == bool,
+            f"Target dtype must be bool, got {target_series.dtype}",
+        )
+        require(
+            not target_series.index.has_duplicates,
+            "Target Series index contains duplicates; expected one target per entity.",
+        )
+
+        # Degenerate target (all True or all False) — warn, don’t fail
+        vc = target_series.value_counts(dropna=False)
+        logging.info("Target distribution:\n%s", vc.to_string())
+
+        warn_if(
+            len(vc) == 1,
+            f"Target is degenerate (all values are {vc.index[0]}).",
+        )
 
         logging.info("Saving target data...")
         # Convert Series to DataFrame for saving

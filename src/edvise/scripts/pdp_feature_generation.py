@@ -22,7 +22,13 @@ print("sys.path:", sys.path)
 from edvise import feature_generation, utils
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
+from edvise.shared.logger import (
+    resolve_run_path,
+    local_fs_path,
+    init_file_logging,
+    require,
+    warn_if,
+)
 
 # Configure logging
 LOGGER = logging.getLogger(__name__)
@@ -34,6 +40,16 @@ class PDPFeatureGenerationTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.cfg = read_config(self.args.config_file_path, schema=PDPProjectConfig)
+
+    def _require_cols(self, df: pd.DataFrame, cols: list[str], label: str) -> None:
+        missing = [c for c in cols if c not in df.columns]
+        require(not missing, f"{label}: missing required columns: {missing}")
+
+    def _require_no_nulls(self, df: pd.DataFrame, cols: list[str], label: str) -> None:
+        for c in cols:
+            require(c in df.columns, f"{label}: missing required column: {c}")
+            nulls = int(df[c].isna().sum())
+            require(nulls == 0, f"{label}: {c} has {nulls} null values.")
 
     def run(self):
         """Executes the data feature generation."""
@@ -73,6 +89,51 @@ class PDPFeatureGenerationTask:
         df_course = pd.read_parquet(course_path_local)
         df_cohort = pd.read_parquet(cohort_path_local)
 
+        # --- High-level input sanity ---
+
+        # Must-have columns for this pipeline
+        self._require_cols(
+            df_course,
+            [
+                "institution_id",
+                "student_id",
+                "academic_year",
+                "academic_term",
+                "term_id",
+                "course_id",
+            ],
+            "Course standardized",
+        )
+        self._require_cols(
+            df_cohort, ["institution_id", "student_id"], "Cohort standardized"
+        )
+
+        # ID fields must not be null
+        self._require_no_nulls(
+            df_course,
+            ["institution_id", "student_id", "term_id"],
+            "Course standardized",
+        )
+        self._require_no_nulls(
+            df_cohort, ["institution_id", "student_id"], "Cohort standardized"
+        )
+
+        # Join sanity: inner merge later shouldn't drop almost everything
+        cohort_pairs = set(zip(df_cohort["institution_id"], df_cohort["student_id"]))
+        course_pairs = set(zip(df_course["institution_id"], df_course["student_id"]))
+        require(
+            cohort_pairs and course_pairs,
+            "No valid (institution_id, student_id) pairs found in cohort/course.",
+        )
+
+        overlap = len(cohort_pairs & course_pairs) / min(
+            len(cohort_pairs), len(course_pairs)
+        )
+        warn_if(
+            overlap >= 0.10,
+            f"Cohort/course appear mismatched: overlap too low ({overlap:.3f}).",
+        )
+
         # --- Generate student-term dataset ---
         df_student_terms = self.make_student_term_dataset(
             df_cohort=df_cohort,
@@ -84,6 +145,9 @@ class PDPFeatureGenerationTask:
             key_course_subject_areas=key_course_subject_areas,
             key_course_ids=key_course_ids,
         )
+
+        # --- Check that generated student-term dataset isn't empty ---
+        require(len(df_student_terms) > 0, "student_terms.parquet is empty.")
 
         # --- Write result ---
         out_path = os.path.join(current_run_path, "student_terms.parquet")

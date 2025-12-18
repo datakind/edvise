@@ -247,19 +247,12 @@ class PDPDataAuditTask:
             )
 
         # Ensure cohort/course files are non-empty
-        require(len(df_cohort_raw) > 0, "Raw cohort dataset is empty (0 rows).")
-        require(len(df_course_raw) > 0, "Raw course dataset is empty (0 rows).")
-
-        # Ensure cohort/course files have our student ID column
-        student_id_col = getattr(self.cfg, "student_id_col", None) or "student_id"
-        require(
-            student_id_col in df_cohort_raw.columns,
-            f"Raw cohort missing required column: {student_id_col}",
-        )
-        require(
-            student_id_col in df_course_raw.columns,
-            f"Raw course missing required column: {student_id_col}",
-        )
+        for label, df in [
+            ("Raw cohort", df_cohort_raw),
+            ("Raw course", df_course_raw),
+        ]:
+            require(len(df_cohort_raw) > 0, f"{label} dataset is empty (0 rows).")
+            require(len(df_course_raw) > 0, f"{label} dataset is empty (0 rows).")
 
         LOGGER.info(
             " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
@@ -306,6 +299,24 @@ class PDPDataAuditTask:
 
         LOGGER.info(" Cohort data standardized.")
 
+        student_id_col = getattr(self.cfg, "student_id_col", None) or "student_id"
+
+        for label, df in [
+            ("Standardized cohort", df_cohort_standardized),
+            ("Standardized course", df_course_standardized),
+        ]:
+            require(
+                student_id_col in df.columns,
+                f"{label} missing required column: {student_id_col}",
+            )
+            nulls = int(df[student_id_col].isna().sum())
+            require(
+                nulls == 0, f"{label} contains {nulls} null {student_id_col} values."
+            )
+
+        LOGGER.info(
+            " Validated that cohort and course files both have a 'student_id' column with no nulls."
+        )
         # --- Load COURSE dataset - with schema ---
 
         # Schema validate course data and handle duplicates
@@ -468,6 +479,10 @@ class PDPDataAuditTask:
             df_course_standardized,
             df_cohort_standardized,
         )
+
+        # --- Check that standardized cohort/course files aren't empty ---
+        require(len(df_cohort_standardized) > 0, "df_cohort_standardized is empty.")
+        require(len(df_course_standardized) > 0, "df_course_standardized is empty.")
 
         # --- Write results ---
         write_parquet(
