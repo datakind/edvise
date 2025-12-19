@@ -26,7 +26,11 @@ from edvise.shared.logger import (
     resolve_run_path,
     local_fs_path,
     init_file_logging,
+)
+from edvise.shared.validation import (
     require,
+    require_cols,
+    require_no_nulls,
     warn_if,
 )
 
@@ -40,16 +44,6 @@ class PDPFeatureGenerationTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.cfg = read_config(self.args.config_file_path, schema=PDPProjectConfig)
-
-    def _require_cols(self, df: pd.DataFrame, cols: list[str], label: str) -> None:
-        missing = [c for c in cols if c not in df.columns]
-        require(not missing, f"{label}: missing required columns: {missing}")
-
-    def _require_no_nulls(self, df: pd.DataFrame, cols: list[str], label: str) -> None:
-        for c in cols:
-            require(c in df.columns, f"{label}: missing required column: {c}")
-            nulls = int(df[c].isna().sum())
-            require(nulls == 0, f"{label}: {c} has {nulls} null values.")
 
     def run(self):
         """Executes the data feature generation."""
@@ -92,7 +86,7 @@ class PDPFeatureGenerationTask:
         # --- High-level input sanity ---
 
         # Must-have columns for this pipeline
-        self._require_cols(
+        require_cols(
             df_course,
             [
                 "institution_id",
@@ -104,17 +98,15 @@ class PDPFeatureGenerationTask:
             ],
             "Course standardized",
         )
-        self._require_cols(
-            df_cohort, ["institution_id", "student_id"], "Cohort standardized"
-        )
+        require_cols(df_cohort, ["institution_id", "student_id"], "Cohort standardized")
 
         # ID fields must not be null
-        self._require_no_nulls(
+        require_no_nulls(
             df_course,
             ["institution_id", "student_id", "term_id"],
             "Course standardized",
         )
-        self._require_no_nulls(
+        require_no_nulls(
             df_cohort, ["institution_id", "student_id"], "Cohort standardized"
         )
 

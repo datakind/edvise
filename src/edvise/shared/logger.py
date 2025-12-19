@@ -193,18 +193,3 @@ def init_file_logging(
     logging.getLogger(logger_name).info("File logging initialized → %s", log_file_path)
 
     return log_file_path
-
-
-def require(cond: bool, msg: str, *, exc: type[Exception] = ValueError) -> None:
-    """
-    Always-on validation guard in our pipeline. We utilize this over 'assert'
-    since assert statements are skipped when Python is run with optimization (python -O).
-    """
-    if not cond:
-        raise exc(msg)
-
-
-def warn_if(cond: bool, msg: str, logger: logging.Logger | None = None) -> None:
-    """Soft validation; logs a warning."""
-    if cond:
-        (logger or logging.getLogger(__name__)).warning(msg)

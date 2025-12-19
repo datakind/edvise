@@ -51,9 +51,8 @@ from edvise.utils.data_cleaning import (
 from edvise.shared.logger import (
     resolve_run_path,
     local_fs_path,
-    require,
-    warn_if,
 )
+from edvise.shared.validation import require
 
 logging.basicConfig(
     level=logging.INFO,

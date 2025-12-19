@@ -32,8 +32,11 @@ from edvise.shared.logger import (
     resolve_run_path,
     local_fs_path,
     init_file_logging,
+)
+from edvise.shared.validation import (
     require,
-    warn_if,
+    validate_tables_exist,
+    ExpectedTable,
 )
 
 
@@ -382,6 +385,106 @@ class TrainingTask:
                 except Exception:
                     pass
 
+    def list_all_mlflow_artifacts(
+        self, client: MlflowClient, run_id: str, prefix: str = ""
+    ) -> set[str]:
+        out: set[str] = set()
+        stack = [prefix]
+        while stack:
+            p = stack.pop()
+            for a in client.list_artifacts(run_id, path=p):
+                if getattr(a, "is_dir", False):
+                    stack.append(a.path)
+                else:
+                    out.add(a.path)
+        return out
+
+    def validate_model_card_artifacts(
+        self,
+        *,
+        card_cls: type,
+        cfg=None,
+        mlflow_client: MlflowClient | None = None,
+        validate_training_data_extract: bool = True,
+    ) -> None:
+        """
+        Card-aware model-card prerequisite validation.
+
+        Requires:
+        - cfg.model.run_id + cfg.model.experiment_id exist
+        - all required plot artifacts exist (card_cls.REQUIRED_PLOT_ARTIFACTS)
+        - optionally: training data can be extracted (for card.extract_training_data)
+        """
+        cfg = cfg or self.cfg
+        client = mlflow_client or self.client
+
+        model_cfg = getattr(cfg, "model", None)
+        require(model_cfg is not None, "cfg.model must be set.")
+        require(getattr(model_cfg, "run_id", None), "cfg.model.run_id must be set.")
+        require(
+            getattr(model_cfg, "experiment_id", None),
+            "cfg.model.experiment_id must be set.",
+        )
+
+        run_id = model_cfg.run_id
+        experiment_id = model_cfg.experiment_id
+
+        required = getattr(card_cls, "REQUIRED_PLOT_ARTIFACTS", None)
+        require(
+            isinstance(required, list)
+            and required
+            and all(isinstance(x, str) for x in required),
+            f"{card_cls.__name__} must define REQUIRED_PLOT_ARTIFACTS as a non-empty list[str].",
+        )
+
+        available = self.list_all_mlflow_artifacts(client, run_id)
+        missing = [p for p in required if p not in available]
+        require(
+            not missing,
+            f"{card_cls.__name__} prerequisites failed: MLflow run '{run_id}' missing required artifacts: {missing}",
+        )
+
+        if validate_training_data_extract:
+            try:
+                df = modeling.h2o_ml.evaluation.extract_training_data_from_model(
+                    experiment_id
+                )
+                require(
+                    df is not None and not df.empty,
+                    f"Extracted training data is empty for experiment '{experiment_id}'.",
+                )
+                split_col = getattr(cfg, "split_col", None)
+                if split_col:
+                    require(
+                        split_col in df.columns,
+                        f"Configured split_col '{split_col}' missing from extracted training data.",
+                    )
+            except Exception as e:
+                raise RuntimeError(
+                    f"{card_cls.__name__} prerequisites failed: unable to extract training data for experiment '{experiment_id}': {e}"
+                )
+
+    def validate_train_tables(
+        self,
+        *,
+        catalog: str,
+        institution_id: str,
+        run_id: str,
+    ) -> None:
+        silver_schema = f"{catalog}.{institution_id}_silver"
+        train_tables = [
+            ExpectedTable(
+                f"{silver_schema}.training_{run_id}_shap_feature_importance",
+                "training SHAP table (silver)",
+            ),
+            ExpectedTable(
+                f"{silver_schema}.training_{run_id}_support_overview",
+                "training support overview (silver)",
+            ),
+        ]
+
+        validate_tables_exist(self.spark_session, train_tables)
+
     def register_model(self):
         model_name = modeling.registration.get_model_name(
             institution_id=self.cfg.institution_id,
@@ -460,6 +563,16 @@ class TrainingTask:
 
         logging.info("Generating training predictions & SHAP values")
         self.make_predictions(current_run_path=current_run_path)
+
+        logging.info("Validate training tables were created for FE")
+        self.validate_train_tables(
+            catalog=self.args.DB_workspace,
+            institution_id=self.cfg.institution_id,
+            run_id=self.cfg.model.run_id,  # NOTE: using model run ID here as the "run id"
+        )
+
+        logging.info("Validate that model artifacts needed for model card exist")
+        self.validate_model_card_artifacts(card_cls=H2OPDPModelCard)
 
         logging.info("Registering model in UC gold volume")
         model_name = self.register_model()

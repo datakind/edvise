@@ -25,8 +25,9 @@ from edvise.shared.logger import (
     local_fs_path,
     resolve_run_path,
     init_file_logging,
-    require,
 )
+
+from edvise.shared.validation import require
 
 from edvise.configs.pdp import (
     CheckpointNthConfig,
