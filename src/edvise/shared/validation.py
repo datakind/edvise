@@ -8,7 +8,7 @@ High-level validation module for our training & inference pipelines.
 import logging
 import typing as t
 import pandas as pd
-
+from pyspark.sql import SparkSession
 from dataclasses import dataclass
 
 
@@ -41,13 +41,19 @@ def require_no_nulls(df: pd.DataFrame, cols: list[str], label: str) -> None:
         require(nulls == 0, f"{label}: {c} has {nulls} null values.")
 
 
+def require_attr(obj: t.Any, attr: str, msg: str) -> t.Any:
+    value = getattr(obj, attr, None)
+    require(value is not None, msg)
+    return value
+
+
 def warn_if(cond: bool, msg: str, logger: logging.Logger | None = None) -> None:
     """Soft validation; logs a warning."""
     if cond:
         (logger or logging.getLogger(__name__)).warning(msg)
 
 
-def validate_tables_exist(spark, tables: list[ExpectedTable]) -> None:
+def validate_tables_exist(spark: SparkSession, tables: list[ExpectedTable]) -> None:
     for t in tables:
         ok = False
         try:

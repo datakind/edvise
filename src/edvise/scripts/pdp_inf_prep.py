@@ -130,7 +130,7 @@ class InferencePrepTask:
         )
 
         df_labeled = self.merge_data(checkpoint_df, selected_students)
-        
+
         require(
             not df_labeled.empty,
             "Merge produced 0 labeled rows (checkpoint ∩ selected ∩ selected_students is empty).",

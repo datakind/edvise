@@ -310,7 +310,7 @@ class ModelInferenceTask:
             self.write_delta(df, suffix, label)
 
         logging.info("Validating inference tables were created for FE")
-        self.validate_train_tables(
+        self.validate_inference_tables(
             catalog=self.args.DB_workspace,
             institution_id=self.cfg.institution_id,
             run_id=self.args.db_run_id,  # NOTE: using inference job ID here as the "run id"

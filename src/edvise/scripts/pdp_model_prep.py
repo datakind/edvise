@@ -96,16 +96,6 @@ class ModelPrepTask:
             "Merge produced 0 labeled rows (checkpoint ∩ selected ∩ target is empty).",
         )
 
-        # Coverage diagnostics (soft)
-        warn_if(
-            pct_checkpoint_ok < 10.0 and total_selected >= 100,
-            f"Very few selected students meet checkpoint ({pct_checkpoint_ok:.2f}%). Check checkpoint config or selection criteria.",
-        )
-        warn_if(
-            pct_target_ok < 10.0 and n_checkpoint_ok >= 100,
-            f"Very few checkpoint-met students have evaluable targets ({pct_target_ok:.2f}%). Check target config or joins.",
-        )
-
         n_target_ok = df_labeled[student_id_col].nunique()
         base_for_target = max(n_checkpoint_ok, 1)  # avoid div by zero
         pct_target_ok = n_target_ok / base_for_target * 100

@@ -25,6 +25,8 @@ from edvise.shared.logger import (
     resolve_run_path,
     local_fs_path,
     init_file_logging,
+)
+from edvise.shared.validation import (
     require,
     warn_if,
 )
@@ -40,11 +42,9 @@ class StudentSelectionTask:
         self.cfg = read_config(self.args.config_file_path, schema=PDPProjectConfig)
 
         require(
-            self.cfg.preprocessing is not None, "cfg.preprocessing must be configured."
-        )
-        require(
-            self.cfg.preprocessing.selection is not None,
-            "cfg.preprocessing.selection must be configured.",
+            self.cfg.preprocessing is not None
+            and self.cfg.preprocessing.selection is not None,
+            "cfg.preprocessing must be configured.",
         )
 
     def run(self):

@@ -26,6 +26,7 @@ from mlflow.tracking import MlflowClient
 
 from edvise import modeling, dataio, configs
 from edvise.modeling.h2o_ml import utils as h2o_utils
+from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise import utils as edvise_utils
 from edvise.shared.logger import (
@@ -35,6 +36,7 @@ from edvise.shared.logger import (
 )
 from edvise.shared.validation import (
     require,
+    require_attr,
     validate_tables_exist,
     ExpectedTable,
 )
@@ -402,8 +404,7 @@ class TrainingTask:
     def validate_model_card_artifacts(
         self,
         *,
-        card_cls: type,
-        cfg=None,
+        card_cls: type["ModelCard[t.Any]"],
         mlflow_client: MlflowClient | None = None,
         validate_training_data_extract: bool = True,
     ) -> None:
@@ -415,29 +416,29 @@ class TrainingTask:
         - all required plot artifacts exist (card_cls.REQUIRED_PLOT_ARTIFACTS)
         - optionally: training data can be extracted (for card.extract_training_data)
         """
-        cfg = cfg or self.cfg
+        cfg = self.cfg
         client = mlflow_client or self.client
 
-        model_cfg = getattr(cfg, "model", None)
-        require(model_cfg is not None, "cfg.model must be set.")
-        require(getattr(model_cfg, "run_id", None), "cfg.model.run_id must be set.")
-        require(
-            getattr(model_cfg, "experiment_id", None),
-            "cfg.model.experiment_id must be set.",
+        model_cfg: t.Any = require_attr(cfg, "model", "cfg.model must be set.")
+
+        run_id: str = require_attr(model_cfg, "run_id", "cfg.model.run_id must be set.")
+        experiment_id: str = require_attr(
+            model_cfg, "experiment_id", "cfg.model.experiment_id must be set."
         )
 
         run_id = model_cfg.run_id
         experiment_id = model_cfg.experiment_id
 
-        required = getattr(card_cls, "REQUIRED_PLOT_ARTIFACTS", None)
+        required_any = getattr(card_cls, "REQUIRED_PLOT_ARTIFACTS", None)
+
         require(
-            isinstance(required, list)
-            and required
-            and all(isinstance(x, str) for x in required),
+            isinstance(required_any, list)
+            and len(required_any) > 0
+            and all(isinstance(x, str) for x in required_any),
             f"{card_cls.__name__} must define REQUIRED_PLOT_ARTIFACTS as a non-empty list[str].",
         )
-
         available = self.list_all_mlflow_artifacts(client, run_id)
+        required = t.cast(list[str], required_any)
         missing = [p for p in required if p not in available]
         require(
             not missing,
