@@ -2,6 +2,7 @@ import typing as t
 import logging
 import argparse
 import pandas as pd
+from dataclasses import dataclass
 import mlflow
 import os
 import sys
@@ -28,6 +29,8 @@ from edvise import modeling, dataio, configs
 from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
+from edvise.reporting.model_card.h2o_custom import H2OCustomModelCard
+
 from edvise import utils as edvise_utils
 from edvise.shared.logger import (
     resolve_run_path,
@@ -49,6 +52,34 @@ from edvise.scripts.predictions_h2o import (
     run_predictions,
 )
 
+
+@dataclass(frozen=True)
+class SchemaSpec:
+    schema_type: t.Literal["pdp", "custom"]
+    cfg_schema: type[t.Any]
+    model_card_cls: type["ModelCard[t.Any]"]
+    features_table_path: str
+
+def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
+    # pdp
+    if args.schema_type == "pdp":
+        return SchemaSpec(
+            schema_type="pdp",
+            cfg_schema=configs.pdp.PDPProjectConfig,
+            model_card_cls=H2OPDPModelCard,
+            features_table_path="shared/assets/pdp_features_table.toml",
+        )
+
+    # custom
+    if not args.custom_features_table_path:
+        raise ValueError("--custom_features_table_path required when --schema_type=custom")
+
+    return SchemaSpec(
+        schema_type="custom",
+        cfg_schema=configs.custom.CustomProjectConfig,
+        model_card_cls=H2OCustomModelCard,
+        features_table_path=args.custom_features_table_path,
+    )
 
 class TrainingParams(t.TypedDict, total=False):
     db_run_id: str
@@ -73,13 +104,13 @@ class TrainingTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
+        self.spec = resolve_spec(self.args)
         self.spark_session = self.get_spark_session()
         self.cfg = dataio.read.read_config(
             self.args.config_file_path,
-            schema=configs.pdp.PDPProjectConfig,
+            schema=self.spec.cfg_schema,
         )
         self.client = MlflowClient()
-        self.features_table_path = "shared/assets/pdp_features_table.toml"
         h2o_utils.safe_h2o_init()
         os.environ["MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR"] = "false"
 
@@ -96,6 +127,7 @@ class TrainingTask:
         except Exception:
             logging.error("Unable to create Spark session.")
             raise
+
 
     def write_delta(
         self,
@@ -315,7 +347,7 @@ class TrainingTask:
         # create parameter for updated config post model-selection
         self.cfg = dataio.read.read_config(
             self.args.config_file_path,
-            schema=configs.pdp.PDPProjectConfig,
+            schema=self.spec.cfg_schema,
         )
 
     def make_predictions(self, current_run_path):
@@ -331,7 +363,7 @@ class TrainingTask:
             random_state=self.cfg.random_state,
         )
         paths = PredPaths(
-            features_table_path="shared/assets/pdp_features_table.toml",
+            features_table_path=self.spec.features_table_path
         )
 
         try:
@@ -508,7 +540,7 @@ class TrainingTask:
 
     def create_model_card(self, model_name):
         # Initialize card
-        card = H2OPDPModelCard(
+        card = self.spec.model_card_cls(
             config=self.cfg,
             catalog=self.args.DB_workspace,
             model_name=model_name,
@@ -573,7 +605,7 @@ class TrainingTask:
         )
 
         logging.info("Validate that model artifacts needed for model card exist")
-        self.validate_model_card_artifacts(card_cls=H2OPDPModelCard)
+        self.validate_model_card_artifacts(card_cls=self.spec.model_card_cls)
 
         logging.info("Registering model in UC gold volume")
         model_name = self.register_model()
@@ -619,7 +651,14 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--gold_table_path", type=str, required=True)
     parser.add_argument("--config_file_name", type=str, required=True)
+    parser.add_argument("--schema_type", type=str, choices=["pdp", "custom"], required=True)
     parser.add_argument("--job_type", type=str, choices=["training"], required=False)
+    parser.add_argument(
+        "--custom_features_table_path",
+        type=str,
+        required=False,
+        help="(Required for custom) UC Volumes path to features-table TOML.",
+    )
     return parser.parse_args()
 
 
@@ -642,7 +681,7 @@ if __name__ == "__main__":
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_training.log",
+        log_file_name=f"{args.schema_type}_training.log",
     )
     task.run()
     # --- Final flush & shutdown ---
