@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 import typing as t
+from dataclasses import dataclass
 from email.headerregistry import Address
 
 # Go up 3 levels from the current file's directory to reach repo root
@@ -42,7 +43,7 @@ from mlflow.tracking import MlflowClient
 # Project modules
 import edvise.dataio as dataio
 import edvise.modeling as modeling
-from edvise.configs.pdp import PDPProjectConfig
+from edvise import configs
 from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session
 from edvise.modeling.inference import top_n_features, features_box_whiskers_table
@@ -68,29 +69,49 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
 
+@dataclass(frozen=True)
+class SchemaSpec:
+    schema_type: t.Literal["pdp", "custom"]
+    cfg_schema: type[t.Any]
+    features_table_path: str
+
+def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
+    # pdp
+    if args.schema_type == "pdp":
+        return SchemaSpec(
+            schema_type="pdp",
+            cfg_schema=configs.pdp.PDPProjectConfig,
+            features_table_path="shared/assets/pdp_features_table.toml",
+        )
+
+    # custom
+    if not args.custom_features_table_path:
+        raise ValueError(
+            "--custom_features_table_path required when --schema_type=custom"
+        )
+
+    return SchemaSpec(
+        schema_type="custom",
+        cfg_schema=configs.custom.CustomProjectConfig,
+        features_table_path=args.custom_features_table_path,
+    )
+
 class ModelInferenceTask:
     """Encapsulates the model inference logic for the SST pipeline."""
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
+        self.spec = resolve_spec(args)
         self.spark_session = get_spark_session()
         self.cfg = dataio.read.read_config(
-            self.args.config_file_path, schema=PDPProjectConfig
+            self.args.config_file_path,
+            schema=self.spec.cfg_schema,
         )
-        self.features_table_path = "shared/assets/pdp_features_table.toml"
+        self.features_table_path = self.spec.features_table_path
         # Populated by load_mlflow_model()
         self.model_run_id: str | None = None
         self.model_experiment_id: str | None = None
 
-    def read_config(self, config_file_path: str) -> PDPProjectConfig:
-        try:
-            return dataio.read.read_config(config_file_path, schema=PDPProjectConfig)
-        except FileNotFoundError:
-            logging.error("Configuration file not found at %s", config_file_path)
-            raise
-        except Exception as e:
-            logging.error("Error reading configuration file: %s", e)
-            raise
 
     def load_mlflow_model_metadata(self) -> None:
         """Discover UC model latest version -> run_id + experiment_id (no model object needed here)."""
@@ -369,6 +390,15 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument(
         "--job_type", type=str, choices=["inference"], default="inference"
+    )
+    parser.add_argument(
+        "--schema_type", type=str, choices=["pdp", "custom"], required=True
+    )
+    parser.add_argument(
+        "--custom_features_table_path",
+        type=str,
+        required=False,
+        help="(Required for custom) UC Volumes path to features-table TOML.",
     )
     return parser.parse_args()
 

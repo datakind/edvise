@@ -60,6 +60,7 @@ class SchemaSpec:
     model_card_cls: type["ModelCard[t.Any]"]
     features_table_path: str
 
+
 def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
     # pdp
     if args.schema_type == "pdp":
@@ -72,7 +73,9 @@ def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
 
     # custom
     if not args.custom_features_table_path:
-        raise ValueError("--custom_features_table_path required when --schema_type=custom")
+        raise ValueError(
+            "--custom_features_table_path required when --schema_type=custom"
+        )
 
     return SchemaSpec(
         schema_type="custom",
@@ -80,6 +83,7 @@ def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
         model_card_cls=H2OCustomModelCard,
         features_table_path=args.custom_features_table_path,
     )
+
 
 class TrainingParams(t.TypedDict, total=False):
     db_run_id: str
@@ -127,7 +131,6 @@ class TrainingTask:
         except Exception:
             logging.error("Unable to create Spark session.")
             raise
-
 
     def write_delta(
         self,
@@ -362,9 +365,7 @@ class TrainingTask:
             cfg_inference_params=self.cfg.inference.dict(),
             random_state=self.cfg.random_state,
         )
-        paths = PredPaths(
-            features_table_path=self.spec.features_table_path
-        )
+        paths = PredPaths(features_table_path=self.spec.features_table_path)
 
         try:
             out = run_predictions(
@@ -651,8 +652,10 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--gold_table_path", type=str, required=True)
     parser.add_argument("--config_file_name", type=str, required=True)
-    parser.add_argument("--schema_type", type=str, choices=["pdp", "custom"], required=True)
     parser.add_argument("--job_type", type=str, choices=["training"], required=False)
+    parser.add_argument(
+        "--schema_type", type=str, choices=["pdp", "custom"], required=True
+    )
     parser.add_argument(
         "--custom_features_table_path",
         type=str,
