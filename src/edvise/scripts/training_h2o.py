@@ -581,6 +581,19 @@ class TrainingTask:
         logging.info("Generating model card")
         self.create_model_card(model_name)
 
+        logging.info("Updating pipeline version in config")
+        # Persist the runtime pipeline version (git tag / commit used by the job)
+        if getattr(self.args, "pipeline_version", None):
+            edvise_utils.update_config.update_pipeline_version(
+                config_path=self.args.config_file_path,
+                pipeline_version=self.args.pipeline_version,
+                extra_save_paths=[
+                    os.path.join(current_run_path, self.args.config_file_name)
+                ],
+            )
+        else:
+            logging.info("No pipeline_version provided; skipping config update.")
+
         logging.info("Updating folder name to model id")
         # Rename the RUN ROOT folder (one level up from the 'training' subdir) to model.run_id
         run_root = os.path.dirname(current_run_path)
@@ -598,6 +611,7 @@ class TrainingTask:
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(description="H2o training for pipeline.")
+    parser.add_argument("--pipeline_version", type=str, required=False)
     parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)

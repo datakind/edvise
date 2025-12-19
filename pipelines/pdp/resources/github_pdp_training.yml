@@ -232,6 +232,8 @@ resources:
             python_file: src/edvise/scripts/training_h2o.py
             source: GIT
             parameters:
+              - --pipeline_version
+              - "{{job.parameters.pipeline_version}}"
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path 
