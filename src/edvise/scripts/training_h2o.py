@@ -27,6 +27,7 @@ from mlflow.tracking import MlflowClient
 
 from edvise import modeling, dataio, configs
 from edvise.modeling.h2o_ml import utils as h2o_utils
+from edvise.modeling.modeling_dataset import load_or_build_modeling_df
 from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise.reporting.model_card.h2o_custom import H2OCustomModelCard
@@ -72,16 +73,14 @@ def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
         )
 
     # custom
-    if not args.custom_features_table_path:
-        raise ValueError(
-            "--custom_features_table_path required when --schema_type=custom"
-        )
+    if not args.features_table_path:
+        raise ValueError("--features_table_path required when --schema_type=custom")
 
     return SchemaSpec(
         schema_type="custom",
         cfg_schema=configs.custom.CustomProjectConfig,
         model_card_cls=H2OCustomModelCard,
-        features_table_path=args.custom_features_table_path,
+        features_table_path=args.features_table_path,
     )
 
 
@@ -154,7 +153,11 @@ class TrainingTask:
             raise ValueError(
                 "FEATURE SELECTION SECTION OF MODELING DOES NOT EXIST IN THE CONFIG, PLEASE ADD"
             )
-
+        if self.spec.schema_type == "custom":
+            raise RuntimeError(
+                "feature_selection() should not run for custom schools in this job. "
+                "Custom training must provide modeling.parquet."
+            )
         modeling_cfg = self.cfg.modeling
         fs = modeling_cfg.feature_selection
         if (
@@ -567,22 +570,16 @@ class TrainingTask:
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
 
-        logging.info("Loading preprocessed data")
-        preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
-        preproc_path_local = local_fs_path(preproc_path)
-        if not os.path.exists(preproc_path_local):
-            raise FileNotFoundError(
-                f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
-            )
-        df_preprocessed = pd.read_parquet(preproc_path_local)
-
-        logging.info("Selecting features")
-        df_modeling = self.feature_selection(df_preprocessed)
-
-        logging.info("Saving modeling data")
-        modeling_path = os.path.join(current_run_path, "modeling.parquet")
-        df_modeling.to_parquet(local_fs_path(modeling_path), index=False)
-        logging.info(f"Modeling file saved to {modeling_path}")
+        df_modeling = load_or_build_modeling_df(
+            schema_type=self.spec.schema_type,
+            current_run_path=current_run_path,
+            cfg=self.cfg,
+            feature_selection_fn = (
+                self.feature_selection
+                if self.spec.schema_type == "pdp"
+                else None
+            ),
+        )
 
         logging.info("Training model")
         experiment_id = self.train_model(df_modeling)
@@ -656,12 +653,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--schema_type", type=str, choices=["pdp", "custom"], required=True
     )
-    parser.add_argument(
-        "--custom_features_table_path",
-        type=str,
-        required=False,
-        help="(Required for custom) UC Volumes path to features-table TOML.",
-    )
+    parser.add_argument("--features_table_path", type=str, required=False)
+
     return parser.parse_args()
 
 

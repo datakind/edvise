@@ -20,6 +20,11 @@ import typing as t
 from dataclasses import dataclass
 from email.headerregistry import Address
 
+from edvise.utils.api_requests import (
+    validate_custom_institution_exist,
+    validate_custom_model_exist,
+    log_custom_job,
+)
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
 repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
@@ -75,6 +80,7 @@ class SchemaSpec:
     cfg_schema: type[t.Any]
     features_table_path: str
 
+
 def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
     # pdp
     if args.schema_type == "pdp":
@@ -85,16 +91,15 @@ def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
         )
 
     # custom
-    if not args.custom_features_table_path:
-        raise ValueError(
-            "--custom_features_table_path required when --schema_type=custom"
-        )
+    if not args.features_table_path:
+        raise ValueError("--features_table_path required when --schema_type=custom")
 
     return SchemaSpec(
         schema_type="custom",
         cfg_schema=configs.custom.CustomProjectConfig,
-        features_table_path=args.custom_features_table_path,
+        features_table_path=args.features_table_path,
     )
+
 
 class ModelInferenceTask:
     """Encapsulates the model inference logic for the SST pipeline."""
@@ -112,16 +117,15 @@ class ModelInferenceTask:
         self.model_run_id: str | None = None
         self.model_experiment_id: str | None = None
 
-
     def load_mlflow_model_metadata(self) -> None:
         """Discover UC model latest version -> run_id + experiment_id (no model object needed here)."""
         client = MlflowClient(registry_uri="databricks-uc")
-        model_name = modeling.registration.get_model_name(
+        self.model_name = modeling.registration.get_model_name(
             institution_id=self.cfg.institution_id,
             target=self.cfg.preprocessing.target.name,  # type: ignore
             checkpoint=self.cfg.preprocessing.checkpoint.name,  # type: ignore
         )
-        full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{model_name}"
+        full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{self.model_name}"
 
         mv = max(
             client.search_model_versions(f"name='{full_model_name}'"),
@@ -185,6 +189,25 @@ class ModelInferenceTask:
         )
         logging.info("%s data written to: %s", table_name_suffix, table_path)
 
+    def get_sst_api_key(
+        self,
+        scope: str = "sst",
+        key: str = "SST_API_KEY",
+    ) -> str:
+        """
+        Retrieve SST API key from Databricks Secrets.
+
+        This is required for custom-school inference runs that interact with FE APIs.
+        """
+        w = WorkspaceClient()
+        api_key = w.dbutils.secrets.get(scope=scope, key=key)
+        if not api_key:
+            raise RuntimeError(
+                f"Missing SST API key in Databricks secrets "
+                f"(scope='{scope}', key='{key}')"
+            )
+        return api_key
+
     def run(self) -> None:
         # Enforce inference mode
         if getattr(self.args, "job_type", "inference") != "inference":
@@ -223,6 +246,30 @@ class ModelInferenceTask:
                 f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
             )
         df_processed = dataio.read.read_parquet(preproc_path_local)
+
+        # --- CUSTOM SCHOOL PROCESSING ONLY ---
+        # NOTE: We currently can only kickoff custom schools from the BE
+        # So, before we run inference, we just need to validate that the
+        # institution/model exist on the FE.
+        api_key: str | None = None
+        if self.spec.schema_type == "custom":
+            logging.info(
+                "Retrieving SST API key from Databricks Secrets for custom school"
+            )
+            api_key = self.get_sst_api_key()
+
+            logging.info("Validating that institution exists on FE for custom school")
+            validate_custom_institution_exist(
+                inst_id=self.cfg.institution_id,
+                api_key=api_key,
+            )
+
+            logging.info("Validating that model exists on FE for custom school")
+            validate_custom_model_exist(
+                inst_id=self.cfg.institution_id,
+                model_name=self.model_name,
+                api_key=api_key,
+            )
 
         logging.info("Sending kickoff email")
         self._send_kickoff_email()
@@ -343,6 +390,20 @@ class ModelInferenceTask:
             basename="inference_output",
         )
 
+        # --- CUSTOM SCHOOL PROCESSING ONLY ---
+        # NOTE: We currently can only kickoff custom schools from the BE
+        # So, after we run inference, we need to log the job manually in the FE Database
+        if self.spec.schema_type == "custom":
+            assert api_key is not None
+
+            logging.info("Logging job run in FE Database")
+            log_custom_job(
+                inst_id=self.cfg.institution_id,
+                job_run_id=self.args.db_run_id,
+                model_name=self.model_name,
+                api_key=api_key,
+            )
+
         logging.info("Inference task completed successfully.")
 
     def _send_kickoff_email(self) -> None:
@@ -393,12 +454,6 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--schema_type", type=str, choices=["pdp", "custom"], required=True
-    )
-    parser.add_argument(
-        "--custom_features_table_path",
-        type=str,
-        required=False,
-        help="(Required for custom) UC Volumes path to features-table TOML.",
     )
     return parser.parse_args()
 

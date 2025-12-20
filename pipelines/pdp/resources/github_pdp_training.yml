@@ -248,6 +248,8 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --gold_table_path
               - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
+              - --schema_type
+              - "pdp"
           job_cluster_key: edvise-pdp-training-pipeline-cluster
           libraries:
             - pypi:

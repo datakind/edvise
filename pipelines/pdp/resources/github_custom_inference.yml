@@ -1,0 +1,120 @@
+resources:
+  jobs:
+    edvise_github_sourced_custom_inference_pipeline:
+      name: edvise_github_sourced_custom_inference_pipeline
+      max_concurrent_runs: 20
+
+      tasks:
+        - task_key: inference_h2o
+          spark_python_task:
+            python_file: src/edvise/scripts/inference_h2o.py
+            source: GIT
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --silver_volume_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --config_file_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/inference_inputs/{{job.parameters.config_file_name}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --gold_table_path
+              - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
+              - --schema_type
+              - "custom"
+          job_cluster_key: edvise-custom-inference-pipeline-cluster
+          libraries:
+            - pypi: { package: numpy==1.26.4 }
+            - pypi: { package: pandas==2.2.3 }
+            - pypi: { package: pyarrow~=16.0 }
+            - pypi: { package: polars~=0.20 }
+            - pypi: { package: scikit-learn==1.5.2 }
+            - pypi: { package: mlflow~=2.22 }
+            - pypi: { package: h2o==3.46.0.7 }
+            - pypi: { package: pydantic~=2.10 }
+            - pypi: { package: tomli==2.2.1 }
+            - pypi: { package: tomlkit==0.13.3 }
+
+        - task_key: output_publish
+          depends_on:
+            - task_key: inference_h2o
+          spark_python_task:
+            python_file: src/edvise/scripts/output_publish.py
+            source: GIT
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --datakind_notification_email
+              - "{{job.parameters.datakind_notification_email}}"
+          job_cluster_key: edvise-custom-inference-cluster
+          libraries:
+            # keep this list minimal; add only what output_publish imports
+            - pypi: { package: pandas==2.2.3 }
+            - pypi: { package: pyarrow~=16.0 }
+      job_clusters:
+        - job_cluster_key: edvise-custom-inference-pipeline-cluster
+          new_cluster:
+            cluster_name: ""
+            spark_version: 15.4.x-cpu-ml-scala2.12
+            spark_conf:
+              spark.master: local[*, 4]
+              spark.databricks.cluster.profile: singleNode
+            gcp_attributes:
+              use_preemptible_executors: false
+              availability: ON_DEMAND_GCP
+              zone_id: HA
+            node_type_id: n2-standard-16
+            custom_tags:
+              ResourceClass: SingleNode
+              x-databricks-nextgen-cluster: "true"
+            enable_elastic_disk: true
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            num_workers: 0
+        - job_cluster_key: edvise-custom-inference-pipeline-cluster
+          new_cluster:
+            cluster_name: ""
+            spark_version: 15.4.x-cpu-ml-scala2.12
+            spark_conf:
+              spark.master: local[*, 4]
+              spark.databricks.cluster.profile: singleNode
+            gcp_attributes:
+              use_preemptible_executors: false
+              availability: ON_DEMAND_GCP
+              zone_id: HA
+            node_type_id: n2-standard-16
+            custom_tags:
+              ResourceClass: SingleNode
+              x-databricks-nextgen-cluster: "true"
+            enable_elastic_disk: true
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            num_workers: 0
+      queue:
+        enabled: true
+      parameters:
+        - name: databricks_institution_name
+          default: ${var.databricks_institution_name}
+        - name: db_run_id
+          default: "{{job.run_id}}"
+        - name: DB_workspace
+          default: ${var.DB_workspace}
+        - name: config_file_name
+          default: ${var.config_file_name}
+        - name: gcp_bucket_name
+          default: databricks-2052166062819251-unitycatalog
+        - name: service_account_executer
+          default: ${var.service_account_executer}
+      permissions:
+        - group_name: ${var.datakind_group_to_manage_workflow} 
+          level: CAN_MANAGE
+        - service_principal_name: ${var.ds_run_as}
+          level: CAN_MANAGE
+        - user_name: ${var.service_account_executer}
+          level: CAN_MANAGE
