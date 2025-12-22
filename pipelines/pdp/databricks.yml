@@ -48,6 +48,9 @@ targets:
     resources:
       jobs:
         github_sourced_pdp_training_pipeline:
+          parameters:
+            - name: pipeline_version
+              default: ${var.git_commit}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
@@ -71,6 +74,9 @@ targets:
     resources:
       jobs:
         github_sourced_pdp_training_pipeline:
+          parameters:
+            - name: pipeline_version
+              default: ${var.git_tag}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub

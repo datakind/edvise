@@ -1,6 +1,7 @@
 """Utility functions for sending emails in Databricks."""
 
 import smtplib
+import textwrap
 
 from email.message import EmailMessage
 
@@ -9,7 +10,8 @@ SMTP_SERVER = "smtp.mandrillapp.com"
 SMTP_PORT = 587  # or 465 for SSL
 # NOTE: we are using "prediction" instead of "inference" since it's more intuitive for end users
 COMPLETION_SUCCESS_SUBJECT = "Edvise: Prediction Results Available"
-COMPLETION_SUCCESS_MESSAGE = """\
+COMPLETION_SUCCESS_MESSAGE = textwrap.dedent(
+    """\
     Hello!
     
     Your most recent prediction results are now available in Edvise. Please log in and download them at your earliest convenience. As a reminder, you should have the StudyID appended file from the NSC SFTP to reconnect our predictions to your students and begin supporting those most in need of intervention.
@@ -19,9 +21,11 @@ COMPLETION_SUCCESS_MESSAGE = """\
     Best,
     The DataKind Edvise Team
     """
+)
 
 INFERENCE_KICKOFF_SUBJECT = "Edvise: Prediction Run In Progress"
-INFERENCE_KICKOFF_MESSAGE = """\
+INFERENCE_KICKOFF_MESSAGE = textwrap.dedent(
+    """\
     Hello!
 
     Your DataKind Edvise prediction run has been successfully initiated. Once the results have been finalized, you will receive a follow-up email with instructions for accessing it.
@@ -29,6 +33,7 @@ INFERENCE_KICKOFF_MESSAGE = """\
     Best,
     The DataKind Edvise Team
     """
+)
 
 
 def send_email(

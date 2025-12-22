@@ -448,10 +448,9 @@ def create_evaluation_plots(
     Returns:
         risk score histogram and calibration curve at low alert rates figures
     """
-    title_suffix = f"{split_type} data - Overall"
-    hist_fig = plot_support_score_histogram(data[risk_score_col], title_suffix)
+    hist_fig = plot_support_score_histogram(data[risk_score_col])
     cal_fig = plot_calibration_curve(
-        data[y_true_col], data[risk_score_col], "Overall", title_suffix, pos_label
+        data[y_true_col], data[risk_score_col], "Overall", pos_label
     )
     return hist_fig, cal_fig
 
@@ -460,7 +459,6 @@ def plot_calibration_curve(
     y_true: pd.Series,
     risk_score: pd.Series,
     keys: str | list[str],
-    title_suffix: str,
     pos_label: PosLabelType,
     lowess_frac: t.Optional[float] = None,
 ) -> matplotlib.figure.Figure:
@@ -471,7 +469,6 @@ def plot_calibration_curve(
         y_true (array-like of shape (n_samples,) or (n_groups,)): overall or group-level true outcome class
         risk_score (array-like of shape (n_samples,) or (n_groups,)): overall or group level predicted risk scores
         keys: overall or subgroup level labels for labeling lines
-        title_suffix: suffix for plot title
         pos_label: label identifying the positive class. Defaults to True.
 
     Returns:
@@ -522,7 +519,6 @@ def plot_calibration_curve(
     ax.set(
         xlabel="Mean predicted value",
         ylabel="Fraction of positives",
-        title=f"Calibration Curve - {title_suffix}",
     )
     ax.set_xlim(left=-0.05, right=1.05)
     ax.set_ylim(bottom=-0.05, top=1.05)
@@ -531,19 +527,18 @@ def plot_calibration_curve(
 
 
 def plot_support_score_histogram(
-    support_scores: str | Sequence, title_suffix: str
+    support_scores: str | Sequence,
 ) -> matplotlib.figure.Figure:
     """
     Plot histogram of support scores.
 
     Args:
         support_scores: support scores
-        title_suffix: suffix for plot title
     """
     fig, ax = plt.subplots()
     sns.histplot(x=support_scores, ax=ax, color=PALETTE[1])
     ax.set(
-        xlabel="Support Score", title=f"Distribution of support scores - {title_suffix}"
+        xlabel="Support Score",
     )
     return fig
 

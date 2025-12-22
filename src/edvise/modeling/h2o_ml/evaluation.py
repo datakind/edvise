@@ -37,6 +37,14 @@ LOGGER = logging.getLogger(__name__)
 
 PosLabelType = t.Union[bool, str]
 
+H2O_FRAMEWORK_DISPLAY_NAMES = {
+    "GBM": "Boosted Decision Trees (GBM)",
+    "XGBoost": "Boosted Decision Trees (XGBoost)",
+    "DRF": "Random Forest (DRF)",
+    "XRT": "Random Forest (XRT)",
+    "GLM": "Linear Model (GLM)",
+}
+
 
 def get_metrics_fixed_threshold_all_splits(
     model: H2OEstimator,
@@ -250,9 +258,13 @@ def create_and_log_h2o_model_comparison(
         .reset_index(drop=True)
     )
 
+    best["framework_display"] = (
+        best["framework"].map(H2O_FRAMEWORK_DISPLAY_NAMES).fillna(best["framework"])
+    )
+
     # Plot
     fig, ax = plt.subplots(figsize=(8, 5))
-    bars = ax.barh(best["framework"], best["logloss"])
+    bars = ax.barh(best["framework_display"], best["logloss"])
 
     if len(bars):
         bars[0].set_alpha(1.0)
@@ -268,9 +280,9 @@ def create_and_log_h2o_model_comparison(
             )
 
     ax.set_xlabel("log_loss")
-    ax.set_title("log_loss by Model Type (lowest to highest)")
     ax.set_xlim(left=0)
     ax.invert_yaxis()
+    plt.subplots_adjust(left=0.35)
     plt.tight_layout()
 
     if mlflow.active_run():
@@ -280,32 +292,95 @@ def create_and_log_h2o_model_comparison(
     return best
 
 
-def create_confusion_matrix_plot(
-    y_true: np.ndarray, y_pred: np.ndarray, sample_weights: t.Optional[np.ndarray]
-) -> plt.Figure:
-    # Normalize confusion matrix by true labels
+def create_confusion_matrix_plot(y_true, y_pred, sample_weights=None):
+    labels = [0, 1]
     cm = confusion_matrix(
-        y_true, y_pred, normalize="true", sample_weight=sample_weights
+        y_true,
+        y_pred,
+        labels=labels,
+        normalize="true",
+        sample_weight=sample_weights,
     )
 
-    fig, ax = plt.subplots()
+    fig = plt.figure(figsize=(11, 6.5), dpi=200)
+    gs = fig.add_gridspec(1, 3, width_ratios=[1.2, 2.0, 1.2], wspace=0.18)
+
+    axL = fig.add_subplot(gs[0, 0])
+    axL.axis("off")
+    ax = fig.add_subplot(gs[0, 1])
+    axR = fig.add_subplot(gs[0, 2])
+    axR.axis("off")
+
     disp = ConfusionMatrixDisplay(confusion_matrix=cm)
     disp.plot(ax=ax, cmap="Blues", colorbar=False)
 
-    # Remove default annotations
+    # Hide default annotations
     for txt in ax.texts:
         txt.set_visible(False)
 
-    # Dynamic contrast-aware text overlay
+    # Custom cell values (tie-break matches your old logic: 0.50 -> white)
     for i in range(cm.shape[0]):
         for j in range(cm.shape[1]):
-            value = cm[i, j]
-            # Use white text on dark blue, black on light blue
-            text_color = "black" if value < 0.5 else "white"
-            ax.text(j, i, f"{value:.2f}", ha="center", va="center", color=text_color)
+            v = cm[i, j]
+            ax.text(
+                j,
+                i,
+                f"{v:.2f}",
+                ha="center",
+                va="center",
+                color=("white" if v >= 0.5 else "black"),
+                fontsize=12,
+                fontweight="bold",
+            )
 
-    ax.set_title("Normalized Confusion Matrix")
-    plt.tight_layout()
+    green, red = "#2ca02c", "#d62728"
+
+    axL.text(
+        1.0,
+        0.75,
+        "True Negatives\nDoes Not Need Support;\nCorrectly Classified",
+        ha="right",
+        va="center",
+        color=green,
+        fontsize=12,
+        fontweight="bold",
+    )
+    axL.text(
+        1.0,
+        0.25,
+        "False Negatives\nNeeds Support;\nIncorrectly Classified",
+        ha="right",
+        va="center",
+        color=red,
+        fontsize=12,
+        fontweight="bold",
+    )
+
+    axR.text(
+        0.0,
+        0.75,
+        "False Positives\nDoes NOT Need Support;\nIncorrectly Classified",
+        ha="left",
+        va="center",
+        color=red,
+        fontsize=12,
+        fontweight="bold",
+    )
+    axR.text(
+        0.0,
+        0.25,
+        "True Positives\nNeeds Support;\nCorrectly Classified",
+        ha="left",
+        va="center",
+        color=green,
+        fontsize=12,
+        fontweight="bold",
+    )
+
+    ax.set_aspect("equal", adjustable="box")
+
+    fig.subplots_adjust(left=0.02, right=0.98, top=0.98, bottom=0.06)
+
     plt.close(fig)
     return fig
 
@@ -321,7 +396,6 @@ def create_roc_curve_plot(
     fig, ax = plt.subplots()
     ax.plot(fpr, tpr, label=f"ROC Curve (AUC = {auc_score:.2f})")
     ax.plot([0, 1], [0, 1], linestyle="--", color="gray")
-    ax.set_title("ROC Curve")
     ax.set_xlabel("False Positive Rate")
     ax.set_ylabel("True Positive Rate")
     ax.legend()
@@ -341,7 +415,6 @@ def create_precision_recall_curve_plot(
 
     fig, ax = plt.subplots()
     ax.plot(recall, precision, label=f"Precision-Recall (AP = {ap_score:.2f})")
-    ax.set_title("Precision-Recall Curve")
     ax.set_xlabel("Recall")
     ax.set_ylabel("Precision")
     ax.legend()
@@ -363,7 +436,6 @@ def create_calibration_curve_plot(
     ax.plot([0, 1], [0, 1], linestyle="--", color="gray", label="Perfect Calibration")
 
     # Labels and legend
-    ax.set_title("Calibration Curve")
     ax.set_xlabel("Mean Predicted Probability")
     ax.set_ylabel("Fraction of Positives")
     ax.set_xlim(0, 1)
