@@ -145,9 +145,16 @@ def get_pr_titles_since_last_version(
         LOGGER.info(f"Fetching titles for {len(pr_numbers)} PRs using GitHub API from {repo}")
         pr_titles = []
         failed_count = 0
+        skipped_count = 0
         for pr_num in pr_numbers:
             title = fetch_pr_title(repo, pr_num, token)
             if title:
+                # Filter out chore PRs (maintenance tasks that don't affect users)
+                if title.lower().startswith("chore:"):
+                    LOGGER.debug(f"Skipping chore PR #{pr_num}: {title}")
+                    skipped_count += 1
+                    continue
+                
                 # Append PR number to title for easy tracking
                 pr_titles.append(f"{title} (#{pr_num})")
                 LOGGER.debug(f"Fetched PR #{pr_num}: {title}")
@@ -156,13 +163,15 @@ def get_pr_titles_since_last_version(
                 # Fallback to PR number if fetch fails
                 pr_titles.append(f"PR #{pr_num}")
         
+        if skipped_count > 0:
+            LOGGER.info(f"Skipped {skipped_count} chore PR(s)")
         if failed_count > 0:
             LOGGER.warning(
                 f"Failed to fetch {failed_count} out of {len(pr_numbers)} PR titles. "
                 f"Using PR numbers as fallback."
             )
         else:
-            LOGGER.info(f"Successfully fetched all {len(pr_titles)} PR titles")
+            LOGGER.info(f"Successfully fetched {len(pr_titles)} PR title(s) for changelog")
         
         return pr_titles
     else:
