@@ -9,11 +9,12 @@ import argparse
 import logging
 import os
 import re
+import typing as t
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import tomlkit
+from tomlkit.items import Table
 
 from edvise.utils import automate_releases
 
@@ -23,8 +24,8 @@ LOGGER = logging.getLogger(__name__)
 def update_changelog(
     changelog_path: Path,
     version: str,
-    repo: Optional[str] = None,
-    token: Optional[str] = None,
+    repo: t.Optional[str] = None,
+    token: t.Optional[str] = None,
 ) -> None:
     """Add a new version entry at the top of CHANGELOG.md with PR titles."""
     if not changelog_path.exists():
@@ -40,8 +41,8 @@ def update_changelog(
 
     # Fetch PR titles since last version
     pr_titles = []
-    if repo or os.getenv("GITHUB_REPOSITORY"):
-        repo_name = repo or os.getenv("GITHUB_REPOSITORY", "")
+    repo_name: str | None = repo or os.getenv("GITHUB_REPOSITORY")
+    if repo_name:
         pr_titles = automate_releases.get_pr_titles_since_last_version(repo_name, token)
     else:
         LOGGER.warning("No repository specified, creating empty changelog entry")
@@ -49,7 +50,7 @@ def update_changelog(
     # Format PR titles as bullet points
     if pr_titles:
         bullet_points = "\n".join(f"- {title}" for title in pr_titles)
-        new_entry = f"## {version} ({date_str})\n\n{bullet_points}\n\n"
+        new_entry = f"## {version} ({date_str})\n{bullet_points}\n\n"
     else:
         new_entry = f"## {version} ({date_str})\n\n- \n\n"
 
@@ -84,8 +85,14 @@ def update_pyproject(pyproject_path: Path, version: str) -> None:
     if "project" not in doc:
         raise ValueError("pyproject.toml missing [project] section")
 
-    old_version = doc["project"].get("version", "unknown")
-    doc["project"]["version"] = version
+    # Cast to MutableMapping for type safety (tomlkit Table implements MutableMapping)
+    project_section = t.cast(t.MutableMapping[str, t.Any], doc["project"])
+    if not isinstance(project_section, Table):
+        raise ValueError("pyproject.toml [project] section is not a table")
+
+    old_version_obj = project_section.get("version", "unknown")
+    old_version = str(old_version_obj) if old_version_obj else "unknown"
+    project_section["version"] = version
 
     pyproject_path.write_text(tomlkit.dumps(doc))
     LOGGER.info(f"Updated pyproject.toml version from {old_version} to {version}")

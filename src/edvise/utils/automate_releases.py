@@ -71,13 +71,15 @@ def fetch_pr_title(repo: str, pr_number: int, token: str) -> Optional[str]:
     try:
         with urllib.request.urlopen(req) as response:
             response_data = response.read().decode()
-            pr_data = json.loads(response_data)
-            title = pr_data.get("title")
-            if not title:
-                LOGGER.warning(f"PR #{pr_number} has no title in API response")
-            else:
+            pr_data: dict[str, object] = json.loads(response_data)
+            title_obj = pr_data.get("title")
+            if title_obj and isinstance(title_obj, str):
+                title: str = str(title_obj)
                 LOGGER.debug(f"Successfully fetched PR #{pr_number}: {title}")
-            return title
+                return title
+            else:
+                LOGGER.warning(f"PR #{pr_number} has no title in API response")
+                return None
     except urllib.error.HTTPError as e:
         # Read error response before logging
         error_body = ""
