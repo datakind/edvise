@@ -9,6 +9,7 @@ import argparse
 import logging
 import os
 import re
+import subprocess
 import typing as t
 from datetime import datetime
 from pathlib import Path
@@ -96,6 +97,27 @@ def update_pyproject(pyproject_path: Path, version: str) -> None:
 
     pyproject_path.write_text(tomlkit.dumps(doc))
     LOGGER.info(f"Updated pyproject.toml version from {old_version} to {version}")
+
+    # Run uv sync to update uv.lock with the new version
+    try:
+        LOGGER.info("Running uv sync to update uv.lock...")
+        result = subprocess.run(
+            ["uv", "sync"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        LOGGER.info("Successfully updated uv.lock")
+    except subprocess.CalledProcessError as e:
+        LOGGER.warning(
+            f"uv sync failed: {e.stderr}. "
+            f"uv.lock may not be updated. You may need to run 'uv sync' manually."
+        )
+    except FileNotFoundError:
+        LOGGER.warning(
+            "uv command not found. uv.lock will not be updated. "
+            "Please run 'uv sync' manually after updating the version."
+        )
 
 
 def main() -> None:
