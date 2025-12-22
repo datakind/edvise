@@ -36,9 +36,6 @@ variables:
   model_name:
     description: "Name of the model once it's registered and ready to be used for inference"
     default: ""
-  model_type:
-    description: "Type of model; sklearn vs. h2o"
-    default: "h2o"
 
 run_as:
   service_principal_name: ${var.ds_run_as}
@@ -51,6 +48,9 @@ targets:
     resources:
       jobs:
         github_sourced_pdp_training_pipeline:
+          parameters:
+            - name: pipeline_version
+              default: ${var.git_commit}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
@@ -74,6 +74,9 @@ targets:
     resources:
       jobs:
         github_sourced_pdp_training_pipeline:
+          parameters:
+            - name: pipeline_version
+              default: ${var.git_tag}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
