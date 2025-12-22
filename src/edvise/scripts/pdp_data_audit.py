@@ -48,7 +48,11 @@ from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
     log_pre_cohort_courses,
 )
-from edvise.shared.logger import local_fs_path, resolve_run_path
+from edvise.shared.logger import (
+    resolve_run_path,
+    local_fs_path,
+)
+from edvise.shared.validation import require
 
 logging.basicConfig(
     level=logging.INFO,
@@ -241,6 +245,14 @@ class PDPDataAuditTask:
                 " Failed to parse course data with all known datetime formats."
             )
 
+        # Ensure cohort/course files are non-empty
+        for label, df in [
+            ("Raw cohort", df_cohort_raw),
+            ("Raw course", df_course_raw),
+        ]:
+            require(len(df_cohort_raw) > 0, f"{label} dataset is empty (0 rows).")
+            require(len(df_course_raw) > 0, f"{label} dataset is empty (0 rows).")
+
         LOGGER.info(
             " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
         )
@@ -285,6 +297,8 @@ class PDPDataAuditTask:
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
 
         LOGGER.info(" Cohort data standardized.")
+
+        student_id_col = getattr(self.cfg, "student_id_col", None) or "student_id"
 
         # --- Load COURSE dataset - with schema ---
 
@@ -343,6 +357,23 @@ class PDPDataAuditTask:
         df_course_standardized = self.course_std.standardize(df_course_validated)
 
         LOGGER.info(" Course data standardized.")
+
+        for label, df in [
+            ("Standardized cohort", df_cohort_standardized),
+            ("Standardized course", df_course_standardized),
+        ]:
+            require(
+                student_id_col in df.columns,
+                f"{label} missing required column: {student_id_col}",
+            )
+            nulls = int(df[student_id_col].isna().sum())
+            require(
+                nulls == 0, f"{label} contains {nulls} null {student_id_col} values."
+            )
+
+        LOGGER.info(
+            " Validated that cohort and course files both have a 'student_id' column with no nulls."
+        )
 
         # Log Math/English gateway courses and add to config
         ids, cips, has_upper_level, lower_ids, lower_cips = (
@@ -448,6 +479,10 @@ class PDPDataAuditTask:
             df_course_standardized,
             df_cohort_standardized,
         )
+
+        # --- Check that standardized cohort/course files aren't empty ---
+        require(len(df_cohort_standardized) > 0, "df_cohort_standardized is empty.")
+        require(len(df_course_standardized) > 0, "df_course_standardized is empty.")
 
         # --- Write results ---
         write_parquet(
