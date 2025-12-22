@@ -93,8 +93,6 @@ class PDPFeatureGenerationTask:
                 "student_id",
                 "academic_year",
                 "academic_term",
-                "term_id",
-                "course_id",
             ],
             "Course standardized",
         )
