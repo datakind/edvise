@@ -24,7 +24,9 @@ from edvise.dataio.read import read_parquet, read_config
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
-
+from edvise.shared.validation import (
+    require,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -127,6 +129,12 @@ class InferencePrepTask:
         )
 
         df_labeled = self.merge_data(checkpoint_df, selected_students)
+
+        require(
+            not df_labeled.empty,
+            "Merge produced 0 labeled rows (checkpoint ∩ selected ∩ selected_students is empty).",
+        )
+
         cohort_counts = (
             df_labeled[["cohort", "cohort_term"]]
             .value_counts(dropna=False)
