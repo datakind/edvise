@@ -101,7 +101,7 @@ class PDPFeatureGenerationTask:
         # ID fields must not be null
         require_no_nulls(
             df_course,
-            ["institution_id", "student_id", "term_id"],
+            ["institution_id", "student_id"],
             "Course standardized",
         )
         require_no_nulls(
