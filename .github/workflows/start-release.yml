@@ -1,0 +1,121 @@
+name: Start Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 0.1.9)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create-release-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Version must be in format X.Y.Z (e.g., 0.1.9)"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Check if version already exists
+        run: |
+          if git rev-parse "refs/tags/v${{ github.event.inputs.version }}" >/dev/null 2>&1; then
+            echo "Error: Tag v${{ github.event.inputs.version }} already exists"
+            exit 1
+          fi
+          if git show-ref --verify --quiet "refs/heads/release/${{ github.event.inputs.version }}"; then
+            echo "Error: Release branch release/${{ github.event.inputs.version }} already exists"
+            exit 1
+          fi
+
+      - name: Fetch latest changes
+        run: |
+          git fetch origin
+          git checkout develop
+          git pull origin develop
+
+      - name: Create release branch
+        run: |
+          git checkout -b "release/${{ github.event.inputs.version }}"
+          git push -u origin "release/${{ github.event.inputs.version }}"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.11'
+
+      - name: Install uv
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+
+      - name: Install project dependencies (uv)
+        run: |
+          uv venv
+          uv pip install .
+
+      - name: Update version metadata
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python -m edvise.scripts.update_version \
+            --version "${{ github.event.inputs.version }}" \
+            --changelog CHANGELOG.md \
+            --pyproject pyproject.toml \
+            --repo "${{ github.repository }}" \
+            --token "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Run uv sync
+        run: |
+          uv sync
+
+      - name: Commit changes
+        run: |
+          git add CHANGELOG.md pyproject.toml uv.lock
+          git commit -m "chore: bump version to ${{ github.event.inputs.version }}"
+          git push
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: "release/${{ github.event.inputs.version }}"
+          base: develop
+          title: "chore: release ${{ github.event.inputs.version }}"
+          body: |
+            ## Release ${{ github.event.inputs.version }}
+
+            This PR contains version metadata updates for release ${{ github.event.inputs.version }}.
+
+            - [x] Version updated in `pyproject.toml`
+            - [x] Changelog updated
+            - [x] Dependencies synced with `uv sync`
+
+            After this PR is merged, the release branch will trigger integration tests.
+            Once tests pass, use the "Finish Release" workflow to complete the release.
+
+            **Note:** Please review the changelog entries before merging.
+          labels: |
+            release
+          draft: false
+
