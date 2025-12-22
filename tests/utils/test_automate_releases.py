@@ -107,7 +107,7 @@ class TestGetPRTitlesSinceLastVersion:
         result = automate_releases.get_pr_titles_since_last_version(
             "owner/repo", "token"
         )
-        assert result == ["PR Title 1", "PR Title 2"]
+        assert result == ["PR Title 1 (#123)", "PR Title 2 (#124)"]
         assert mock_fetch.call_count == 2
 
     @patch("edvise.utils.automate_releases.get_pr_numbers_from_git_log")

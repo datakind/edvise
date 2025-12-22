@@ -143,7 +143,7 @@ def main() -> None:
         LOGGER.warning("No repository specified. PR titles will not be fetched.")
     else:
         LOGGER.info(f"Using repository: {repo}")
-    
+
     if not token:
         LOGGER.warning("No GitHub token provided. PR titles may not be fetched.")
     else:

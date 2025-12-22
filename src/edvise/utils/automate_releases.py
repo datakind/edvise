@@ -61,13 +61,13 @@ def fetch_pr_title(repo: str, pr_number: int, token: str) -> Optional[str]:
     """Fetch PR title from GitHub API."""
     url = f"https://api.github.com/repos/{repo}/pulls/{pr_number}"
     LOGGER.debug(f"Fetching PR #{pr_number} from {repo} via {url}")
-    
+
     req = urllib.request.Request(url)
     # Use Bearer format for all tokens (GitHub accepts both, but Bearer is preferred)
     req.add_header("Authorization", f"Bearer {token}")
     req.add_header("Accept", "application/vnd.github.v3+json")
     req.add_header("User-Agent", "edvise-release-automation")
-    
+
     try:
         with urllib.request.urlopen(req) as response:
             response_data = response.read().decode()
@@ -87,7 +87,7 @@ def fetch_pr_title(repo: str, pr_number: int, token: str) -> Optional[str]:
             error_message = error_json.get("message", error_body)
         except Exception:
             error_message = f"Could not parse error response: {error_body or str(e)}"
-        
+
         if e.code == 404:
             LOGGER.warning(
                 f"PR #{pr_number} not found in {repo}. "
@@ -141,8 +141,12 @@ def get_pr_titles_since_last_version(
 
     # Fetch PR titles using GitHub API
     if token:
-        LOGGER.info(f"Token provided: {'Yes' if token else 'No'} (length: {len(token) if token else 0})")
-        LOGGER.info(f"Fetching titles for {len(pr_numbers)} PRs using GitHub API from {repo}")
+        LOGGER.info(
+            f"Token provided: {'Yes' if token else 'No'} (length: {len(token) if token else 0})"
+        )
+        LOGGER.info(
+            f"Fetching titles for {len(pr_numbers)} PRs using GitHub API from {repo}"
+        )
         pr_titles = []
         failed_count = 0
         skipped_count = 0
@@ -154,7 +158,7 @@ def get_pr_titles_since_last_version(
                     LOGGER.debug(f"Skipping chore PR #{pr_num}: {title}")
                     skipped_count += 1
                     continue
-                
+
                 # Append PR number to title for easy tracking
                 pr_titles.append(f"{title} (#{pr_num})")
                 LOGGER.debug(f"Fetched PR #{pr_num}: {title}")
@@ -162,7 +166,7 @@ def get_pr_titles_since_last_version(
                 failed_count += 1
                 # Fallback to PR number if fetch fails
                 pr_titles.append(f"PR #{pr_num}")
-        
+
         if skipped_count > 0:
             LOGGER.info(f"Skipped {skipped_count} chore PR(s)")
         if failed_count > 0:
@@ -171,8 +175,10 @@ def get_pr_titles_since_last_version(
                 f"Using PR numbers as fallback."
             )
         else:
-            LOGGER.info(f"Successfully fetched {len(pr_titles)} PR title(s) for changelog")
-        
+            LOGGER.info(
+                f"Successfully fetched {len(pr_titles)} PR title(s) for changelog"
+            )
+
         return pr_titles
     else:
         LOGGER.warning("No GitHub token provided, using PR numbers as titles")
