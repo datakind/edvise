@@ -300,22 +300,6 @@ class PDPDataAuditTask:
 
         student_id_col = getattr(self.cfg, "student_id_col", None) or "student_id"
 
-        for label, df in [
-            ("Standardized cohort", df_cohort_standardized),
-            ("Standardized course", df_course_standardized),
-        ]:
-            require(
-                student_id_col in df.columns,
-                f"{label} missing required column: {student_id_col}",
-            )
-            nulls = int(df[student_id_col].isna().sum())
-            require(
-                nulls == 0, f"{label} contains {nulls} null {student_id_col} values."
-            )
-
-        LOGGER.info(
-            " Validated that cohort and course files both have a 'student_id' column with no nulls."
-        )
         # --- Load COURSE dataset - with schema ---
 
         # Schema validate course data and handle duplicates
@@ -373,6 +357,23 @@ class PDPDataAuditTask:
         df_course_standardized = self.course_std.standardize(df_course_validated)
 
         LOGGER.info(" Course data standardized.")
+
+        for label, df in [
+            ("Standardized cohort", df_cohort_standardized),
+            ("Standardized course", df_course_standardized),
+        ]:
+            require(
+                student_id_col in df.columns,
+                f"{label} missing required column: {student_id_col}",
+            )
+            nulls = int(df[student_id_col].isna().sum())
+            require(
+                nulls == 0, f"{label} contains {nulls} null {student_id_col} values."
+            )
+
+        LOGGER.info(
+            " Validated that cohort and course files both have a 'student_id' column with no nulls."
+        )
 
         # Log Math/English gateway courses and add to config
         ids, cips, has_upper_level, lower_ids, lower_cips = (
