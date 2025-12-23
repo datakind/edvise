@@ -10,6 +10,15 @@ import edvise.reporting.utils as reporting_utils
 
 
 class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
+    REQUIRED_PLOT_ARTIFACTS = [
+        "model_comparison.png",
+        "test_calibration_curve.png",
+        "test_roc_curve.png",
+        "test_confusion_matrix.png",
+        "preds/test_hist.png",
+        "h2o_feature_importances_by_shap_plot.png",
+    ]
+
     def __init__(
         self,
         config: PDPProjectConfig,

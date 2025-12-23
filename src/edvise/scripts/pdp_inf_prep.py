@@ -1,7 +1,6 @@
 import argparse
 import pandas as pd
 import logging
-from databricks.sdk.runtime import dbutils
 
 import os
 import sys
@@ -25,7 +24,9 @@ from edvise.dataio.read import read_parquet, read_config
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
-
+from edvise.shared.validation import (
+    require,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -128,6 +129,12 @@ class InferencePrepTask:
         )
 
         df_labeled = self.merge_data(checkpoint_df, selected_students)
+
+        require(
+            not df_labeled.empty,
+            "Merge produced 0 labeled rows (checkpoint ∩ selected ∩ selected_students is empty).",
+        )
+
         cohort_counts = (
             df_labeled[["cohort", "cohort_term"]]
             .value_counts(dropna=False)
@@ -148,16 +155,6 @@ class InferencePrepTask:
             overwrite=True,
             verbose=True,
         )
-
-        # Setting h2o vs sklearn based on config
-        model_type = (
-            "h2o" if getattr(self.cfg.model, "framework", None) == "h2o" else "sklearn"
-        )
-        if dbutils:
-            dbutils.jobs.taskValues.set(key="model_type", value=model_type)
-            logger.info(f"Setting task parameter for 'model_type' as '{model_type}'")
-        else:
-            logger.info(f"(no dbutils) model_type resolved as '{model_type}'")
 
 
 def parse_arguments() -> argparse.Namespace:
