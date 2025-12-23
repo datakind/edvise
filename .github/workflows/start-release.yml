@@ -39,26 +39,24 @@ jobs:
 
       - name: Check if version already exists
         run: |
-          git fetch origin
-          if git rev-parse "refs/tags/v${{ github.event.inputs.version }}" >/dev/null 2>&1; then
-            echo "Error: Tag v${{ github.event.inputs.version }} already exists"
+          git fetch origin --tags --prune
+          if git rev-parse "refs/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "Error: Tag v${VERSION} already exists"
             exit 1
           fi
-          if git show-ref --verify --quiet "refs/heads/release/${{ github.event.inputs.version }}"; then
-            echo "Error: Release branch release/${{ github.event.inputs.version }} already exists"
+          if git show-ref --verify --quiet "refs/remotes/origin/release/${VERSION}"; then
+            echo "Error: Release branch release/${VERSION} already exists"
             exit 1
           fi
-
       - name: Fetch latest changes
         run: |
           git fetch origin
           git checkout develop
           git pull origin develop
 
-      - name: Create release branch
+      - name: Create release branch (local only)
         run: |
-          git checkout -b "release/${{ github.event.inputs.version }}"
-          git push -u origin "release/${{ github.event.inputs.version }}"
+          git checkout -b "release/${{ env.VERSION }}"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -81,7 +79,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           python -m edvise.scripts.update_version \
-            --version "${{ github.event.inputs.version }}" \
+            --version "${VERSION}" \
             --changelog CHANGELOG.md \
             --pyproject pyproject.toml \
             --repo "${{ github.repository }}" \
@@ -94,12 +92,12 @@ jobs:
       - name: Commit and push changes
         run: |
           git add CHANGELOG.md pyproject.toml uv.lock
-          git commit -m "chore: bump version to ${{ github.event.inputs.version }}"
-          git push
+          git commit -m "chore(release): prepare ${VERSION}"
+          git push -u origin "release/${VERSION}"
 
       - name: Summary
         run: |
-          echo "## Release branch created: release/${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "## Release branch created: release/${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✓ Version metadata updated" >> $GITHUB_STEP_SUMMARY
           echo "✓ Release branch pushed (integration tests will run automatically)" >> $GITHUB_STEP_SUMMARY
