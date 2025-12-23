@@ -22,7 +22,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  create-finish-pr:
+  create-release-pr:
     if: |
       (github.event_name == 'workflow_dispatch') ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
@@ -44,6 +44,8 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.version }}"
+            # Strip "v" prefix if provided (e.g., "v0.1.9" -> "0.1.9")
+            VERSION="${VERSION#v}"
           else
             # Extract version from release branch name (e.g., release/0.1.9)
             BRANCH="${{ github.event.workflow_run.head_branch }}"
@@ -55,7 +57,7 @@ jobs:
           fi
           
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: Version must be in format X.Y.Z (e.g., 0.1.9), got: $VERSION"
+            echo "Error: Version must be in format X.Y.Z (e.g., 0.1.9 or v0.1.9), got: $VERSION"
             exit 1
           fi
           echo "VERSION=$VERSION" >> $GITHUB_ENV
@@ -78,7 +80,7 @@ jobs:
             const { data: runs } = await github.rest.actions.listWorkflowRuns({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              workflow_id: 'release-integration.yml', // filename
+              workflow_id: 'release-branch-ci-dev',
               branch: `release/${version}`,
               per_page: 1
             });
@@ -96,58 +98,46 @@ jobs:
 
             core.info('✓ Integration tests passed');
 
-      - name: Fetch latest changes
-        run: |
-          git fetch origin main develop
-          git checkout main
-          git pull origin main
-
-      - name: Merge release branch to main
-        run: |
-          RELEASE_BRANCH="release/${{ env.VERSION }}"
-          git fetch origin "$RELEASE_BRANCH"
-          git checkout -b "finish-release-${{ env.VERSION }}"
-          git merge "origin/$RELEASE_BRANCH" --no-ff -m "chore: release ${{ env.VERSION }}"
-          git push -u origin "finish-release-${{ env.VERSION }}"
-
       - name: Create Pull Request to main
         uses: peter-evans/create-pull-request@v6
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: "finish-release-${{ env.VERSION }}"
+          branch: "release/${{ env.VERSION }}"
           base: main
-          title: "chore: finish release ${{ env.VERSION }}"
+          title: "chore: release ${{ env.VERSION }}"
           body: |
-            ## Finish Release ${{ env.VERSION }}
+            ## Release ${{ env.VERSION }}
 
-            This PR merges the release branch to main and completes the release process.
+            This PR merges the release branch to main.
 
             - [x] Integration tests passed
-            - [x] Release branch merged to main
+            - [x] Version metadata updated
             - [ ] Tag will be created after merge (via workflow)
-            - [ ] Main will be merged back to develop after merge
+            - [ ] Main will be merged back to develop after merge (via PR)
             - [ ] Release branch will be deleted after merge
 
             **After merging this PR:**
             1. A workflow will automatically create tag `v${{ env.VERSION }}`
             2. The tag push will trigger the CD pipeline
-            3. Main will be merged back to develop
+            3. A PR will be created to merge main → develop
             4. The release branch will be deleted
           labels: |
             release
           draft: false
 
   complete-release:
-    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'chore: finish release')
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'chore: release')
     runs-on: ubuntu-latest
     steps:
-      - name: Extract version from PR title
+      - name: Extract version from PR head branch
         id: extract-version
         run: |
-          TITLE="${{ github.event.pull_request.title }}"
-          VERSION=$(echo "$TITLE" | sed -n 's/.*finish release \([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
+          # Extract version from PR head branch name (e.g., release/0.1.9)
+          BRANCH="${{ github.event.pull_request.head.ref }}"
+          VERSION=$(echo "$BRANCH" | sed -n 's|release/\([0-9]\+\.[0-9]\+\.[0-9]\+\)|\1|p')
           if [ -z "$VERSION" ]; then
-            echo "Error: Could not extract version from PR title: $TITLE"
+            echo "Error: Could not extract version from PR head branch: $BRANCH"
+            echo "Expected branch format: release/X.Y.Z"
             exit 1
           fi
           echo "VERSION=$VERSION" >> $GITHUB_ENV
@@ -180,13 +170,27 @@ jobs:
             echo "✓ Created and pushed tag $TAG"
           fi
 
-      - name: Merge main to develop
-        run: |
-          git checkout develop
-          git pull origin develop
-          git merge origin/main --no-ff -m "chore: merge main into develop after release ${{ env.VERSION }}"
-          git push origin develop
-          echo "✓ Merged main to develop"
+      - name: Create PR to merge main into develop
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: main
+          base: develop
+          title: "chore: sync develop with release ${{ env.VERSION }}"
+          body: |
+            ## Sync develop with main after release ${{ env.VERSION }}
+
+            This PR merges main into develop to sync the release changes.
+
+            - [x] Release merged to main
+            - [x] Tag v${{ env.VERSION }} created
+            - [ ] After merge, release branch will be deleted
+
+            **After merging this PR:**
+            - The release branch will be automatically deleted
+          labels: |
+            release
+          draft: false
 
       - name: Delete release branch
         run: |
@@ -198,21 +202,43 @@ jobs:
             echo "Release branch $RELEASE_BRANCH does not exist, skipping deletion"
           fi
 
-      - name: Clean up finish-release branch
+      - name: Summary
         run: |
-          FINISH_BRANCH="finish-release-${{ env.VERSION }}"
-          if git show-ref --verify --quiet "refs/remotes/origin/$FINISH_BRANCH"; then
-            git push origin --delete "$FINISH_BRANCH" || true
-            echo "✓ Deleted finish-release branch $FINISH_BRANCH"
+          echo "## Release ${{ env.VERSION }} - Part 1 completed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Created and pushed tag v${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Created PR to merge main → develop" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Deleted release branch" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**CD pipeline should now be triggered by the tag push.**" >> $GITHUB_STEP_SUMMARY
+          echo "**Next step:** Merge the PR to sync develop with main." >> $GITHUB_STEP_SUMMARY
+
+  sync-develop:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'chore: sync develop')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Extract version from PR title (fallback to main branch tag)
+        id: extract-version
+        run: |
+          # For the main -> develop PR, we need to check the latest tag on main
+          # since the PR head branch is "main" (not a release branch)
+          # Extract version from PR title as fallback
+          TITLE="${{ github.event.pull_request.title }}"
+          VERSION=$(echo "$TITLE" | sed -n 's/.*release \([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
+          if [ -z "$VERSION" ]; then
+            echo "Error: Could not extract version from PR title: $TITLE"
+            echo "Expected title format: 'chore: sync develop with release X.Y.Z'"
+            exit 1
           fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
       - name: Summary
         run: |
           echo "## Release ${{ env.VERSION }} completed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✓ Created and pushed tag v${{ env.VERSION }}" >> $GITHUB_STEP_SUMMARY
-          echo "✓ Merged main to develop" >> $GITHUB_STEP_SUMMARY
-          echo "✓ Deleted release branch" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Release merged to main" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Tag v${{ env.VERSION }} created" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Develop synced with main" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**CD pipeline should now be triggered by the tag push.**" >> $GITHUB_STEP_SUMMARY
 
