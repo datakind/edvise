@@ -32,18 +32,8 @@ jobs:
         shell: bash
         run: |
           git fetch origin develop
-          echo "CHECKED_OUT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
-          echo "ORIGIN_DEVELOP_SHA=$(git rev-parse origin/develop)" >> $GITHUB_ENV
-          # For scheduled runs, use origin/develop. For manual runs, use the checked-out HEAD.
-          if [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "PINNED_SHA=$(git rev-parse origin/develop)" >> $GITHUB_ENV
-          else
-            echo "PINNED_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
-          fi
-          echo "GITHUB_SHA=${GITHUB_SHA}"
-          echo "CHECKED_OUT_SHA=$(git rev-parse HEAD)"
-          echo "ORIGIN_DEVELOP_SHA=$(git rev-parse origin/develop)"
-          echo "PINNED_SHA will be: $PINNED_SHA"
+          PINNED_SHA=$(git rev-parse origin/develop)
+          echo "PINNED_SHA=$PINNED_SHA" >> $GITHUB_ENV
 
       - uses: actions/setup-python@v5
         with:
