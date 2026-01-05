@@ -1,6 +1,9 @@
 name: weekly-develop-integration
 
 on:
+  push:
+    branches:
+      - fix/fetching-latest-health-check
   schedule:
     - cron: "10 17 * * 1"  # Mondays at noon EST (17:10 UTC)
   workflow_dispatch: {}
@@ -24,6 +27,23 @@ jobs:
         with:
           ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref_name }}
           fetch-depth: 0
+
+      - name: Resolve commit to deploy/run
+        shell: bash
+        run: |
+          git fetch origin develop
+          echo "CHECKED_OUT_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
+          echo "ORIGIN_DEVELOP_SHA=$(git rev-parse origin/develop)" >> $GITHUB_ENV
+          # For scheduled runs, use origin/develop. For manual runs, use the checked-out HEAD.
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "PINNED_SHA=$(git rev-parse origin/develop)" >> $GITHUB_ENV
+          else
+            echo "PINNED_SHA=$(git rev-parse HEAD)" >> $GITHUB_ENV
+          fi
+          echo "GITHUB_SHA=${GITHUB_SHA}"
+          echo "CHECKED_OUT_SHA=$(git rev-parse HEAD)"
+          echo "ORIGIN_DEVELOP_SHA=$(git rev-parse origin/develop)"
+          echo "PINNED_SHA will be: $PINNED_SHA"
 
       - uses: actions/setup-python@v5
         with:
@@ -65,7 +85,7 @@ jobs:
         run: |
           databricks bundle deploy \
             --target=dev \
-            --var "git_commit=${GITHUB_SHA}" \
+            --var "git_commit=${PINNED_SHA}" \
             --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$DS_RUN_AS" \
@@ -81,7 +101,7 @@ jobs:
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
           databricks bundle run github_sourced_pdp_training_pipeline --target dev \
-            --var "git_commit=${GITHUB_SHA}" \
+            --var "git_commit=${PINNED_SHA}" \
             --var "DB_workspace=dev_sst_02" \
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
             --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
@@ -99,7 +119,7 @@ jobs:
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
           databricks bundle run edvise_github_sourced_pdp_inference_pipeline --target dev \
-            --var "git_commit=${GITHUB_SHA}" \
+            --var "git_commit=${PINNED_SHA}" \
             --var "DB_workspace=dev_sst_02" \
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
             --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
