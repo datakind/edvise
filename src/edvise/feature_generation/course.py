@@ -112,17 +112,27 @@ def extract_course_level_from_course_number(num):
 
     stripped_num = num.strip()
 
+    if not stripped_num:
+        raise Exception("Course number not expected: empty string.")
+
+    # Remove trailing letter if present
     if re.match(r"[A-Z]", stripped_num[-1]):
         stripped_num = stripped_num[:-1]
 
+    # Extract the first digit from the string (handles cases with leading non-digit chars)
+    first_digit_match = re.search(r"\d", stripped_num)
+    if not first_digit_match:
+        raise Exception(f"Course number not expected: no digit found in '{num}'.")
+
+    first_digit = int(first_digit_match.group())
     len_num = len(stripped_num)
 
     if len_num == 4:
-        return int(stripped_num[0])
+        return first_digit
     elif len_num == 3:
         return 0
     else:
-        raise Exception("Course number not expected.")
+        raise Exception(f"Course number not expected: length {len_num} after processing '{num}'.")
 
 
 def course_grade_numeric(df: pd.DataFrame, *, col: str = "grade") -> pd.Series:
