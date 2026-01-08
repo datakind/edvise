@@ -1213,6 +1213,7 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
     else:
         LOGGER.info("'M' grade not found or no valid grade data available.")
 
+
 def check_bias_variables(df_cohort: pd.DataFrame) -> None:
     bias_vars = ["first_gen", "gender", "race", "ethnicity"]
     null_threshold_pct = 50.0  # adjust if needed
@@ -1227,10 +1228,7 @@ def check_bias_variables(df_cohort: pd.DataFrame) -> None:
         LOGGER.info(f"\n--- {var} ---")
 
         pct_counts = (
-            df_cohort[var]
-            .value_counts(dropna=False, normalize=True)
-            .mul(100)
-            .round(2)
+            df_cohort[var].value_counts(dropna=False, normalize=True).mul(100).round(2)
         )
 
         null_pct = 0.0
