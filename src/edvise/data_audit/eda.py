@@ -1218,7 +1218,7 @@ def check_bias_variables(df_cohort: pd.DataFrame) -> None:
     bias_vars = ["first_gen", "gender", "race", "ethnicity"]
     null_threshold_pct = 50.0  # adjust if needed
 
-    LOGGER.info("=== Bias Variable Check ===")
+    LOGGER.info(" Bias Variable Check: ")
 
     for var in bias_vars:
         if var not in df_cohort.columns:
