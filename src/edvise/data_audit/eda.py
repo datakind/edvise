@@ -1212,3 +1212,39 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
             LOGGER.info("'M' grades: %d (%.1f%% of non-null grades).", m_count, m_pct)
     else:
         LOGGER.info("'M' grade not found or no valid grade data available.")
+
+def check_bias_variables(df_cohort: pd.DataFrame) -> None:
+    bias_vars = ["first_gen", "gender", "race", "ethnicity"]
+    null_threshold_pct = 50.0  # adjust if needed
+
+    LOGGER.info("=== Bias Variable Check ===")
+
+    for var in bias_vars:
+        if var not in df_cohort.columns:
+            LOGGER.warning(f"\n⚠️  MISSING COLUMN: '{var}' not found in DataFrame")
+            continue
+
+        LOGGER.info(f"\n--- {var} ---")
+
+        pct_counts = (
+            df_cohort[var]
+            .value_counts(dropna=False, normalize=True)
+            .mul(100)
+            .round(2)
+        )
+
+        null_pct = 0.0
+
+        for value, pct in pct_counts.items():
+            if pd.isna(value):
+                label = "NaN"
+                null_pct = pct
+            else:
+                label = value
+            LOGGER.info(f"{label}: {pct}%")
+
+        if null_pct >= null_threshold_pct:
+            LOGGER.warning(
+                f"⚠️  NOTE: >50% missingness in '{var}' "
+                f"({null_pct}% nulls; threshold = {null_threshold_pct}%)"
+            )
