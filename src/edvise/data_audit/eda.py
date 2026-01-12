@@ -889,7 +889,7 @@ def check_earned_vs_attempted(
 ) -> t.Dict[str, pd.DataFrame]:
     """
     CUSTOM SCHOOL FUNCTION
-    
+
     Row-wise checks that:
       1. credits_earned <= credits_attempted
       2. credits_earned = 0 when credits_attempted = 0
@@ -963,10 +963,16 @@ def validate_credit_consistency(
     resolved_course_attempted_col = course_credits_attempted_col
     resolved_course_earned_col = course_credits_earned_col
 
-    if resolved_course_attempted_col not in course_df.columns and "course_credits_attempted" in course_df.columns:
+    if (
+        resolved_course_attempted_col not in course_df.columns
+        and "course_credits_attempted" in course_df.columns
+    ):
         resolved_course_attempted_col = "course_credits_attempted"
 
-    if resolved_course_earned_col not in course_df.columns and "course_credits_earned" in course_df.columns:
+    if (
+        resolved_course_earned_col not in course_df.columns
+        and "course_credits_earned" in course_df.columns
+    ):
         resolved_course_earned_col = "course_credits_earned"
 
     has_course_credit_cols = (
@@ -981,12 +987,18 @@ def validate_credit_consistency(
     course_anomalies_summary = None
 
     if has_course_credit_cols:
-        cchk = course_df[[col for col in [id_col, sem_col] if col in course_df.columns] +
-                         [resolved_course_attempted_col, resolved_course_earned_col]].copy()
+        cchk = course_df[
+            [col for col in [id_col, sem_col] if col in course_df.columns]
+            + [resolved_course_attempted_col, resolved_course_earned_col]
+        ].copy()
 
         # Ensure numeric
-        cchk[resolved_course_attempted_col] = pd.to_numeric(cchk[resolved_course_attempted_col], errors="coerce")
-        cchk[resolved_course_earned_col] = pd.to_numeric(cchk[resolved_course_earned_col], errors="coerce")
+        cchk[resolved_course_attempted_col] = pd.to_numeric(
+            cchk[resolved_course_attempted_col], errors="coerce"
+        )
+        cchk[resolved_course_earned_col] = pd.to_numeric(
+            cchk[resolved_course_earned_col], errors="coerce"
+        )
 
         # earned > attempted (allowing tolerance if desired)
         # i.e., anomaly if earned - attempted > credit_tol
@@ -998,11 +1010,15 @@ def validate_credit_consistency(
         cchk["attempted_is_negative"] = cchk[resolved_course_attempted_col].lt(0)
         cchk["earned_is_negative"] = cchk[resolved_course_earned_col].lt(0)
 
-        cchk["earned_exceeds_attempted"] = cchk["diff_earned_minus_attempted"].gt(credit_tol)
+        cchk["earned_exceeds_attempted"] = cchk["diff_earned_minus_attempted"].gt(
+            credit_tol
+        )
 
         course_anomalies = (
             cchk.loc[
-                cchk["earned_exceeds_attempted"] | cchk["attempted_is_negative"] | cchk["earned_is_negative"],
+                cchk["earned_exceeds_attempted"]
+                | cchk["attempted_is_negative"]
+                | cchk["earned_is_negative"],
                 [col for col in cchk.columns if col not in []],
             ]
             .sort_values([c for c in [id_col, sem_col] if c in cchk.columns])
@@ -1012,7 +1028,9 @@ def validate_credit_consistency(
         course_anomalies_summary = {
             "rows_checked": int(len(cchk)),
             "rows_with_anomalies": int(len(course_anomalies)),
-            "rows_earned_exceeds_attempted": int(cchk["earned_exceeds_attempted"].sum()),
+            "rows_earned_exceeds_attempted": int(
+                cchk["earned_exceeds_attempted"].sum()
+            ),
             "rows_attempted_negative": int(cchk["attempted_is_negative"].sum()),
             "rows_earned_negative": int(cchk["earned_is_negative"].sum()),
         }
@@ -1041,7 +1059,12 @@ def validate_credit_consistency(
 
         if has_semester_cols and has_course_recon_cols:
             c = course_df[
-                [id_col, sem_col, resolved_course_attempted_col, resolved_course_earned_col]
+                [
+                    id_col,
+                    sem_col,
+                    resolved_course_attempted_col,
+                    resolved_course_earned_col,
+                ]
             ].copy()
 
             s = semester_df[
@@ -1064,7 +1087,9 @@ def validate_credit_consistency(
                 .reset_index()
             )
 
-            merged = s.merge(agg, on=[id_col, sem_col], how="left", indicator="_merge_agg")
+            merged = s.merge(
+                agg, on=[id_col, sem_col], how="left", indicator="_merge_agg"
+            )
             merged["has_course_rows"] = merged["_merge_agg"].eq("both")
             merged["course_sum_attempted"] = merged["course_sum_attempted"].fillna(0.0)
             merged["course_sum_earned"] = merged["course_sum_earned"].fillna(0.0)
@@ -1159,6 +1184,7 @@ def validate_credit_consistency(
         "resolved_course_credits_attempted_col": resolved_course_attempted_col,
         "resolved_course_credits_earned_col": resolved_course_earned_col,
     }
+
 
 def check_pf_grade_consistency(
     df,

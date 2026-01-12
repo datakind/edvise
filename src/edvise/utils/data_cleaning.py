@@ -539,6 +539,7 @@ def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
 
 import pandas as pd
 
+
 def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
     """
     Combined duplicate handling with a school_type switch.
@@ -591,7 +592,9 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
 
         if dup_mask.any() and "course_name" in df.columns:
             to_renumber = []
-            for _, idx in df.loc[dup_mask].groupby(unique_cols, dropna=False).groups.items():
+            for _, idx in (
+                df.loc[dup_mask].groupby(unique_cols, dropna=False).groups.items()
+            ):
                 idx = list(idx)
                 if len(idx) <= 1:
                     continue
@@ -603,7 +606,9 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
                 dup_info_before = df.loc[
                     to_renumber, ["course_prefix", "course_name", "course_number"]
                 ]
-                LOGGER.info(f"Renumbering these duplicates (before):\n{dup_info_before}")
+                LOGGER.info(
+                    f"Renumbering these duplicates (before):\n{dup_info_before}"
+                )
 
                 df = dedupe_by_renumbering_courses(df)
 
@@ -687,29 +692,39 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
     if records_in_dupe_groups == 0:
         LOGGER.info("No duplicate course groups remain.")
     else:
-        for key_vals, group in duplicate_rows.groupby(unique_cols, observed=True, dropna=False):
+        for key_vals, group in duplicate_rows.groupby(
+            unique_cols, observed=True, dropna=False
+        ):
             sid, term, subj, num = key_vals
             parts = []
             if has_course_type:
                 type_counts = group["course_type"].fillna("UNKNOWN").value_counts()
-                parts.append("type: " + ", ".join(f"{c}×{t}" for t, c in type_counts.items()))
+                parts.append(
+                    "type: " + ", ".join(f"{c}×{t}" for t, c in type_counts.items())
+                )
             if has_course_name:
                 name_counts = group["course_name"].fillna("UNKNOWN").value_counts()
-                parts.append("name: " + ", ".join(f"{c}×{n}" for n, c in name_counts.items()))
+                parts.append(
+                    "name: " + ", ".join(f"{c}×{n}" for n, c in name_counts.items())
+                )
             extra = (" | " + " | ".join(parts)) if parts else ""
             LOGGER.info(f"  {sid} {term} {subj} {num}{extra}")
 
     # Decide: renumber vs drop
     renumber_groups = 0
     drop_groups = 0
-    renumber_work_idx = []   # rows we will renumber
-    drop_idx = []            # rows we will drop
+    renumber_work_idx = []  # rows we will renumber
+    drop_idx = []  # rows we will drop
     lab_lecture_rows = 0
 
     if records_in_dupe_groups > 0:
         for _, grp in duplicate_rows.groupby(unique_cols, observed=True, dropna=False):
-            type_varies = has_course_type and grp["course_type"].nunique(dropna=False) > 1
-            name_varies = has_course_name and grp["course_name"].nunique(dropna=False) > 1
+            type_varies = (
+                has_course_type and grp["course_type"].nunique(dropna=False) > 1
+            )
+            name_varies = (
+                has_course_name and grp["course_name"].nunique(dropna=False) > 1
+            )
             must_renumber = type_varies or name_varies
 
             if must_renumber:
@@ -721,7 +736,9 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
                 drop_groups += 1
                 # Keep best row (highest credits if possible), drop the rest
                 if credits_col is not None:
-                    grp_sorted = grp.sort_values(by=[credits_col], ascending=False, kind="mergesort")
+                    grp_sorted = grp.sort_values(
+                        by=[credits_col], ascending=False, kind="mergesort"
+                    )
                 else:
                     grp_sorted = grp
                 keep_one = grp_sorted.index[0]
@@ -760,8 +777,8 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
             LOGGER.info(
                 "Renumbering duplicates (before) [showing up to 50 rows]:\n%s",
                 df.loc[renumber_work_idx, cols_to_show]
-                  .sort_values(["course_subject", "course_num"], kind="mergesort")
-                  .head(50),
+                .sort_values(["course_subject", "course_num"], kind="mergesort")
+                .head(50),
             )
 
             # Ensure course_num can hold strings
@@ -782,7 +799,9 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
             # IMPORTANT: mimic original handle_duplicates:
             # - first record in each dup group keeps original course_num
             # - subsequent records get -01, -02, ...
-            dup_index = work.groupby(unique_cols, observed=True, dropna=False).cumcount()
+            dup_index = work.groupby(
+                unique_cols, observed=True, dropna=False
+            ).cumcount()
             suffix_index = dup_index.where(dup_index > 0)  # NaN/0 for first
 
             new_vals = work["course_num"].astype("string")
@@ -799,8 +818,8 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
             LOGGER.info(
                 "Renumbering duplicates (after) [showing up to 50 rows]:\n%s",
                 df.loc[work.index, cols_to_show]
-                  .sort_values(["course_subject", "course_num"], kind="mergesort")
-                  .head(50),
+                .sort_values(["course_subject", "course_num"], kind="mergesort")
+                .head(50),
             )
 
     # Build course_id (custom only)
@@ -812,15 +831,21 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
     # Summary (handle_duplicates-style)
     final_dupe_rows = int(df.duplicated(unique_cols, keep=False).sum())
     renumbered_rows = len(set(renumber_work_idx)) if renumber_work_idx else 0
-    lab_lecture_pct = (lab_lecture_rows / renumbered_rows * 100) if renumbered_rows else 0.0
+    lab_lecture_pct = (
+        (lab_lecture_rows / renumbered_rows * 100) if renumbered_rows else 0.0
+    )
 
     LOGGER.info("COURSE RECORD DUPLICATE SUMMARY (custom)")
     LOGGER.info(f"Total course records before:      {total_before}")
-    LOGGER.info(f"Duplicate records found:          {initial_dup_rows} ({initial_dup_pct:.2f}%)")
+    LOGGER.info(
+        f"Duplicate records found:          {initial_dup_rows} ({initial_dup_pct:.2f}%)"
+    )
     LOGGER.info(f"True duplicates dropped:          {true_dupes_dropped}")
     LOGGER.info(f"Records renumbered:               {renumbered_rows}")
     if has_course_type:
-        LOGGER.info(f"Lab/lecture duplicate rows:       {lab_lecture_rows} ({lab_lecture_pct:.2f}%)")
+        LOGGER.info(
+            f"Lab/lecture duplicate rows:       {lab_lecture_rows} ({lab_lecture_pct:.2f}%)"
+        )
     LOGGER.info(f"Duplicate groups renumbered:      {renumber_groups}")
     LOGGER.info(f"Duplicate groups dropped:         {drop_groups}")
     LOGGER.info(f"Rows dropped from true dupes:     {dropped_rows}")

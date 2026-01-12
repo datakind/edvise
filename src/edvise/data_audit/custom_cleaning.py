@@ -932,7 +932,7 @@ def align_and_rank_dataframes(
             df_filtered.shape,
             df_filtered[term_column].min(),
             df_filtered[term_column].max(),
-         )
+        )
     LOGGER.info(
         "Alignment complete: %d dataframes processed (core_term_col=%s, core_term_rank=%s).",
         len(result),
@@ -1054,7 +1054,9 @@ def drop_readmits_and_dedupe_keep_earliest(
     # --- Step 2: detect remaining duplicates by student ---
     if student_col not in out.columns:
         # Nothing sensible to do without the id column
-        print(f"[drop_readmits_and_dedupe_keep_earliest] '{student_col}' not in df; skipping dedupe.")
+        print(
+            f"[drop_readmits_and_dedupe_keep_earliest] '{student_col}' not in df; skipping dedupe."
+        )
         return out
 
     dup_mask = out.duplicated(subset=[student_col], keep=False)
@@ -1084,7 +1086,7 @@ def drop_readmits_and_dedupe_keep_earliest(
 def assign_numeric_grade(df: pd.DataFrame) -> pd.DataFrame:
     """
     CUSTOM SCHOOL FUNCTION
-    
+
     Assign a numeric value to each grade based on your mapping.
     Grades that do not have a numeric equivalent are set to None.
     """
