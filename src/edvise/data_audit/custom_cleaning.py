@@ -1037,6 +1037,8 @@ def assign_numeric_grade(
 
     Assign a numeric value to each grade based on a provided mapping.
     Grades not found in the mapping are skipped (NaN) and printed.
+    
+    Can and *should* pass your own mapping, don't rely on the default.
     """
 
     LOGGER.info("Starting assign_numeric_grade transformation.")
