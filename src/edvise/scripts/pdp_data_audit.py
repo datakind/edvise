@@ -6,7 +6,6 @@ import sys
 import pandas as pd
 import pathlib
 import os
-import functools
 from functools import partial
 
 # Go up 3 levels from the current file's directory to reach repo root

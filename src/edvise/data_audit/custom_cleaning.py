@@ -957,7 +957,7 @@ def _extract_readmit_ids(
 
     entry = df[entry_col].astype("string").str.lower().str.strip()
     readmit_ids = df.loc[entry == "readmit", student_col].dropna().unique()
-    return readmit_ids
+    return np.asarray(readmit_ids, dtype=object)
 
 
 def drop_readmits(
