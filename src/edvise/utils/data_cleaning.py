@@ -551,7 +551,7 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
       - if duplicate-key rows have DIFFERENT course_name -> renumber via dedupe_by_renumbering_courses()
       - else -> drop true dupes with warning logging similar to original
 
-    Custom mode: based on `handle_duplicates`, but with "handling_duplicates"-style logic:
+    Edvise schema mode: based on `handle_duplicates`, but with "handling_duplicates"-style logic:
       - unique_cols = ["student_id", "term", "course_subject", "course_num"]
       - drop exact duplicates first
       - for remaining key-dupes:
@@ -564,8 +564,8 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
 
     df = df.copy()
     school_type = (school_type or "").strip().lower()
-    if school_type not in {"pdp", "custom"}:
-        raise ValueError("school_type must be either 'pdp' or 'custom'")
+    if school_type not in {"pdp", "schema"}:
+        raise ValueError("school_type must be either 'pdp' or 'schema', short for edvise schema.")
 
     # ---------------------------------------------------------------------
     # PDP MODE
@@ -646,9 +646,9 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
         return df
 
     # ---------------------------------------------------------------------
-    # CUSTOM MODE
+    # EDVISE SCHEMA MODE
     # ---------------------------------------------------------------------
-    LOGGER.info("handle_duplicates: custom mode triggered")
+    LOGGER.info("handle_duplicates: edvise schema mode triggered")
     unique_cols = ["student_id", "term", "course_subject", "course_num"]
     total_before = len(df)
 
@@ -822,7 +822,7 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
                 .head(50),
             )
 
-    # Build course_id (custom only)
+    # Build course_id (edvise schema only)
     df["course_id"] = (
         df["course_subject"].astype("string").str.strip()
         + df["course_num"].astype("string").str.strip()
@@ -835,7 +835,7 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
         (lab_lecture_rows / renumbered_rows * 100) if renumbered_rows else 0.0
     )
 
-    LOGGER.info("COURSE RECORD DUPLICATE SUMMARY (custom)")
+    LOGGER.info("COURSE RECORD DUPLICATE SUMMARY (edvise schema)")
     LOGGER.info(f"Total course records before:      {total_before}")
     LOGGER.info(
         f"Duplicate records found:          {initial_dup_rows} ({initial_dup_pct:.2f}%)"
