@@ -990,7 +990,7 @@ def drop_readmits(
 def keep_earlier_record(
     df: pd.DataFrame,
     id_col: str = "student_id",
-    term_col: str = "entry_term",
+    term_col: str = "cohort_term",
 ) -> pd.DataFrame:
     """
     Keeps the earliest record per id_col based on term_col, where term_col
