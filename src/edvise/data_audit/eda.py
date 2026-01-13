@@ -741,11 +741,16 @@ def print_retention(df_cohort: pd.DataFrame) -> None:
     )
 
 
-def log_top_majors(df_cohort:pd.DataFrame) -> None:
+def log_top_majors(df_cohort: pd.DataFrame) -> None:
     """
     Logs the top majors by program of study for the first term.
     """
-    top_majors = df_cohort["program_of_study_term_1"].value_counts(dropna=False).sort_values(ascending=False).head(10)
+    top_majors = (
+        df_cohort["program_of_study_term_1"]
+        .value_counts(dropna=False)
+        .sort_values(ascending=False)
+        .head(10)
+    )
     LOGGER.info(
         " Top majors: \n%s ",
         top_majors.to_string(),

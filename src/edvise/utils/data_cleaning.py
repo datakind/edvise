@@ -565,7 +565,9 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
     df = df.copy()
     school_type = (school_type or "").strip().lower()
     if school_type not in {"pdp", "schema"}:
-        raise ValueError("school_type must be either 'pdp' or 'schema', short for edvise schema.")
+        raise ValueError(
+            "school_type must be either 'pdp' or 'schema', short for edvise schema."
+        )
 
     # ---------------------------------------------------------------------
     # PDP MODE
