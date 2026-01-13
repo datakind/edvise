@@ -1216,7 +1216,7 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
 
 def check_bias_variables(df_cohort: pd.DataFrame) -> None:
     bias_vars = ["first_gen", "gender", "race", "ethnicity"]
-    null_threshold_pct = 50.0  # adjust if needed
+    null_threshold_pct = 50.0  # can change if we think it should be higher
 
     LOGGER.info(" Bias Variable Check: ")
 
@@ -1243,6 +1243,6 @@ def check_bias_variables(df_cohort: pd.DataFrame) -> None:
 
         if null_pct >= null_threshold_pct:
             LOGGER.warning(
-                f"⚠️  NOTE: >50% missingness in '{var}' "
+                f"⚠️  NOTE: >=50% missingness in '{var}' "
                 f"({null_pct}% nulls; threshold = {null_threshold_pct}%)"
             )
