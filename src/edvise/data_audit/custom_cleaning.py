@@ -1025,64 +1025,6 @@ def keep_earlier_record(
     return out
 
 
-def drop_readmits_and_dedupe_keep_earliest(
-    cohort_df: pd.DataFrame,
-    *,
-    entry_col: str = "entry_type",
-    student_col: str = "student_id",
-    entry_term_col: str = "entry_term",
-) -> pd.DataFrame:
-    """
-    CUSTOM SCHOOL FUNCTION
-
-    1) Logs and removes ALL rows for any student who has an entry_type of 'readmit'
-       (based only on this dataframe), using drop_readmits/_extract_readmit_ids.
-    2) Checks for any remaining duplicate student IDs.
-       - If duplicates exist, prints a message with counts.
-       - Removes the *later* cohort record by keeping the earliest record per student
-         based on entry_term values like 'Spring 2020', 'Fall 2020', etc.
-         (via keep_earlier_record logic).
-    """
-
-    # --- Step 1: remove readmits (this already logs via LOGGER.info) ---
-    out = drop_readmits(
-        cohort_df=cohort_df,
-        entry_col=entry_col,
-        student_col=student_col,
-    )
-
-    # --- Step 2: detect remaining duplicates by student ---
-    if student_col not in out.columns:
-        # Nothing sensible to do without the id column
-        print(
-            f"[drop_readmits_and_dedupe_keep_earliest] '{student_col}' not in df; skipping dedupe."
-        )
-        return out
-
-    dup_mask = out.duplicated(subset=[student_col], keep=False)
-    if not dup_mask.any():
-        return out
-
-    # Print duplicate summary
-    dup_ids = out.loc[dup_mask, student_col]
-    n_dup_rows = int(dup_mask.sum())
-    n_dup_students = int(dup_ids.nunique())
-    print(
-        "[drop_readmits_and_dedupe_keep_earliest] Remaining duplicates found "
-        f"after dropping readmits: {n_dup_rows} rows across {n_dup_students} students. "
-        "Keeping earliest entry_term per student and dropping later cohort record(s)."
-    )
-
-    # --- Step 3: remove later cohort record(s) by keeping earliest entry_term ---
-    out = keep_earlier_record(
-        df=out,
-        id_col=student_col,
-        term_col=entry_term_col,
-    )
-
-    return out
-
-
 def assign_numeric_grade(df: pd.DataFrame) -> pd.DataFrame:
     """
     CUSTOM SCHOOL FUNCTION
