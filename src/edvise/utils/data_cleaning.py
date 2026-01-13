@@ -787,7 +787,10 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
 
             # Optional: if you want credits to influence -1/-2 ordering and schema credits
             # aren't already in number_of_credits_attempted
-            if credits_col is not None and "number_of_credits_attempted" not in work.columns:
+            if (
+                credits_col is not None
+                and "number_of_credits_attempted" not in work.columns
+            ):
                 work["number_of_credits_attempted"] = work[credits_col]
 
             work = dedupe_by_renumbering_courses(
@@ -796,7 +799,9 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
             )
 
             # Update only affected rows
-            df.loc[renumber_work_idx, "course_number"] = work["course_number"].astype("string")
+            df.loc[renumber_work_idx, "course_number"] = work["course_number"].astype(
+                "string"
+            )
 
             LOGGER.info(
                 "Renumbering duplicates (after) [showing up to 50 rows]:\n%s",
