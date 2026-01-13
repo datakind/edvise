@@ -166,7 +166,7 @@ class CustomCohortStandardizer(BaseStandardizer):
         log_top_majors(df)
         log_top_majors(df)
         df = replace_na_firstgen_and_pell(df)
-        primary_keys=["student_id", "cohort_term"]
+        primary_keys = ["student_id", "cohort_term"]
         LOGGER.info("Checking for duplicates...")
         find_dupes(df, primary_keys=primary_keys)
         LOGGER.info("Dropping readmits ")
@@ -177,12 +177,16 @@ class CustomCohortStandardizer(BaseStandardizer):
             LOGGER.info("No duplicates found after dropping readmits.")
         else:
             df = keep_earlier_record(df)
-            LOGGER.info("Duplicates still found; running keep_earlier_record; checking again for duplicates...")
+            LOGGER.info(
+                "Duplicates still found; running keep_earlier_record; checking again for duplicates..."
+            )
             dupes = find_dupes(df, primary_keys=primary_keys)
             if len(dupes) == 0:
                 LOGGER.info("No duplicates found after keep_earlier_record.")
             else:
-                LOGGER.warning("Duplicates still remain after keep_earlier_record func. Investigate further.")
+                LOGGER.warning(
+                    "Duplicates still remain after keep_earlier_record func. Investigate further."
+                )
         df = assign_numeric_grade(df)
         cols_to_drop = [
             # not all demographics used for target variable bias checks
