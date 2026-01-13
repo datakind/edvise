@@ -1025,63 +1025,85 @@ def keep_earlier_record(
     return out
 
 
-def assign_numeric_grade(df: pd.DataFrame) -> pd.DataFrame:
+def assign_numeric_grade(
+    df: pd.DataFrame,
+    *,
+    grade_numeric_map: t.Optional[dict[str, t.Optional[float]]] = None,
+    grade_col: str = "grade",
+    output_col: str = "course_numeric_grade",
+) -> pd.DataFrame:
     """
     CUSTOM SCHOOL FUNCTION
 
-    Assign a numeric value to each grade based on your mapping.
-    Grades that do not have a numeric equivalent are set to None.
+    Assign a numeric value to each grade based on a provided mapping.
+    Grades not found in the mapping are skipped (NaN) and printed.
     """
+
     LOGGER.info("Starting assign_numeric_grade transformation.")
-    grade_numeric_map = {
-        "A": 4.0,
-        "A-": 3.7,
-        "B+": 3.3,
-        "B": 3.0,
-        "B-": 2.7,
-        "C+": 2.3,
-        "C": 2.0,
-        "C-": 1.7,
-        "D+": 1.3,
-        "D": 1.0,
-        "D-": 0.7,
-        "P": 4.0,
-        "P*": 4.0,
-        "CH": 4.0,
-        "F": 0.0,
-        "F*": 0.0,
-        "E": 0.0,
-        "REF": 0.0,
-        "W": 0.0,
-        "W*": 0.0,
-        "WI": 0.0,
-        "WE": 0.0,
-        "WC": 0.0,
-        "WA": 0.0,
-        "WB+": 0.0,
-        "WB": 0.0,
-        "WB-": 0.0,
-        "WD": 0.0,
-        "WD-": 0.0,
-        "WC+": 0.0,
-        "WC-": 0.0,
-        "WA-": 0.0,
-        "I": 0.0,
-        # everything else doesn't have a numeric GPA equivalent
-        "^C": None,
-        "^C-": None,
-        "^D-": None,
-        "^D": None,
-        "^D+": None,
-        "^E": None,
-        "ZD-": None,
-        "ZD": None,
-        "ZE": None,
-        "NR": None,
-        "S": None,
-        "REP": None,
-    }
-    df["course_numeric_grade"] = df["grade"].map(grade_numeric_map)
+
+    if grade_numeric_map is None:
+        grade_numeric_map = {
+            "A": 4.0,
+            "A-": 3.7,
+            "B+": 3.3,
+            "B": 3.0,
+            "B-": 2.7,
+            "C+": 2.3,
+            "C": 2.0,
+            "C-": 1.7,
+            "D+": 1.3,
+            "D": 1.0,
+            "D-": 0.7,
+            "P": 4.0,
+            "P*": 4.0,
+            "CH": 4.0,
+            "F": 0.0,
+            "F*": 0.0,
+            "E": 0.0,
+            "REF": 0.0,
+            "W": 0.0,
+            "W*": 0.0,
+            "WI": 0.0,
+            "WE": 0.0,
+            "WC": 0.0,
+            "WA": 0.0,
+            "WB+": 0.0,
+            "WB": 0.0,
+            "WB-": 0.0,
+            "WD": 0.0,
+            "WD-": 0.0,
+            "WC+": 0.0,
+            "WC-": 0.0,
+            "WA-": 0.0,
+            "I": 0.0,
+            # no numeric GPA equivalent
+            "^C": None,
+            "^C-": None,
+            "^D-": None,
+            "^D": None,
+            "^D+": None,
+            "^E": None,
+            "ZD-": None,
+            "ZD": None,
+            "ZE": None,
+            "NR": None,
+            "S": None,
+            "REP": None,
+        }
+
+    grades = df[grade_col].astype("string").str.strip().str.upper()
+    df[output_col] = grades.map(grade_numeric_map)
+
+    # -------------------------------------------------
+    # Print missing grade keys (present in data, absent from map)
+    # -------------------------------------------------
+    missing_keys = sorted(
+        set(grades.dropna().unique()) - set(grade_numeric_map.keys())
+    )
+
+    if missing_keys:
+        print(f"Grades not found in mapping (skipped): {missing_keys}")
+
     LOGGER.info("Completed assign_numeric_grade transformation.")
     return df
 
