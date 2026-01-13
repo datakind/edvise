@@ -1097,9 +1097,7 @@ def assign_numeric_grade(
     # -------------------------------------------------
     # Print missing grade keys (present in data, absent from map)
     # -------------------------------------------------
-    missing_keys = sorted(
-        set(grades.dropna().unique()) - set(grade_numeric_map.keys())
-    )
+    missing_keys = sorted(set(grades.dropna().unique()) - set(grade_numeric_map.keys()))
 
     if missing_keys:
         print(f"Grades not found in mapping (skipped): {missing_keys}")
