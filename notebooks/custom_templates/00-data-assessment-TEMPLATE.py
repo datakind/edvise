@@ -55,9 +55,10 @@ from edvise.data_audit.eda import (
 ## Data Cleaning Imports
 
 from edvise.data_audit.custom_cleaning import (
-    drop_readmits_and_dedupe_keep_earliest,
     convert_numeric_columns,
     assign_numeric_grade,
+    keep_earlier_record,
+    drop_readmits,
 )
 
 from edvise.utils.data_cleaning import handling_duplicates
@@ -266,7 +267,9 @@ cohort_term_dupes.head()
 # COMMAND ----------
 
 # remove readmits and check for any more dupes
-cleaned_cohort = drop_readmits_and_dedupe_keep_earliest(student_raw_df)
+cleaned_cohort = drop_readmits(student_raw_df)
+
+cleaned_cohort = keep_earlier_record(cleaned_cohort)
 
 # COMMAND ----------
 
@@ -883,36 +886,6 @@ ax.legend(loc="lower left", title="Enrollment Intensity")
 plt.xticks(rotation=45, ha="right")
 plt.title("Cumulative GPA by Term and Enrollment Intensity")
 plt.show()
-
-# COMMAND ----------
-
-# MAGIC %md
-# MAGIC ## clean raw datasets
-
-# COMMAND ----------
-
-# 1) Start from raw dfs
-raw_map = {
-    "student_df": student_raw_df,
-    "course_df": course_raw_df,
-}
-
-# 2) Define df pairs from bronze dataset config
-DF_MAP = {
-    "student_df": ("raw_cohort", raw_map["student_df"]),
-    "course_df": ("raw_course", raw_map["course_df"]),
-}
-
-# 3) Deduplication logic per dataset
-# CAN ADJUST THIS BASED ON CUSTOM FUNCS - these are default fallbacks!
-dedupe_fn_by_dataset = {
-    "student_df": drop_readmits_and_dedupe_keep_earliest,
-    "course_df": handling_duplicates,
-}
-
-# 4) Pull cleaning config
-cleaning_cfg = cfg.preprocessing.cleaning
-cleaning_cfg
 
 # COMMAND ----------
 
