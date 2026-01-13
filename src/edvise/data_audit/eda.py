@@ -917,9 +917,9 @@ def check_earned_vs_attempted(
 
 
 def validate_credit_consistency(
-    semester_df: t.Optional[pd.DataFrame],
     course_df: pd.DataFrame,
-    cohort_df: pd.DataFrame,
+    semester_df: t.Optional[pd.DataFrame],
+    cohort_df: t.Optional[pd.DataFrame],
     *,
     id_col: str = "student_id",
     sem_col: str = "semester_code",
@@ -1156,18 +1156,20 @@ def validate_credit_consistency(
     cohort_anomalies = None
     cohort_anomalies_summary = None
 
-    has_cohort_cols = (
-        cohort_credits_attempted_col in cohort_df.columns
-        and cohort_credits_earned_col in cohort_df.columns
-    )
-    if has_cohort_cols:
-        cohort_checks = check_earned_vs_attempted(
-            cohort_df,
-            earned_col=cohort_credits_earned_col,
-            attempted_col=cohort_credits_attempted_col,
+    if cohort_df is not None:
+        has_cohort_cols = (
+            cohort_credits_attempted_col in cohort_df.columns
+            and cohort_credits_earned_col in cohort_df.columns
         )
-        cohort_anomalies = cohort_checks.get("anomalies")
-        cohort_anomalies_summary = cohort_checks.get("summary")
+
+        if has_cohort_cols:
+            cohort_checks = check_earned_vs_attempted(
+                cohort_df,
+                earned_col=cohort_credits_earned_col,
+                attempted_col=cohort_credits_attempted_col,
+            )
+            cohort_anomalies = cohort_checks.get("anomalies")
+            cohort_anomalies_summary = cohort_checks.get("summary")
 
     return {
         # course checks
