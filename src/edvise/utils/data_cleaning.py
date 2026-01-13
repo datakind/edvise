@@ -552,13 +552,13 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
       - else -> drop true dupes with warning logging similar to original
 
     Edvise schema mode: based on `handle_duplicates`, but with "handling_duplicates"-style logic:
-      - unique_cols = ["student_id", "term", "course_subject", "course_num"]
+      - unique_cols = ["student_id", "term", "course_subject", "course_number"]
       - drop exact duplicates first
       - for remaining key-dupes:
-          * if differ by course_type OR course_name -> KEEP ALL and renumber course_num
+          * if differ by course_type OR course_name -> KEEP ALL and renumber course_number
             like original handle_duplicates: FIRST stays unchanged, others get -01, -02, ...
           * else -> drop true dupes keeping max credits (if available)
-      - build course_id = course_subject + course_num
+      - build course_id = course_subject + course_number
       - include handle_duplicates-style summary logging + breakdown
     """
 
@@ -651,7 +651,7 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
     # EDVISE SCHEMA MODE
     # ---------------------------------------------------------------------
     LOGGER.info("handle_duplicates: edvise schema mode triggered")
-    unique_cols = ["student_id", "term", "course_subject", "course_num"]
+    unique_cols = ["student_id", "term", "course_subject", "course_number"]
     total_before = len(df)
 
     # Key-based duplicates BEFORE removing exact dupes
@@ -767,8 +767,7 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
     if renumber_work_idx:
         renumber_work_idx = [i for i in renumber_work_idx if i in df.index]
         if renumber_work_idx:
-            # Log before snapshot (cap to avoid huge logs)
-            cols_to_show = ["course_subject", "course_num"]
+            cols_to_show = ["course_subject", "course_number"]
             if has_course_type:
                 cols_to_show.append("course_type")
             if has_course_name:
@@ -779,63 +778,45 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
             LOGGER.info(
                 "Renumbering duplicates (before) [showing up to 50 rows]:\n%s",
                 df.loc[renumber_work_idx, cols_to_show]
-                .sort_values(["course_subject", "course_num"], kind="mergesort")
+                .sort_values(["course_subject", "course_number"], kind="mergesort")
                 .head(50),
             )
 
-            # Ensure course_num can hold strings
-            df["course_num"] = df["course_num"].astype("string")
-
+            # Work only on rows we intend to renumber
             work = df.loc[renumber_work_idx].copy()
 
-            # Deterministic ordering (like handle_duplicates uses credits desc)
-            sort_cols = unique_cols.copy()
-            if credits_col is not None:
-                sort_cols += [credits_col]
-                ascending = [True] * len(unique_cols) + [False]
-            else:
-                ascending = [True] * len(unique_cols)
+            # Optional: if you want credits to influence -1/-2 ordering and schema credits
+            # aren't already in number_of_credits_attempted
+            if credits_col is not None and "number_of_credits_attempted" not in work.columns:
+                work["number_of_credits_attempted"] = work[credits_col]
 
-            work = work.sort_values(by=sort_cols, ascending=ascending, kind="mergesort")
-
-            # IMPORTANT: mimic original handle_duplicates:
-            # - first record in each dup group keeps original course_num
-            # - subsequent records get -01, -02, ...
-            dup_index = work.groupby(
-                unique_cols, observed=True, dropna=False
-            ).cumcount()
-            suffix_index = dup_index.where(dup_index > 0)  # NaN/0 for first
-
-            new_vals = work["course_num"].astype("string")
-            mask = suffix_index.notna()
-            # For dup_index==1 -> -01, dup_index==2 -> -02, ...
-            new_vals.loc[mask] = (
-                new_vals.loc[mask]
-                + "-"
-                + suffix_index.loc[mask].astype("int").map(lambda x: f"{x:02d}")
+            work = dedupe_by_renumbering_courses(
+                work,
+                unique_cols=["student_id", "term", "course_subject", "course_number"],
             )
 
-            df.loc[work.index, "course_num"] = new_vals.astype("string")
+            # Update only affected rows
+            df.loc[renumber_work_idx, "course_number"] = work["course_number"].astype("string")
 
             LOGGER.info(
                 "Renumbering duplicates (after) [showing up to 50 rows]:\n%s",
-                df.loc[work.index, cols_to_show]
-                .sort_values(["course_subject", "course_num"], kind="mergesort")
+                df.loc[renumber_work_idx, cols_to_show]
+                .sort_values(["course_subject", "course_number"], kind="mergesort")
                 .head(50),
             )
 
-    # Build course_id (edvise schema only)
-    df["course_id"] = (
-        df["course_subject"].astype("string").str.strip()
-        + df["course_num"].astype("string").str.strip()
-    )
+        # Build course_id (edvise schema only)
+        df["course_id"] = (
+            df["course_subject"].astype("string").str.strip()
+            + df["course_number"].astype("string").str.strip()
+        )
 
-    # Summary (handle_duplicates-style)
-    final_dupe_rows = int(df.duplicated(unique_cols, keep=False).sum())
-    renumbered_rows = len(set(renumber_work_idx)) if renumber_work_idx else 0
-    lab_lecture_pct = (
-        (lab_lecture_rows / renumbered_rows * 100) if renumbered_rows else 0.0
-    )
+        # Summary (handle_duplicates-style)
+        final_dupe_rows = int(df.duplicated(unique_cols, keep=False).sum())
+        renumbered_rows = len(set(renumber_work_idx)) if renumber_work_idx else 0
+        lab_lecture_pct = (
+            (lab_lecture_rows / renumbered_rows * 100) if renumbered_rows else 0.0
+        )
 
     LOGGER.info("COURSE RECORD DUPLICATE SUMMARY (edvise schema)")
     LOGGER.info(f"Total course records before:      {total_before}")
