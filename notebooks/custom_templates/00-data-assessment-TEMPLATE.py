@@ -63,11 +63,11 @@ from edvise.data_audit.custom_cleaning import (
 from edvise.utils.data_cleaning import handling_duplicates
 
 try:
-  # Get the pipeline type from job definition
-  run_type = dbutils.widgets.get("run_type") # noqa: F821
+    # Get the pipeline type from job definition
+    run_type = dbutils.widgets.get("run_type")  # noqa: F821
 except Py4JJavaError:
-  # Run script interactively
-  run_type = 'train'
+    # Run script interactively
+    run_type = "train"
 
 logging.basicConfig(level=logging.INFO, force=True)
 logging.getLogger("py4j").setLevel(logging.WARNING)  # ignore databricks logger
@@ -99,11 +99,11 @@ cfg
 # COMMAND ----------
 
 student_raw_df = dataio.read.from_csv_file(
-    cfg.datasets.bronze['raw_cohort'].file_path,
+    cfg.datasets.bronze["raw_cohort"].file_path,
     spark_session=spark,
 )
 course_raw_df = dataio.read.from_csv_file(
-    cfg.datasets.bronze['raw_course'].file_path,
+    cfg.datasets.bronze["raw_course"].file_path,
     spark_session=spark,
 )
 
@@ -116,7 +116,7 @@ course_raw_df = dataio.read.from_csv_file(
 
 # MAGIC %md
 # MAGIC # Explore unique keys & Null Values
-# MAGIC According to this [file](https://docs.google.com/spreadsheets/d/1zOLv2VOIhDpy6f_2KdOJqLOgA9GNhxW8ZUwneMPF-8A/edit?gid=0#gid=0), the  keys should be as follows: 
+# MAGIC According to this [file](https://docs.google.com/spreadsheets/d/1zOLv2VOIhDpy6f_2KdOJqLOgA9GNhxW8ZUwneMPF-8A/edit?gid=0#gid=0), the  keys should be as follows:
 # MAGIC - student: Student ID
 # MAGIC - course: Student ID, Semester, Course Prefix, Course Number
 # MAGIC - semester: Student ID, Semester
@@ -146,7 +146,7 @@ student_raw_df.isna().sum().sort_values(ascending=False)
 
 # COMMAND ----------
 
-# check for NAs - percents 
+# check for NAs - percents
 na_percent_cohort = (student_raw_df.isna().mean() * 100).sort_values(ascending=False)
 print(na_percent_cohort)
 
@@ -162,10 +162,7 @@ plt.show()
 # COMMAND ----------
 
 na_percent_by_cohort = (
-    student_raw_df
-    .groupby("entry_term")
-    .apply(lambda df: df.isna().mean() * 100)
-    .T  
+    student_raw_df.groupby("entry_term").apply(lambda df: df.isna().mean() * 100).T
 )
 
 na_percent_by_cohort
@@ -177,7 +174,7 @@ na_percent_by_cohort
 
 # COMMAND ----------
 
-# Enforce term order 
+# Enforce term order
 ordered_cohort = order_terms(student_raw_df, "entry_term")
 ordered_cohort.head()
 
@@ -199,32 +196,32 @@ plt.show()
 # COMMAND ----------
 
 # what cohorts exist
-student_raw_df['entry_term'].value_counts().sort_index()
+student_raw_df["entry_term"].value_counts().sort_index()
 
-# what are the common entry types 
+# what are the common entry types
 # raw counts
 print(student_raw_df["entry_type"].value_counts())
 
 # percents
-print(student_raw_df["entry_type"].value_counts(normalize=True)*100)
+print(student_raw_df["entry_type"].value_counts(normalize=True) * 100)
 
 # COMMAND ----------
 
 # MAGIC %md
 # MAGIC **Investigating Cohort Credits Earned Data**
 # MAGIC
-# MAGIC We are seeking to ensure there is _consistency_ between the credits attempted vs credits earned columns: 
+# MAGIC We are seeking to ensure there is _consistency_ between the credits attempted vs credits earned columns:
 # MAGIC
-# MAGIC 1. Credits earned is less than or equal to credits attempted. 
-# MAGIC 2. Credits earned are zero if credits attempted are zero. 
+# MAGIC 1. Credits earned is less than or equal to credits attempted.
+# MAGIC 2. Credits earned are zero if credits attempted are zero.
 # MAGIC     - Sometimes school will utilize this logic if a student withdraws from a course.
 
 # COMMAND ----------
 
 results = check_earned_vs_attempted(
-    df=student_raw_df, 
-    earned_col="inst_tot_credits_earned", 
-    attempted_col="inst_tot_credits_attempted"
+    df=student_raw_df,
+    earned_col="inst_tot_credits_earned",
+    attempted_col="inst_tot_credits_attempted",
 )
 
 anomalies = results["anomalies"]
@@ -243,35 +240,41 @@ print(summary)
 print(student_raw_df["student_id"].nunique())
 
 # confirm if Student_ID is unique - should be FALSE
-student_raw_df['student_id'].duplicated().any()
+student_raw_df["student_id"].duplicated().any()
 
 # COMMAND ----------
 
-cohort_dupes = find_dupes(student_raw_df, primary_keys = cfg.datasets.bronze["raw_cohort"].primary_keys)
+cohort_dupes = find_dupes(
+    student_raw_df, primary_keys=cfg.datasets.bronze["raw_cohort"].primary_keys
+)
 cohort_dupes.head()
 
 # COMMAND ----------
 
-# what are the common entry types 
+# what are the common entry types
 # raw counts
 print(cohort_dupes["entry_type"].value_counts())
 
 # COMMAND ----------
 
-# check for duplicates of both stuent ID AND entry term 
-cohort_term_dupes = find_dupes(student_raw_df, primary_keys = ['student_id', 'entry_term'])
+# check for duplicates of both stuent ID AND entry term
+cohort_term_dupes = find_dupes(
+    student_raw_df, primary_keys=["student_id", "entry_term"]
+)
 cohort_term_dupes.head()
 
 # COMMAND ----------
 
-# remove readmits and check for any more dupes 
+# remove readmits and check for any more dupes
 cleaned_cohort = drop_readmits_and_dedupe_keep_earliest(student_raw_df)
 
 # COMMAND ----------
 
 # check now to ensure all student IDs are unique
 print(cleaned_cohort.shape)
-print(f"{raw_cohort.shape[0] - cleaned_cohort.shape[0]} records dropped due to re-admit data and duplicates, leaving us with {cleaned_cohort["student_id"].nunique()} unique student IDs.")
+print(
+    f"{raw_cohort.shape[0] - cleaned_cohort.shape[0]} records dropped due to re-admit data and duplicates, leaving us with {cleaned_cohort['student_id'].nunique()} unique student IDs."
+)
 
 # COMMAND ----------
 
@@ -285,14 +288,14 @@ print(f"{raw_cohort.shape[0] - cleaned_cohort.shape[0]} records dropped due to r
 print(cleaned_cohort["entry_type"].value_counts())
 
 # percents
-print(cleaned_cohort["entry_type"].value_counts(normalize=True)*100)
+print(cleaned_cohort["entry_type"].value_counts(normalize=True) * 100)
 
 # Entry Terms
 # raw counts
 print(cleaned_cohort["entry_term"].value_counts())
 
 # percents
-cleaned_cohort["entry_term"].value_counts(normalize=True)*100
+cleaned_cohort["entry_term"].value_counts(normalize=True) * 100
 
 # COMMAND ----------
 
@@ -316,15 +319,17 @@ cleaned_cohort["awarded_pell"].value_counts(normalize=True)
 
 cleaned_cohort["awarded_pell"] = (
     cleaned_cohort["awarded_pell"]
-      .astype(str)
-      .str.strip()
-      .str.upper()
-      .map({"Y": "Y", "N": "N"})         
+    .astype(str)
+    .str.strip()
+    .str.upper()
+    .map({"Y": "Y", "N": "N"})
 )
 
 # Lock the category order so Seaborn doesn't invent a gray level
 cats = ["Y", "N"]
-cleaned_cohort["awarded_pell"] = pd.Categorical(cleaned_cohort["awarded_pell"], categories=cats, ordered=True)
+cleaned_cohort["awarded_pell"] = pd.Categorical(
+    cleaned_cohort["awarded_pell"], categories=cats, ordered=True
+)
 
 palette = {"Y": "#1f77b4", "N": "#ff7f0e"}
 
@@ -332,8 +337,8 @@ ax = sns.histplot(
     cleaned_cohort,
     y="first_gen",
     hue="awarded_pell",
-    hue_order=cats,            # ensures consistent color assignment
-    multiple="stack",          # avoids overlay artifacts that can look gray
+    hue_order=cats,  # ensures consistent color assignment
+    multiple="stack",  # avoids overlay artifacts that can look gray
     shrink=0.75,
     edgecolor="white",
     palette=palette,
@@ -343,7 +348,9 @@ plt.show()
 
 # COMMAND ----------
 
-cleaned_cohort.groupby("first_gen")["awarded_pell"].value_counts(normalize=True, dropna=False)
+cleaned_cohort.groupby("first_gen")["awarded_pell"].value_counts(
+    normalize=True, dropna=False
+)
 
 # COMMAND ----------
 
@@ -365,7 +372,15 @@ cleaned_cohort["deg_at_grad"].value_counts(normalize=True)
 # COMMAND ----------
 
 # helper function to change string -> numeric
-cleaned_numeric_cohort = convert_numeric_columns(cleaned_cohort, ["college_gpa", "inst_tot_credits_attempted", "inst_tot_credits_earned", "overall_credits_earned"])
+cleaned_numeric_cohort = convert_numeric_columns(
+    cleaned_cohort,
+    [
+        "college_gpa",
+        "inst_tot_credits_attempted",
+        "inst_tot_credits_earned",
+        "overall_credits_earned",
+    ],
+)
 
 # COMMAND ----------
 
@@ -387,7 +402,11 @@ jg.set_axis_labels("Number of Credits Attempted", "Number of Credits Earned")
 # average and median number of credits earned by transfers vs first time admits
 summary = (
     cleaned_numeric_cohort.groupby("entry_type")[
-        ["inst_tot_credits_earned", "inst_tot_credits_attempted", "overall_credits_earned"]
+        [
+            "inst_tot_credits_earned",
+            "inst_tot_credits_attempted",
+            "overall_credits_earned",
+        ]
     ]
     .agg(["count", "mean", "median"])
     .reset_index()
@@ -397,13 +416,11 @@ summary
 # COMMAND ----------
 
 # overall credits earned
-summary = (
-    cleaned_numeric_cohort
-    .groupby("entry_type")["overall_credits_earned"]
-    .agg(["mean", "median"])
+summary = cleaned_numeric_cohort.groupby("entry_type")["overall_credits_earned"].agg(
+    ["mean", "median"]
 )
 
-summary.plot(kind="bar", figsize=(6,4))
+summary.plot(kind="bar", figsize=(6, 4))
 plt.title("Mean and Median Overall Credits Earned by Entry Type")
 plt.ylabel("Overall Credits Earned")
 plt.xlabel("Entry Type")
@@ -416,18 +433,18 @@ plt.show()
 
 # what percent of each group achieves >120 credits?
 (
-    cleaned_numeric_cohort
-    .groupby("entry_type")["overall_credits_earned"]
-    .apply(lambda x: (x >= 120).mean() * 100)
+    cleaned_numeric_cohort.groupby("entry_type")["overall_credits_earned"].apply(
+        lambda x: (x >= 120).mean() * 100
+    )
 )
 
 # COMMAND ----------
 
 # check missing GPAs
 (
-    cleaned_numeric_cohort
-    .groupby("entry_type")["college_gpa"]
-    .apply(lambda x: x.isna().mean() * 100)
+    cleaned_numeric_cohort.groupby("entry_type")["college_gpa"].apply(
+        lambda x: x.isna().mean() * 100
+    )
 )
 
 # COMMAND ----------
@@ -447,7 +464,7 @@ ax.set(ylabel="Average College GPA")
 
 # Move the legend to a different location (e.g., upper left)
 ax.legend(loc="lower left", title="Entry Type")
-plt.xticks(rotation=45, ha='right')
+plt.xticks(rotation=45, ha="right")
 
 # Show the plot
 plt.show()
@@ -475,7 +492,7 @@ course_raw_df.isna().sum().sort_values(ascending=False)
 
 # COMMAND ----------
 
-# check for NAs - percents 
+# check for NAs - percents
 na_percent_course = (course_raw_df.isna().mean() * 100).sort_values(ascending=False)
 print(na_percent_course)
 
@@ -508,7 +525,11 @@ ax = sns.histplot(
     shrink=0.75,
     edgecolor="white",
 )
-_ = ax.set(ylabel="Academic Term and Year", xlabel="Number of Enrollments", title="Course Enrollments by Academic Term and Year")
+_ = ax.set(
+    ylabel="Academic Term and Year",
+    xlabel="Number of Enrollments",
+    title="Course Enrollments by Academic Term and Year",
+)
 
 plt.show()
 
@@ -534,8 +555,10 @@ course_raw_df["course_subject"].nunique()
 student_ids = cleaned_cohort["student_id"].tolist()
 filtered_course = course_raw_df[course_raw_df["student_id"].isin(student_ids)]
 print(filtered_course.shape)
-# how many records were dropped? 
-print(f"{course_raw_df.shape[0] - filtered_course.shape[0]} student-course records were filtered out")
+# how many records were dropped?
+print(
+    f"{course_raw_df.shape[0] - filtered_course.shape[0]} student-course records were filtered out"
+)
 filtered_course.head()
 
 # COMMAND ----------
@@ -546,28 +569,52 @@ filtered_course.head()
 # COMMAND ----------
 
 # exploring course file duplicates
-course_dupes = find_dupes(filtered_course, primary_keys = cfg.datasets.bronze["raw_course"].primary_keys)
+course_dupes = find_dupes(
+    filtered_course, primary_keys=cfg.datasets.bronze["raw_course"].primary_keys
+)
 course_dupes.head()
 
 # COMMAND ----------
 
 # for deck
-course_dupes[["student_id", "term", "course_subject", "course_num", "course_section", "course_title", "course_type", "pass_fail_flag", "grade", "course_credits", "credits_earned"]].head()
+course_dupes[
+    [
+        "student_id",
+        "term",
+        "course_subject",
+        "course_num",
+        "course_section",
+        "course_title",
+        "course_type",
+        "pass_fail_flag",
+        "grade",
+        "course_credits",
+        "credits_earned",
+    ]
+].head()
 
 # COMMAND ----------
 
 # view course types
 print(course_dupes["course_type"].value_counts(dropna=False))
-print(course_dupes["course_type"].value_counts(normalize=True, dropna=False)*100)
+print(course_dupes["course_type"].value_counts(normalize=True, dropna=False) * 100)
 
-# view pass fail flag 
-print(course_dupes.groupby("course_type")["pass_fail_flag"].value_counts(dropna=False).sort_index())
+# view pass fail flag
+print(
+    course_dupes.groupby("course_type")["pass_fail_flag"]
+    .value_counts(dropna=False)
+    .sort_index()
+)
 
 # view grades
-print(course_dupes.groupby("course_type")["grade"].value_counts(dropna=False).sort_index())
+print(
+    course_dupes.groupby("course_type")["grade"].value_counts(dropna=False).sort_index()
+)
 
 # view credits earned
-course_dupes.groupby("course_type")[["course_credits_attempted", "course_credits_earned"]].value_counts(dropna=False).sort_index()
+course_dupes.groupby("course_type")[
+    ["course_credits_attempted", "course_credits_earned"]
+].value_counts(dropna=False).sort_index()
 
 # COMMAND ----------
 
@@ -583,11 +630,11 @@ cleaned_course = handling_duplicates(course_raw_df)
 # MAGIC %md
 # MAGIC **Investigating Course Grades Column**
 # MAGIC
-# MAGIC We are seeking to ensure 3 main rules: 
+# MAGIC We are seeking to ensure 3 main rules:
 # MAGIC 1. Students NEVER earn credits for failing grades.
 # MAGIC 2. Students DO always earn credits for passing grades.
 # MAGIC 3. Grade and pass_fail_flag are consistent.
-# MAGIC 4. Credits Earned <= Credits Attempted 
+# MAGIC 4. Credits Earned <= Credits Attempted
 
 # COMMAND ----------
 
@@ -597,9 +644,9 @@ cleaned_course[["grade", "pass_fail_flag", "course_credits_earned"]]
 # COMMAND ----------
 
 print(cleaned_course["pass_fail_flag"].value_counts(dropna=False))
-print(cleaned_course["pass_fail_flag"].value_counts(dropna=False, normalize=True)*100)
+print(cleaned_course["pass_fail_flag"].value_counts(dropna=False, normalize=True) * 100)
 print(cleaned_course["grade"].value_counts(dropna=False))
-cleaned_course["grade"].value_counts(dropna=False, normalize=True)*100
+cleaned_course["grade"].value_counts(dropna=False, normalize=True) * 100
 
 # COMMAND ----------
 
@@ -610,13 +657,13 @@ cleaned_course["grade"].value_counts(dropna=False, normalize=True)*100
 # withdraws
 # print(cleaned_course[cleaned_course["grade"] == "W"][["grade", "pass_fail_flag", "course_credits_attempted", "course_credits_earned"]])
 
-# CH ? 
+# CH ?
 # print(cleaned_course[cleaned_course["grade"] == "CH"][["grade", "pass_fail_flag", "course_credits_attempted", "coruse_credits_earned"]])
 
-# NR ? Not Repeat 
+# NR ? Not Repeat
 # cleaned_course[cleaned_course["grade"] == "NR"][["grade", "pass_fail_flag", "course_credits_attempted", "course_credits_earned"]]
 
-# REP - remedial 
+# REP - remedial
 # cleaned_course[cleaned_course["grade"] == "REP"][["grade", "pass_fail_flag", "course_credits_attempted", "course_credits_earned"]]
 
 # COMMAND ----------
@@ -630,29 +677,28 @@ anomalies["grade"].value_counts(dropna=False)
 
 # COMMAND ----------
 
-# ex. inspect anomalies 
-# pass grade but earned 0 credits? 
+# ex. inspect anomalies
+# pass grade but earned 0 credits?
 # print(anomalies[anomalies["pass_fail_flag"] == "P"]["course_credits_earned"].value_counts())
 
-# pass grade but earned 0 credits? 
+# pass grade but earned 0 credits?
 # print(anomalies[anomalies["pass_fail_flag"] == "P"]["course_credits_attempted"].value_counts())
 
 # pass/fail flag disagree - pass grades
 # print(anomalies[anomalies["pass_fail_flag"] == "P"]["grade"].value_counts())
 
-# pass/fail flag disagree - fail grades 
+# pass/fail flag disagree - fail grades
 # print(anomalies[anomalies["pass_fail_flag"] == "F"]["grade"].value_counts())
 
 # COMMAND ----------
 
-# inspect course delivery values 
+# inspect course delivery values
 print(cleaned_course["course_delivery"].value_counts(dropna=False))
 
 
 # see nulls by term
 (
-    cleaned_course
-    .groupby("term")["course_delivery"]
+    cleaned_course.groupby("term")["course_delivery"]
     .apply(lambda x: x.isna().sum())
     .reset_index(name="null_count")
     .sort_values("null_count", ascending=False)
@@ -660,7 +706,7 @@ print(cleaned_course["course_delivery"].value_counts(dropna=False))
 
 # COMMAND ----------
 
-# check credits attempted and credits earned fields 
+# check credits attempted and credits earned fields
 validate_credit_consistency(course_raw_df, student_raw_df)
 
 # COMMAND ----------
@@ -697,7 +743,7 @@ plt.show()
 
 # COMMAND ----------
 
-# reading raw semester data 
+# reading raw semester data
 raw_semester = dataio.read.from_csv_file(cfg.datasets.bronze["raw_semester"].file_path)
 raw_semester
 
@@ -719,7 +765,7 @@ raw_semester.isna().sum().sort_values(ascending=False)
 
 # COMMAND ----------
 
-# check for NAs - percents 
+# check for NAs - percents
 na_percent_semester = (raw_semester.isna().mean() * 100).sort_values(ascending=False)
 print(na_percent_semester)
 
@@ -735,17 +781,16 @@ plt.show()
 # COMMAND ----------
 
 na_percent_by_term = (
-    raw_semester
-    .groupby("term")
-    .apply(lambda df: df.isna().mean() * 100)
-    .T  
+    raw_semester.groupby("term").apply(lambda df: df.isna().mean() * 100).T
 )
 
 na_percent_by_term
 
 # COMMAND ----------
 
-semester_dupes = find_dupes(raw_semester, primary_keys = cfg.datasets.bronze["raw_semester"].primary_keys)
+semester_dupes = find_dupes(
+    raw_semester, primary_keys=cfg.datasets.bronze["raw_semester"].primary_keys
+)
 semester_dupes.head()
 
 # COMMAND ----------
@@ -781,7 +826,7 @@ raw_semester["term"].value_counts(dropna=False).sort_index()
 
 # COMMAND ----------
 
-raw_semester["ftpt"].value_counts(normalize=True, dropna=False)*100
+raw_semester["ftpt"].value_counts(normalize=True, dropna=False) * 100
 
 # COMMAND ----------
 
@@ -797,9 +842,11 @@ raw_semester["ftpt"].value_counts(normalize=True, dropna=False)*100
 
 cleaned_semester = raw_semester[raw_semester["student_id"].isin(student_ids)]
 print(cleaned_semester.shape)
-# how many records were dropped? 
-print(f"{raw_semester.shape[0] - cleaned_semester.shape[0]} student-semester records were filtered out")
-cleaned_semester.head() 
+# how many records were dropped?
+print(
+    f"{raw_semester.shape[0] - cleaned_semester.shape[0]} student-semester records were filtered out"
+)
+cleaned_semester.head()
 
 # COMMAND ----------
 
@@ -808,7 +855,7 @@ filtered = cleaned_semester[
     cleaned_semester["term"].str.contains("Spring|Summer|Fall", case=False, na=False)
 ].copy()
 
-# Enforce term order 
+# Enforce term order
 filtered = order_terms(filtered, "term")
 
 # COMMAND ----------
@@ -817,9 +864,7 @@ filtered = order_terms(filtered, "term")
 # GPA by term and enrollment intensity
 
 ax = sns.barplot(
-    filtered.sort_values(by="term").astype(
-        {"cum_gpa": "Float32"}
-    ),
+    filtered.sort_values(by="term").astype({"cum_gpa": "Float32"}),
     x="term",
     y="cum_gpa",
     estimator="mean",
@@ -849,13 +894,13 @@ plt.show()
 # 1) Start from raw dfs
 raw_map = {
     "student_df": student_raw_df,
-    "course_df":  course_raw_df,
+    "course_df": course_raw_df,
 }
 
 # 2) Define df pairs from bronze dataset config
 DF_MAP = {
-    "student_df":   ("raw_cohort",   raw_map["student_df"]),
-    "course_df":    ("raw_course",   raw_map["course_df"]),
+    "student_df": ("raw_cohort", raw_map["student_df"]),
+    "course_df": ("raw_course", raw_map["course_df"]),
 }
 
 # 3) Deduplication logic per dataset
@@ -877,12 +922,14 @@ cleaning_cfg
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC Begin with validating the merges on just the raw datasets first to investigate any inconsistencies. 
+# MAGIC Begin with validating the merges on just the raw datasets first to investigate any inconsistencies.
 
 # COMMAND ----------
 
 # cohort x course
-student_raw_df.merge(course_raw_df, on="student_id", indicator=True)._merge.value_counts()
+student_raw_df.merge(
+    course_raw_df, on="student_id", indicator=True
+)._merge.value_counts()
 
 # COMMAND ----------
 
