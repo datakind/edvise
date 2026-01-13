@@ -164,7 +164,6 @@ class CustomCohortStandardizer(BaseStandardizer):
         check_bias_variables(df)
         log_grade_distribution(df)
         log_top_majors(df)
-        log_top_majors(df)
         df = replace_na_firstgen_and_pell(df)
         primary_keys = ["student_id", "cohort_term"]
         LOGGER.info("Checking for duplicates...")
