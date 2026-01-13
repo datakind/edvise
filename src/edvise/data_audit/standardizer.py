@@ -165,7 +165,7 @@ class CustomCohortStandardizer(BaseStandardizer):
         log_grade_distribution(df)
         log_top_majors(df)
         df = replace_na_firstgen_and_pell(df)
-        primary_keys = ["student_id", "cohort_term"]
+        primary_keys = ["student_id"]
         LOGGER.info("Checking for duplicates...")
         find_dupes(df, primary_keys=primary_keys)
         LOGGER.info("Dropping readmits ")
