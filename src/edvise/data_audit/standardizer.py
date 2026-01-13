@@ -12,8 +12,11 @@ from edvise.utils.data_cleaning import (
 )
 from .eda import (
     log_high_null_columns,
-    print_credential_and_enrollment_types_and_retention,
+    print_credential_and_enrollment_types,
+    print_retention,
     log_grade_distribution,
+    check_bias_variables,
+    find_dupes,
 )
 
 # TODO think of a better name than standardizer
@@ -43,7 +46,8 @@ class PDPCohortStandardizer(BaseStandardizer):
             df: As output by :func:`dataio.read_raw_pdp_cohort_data_from_file()` .
         """
         log_high_null_columns(df)
-        print_credential_and_enrollment_types_and_retention(df)
+        print_credential_and_enrollment_types(df)
+        print_retention(df)
         cols_to_drop = [
             # not a viable target variable, but highly correlated with it
             "time_to_credential",
@@ -148,15 +152,25 @@ class CustomCohortStandardizer(BaseStandardizer):
         Args:
             df: cohort dataframe
         """
+        print_credential_and_enrollment_types(df)
+        log_high_null_columns(df)
+        check_bias_variables(df)
+        log_grade_distribution(df)
+        # log_top_10_majors
+        df = replace_na_firstgen_and_pell(df)
+        # not sure if the below is needed? 
+        # df = self.add_empty_columns_if_missing(df, col_val_dtypes)
+        find_dupes(df, primary_keys=["student_id", "cohort_term"])
         cols_to_drop = [
-
+            # not all demographics used for target variable bias checks
+            "incarcerated_status",
+            "military_status",
+            "employment_status",
+            "disability_status",
         ]
-        col_val_dtypes = {
-
-        }
+        # col_val_dtypes = {
+        # }
         df = drop_columns_safely(df, cols_to_drop)
-        df = self.add_empty_columns_if_missing(df, col_val_dtypes)
-
         return df
 
 class CustomCourseStandardizer(BaseStandardizer):
