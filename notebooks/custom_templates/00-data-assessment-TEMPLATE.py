@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Edvise Custom Data Assessment and Preprocessing 
+# MAGIC # Edvise Custom Data Assessment and Preprocessing
 # MAGIC
 # MAGIC First step in the process of transforming raw data into actionable, data-driven insights for advisors: load raw data, build a schema contract to enhance data & pipeline reliability, and ensure limited training-inference skew.
 # MAGIC
@@ -35,7 +35,7 @@
 import logging
 import seaborn as sns
 import pandas as pd
-import matplotlib.pyplot  as plt
+import matplotlib.pyplot as plt
 from databricks.connect import DatabricksSession
 from py4j.protocol import Py4JJavaError
 
@@ -45,7 +45,7 @@ from edvise import dataio, configs
 ## Data Audit Imports
 
 from edvise.data_audit.eda import (
-    find_dupes, 
+    find_dupes,
     check_pf_grade_consistency,
     check_earned_vs_attempted,
     order_terms,
@@ -60,7 +60,7 @@ from edvise.data_audit.custom_cleaning import (
     assign_numeric_grade,
 )
 
-from edvise.utils.data_cleaning import handling_duplicates 
+from edvise.utils.data_cleaning import handling_duplicates
 
 try:
   # Get the pipeline type from job definition
