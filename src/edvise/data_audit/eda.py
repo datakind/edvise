@@ -709,7 +709,7 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
         )
 
 
-def print_credential_and_enrollment_types_and_retention(
+def print_credential_and_enrollment_types(
     df_cohort: pd.DataFrame,
 ) -> None:
     pct_credentials = (
@@ -721,13 +721,6 @@ def print_credential_and_enrollment_types_and_retention(
     pct_enroll = (
         df_cohort["enrollment_type"].value_counts(dropna=False, normalize=True) * 100
     )
-    retention = (
-        df_cohort[["cohort", "retention"]].value_counts(dropna=False).sort_index()
-    )
-    LOGGER.warning(
-        "  ⚠️ Breakdown for retention by cohort: IF MOST RECENT YEAR'S SPLIT IS DISPROPORTIONATE, exclude from training by changing max_academic_year in the config! \n%s ",
-        retention.to_string(),
-    )
     LOGGER.info(
         " Percent breakdown for credential types: \n%s ",
         pct_credentials.to_string(),
@@ -735,6 +728,16 @@ def print_credential_and_enrollment_types_and_retention(
     LOGGER.info(
         " Percent breakdown for enrollment types: \n%s ",
         pct_enroll.to_string(),
+    )
+
+
+def print_retention(df_cohort: pd.DataFrame) -> None:
+    retention = (
+        df_cohort[["cohort", "retention"]].value_counts(dropna=False).sort_index()
+    )
+    LOGGER.warning(
+        "  ⚠️ Breakdown for retention by cohort: IF MOST RECENT YEAR'S SPLIT IS DISPROPORTIONATE, exclude from training by changing max_academic_year in the config! \n%s ",
+        retention.to_string(),
     )
 
 
