@@ -10,6 +10,11 @@ from edvise.utils.data_cleaning import (
     strip_trailing_decimal_strings,
     replace_na_firstgen_and_pell,
 )
+from edvise.data_audit.custom_cleaning import (
+    assign_numeric_grade,
+    keep_earlier_record,
+    drop_readmits,
+)
 from .eda import (
     log_high_null_columns,
     print_credential_and_enrollment_types,
@@ -17,6 +22,7 @@ from .eda import (
     log_grade_distribution,
     check_bias_variables,
     find_dupes,
+    log_top_majors,
 )
 
 # TODO think of a better name than standardizer
@@ -48,6 +54,7 @@ class PDPCohortStandardizer(BaseStandardizer):
         log_high_null_columns(df)
         print_credential_and_enrollment_types(df)
         print_retention(df)
+        log_top_majors(df)
         cols_to_drop = [
             # not a viable target variable, but highly correlated with it
             "time_to_credential",
@@ -156,11 +163,26 @@ class CustomCohortStandardizer(BaseStandardizer):
         log_high_null_columns(df)
         check_bias_variables(df)
         log_grade_distribution(df)
-        # log_top_10_majors
+        log_top_majors(df)
+        log_top_majors(df)
         df = replace_na_firstgen_and_pell(df)
-        # not sure if the below is needed? 
-        # df = self.add_empty_columns_if_missing(df, col_val_dtypes)
-        find_dupes(df, primary_keys=["student_id", "cohort_term"])
+        primary_keys=["student_id", "cohort_term"]
+        LOGGER.info("Checking for duplicates...")
+        find_dupes(df, primary_keys=primary_keys)
+        LOGGER.info("Dropping readmits ")
+        df = drop_readmits(df)
+        LOGGER.info("Dropped readmits: checking again for duplicates...")
+        dupes = find_dupes(df, primary_keys=primary_keys)
+        if len(dupes) == 0:
+            LOGGER.info("No duplicates found after dropping readmits.")
+        else:
+            df = keep_earlier_record(df)
+            LOGGER.info("Duplicates still found; running keep_earlier_record; checking again for duplicates...")
+            dupes = find_dupes(df, primary_keys=primary_keys)
+            if len(dupes) == 0:
+                LOGGER.info("No duplicates found after keep_earlier_record.")
+            else:
+                LOGGER.warning("Duplicates still remain after keep_earlier_record func. Investigate further.")
         cols_to_drop = [
             # not all demographics used for target variable bias checks
             "incarcerated_status",
@@ -168,10 +190,13 @@ class CustomCohortStandardizer(BaseStandardizer):
             "employment_status",
             "disability_status",
         ]
+        # not sure if the below is needed?
         # col_val_dtypes = {
         # }
+        # df = self.add_empty_columns_if_missing(df, col_val_dtypes)
         df = drop_columns_safely(df, cols_to_drop)
         return df
+
 
 class CustomCourseStandardizer(BaseStandardizer):
     def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -181,10 +206,7 @@ class CustomCourseStandardizer(BaseStandardizer):
         Args:
             df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
         """
-        cols_to_drop = [
-        ]
+        cols_to_drop = []
         df = drop_columns_safely(df, cols_to_drop)
-        df = self.add_empty_columns_if_missing(
-            df, {}
-        )
+        df = self.add_empty_columns_if_missing(df, {})
         return df
