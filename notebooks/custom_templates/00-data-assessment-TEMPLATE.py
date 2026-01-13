@@ -35,7 +35,6 @@
 import logging
 import seaborn as sns
 import pandas as pd
-import functools as ft
 import matplotlib.pyplot  as plt
 from databricks.connect import DatabricksSession
 from py4j.protocol import Py4JJavaError
@@ -56,22 +55,12 @@ from edvise.data_audit.eda import (
 ## Data Cleaning Imports
 
 from edvise.data_audit.custom_cleaning import (
-    clean_bronze_datasets,
-    build_datasets_from_bronze,
-    load_or_build_schema_contract,
-    enforce_schema_contract,
-    align_and_rank_dataframes,
     drop_readmits_and_dedupe_keep_earliest,
     convert_numeric_columns,
     assign_numeric_grade,
 )
 
 from edvise.utils.data_cleaning import handling_duplicates 
-
-## Feature Engineering Imports
-
-from edvise.feature_generation.term import add_term_order
-from edvise.feature_generation.student_term import course_data_to_student_term_level
 
 try:
   # Get the pipeline type from job definition
