@@ -138,3 +138,39 @@ class PDPCourseStandardizer(BaseStandardizer):
             df, {"term_program_of_study": (None, "string")}
         )
         return df
+
+
+class CustomCohortStandardizer(BaseStandardizer):
+    def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Clean up and drop some columns from raw cohort dataset.
+
+        Args:
+            df: cohort dataframe
+        """
+        cols_to_drop = [
+
+        ]
+        col_val_dtypes = {
+
+        }
+        df = drop_columns_safely(df, cols_to_drop)
+        df = self.add_empty_columns_if_missing(df, col_val_dtypes)
+
+        return df
+
+class CustomCourseStandardizer(BaseStandardizer):
+    def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Drop some columns and anomalous rows from raw course dataset.
+
+        Args:
+            df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
+        """
+        cols_to_drop = [
+        ]
+        df = drop_columns_safely(df, cols_to_drop)
+        df = self.add_empty_columns_if_missing(
+            df, {}
+        )
+        return df
