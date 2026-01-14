@@ -189,7 +189,6 @@ class CustomCohortStandardizer(BaseStandardizer):
                 LOGGER.warning(
                     "Duplicates still remain after keep_earlier_record func. Investigate further."
                 )
-        df = assign_numeric_grade(df)
         cols_to_drop = [
             # not all demographics used for target variable bias checks
             "incarcerated_status",
