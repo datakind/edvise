@@ -220,9 +220,9 @@ class CustomCourseStandardizer(BaseStandardizer):
         primary_keys = ["student_id", "term", "course_subject", "course_num"]
         LOGGER.info("Checking for course file duplicates...")
         find_dupes(df, primary_keys=primary_keys)
-        handling_duplicates(df)
+        df = handling_duplicates(df)
         check_pf_grade_consistency(df)
         validate_credit_consistency(df)
-        assign_numeric_grade(df)
+        df = assign_numeric_grade(df)
         df = self.add_empty_columns_if_missing(df, {})
         return df
