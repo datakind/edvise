@@ -1227,7 +1227,9 @@ def validate_credit_consistency(
                 attempted_col=cohort_credits_attempted_col,
             )
             cohort_anomalies = cohort_checks.get("anomalies") or {}
-            rows_with_anomalies = int(cohort_anomalies_summary.get("rows_with_anomalies", 0))
+            rows_with_anomalies = int(
+                cohort_anomalies_summary.get("rows_with_anomalies", 0)
+            )
 
             if cohort_anomalies_summary.get("rows_with_anomalies", 0) > 0:
                 LOGGER.warning(
