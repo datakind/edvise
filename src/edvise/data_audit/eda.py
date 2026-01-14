@@ -979,6 +979,13 @@ def validate_credit_consistency(
     # ----------------------------
     # Resolve course credit cols
     # ----------------------------
+    LOGGER.info(
+        "Starting credit consistency validation "
+        "(course_df=%d rows, semester_df=%s, cohort_df=%s)",
+        len(course_df),
+        "provided" if semester_df is not None else "None",
+        "provided" if cohort_df is not None else "None",
+    )
     resolved_course_attempted_col = course_credits_attempted_col
     resolved_course_earned_col = course_credits_earned_col
 
@@ -1006,6 +1013,7 @@ def validate_credit_consistency(
     course_anomalies_summary = None
 
     if has_course_credit_cols:
+        LOGGER.info("Running course-level earned <= attempted checks")
         cchk = course_df[
             [col for col in [id_col, sem_col] if col in course_df.columns]
             + [resolved_course_attempted_col, resolved_course_earned_col]
@@ -1053,6 +1061,15 @@ def validate_credit_consistency(
             "rows_attempted_negative": int(cchk["attempted_is_negative"].sum()),
             "rows_earned_negative": int(cchk["earned_is_negative"].sum()),
         }
+        if course_anomalies_summary["rows_with_anomalies"] > 0:
+            LOGGER.warning(
+                "Detected %d course-level credit anomalies",
+                course_anomalies_summary["rows_with_anomalies"],
+            )
+        else:
+            LOGGER.info("No course-level credit anomalies detected")
+
+        LOGGER.debug("Course anomaly summary: %s", course_anomalies_summary)
 
     # =========================================================
     # B) OPTIONAL RECONCILIATION: semester vs course
@@ -1067,7 +1084,9 @@ def validate_credit_consistency(
         and has_course_credit_cols
     )
 
-    if semester_df is not None:
+    if semester_df is None:
+        LOGGER.info("Semester dataframe not provided; skipping reconciliation")
+    else:
         has_semester_cols = (
             id_col in semester_df.columns
             and sem_col in semester_df.columns
@@ -1076,7 +1095,16 @@ def validate_credit_consistency(
             and semester_courses_count_col in semester_df.columns
         )
 
-        if has_semester_cols and has_course_recon_cols:
+        if not has_semester_cols:
+            LOGGER.warning(
+                "Semester dataframe missing required columns; skipping reconciliation"
+            )
+        elif not has_course_recon_cols:
+            LOGGER.warning(
+                "Course dataframe missing required columns for reconciliation; skipping"
+            )
+        else:
+            LOGGER.info("Reconciling semester-level aggregates with course data")
             c = course_df[
                 [
                     id_col,
@@ -1168,6 +1196,10 @@ def validate_credit_consistency(
                 "unique_student_semesters_in_courses": int(len(agg)),
                 "rows_with_mismatches": int(len(mismatches)),
             }
+            LOGGER.info(
+                "Semester reconciliation complete: %d mismatched rows",
+                reconciliation_summary["rows_with_mismatches"],
+            )
 
     # =========================================================
     # C) OPTIONAL COHORT CHECKS: earned <= attempted
@@ -1175,13 +1207,20 @@ def validate_credit_consistency(
     cohort_anomalies = None
     cohort_anomalies_summary = None
 
-    if cohort_df is not None:
+    if cohort_df is None:
+        LOGGER.info("Cohort dataframe not provided; skipping cohort checks")
+    else:
         has_cohort_cols = (
             cohort_credits_attempted_col in cohort_df.columns
             and cohort_credits_earned_col in cohort_df.columns
         )
 
-        if has_cohort_cols:
+        if not has_cohort_cols:
+            LOGGER.warning(
+                "Cohort dataframe missing credit columns; skipping cohort checks"
+            )
+        else:
+            LOGGER.info("Running cohort-level earned <= attempted checks")
             cohort_checks = check_earned_vs_attempted(
                 cohort_df,
                 earned_col=cohort_credits_earned_col,
@@ -1189,6 +1228,16 @@ def validate_credit_consistency(
             )
             cohort_anomalies = cohort_checks.get("anomalies")
             cohort_anomalies_summary = cohort_checks.get("summary")
+
+            if cohort_anomalies_summary.get("rows_with_anomalies", 0) > 0:
+                LOGGER.warning(
+                    "Detected %d cohort-level credit anomalies",
+                    cohort_anomalies_summary["rows_with_anomalies"],
+                )
+            else:
+                LOGGER.info("No cohort-level credit anomalies detected")
+
+    LOGGER.info("Credit consistency validation complete")
 
     return {
         # course checks
@@ -1213,6 +1262,7 @@ def check_pf_grade_consistency(
     pf_col="pass_fail_flag",
     credits_col="credits_earned",
     *,
+    # TODO: add these to the config and allow for customization
     passing_grades=(
         "P",
         "P*",
@@ -1275,12 +1325,27 @@ def check_pf_grade_consistency(
 
     Returns (anomalies_df, summary_df)
     """
+    LOGGER.info(
+        "Running PF/grade consistency checks "
+        "(rows=%d, grade_col=%s, pf_col=%s, credits_col=%s)",
+        len(df),
+        grade_col,
+        pf_col,
+        credits_col,
+    )
+
     out = df.copy()
 
     # Normalize
     g = out[grade_col].astype(str).str.strip().str.upper()
     pf = out[pf_col].astype(str).str.strip().str.upper()
     credits = pd.to_numeric(out[credits_col], errors="coerce")  # keep NaNs as NaN
+    LOGGER.debug(
+        "Normalized grade/PF/credits (non-null counts: grade=%d, pf=%d, credits=%d)",
+        g.notna().sum(),
+        pf.notna().sum(),
+        credits.notna().sum(),
+    )
 
     # Pass/fail from grade (for disagreement only)
     pfg = pd.Series(
@@ -1302,13 +1367,31 @@ def check_pf_grade_consistency(
         dtype="object",
     )
 
-    # Credit rules (PF-based only)
+    LOGGER.debug(
+        "Derived PF indicators (from grade: pass=%d fail=%d unknown=%d; "
+        "from flag: pass=%d fail=%d unknown=%d)",
+        int((pfg == True).sum()),
+        int((pfg == False).sum()),
+        int(pfg.isna().sum()),
+        int((pff == True).sum()),
+        int((pff == False).sum()),
+        int(pff.isna().sum()),
+    )
+
+    # ----------------------------
+    # Rule checks
+    # ----------------------------
     rows_with_earned_with_failing_pf = (pff == False) & credits.notna() & (credits > 0)
     rows_with_no_credits_with_passing = (pff == True) & credits.notna() & (credits == 0)
-
-    # Grade vs PF disagreement (only where both known)
     rows_with_grade_pf_disagree = pfg.notna() & pff.notna() & (pfg != pff)
 
+    LOGGER.debug(
+        "Rule violations: earned_with_failing_pf=%d, "
+        "no_credits_with_passing=%d, grade_pf_disagree=%d",
+        int(rows_with_earned_with_failing_pf.sum()),
+        int(rows_with_no_credits_with_passing.sum()),
+        int(rows_with_grade_pf_disagree.sum()),
+    )
     # Collect anomalies
     mask = (
         rows_with_earned_with_failing_pf
@@ -1336,6 +1419,15 @@ def check_pf_grade_consistency(
         }
     )
 
+    if summary["total_anomalous_rows"].iloc[0] > 0:
+        LOGGER.warning(
+            "Detected %d PF/grade consistency anomalies",
+            summary["total_anomalous_rows"].iloc[0],
+        )
+    else:
+        LOGGER.info("No PF/grade consistency anomalies detected")
+
+    LOGGER.debug("PF/grade anomaly summary:\n%s", summary)
     return anomalies, summary
 
 
