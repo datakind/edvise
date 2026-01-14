@@ -6,6 +6,7 @@ import sys
 import pandas as pd
 import pathlib
 import os
+from functools import partial
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
@@ -84,7 +85,7 @@ class PDPDataAuditTask:
         self.course_std = PDPCourseStandardizer()
         # Use default converter to handle duplicates if none provided
         self.course_converter_func: ConverterFunc = (
-            handling_duplicates
+            partial(handling_duplicates, school_type="pdp")
             if course_converter_func is None
             else course_converter_func
         )
