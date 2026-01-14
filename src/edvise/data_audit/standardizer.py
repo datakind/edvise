@@ -9,11 +9,13 @@ from edvise.utils.data_cleaning import (
     drop_course_rows_missing_identifiers,
     strip_trailing_decimal_strings,
     replace_na_firstgen_and_pell,
+    handling_duplicates,
 )
 from edvise.data_audit.custom_cleaning import (
     assign_numeric_grade,
     keep_earlier_record,
     drop_readmits,
+    assign_numeric_grade,
 )
 from .eda import (
     log_high_null_columns,
@@ -23,6 +25,8 @@ from .eda import (
     check_bias_variables,
     find_dupes,
     log_top_majors,
+    check_pf_grade_consistency,
+    validate_credit_consistency,
 )
 
 # TODO think of a better name than standardizer
@@ -166,7 +170,7 @@ class CustomCohortStandardizer(BaseStandardizer):
         log_top_majors(df)
         df = replace_na_firstgen_and_pell(df)
         primary_keys = ["student_id"]
-        LOGGER.info("Checking for duplicates...")
+        LOGGER.info("Checking for cohort file duplicates...")
         find_dupes(df, primary_keys=primary_keys)
         LOGGER.info("Dropping readmits ")
         df = drop_readmits(df)
@@ -210,7 +214,16 @@ class CustomCourseStandardizer(BaseStandardizer):
         Args:
             df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
         """
-        cols_to_drop = []
-        df = drop_columns_safely(df, cols_to_drop)
+        log_high_null_columns(df)
+        # not sure which other columns might need to be dropped
+        # cols_to_drop = []
+        # df = drop_columns_safely(df, cols_to_drop)
+        primary_keys = ["student_id", "term", "course_subject", "course_num"]
+        LOGGER.info("Checking for course file duplicates...")
+        find_dupes(df, primary_keys=primary_keys)
+        handling_duplicates(df)
+        check_pf_grade_consistency(df)
+        validate_credit_consistency(df)
+        assign_numeric_grade(df)
         df = self.add_empty_columns_if_missing(df, {})
         return df
