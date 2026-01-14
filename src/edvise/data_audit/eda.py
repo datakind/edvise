@@ -1204,8 +1204,8 @@ def validate_credit_consistency(
     # =========================================================
     # C) OPTIONAL COHORT CHECKS: earned <= attempted
     # =========================================================
-    cohort_anomalies = None
-    cohort_anomalies_summary = None
+    cohort_anomalies: t.Optional[pd.DataFrame] = None
+    cohort_anomalies_summary: t.Optional[t.Dict[str, t.Any]] = None
 
     if cohort_df is None:
         LOGGER.info("Cohort dataframe not provided; skipping cohort checks")
@@ -1226,20 +1226,27 @@ def validate_credit_consistency(
                 earned_col=cohort_credits_earned_col,
                 attempted_col=cohort_credits_attempted_col,
             )
-            cohort_anomalies = cohort_checks.get("anomalies") or {}
-            rows_with_anomalies = int(
-                cohort_anomalies_summary.get("rows_with_anomalies", 0)
+
+            # Expecting check_earned_vs_attempted to return something like:
+            # {"anomalies": <DataFrame|None>, "summary": <dict|None>, ...}
+            cohort_anomalies = t.cast(
+                t.Optional[pd.DataFrame], cohort_checks.get("anomalies")
+            )
+            cohort_anomalies_summary = t.cast(
+                t.Optional[t.Dict[str, t.Any]], cohort_checks.get("summary")
             )
 
-            if cohort_anomalies_summary.get("rows_with_anomalies", 0) > 0:
+            rows_with_anomalies = int(
+                (cohort_anomalies_summary or {}).get("rows_with_anomalies", 0)
+            )
+
+            if rows_with_anomalies > 0:
                 LOGGER.warning(
                     "Detected %d cohort-level credit anomalies",
-                    cohort_anomalies_summary["rows_with_anomalies"],
+                    rows_with_anomalies,
                 )
             else:
                 LOGGER.info("No cohort-level credit anomalies detected")
-
-    LOGGER.info("Credit consistency validation complete")
 
     return {
         # course checks
