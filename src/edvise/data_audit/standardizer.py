@@ -12,7 +12,6 @@ from edvise.utils.data_cleaning import (
     handling_duplicates,
 )
 from edvise.data_audit.custom_cleaning import (
-    assign_numeric_grade,
     keep_earlier_record,
     drop_readmits,
     assign_numeric_grade,
