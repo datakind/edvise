@@ -195,13 +195,13 @@ def get_institution_id_by_name(institution_name: str, api_key: str) -> t.Any:
         KeyError: If the response doesn't contain 'inst_id'
         ValueError: If the response is not valid JSON
     """
-    if not institution_name or not isinstance(institution_name, str):
+    if not isinstance(institution_name, str) or not institution_name.strip():
         return {
             "ok": False,
             "stage": "validation",
             "error": "institution_name must be a non-empty string",
         }
-    if not api_key or not isinstance(api_key, str):
+    if not isinstance(api_key, str) or not api_key.strip():
         return {
             "ok": False,
             "stage": "validation",

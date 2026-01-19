@@ -106,6 +106,15 @@ class TestGetInstitutionIdByName:
         assert result["stage"] == "validation"
         assert "institution_name" in result["error"].lower()
 
+    def test_validation_error_whitespace_only_institution_name(self):
+        """Test that whitespace-only institution name returns error dict."""
+        result = api_requests.get_institution_id_by_name("   ", "test-api-key")
+
+        assert isinstance(result, dict)
+        assert result["ok"] is False
+        assert result["stage"] == "validation"
+        assert "institution_name" in result["error"].lower()
+
     def test_validation_error_none_institution_name(self):
         """Test that None institution name returns error dict."""
         result = api_requests.get_institution_id_by_name(None, "test-api-key")  # type: ignore
