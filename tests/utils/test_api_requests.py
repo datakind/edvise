@@ -255,7 +255,9 @@ class TestGetInstitutionIdByName:
 
     @patch("edvise.utils.api_requests.get_access_tokens")
     @patch("edvise.utils.api_requests.requests.Session")
-    def test_headers_include_accept_and_authorization(self, mock_session_class, mock_get_tokens):
+    def test_headers_include_accept_and_authorization(
+        self, mock_session_class, mock_get_tokens
+    ):
         """Test that GET request headers include Accept and Authorization."""
         mock_get_tokens.return_value = "test-token"
 

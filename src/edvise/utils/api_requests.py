@@ -179,17 +179,17 @@ def validate_custom_model_exist(inst_id: str, model_name: str, api_key: str) -> 
 def get_institution_id_by_name(institution_name: str, api_key: str) -> t.Any:
     """
     Retrieve institution ID by institution name from the API.
-    
+
     Makes a GET request to the API endpoint that looks up an institution
     by its human-readable name and returns the corresponding institution ID.
-    
+
     Args:
         institution_name: The name of the institution to look up
         api_key: API key required for authentication
-    
+
     Returns:
         Institution ID (str) if found, or error dictionary if validation fails
-    
+
     Raises:
         requests.HTTPError: If the API request fails (e.g., 404 if institution not found)
         KeyError: If the response doesn't contain 'inst_id'
@@ -222,25 +222,21 @@ def get_institution_id_by_name(institution_name: str, api_key: str) -> t.Any:
     institution_endpoint_url = (
         f"https://staging-sst.datakind.org/api/v1/institutions/name/{encoded_name}"
     )
-    resp = session.get(institution_endpoint_url, headers=institution_headers, timeout=15)
+    resp = session.get(
+        institution_endpoint_url, headers=institution_headers, timeout=15
+    )
     resp.raise_for_status()
 
     try:
         institution_data = resp.json()
     except ValueError as e:
-        raise ValueError(
-            f"Institution endpoint returned non-JSON: {resp.text}"
-        ) from e
+        raise ValueError(f"Institution endpoint returned non-JSON: {resp.text}") from e
 
     inst_id = (
-        institution_data.get("inst_id")
-        if isinstance(institution_data, dict)
-        else None
+        institution_data.get("inst_id") if isinstance(institution_data, dict) else None
     )
     if not inst_id:
-        raise KeyError(
-            f"No 'inst_id' in institution response: {institution_data}"
-        )
+        raise KeyError(f"No 'inst_id' in institution response: {institution_data}")
 
     return inst_id
 
