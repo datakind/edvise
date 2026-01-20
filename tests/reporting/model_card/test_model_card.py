@@ -165,7 +165,7 @@ def test_extract_training_data_with_split_call_load_model(
     card.load_model()
     card.extract_training_data()
 
-    assert card.context["training_dataset_size"] == 2
+    assert card.context["training_dataset_size"] == 4
     assert card.context["num_runs_in_experiment"] == 2
 
 

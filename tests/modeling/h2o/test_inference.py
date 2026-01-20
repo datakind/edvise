@@ -5,6 +5,147 @@ from unittest import mock
 from edvise.modeling.h2o_ml import inference
 
 
+import typing as t
+
+
+class _FakeModel:
+    def __init__(
+        self,
+        *,
+        names: list[str],
+        column_types: list[str],
+        domains: list[t.Optional[list[str]]],
+        response_column: str = "y",
+        actual_params: t.Optional[dict] = None,
+    ):
+        self._model_json = {
+            "output": {
+                "names": names,
+                "column_types": column_types,
+                "domains": domains,
+                "response_column": {"name": response_column},
+            }
+        }
+        self.actual_params = actual_params or {"response_column": response_column}
+
+
+def test_prepare_glm_enum_alignment_strips_cip_dot0_and_recodes_to_bg_mode():
+    """
+    - CIP-like columns get '.0' stripped BEFORE domain check
+    - Unseen enums get recoded to baseline chosen as mode(in-domain) from background
+    """
+    model = _FakeModel(
+        names=["term_program_of_study", "y"],
+        column_types=["Enum", "Numeric"],
+        domains=[["30104", "131202", "430104"], None],
+        response_column="y",
+    )
+
+    df = pd.DataFrame(
+        {
+            "term_program_of_study": ["999999.0", "999999.0", "131202.0"],
+            "y": [0, 1, 0],
+        }
+    )
+    bg = pd.DataFrame(
+        {
+            # background contains in-domain values; mode is "30104"
+            "term_program_of_study": ["30104", "30104", "430104"],
+            "y": [0, 0, 0],
+        }
+    )
+
+    df_proc, bg_proc = inference.prepare_glm_enum_alignment_inputs(
+        model=model, df=df, background_data=bg
+    )
+
+    # CIP normalization
+    assert df_proc["term_program_of_study"].tolist()[2] == "131202"  # stripped .0
+
+    # unseen values recoded to bg mode "30104"
+    assert df_proc["term_program_of_study"].tolist()[:2] == ["30104", "30104"]
+
+    # background CIP normalization should not break values
+    assert bg_proc["term_program_of_study"].tolist() == ["30104", "30104", "430104"]
+
+
+def test_prepare_glm_enum_alignment_baseline_falls_back_to_df_mode_when_bg_has_no_in_domain():
+    """
+    If background has no in-domain values, baseline should be mode(in-domain) from df.
+    """
+    model = _FakeModel(
+        names=["program_of_study_year_1", "y"],
+        column_types=["Enum", "Numeric"],
+        domains=[["A", "B", "C"], None],
+        response_column="y",
+    )
+
+    df = pd.DataFrame(
+        {
+            "program_of_study_year_1": ["A", "A", "Z"],  # Z unseen
+            "y": [0, 1, 0],
+        }
+    )
+    bg = pd.DataFrame(
+        {
+            "program_of_study_year_1": ["Z", "Z", "Z"],  # all unseen
+            "y": [0, 0, 0],
+        }
+    )
+
+    df_proc, bg_proc = inference.prepare_glm_enum_alignment_inputs(
+        model=model, df=df, background_data=bg, cip_like_cols=()
+    )
+
+    # baseline should be df mode among in-domain => "A"
+    assert df_proc["program_of_study_year_1"].tolist() == ["A", "A", "A"]
+
+    # background recoded to its own baseline: no in-domain => train_dom[0] => "A"
+    assert bg_proc["program_of_study_year_1"].tolist() == ["A", "A", "A"]
+
+
+def test_prepare_glm_enum_alignment_final_fallback_to_train_dom_0():
+    """
+    If neither df nor background has any in-domain values, baseline falls back to train_dom[0].
+    """
+    model = _FakeModel(
+        names=["enrollment_type", "y"],
+        column_types=["Enum", "Numeric"],
+        domains=[["FIRST", "TRANSFER"], None],
+        response_column="y",
+    )
+
+    df = pd.DataFrame({"enrollment_type": ["X", "Y"], "y": [0, 1]})
+    bg = pd.DataFrame({"enrollment_type": ["Z"], "y": [0]})
+
+    df_proc, bg_proc = inference.prepare_glm_enum_alignment_inputs(
+        model=model, df=df, background_data=bg, cip_like_cols=()
+    )
+
+    # fallback to train_dom[0] == "FIRST"
+    assert df_proc["enrollment_type"].tolist() == ["FIRST", "FIRST"]
+    assert bg_proc["enrollment_type"].tolist() == ["FIRST"]
+
+
+def test_prepare_glm_enum_alignment_leaves_in_domain_untouched():
+    model = _FakeModel(
+        names=["cohort_term", "y"],
+        column_types=["Enum", "Numeric"],
+        domains=[["FALL", "SPRING"], None],
+        response_column="y",
+    )
+
+    df = pd.DataFrame({"cohort_term": ["FALL", "SPRING"], "y": [0, 1]})
+    bg = pd.DataFrame({"cohort_term": ["FALL"], "y": [0]})
+
+    df_proc, bg_proc = inference.prepare_glm_enum_alignment_inputs(
+        model=model, df=df, background_data=bg, cip_like_cols=()
+    )
+
+    assert df_proc["cohort_term"].tolist() == ["FALL", "SPRING"]
+    assert bg_proc["cohort_term"].tolist() == ["FALL"]
+
+
 # Existing SHAP grouping test
 def test_group_shap_by_feature_basic():
     df = pd.DataFrame(
@@ -123,7 +264,10 @@ def test_compute_h2o_shap_contributions_with_bias_drop(
     )
 
     # _to_h2o called with df and no *_missing_flag columns -> force_enum_cols == []
-    mock_to_h2o.assert_called_once_with(df, force_enum_cols=[])
+    assert mock_to_h2o.call_count == 1
+    (args, kwargs) = mock_to_h2o.call_args
+    pd.testing.assert_frame_equal(args[0], df)
+    assert kwargs == {"force_enum_cols": []}
     mock_get_used.assert_called_once_with(mock_model)
     hf_mock.__getitem__.assert_called_once_with(["feature1", "feature2"])
 

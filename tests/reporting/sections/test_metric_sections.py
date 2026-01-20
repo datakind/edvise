@@ -37,7 +37,7 @@ def test_register_metric_sections_sample_weight_used(mock_card):
 
     rendered = registry.render_all()
     assert "Sample weights were used" in rendered["sample_weight_section"]
-    assert "MLOps pipeline" in rendered["sample_weight_section"]
+    assert "machine learning pipeline" in rendered["sample_weight_section"]
 
 
 def test_register_metric_sections_sample_weight_not_used(mock_card):
@@ -47,4 +47,4 @@ def test_register_metric_sections_sample_weight_not_used(mock_card):
 
     rendered = registry.render_all()
     assert "Sample weights were used" not in rendered["sample_weight_section"]
-    assert "MLOps pipeline" in rendered["sample_weight_section"]
+    assert "machine learning pipeline" in rendered["sample_weight_section"]
