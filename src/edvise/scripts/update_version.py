@@ -101,7 +101,7 @@ def update_pyproject(pyproject_path: Path, version: str) -> None:
     # Run uv sync to update uv.lock with the new version
     try:
         LOGGER.info("Running uv sync to update uv.lock...")
-        result = subprocess.run(
+        subprocess.run(
             ["uv", "sync"],
             capture_output=True,
             text=True,
