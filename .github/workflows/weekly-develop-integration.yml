@@ -1,9 +1,6 @@
 name: weekly-develop-integration
 
 on:
-  push:
-    branches:
-      - 'fix/fetching-latest-health-check'
   schedule:
     - cron: "10 17 * * 1"  # Mondays at noon EST (17:10 UTC)
   workflow_dispatch: {}
