@@ -74,7 +74,7 @@ def fetch_pr_title(repo: str, pr_number: int, token: str) -> Optional[str]:
             pr_data: dict[str, object] = json.loads(response_data)
             title_obj = pr_data.get("title")
             if title_obj and isinstance(title_obj, str):
-                title: str = str(title_obj)
+                title: str = title_obj
                 LOGGER.debug(f"Successfully fetched PR #{pr_number}: {title}")
                 return title
             else:
