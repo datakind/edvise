@@ -47,7 +47,6 @@ from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session
 from edvise.modeling.inference import top_n_features, features_box_whiskers_table
 from edvise.shared.logger import resolve_run_path, local_fs_path
-
 from edvise.shared.validation import (
     validate_tables_exist,
     ExpectedTable,
