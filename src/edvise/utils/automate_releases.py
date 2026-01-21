@@ -28,7 +28,6 @@ def get_last_version_tag() -> Optional[str]:
 
 
 def get_pr_numbers_from_git_log(since_tag: Optional[str] = None) -> list[int]:
-    """Extract PR numbers from git log merge commits since a tag."""
     if since_tag:
         log_range = f"{since_tag}..origin/develop"
     else:
@@ -42,17 +41,13 @@ def get_pr_numbers_from_git_log(since_tag: Optional[str] = None) -> list[int]:
             check=True,
         )
 
-        pr_numbers = []
-        for line in result.stdout.strip().split("\n"):
-            if line.strip():
-                # Look for PR number in format #N
-                match = re.search(r"#(\d+)", line)
-                if match:
-                    pr_num = int(match.group(1))
-                    if pr_num not in pr_numbers:
-                        pr_numbers.append(pr_num)
+        pr_numbers: set[int] = set()
+        for line in result.stdout.splitlines():
+            m = re.search(r"^Merge pull request #(\d+)\b", line.strip())
+            if m:
+                pr_numbers.add(int(m.group(1)))
 
-        return pr_numbers
+        return sorted(pr_numbers)
     except subprocess.CalledProcessError:
         return []
 
