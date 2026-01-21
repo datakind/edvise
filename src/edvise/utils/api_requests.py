@@ -1,5 +1,6 @@
 import requests
 import typing as t
+from typing import cast
 import re
 import logging
 from urllib.parse import quote
@@ -296,7 +297,18 @@ def _parse_institution_response(
             f"No 'inst_id' in institution response for name '{institution_name}': "
             f"{institution_data}"
         )
-    return inst_id
+    # Type check: ensure inst_id is a string
+    if not isinstance(inst_id, str):
+        LOGGER.error(
+            f"inst_id is not a string for name '{institution_name}': "
+            f"type={type(inst_id)}, value={inst_id}"
+        )
+        raise TypeError(
+            f"inst_id must be a string for name '{institution_name}', "
+            f"got {type(inst_id).__name__}: {inst_id}"
+        )
+    # Type cast to satisfy mypy - we've verified it's a string above
+    return cast(str, inst_id)
 
 
 def get_institution_id_by_name(

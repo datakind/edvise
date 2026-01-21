@@ -1,9 +1,8 @@
 """Tests for edvise.utils.api_requests module."""
 
 import pytest
-from unittest.mock import Mock, patch, call
+from unittest.mock import Mock, patch
 import requests
-import logging
 
 from edvise.utils import api_requests
 
