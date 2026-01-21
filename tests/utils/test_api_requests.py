@@ -288,7 +288,9 @@ class TestGetInstitutionIdByName:
 
     @patch("edvise.utils.api_requests.get_access_tokens")
     @patch("edvise.utils.api_requests.requests.Session")
-    def test_databricks_name_reverse_transformation(self, mock_session_class, mock_get_tokens):
+    def test_databricks_name_reverse_transformation(
+        self, mock_session_class, mock_get_tokens
+    ):
         """Test that databricks names are correctly reverse-transformed before querying."""
         mock_get_tokens.return_value = "test-token"
 
@@ -331,7 +333,9 @@ class TestGetInstitutionIdByName:
 
     @patch("edvise.utils.api_requests.get_access_tokens")
     @patch("edvise.utils.api_requests.requests.Session")
-    def test_databricks_name_whitespace_handling(self, mock_session_class, mock_get_tokens):
+    def test_databricks_name_whitespace_handling(
+        self, mock_session_class, mock_get_tokens
+    ):
         """Test that whitespace in databricks name is stripped before reverse transformation."""
         mock_get_tokens.return_value = "test-token"
 
@@ -397,7 +401,9 @@ class TestGetInstitutionIdByName:
         # Verify logging was called with context
         mock_logger.error.assert_called_once()
         log_call_args = mock_logger.error.call_args[0][0]
-        assert "non-JSON" in log_call_args or "non-JSON".lower() in log_call_args.lower()
+        assert (
+            "non-JSON" in log_call_args or "non-JSON".lower() in log_call_args.lower()
+        )
         assert "Test University" in log_call_args
 
     @patch("edvise.utils.api_requests.LOGGER")
@@ -431,7 +437,9 @@ class TestGetInstitutionIdByName:
 
     @patch("edvise.utils.api_requests.get_access_tokens")
     @patch("edvise.utils.api_requests.requests.Session")
-    def test_error_message_includes_institution_name(self, mock_session_class, mock_get_tokens):
+    def test_error_message_includes_institution_name(
+        self, mock_session_class, mock_get_tokens
+    ):
         """Test that error messages include the institution name for context."""
         mock_get_tokens.return_value = "test-token"
 

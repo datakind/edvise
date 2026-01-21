@@ -200,16 +200,16 @@ _COMPILED_REVERSE_PATTERNS = {
 def _validate_databricks_name_format(databricks_name: str) -> None:
     """
     Validate that databricks name matches expected format.
-    
+
     Args:
         databricks_name: Name to validate
-        
+
     Raises:
         ValueError: If name is empty or contains invalid characters
     """
     if not isinstance(databricks_name, str) or not databricks_name.strip():
         raise ValueError("databricks_name must be a non-empty string")
-    
+
     pattern = "^[a-z0-9_]*$"
     if not re.match(pattern, databricks_name):
         raise ValueError(
@@ -221,10 +221,10 @@ def _validate_databricks_name_format(databricks_name: str) -> None:
 def _reverse_abbreviation_replacements(name: str) -> str:
     """
     Reverse abbreviation replacements in the name.
-    
+
     Args:
         name: Name with underscores replaced by spaces
-        
+
     Returns:
         Name with abbreviations expanded to full forms
     """
@@ -237,25 +237,25 @@ def _reverse_abbreviation_replacements(name: str) -> str:
 def reverse_databricksify_inst_name(databricks_name: str) -> str:
     """
     Reverse the databricksify transformation to get back the original institution name.
-    
+
     This function attempts to reverse the transformation done by databricksify_inst_name.
     Since the transformation is lossy (multiple original names can map to the same
     databricks name), this function produces the most likely original name.
-    
+
     Args:
         databricks_name: The databricks-transformed institution name (e.g., "motlow_state_cc")
-        
+
     Returns:
         The reversed institution name with proper capitalization (e.g., "Motlow State Community College")
-        
+
     Raises:
         ValueError: If the databricks name contains invalid characters
     """
     _validate_databricks_name_format(databricks_name)
-    
+
     # Step 1: Replace underscores with spaces
     name = databricks_name.replace("_", " ")
-    
+
     # Step 2: Reverse the abbreviation replacements
     # The original replacements were done in this order (most specific first):
     # 1. "community technical college" → "ctc"
@@ -264,24 +264,22 @@ def reverse_databricksify_inst_name(databricks_name: str) -> str:
     # 4. "university" → "uni"
     # 5. "college" → "col"
     name = _reverse_abbreviation_replacements(name)
-    
+
     # Step 3: Capitalize appropriately (title case)
     return name.title()
 
 
-def _parse_institution_response(
-    institution_data: t.Any, institution_name: str
-) -> str:
+def _parse_institution_response(institution_data: t.Any, institution_name: str) -> str:
     """
     Parse institution ID from API response.
-    
+
     Args:
         institution_data: JSON response from institution API
         institution_name: Original institution name for error context
-        
+
     Returns:
         Institution ID string
-        
+
     Raises:
         KeyError: If inst_id is missing from response
     """
