@@ -78,7 +78,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
-          python -m edvise.scripts.update_version \
+          uv run python -m edvise.scripts.update_version \
             --version "${VERSION}" \
             --changelog CHANGELOG.md \
             --pyproject pyproject.toml \
