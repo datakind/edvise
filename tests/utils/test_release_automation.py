@@ -269,7 +269,7 @@ class TestUpdateChangelog:
 
                 content = changelog_path.read_text()
                 assert "## 0.1.9" in content
-                assert "- \n" in content
+                assert "- \n No PRs found" in content
         finally:
             changelog_path.unlink()
 

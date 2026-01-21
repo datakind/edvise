@@ -53,7 +53,7 @@ def update_changelog(
         bullet_points = "\n".join(f"- {title}" for title in pr_titles)
         new_entry = f"## {version} ({date_str})\n{bullet_points}\n\n"
     else:
-        new_entry = f"## {version} ({date_str})\n\n- TBD\n\n"
+        new_entry = f"## {version} ({date_str})\n\n- No PRs found\n\n"
 
     # Insert after the first line (or at the beginning if file is empty)
     if content.strip():
