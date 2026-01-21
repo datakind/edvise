@@ -329,6 +329,61 @@ class TestUpdateChangelog:
         finally:
             changelog_path.unlink()
 
+    def test_update_changelog_with_header_no_versions(self):
+        """Test changelog update when header exists but no version entries."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write(
+                "# Changelog\n\nAll notable changes to this project will be documented here.\n"
+            )
+            changelog_path = Path(f.name)
+
+        try:
+            with patch(
+                "edvise.scripts.update_version.automate_releases.get_pr_titles_since_last_version"
+            ) as mock_get_prs:
+                mock_get_prs.return_value = ["feat: first feature (#1)"]
+
+                update_version.update_changelog(
+                    changelog_path, "0.1.0", "owner/repo", "token"
+                )
+
+                content = changelog_path.read_text()
+                # Verify header comes first
+                assert content.startswith("# Changelog")
+                # Verify version entry comes after header
+                assert content.index("# Changelog") < content.index("## 0.1.0")
+                # Verify version entry is present
+                assert "## 0.1.0" in content
+                assert "feat: first feature (#1)" in content
+        finally:
+            changelog_path.unlink()
+
+    def test_update_changelog_with_header_and_blank_lines(self):
+        """Test changelog update when header has blank lines after it."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+            f.write("# Changelog\n\n\nSome description text.\n")
+            changelog_path = Path(f.name)
+
+        try:
+            with patch(
+                "edvise.scripts.update_version.automate_releases.get_pr_titles_since_last_version"
+            ) as mock_get_prs:
+                mock_get_prs.return_value = []
+
+                update_version.update_changelog(
+                    changelog_path, "0.1.0", "owner/repo", "token"
+                )
+
+                content = changelog_path.read_text()
+                # Verify header comes first
+                assert content.startswith("# Changelog")
+                # Verify version entry comes after header section
+                assert content.index("# Changelog") < content.index("## 0.1.0")
+                # Verify original content is preserved
+                assert "Some description text." in content
+        finally:
+            changelog_path.unlink()
+
 
 class TestUpdatePyproject:
     """Test update_pyproject function."""

@@ -63,8 +63,16 @@ def update_changelog(
             insert_pos = match.start()
             content = content[:insert_pos] + new_entry + content[insert_pos:]
         else:
-            # No version entry found, prepend to file
-            content = new_entry + content
+            # No version entry found - check for header and insert after it
+            # Look for a header line (starts with #) at the beginning of the file
+            header_match = re.match(r"^(#+[^\n]*\n(?:\s*\n)*)", content)
+            if header_match:
+                # Insert after the header (and any blank lines after it)
+                insert_pos = header_match.end()
+                content = content[:insert_pos] + new_entry + content[insert_pos:]
+            else:
+                # No header found, prepend to file
+                content = new_entry + content
     else:
         content = new_entry
 
