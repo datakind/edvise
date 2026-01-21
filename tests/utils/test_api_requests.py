@@ -1,8 +1,9 @@
 """Tests for edvise.utils.api_requests module."""
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, call
 import requests
+import logging
 
 from edvise.utils import api_requests
 
@@ -285,3 +286,275 @@ class TestGetInstitutionIdByName:
         assert headers["Accept"] == "application/json"
         assert "Authorization" in headers
         assert headers["Authorization"] == "Bearer test-token"
+
+    @patch("edvise.utils.api_requests.get_access_tokens")
+    @patch("edvise.utils.api_requests.requests.Session")
+    def test_databricks_name_reverse_transformation(self, mock_session_class, mock_get_tokens):
+        """Test that databricks names are correctly reverse-transformed before querying."""
+        mock_get_tokens.return_value = "test-token"
+
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "inst_id": "abc123-def456-ghi789",
+            "name": "Motlow State Community College",
+        }
+        mock_response.raise_for_status = Mock()
+
+        mock_session = Mock()
+        mock_session.get.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        # Execute with databricks name
+        result = api_requests.get_institution_id_by_name(
+            "motlow_state_cc", "test-api-key", is_databricks_name=True
+        )
+
+        # Assert
+        assert result == "abc123-def456-ghi789"
+        # Verify the URL contains the reversed name
+        call_url = mock_session.get.call_args[0][0]
+        assert "institutions/name/Motlow%20State%20Community%20College" in call_url
+
+    @patch("edvise.utils.api_requests.get_access_tokens")
+    @patch("edvise.utils.api_requests.requests.Session")
+    def test_databricks_name_invalid_format(self, mock_session_class, mock_get_tokens):
+        """Test that invalid databricks name format returns error."""
+        result = api_requests.get_institution_id_by_name(
+            "Invalid Name!", "test-api-key", is_databricks_name=True
+        )
+
+        assert isinstance(result, dict)
+        assert result["ok"] is False
+        assert result["stage"] == "validation"
+        assert "databricks name" in result["error"].lower()
+        # Verify error message includes context
+        assert "Invalid databricks name format" in result["error"]
+
+    @patch("edvise.utils.api_requests.get_access_tokens")
+    @patch("edvise.utils.api_requests.requests.Session")
+    def test_databricks_name_whitespace_handling(self, mock_session_class, mock_get_tokens):
+        """Test that whitespace in databricks name is stripped before reverse transformation."""
+        mock_get_tokens.return_value = "test-token"
+
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "inst_id": "abc123",
+            "name": "Test University",
+        }
+        mock_response.raise_for_status = Mock()
+
+        mock_session = Mock()
+        mock_session.get.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        # Execute with databricks name that has whitespace
+        result = api_requests.get_institution_id_by_name(
+            "  test_uni  ", "test-api-key", is_databricks_name=True
+        )
+
+        # Should work - whitespace is stripped
+        assert result == "abc123"
+        call_url = mock_session.get.call_args[0][0]
+        assert "institutions/name/Test%20University" in call_url
+
+    @patch("edvise.utils.api_requests.LOGGER")
+    @patch("edvise.utils.api_requests.get_access_tokens")
+    @patch("edvise.utils.api_requests.requests.Session")
+    def test_logging_on_databricks_name_error(
+        self, mock_session_class, mock_get_tokens, mock_logger
+    ):
+        """Test that errors are logged when databricks name is invalid."""
+        result = api_requests.get_institution_id_by_name(
+            "Invalid Name!", "test-api-key", is_databricks_name=True
+        )
+
+        # Verify logging was called
+        mock_logger.error.assert_called_once()
+        log_call_args = mock_logger.error.call_args[0][0]
+        assert "Invalid databricks name format" in log_call_args
+        assert "Invalid Name!" in log_call_args
+
+    @patch("edvise.utils.api_requests.LOGGER")
+    @patch("edvise.utils.api_requests.get_access_tokens")
+    @patch("edvise.utils.api_requests.requests.Session")
+    def test_logging_on_non_json_response(
+        self, mock_session_class, mock_get_tokens, mock_logger
+    ):
+        """Test that non-JSON responses are logged."""
+        mock_get_tokens.return_value = "test-token"
+
+        mock_response = Mock()
+        mock_response.json.side_effect = ValueError("Invalid JSON")
+        mock_response.text = "<html>Not JSON</html>"
+        mock_response.raise_for_status = Mock()
+
+        mock_session = Mock()
+        mock_session.get.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        with pytest.raises(ValueError):
+            api_requests.get_institution_id_by_name("Test University", "api-key")
+
+        # Verify logging was called with context
+        mock_logger.error.assert_called_once()
+        log_call_args = mock_logger.error.call_args[0][0]
+        assert "non-JSON" in log_call_args or "non-JSON".lower() in log_call_args.lower()
+        assert "Test University" in log_call_args
+
+    @patch("edvise.utils.api_requests.LOGGER")
+    @patch("edvise.utils.api_requests.get_access_tokens")
+    @patch("edvise.utils.api_requests.requests.Session")
+    def test_logging_on_missing_inst_id(
+        self, mock_session_class, mock_get_tokens, mock_logger
+    ):
+        """Test that missing inst_id in response is logged."""
+        mock_get_tokens.return_value = "test-token"
+
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            "name": "Test University",
+            # Missing inst_id
+        }
+        mock_response.raise_for_status = Mock()
+
+        mock_session = Mock()
+        mock_session.get.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        with pytest.raises(KeyError):
+            api_requests.get_institution_id_by_name("Test University", "api-key")
+
+        # Verify logging was called with context
+        mock_logger.error.assert_called_once()
+        log_call_args = mock_logger.error.call_args[0][0]
+        assert "inst_id" in log_call_args
+        assert "Test University" in log_call_args
+
+    @patch("edvise.utils.api_requests.get_access_tokens")
+    @patch("edvise.utils.api_requests.requests.Session")
+    def test_error_message_includes_institution_name(self, mock_session_class, mock_get_tokens):
+        """Test that error messages include the institution name for context."""
+        mock_get_tokens.return_value = "test-token"
+
+        mock_response = Mock()
+        mock_response.json.side_effect = ValueError("Invalid JSON")
+        mock_response.text = "<html>Error</html>"
+        mock_response.raise_for_status = Mock()
+
+        mock_session = Mock()
+        mock_session.get.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        with pytest.raises(ValueError) as exc_info:
+            api_requests.get_institution_id_by_name("My Test University", "api-key")
+
+        error_msg = str(exc_info.value)
+        assert "My Test University" in error_msg
+        assert "non-json" in error_msg.lower() or "non-JSON" in error_msg
+
+    @patch("edvise.utils.api_requests.get_access_tokens")
+    @patch("edvise.utils.api_requests.requests.Session")
+    def test_error_message_includes_institution_name_for_missing_inst_id(
+        self, mock_session_class, mock_get_tokens
+    ):
+        """Test that KeyError includes institution name in error message."""
+        mock_get_tokens.return_value = "test-token"
+
+        mock_response = Mock()
+        mock_response.json.return_value = {"name": "Test University"}
+        mock_response.raise_for_status = Mock()
+
+        mock_session = Mock()
+        mock_session.get.return_value = mock_response
+        mock_session_class.return_value = mock_session
+
+        with pytest.raises(KeyError) as exc_info:
+            api_requests.get_institution_id_by_name("My Test University", "api-key")
+
+        error_msg = str(exc_info.value)
+        assert "My Test University" in error_msg
+        assert "inst_id" in error_msg
+
+
+class TestReverseDatabricksifyInstName:
+    """Test cases for reverse_databricksify_inst_name function."""
+
+    def test_reverse_community_college(self):
+        """Test reversing community college abbreviation."""
+        result = api_requests.reverse_databricksify_inst_name("motlow_state_cc")
+        assert result == "Motlow State Community College"
+
+    def test_reverse_university(self):
+        """Test reversing university abbreviation."""
+        result = api_requests.reverse_databricksify_inst_name("kentucky_state_uni")
+        assert result == "Kentucky State University"
+
+    def test_reverse_college(self):
+        """Test reversing college abbreviation."""
+        result = api_requests.reverse_databricksify_inst_name("central_arizona_col")
+        assert result == "Central Arizona College"
+
+    def test_reverse_community_technical_college(self):
+        """Test reversing community technical college abbreviation."""
+        result = api_requests.reverse_databricksify_inst_name("southeast_kentucky_ctc")
+        assert result == "Southeast Kentucky Community Technical College"
+
+    def test_reverse_science_and_technology(self):
+        """Test reversing 'of science and technology' abbreviation."""
+        result = api_requests.reverse_databricksify_inst_name("harrisburg_uni_st")
+        assert result == "Harrisburg University Of Science And Technology"
+
+    def test_reverse_multiple_words(self):
+        """Test reversing name with multiple words."""
+        result = api_requests.reverse_databricksify_inst_name("metro_state_uni_denver")
+        assert result == "Metro State University Denver"
+
+    def test_reverse_simple_name(self):
+        """Test reversing name without abbreviations."""
+        result = api_requests.reverse_databricksify_inst_name("test_institution")
+        assert result == "Test Institution"
+
+    def test_reverse_with_numbers(self):
+        """Test reversing name with numbers."""
+        result = api_requests.reverse_databricksify_inst_name("college_123")
+        assert result == "College 123"
+
+    def test_reverse_empty_string(self):
+        """Test that empty string raises ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            api_requests.reverse_databricksify_inst_name("")
+        assert "non-empty string" in str(exc_info.value).lower()
+
+    def test_reverse_invalid_characters(self):
+        """Test that invalid characters raise ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            api_requests.reverse_databricksify_inst_name("invalid-name!")
+        assert "invalid" in str(exc_info.value).lower()
+
+    def test_reverse_uppercase(self):
+        """Test that uppercase characters raise ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            api_requests.reverse_databricksify_inst_name("Invalid_Name")
+        assert "invalid" in str(exc_info.value).lower()
+        # Verify error message includes the problematic value
+        assert "Invalid_Name" in str(exc_info.value)
+
+    def test_reverse_whitespace_stripping(self):
+        """Test that whitespace is handled correctly in databricks names."""
+        # Databricks names shouldn't have spaces, but test edge case
+        with pytest.raises(ValueError):
+            api_requests.reverse_databricksify_inst_name("  test_name  ")
+
+    def test_reverse_multiple_abbreviations(self):
+        """Test reversing name with multiple abbreviations."""
+        # Test case: name with both "uni" and "col"
+        result = api_requests.reverse_databricksify_inst_name("test_uni_col")
+        assert result == "Test University College"
+
+    def test_reverse_error_message_includes_value(self):
+        """Test that error messages include the problematic value."""
+        with pytest.raises(ValueError) as exc_info:
+            api_requests.reverse_databricksify_inst_name("bad-name!")
+        error_msg = str(exc_info.value)
+        assert "bad-name!" in error_msg
+        assert "Invalid databricks name format" in error_msg

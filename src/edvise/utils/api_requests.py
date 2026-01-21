@@ -1,6 +1,10 @@
 import requests
 import typing as t
+import re
+import logging
 from urllib.parse import quote
+
+LOGGER = logging.getLogger(__name__)
 
 
 def get_access_tokens(api_key: str) -> t.Any:
@@ -176,7 +180,128 @@ def validate_custom_model_exist(inst_id: str, model_name: str, api_key: str) -> 
         return resp.text
 
 
-def get_institution_id_by_name(institution_name: str, api_key: str) -> t.Any:
+# Compiled regex patterns for reverse transformation (performance optimization)
+_REVERSE_REPLACEMENTS = {
+    "ctc": "community technical college",
+    "cc": "community college",
+    "st": "of science and technology",
+    "uni": "university",
+    "col": "college",
+}
+
+# Pre-compile regex patterns for word boundary matching
+_COMPILED_REVERSE_PATTERNS = {
+    abbrev: re.compile(r"\b" + re.escape(abbrev) + r"\b")
+    for abbrev in _REVERSE_REPLACEMENTS.keys()
+}
+
+
+def _validate_databricks_name_format(databricks_name: str) -> None:
+    """
+    Validate that databricks name matches expected format.
+    
+    Args:
+        databricks_name: Name to validate
+        
+    Raises:
+        ValueError: If name is empty or contains invalid characters
+    """
+    if not isinstance(databricks_name, str) or not databricks_name.strip():
+        raise ValueError("databricks_name must be a non-empty string")
+    
+    pattern = "^[a-z0-9_]*$"
+    if not re.match(pattern, databricks_name):
+        raise ValueError(
+            f"Invalid databricks name format '{databricks_name}'. "
+            "Must contain only lowercase letters, numbers, and underscores."
+        )
+
+
+def _reverse_abbreviation_replacements(name: str) -> str:
+    """
+    Reverse abbreviation replacements in the name.
+    
+    Args:
+        name: Name with underscores replaced by spaces
+        
+    Returns:
+        Name with abbreviations expanded to full forms
+    """
+    for abbrev, full_form in _REVERSE_REPLACEMENTS.items():
+        pattern = _COMPILED_REVERSE_PATTERNS[abbrev]
+        name = pattern.sub(full_form, name)
+    return name
+
+
+def reverse_databricksify_inst_name(databricks_name: str) -> str:
+    """
+    Reverse the databricksify transformation to get back the original institution name.
+    
+    This function attempts to reverse the transformation done by databricksify_inst_name.
+    Since the transformation is lossy (multiple original names can map to the same
+    databricks name), this function produces the most likely original name.
+    
+    Args:
+        databricks_name: The databricks-transformed institution name (e.g., "motlow_state_cc")
+        
+    Returns:
+        The reversed institution name with proper capitalization (e.g., "Motlow State Community College")
+        
+    Raises:
+        ValueError: If the databricks name contains invalid characters
+    """
+    _validate_databricks_name_format(databricks_name)
+    
+    # Step 1: Replace underscores with spaces
+    name = databricks_name.replace("_", " ")
+    
+    # Step 2: Reverse the abbreviation replacements
+    # The original replacements were done in this order (most specific first):
+    # 1. "community technical college" → "ctc"
+    # 2. "community college" → "cc"
+    # 3. "of science and technology" → "st"
+    # 4. "university" → "uni"
+    # 5. "college" → "col"
+    name = _reverse_abbreviation_replacements(name)
+    
+    # Step 3: Capitalize appropriately (title case)
+    return name.title()
+
+
+def _parse_institution_response(
+    institution_data: t.Any, institution_name: str
+) -> str:
+    """
+    Parse institution ID from API response.
+    
+    Args:
+        institution_data: JSON response from institution API
+        institution_name: Original institution name for error context
+        
+    Returns:
+        Institution ID string
+        
+    Raises:
+        KeyError: If inst_id is missing from response
+    """
+    inst_id = (
+        institution_data.get("inst_id") if isinstance(institution_data, dict) else None
+    )
+    if not inst_id:
+        LOGGER.error(
+            f"No 'inst_id' in institution response for name '{institution_name}': "
+            f"{institution_data}"
+        )
+        raise KeyError(
+            f"No 'inst_id' in institution response for name '{institution_name}': "
+            f"{institution_data}"
+        )
+    return inst_id
+
+
+def get_institution_id_by_name(
+    institution_name: str, api_key: str, is_databricks_name: bool = False
+) -> t.Any:
     """
     Retrieve institution ID by institution name from the API.
 
@@ -184,8 +309,12 @@ def get_institution_id_by_name(institution_name: str, api_key: str) -> t.Any:
     by its human-readable name and returns the corresponding institution ID.
 
     Args:
-        institution_name: The name of the institution to look up
+        institution_name: The name of the institution to look up. If is_databricks_name
+            is True, this should be the databricks-transformed name (e.g., "motlow_state_cc").
+            Otherwise, it should be the original institution name.
         api_key: API key required for authentication
+        is_databricks_name: If True, institution_name will be reverse-transformed from
+            databricks format to original format before querying the API
 
     Returns:
         Institution ID (str) if found, or error dictionary if validation fails
@@ -193,7 +322,7 @@ def get_institution_id_by_name(institution_name: str, api_key: str) -> t.Any:
     Raises:
         requests.HTTPError: If the API request fails (e.g., 404 if institution not found)
         KeyError: If the response doesn't contain 'inst_id'
-        ValueError: If the response is not valid JSON
+        ValueError: If the response is not valid JSON or if databricks name is invalid
     """
     if not isinstance(institution_name, str) or not institution_name.strip():
         return {
@@ -207,6 +336,21 @@ def get_institution_id_by_name(institution_name: str, api_key: str) -> t.Any:
             "stage": "validation",
             "error": "api_key must be a non-empty string",
         }
+
+    # If this is a databricks name, reverse-transform it to get the original name
+    if is_databricks_name:
+        try:
+            institution_name = reverse_databricksify_inst_name(institution_name.strip())
+        except ValueError as e:
+            LOGGER.error(
+                f"Invalid databricks name format for institution lookup: "
+                f"'{institution_name}'. Error: {str(e)}"
+            )
+            return {
+                "ok": False,
+                "stage": "validation",
+                "error": f"Invalid databricks name format: {str(e)}",
+            }
 
     session = requests.Session()
     access_token = get_access_tokens(api_key=api_key)
@@ -230,15 +374,16 @@ def get_institution_id_by_name(institution_name: str, api_key: str) -> t.Any:
     try:
         institution_data = resp.json()
     except ValueError as e:
-        raise ValueError(f"Institution endpoint returned non-JSON: {resp.text}") from e
+        LOGGER.error(
+            f"Institution endpoint returned non-JSON for name '{institution_name}': "
+            f"{resp.text[:200]}"
+        )
+        raise ValueError(
+            f"Institution endpoint returned non-JSON for name '{institution_name}': "
+            f"{resp.text[:200]}"
+        ) from e
 
-    inst_id = (
-        institution_data.get("inst_id") if isinstance(institution_data, dict) else None
-    )
-    if not inst_id:
-        raise KeyError(f"No 'inst_id' in institution response: {institution_data}")
-
-    return inst_id
+    return _parse_institution_response(institution_data, institution_name)
 
 
 def log_custom_job(
