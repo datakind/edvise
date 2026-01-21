@@ -1,9 +1,12 @@
-import requests
+# Standard library imports
+import logging
+import re
 import typing as t
 from typing import cast
-import re
-import logging
 from urllib.parse import quote
+
+# Third-party imports
+import requests
 
 LOGGER = logging.getLogger(__name__)
 
@@ -222,15 +225,37 @@ def _reverse_abbreviation_replacements(name: str) -> str:
     """
     Reverse abbreviation replacements in the name.
 
+    Handles the ambiguous "st" abbreviation:
+    - If "st" appears as the first word, it's kept as "st" (abbreviation for Saint)
+      and will be capitalized to "St" by title() case
+    - Otherwise, "st" is treated as "of science and technology"
+
     Args:
         name: Name with underscores replaced by spaces
 
     Returns:
         Name with abbreviations expanded to full forms
     """
+    # Split into words to handle "st" at the beginning specially
+    words = name.split()
+
+    # Keep "st" at the beginning as-is (will be capitalized to "St" by title() case)
+    # Don't expand it to "saint" - preserve the abbreviation
+
+    # Replace "st" in remaining positions with "of science and technology"
+    for i in range(len(words)):
+        if words[i] == "st" and i > 0:  # Only replace if not the first word
+            words[i] = "of science and technology"
+
+    # Rejoin and apply other abbreviation replacements
+    name = " ".join(words)
+
+    # Apply other abbreviation replacements (excluding "st" which we handled above)
     for abbrev, full_form in _REVERSE_REPLACEMENTS.items():
-        pattern = _COMPILED_REVERSE_PATTERNS[abbrev]
-        name = pattern.sub(full_form, name)
+        if abbrev != "st":  # Skip "st" as we handled it above
+            pattern = _COMPILED_REVERSE_PATTERNS[abbrev]
+            name = pattern.sub(full_form, name)
+
     return name
 
 
@@ -244,6 +269,7 @@ def reverse_databricksify_inst_name(databricks_name: str) -> str:
 
     Args:
         databricks_name: The databricks-transformed institution name (e.g., "motlow_state_cc")
+            Case inconsistencies are normalized (input is lowercased before processing).
 
     Returns:
         The reversed institution name with proper capitalization (e.g., "Motlow State Community College")
@@ -251,6 +277,9 @@ def reverse_databricksify_inst_name(databricks_name: str) -> str:
     Raises:
         ValueError: If the databricks name contains invalid characters
     """
+    # Normalize to lowercase to handle case inconsistencies
+    # (databricksify_inst_name always produces lowercase output)
+    databricks_name = databricks_name.lower()
     _validate_databricks_name_format(databricks_name)
 
     # Step 1: Replace underscores with spaces
@@ -267,6 +296,99 @@ def reverse_databricksify_inst_name(databricks_name: str) -> str:
 
     # Step 3: Capitalize appropriately (title case)
     return name.title()
+
+
+def _fetch_institution_by_name(normalized_name: str, access_token: str) -> t.Any:
+    """
+    Fetch institution data from API by normalized name.
+
+    Args:
+        normalized_name: Institution name normalized to lowercase
+        access_token: Bearer token for authentication
+
+    Returns:
+        JSON response data from API
+
+    Raises:
+        requests.HTTPError: If the API request fails
+        ValueError: If the response is not valid JSON
+    """
+    session = requests.Session()
+    institution_headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {access_token}",
+    }
+
+    # URL-encode the institution name to handle spaces, special chars, unicode, etc.
+    encoded_name = quote(normalized_name, safe="")
+    institution_endpoint_url = (
+        f"https://staging-sst.datakind.org/api/v1/institutions/name/{encoded_name}"
+    )
+    resp = session.get(
+        institution_endpoint_url, headers=institution_headers, timeout=15
+    )
+    resp.raise_for_status()
+
+    try:
+        return resp.json()
+    except ValueError as e:
+        LOGGER.error(
+            f"Institution endpoint returned non-JSON for name '{normalized_name}': "
+            f"{resp.text[:200]}"
+        )
+        raise ValueError(
+            f"Institution endpoint returned non-JSON for name '{normalized_name}': "
+            f"{resp.text[:200]}"
+        ) from e
+
+
+def _validate_and_transform_institution_name(
+    institution_name: str, is_databricks_name: bool
+) -> tuple[str, dict[str, t.Any] | None]:
+    """
+    Validate and optionally transform institution name.
+
+    Args:
+        institution_name: The institution name to validate/transform
+        is_databricks_name: Whether the name is in databricks format
+
+    Returns:
+        Tuple of (transformed_name, error_dict). If error_dict is not None,
+        validation failed and error_dict should be returned to caller.
+
+    Raises:
+        ValueError: If databricks name format is invalid (only if is_databricks_name=True)
+    """
+    # Validate institution_name
+    if not isinstance(institution_name, str) or not institution_name.strip():
+        return (
+            "",
+            {
+                "ok": False,
+                "stage": "validation",
+                "error": "institution_name must be a non-empty string",
+            },
+        )
+
+    # Validate and transform databricks name if needed
+    if is_databricks_name:
+        try:
+            institution_name = reverse_databricksify_inst_name(institution_name.strip())
+        except ValueError as e:
+            LOGGER.error(
+                f"Invalid databricks name format for institution lookup: "
+                f"'{institution_name}'. Error: {str(e)}"
+            )
+            return (
+                "",
+                {
+                    "ok": False,
+                    "stage": "validation",
+                    "error": f"Invalid databricks name format: {str(e)}",
+                },
+            )
+
+    return (institution_name.strip(), None)
 
 
 def _parse_institution_response(institution_data: t.Any, institution_name: str) -> str:
@@ -334,12 +456,7 @@ def get_institution_id_by_name(
         KeyError: If the response doesn't contain 'inst_id'
         ValueError: If the response is not valid JSON or if databricks name is invalid
     """
-    if not isinstance(institution_name, str) or not institution_name.strip():
-        return {
-            "ok": False,
-            "stage": "validation",
-            "error": "institution_name must be a non-empty string",
-        }
+    # Validate api_key
     if not isinstance(api_key, str) or not api_key.strip():
         return {
             "ok": False,
@@ -347,53 +464,23 @@ def get_institution_id_by_name(
             "error": "api_key must be a non-empty string",
         }
 
-    # If this is a databricks name, reverse-transform it to get the original name
-    if is_databricks_name:
-        try:
-            institution_name = reverse_databricksify_inst_name(institution_name.strip())
-        except ValueError as e:
-            LOGGER.error(
-                f"Invalid databricks name format for institution lookup: "
-                f"'{institution_name}'. Error: {str(e)}"
-            )
-            return {
-                "ok": False,
-                "stage": "validation",
-                "error": f"Invalid databricks name format: {str(e)}",
-            }
+    # Validate and transform institution name
+    institution_name, validation_error = _validate_and_transform_institution_name(
+        institution_name, is_databricks_name
+    )
+    if validation_error is not None:
+        return validation_error
 
-    session = requests.Session()
     access_token = get_access_tokens(api_key=api_key)
 
     # Look up institution by name
-    # URL-encode the institution name to handle spaces, special chars, unicode, etc.
-    encoded_name = quote(institution_name.strip(), safe="")
-    institution_headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {access_token}",
-    }
+    # Normalize to lowercase for case-insensitive matching
+    # TODO: Once sst-app-api endpoint is updated to be case-insensitive, this normalization
+    # ensures compatibility. The API will compare lowercase(name) == lowercase(input).
+    normalized_name = institution_name.strip().lower()
 
-    institution_endpoint_url = (
-        f"https://staging-sst.datakind.org/api/v1/institutions/name/{encoded_name}"
-    )
-    resp = session.get(
-        institution_endpoint_url, headers=institution_headers, timeout=15
-    )
-    resp.raise_for_status()
-
-    try:
-        institution_data = resp.json()
-    except ValueError as e:
-        LOGGER.error(
-            f"Institution endpoint returned non-JSON for name '{institution_name}': "
-            f"{resp.text[:200]}"
-        )
-        raise ValueError(
-            f"Institution endpoint returned non-JSON for name '{institution_name}': "
-            f"{resp.text[:200]}"
-        ) from e
-
-    return _parse_institution_response(institution_data, institution_name)
+    institution_data = _fetch_institution_by_name(normalized_name, access_token)
+    return _parse_institution_response(institution_data, normalized_name)
 
 
 def log_custom_job(

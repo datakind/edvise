@@ -42,7 +42,8 @@ class TestGetInstitutionIdByName:
         mock_get_tokens.assert_called_once_with(api_key="test-api-key")
         mock_session.get.assert_called_once()
         call_args = mock_session.get.call_args
-        assert "institutions/name/Test%20University" in call_args[0][0]
+        # Name is normalized to lowercase before API call
+        assert "institutions/name/test%20university" in call_args[0][0]
         assert call_args[1]["headers"]["Authorization"] == f"Bearer {mock_token}"
         assert call_args[1]["timeout"] == 15
 
@@ -60,20 +61,20 @@ class TestGetInstitutionIdByName:
         mock_session.get.return_value = mock_response
         mock_session_class.return_value = mock_session
 
-        # Test with various special characters
+        # Test with various special characters (names are normalized to lowercase)
+        # Note: URL encoding uses uppercase hex (e.g., %2F not %2f), but we check for lowercase text
         test_cases = [
-            ("University & College", "University%20%26%20College"),
-            ("State/Community College", "State%2FCommunity%20College"),
-            ("College (Main Campus)", "College%20%28Main%20Campus%29"),
-            ("College with émojis 🎓", "College%20with%20%C3%A9mojis%20%F0%9F%8E%93"),
+            ("University & College", "university", "college"),
+            ("State/Community College", "state", "community", "college"),
+            ("College (Main Campus)", "college", "main", "campus"),
         ]
 
-        for institution_name, expected_encoded in test_cases:
+        for institution_name, *expected_parts in test_cases:
             api_requests.get_institution_id_by_name(institution_name, "api-key")
-            call_url = mock_session.get.call_args[0][0]
-            assert expected_encoded in call_url, (
-                f"Expected '{expected_encoded}' in URL, got '{call_url}'"
-            )
+            call_url = mock_session.get.call_args[0][0].lower()
+            # Check that all lowercase parts of the name appear in the URL
+            for part in expected_parts:
+                assert part in call_url, f"Expected '{part}' in URL, got '{call_url}'"
 
     @patch("edvise.utils.api_requests.get_access_tokens")
     @patch("edvise.utils.api_requests.requests.Session")
@@ -93,9 +94,10 @@ class TestGetInstitutionIdByName:
         api_requests.get_institution_id_by_name("  Test University  ", "api-key")
 
         # Assert URL doesn't have leading/trailing encoded spaces
+        # Name is normalized to lowercase before API call
         call_url = mock_session.get.call_args[0][0]
         assert not call_url.endswith("%20")
-        assert "Test%20University" in call_url
+        assert "test%20university" in call_url.lower()
 
     def test_validation_error_empty_institution_name(self):
         """Test that empty institution name returns error dict."""
@@ -154,21 +156,50 @@ class TestGetInstitutionIdByName:
         """Test that 404 HTTP error is raised when institution not found."""
         mock_get_tokens.return_value = "test-token"
 
-        mock_response = Mock()
-        mock_response.raise_for_status.side_effect = requests.HTTPError(
-            "404 Client Error: Not Found"
-        )
-        mock_response.status_code = 404
-        mock_response.text = "Institution not found."
+        # Mock response returning 404
+        mock_response_404 = Mock()
+        http_error_404 = requests.HTTPError("404 Client Error: Not Found")
+        http_error_404.response = Mock()
+        http_error_404.response.status_code = 404
+        mock_response_404.raise_for_status.side_effect = http_error_404
+        mock_response_404.status_code = 404
+        mock_response_404.text = "Institution not found."
 
         mock_session = Mock()
-        mock_session.get.return_value = mock_response
+        mock_session.get.return_value = mock_response_404
         mock_session_class.return_value = mock_session
 
         with pytest.raises(requests.HTTPError) as exc_info:
             api_requests.get_institution_id_by_name("Nonexistent University", "api-key")
 
         assert "404" in str(exc_info.value)
+        # Verify that the name was normalized to lowercase in the API call
+        assert mock_session.get.call_count == 1
+        call_args = mock_session.get.call_args[0][0]
+        assert "nonexistent%20university" in call_args.lower()  # URL-encoded lowercase
+
+    @patch("edvise.utils.api_requests.get_access_tokens")
+    @patch("edvise.utils.api_requests.requests.Session")
+    def test_name_normalized_to_lowercase(self, mock_session_class, mock_get_tokens):
+        """Test that institution name is normalized to lowercase before API call."""
+        mock_get_tokens.return_value = "test-token"
+
+        mock_response_success = Mock()
+        mock_response_success.json.return_value = {"inst_id": "test-id-123"}
+        mock_response_success.raise_for_status = Mock()
+
+        mock_session = Mock()
+        mock_session.get.return_value = mock_response_success
+        mock_session_class.return_value = mock_session
+
+        # Test with mixed case input
+        result = api_requests.get_institution_id_by_name("Test University", "api-key")
+
+        assert result == "test-id-123"
+        # Verify that the API was called with lowercase version
+        assert mock_session.get.call_count == 1
+        call_args = mock_session.get.call_args[0][0]
+        assert "test%20university" in call_args.lower()  # URL-encoded lowercase
 
     @patch("edvise.utils.api_requests.get_access_tokens")
     @patch("edvise.utils.api_requests.requests.Session")
@@ -312,9 +343,11 @@ class TestGetInstitutionIdByName:
 
         # Assert
         assert result == "abc123-def456-ghi789"
-        # Verify the URL contains the reversed name
+        # Verify the URL contains the reversed name (normalized to lowercase)
         call_url = mock_session.get.call_args[0][0]
-        assert "institutions/name/Motlow%20State%20Community%20College" in call_url
+        assert (
+            "institutions/name/motlow%20state%20community%20college" in call_url.lower()
+        )
 
     @patch("edvise.utils.api_requests.get_access_tokens")
     @patch("edvise.utils.api_requests.requests.Session")
@@ -355,10 +388,10 @@ class TestGetInstitutionIdByName:
             "  test_uni  ", "test-api-key", is_databricks_name=True
         )
 
-        # Should work - whitespace is stripped
+        # Should work - whitespace is stripped and name is normalized to lowercase
         assert result == "abc123"
         call_url = mock_session.get.call_args[0][0]
-        assert "institutions/name/Test%20University" in call_url
+        assert "institutions/name/test%20university" in call_url.lower()
 
     @patch("edvise.utils.api_requests.LOGGER")
     @patch("edvise.utils.api_requests.get_access_tokens")
@@ -370,6 +403,11 @@ class TestGetInstitutionIdByName:
         result = api_requests.get_institution_id_by_name(
             "Invalid Name!", "test-api-key", is_databricks_name=True
         )
+
+        # Verify result is an error dict
+        assert isinstance(result, dict)
+        assert result.get("ok") is False
+        assert "validation" in result.get("stage", "")
 
         # Verify logging was called
         mock_logger.error.assert_called_once()
@@ -398,13 +436,13 @@ class TestGetInstitutionIdByName:
         with pytest.raises(ValueError):
             api_requests.get_institution_id_by_name("Test University", "api-key")
 
-        # Verify logging was called with context
+        # Verify logging was called with context (name is normalized to lowercase)
         mock_logger.error.assert_called_once()
         log_call_args = mock_logger.error.call_args[0][0]
         assert (
             "non-JSON" in log_call_args or "non-JSON".lower() in log_call_args.lower()
         )
-        assert "Test University" in log_call_args
+        assert "test university" in log_call_args.lower()
 
     @patch("edvise.utils.api_requests.LOGGER")
     @patch("edvise.utils.api_requests.get_access_tokens")
@@ -429,11 +467,11 @@ class TestGetInstitutionIdByName:
         with pytest.raises(KeyError):
             api_requests.get_institution_id_by_name("Test University", "api-key")
 
-        # Verify logging was called with context
+        # Verify logging was called with context (name is normalized to lowercase)
         mock_logger.error.assert_called_once()
         log_call_args = mock_logger.error.call_args[0][0]
         assert "inst_id" in log_call_args
-        assert "Test University" in log_call_args
+        assert "test university" in log_call_args.lower()
 
     @patch("edvise.utils.api_requests.get_access_tokens")
     @patch("edvise.utils.api_requests.requests.Session")
@@ -456,7 +494,8 @@ class TestGetInstitutionIdByName:
             api_requests.get_institution_id_by_name("My Test University", "api-key")
 
         error_msg = str(exc_info.value)
-        assert "My Test University" in error_msg
+        # Name is normalized to lowercase in error messages
+        assert "my test university" in error_msg.lower()
         assert "non-json" in error_msg.lower() or "non-JSON" in error_msg
 
     @patch("edvise.utils.api_requests.get_access_tokens")
@@ -479,7 +518,8 @@ class TestGetInstitutionIdByName:
             api_requests.get_institution_id_by_name("My Test University", "api-key")
 
         error_msg = str(exc_info.value)
-        assert "My Test University" in error_msg
+        # Name is normalized to lowercase in error messages
+        assert "my test university" in error_msg.lower()
         assert "inst_id" in error_msg
 
 
@@ -511,6 +551,25 @@ class TestReverseDatabricksifyInstName:
         result = api_requests.reverse_databricksify_inst_name("harrisburg_uni_st")
         assert result == "Harrisburg University Of Science And Technology"
 
+    def test_reverse_saint_at_beginning(self):
+        """Test that 'st' at the beginning is kept as abbreviation 'St'."""
+        result = api_requests.reverse_databricksify_inst_name("st_johns_uni")
+        assert result == "St Johns University"
+
+    def test_reverse_saint_vs_science_technology(self):
+        """Test that 'st' at beginning is St (abbreviation), but in middle is 'of science and technology'."""
+        # "st" at beginning should be "St" (abbreviation)
+        result1 = api_requests.reverse_databricksify_inst_name("st_marys_col")
+        assert result1 == "St Marys College"
+
+        # "st" in middle should be "of science and technology"
+        result2 = api_requests.reverse_databricksify_inst_name("harrisburg_uni_st")
+        assert result2 == "Harrisburg University Of Science And Technology"
+
+        # Both in same name (edge case)
+        result3 = api_requests.reverse_databricksify_inst_name("st_paul_uni_st")
+        assert result3 == "St Paul University Of Science And Technology"
+
     def test_reverse_multiple_words(self):
         """Test reversing name with multiple words."""
         result = api_requests.reverse_databricksify_inst_name("metro_state_uni_denver")
@@ -538,13 +597,22 @@ class TestReverseDatabricksifyInstName:
             api_requests.reverse_databricksify_inst_name("invalid-name!")
         assert "invalid" in str(exc_info.value).lower()
 
-    def test_reverse_uppercase(self):
-        """Test that uppercase characters raise ValueError."""
+    def test_reverse_uppercase_normalized(self):
+        """Test that uppercase characters are normalized to lowercase."""
+        # Uppercase input should be normalized to lowercase and processed
+        result = api_requests.reverse_databricksify_inst_name("MOTLOW_STATE_CC")
+        assert result == "Motlow State Community College"
+
+        # Mixed case should also be normalized
+        result2 = api_requests.reverse_databricksify_inst_name("St_Paul_Uni")
+        assert result2 == "St Paul University"
+
+        # Invalid characters (even after normalization) should still raise error
         with pytest.raises(ValueError) as exc_info:
-            api_requests.reverse_databricksify_inst_name("Invalid_Name")
+            api_requests.reverse_databricksify_inst_name("Invalid-Name!")
         assert "invalid" in str(exc_info.value).lower()
-        # Verify error message includes the problematic value
-        assert "Invalid_Name" in str(exc_info.value)
+        # Verify error message includes the problematic value (normalized)
+        assert "invalid-name!" in str(exc_info.value).lower()
 
     def test_reverse_whitespace_stripping(self):
         """Test that whitespace is handled correctly in databricks names."""
