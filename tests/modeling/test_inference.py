@@ -261,9 +261,9 @@ def test_generate_ranked_feature_table_original_dtypes():
             [0.2, 0.15, 0.03],
         ]
     )
-    
+
     # original_dtypes uses string values as they would be stored in JSON
-    # Note: pandas_dtype accepts "bool" (not "boolean") for boolean dtypes
+    # This matches the actual format from MLflow: {"term_in_peak_covid": "bool", ...}
     original_dtypes = {
         "cummax_in_12_creds_took_course_subject_area_math": "bool",
         "term_gpa": "float64",
@@ -279,15 +279,19 @@ def test_generate_ranked_feature_table_original_dtypes():
     )
 
     # The boolean feature should be classified as "Boolean" even though it's float64
-    bool_feature = result[result["feature_name"] == "cummax_in_12_creds_took_course_subject_area_math"]
+    bool_feature = result[
+        result["feature_name"] == "cummax_in_12_creds_took_course_subject_area_math"
+    ]
     assert len(bool_feature) == 1
-    assert bool_feature.iloc[0]["data_type"] == "Boolean"
-    
+    assert bool_feature.iloc[0]["data_type"] == "Boolean", (
+        f"Expected 'Boolean' but got '{bool_feature.iloc[0]['data_type']}'"
+    )
+
     # The numeric features should be classified as "Continuous"
     numeric_feature = result[result["feature_name"] == "term_gpa"]
     assert len(numeric_feature) == 1
     assert numeric_feature.iloc[0]["data_type"] == "Continuous"
-    
+
     # Test that None original_dtypes works (backward compatibility)
     result_no_original = generate_ranked_feature_table(
         features=features,
@@ -296,10 +300,11 @@ def test_generate_ranked_feature_table_original_dtypes():
         metadata=False,
         original_dtypes=None,
     )
-    
+
     # Without original_dtypes, the float64 feature should be classified as "Continuous"
     bool_feature_no_original = result_no_original[
-        result_no_original["feature_name"] == "cummax_in_12_creds_took_course_subject_area_math"
+        result_no_original["feature_name"]
+        == "cummax_in_12_creds_took_course_subject_area_math"
     ]
     assert len(bool_feature_no_original) == 1
     assert bool_feature_no_original.iloc[0]["data_type"] == "Continuous"
