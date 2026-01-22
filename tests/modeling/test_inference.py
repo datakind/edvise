@@ -240,6 +240,71 @@ def test_generate_ranked_feature_table_dtype_labels(
     )
 
 
+def test_generate_ranked_feature_table_original_dtypes():
+    """
+    Test that original_dtypes correctly identifies boolean features that were
+    converted to numeric types during sklearn processing.
+    """
+    # Create a feature that's float64 (simulating sklearn conversion)
+    # but was originally boolean
+    features = pd.DataFrame(
+        {
+            "cummax_in_12_creds_took_course_subject_area_math": [0.0, 1.0, 0.0],
+            "term_gpa": [4.0, 3.0, 2.0],
+            "course_grade_numeric_mean_cumstd": [1.5, 2.0, 1.8],
+        }
+    )
+    shap_values = np.array(
+        [
+            [0.1, 0.05, 0.02],
+            [0.3, -0.05, 0.01],
+            [0.2, 0.15, 0.03],
+        ]
+    )
+    
+    # original_dtypes uses string values as they would be stored in JSON
+    # Note: pandas_dtype accepts "bool" (not "boolean") for boolean dtypes
+    original_dtypes = {
+        "cummax_in_12_creds_took_course_subject_area_math": "bool",
+        "term_gpa": "float64",
+        "course_grade_numeric_mean_cumstd": "float64",
+    }
+
+    result = generate_ranked_feature_table(
+        features=features,
+        shap_values=shap_values,
+        features_table=None,
+        metadata=False,
+        original_dtypes=original_dtypes,
+    )
+
+    # The boolean feature should be classified as "Boolean" even though it's float64
+    bool_feature = result[result["feature_name"] == "cummax_in_12_creds_took_course_subject_area_math"]
+    assert len(bool_feature) == 1
+    assert bool_feature.iloc[0]["data_type"] == "Boolean"
+    
+    # The numeric features should be classified as "Continuous"
+    numeric_feature = result[result["feature_name"] == "term_gpa"]
+    assert len(numeric_feature) == 1
+    assert numeric_feature.iloc[0]["data_type"] == "Continuous"
+    
+    # Test that None original_dtypes works (backward compatibility)
+    result_no_original = generate_ranked_feature_table(
+        features=features,
+        shap_values=shap_values,
+        features_table=None,
+        metadata=False,
+        original_dtypes=None,
+    )
+    
+    # Without original_dtypes, the float64 feature should be classified as "Continuous"
+    bool_feature_no_original = result_no_original[
+        result_no_original["feature_name"] == "cummax_in_12_creds_took_course_subject_area_math"
+    ]
+    assert len(bool_feature_no_original) == 1
+    assert bool_feature_no_original.iloc[0]["data_type"] == "Continuous"
+
+
 # --- _get_mapped_feature_name tests ---
 
 

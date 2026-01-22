@@ -546,6 +546,9 @@ class TrainingTask:
         logging.info("Selecting features")
         df_modeling = self.feature_selection(df_preprocessed)
 
+        # Convert to pandas nullable dtypes to preserve dtypes through sklearn processing
+        df_modeling = df_modeling.convert_dtypes()
+
         logging.info("Saving modeling data")
         modeling_path = os.path.join(current_run_path, "modeling.parquet")
         df_modeling.to_parquet(local_fs_path(modeling_path), index=False)
