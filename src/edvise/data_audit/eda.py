@@ -9,6 +9,8 @@ from edvise import utils as edvise_utils
 
 LOGGER = logging.getLogger(__name__)
 
+DEFAULT_BIAS_VARS = ["first_gen", "gender", "race", "ethnicity", "student_age"]
+
 
 def assess_unique_values(data: pd.DataFrame, cols: str | list[str]) -> dict[str, int]:
     """
@@ -1214,15 +1216,15 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
         LOGGER.info("'M' grade not found or no valid grade data available.")
 
 
-def check_bias_variables(
+def check_variable_missingness(
     df: pd.DataFrame,
-    bias_vars: list[str] = ["first_gen", "gender", "race", "ethnicity", "student_age"],
+    var_list: list[str],
     null_threshold_pct: float = 50.0,
 ) -> None:
     """
-    Log distribution and missingness diagnostics for specified bias-related variables.
+    Log missingness diagnostics for variables.
 
-    For each variable in `bias_vars`, this function:
+    For each variable in `var_list`, this function:
     - Verifies the column exists in the DataFrame.
     - Logs the percentage distribution of all values, including NaNs.
     - Flags variables whose percentage of missing values meets or exceeds
@@ -1235,9 +1237,8 @@ def check_bias_variables(
     ----------
     df : pandas.DataFrame
         Input DataFrame containing bias-related variables to be checked.
-    bias_vars : list of str, optional
+    var_list : list of str, optional
         List of column names to inspect for value distribution and missingness.
-        Defaults to common demographic and bias-related fields.
     null_threshold_pct : float, optional
         Percentage threshold for missing values at or above which a warning
         is logged. Default is 50.0.
@@ -1248,9 +1249,9 @@ def check_bias_variables(
         All results are reported via logging.
     """
 
-    LOGGER.info(" Bias Variable Check: ")
+    LOGGER.info(" Missing Variable Check: ")
 
-    for var in bias_vars:
+    for var in var_list:
         if var not in df.columns:
             LOGGER.warning(f"\n⚠️  MISSING COLUMN: '{var}' not found in DataFrame")
             continue
@@ -1276,3 +1277,13 @@ def check_bias_variables(
                 f"⚠️  NOTE: >=50% missingness in '{var}' "
                 f"({null_pct}% nulls; threshold = {null_threshold_pct}%)"
             )
+
+def check_bias_variables(
+    df: pd.DataFrame,
+    bias_vars: list[str] | None = None,
+) -> None:
+    if bias_vars is None:
+        bias_vars = DEFAULT_BIAS_VARS
+    LOGGER.info('Check Bias Variables Missingness')
+    check_variable_missingness(df, bias_vars)
+
