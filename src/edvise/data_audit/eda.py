@@ -1213,13 +1213,12 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
     else:
         LOGGER.info("'M' grade not found or no valid grade data available.")
 
-    
+
 def check_bias_variables(
-        df: pd.DataFrame, 
-        bias_vars: list[str] = ["first_gen", "gender", "race", "ethnicity", "student_age"],
-        null_threshold_pct: float = 50.0,
+    df: pd.DataFrame,
+    bias_vars: list[str] = ["first_gen", "gender", "race", "ethnicity", "student_age"],
+    null_threshold_pct: float = 50.0,
 ) -> None:
-    
     """
     Log distribution and missingness diagnostics for specified bias-related variables.
 
