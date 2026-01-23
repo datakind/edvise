@@ -19,11 +19,6 @@ import sys
 import typing as t
 from email.headerregistry import Address
 
-from edvise.shared.validation import (
-    validate_tables_exist,
-    ExpectedTable,
-)
-
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
 repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
@@ -52,6 +47,10 @@ from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session
 from edvise.modeling.inference import top_n_features, features_box_whiskers_table
 from edvise.shared.logger import resolve_run_path, local_fs_path
+from edvise.shared.validation import (
+    validate_tables_exist,
+    ExpectedTable,
+)
 
 # Shared predictions pipeline (your extracted module)
 from edvise.scripts.predictions_h2o import (

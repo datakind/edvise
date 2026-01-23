@@ -1,3 +1,13 @@
+## 0.1.9 (2025-01-20)
+- fix: import error in inference script from validation module 
+- fix: fetching latest commit from develop for health check 
+- feat: adding PDP pipeline high-level validation and sanity checks 
+- feat: update pipeline version during training
+- fix: email indents 
+- fix: cleanup schedule 
+- refactor: remove sklearn modeling 
+- feat: model card revision 
+
 ## 0.1.8 (2025-12-11)
 - fix: adding exclude_frameworks into training script 
 - fix: dtype overrides in custom cleaning module
