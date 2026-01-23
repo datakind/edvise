@@ -1274,7 +1274,7 @@ def check_variable_missingness(
 
         if null_pct >= null_threshold_pct:
             LOGGER.warning(
-                f"⚠️  NOTE: >=50% missingness in '{var}' "
+                f"⚠️  NOTE: >={null_threshold_pct}% missingness in '{var}' "
                 f"({null_pct}% nulls; threshold = {null_threshold_pct}%)"
             )
 
