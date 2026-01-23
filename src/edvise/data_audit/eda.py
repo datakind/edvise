@@ -1278,12 +1278,12 @@ def check_variable_missingness(
                 f"({null_pct}% nulls; threshold = {null_threshold_pct}%)"
             )
 
+
 def check_bias_variables(
     df: pd.DataFrame,
     bias_vars: list[str] | None = None,
 ) -> None:
     if bias_vars is None:
         bias_vars = DEFAULT_BIAS_VARS
-    LOGGER.info('Check Bias Variables Missingness')
+    LOGGER.info("Check Bias Variables Missingness")
     check_variable_missingness(df, bias_vars)
-
