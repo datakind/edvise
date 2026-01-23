@@ -158,6 +158,10 @@ df = df.loc[:, df_selected.columns]
 # COMMAND ----------
 
 # save modeling dataset with all splits
-dataio.write.to_delta_table(
+# NOTE: This path should be configured in config-TEMPLATE.toml under:
+#   [datasets.silver.modeling]
+#   table_path = "catalog.schema.table_name"
+# The training_h2o.py script will read from this same configured path
+dataio.write.to_parquet_safe(
     df, cfg.datasets.silver["modeling"].table_path, spark_session=spark
 )

@@ -27,7 +27,6 @@ from mlflow.tracking import MlflowClient
 
 from edvise import modeling, dataio, configs
 from edvise.modeling.h2o_ml import utils as h2o_utils
-from edvise.modeling.modeling_dataset import load_or_build_modeling_df
 from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise.reporting.model_card.h2o_custom import H2OCustomModelCard
@@ -147,6 +146,113 @@ class TrainingTask:
             df=df, table_path=table_path, spark_session=self.spark_session
         )
         logging.info("%s data written to: %s", table_name_suffix, table_path)
+
+    def _load_or_build_modeling_df(
+        self,
+        current_run_path: str,
+    ) -> pd.DataFrame:
+        """
+        Returns the modeling dataset used for training.
+
+        PDP:
+          - prefer modeling.parquet if present
+          - else read preprocessed.parquet -> feature selection -> write modeling.parquet
+
+        Custom:
+          - read from cfg.datasets.silver["modeling"] (table_path or file_path)
+          - do NOT run feature selection here
+        """
+        # Custom: use config-specified path
+        if self.spec.schema_type == "custom":
+            modeling_dataset = self.cfg.datasets.silver.get("modeling")
+            if not modeling_dataset:
+                raise ValueError(
+                    "Custom training requires cfg.datasets.silver['modeling'] to be configured"
+                )
+
+            # Try table paths first (Delta table), then file paths (parquet)
+            # Support both new (train_*) and legacy (*) field names
+            if modeling_dataset.table_path or modeling_dataset.train_table_path:
+                table_path = modeling_dataset.train_table_path or modeling_dataset.table_path
+                logging.info("Custom: loading modeling dataset from Delta table: %s", table_path)
+                df_modeling = dataio.read.from_delta_table(
+                    table_path,
+                    spark_session=self.spark_session,
+                )
+            elif modeling_dataset.file_path or modeling_dataset.train_file_path:
+                file_path = modeling_dataset.train_file_path or modeling_dataset.file_path
+                logging.info("Custom: loading modeling dataset from file: %s", file_path)
+                df_modeling = dataio.read.read_parquet(file_path)
+            else:
+                raise ValueError(
+                    "Custom training requires either table_path/train_table_path or "
+                    "file_path/train_file_path in cfg.datasets.silver['modeling']"
+                )
+
+            self._validate_modeling_contract(df_modeling)
+            return df_modeling
+
+        # PDP: use run-specific path
+        modeling_path = os.path.join(current_run_path, "modeling.parquet")
+        modeling_path_local = local_fs_path(modeling_path)
+
+        if os.path.exists(modeling_path_local):
+            logging.info("Loading modeling.parquet: %s", modeling_path)
+            df_modeling = pd.read_parquet(modeling_path_local)
+            self._validate_modeling_contract(df_modeling)
+            return df_modeling
+
+        # PDP fallback path
+        preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
+        preproc_path_local = local_fs_path(preproc_path)
+        if not os.path.exists(preproc_path_local):
+            raise FileNotFoundError(
+                f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
+            )
+
+        logging.info("PDP: loading preprocessed.parquet: %s", preproc_path)
+        df_preprocessed = pd.read_parquet(preproc_path_local)
+
+        logging.info("PDP: running feature selection")
+        df_modeling = self.feature_selection(df_preprocessed)
+
+        os.makedirs(local_fs_path(current_run_path), exist_ok=True)
+        df_modeling.to_parquet(modeling_path_local, index=False)
+        logging.info("Saved modeling.parquet: %s", modeling_path)
+
+        self._validate_modeling_contract(df_modeling)
+        return df_modeling
+
+    def _validate_modeling_contract(self, df_modeling: pd.DataFrame) -> None:
+        """
+        Enforce the modeling dataset contract so training/inference/model cards stay consistent.
+        """
+        require(df_modeling is not None and not df_modeling.empty, "modeling df is empty")
+        require(df_modeling.columns.is_unique, "modeling df has duplicate columns")
+
+        required_cols = [self.cfg.student_id_col, self.cfg.target_col]
+        if self.cfg.split_col:
+            required_cols.append(self.cfg.split_col)
+
+        missing = [c for c in required_cols if c not in df_modeling.columns]
+        require(not missing, f"modeling df missing required columns: {missing}")
+
+        if self.cfg.split_col:
+            allowed = {"train", "test", "validate"}
+            bad = sorted(set(df_modeling[self.cfg.split_col].dropna().unique()) - allowed)
+            require(not bad, f"Unexpected split values in '{self.cfg.split_col}': {bad}")
+
+        non_feature_cols = set(self.cfg.non_feature_cols)
+        feature_cols = [c for c in df_modeling.columns if c not in non_feature_cols]
+        require(
+            len(feature_cols) > 0,
+            "No feature columns found after excluding non_feature_cols",
+        )
+
+        if self.spec.schema_type == "custom":
+            forbidden = set(self.cfg.student_group_cols or [])
+            leak = sorted([c for c in feature_cols if c in forbidden])
+            require(not leak, f"Student-group columns leaked into features: {leak}")
 
     def feature_selection(self, df_preprocessed: pd.DataFrame) -> pd.DataFrame:
         if self.cfg.modeling is None or self.cfg.modeling.feature_selection is None:
@@ -570,15 +676,8 @@ class TrainingTask:
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
 
-        df_modeling = load_or_build_modeling_df(
-            schema_type=self.spec.schema_type,
+        df_modeling = self._load_or_build_modeling_df(
             current_run_path=current_run_path,
-            cfg=self.cfg,
-            feature_selection_fn = (
-                self.feature_selection
-                if self.spec.schema_type == "pdp"
-                else None
-            ),
         )
 
         logging.info("Training model")
