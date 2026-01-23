@@ -240,13 +240,42 @@ class ModelInferenceTask:
         assert self.model_run_id and self.model_experiment_id
 
         logging.info("Reading the processed dataset")
-        preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
-        preproc_path_local = local_fs_path(preproc_path)
-        if not os.path.exists(preproc_path_local):
-            raise FileNotFoundError(
-                f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
-            )
-        df_processed = dataio.read.read_parquet(preproc_path_local)
+
+        # Custom: read from config-specified path
+        if self.spec.schema_type == "custom":
+            preprocessed_dataset = self.cfg.datasets.silver.get("preprocessed")
+            if not preprocessed_dataset:
+                raise ValueError(
+                    "Custom inference requires cfg.datasets.silver['preprocessed'] to be configured"
+                )
+
+            # Try table paths first (Delta table), then file paths (parquet)
+            # Support both new (predict_*) and legacy (*) field names for inference
+            if preprocessed_dataset.table_path or preprocessed_dataset.predict_table_path:
+                table_path = preprocessed_dataset.predict_table_path or preprocessed_dataset.table_path
+                logging.info("Custom: loading preprocessed dataset from Delta table: %s", table_path)
+                df_processed = dataio.read.from_delta_table(
+                    table_path,
+                    spark_session=self.spark_session,
+                )
+            elif preprocessed_dataset.file_path or preprocessed_dataset.predict_file_path:
+                file_path = preprocessed_dataset.predict_file_path or preprocessed_dataset.file_path
+                logging.info("Custom: loading preprocessed dataset from file: %s", file_path)
+                df_processed = dataio.read.read_parquet(file_path)
+            else:
+                raise ValueError(
+                    "Custom inference requires either table_path/predict_table_path or "
+                    "file_path/predict_file_path in cfg.datasets.silver['preprocessed']"
+                )
+        else:
+            # PDP: use run-specific path
+            preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
+            preproc_path_local = local_fs_path(preproc_path)
+            if not os.path.exists(preproc_path_local):
+                raise FileNotFoundError(
+                    f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
+                )
+            df_processed = dataio.read.read_parquet(preproc_path_local)
 
         # --- CUSTOM SCHOOL PROCESSING ONLY ---
         # NOTE: We currently can only kickoff custom schools from the BE

@@ -159,3 +159,33 @@ else:
 student_df = aligned["student_df"]
 course_df = aligned["course_df"]
 semester_df = aligned["semester_df"]
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## TODO: Complete this template
+# MAGIC
+# MAGIC This template needs additional steps:
+# MAGIC 1. Merge student_df, course_df, semester_df into a single preprocessed dataframe
+# MAGIC 2. Add target, checkpoint, splits, sample_weight columns (for training)
+# MAGIC 3. Write the preprocessed dataframe to:
+# MAGIC    - For training: cfg.datasets.silver["preprocessed"].train_table_path
+# MAGIC    - For inference: cfg.datasets.silver["preprocessed"].predict_table_path
+# MAGIC
+# MAGIC Example:
+# MAGIC ```python
+# MAGIC # ... merge dataframes, add columns ...
+# MAGIC # preprocessed_df = ...
+# MAGIC
+# MAGIC # Write to configured path
+# MAGIC if run_type == "train":
+# MAGIC     path = cfg.datasets.silver["preprocessed"].train_table_path
+# MAGIC else:
+# MAGIC     path = cfg.datasets.silver["preprocessed"].predict_table_path
+# MAGIC
+# MAGIC dataio.write.to_delta_table(
+# MAGIC     df=preprocessed_df,
+# MAGIC     table_path=path,
+# MAGIC     spark_session=spark
+# MAGIC )
+# MAGIC ```
