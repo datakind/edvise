@@ -1213,22 +1213,53 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
     else:
         LOGGER.info("'M' grade not found or no valid grade data available.")
 
+    
+def check_bias_variables(
+        df: pd.DataFrame, 
+        bias_vars: list[str] = ["first_gen", "gender", "race", "ethnicity", "student_age"],
+        null_threshold_pct: float = 50.0,
+) -> None:
+    
+    """
+    Log distribution and missingness diagnostics for specified bias-related variables.
 
-def check_bias_variables(df_cohort: pd.DataFrame) -> None:
-    bias_vars = ["first_gen", "gender", "race", "ethnicity", "student_age"]
-    null_threshold_pct = 50.0  # can change if we think it should be higher
+    For each variable in `bias_vars`, this function:
+    - Verifies the column exists in the DataFrame.
+    - Logs the percentage distribution of all values, including NaNs.
+    - Flags variables whose percentage of missing values meets or exceeds
+      the specified null threshold.
+
+    This function is intended for exploratory data validation and bias auditing.
+    It does not modify the input DataFrame and does not return any values.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input DataFrame containing bias-related variables to be checked.
+    bias_vars : list of str, optional
+        List of column names to inspect for value distribution and missingness.
+        Defaults to common demographic and bias-related fields.
+    null_threshold_pct : float, optional
+        Percentage threshold for missing values at or above which a warning
+        is logged. Default is 50.0.
+
+    Returns
+    -------
+    None
+        All results are reported via logging.
+    """
 
     LOGGER.info(" Bias Variable Check: ")
 
     for var in bias_vars:
-        if var not in df_cohort.columns:
+        if var not in df.columns:
             LOGGER.warning(f"\n⚠️  MISSING COLUMN: '{var}' not found in DataFrame")
             continue
 
         LOGGER.info(f"\n--- {var} ---")
 
         pct_counts = (
-            df_cohort[var].value_counts(dropna=False, normalize=True).mul(100).round(2)
+            df[var].value_counts(dropna=False, normalize=True).mul(100).round(2)
         )
 
         null_pct = 0.0
