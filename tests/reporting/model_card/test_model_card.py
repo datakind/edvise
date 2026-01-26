@@ -9,7 +9,7 @@ from edvise.reporting.model_card.base import ModelCard
 def mock_config():
     cfg = MagicMock()
     cfg.model = MagicMock(
-        mlflow_model_uri="uri", framework="sklearn", run_id="123", experiment_id="456"
+        mlflow_model_uri="uri", run_id="123", experiment_id="456"
     )
     cfg.institution_id = "inst"
     cfg.institution_name = "TestInstitution"
@@ -38,7 +38,7 @@ def test_init_defaults(mock_config, mock_client):
     assert isinstance(card.context, dict)
 
 
-@patch("edvise.reporting.model_card.base.dataio.models.load_mlflow_model")
+@patch("edvise.reporting.model_card.base.h2o_ml.utils.load_h2o_model")
 def test_load_model_success(mock_load_model, mock_config, mock_client):
     card = ModelCard(
         config=mock_config,
@@ -47,7 +47,7 @@ def test_load_model_success(mock_load_model, mock_config, mock_client):
         mlflow_client=mock_client,
     )
     card.load_model()
-    mock_load_model.assert_called_once_with("uri", "sklearn")
+    mock_load_model.assert_called_once_with("123")
     assert card.run_id == "123"
     assert card.experiment_id == "456"
 
@@ -143,9 +143,9 @@ def test_build_calls_all_steps(mock_config, mock_client):
 
 @patch("edvise.reporting.model_card.base.utils.safe_count_runs")
 @patch(
-    "edvise.reporting.model_card.base.modeling.evaluation.extract_training_data_from_model"
+    "edvise.reporting.model_card.base.h2o_ml.evaluation.extract_training_data_from_model"
 )
-@patch("edvise.reporting.model_card.base.dataio.models.load_mlflow_model")
+@patch("edvise.reporting.model_card.base.h2o_ml.utils.load_h2o_model")
 def test_extract_training_data_with_split_call_load_model(
     mock_load_model, mock_extract_data, mock_safe_count, mock_config, mock_client
 ):
