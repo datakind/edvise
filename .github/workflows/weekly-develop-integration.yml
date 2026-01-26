@@ -25,23 +25,36 @@ jobs:
           ref: ${{ github.event_name == 'schedule' && 'develop' || github.ref_name }}
           fetch-depth: 0
 
+      - name: Resolve commit to deploy/run
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin develop || { echo "Error: Failed to fetch develop branch"; exit 1; }
+          PINNED_SHA="$(git rev-parse origin/develop)" || { echo "Error: Failed to resolve commit SHA"; exit 1; }
+          if [ -z "$PINNED_SHA" ]; then
+            echo "Error: PINNED_SHA is empty"
+            exit 1
+          fi
+          echo "PINNED_SHA=$PINNED_SHA" >> "$GITHUB_ENV"
+          echo "Resolved commit SHA: $PINNED_SHA"
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11.11"
 
       - name: Install uv and Databricks CLI
+        shell: bash
         run: |
           python -m pip install --upgrade pip
           pip install uv
           curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
           databricks -v
-        shell: bash
 
       - name: Install project dependencies (uv)
+        shell: bash
         run: |
           uv venv
           uv pip install .
-        shell: bash
 
       - name: Configure Databricks env (Dev)
         env:
@@ -55,7 +68,7 @@ jobs:
         working-directory: pipelines/pdp
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
-          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }} 
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
           DB_WORKSPACE: dev_sst_02
           SA_EXECUTER: ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
@@ -64,24 +77,24 @@ jobs:
           DATAKIND_EMAIL: ${{ secrets.DATAKIND_EMAIL }}
         run: |
           databricks bundle deploy \
-            --target=dev \
-            --var "git_commit=${GITHUB_SHA}" \
-            --var="DB_workspace=$DB_WORKSPACE" \
-            --var="service_account_executer=$SA_EXECUTER" \
-            --var="ds_run_as=$DS_RUN_AS" \
-            --var="databricks_institution_name=synthetic_integration" \
-            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
-            --var="datakind_notification_email=$DATAKIND_EMAIL" \
+            --target dev \
+            --var "git_commit=$PINNED_SHA" \
+            --var "DB_workspace=$DB_WORKSPACE" \
+            --var "service_account_executer=$SA_EXECUTER" \
+            --var "ds_run_as=$DS_RUN_AS" \
+            --var "databricks_institution_name=synthetic_integration" \
+            --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+            --var "datakind_notification_email=$DATAKIND_EMAIL"
 
       - name: TRAIN (Dev – develop-health-check)
         working-directory: pipelines/pdp
         env:
-          DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
-          DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
           databricks bundle run github_sourced_pdp_training_pipeline --target dev \
-            --var "git_commit=${GITHUB_SHA}" \
+            --var "git_commit=$PINNED_SHA" \
             --var "DB_workspace=dev_sst_02" \
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
             --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
@@ -90,16 +103,16 @@ jobs:
             --var "datakind_notification_email=${{ secrets.DATAKIND_EMAIL }}" \
             --var "DK_CC_EMAIL=${{ secrets.DATAKIND_EMAIL }}" \
             --params config_file_name="$CONFIG_FILE",job_type=training,db_run_id="${DB_RUN_ID_PREFIX}_train"
-      
+
       - name: INFER (Dev – develop-health-check)
         working-directory: pipelines/pdp
         env:
-          DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
-          DATABRICKS_CLIENT_ID:    ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
           databricks bundle run edvise_github_sourced_pdp_inference_pipeline --target dev \
-            --var "git_commit=${GITHUB_SHA}" \
+            --var "git_commit=$PINNED_SHA" \
             --var "DB_workspace=dev_sst_02" \
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
             --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
