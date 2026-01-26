@@ -439,11 +439,14 @@ def get_institution_id_by_name(
 
     Makes a GET request to the API endpoint that looks up an institution
     by its human-readable name and returns the corresponding institution ID.
+    The API performs case-insensitive matching, so the name is normalized
+    to lowercase before querying.
 
     Args:
         institution_name: The name of the institution to look up. If is_databricks_name
             is True, this should be the databricks-transformed name (e.g., "motlow_state_cc").
-            Otherwise, it should be the original institution name.
+            Otherwise, it should be the original institution name. Case is normalized
+            to lowercase before querying (the API endpoint is case-insensitive).
         api_key: API key required for authentication
         is_databricks_name: If True, institution_name will be reverse-transformed from
             databricks format to original format before querying the API
@@ -474,9 +477,8 @@ def get_institution_id_by_name(
     access_token = get_access_tokens(api_key=api_key)
 
     # Look up institution by name
-    # Normalize to lowercase for case-insensitive matching
-    # TODO: Once sst-app-api endpoint is updated to be case-insensitive, this normalization
-    # ensures compatibility. The API will compare lowercase(name) == lowercase(input).
+    # Normalize to lowercase - the API endpoint performs case-insensitive matching
+    # by comparing lowercase(name) == lowercase(input), so we normalize here for consistency
     normalized_name = institution_name.strip().lower()
 
     institution_data = _fetch_institution_by_name(normalized_name, access_token)
