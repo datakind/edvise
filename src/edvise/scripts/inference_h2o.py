@@ -280,7 +280,7 @@ class ModelInferenceTask:
         # --- CUSTOM SCHOOL PROCESSING ONLY ---
         # NOTE: We currently can only kickoff custom schools from the BE
         # So, before we run inference, we just need to validate that the
-        # institution/model exist on the FE.
+        # institution/model exists on the FE.
         api_key: str | None = None
         if self.spec.schema_type == "custom":
             logging.info(
