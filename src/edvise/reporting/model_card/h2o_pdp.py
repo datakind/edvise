@@ -25,11 +25,8 @@ class H2OPDPModelCard(H2OModelCard[PDPProjectConfig]):
         mlflow_client: t.Optional[MlflowClient] = None,
     ):
         """
-        Initializes PDP model card by enforcing a PDP project config.
+        Initializes PDP model card with a PDP project config.
         """
-        if not isinstance(config, PDPProjectConfig):  # type guard
-            raise TypeError("Expected config to be of type PDPProjectConfig")
-
         super().__init__(config, catalog, model_name, assets_path, mlflow_client)
 
     def _get_plot_config(self) -> dict[str, tuple[str, str, str, str]]:

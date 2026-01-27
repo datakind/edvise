@@ -2,14 +2,11 @@ import pytest
 from unittest.mock import MagicMock
 
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
-from edvise.configs.pdp import PDPProjectConfig
-from edvise.configs.custom import CustomProjectConfig
 
 
 @pytest.fixture
 def mock_config():
     cfg = MagicMock()
-    cfg.__class__ = PDPProjectConfig
     cfg.model = MagicMock(run_id="123", experiment_id="456")
     cfg.institution_id = "inst"
     cfg.institution_name = "TestInstitution"
@@ -32,21 +29,6 @@ def test_init_with_pdp_config(mock_config, mock_client):
     )
     assert card.model_name == "my_model"
     assert isinstance(card.context, dict)
-
-
-def test_init_rejects_wrong_config_type(mock_client):
-    """Test that H2OPDPModelCard rejects non-PDP configs."""
-    custom_config = MagicMock()
-    custom_config.__class__ = CustomProjectConfig
-    custom_config.institution_id = "inst"
-
-    with pytest.raises(TypeError, match="Expected config to be of type PDPProjectConfig"):
-        H2OPDPModelCard(
-            config=custom_config,
-            catalog="catalog",
-            model_name="my_model",
-            mlflow_client=mock_client,
-        )
 
 
 def test_get_plot_config(mock_config, mock_client):

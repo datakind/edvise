@@ -27,11 +27,8 @@ class H2OCustomModelCard(H2OModelCard[CustomProjectConfig]):
         mlflow_client: t.Optional[MlflowClient] = None,
     ):
         """
-        Initializes custom model card by enforcing a custom project config.
+        Initializes custom model card with a custom project config.
         """
-        if not isinstance(config, CustomProjectConfig):  # type guard
-            raise TypeError("Expected config to be of type CustomProjectConfig")
-
         super().__init__(config, catalog, model_name, assets_path, mlflow_client)
 
     def _get_plot_config(self) -> dict[str, tuple[str, str, str, str]]:
