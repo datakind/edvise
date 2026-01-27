@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 import pandas as pd
 
-from edvise.reporting.model_card.base import ModelCard
+from edvise.reporting.model_card.h2o_custom import H2OCustomModelCard
 
 
 @pytest.fixture
@@ -24,7 +24,7 @@ def mock_client():
 
 
 def test_init_defaults(mock_config, mock_client):
-    card = ModelCard(
+    card = H2OCustomModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",
@@ -36,9 +36,9 @@ def test_init_defaults(mock_config, mock_client):
     assert isinstance(card.context, dict)
 
 
-@patch("edvise.reporting.model_card.base.h2o_ml.utils.load_h2o_model")
+@patch("edvise.reporting.model_card.h2o_base.h2o_ml.utils.load_h2o_model")
 def test_load_model_success(mock_load_model, mock_config, mock_client):
-    card = ModelCard(
+    card = H2OCustomModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",
@@ -51,7 +51,7 @@ def test_load_model_success(mock_load_model, mock_config, mock_client):
 
 
 def test_find_model_version_found(mock_config, mock_client):
-    card = ModelCard(
+    card = H2OCustomModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",
@@ -66,7 +66,7 @@ def test_find_model_version_found(mock_config, mock_client):
 
 def test_find_model_version_not_found(mock_config, mock_client):
     mock_client.search_model_versions.return_value = []
-    card = ModelCard(
+    card = H2OCustomModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",
@@ -77,17 +77,16 @@ def test_find_model_version_not_found(mock_config, mock_client):
     assert card.context["version_number"] is None
 
 
-def test_get_feature_metadata_success(mock_config, mock_client):
-    card = ModelCard(
+@patch("edvise.reporting.model_card.h2o_base.h2o_ml.inference.get_h2o_used_features")
+def test_get_feature_metadata_success(mock_get_features, mock_config, mock_client):
+    mock_get_features.return_value = ["a", "b", "c"]
+    card = H2OCustomModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",
         mlflow_client=mock_client,
     )
     card.model = MagicMock()
-    card.model.named_steps = {
-        "column_selector": MagicMock(get_params=lambda: {"cols": ["a", "b", "c"]})
-    }
     metadata = card.get_feature_metadata()
     assert metadata["number_of_features"] == "3"
     assert metadata["collinearity_threshold"] == "0.9"
@@ -98,7 +97,7 @@ def test_get_feature_metadata_success(mock_config, mock_client):
 @patch("edvise.reporting.model_card.base.utils.download_static_asset")
 def test_get_basic_context(mock_download, mock_config, mock_client):
     mock_download.return_value = "<img>Logo</img>"
-    card = ModelCard(
+    card = H2OCustomModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",
@@ -110,7 +109,7 @@ def test_get_basic_context(mock_download, mock_config, mock_client):
 
 
 def test_build_calls_all_steps(mock_config, mock_client):
-    card = ModelCard(
+    card = H2OCustomModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",
@@ -139,22 +138,24 @@ def test_build_calls_all_steps(mock_config, mock_client):
         method.assert_called_once()
 
 
-@patch("edvise.reporting.model_card.base.utils.safe_count_runs")
 @patch(
-    "edvise.reporting.model_card.base.h2o_ml.evaluation.extract_training_data_from_model"
+    "edvise.reporting.model_card.h2o_base.h2o_ml.evaluation.extract_number_of_runs_from_model_training"
 )
-@patch("edvise.reporting.model_card.base.h2o_ml.utils.load_h2o_model")
+@patch(
+    "edvise.reporting.model_card.h2o_base.h2o_ml.evaluation.extract_training_data_from_model"
+)
+@patch("edvise.reporting.model_card.h2o_base.h2o_ml.utils.load_h2o_model")
 def test_extract_training_data_with_split_call_load_model(
-    mock_load_model, mock_extract_data, mock_safe_count, mock_config, mock_client
+    mock_load_model, mock_extract_data, mock_extract_runs, mock_config, mock_client
 ):
     mock_config.split_col = "split"
     df = pd.DataFrame(
         {"feature": [1, 2, 3, 4], "split": ["train", "test", "train", "val"]}
     )
     mock_extract_data.return_value = df
-    mock_safe_count.return_value = 2  # simulate 2 runs in experiment
+    mock_extract_runs.return_value = 2  # simulate 2 runs in experiment
 
-    card = ModelCard(
+    card = H2OCustomModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",
@@ -173,7 +174,7 @@ def test_render_template_and_output(mock_open, mock_config, mock_client):
     mock_open.return_value.__enter__.return_value = mock_file
     mock_file.read.return_value = "Model: {institution_name}"
 
-    card = ModelCard(
+    card = H2OCustomModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",

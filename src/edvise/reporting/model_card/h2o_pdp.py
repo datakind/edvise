@@ -1,15 +1,12 @@
 import typing as t
 from mlflow.tracking import MlflowClient
 
-# internal SST modules
-from edvise.modeling import h2o_ml
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.reporting.model_card.base import ModelCard
+from edvise.reporting.model_card.h2o_base import H2OModelCard
 from edvise.reporting.sections.pdp import register_sections as register_pdp_sections
-import edvise.reporting.utils as reporting_utils
 
 
-class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
+class H2OPDPModelCard(H2OModelCard[PDPProjectConfig]):
     REQUIRED_PLOT_ARTIFACTS = [
         "model_comparison.png",
         "test_calibration_curve.png",
@@ -29,93 +26,17 @@ class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
     ):
         """
         Initializes PDP model card by enforcing a PDP project config.
-        Otherwise, this class inherits and is functionally the same as the
-        base ModelCard class.
         """
         if not isinstance(config, PDPProjectConfig):  # type guard
             raise TypeError("Expected config to be of type PDPProjectConfig")
 
         super().__init__(config, catalog, model_name, assets_path, mlflow_client)
 
-    def load_model(self):
+    def _get_plot_config(self) -> dict[str, tuple[str, str, str, str]]:
         """
-        Loads the MLflow model from the MLflow client based on the MLflow model URI.
-        Also assigns the run ID and experiment ID from the config.
+        Returns PDP project-specific plot configuration.
         """
-        model_cfg = self.cfg.model
-        if not model_cfg:
-            raise ValueError(f"Model configuration for '{self.model_name}' is missing.")
-        if not all([model_cfg.run_id, model_cfg.experiment_id]):
-            raise ValueError(
-                f"Incomplete model config for '{self.model_name}': "
-                f"URI, run_id, or experiment_id missing."
-            )
-
-        self.model = h2o_ml.utils.load_h2o_model(model_cfg.run_id)
-        self.run_id = model_cfg.run_id
-        self.experiment_id = model_cfg.experiment_id
-
-    def extract_training_data(self):
-        """
-        Extracts the training data from the MLflow run utilizing SST internal subpackages (modeling).
-        """
-        self.modeling_data = h2o_ml.evaluation.extract_training_data_from_model(
-            self.experiment_id
-        )
-        self.training_data = self.modeling_data
-        if self.cfg.split_col:
-            if self.cfg.split_col not in self.modeling_data.columns:
-                raise ValueError(
-                    f"Configured split_col '{self.cfg.split_col}' is not present in modeling data columns: "
-                    f"{list(self.modeling_data.columns)}"
-                )
-        self.context["training_dataset_size"] = self.modeling_data.shape[0]
-        self.context["num_runs_in_experiment"] = (
-            h2o_ml.evaluation.extract_number_of_runs_from_model_training(
-                self.experiment_id
-            )
-        )
-
-    def get_feature_metadata(self) -> dict[str, str]:
-        """
-        Collects feature count from the MLflow run. Also, collects feature selection data
-        from the config file.
-
-        Returns:
-            A dictionary with the keys as the variable names that will be called
-            dynamically in template with values for each variable.
-        """
-
-        def as_percent(val: float | int) -> str:
-            val = float(val) * 100
-            return str(int(val) if val.is_integer() else round(val, 2))
-
-        feature_count = len(h2o_ml.inference.get_h2o_used_features(self.model))
-        if not self.cfg.modeling or not self.cfg.modeling.feature_selection:
-            raise ValueError(
-                "Modeling configuration or feature selection config is missing."
-            )
-
-        fs_cfg = self.cfg.modeling.feature_selection
-
         return {
-            "number_of_features": str(feature_count),
-            "collinearity_threshold": str(fs_cfg.collinear_threshold),
-            "low_variance_threshold": str(fs_cfg.low_variance_threshold),
-            "incomplete_threshold": as_percent(fs_cfg.incomplete_threshold),
-        }
-
-    def get_model_plots(self) -> dict[str, str]:
-        """
-        Collects model plots from the MLflow run, downloads them locally. These will later be
-        rendered in the template.
-
-        Returns:
-            A dictionary with the keys as the plot names called in the template
-            and the values are inline HTML (since these are all images) for each
-            of the artifacts.
-        """
-        plots = {
             "model_comparison_plot": (
                 "Model Comparison",
                 "model_comparison.png",
@@ -152,18 +73,6 @@ class H2OPDPModelCard(ModelCard[PDPProjectConfig]):
                 "150mm",
                 "Feature Importances by SHAP on Test Data",
             ),
-        }
-        return {
-            key: reporting_utils.utils.download_artifact(
-                run_id=self.run_id,
-                description=description,
-                artifact_path=path,
-                local_folder=self.assets_folder,
-                fixed_width=width,
-                caption=caption,
-            )
-            or ""
-            for key, (description, path, width, caption) in plots.items()
         }
 
     def _register_sections(self):
