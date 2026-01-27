@@ -95,6 +95,7 @@ def generate_ranked_feature_table(
     shap_values: npt.NDArray[np.float64],
     features_table: t.Optional[dict[str, dict[str, str]]] = None,
     metadata: bool = True,
+    original_dtypes: t.Optional[dict[str, t.Any]] = None,
 ) -> pd.DataFrame:
     """
     Creates a table of all selected features of the model ranked
@@ -112,6 +113,9 @@ def generate_ranked_feature_table(
             loaded via :func:`utils.load_features_table()`
         metadata: whether to return short desc and long desc along with name in
             features table (applicable only to pdp)
+        original_dtypes: Optional dictionary mapping feature names to their original
+            dtypes before sklearn processing. Used to correctly classify boolean features
+            that may have been converted to numeric types.
 
     Returns:
         A ranked pandas DataFrame by average shap magnitude
@@ -135,9 +139,30 @@ def generate_ranked_feature_table(
             feature_name = mapped
 
         dtype = features[feature].dtype
+
+        # Check original_dtypes first to correctly identify boolean features
+        # that may have been converted to numeric during sklearn processing
+        orig_dtype_raw = original_dtypes.get(feature, None) if original_dtypes else None
+        is_bool_from_original = False
+        if orig_dtype_raw is not None:
+            # Handle string dtype values (as stored in JSON)
+            # Check for boolean dtypes: "bool", "boolean", or BooleanDtype objects
+            if isinstance(orig_dtype_raw, str):
+                # Normalize string to lowercase for comparison
+                dtype_str_lower = orig_dtype_raw.lower()
+                if dtype_str_lower in ("bool", "boolean"):
+                    is_bool_from_original = True
+            else:
+                # Handle dtype objects directly
+                try:
+                    orig_dtype = pd.api.types.pandas_dtype(orig_dtype_raw)
+                    is_bool_from_original = pd.api.types.is_bool_dtype(orig_dtype)
+                except Exception:
+                    pass
+
         data_type = (
             "Boolean"
-            if pd.api.types.is_bool_dtype(dtype)
+            if (pd.api.types.is_bool_dtype(dtype) or is_bool_from_original)
             else "Continuous"
             if pd.api.types.is_numeric_dtype(dtype)
             else "Categorical"
