@@ -1,6 +1,6 @@
 import pandas as pd
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from collections.abc import Iterable
 
 from edvise.utils import data_cleaning
