@@ -11,9 +11,7 @@ class TestableH2OModelCard(H2OModelCard[CustomProjectConfig]):
     """Concrete implementation for testing H2O base functionality."""
 
     def _get_plot_config(self) -> dict[str, tuple[str, str, str, str]]:
-        return {
-            "test_plot": ("Test Plot", "test.png", "100mm", "Test Caption")
-        }
+        return {"test_plot": ("Test Plot", "test.png", "100mm", "Test Caption")}
 
     def _register_sections(self):
         pass  # No sections needed for base tests

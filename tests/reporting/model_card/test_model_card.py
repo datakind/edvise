@@ -24,6 +24,7 @@ def mock_client():
 
 def test_find_model_version_found(mock_config, mock_client):
     """Test finding model version when it exists."""
+
     # Create a minimal concrete implementation for testing
     class ConcreteModelCard(ModelCard):
         def load_model(self):
@@ -56,6 +57,7 @@ def test_find_model_version_found(mock_config, mock_client):
 
 def test_find_model_version_not_found(mock_config, mock_client):
     """Test when model version is not found."""
+
     class ConcreteModelCard(ModelCard):
         def load_model(self):
             pass
@@ -87,6 +89,7 @@ def test_find_model_version_not_found(mock_config, mock_client):
 @patch("edvise.reporting.model_card.base.utils.download_static_asset")
 def test_get_basic_context(mock_download, mock_config, mock_client):
     """Test basic context retrieval."""
+
     class ConcreteModelCard(ModelCard):
         def load_model(self):
             pass
@@ -117,6 +120,7 @@ def test_get_basic_context(mock_download, mock_config, mock_client):
 
 def test_build_calls_all_steps(mock_config, mock_client):
     """Test that build() calls all required steps in sequence."""
+
     class ConcreteModelCard(ModelCard):
         def load_model(self):
             pass
@@ -165,6 +169,7 @@ def test_build_calls_all_steps(mock_config, mock_client):
 @patch("builtins.open", new_callable=MagicMock)
 def test_render_template_and_output(mock_open, mock_config, mock_client):
     """Test template rendering and output writing."""
+
     class ConcreteModelCard(ModelCard):
         def load_model(self):
             pass
