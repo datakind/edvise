@@ -8,9 +8,7 @@ from edvise.reporting.model_card.base import ModelCard
 @pytest.fixture
 def mock_config():
     cfg = MagicMock()
-    cfg.model = MagicMock(
-        mlflow_model_uri="uri", run_id="123", experiment_id="456"
-    )
+    cfg.model = MagicMock(mlflow_model_uri="uri", run_id="123", experiment_id="456")
     cfg.institution_id = "inst"
     cfg.institution_name = "TestInstitution"
     cfg.modeling.feature_selection.collinear_threshold = 0.9
