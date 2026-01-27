@@ -853,14 +853,16 @@ def align_and_rank_dataframes(
     if any(df.empty for df in dfs):
         raise ValueError("There is an empty dataframe in the list of dataframes.")
 
+    # Check for dataframes with all null term values
+    for df in dfs:
+        if df[term_column].dropna().empty:
+            raise ValueError(
+                f"Cannot determine term range; one or more dataframes have no valid term values in '{term_column}'."
+            )
+
     # Determine common overlapping term range
-    try:
-        min_term = max(df[term_column].dropna().min() for df in dfs)
-        max_term = min(df[term_column].dropna().max() for df in dfs)
-    except ValueError:
-        raise ValueError(
-            "Cannot determine term range; one or more dataframes have no valid term values."
-        )
+    min_term = max(df[term_column].dropna().min() for df in dfs)
+    max_term = min(df[term_column].dropna().max() for df in dfs)
     if pd.isna(min_term) or pd.isna(max_term) or min_term > max_term:
         raise ValueError(f"No overlapping {term_column} range across dataframes.")
     LOGGER.info("Common term range across dataframes: %s → %s", min_term, max_term)
