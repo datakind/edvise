@@ -3,11 +3,12 @@ from unittest.mock import patch, MagicMock
 import pandas as pd
 
 from edvise.reporting.model_card.h2o_custom import H2OCustomModelCard
+from edvise.configs.custom import CustomProjectConfig
 
 
 @pytest.fixture
 def mock_config():
-    cfg = MagicMock()
+    cfg = MagicMock(spec=CustomProjectConfig)
     cfg.model = MagicMock(mlflow_model_uri="uri", run_id="123", experiment_id="456")
     cfg.institution_id = "inst"
     cfg.institution_name = "TestInstitution"
