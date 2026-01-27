@@ -61,7 +61,6 @@ def test_template_custom_cfgs(template_cfg_dict):
             [model]
             experiment_id = "EXPERIMENT_ID"
             run_id = "RUN_ID"
-            framework = "sklearn"
             """,
             pytest.raises(pyd.ValidationError),
         ),
