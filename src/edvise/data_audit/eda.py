@@ -1555,6 +1555,8 @@ def convert_numeric_columns(df, columns):
         )  # keep only digits, dot (decimals), dash (negative sign)
         df[col] = pd.to_numeric(s, errors="coerce")
     return df
+
+
 def check_variable_missingness(
     df: pd.DataFrame,
     var_list: list[str],
