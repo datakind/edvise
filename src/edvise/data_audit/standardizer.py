@@ -15,6 +15,7 @@ from .eda import (
     print_credential_and_enrollment_types,
     print_retention,
     log_grade_distribution,
+    check_bias_variables,
 )
 
 # TODO think of a better name than standardizer
@@ -46,6 +47,8 @@ class PDPCohortStandardizer(BaseStandardizer):
         log_high_null_columns(df)
         print_credential_and_enrollment_types(df)
         print_retention(df)
+        print_credential_and_enrollment_types_and_retention(df)
+        check_bias_variables(df)
         cols_to_drop = [
             # not a viable target variable, but highly correlated with it
             "time_to_credential",
