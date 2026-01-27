@@ -1456,31 +1456,27 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
         LOGGER.info("'M' grade not found or no valid grade data available.")
 
 
-def order_terms(df: pd.DataFrame, term_col: str) -> pd.DataFrame:
+def order_terms(
+    df: pd.DataFrame, term_col: str, season_order: dict[str, int] | None = None
+) -> pd.DataFrame:
     """
     CUSTOM SCHOOL FUNCTION
 
     Make df[term_col] an ordered categorical based on Season + Year.
     Expects terms like 'Spring 2024', 'Fall 2023', etc.
     Compatible with CleanSpec.term_order_fn(df, term_col).
+
+    Args:
+        df: DataFrame containing the term column
+        term_col: Name of the column containing term strings
+        season_order: Optional dict mapping season names to sort order.
+                     Defaults to Spring=1, Summer=2, Fall=3, Winter=4
     """
     if term_col not in df.columns:
         return df
 
-    season_order = {"Spring": 1, "Summer": 2, "Fall": 3, "Winter": 4}
-
-    def parse_term(term):
-        if pd.isna(term):
-            return (9999, 999)  # push NA to the end
-        parts = str(term).strip().split()
-        if len(parts) != 2:
-            return (9999, 999)
-        season, year = parts
-        try:
-            year_int = int(year)
-        except ValueError:
-            year_int = 9999
-        return (year_int, season_order.get(season, 999))
+    if season_order is None:
+        season_order = {"Spring": 1, "Summer": 2, "Fall": 3, "Winter": 4}
 
     out = df.copy()
     out[term_col] = out[term_col].astype("string")
@@ -1489,7 +1485,9 @@ def order_terms(df: pd.DataFrame, term_col: str) -> pd.DataFrame:
     if len(unique_terms) == 0:
         return out
 
-    sorted_terms = sorted(unique_terms, key=parse_term)
+    sorted_terms = sorted(
+        unique_terms, key=lambda term: _parse_term(term, season_order)
+    )
 
     out[term_col] = pd.Categorical(
         out[term_col],
@@ -1503,6 +1501,28 @@ def order_terms(df: pd.DataFrame, term_col: str) -> pd.DataFrame:
         list(out[term_col].cat.categories),
     )
     return out
+
+
+def _parse_term(term: str, season_order: dict[str, int]) -> tuple[int, int]:
+    """
+    Parse a term string like 'Spring 2024' into (year, season_rank) for sorting.
+
+    Returns (9999, 999) for invalid/NA terms to push them to the end.
+    """
+    if pd.isna(term):
+        return (9999, 999)
+
+    parts = str(term).strip().split()
+    if len(parts) != 2:
+        return (9999, 999)
+
+    season, year = parts
+    try:
+        year_int = int(year)
+    except ValueError:
+        year_int = 9999
+
+    return (year_int, season_order.get(season, 999))
 
 
 def convert_numeric_columns(df, columns):
