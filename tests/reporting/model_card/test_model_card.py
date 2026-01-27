@@ -8,7 +8,9 @@ from edvise.configs.custom import CustomProjectConfig
 
 @pytest.fixture
 def mock_config():
-    cfg = MagicMock(spec=CustomProjectConfig)
+    cfg = MagicMock()
+    # Set the class to pass isinstance check
+    cfg.__class__ = CustomProjectConfig
     cfg.model = MagicMock(mlflow_model_uri="uri", run_id="123", experiment_id="456")
     cfg.institution_id = "inst"
     cfg.institution_name = "TestInstitution"
