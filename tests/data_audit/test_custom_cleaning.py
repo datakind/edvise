@@ -516,9 +516,7 @@ def test_align_and_rank_dataframes_core_term_col_missing_in_one_dataframe():
     df1 = pd.DataFrame(
         {"term_order": [1, 2], "is_core_term": [True, False], "val": [10, 20]}
     )
-    df2 = pd.DataFrame(
-        {"term_order": [1, 2], "val": [30, 40]}
-    )  # missing is_core_term
+    df2 = pd.DataFrame({"term_order": [1, 2], "val": [30, 40]})  # missing is_core_term
 
     result = m.align_and_rank_dataframes(
         [df1, df2], term_column="term_order", core_term_col="is_core_term"
@@ -636,7 +634,9 @@ def test_extract_readmit_ids_finds_readmit_students():
         }
     )
 
-    result = m._extract_readmit_ids(df, entry_col="entry_type", student_col="student_id")
+    result = m._extract_readmit_ids(
+        df, entry_col="entry_type", student_col="student_id"
+    )
 
     # Should find both "Readmit" and "readmit" (case-insensitive)
     assert len(result) == 2
@@ -759,7 +759,14 @@ def test_drop_readmits_removes_all_rows_for_readmit_students():
     df = pd.DataFrame(
         {
             "student_id": ["A", "A", "B", "B", "C", "C"],
-            "entry_type": ["First Time", "First Time", "Readmit", "Transfer", "Transfer", "Transfer"],
+            "entry_type": [
+                "First Time",
+                "First Time",
+                "Readmit",
+                "Transfer",
+                "Transfer",
+                "Transfer",
+            ],
             "term": [1, 2, 1, 2, 1, 2],
             "gpa": [3.0, 3.2, 3.5, 3.6, 2.8, 3.0],
         }
@@ -805,7 +812,9 @@ def test_drop_readmits_returns_copy_when_no_readmits():
 
     # Should have all rows
     assert len(result) == len(df)
-    pd.testing.assert_frame_equal(result.reset_index(drop=True), df.reset_index(drop=True))
+    pd.testing.assert_frame_equal(
+        result.reset_index(drop=True), df.reset_index(drop=True)
+    )
 
 
 def test_drop_readmits_removes_multiple_readmit_students():
@@ -813,7 +822,14 @@ def test_drop_readmits_removes_multiple_readmit_students():
     df = pd.DataFrame(
         {
             "student_id": ["A", "A", "B", "B", "C", "C"],
-            "entry_type": ["Readmit", "First Time", "Transfer", "Transfer", "Readmit", "Readmit"],
+            "entry_type": [
+                "Readmit",
+                "First Time",
+                "Transfer",
+                "Transfer",
+                "Readmit",
+                "Readmit",
+            ],
             "term": [1, 2, 1, 2, 1, 2],
         }
     )
@@ -832,7 +848,13 @@ def test_drop_readmits_logs_removal_info(caplog):
     df = pd.DataFrame(
         {
             "student_id": ["A", "A", "B", "B", "C"],
-            "entry_type": ["Readmit", "First Time", "Readmit", "Transfer", "First Time"],
+            "entry_type": [
+                "Readmit",
+                "First Time",
+                "Readmit",
+                "Transfer",
+                "First Time",
+            ],
         }
     )
 
@@ -1091,7 +1113,13 @@ def test_keep_earlier_record_preserves_all_columns():
     result = m.keep_earlier_record(df)
 
     # Check all columns are preserved
-    assert set(result.columns) == {"student_id", "cohort_term", "gpa", "credits", "major"}
+    assert set(result.columns) == {
+        "student_id",
+        "cohort_term",
+        "gpa",
+        "credits",
+        "major",
+    }
     # Check data integrity for kept record
     assert result["gpa"].iloc[0] == 3.0
     assert result["credits"].iloc[0] == 15
