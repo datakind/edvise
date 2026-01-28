@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+import numpy as np
 
 from edvise.feature_generation import constants, course
 
@@ -190,3 +191,122 @@ def test_course_grade(df, grade_col, grade_num_col, exp):
     obs = course.course_grade(df, grade_col=grade_col, grade_num_col=grade_num_col)
     assert isinstance(obs, pd.Series) and not obs.empty
     assert obs.equals(exp) or obs.compare(exp).empty
+
+
+@pytest.mark.parametrize(
+    "input,output",
+    [
+        ("  1234A ", 1),
+        ("1234A", 1),
+        (" 302H", 0),
+        ("4567    ", 4),
+        ("4567", 4),
+        ("123", 0),
+    ],
+    ids=[
+        "whitespace 5 digit",
+        "5 digit",
+        "leading whitespace 4 digit",
+        "whitespace 4 digit",
+        "4 digit",
+        "3 digit",
+    ],
+)
+def test_extract_course_level_from_course_number(input, output):
+    assert course.extract_course_level_from_course_number(input) == output
+
+
+@pytest.mark.parametrize(
+    "invalid_course_number",
+    ["   12345 ", "12345", "123456"],
+    ids=[
+        "whitespace 5 digit not ending in character",
+        "5 digit not ending in character",
+        ">5 digits",
+    ],
+)
+def test_extract_course_level_from_course_number_raises_exception(
+    invalid_course_number,
+):
+    with pytest.raises(Exception):
+        course.extract_course_level_from_course_number(invalid_course_number)
+
+
+def test_convert_number_of_courses_to_term_flag_col():
+    test_df = pd.DataFrame(
+        {
+            "term_n_courses_something_a": [1, 0, 5],
+            "term_n_courses_something_b": [9, 1, 0],
+            "ignore_col": [1, 2, 3],
+            "taking_course_something_a_this_term": [1, 0, 1],
+            "taking_course_something_b_this_term": [1, 1, 0],
+        }
+    )
+    result_df = course.convert_number_of_courses_cols_to_term_flag_cols(
+        test_df.iloc[:, :3], col_prefix="term_n_courses_", orig_col="something"
+    )
+    pd.testing.assert_frame_equal(result_df, test_df.iloc[:, 2:])
+
+
+def test_rank_local_dfwi_courses():
+    data = {
+        "student_id": (list(range(1, 11)) + list(range(101, 107))),
+        "course_prefix": ["MATH"] * 10 + ["HIST"] * 6,
+        "course_number": ["101"] * 10 + ["201"] * 6,
+        "grade": [
+            "A",
+            "B",
+            "C",
+            "d",
+            "f",
+            "np",
+            "wf",
+            "w",
+            "i",
+            "  a  ",
+            "A",
+            "B",
+            "C",
+            "W",
+            "I",
+            "F",
+        ],
+    }
+    df = pd.DataFrame(data)
+    out = course.rank_local_dfwi_courses(df, min_enrollments=1)
+
+    assert list(out.columns) == [
+        "key",
+        "enrollments_den",
+        "D",
+        "F",
+        "W",
+        "I",
+        "dfwi_count",
+        "rate",
+    ]
+    assert len(out) == 2
+    row0 = out.iloc[0]
+    row1 = out.iloc[1]
+
+    assert row0["enrollments_den"] == 5
+    assert row0["D"] == 1
+    assert row0["F"] == 3
+    assert row0["W"] == 1
+    assert row0["I"] == 1
+    assert row0["dfwi_count"] == 6
+    assert np.isclose(row0["rate"], 6 / 5)
+
+    assert row1["enrollments_den"] == 4
+    assert row1["D"] == 0
+    assert row1["F"] == 1
+    assert row1["W"] == 1
+    assert row1["I"] == 1
+    assert row1["dfwi_count"] == 3
+    assert np.isclose(row1["rate"], 3 / 4)
+
+    out_filtered = course.rank_local_dfwi_courses(df, min_enrollments=5)
+    assert len(out_filtered) == 1
+    rowf = out_filtered.iloc[0]
+    assert rowf["enrollments_den"] == 5
+    assert np.isclose(rowf["rate"], 6 / 5)

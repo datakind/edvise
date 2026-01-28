@@ -5,10 +5,11 @@ import typing as t
 import numpy as np
 import pandas as pd
 import scipy.stats as ss
-from typing import List
 from edvise import utils as edvise_utils
 
 LOGGER = logging.getLogger(__name__)
+
+DEFAULT_BIAS_VARS = ["first_gen", "gender", "race", "ethnicity", "student_age"]
 
 
 def assess_unique_values(data: pd.DataFrame, cols: str | list[str]) -> dict[str, int]:
@@ -340,109 +341,156 @@ def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> None:
             )
 
 
-def compute_gateway_course_ids_and_cips(df_course: pd.DataFrame) -> List[str]:
+def compute_gateway_course_ids_and_cips(
+    df_course: pd.DataFrame,
+) -> tuple[list[str], list[str], bool, list[str], list[str]]:
     """
-    Build a list of course IDs and CIP codes for Math/English gateway courses.
-    Filter: math_or_english_gateway in {"M", "E"}
-    ID format: "<course_prefix><course_number>" (both coerced to strings, trimmed)
-    CIP codes taken from 'course_cip' column
-
-    Logs:
-    - If CIP column is missing or has no values or gateway field unpopulated
-    - Log prefixes for English (E) and Math (M) courses, with a note that they
-    may need to be swapped if they don’t look right
+    Returns: (ids, cips, has_upper_level_gateway, lower_ids, lower_cips)
+      - ids: all gateway course IDs (M/E)
+      - cips: CIP 2-digit codes from LOWER-LEVEL rows only (same as lower_cips)
+      - has_upper_level_gateway: True if any gateway course has level >=200
+      - lower_ids: gateway IDs with level <200
+      - lower_cips: CIP 2-digit codes for lower_ids
     """
-    if not {"math_or_english_gateway", "course_prefix", "course_number"}.issubset(
-        df_course.columns
-    ):
-        LOGGER.warning(" ⚠️ Cannot compute key_course_ids: required columns missing.")
-        return []
 
-    mask = df_course["math_or_english_gateway"].astype("string").isin({"M", "E"})
-    if not mask.any():
-        LOGGER.info(" No Math/English gateway courses found.")
-        return []
+    # ---- helpers ----
+    def _s(x: pd.Series) -> pd.Series:
+        """Normalize to string, strip, and remove literal 'nan' (categorical-safe)."""
+        s = x.astype("string")  # cast before fillna to avoid Categorical fill errors
+        s = s.fillna("")
+        s = s.str.strip().replace("^nan$", "", regex=True)
+        return s
 
-    ids = df_course.loc[mask, "course_prefix"].fillna("") + df_course.loc[
-        mask, "course_number"
-    ].fillna("")
-
-    if "course_cip" not in df_course.columns:
-        LOGGER.warning(" ⚠️ Column 'course_cip' is missing; no CIP codes extracted.")
-        cips = pd.Series([], dtype=str)
-    else:
-        cips = (
-            df_course.loc[mask, "course_cip"]
-            .astype(str)
-            .str.strip()
-            .replace(
-                {
-                    "nan": "",
-                    "NaN": "",
-                    "NAN": "",
-                    "missing": "",
-                    "MISSING": "",
-                    "Missing": "",
-                }
-            )
-            .str.extract(
-                r"^(\d{2})"
-            )  # Extract first two digits only; cip codes usually 23.0101
-            .dropna()[0]
+    def _cip_series(x: pd.Series) -> list[str]:
+        """
+        Accept canonical CIP codes like '24', '24.02', '24.0201' and return unique 2-digit series (e.g., '24').
+        Ignores placeholders and malformed values.
+        """
+        s = x.astype("string").str.strip().replace("^nan$", pd.NA, regex=True)
+        # Strictly match valid CIP shapes and capture the 2-digit series as group 1
+        series = (
+            s.str.extract(r"^\s*(\d{2})(?:\.(\d{2})(?:\d{2})?)?\s*$", expand=True)[0]
+            .dropna()
+            .astype("string")
+            .loc[lambda z: z.ne("")]
+            .drop_duplicates()
+            .tolist()
         )
-        if cips.eq("").all():
+        return list(series)
+
+    def _last_level(num: pd.Series) -> pd.Series:
+        """Parse last numeric token, then last up-to-3 digits as integer level."""
+        tok = _s(num).str.extract(r"(\d+)(?!.*\d)", expand=True)[0]
+        return pd.to_numeric(tok.str[-3:], errors="coerce")
+
+    def _starts_with_any(arr: list[str], prefixes: list[str]) -> bool:
+        arr = list(arr)  # handles numpy arrays / pandas .unique()
+        return len(arr) > 0 and all(
+            any(str(p).upper().startswith(ch) for ch in prefixes) for p in arr
+        )
+
+    # ---- column checks ----
+    required = {"math_or_english_gateway", "course_prefix", "course_number"}
+    if not required.issubset(df_course.columns):
+        LOGGER.warning(" ⚠️ Cannot compute key_course_ids: required columns missing.")
+        return ([], [], False, [], [])
+
+    # ---- full-length masks ----
+    gate = _s(df_course["math_or_english_gateway"])
+    is_gateway = gate.isin({"M", "E"})  # full-length
+    if not is_gateway.any():
+        LOGGER.info(" No Math/English gateway courses found.")
+        return ([], [], False, [], [])
+
+    level = _last_level(df_course["course_number"])  # full-length
+    upper_mask = is_gateway & level.ge(200).fillna(False)
+    lower_mask = is_gateway & level.lt(200).fillna(False)
+    has_upper_level_gateway = bool(upper_mask.any())
+
+    # ---- IDs ----
+    ids_series = (
+        _s(df_course.loc[is_gateway, "course_prefix"])
+        + _s(df_course.loc[is_gateway, "course_number"])
+    ).str.strip()
+    ids = ids_series[ids_series.ne("")].drop_duplicates().tolist()
+    LOGGER.info(" Identified %d unique gateway course IDs: %s", len(ids), ids)
+
+    lower_ids_series = (
+        _s(df_course.loc[lower_mask, "course_prefix"])
+        + _s(df_course.loc[lower_mask, "course_number"])
+    ).str.strip()
+    lower_ids = lower_ids_series[lower_ids_series.ne("")].drop_duplicates().tolist()
+    LOGGER.info(" Identified %d lower-level (<200) gateway IDs.", len(lower_ids))
+
+    # ---- CIP extraction from LOWER rows only ----
+    if "course_cip" in df_course.columns:
+        lower_cips = _cip_series(df_course.loc[lower_mask, "course_cip"])
+        cips = lower_cips.copy()
+        if not lower_cips:
             LOGGER.warning(
-                " ⚠️ Column 'course_cip' is present but unpopulated for gateway courses."
+                " ⚠️ 'course_cip' present but yielded no lower-level CIP codes."
             )
+        else:
+            LOGGER.info(" CIPs restricted to lower-level (<200) rows: %s", cips)
+    else:
+        cips, lower_cips = [], []
+        LOGGER.info(" No 'course_cip' column; skipping CIP extraction.")
 
-    # edit this to auto populate the config
-    cips = cips[cips.ne("")].drop_duplicates()
-    ids = ids[ids.str.strip().ne("") & ids.str.lower().ne("nan")].drop_duplicates()
+    # ---- log upper-level anomalies (if any) ----
+    if has_upper_level_gateway:
+        upper_ids_series = (
+            _s(df_course.loc[upper_mask, "course_prefix"])
+            + _s(df_course.loc[upper_mask, "course_number"])
+        ).str.strip()
+        upper_ids = upper_ids_series[upper_ids_series.ne("")].drop_duplicates().tolist()
+        LOGGER.warning(
+            " ⚠️ Warning: courses with level >=200 flagged as gateway (%d found). Course IDs: %s. "
+            "This is unusual; contact the school for more information.",
+            len(upper_ids),
+            upper_ids,
+        )
+        LOGGER.info(
+            " ✅ Lower-level IDs found: %d; lower-level CIP codes found: %d",
+            len(lower_ids),
+            len(lower_cips),
+        )
+    else:
+        LOGGER.info(" No gateway courses with level >=200 were detected.")
 
-    LOGGER.info(f" Identified {len(ids)} unique gateway course IDs: {ids.tolist()}")
-    LOGGER.info(f" Identified {len(cips)} unique CIP codes: {cips.tolist()}")
-
-    # Sanity-check for prefixes and swap if clearly reversed; has come up for some schools
+    # ---- prefix sanity check (compact) ----
     pref_e = (
-        df_course.loc[df_course["math_or_english_gateway"].eq("E"), "course_prefix"]
+        _s(df_course.loc[gate.eq("E"), "course_prefix"])
+        .replace("", pd.NA)
         .dropna()
-        .astype(str)
-        .str.strip()
         .unique()
     )
     pref_m = (
-        df_course.loc[df_course["math_or_english_gateway"].eq("M"), "course_prefix"]
+        _s(df_course.loc[gate.eq("M"), "course_prefix"])
+        .replace("", pd.NA)
         .dropna()
-        .astype(str)
-        .str.strip()
         .unique()
     )
 
-    LOGGER.info(" English (E) prefixes (raw): %s", pref_e.tolist())
-    LOGGER.info(" Math (M) prefixes (raw): %s", pref_m.tolist())
-
-    looks = lambda arr, ch: len(arr) > 0 and all(
-        str(p).upper().startswith(ch) for p in arr
+    e_ok, m_ok = (
+        _starts_with_any(pref_e, ["E", "W"]),
+        _starts_with_any(pref_m, ["M", "S"]),
     )
-    e_ok, m_ok = looks(pref_e, "E"), looks(pref_m, "M")
-
-    if not e_ok and not m_ok:
+    if e_ok and m_ok:
+        LOGGER.info(" Prefix starts look correct (E/W for English, M/S for Math).")
+    elif not e_ok and not m_ok:
         LOGGER.warning(
-            " ⚠️ Prefixes MAY be swapped (do NOT start with E for English, start with M for Math). Consider swapping E <-> M. E=%s, M=%s",
-            pref_e.tolist(),
-            pref_m.tolist(),
-        )
-    elif e_ok and m_ok:
-        LOGGER.info(
-            " Prefixes look correct and not swapped (start with E for English, start with M for Math)."
+            " ⚠️ Prefixes MAY be swapped. Consider swapping E <-> M. E=%s, M=%s",
+            list(pref_e),
+            list(pref_m),
         )
     else:
-        LOGGER.warning(" One group inconsistent. English OK=%s, Math OK=%s", e_ok, m_ok)
+        LOGGER.warning(
+            " ⚠️ Prefixes MAY be incorrect; one group inconsistent. English OK=%s, Math OK=%s",
+            e_ok,
+            m_ok,
+        )
 
-    LOGGER.info(" Final English (E) prefixes: %s", pref_e.tolist())
-    LOGGER.info(" Final Math (M) prefixes: %s", pref_m.tolist())
-
-    return [ids.tolist(), cips.tolist()]
+    return ids, cips, has_upper_level_gateway, lower_ids, lower_cips
 
 
 def log_record_drops(
@@ -652,7 +700,7 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
 
     if pct_dropped < 0.1:
         LOGGER.warning(
-            " ⚠️ inspect_misjoined_records: These mismatches will later result in dropping %d students (<0.1%% of all students).",
+            " ⚠️ inspect_misjoined_records: These mismatches will later result in dropping %d students (<0.1 percent of all students).",
             dropped_students,
         )
     else:
@@ -663,12 +711,17 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
         )
 
 
-def print_credential_types_and_retention(df_cohort: pd.DataFrame) -> None:
+def print_credential_and_enrollment_types_and_retention(
+    df_cohort: pd.DataFrame,
+) -> None:
     pct_credentials = (
         df_cohort["credential_type_sought_year_1"].value_counts(
             dropna=False, normalize=True
         )
         * 100
+    )
+    pct_enroll = (
+        df_cohort["enrollment_type"].value_counts(dropna=False, normalize=True) * 100
     )
     retention = (
         df_cohort[["cohort", "retention"]].value_counts(dropna=False).sort_index()
@@ -681,3 +734,556 @@ def print_credential_types_and_retention(df_cohort: pd.DataFrame) -> None:
         " Percent breakdown for credential types: \n%s ",
         pct_credentials.to_string(),
     )
+    LOGGER.info(
+        " Percent breakdown for enrollment types: \n%s ",
+        pct_enroll.to_string(),
+    )
+
+
+def validate_ids_terms_consistency(
+    student_df: t.Optional[pd.DataFrame],
+    semester_df: pd.DataFrame,
+    course_df: pd.DataFrame,
+    *,
+    id_col: str = "student_id",
+    sem_col: str = "semester_code",
+    student_id_col: t.Optional[str] = None,
+) -> t.Dict[str, t.Any]:
+    """
+    Check key-level and ID-level consistency between Course, Semester and Student.
+
+    Returns:
+    {
+        "summary": {....},
+        "unmatched_course_side": DataFrame[(id, sem)],
+        "unmatched_semester_side": DataFrame[(id, sem)],
+        "course_ids_not_in_semester": DataFrame[id],
+        "course_ids_not_in_student": DataFrame[id],
+        "semester_ids_not_in_student": DataFrame[id],
+        "course_terms_not_in_semester_terms": DataFrame[sem],
+        "null_course_keys": DataFrame[(id, sem)],
+        "null_semester_keys": DataFrame[(id, sem)],
+    }
+    """
+    student_id_col = student_id_col or id_col
+    c_keys = course_df[[id_col, sem_col]].copy()
+    s_keys = semester_df[[id_col, sem_col]].copy()
+
+    st = None
+    if student_df is not None:
+        st = student_df[[student_id_col]].drop_duplicates().copy()
+        if student_id_col != id_col:
+            st = st.rename(columns={student_id_col: id_col})
+
+    null_course_keys = course_df.loc[
+        course_df[id_col].isna() | course_df[sem_col].isna(),
+        [id_col, sem_col],
+    ].drop_duplicates()
+
+    null_semester_keys = semester_df.loc[
+        semester_df[id_col].isna() | semester_df[sem_col].isna(),
+        [id_col, sem_col],
+    ].drop_duplicates()
+
+    course_keys = c_keys.drop_duplicates()
+    sem_keys = s_keys.drop_duplicates()
+
+    unmatched_course_side = (
+        course_keys.merge(sem_keys, on=[id_col, sem_col], how="left", indicator=True)
+        .loc[lambda df: df["_merge"].eq("left_only"), [id_col, sem_col]]
+        .sort_values([id_col, sem_col])
+        .reset_index(drop=True)
+    )
+
+    unmatched_semester_side = (
+        sem_keys.merge(course_keys, on=[id_col, sem_col], how="left", indicator=True)
+        .loc[lambda df: df["_merge"].eq("left_only"), [id_col, sem_col]]
+        .sort_values([id_col, sem_col])
+        .reset_index(drop=True)
+    )
+
+    course_ids = course_df[[id_col]].dropna().drop_duplicates()
+    semester_ids = semester_df[[id_col]].dropna().drop_duplicates()
+
+    course_ids_not_in_semester = (
+        course_ids.merge(semester_ids, on=id_col, how="left", indicator=True)
+        .loc[lambda df: df["_merge"].eq("left_only"), [id_col]]
+        .sort_values(id_col)
+        .reset_index(drop=True)
+    )
+
+    if st is not None:
+        course_ids_not_in_student = (
+            course_ids.merge(st, on=id_col, how="left", indicator=True)
+            .loc[lambda df: df["_merge"].eq("left_only"), [id_col]]
+            .sort_values(id_col)
+            .reset_index(drop=True)
+        )
+        semester_ids_not_in_student = (
+            semester_ids.merge(st, on=id_col, how="left", indicator=True)
+            .loc[lambda df: df["_merge"].eq("left_only"), [id_col]]
+            .sort_values(id_col)
+            .reset_index(drop=True)
+        )
+    else:
+        course_ids_not_in_student = pd.DataFrame(columns=[id_col])
+        semester_ids_not_in_student = pd.DataFrame(columns=[id_col])
+
+    course_terms = set(course_df[sem_col].dropna().unique())
+    semester_terms = set(semester_df[sem_col].dropna().unique())
+    course_terms_missing = sorted(course_terms - semester_terms)
+    course_terms_not_in_semester_terms = pd.DataFrame({sem_col: course_terms_missing})
+
+    summary = {
+        "total_semesters_in_semester_file": int(len(semester_df)),
+        "unique_student_semesters_in_courses": int(len(course_keys)),
+        "unmatched_course_keys": int(len(unmatched_course_side)),
+        "unmatched_semester_keys": int(len(unmatched_semester_side)),
+        "course_ids_not_in_semester": int(len(course_ids_not_in_semester)),
+        "course_ids_not_in_student": int(len(course_ids_not_in_student)),
+        "semester_ids_not_in_student": int(len(semester_ids_not_in_student)),
+        "course_terms_not_in_semester_terms": int(
+            len(course_terms_not_in_semester_terms)
+        ),
+        "course_rows_with_null_keys": int(len(null_course_keys)),
+        "semester_rows_with_null_keys": int(len(null_semester_keys)),
+    }
+
+    return {
+        "summary": summary,
+        "unmatched_course_side": unmatched_course_side,
+        "unmatched_semester_side": unmatched_semester_side,
+        "course_ids_not_in_semester": course_ids_not_in_semester,
+        "course_ids_not_in_student": course_ids_not_in_student,
+        "semester_ids_not_in_student": semester_ids_not_in_student,
+        "course_terms_not_in_semester_terms": course_terms_not_in_semester_terms,
+        "null_course_keys": null_course_keys,
+        "null_semester_keys": null_semester_keys,
+    }
+
+
+def find_dupes(df, primary_keys, sort=None, summarize=False, n=20):
+    """
+    Quickly find and summarize duplicates by primary key columns for each dataset (cohort, course, and semester).
+    """
+    if summarize:
+        out = (
+            df.groupby(primary_keys)
+            .size()
+            .value_counts()
+            .rename_axis("dup_count")
+            .reset_index(name="n_groups")
+        )
+        print(out.head(10))
+        return out
+    dupes = df[df.duplicated(primary_keys, keep=False)]
+    if sort:
+        dupes = dupes.sort_values(sort, ignore_index=True)
+    print(f"{len(dupes)} duplicates based on {primary_keys}")
+    return dupes
+
+
+def check_earned_vs_attempted(
+    df: pd.DataFrame,
+    *,
+    earned_col: str,
+    attempted_col: str,
+) -> t.Dict[str, pd.DataFrame]:
+    """
+    Row-wise checks that:
+      1. credits_earned <= credits_attempted
+      2. credits_earned = 0 when credits_attempted = 0
+    """
+    earned = pd.to_numeric(df[earned_col], errors="coerce")
+    attempted = pd.to_numeric(df[attempted_col], errors="coerce")
+
+    earned_gt_attempted = earned > attempted
+    earned_when_no_attempt = (attempted == 0) & (earned > 0)
+    mask = earned_gt_attempted | earned_when_no_attempt
+
+    anomalies = df[mask].copy()
+    anomalies["earned_gt_attempted"] = earned_gt_attempted[mask]
+    anomalies["earned_when_no_attempt"] = earned_when_no_attempt[mask]
+
+    summary = pd.DataFrame(
+        {
+            "earned_gt_attempted": [int(earned_gt_attempted.sum())],
+            "earned_when_no_attempt": [int(earned_when_no_attempt.sum())],
+            "total_anomalous_rows": [int(mask.sum())],
+        }
+    )
+
+    return {"anomalies": anomalies, "summary": summary}
+
+
+def validate_credit_consistency(
+    semester_df: pd.DataFrame,
+    course_df: pd.DataFrame,
+    cohort_df: pd.DataFrame,
+    *,
+    id_col: str = "student_id",
+    sem_col: str = "semester_code",
+    # course-level credit columns
+    course_credits_attempted_col: str = "credits_attempted",
+    course_credits_earned_col: str = "credits_earned",
+    # semester-level credit columns
+    semester_credits_attempted_col: str = "number_of_semester_credits_attempted",
+    semester_credits_earned_col: str = "number_of_semester_credits_earned",
+    semester_courses_count_col: str = "number_of_semester_courses_enrolled",
+    # cohort-level credit columns (df_cohort)
+    cohort_credits_attempted_col: str = "inst_tot_credits_attempted",
+    cohort_credits_earned_col: str = "inst_tot_credits_earned",
+    credit_tol: float = 0.0,
+) -> t.Dict[str, t.Any]:
+    """
+    Unified credit validation:
+
+    1) Reconcile semester-level aggregates (semester_df) against
+       course-level details (course_df).
+
+    2) Check row-wise consistency of credits earned vs attempted
+       on cohort_df (df_cohort).
+    """
+
+    # ---------- 1) RECONCILIATION: semester vs course ----------
+
+    c = course_df[
+        [id_col, sem_col, course_credits_attempted_col, course_credits_earned_col]
+    ].copy()
+    s = semester_df[
+        [
+            id_col,
+            sem_col,
+            semester_credits_attempted_col,
+            semester_credits_earned_col,
+            semester_courses_count_col,
+        ]
+    ].copy()
+
+    agg = (
+        c.groupby([id_col, sem_col], dropna=False)
+        .agg(
+            course_sum_attempted=(course_credits_attempted_col, "sum"),
+            course_sum_earned=(course_credits_earned_col, "sum"),
+            course_count=(course_credits_attempted_col, "size"),
+        )
+        .reset_index()
+    )
+
+    merged = s.merge(agg, on=[id_col, sem_col], how="left", indicator="_merge_agg")
+    merged["has_course_rows"] = merged["_merge_agg"].eq("both")
+    merged["course_sum_attempted"] = merged["course_sum_attempted"].fillna(0.0)
+    merged["course_sum_earned"] = merged["course_sum_earned"].fillna(0.0)
+    merged["course_count"] = merged["course_count"].fillna(0.0)
+
+    # Ensure numeric semester columns
+    for col in (
+        semester_credits_attempted_col,
+        semester_credits_earned_col,
+        semester_courses_count_col,
+    ):
+        if not pd.api.types.is_numeric_dtype(merged[col]):
+            merged[col] = pd.to_numeric(merged[col], errors="coerce")
+
+    merged["diff_attempted"] = (
+        merged["course_sum_attempted"] - merged[semester_credits_attempted_col]
+    )
+    merged["diff_earned"] = (
+        merged["course_sum_earned"] - merged[semester_credits_earned_col]
+    )
+    merged["diff_courses"] = merged["course_count"] - merged[
+        semester_courses_count_col
+    ].fillna(0.0)
+
+    merged["match_attempted"] = merged["diff_attempted"].abs() <= credit_tol
+    merged["match_earned"] = merged["diff_earned"].abs() <= credit_tol
+    merged["match_courses"] = merged["diff_courses"] == 0.0
+
+    mismatches = (
+        merged.loc[
+            ~(
+                merged["match_attempted"]
+                & merged["match_earned"]
+                & merged["match_courses"]
+            ),
+            [
+                id_col,
+                sem_col,
+                semester_credits_attempted_col,
+                "course_sum_attempted",
+                "diff_attempted",
+                semester_credits_earned_col,
+                "course_sum_earned",
+                "diff_earned",
+                semester_courses_count_col,
+                "course_count",
+                "diff_courses",
+                "has_course_rows",
+            ],
+        ]
+        .sort_values([id_col, sem_col])
+        .reset_index(drop=True)
+    )
+
+    reconciliation_summary = {
+        "total_semesters_in_semester_file": int(len(s)),
+        "unique_student_semesters_in_courses": int(len(agg)),
+        "rows_with_mismatches": int(len(mismatches)),
+    }
+
+    # ---------- 2) COHORT-LEVEL ROW-WISE CHECKS ----------
+
+    cohort_checks = check_earned_vs_attempted(
+        cohort_df,
+        earned_col=cohort_credits_earned_col,
+        attempted_col=cohort_credits_attempted_col,
+    )
+
+    return {
+        "reconciliation_summary": reconciliation_summary,
+        "reconciliation_mismatches": mismatches,
+        "reconciliation_merged_detail": merged,
+        "cohort_anomalies": cohort_checks["anomalies"],
+        "cohort_anomalies_summary": cohort_checks["summary"],
+    }
+
+
+def check_pf_grade_consistency(
+    df,
+    grade_col="grade",
+    pf_col="pass_fail_flag",
+    credits_col="credits_earned",
+    *,
+    passing_grades=(
+        "P",
+        "P*",
+        "A",
+        "A-",
+        "B+",
+        "B",
+        "B-",
+        "C+",
+        "C",
+        "C-",
+        "D+",
+        "D",
+        "D-",
+        "REP",
+        "S",
+        "^C-",
+        "^D-",
+        "^D",
+        "^D+",
+        "ZD-",
+        "ZD",
+        "^C",
+        "CH",
+    ),
+    failing_grades=(
+        "F",
+        "E",
+        "^E",
+        "F*",
+        "REF",
+        "ZE",
+        "NR",
+        "W",
+        "W*",
+        "WI",
+        "WE",
+        "WC",
+        "WA",
+        "WB+",
+        "WB",
+        "WB-",
+        "WD",
+        "WD-",
+        "WC+",
+        "WC-",
+        "WA-",
+        "I",
+    ),
+    pass_flags=("P",),
+    fail_flags=("F",),
+):
+    """
+    Checks that:
+      1. Students NEVER earn credits for failing grades.
+      2. Students DO always earn credits for passing grades.
+      3. Grade and pass_fail_flag are consistent.
+
+    Returns (anomalies_df, summary_df)
+    """
+    out = df.copy()
+
+    # Normalize
+    g = out[grade_col].astype(str).str.strip().str.upper()
+    pf = out[pf_col].astype(str).str.strip().str.upper()
+    credits = pd.to_numeric(out[credits_col], errors="coerce")  # keep NaNs as NaN
+
+    # Pass/fail from grade (for disagreement only)
+    pfg = pd.Series(
+        np.where(
+            g.isin(passing_grades),
+            True,
+            np.where(g.isin(failing_grades), False, np.nan),
+        ),
+        index=out.index,
+        dtype="object",
+    )
+
+    # Pass/fail from flag (drives credit rules)
+    pff = pd.Series(
+        np.where(
+            pf.isin(pass_flags), True, np.where(pf.isin(fail_flags), False, np.nan)
+        ),
+        index=out.index,
+        dtype="object",
+    )
+
+    # Credit rules (PF-based only)
+    rows_with_earned_with_failing_pf = (pff == False) & credits.notna() & (credits > 0)
+    rows_with_no_credits_with_passing = (pff == True) & credits.notna() & (credits == 0)
+
+    # Grade vs PF disagreement (only where both known)
+    rows_with_grade_pf_disagree = pfg.notna() & pff.notna() & (pfg != pff)
+
+    # Collect anomalies
+    mask = (
+        rows_with_earned_with_failing_pf
+        | rows_with_no_credits_with_passing
+        | rows_with_grade_pf_disagree
+    )
+    anomalies = out.loc[mask].copy()
+    anomalies["earned_with_failing_grade"] = rows_with_earned_with_failing_pf.loc[
+        anomalies.index
+    ]
+    anomalies["no_credits_with_passing_grade"] = rows_with_no_credits_with_passing.loc[
+        anomalies.index
+    ]
+    anomalies["grade_pf_disagree"] = rows_with_grade_pf_disagree.loc[anomalies.index]
+
+    # Summary
+    summary = pd.DataFrame(
+        {
+            "earned_with_failing_grade": [int(rows_with_earned_with_failing_pf.sum())],
+            "no_credits_with_passing_grade": [
+                int(rows_with_no_credits_with_passing.sum())
+            ],
+            "grade_pf_disagree": [int(rows_with_grade_pf_disagree.sum())],
+            "total_anomalous_rows": [int(mask.sum())],
+        }
+    )
+
+    return anomalies, summary
+
+
+def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") -> None:
+    """
+    Logs value counts of the 'grade' column and flags if 'M' grades exceed 5%.
+
+    Args:
+        df (pd.DataFrame): The course or student dataset.
+        grade_col (str): Name of the grade column to analyze (default is "grade").
+
+    Logs:
+        - Value counts for all grades
+        - Percentage of 'M' grades
+        - Warning if 'M' grades exceed 5% of all non-null grades
+    """
+    if grade_col not in df_course.columns:
+        LOGGER.warning("Column '%s' not found in DataFrame.", grade_col)
+        return
+
+    grade_counts = df_course[grade_col].value_counts(dropna=False).sort_index()
+    total_grades = df_course[grade_col].notna().sum()
+
+    LOGGER.info("Grade value counts:\n%s", grade_counts.to_string())
+
+    if "M" in grade_counts.index and total_grades > 0:
+        m_count = grade_counts["M"]
+        m_pct = (m_count / total_grades) * 100
+
+        if m_pct > 5:
+            LOGGER.warning(
+                "High proportion of 'M' grades: %d (%.1f%% of non-null grades). Consider reaching out to schoool for additional information.",
+                m_count,
+                m_pct,
+            )
+        else:
+            LOGGER.info("'M' grades: %d (%.1f%% of non-null grades).", m_count, m_pct)
+    else:
+        LOGGER.info("'M' grade not found or no valid grade data available.")
+
+
+def check_variable_missingness(
+    df: pd.DataFrame,
+    var_list: list[str],
+    null_threshold_pct: float = 50.0,
+) -> None:
+    """
+    Log missingness diagnostics for variables.
+
+    For each variable in `var_list`, this function:
+    - Verifies the column exists in the DataFrame.
+    - Logs the percentage distribution of all values, including NaNs.
+    - Flags variables whose percentage of missing values meets or exceeds
+      the specified null threshold.
+
+    This function is intended for exploratory data validation and bias auditing.
+    It does not modify the input DataFrame and does not return any values.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Input DataFrame containing bias-related variables to be checked.
+    var_list : list of str, optional
+        List of column names to inspect for value distribution and missingness.
+    null_threshold_pct : float, optional
+        Percentage threshold for missing values at or above which a warning
+        is logged. Default is 50.0.
+
+    Returns
+    -------
+    None
+        All results are reported via logging.
+    """
+
+    LOGGER.info(" Missing Variable Check: ")
+
+    for var in var_list:
+        if var not in df.columns:
+            LOGGER.warning(f"\n⚠️  MISSING COLUMN: '{var}' not found in DataFrame")
+            continue
+
+        LOGGER.info(f"\n--- {var} ---")
+
+        pct_counts = (
+            df[var].value_counts(dropna=False, normalize=True).mul(100).round(2)
+        )
+
+        null_pct = 0.0
+
+        for value, pct in pct_counts.items():
+            if pd.isna(value):
+                label = "NaN"
+                null_pct = pct
+            else:
+                label = value
+            LOGGER.info(f"{label}: {pct}%")
+
+        if null_pct >= null_threshold_pct:
+            LOGGER.warning(
+                f"⚠️  NOTE: >={null_threshold_pct}% missingness in '{var}' "
+                f"({null_pct}% nulls; threshold = {null_threshold_pct}%)"
+            )
+
+
+def check_bias_variables(
+    df: pd.DataFrame,
+    bias_vars: list[str] | None = None,
+) -> None:
+    if bias_vars is None:
+        bias_vars = DEFAULT_BIAS_VARS
+    LOGGER.info("Check Bias Variables Missingness")
+    check_variable_missingness(df, bias_vars)

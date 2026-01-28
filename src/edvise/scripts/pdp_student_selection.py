@@ -21,10 +21,16 @@ print("sys.path:", sys.path)
 from edvise import student_selection
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
+from edvise.shared.logger import (
+    resolve_run_path,
+    local_fs_path,
+    init_file_logging,
+)
+from edvise.shared.validation import (
+    require,
+    warn_if,
+)
 
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
 
@@ -35,22 +41,46 @@ class StudentSelectionTask:
         self.args = args
         self.cfg = read_config(self.args.config_file_path, schema=PDPProjectConfig)
 
+        require(
+            self.cfg.preprocessing is not None
+            and self.cfg.preprocessing.selection is not None,
+            "cfg.preprocessing must be configured.",
+        )
+
     def run(self):
         """Execute the student selection task."""
-        if self.args.job_type == "training":
-            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
-        elif self.args.job_type == "inference":
-            if self.cfg.model.run_id is None:
-                raise ValueError("cfg.model.run_id must be set for inference runs.")
-            current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
-        else:
-            raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+        # Ensure correct folder: training or inference
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
+        current_run_path_local = local_fs_path(current_run_path)
+        os.makedirs(current_run_path_local, exist_ok=True)
+
         # Load the student-term data
-        df_student_terms = pd.read_parquet(f"{current_run_path}/student_terms.parquet")
+        st_terms_path = os.path.join(current_run_path, "student_terms.parquet")
+        st_terms_path_local = local_fs_path(st_terms_path)
+        if not os.path.exists(st_terms_path_local):
+            raise FileNotFoundError(
+                f"Missing student_terms.parquet at: {st_terms_path} (local: {st_terms_path_local})"
+            )
+        df_student_terms = pd.read_parquet(st_terms_path_local)
 
         # Pull selection criteria and ID column(s)
         student_criteria = self.cfg.preprocessing.selection.student_criteria
         student_id_col = self.cfg.student_id_col
+
+        missing_criteria_cols = [
+            c for c in student_criteria.keys() if c not in df_student_terms.columns
+        ]
+        require(
+            not missing_criteria_cols,
+            f"Selection criteria columns missing from student_terms: {missing_criteria_cols}",
+        )
+
+        warn_if(
+            len(student_criteria) == 0,
+            "No student_criteria provided; selection will likely return all students.",
+        )
 
         # Select students
         df_selected_students = (
@@ -61,10 +91,55 @@ class StudentSelectionTask:
             )
         )
 
-        # Save to parquet
-        df_selected_students.to_parquet(
-            f"{current_run_path}/selected_students.parquet", index=True
+        # --- Output sanity checks ---
+        warn_if(df_selected_students.empty, "Student selection returned 0 students.")
+
+        # If IDs are stored in the index (common if you return a Series / set-indexed DF)
+        if student_id_col in df_selected_students.columns:
+            nulls = int(df_selected_students[student_id_col].isna().sum())
+            require(
+                nulls == 0,
+                f"selected_students has {nulls} null {student_id_col} values.",
+            )
+            dup = int(df_selected_students.duplicated(subset=[student_id_col]).sum())
+            require(
+                dup == 0,
+                f"selected_students has {dup} duplicate {student_id_col} values.",
+            )
+        else:
+            # ID is in index
+            require(
+                df_selected_students.index.isna().sum() == 0,
+                f"selected_students index has null {student_id_col} values.",
+            )
+            require(
+                not df_selected_students.index.has_duplicates,
+                f"selected_students index has duplicate {student_id_col} values.",
+            )
+
+        # Coverage warning (selection too restrictive?)
+        n_total = df_student_terms[student_id_col].nunique(dropna=True)
+        n_selected = (
+            df_selected_students[student_id_col].nunique(dropna=True)
+            if student_id_col in df_selected_students.columns
+            else df_selected_students.index.nunique()
         )
+        coverage = n_selected / max(1, n_total)
+        logging.info(
+            "Student selection coverage: %.1f%% (%d/%d)",
+            100 * coverage,
+            n_selected,
+            n_total,
+        )
+
+        warn_if(
+            coverage < 0.10 and n_total >= 100,
+            f"Selection coverage is very low (<10%) with {n_total} students. Criteria may be too restrictive or mismatched to data.",
+        )
+
+        # Save to parquet
+        out_path = os.path.join(current_run_path, "selected_students.parquet")
+        df_selected_students.to_parquet(local_fs_path(out_path), index=True)
         logging.info(f"Saved {len(df_selected_students)} selected students.")
 
 
@@ -90,4 +165,19 @@ if __name__ == "__main__":
     #     logging.info("Using default schema")
 
     task = StudentSelectionTask(args)
+    # Attach per-run file logging under the resolved run folder
+    log_path = init_file_logging(
+        args,
+        task.cfg,
+        logger_name=__name__,
+        log_file_name="pdp_student_selection.log",
+    )
+    logging.info("Logs will be written to %s", log_path)
     task.run()
+    # Ensure logs are flushed
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()

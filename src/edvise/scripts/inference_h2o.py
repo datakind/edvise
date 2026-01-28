@@ -46,6 +46,11 @@ from edvise.configs.pdp import PDPProjectConfig
 from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session
 from edvise.modeling.inference import top_n_features, features_box_whiskers_table
+from edvise.shared.logger import resolve_run_path, local_fs_path
+from edvise.shared.validation import (
+    validate_tables_exist,
+    ExpectedTable,
+)
 
 # Shared predictions pipeline (your extracted module)
 from edvise.scripts.predictions_h2o import (
@@ -113,6 +118,35 @@ class ModelInferenceTask:
             self.model_experiment_id,
         )
 
+    def validate_inference_tables(
+        self,
+        *,
+        catalog: str,
+        institution_id: str,
+        run_id: str,
+    ) -> None:
+        silver_schema = f"{catalog}.{institution_id}_silver"
+        inference_tables = [
+            ExpectedTable(
+                f"{silver_schema}.inference_{run_id}_features_with_most_impact",
+                "inference features with most impact (silver)",
+            ),
+            ExpectedTable(
+                f"{silver_schema}.inference_{run_id}_shap_feature_importance",
+                "inference shap table (silver)",
+            ),
+            ExpectedTable(
+                f"{silver_schema}.inference_{run_id}_support_overview",
+                "inference support overview table (silver)",
+            ),
+            ExpectedTable(
+                f"{silver_schema}.inference_{run_id}_box_plot_table",
+                "inference box plot table (silver)",
+            ),
+        ]
+
+        validate_tables_exist(self.spark_session, inference_tables)
+
     def write_delta(
         self,
         df: pd.DataFrame,
@@ -131,6 +165,12 @@ class ModelInferenceTask:
         logging.info("%s data written to: %s", table_name_suffix, table_path)
 
     def run(self) -> None:
+        # Enforce inference mode
+        if getattr(self.args, "job_type", "inference") != "inference":
+            raise ValueError(
+                "ModelInferenceTask must be run with --job_type inference."
+            )
+
         if self.cfg.modeling is None or self.cfg.modeling.training is None:
             raise ValueError("Missing section of the config: modeling.training")
         if self.cfg.preprocessing is None:
@@ -144,21 +184,29 @@ class ModelInferenceTask:
 
         if self.cfg.model is None or self.cfg.model.run_id is None:
             raise ValueError("cfg.model.run_id must be set for inference runs.")
-        current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
+        # Use canonical per-run folder: <silver>/<run_id>/inference/
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
+        current_run_path_local = local_fs_path(current_run_path)
 
-        # 1) Load UC model metadata (run_id + experiment_id)
+        logging.info("Loading UC model metadata (run_id + experiment_id)")
         self.load_mlflow_model_metadata()
         assert self.model_run_id and self.model_experiment_id
 
-        # 2) Read the processed dataset
-        df_processed = dataio.read.read_parquet(
-            f"{current_run_path}/preprocessed.parquet"
-        )
+        logging.info("Reading the processed dataset")
+        preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
+        preproc_path_local = local_fs_path(preproc_path)
+        if not os.path.exists(preproc_path_local):
+            raise FileNotFoundError(
+                f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
+            )
+        df_processed = dataio.read.read_parquet(preproc_path_local)
 
-        # 3) Notify via email
+        logging.info("Sending kickoff email")
         self._send_kickoff_email()
 
-        # 4) Configure + call the shared predictions pipeline
+        logging.info("Configuring + calling the shared predictions pipeline")
         inf = self.cfg.inference
         min_prob_pos_label = (
             0.5
@@ -203,7 +251,7 @@ class ModelInferenceTask:
             df_inference=df_processed,
         )
 
-        # 5) Build + write the "predicted_dataset" table
+        logging.info("Building & writing the 'predicted_dataset' table")
         predicted_df = pd.DataFrame(
             {
                 self.cfg.student_id_col: out.unique_ids.values,
@@ -222,7 +270,8 @@ class ModelInferenceTask:
                 "support_score": out.pred_probs,
             }
         )
-        # 6) Create FE tables
+
+        logging.info("Creating FE tables")
         inference_features_with_most_impact = top_n_features(
             grouped_features=out.grouped_features,
             unique_ids=out.unique_ids,
@@ -236,7 +285,7 @@ class ModelInferenceTask:
             features_table_path=features_table_path,
         )
 
-        # 7) Write FE tables
+        logging.info("Writing FE tables")
         tables = {
             f"inference_{self.args.db_run_id}_features_with_most_impact": (
                 inference_features_with_most_impact,
@@ -258,6 +307,13 @@ class ModelInferenceTask:
 
         for suffix, (df, label) in tables.items():
             self.write_delta(df, suffix, label)
+
+        logging.info("Validating inference tables were created for FE")
+        self.validate_inference_tables(
+            catalog=self.args.DB_workspace,
+            institution_id=self.cfg.institution_id,
+            run_id=self.args.db_run_id,  # NOTE: using inference job ID here as the "run id"
+        )
 
         # 8) Export a CSV of the main “inference_output” (use top_features_result here)
         self._export_csv_with_spark(
@@ -311,6 +367,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--DK_CC_EMAIL", type=str, required=True)
     parser.add_argument("--features_table_path", type=str, required=False)
     parser.add_argument("--ds_run_as", type=str, required=False)
+    parser.add_argument(
+        "--job_type", type=str, choices=["inference"], default="inference"
+    )
     return parser.parse_args()
 
 

@@ -60,9 +60,7 @@ def register_metric_sections(card, registry):
         will still print out how many experiments were run but the sample weight details are optional, depending
         on where a column with a substring of "sample_weight" exists in the training data.
         """
-        platform = (
-            "H2O AutoML" if card.cfg.model.framework == "h2o" else "Databricks AutoML"
-        )
+        platform = "H2O AutoML"
         used_weights = any(
             col.startswith("sample_weight") for col in card.training_data.columns
         )
@@ -75,12 +73,12 @@ def register_metric_sections(card, registry):
         if isinstance(num_runs, int) and num_runs > 0:
             mlops_note = (
                 f"{card.format.indent_level(1)}- Utilizing {platform}, "
-                f"we initiated an MLOps pipeline for data processing and model experimentation, "
-                f"processing {num_runs} different machine-learning models to optimize our model."
+                f"we built a machine learning pipeline for data preprocessing, model experimentation, and evaluation. "
+                f"We trained {num_runs} models before choosing one final, optimized model."
             )
         else:
             mlops_note = (
                 f"{card.format.indent_level(1)}- Utilizing {platform}, "
-                f"we initiated an MLOps pipeline for data processing and model experimentation."
+                f"we built a machine learning pipeline for data preprocessing, model experimentation, and evaluation."
             )
         return "\n".join(filter(None, [mlops_note, sw_note]))

@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import pytest
 
 from edvise.feature_generation import term
@@ -178,3 +179,115 @@ def test_term_in_subset(df, terms_subset, term_col, exp):
     obs = term.term_in_subset(df, terms_subset=terms_subset, term_col=term_col)
     assert isinstance(obs, pd.Series)
     assert pd.testing.assert_series_equal(obs, exp, check_names=False) is None
+
+
+def test_extract_year_season():
+    term_data = pd.DataFrame(
+        {
+            "term": ["2022SP", "2019S1", np.nan],
+            0: [2022, 2019, np.nan],
+            1: ["SP", "S1", np.nan],
+        }
+    )
+    result = term.extract_year_season(term_data["term"])
+    assert result.tail(1).isna().all().all()
+    assert result[0].head(2).tolist() == term_data[0].head(2).tolist()
+    assert result[1].head(2).tolist() == term_data[1].head(2).tolist()
+
+
+@pytest.mark.parametrize(
+    "invalid_term",
+    ["20223SP", "202FA", "2010FAA"],
+    ids=["5 digit year", "3 digit year", "3 character season"],
+)
+def test_extract_year_season_raises_exception(invalid_term):
+    invalid_df = pd.DataFrame({"term": [invalid_term]})
+    with pytest.raises(Exception):
+        term.extract_year_season(invalid_df["term"])
+
+
+@pytest.mark.parametrize(
+    "year,season,expected_date",
+    [
+        ("2011-12", "Fall", "12-01-2011"),
+        ("2011-12", "Spring", "06-01-2012"),
+        ("2011-12", "Summer", "08-01-2012"),
+        ("2011-12", "Winter", "02-01-2012"),
+    ],
+)
+def test_create_term_end_date(year, season, expected_date):
+    assert term.create_term_end_date(year, season) == pd.to_datetime(expected_date)
+
+
+def test_create_term_end_date_raises_exception():
+    with pytest.raises(Exception):
+        term.create_term_end_date("2011-12", "Invalid Season")
+
+
+def test_create_terms_lkp():
+    max_year = 2015
+    min_year = 2010
+    possible_seasons = pd.DataFrame(
+        {"season": ["Fall", "Winter", "Spring", "S1", "S2"], "order": [1, 2, 3, 4, 5]}
+    )
+    terms_lkp = term.create_terms_lkp(min_year, max_year, possible_seasons)
+    assert (
+        terms_lkp.shape[0]
+        == (max_year - min_year + 1) * possible_seasons.shape[0]
+        == terms_lkp.term_rank.max()
+    )
+    assert list(terms_lkp.columns) == [
+        "academic_year",
+        "season",
+        "order",
+        "term_order",
+        "calendar_year",
+        "term",
+        "term_end_date",
+        "term_rank",
+    ]
+    assert terms_lkp.term_rank.min() == 1
+
+
+def test_add_term_order_with_extended_custom_season_map_sessions():
+    custom_map = {
+        "Spring": 1,
+        "Summer Session 1": 4,
+        "Summer Session 2": 5,
+        "Fall": 6,
+    }
+
+    df = pd.DataFrame(
+        {
+            "term": [
+                "Summer Session 1 2020",
+                "Summer Session 2 2020",
+                "Spring 2020",
+                "Fall 2020",
+            ]
+        }
+    )
+
+    result = term.add_term_order(df, season_order_map=custom_map)
+
+    # Season labels are pretty-printed from normalized keys
+    assert list(result["season"]) == [
+        "Summer Session 1",
+        "Summer Session 2",
+        "Spring",
+        "Fall",
+    ]
+
+    # Season orders follow our custom map
+    term_to_order = dict(zip(result["term"], result["season_order"]))
+    assert term_to_order["Spring 2020"] == 1
+    assert term_to_order["Summer Session 1 2020"] == 4
+    assert term_to_order["Summer Session 2 2020"] == 5
+    assert term_to_order["Fall 2020"] == 6
+
+    # term_order uses year * 10 + season_order
+    term_to_term_order = dict(zip(result["term"], result["term_order"]))
+    assert term_to_term_order["Spring 2020"] == 2020 * 10 + 1
+    assert term_to_term_order["Summer Session 1 2020"] == 2020 * 10 + 4
+    assert term_to_term_order["Summer Session 2 2020"] == 2020 * 10 + 5
+    assert term_to_term_order["Fall 2020"] == 2020 * 10 + 6

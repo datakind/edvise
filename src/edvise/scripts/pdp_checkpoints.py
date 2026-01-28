@@ -21,6 +21,13 @@ print("sys.path:", sys.path)
 from edvise import checkpoints
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.dataio.read import read_config
+from edvise.shared.logger import (
+    local_fs_path,
+    resolve_run_path,
+    init_file_logging,
+)
+
+from edvise.shared.validation import require
 
 from edvise.configs.pdp import (
     CheckpointNthConfig,
@@ -31,14 +38,8 @@ from edvise.configs.pdp import (
     CheckpointLastInEnrollmentYearConfig,
 )
 
-# ---- Configure console logging right away (file handler attached later) ----
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+
 logging.getLogger("py4j").setLevel(logging.WARNING)
-LOGGER = logging.getLogger(__name__)
 
 
 class PDPCheckpointsTask:
@@ -71,6 +72,19 @@ class PDPCheckpointsTask:
         # sort_cols: str | list[str] in schema; most functions accept list[str] or str.
         sort_cols = cp.sort_cols
         include_cols = cp.include_cols
+
+        sort_cols_list = [sort_cols] if isinstance(sort_cols, str) else list(sort_cols)
+        missing = [c for c in sort_cols_list if c not in df_student_terms.columns]
+        require(
+            not missing, f"Checkpoint sort_cols not found in student_terms: {missing}"
+        )
+
+        if include_cols:
+            missing_inc = [c for c in include_cols if c not in df_student_terms.columns]
+            require(
+                not missing_inc,
+                f"Checkpoint include_cols not found in student_terms: {missing_inc}",
+            )
 
         # Prefer isinstance() to narrow the union:
         if isinstance(cp, CheckpointNthConfig):
@@ -134,51 +148,54 @@ class PDPCheckpointsTask:
 
         raise ValueError(f"Unknown checkpoint type: {cp.type_}")
 
-    def _local_fs_path(self, p: str) -> str:
-        return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
-
     def run(self):
         """Executes the data preprocessing pipeline."""
-        if self.args.job_type == "training":
-            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
-        elif self.args.job_type == "inference":
-            if self.cfg.model.run_id is None:
-                raise ValueError("cfg.model.run_id must be set for inference runs.")
-            current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
-        else:
-            raise ValueError(f"Unsupported job_type: {self.args.job_type}")
+        # Ensure correct folder: training or inference
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
+        # Use local path for reading/writing so DBFS is handled correctly
+        current_run_path_local = local_fs_path(current_run_path)
+        os.makedirs(current_run_path_local, exist_ok=True)
 
-        # --- Add file logging handler EARLY ---
-        local_run_path = self._local_fs_path(current_run_path)
-        os.makedirs(local_run_path, exist_ok=True)
-        log_file_path = os.path.join(local_run_path, "pdp_checkpoint.log")
-
-        # Avoid adding duplicate handlers if run() is called multiple times
-        root_logger = logging.getLogger()
-        if not any(
-            isinstance(h, logging.FileHandler)
-            and getattr(h, "baseFilename", None) == os.path.abspath(log_file_path)
-            for h in root_logger.handlers
-        ):
-            fh = logging.FileHandler(log_file_path, mode="w")
-            fh.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
+        student_terms_path = os.path.join(current_run_path, "student_terms.parquet")
+        student_terms_path_local = local_fs_path(student_terms_path)
+        if not os.path.exists(student_terms_path_local):
+            raise FileNotFoundError(
+                f"student_terms.parquet not found at: {student_terms_path} (local: {student_terms_path_local})"
             )
-            root_logger.addHandler(fh)
-            LOGGER.info(
-                "File logging initialized. Logs will be saved to: %s", log_file_path
-            )
+        df_student_terms = pd.read_parquet(student_terms_path_local)
 
-        df_student_terms = pd.read_parquet(f"{current_run_path}/student_terms.parquet")
+        # --- High-level input sanity ---
+        student_id_col = self.cfg.student_id_col
+        require(
+            student_id_col in df_student_terms.columns,
+            f"student_terms missing {student_id_col}",
+        )
+        require(
+            df_student_terms[student_id_col].isna().sum() == 0,
+            f"student_terms has null {student_id_col}",
+        )
 
+        # --- Generate checkpoint ---
         df_ckpt = self.checkpoint_generation(df_student_terms)
 
-        cohort_counts = df_ckpt["cohort"].value_counts(dropna=False).sort_index()
-        logging.info("Checkpoint Cohort breakdown:\n%s", cohort_counts.to_string())
+        # --- Check that generated checkpoint dataset isn't empty and has no duplicate student_ids ---
+        require(len(df_ckpt) > 0, "Checkpoint generation produced 0 rows.")
 
-        df_ckpt.to_parquet(f"{current_run_path}/checkpoint.parquet", index=False)
+        dup = df_ckpt.duplicated(subset=[student_id_col]).sum()
+        require(
+            dup == 0, f"Checkpoint output has {dup} duplicate {student_id_col} rows."
+        )
+
+        cohort_counts = (
+            df_ckpt[["cohort", "cohort_term"]].value_counts(dropna=False).sort_index()
+        )
+        logging.info("Checkpoint Cohort Term breakdown:\n%s", cohort_counts.to_string())
+
+        out_ckpt_path = os.path.join(current_run_path, "checkpoint.parquet")
+        df_ckpt.to_parquet(local_fs_path(out_ckpt_path), index=False)
+        logging.info(f"Checkpoint log & file saved to {out_ckpt_path}")
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -206,6 +223,14 @@ if __name__ == "__main__":
     # except Exception:
     #     logging.info("Running task with default schema")
     task = PDPCheckpointsTask(args)
+    # Attach per-run file logging (writes under the resolved run folder)
+    log_path = init_file_logging(
+        args,
+        task.cfg,
+        logger_name=__name__,
+        log_file_name="pdp_checkpoint.log",
+    )
+    logging.info("Logs will be written to %s", log_path)
     task.run()
 
     for h in logging.getLogger().handlers:

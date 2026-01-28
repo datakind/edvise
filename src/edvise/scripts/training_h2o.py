@@ -26,8 +26,21 @@ from mlflow.tracking import MlflowClient
 
 from edvise import modeling, dataio, configs
 from edvise.modeling.h2o_ml import utils as h2o_utils
+from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise import utils as edvise_utils
+from edvise.shared.logger import (
+    resolve_run_path,
+    local_fs_path,
+    init_file_logging,
+)
+from edvise.shared.validation import (
+    require,
+    require_attr,
+    validate_tables_exist,
+    ExpectedTable,
+)
+
 
 from edvise.scripts.predictions_h2o import (
     PredConfig,
@@ -35,12 +48,6 @@ from edvise.scripts.predictions_h2o import (
     RunType,
     run_predictions,
 )
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logging.getLogger("py4j").setLevel(logging.WARNING)
-
-# comment to test
 
 
 class TrainingParams(t.TypedDict, total=False):
@@ -54,6 +61,7 @@ class TrainingParams(t.TypedDict, total=False):
     primary_metric: str
     timeout_minutes: int
     exclude_cols: t.List[str]
+    exclude_frameworks: t.Optional[t.List[str]]
     target_name: str
     checkpoint_name: str
     workspace_path: str
@@ -146,8 +154,6 @@ class TrainingTask:
         return df_modeling
 
     def train_model(self, df_modeling: pd.DataFrame) -> str:
-        # KAYLA TODO: figure out how we want to create this - create a user email field in yml to deploy?
-        # Use run as for now - this will work until we set this as a service account
         workspace_path = f"/Users/{self.args.ds_run_as}"
 
         if self.cfg.modeling is None or self.cfg.modeling.training is None:
@@ -193,6 +199,7 @@ class TrainingTask:
             "primary_metric": training_cfg.primary_metric,
             "timeout_minutes": timeout_minutes,
             "exclude_cols": sorted(exclude_cols),
+            "exclude_frameworks": training_cfg.exclude_frameworks,
             "target_name": preprocessing_cfg.target.name,
             "checkpoint_name": preprocessing_cfg.checkpoint.name,
             "workspace_path": workspace_path,
@@ -354,7 +361,7 @@ class TrainingTask:
 
             # read modeling parquet for roc table
             modeling_df = dataio.read.read_parquet(
-                f"{current_run_path}/modeling.parquet"
+                local_fs_path(os.path.join(current_run_path, "modeling.parquet"))
             )
 
             # training-only logging
@@ -379,6 +386,105 @@ class TrainingTask:
                     mlflow.end_run()
                 except Exception:
                     pass
+
+    def list_all_mlflow_artifacts(
+        self, client: MlflowClient, run_id: str, prefix: str = ""
+    ) -> set[str]:
+        out: set[str] = set()
+        stack = [prefix]
+        while stack:
+            p = stack.pop()
+            for a in client.list_artifacts(run_id, path=p):
+                if getattr(a, "is_dir", False):
+                    stack.append(a.path)
+                else:
+                    out.add(a.path)
+        return out
+
+    def validate_model_card_artifacts(
+        self,
+        *,
+        card_cls: type["ModelCard[t.Any]"],
+        mlflow_client: MlflowClient | None = None,
+        validate_training_data_extract: bool = True,
+    ) -> None:
+        """
+        Card-aware model-card prerequisite validation.
+
+        Requires:
+        - cfg.model.run_id + cfg.model.experiment_id exist
+        - all required plot artifacts exist (card_cls.REQUIRED_PLOT_ARTIFACTS)
+        - optionally: training data can be extracted (for card.extract_training_data)
+        """
+        cfg = self.cfg
+        client = mlflow_client or self.client
+
+        model_cfg: t.Any = require_attr(cfg, "model", "cfg.model must be set.")
+
+        run_id: str = require_attr(model_cfg, "run_id", "cfg.model.run_id must be set.")
+        experiment_id: str = require_attr(
+            model_cfg, "experiment_id", "cfg.model.experiment_id must be set."
+        )
+
+        run_id = model_cfg.run_id
+        experiment_id = model_cfg.experiment_id
+
+        required_any = getattr(card_cls, "REQUIRED_PLOT_ARTIFACTS", None)
+
+        require(
+            isinstance(required_any, list)
+            and len(required_any) > 0
+            and all(isinstance(x, str) for x in required_any),
+            f"{card_cls.__name__} must define REQUIRED_PLOT_ARTIFACTS as a non-empty list[str].",
+        )
+        available = self.list_all_mlflow_artifacts(client, run_id)
+        required = t.cast(list[str], required_any)
+        missing = [p for p in required if p not in available]
+        require(
+            not missing,
+            f"{card_cls.__name__} prerequisites failed: MLflow run '{run_id}' missing required artifacts: {missing}",
+        )
+
+        if validate_training_data_extract:
+            try:
+                df = modeling.h2o_ml.evaluation.extract_training_data_from_model(
+                    experiment_id
+                )
+                require(
+                    df is not None and not df.empty,
+                    f"Extracted training data is empty for experiment '{experiment_id}'.",
+                )
+                split_col = getattr(cfg, "split_col", None)
+                if split_col:
+                    require(
+                        split_col in df.columns,
+                        f"Configured split_col '{split_col}' missing from extracted training data.",
+                    )
+            except Exception as e:
+                raise RuntimeError(
+                    f"{card_cls.__name__} prerequisites failed: unable to extract training data for experiment '{experiment_id}': {e}"
+                )
+
+    def validate_train_tables(
+        self,
+        *,
+        catalog: str,
+        institution_id: str,
+        run_id: str,
+    ) -> None:
+        silver_schema = f"{catalog}.{institution_id}_silver"
+        train_tables = [
+            ExpectedTable(
+                f"{silver_schema}.training_{run_id}_shap_feature_importance",
+                "training SHAP table (silver)",
+            ),
+            ExpectedTable(
+                f"{silver_schema}.training_{run_id}_support_overview",
+                "training support overview (silver)",
+            ),
+        ]
+
+        validate_tables_exist(self.spark_session, train_tables)
 
     def register_model(self):
         model_name = modeling.registration.get_model_name(
@@ -416,18 +522,38 @@ class TrainingTask:
         card.export_to_pdf()
 
     def run(self):
-        """Executes the target computation pipeline and saves result."""
-        current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
+        """Executes the training pipeline and saves result (training only)."""
+        # This task is for training runs only; enforce it explicitly.
+        if getattr(self.args, "job_type", "training") != "training":
+            raise ValueError("TrainingTask must be run with --job_type training.")
+
+        # Ensure correct folder: training or inference
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
+        current_run_path_local = local_fs_path(current_run_path)
+        os.makedirs(current_run_path_local, exist_ok=True)
 
         logging.info("Loading preprocessed data")
-        df_preprocessed = pd.read_parquet(f"{current_run_path}/preprocessed.parquet")
+        preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
+        preproc_path_local = local_fs_path(preproc_path)
+        if not os.path.exists(preproc_path_local):
+            raise FileNotFoundError(
+                f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
+            )
+        df_preprocessed = pd.read_parquet(preproc_path_local)
+
         logging.info("Selecting features")
         df_modeling = self.feature_selection(df_preprocessed)
 
         logging.info("Saving modeling data")
-        df_modeling.to_parquet(f"{current_run_path}/modeling.parquet", index=False)
-        logging.info(f"Modeling file saved to {current_run_path}/modeling.parquet")
+        modeling_path = os.path.join(current_run_path, "modeling.parquet")
+        df_modeling.to_parquet(local_fs_path(modeling_path), index=False)
+        logging.info(f"Modeling file saved to {modeling_path}")
+
         logging.info("Training model")
+        # Convert to pandas nullable dtypes right before training to preserve nullable dtypes prior to sklearn imputation
+        df_modeling = df_modeling.convert_dtypes()
         experiment_id = self.train_model(df_modeling)
 
         logging.info("Evaluating models")
@@ -435,11 +561,21 @@ class TrainingTask:
 
         logging.info("Selecting best model")
         self.select_model(
-            experiment_id, [f"{current_run_path}/{self.args.config_file_name}"]
+            experiment_id, [os.path.join(current_run_path, self.args.config_file_name)]
         )
 
         logging.info("Generating training predictions & SHAP values")
         self.make_predictions(current_run_path=current_run_path)
+
+        logging.info("Validate training tables were created for FE")
+        self.validate_train_tables(
+            catalog=self.args.DB_workspace,
+            institution_id=self.cfg.institution_id,
+            run_id=self.cfg.model.run_id,  # NOTE: using model run ID here as the "run id"
+        )
+
+        logging.info("Validate that model artifacts needed for model card exist")
+        self.validate_model_card_artifacts(card_cls=H2OPDPModelCard)
 
         logging.info("Registering model in UC gold volume")
         model_name = self.register_model()
@@ -447,15 +583,37 @@ class TrainingTask:
         logging.info("Generating model card")
         self.create_model_card(model_name)
 
+        logging.info("Updating pipeline version in config")
+        # Persist the runtime pipeline version (git tag / commit used by the job)
+        if getattr(self.args, "pipeline_version", None):
+            edvise_utils.update_config.update_pipeline_version(
+                config_path=self.args.config_file_path,
+                pipeline_version=self.args.pipeline_version,
+                extra_save_paths=[
+                    os.path.join(current_run_path, self.args.config_file_name)
+                ],
+            )
+        else:
+            logging.info("No pipeline_version provided; skipping config update.")
+
         logging.info("Updating folder name to model id")
-        os.rename(
-            current_run_path, f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
-        )
+        # Rename the RUN ROOT folder (one level up from the 'training' subdir) to model.run_id
+        run_root = os.path.dirname(current_run_path)
+        dest_root = os.path.join(self.args.silver_volume_path, self.cfg.model.run_id)
+        logging.info("Renaming run root:\n  from: %s\n    to: %s", run_root, dest_root)
+        for h in logging.getLogger().handlers:
+            try:
+                h.flush()
+            except Exception:
+                pass
+        logging.shutdown()
+        os.replace(local_fs_path(run_root), local_fs_path(dest_root))
 
 
 def parse_arguments() -> argparse.Namespace:
     """Parses command line arguments."""
     parser = argparse.ArgumentParser(description="H2o training for pipeline.")
+    parser.add_argument("--pipeline_version", type=str, required=False)
     parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
@@ -463,11 +621,15 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--gold_table_path", type=str, required=True)
     parser.add_argument("--config_file_name", type=str, required=True)
+    parser.add_argument("--job_type", type=str, choices=["training"], required=False)
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
+    if not getattr(args, "job_type", None):
+        args.job_type = "training"
+        logging.info("No --job_type passed; defaulting to job_type='training'.")
     # try:
     #     if args.custom_schemas_path:
     #         sys.path.append(args.custom_schemas_path)
@@ -477,4 +639,19 @@ if __name__ == "__main__":
     #     logging.info("Using default schemas")
 
     task = TrainingTask(args)
+    # Attach per-run file logging under the resolved run folder
+    log_path = init_file_logging(
+        args,
+        task.cfg,
+        logger_name=__name__,
+        log_file_name="pdp_training.log",
+    )
     task.run()
+    # --- Final flush & shutdown ---
+    root_logger = logging.getLogger()
+    for h in root_logger.handlers:
+        try:
+            h.flush()
+        except Exception:
+            pass
+    logging.shutdown()

@@ -1,5 +1,3 @@
-## TODO : edit so it works for training or inference (with and without targets)
-
 import typing as t
 import argparse
 import pandas as pd
@@ -25,7 +23,12 @@ from edvise.model_prep import cleanup_features as cleanup, training_params
 from edvise.dataio.read import read_parquet, read_config
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
-
+from edvise.shared.logger import (
+    local_fs_path,
+    resolve_run_path,
+    init_file_logging,
+)
+from edvise.shared.validation import require, warn_if
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,40 +50,62 @@ class ModelPrepTask:
         target_df: pd.DataFrame,
         selected_students: pd.DataFrame,
     ) -> pd.DataFrame:
-        # student id col is reqd in config
+        """
+        Merge checkpoint and target data for the selected students, with logging:
+        1) Which selected students meet the checkpoint
+        2) Which of those have target evaluable
+        """
+        # student id col is read in config
         student_id_col = self.cfg.student_id_col
-        df_labeled = pd.merge(
+
+        # Build a Series of selected IDs with the right column name to merge on
+        selected_ids = pd.Series(selected_students.index, name=student_id_col)
+
+        total_selected = selected_ids.shape[0]
+
+        # Subset 1: selected students who meet the checkpoint
+        df_checkpoint_ok = pd.merge(
             checkpoint_df,
-            pd.Series(selected_students.index, name=student_id_col),
+            selected_ids,
             how="inner",
             on=student_id_col,
         )
-        df_labeled = pd.merge(df_labeled, target_df, how="inner", on=student_id_col)
 
-        target_counts = df_labeled["target"].value_counts(dropna=False)
-        logging.info("Target breakdown (counts):\n%s", target_counts.to_string())
-
-        target_percents = df_labeled["target"].value_counts(
-            normalize=True, dropna=False
-        )
-        logging.info("Target breakdown (percents):\n%s", target_percents.to_string())
-
-        cohort_counts = (
-            df_labeled[["cohort", "cohort_term"]]
-            .value_counts(dropna=False)
-            .sort_index()
-        )
-        logging.info(
-            "Cohort & Cohort Term breakdowns (counts):\n%s", cohort_counts.to_string()
+        n_checkpoint_ok = df_checkpoint_ok[student_id_col].nunique()
+        pct_checkpoint_ok = (
+            (n_checkpoint_ok / total_selected * 100) if total_selected else 0.0
         )
 
-        cohort_target_counts = (
-            df_labeled[["cohort", "target"]].value_counts(dropna=False).sort_index()
-        )
-        logging.info(
-            "Cohort Target breakdown (counts):\n%s", cohort_target_counts.to_string()
+        LOGGER.info(
+            "Checkpoint subset: %d/%d criteria-selected students (%.2f%%) meet the checkpoint.",
+            n_checkpoint_ok,
+            total_selected,
+            pct_checkpoint_ok,
         )
 
+        # Subset 2: from those, who can have a target evaluated
+        df_labeled = pd.merge(
+            df_checkpoint_ok,
+            target_df,
+            how="inner",
+            on=student_id_col,
+        )
+
+        require(
+            not df_labeled.empty,
+            "Merge produced 0 labeled rows (checkpoint ∩ selected ∩ target is empty).",
+        )
+
+        n_target_ok = df_labeled[student_id_col].nunique()
+        base_for_target = max(n_checkpoint_ok, 1)  # avoid div by zero
+        pct_target_ok = n_target_ok / base_for_target * 100
+
+        LOGGER.info(
+            "Target-evaluable subset: %d/%d criteria-selected and checkpoint-met students (%.2f%%) can have a target evaluated.",
+            n_target_ok,
+            n_checkpoint_ok,
+            pct_target_ok,
+        )
         return df_labeled
 
     def cleanup_features(self, df_labeled: pd.DataFrame) -> pd.DataFrame:
@@ -137,52 +162,172 @@ class ModelPrepTask:
         return df
 
     def run(self):
-        # Read inputs using custom function
-        current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
-
-        def local_fs_path(p: str) -> str:
-            return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
-
-        # Determine run path and set up a log file alongside outputs
-        local_run_path = local_fs_path(
-            f"{self.args.silver_volume_path}/{self.args.db_run_id}"
+        # Ensure correct folder: training or inference
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
         )
+
+        # Ensure local run path exists
+        local_run_path = local_fs_path(current_run_path)
         os.makedirs(local_run_path, exist_ok=True)
-        log_file_path = os.path.join(local_run_path, "pdp_model_prep.log")
 
-        # Avoid duplicate handlers if run() is called more than once
-        root_logger = logging.getLogger()
-        if not any(
-            isinstance(h, logging.FileHandler)
-            and getattr(h, "baseFilename", None) == os.path.abspath(log_file_path)
-            for h in root_logger.handlers
-        ):
-            fh = logging.FileHandler(log_file_path, mode="w")
-            fh.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
+        # --- Load required inputs (DBFS-safe) ---
+        ckpt_path = os.path.join(current_run_path, "checkpoint.parquet")
+        sel_path = os.path.join(current_run_path, "selected_students.parquet")
+        ckpt_path_local = local_fs_path(ckpt_path)
+        sel_path_local = local_fs_path(sel_path)
+
+        if not os.path.exists(ckpt_path_local):
+            raise FileNotFoundError(
+                f"Missing checkpoint.parquet at: {ckpt_path} (local: {ckpt_path_local})"
             )
-            root_logger.addHandler(fh)
-            LOGGER.info(
-                "File logging initialized. Logs will be saved to: %s", log_file_path
+        if not os.path.exists(sel_path_local):
+            raise FileNotFoundError(
+                f"Missing selected_students.parquet at: {sel_path} (local: {sel_path_local})"
             )
 
-        checkpoint_df = read_parquet(f"{current_run_path}/checkpoint.parquet")
-        target_df = read_parquet(f"{current_run_path}/target.parquet")
-        selected_students = read_parquet(
-            f"{current_run_path}/selected_students.parquet"
+        selected_students = read_parquet(sel_path_local)
+        LOGGER.info(
+            "Loaded selected_students.parquet with shape %s",
+            getattr(selected_students, "shape", None),
+        )
+        checkpoint_df = read_parquet(ckpt_path_local)
+        LOGGER.info(
+            "Loaded checkpoint.parquet with shape %s",
+            getattr(checkpoint_df, "shape", None),
         )
 
-        df_labeled = self.merge_data(checkpoint_df, target_df, selected_students)
-        df_preprocessed = self.cleanup_features(df_labeled)
-        df_preprocessed = self.apply_dataset_splits(df_preprocessed)
-        df_preprocessed = self.apply_sample_weights(df_preprocessed)
+        # target.parquet may be absent during inference; handle gracefully
+        target_df = None
+        target_path = os.path.join(current_run_path, "target.parquet")
+        target_path_local = local_fs_path(target_path)
+        if os.path.exists(target_path_local):
+            try:
+                target_df = read_parquet(target_path_local)
+                LOGGER.info(
+                    "Loaded target.parquet with shape %s",
+                    getattr(target_df, "shape", None),
+                )
+            except Exception as e:
+                LOGGER.warning(
+                    "target.parquet present but failed to read (%s); proceeding without targets.",
+                    e,
+                )
+
+        # Merge & preprocess
+        if target_df is not None:
+            df_labeled = self.merge_data(checkpoint_df, target_df, selected_students)
+            cohort_counts = (
+                df_labeled[["cohort", "cohort_term"]]
+                .value_counts(dropna=False)
+                .sort_index()
+            )
+            logging.info(
+                "Cohort & Cohort Term breakdowns (counts):\n%s",
+                cohort_counts.to_string(),
+            )
+            cohort_target_counts = (
+                df_labeled[["cohort", "target"]].value_counts(dropna=False).sort_index()
+            )
+            logging.info(
+                "Cohort Target breakdown (counts):\n%s",
+                cohort_target_counts.to_string(),
+            )
+            df_preprocessed = self.cleanup_features(df_labeled)
+            # Splits/weights require targets; only apply when present
+            df_preprocessed = self.apply_dataset_splits(df_preprocessed)
+            df_preprocessed = self.apply_sample_weights(df_preprocessed)
+            out_name = "preprocessed.parquet"
+
+            require(
+                not df_preprocessed.empty,
+                "preprocessed.parquet is empty after cleanup/splits/weights.",
+            )
+
+            # Must-have columns
+            require(
+                self.cfg.target_col in df_preprocessed.columns,
+                f"Missing target column '{self.cfg.target_col}' in preprocessed dataset.",
+            )
+            require(
+                (df_preprocessed[self.cfg.target_col].dtype == bool)
+                or (
+                    df_preprocessed[self.cfg.target_col]
+                    .dropna()
+                    .isin([0, 1, True, False])
+                    .all()
+                ),
+                "Target column is not boolean-like after preprocessing.",
+            )
+
+            # Degenerate target (warn)
+            vc = df_preprocessed[self.cfg.target_col].value_counts(dropna=False)
+            warn_if(
+                len(vc) == 1,
+                f"Target is degenerate after preprocessing (all {vc.index[0]}).",
+            )
+
+            # Split sanity
+            split_col = self.cfg.split_col or "split"
+            require(
+                split_col in df_preprocessed.columns,
+                f"Missing split column '{split_col}' after apply_dataset_splits.",
+            )
+            split_fracs = df_preprocessed[split_col].value_counts(
+                normalize=True, dropna=False
+            )
+            warn_if(
+                split_fracs.min() < 0.05,
+                f"One split has <5% of rows: {split_fracs.to_dict()}",
+            )
+
+            # Sample weight sanity
+            sw_col = self.cfg.sample_weight_col or "sample_weight"
+            require(
+                sw_col in df_preprocessed.columns,
+                f"Missing sample weight column '{sw_col}' after apply_sample_weights.",
+            )
+            require(
+                (df_preprocessed[sw_col] > 0).all(), "Sample weights must be positive."
+            )
+
+            LOGGER.info(
+                "Merged target.parquet with selected_students.parquet and checkpoint.parquet into preprocessed.parquet"
+            )
+            LOGGER.info(
+                "preprocessed.parquet with shape %s",
+                getattr(df_preprocessed, "shape", None),
+            )
+            target_counts = df_preprocessed["target"].value_counts(dropna=False)
+            logging.info("Target breakdown (counts):\n%s", target_counts.to_string())
+
+            target_percents = df_preprocessed["target"].value_counts(
+                normalize=True, dropna=False
+            )
+            logging.info(
+                "Target breakdown (percents):\n%s", target_percents.to_string()
+            )
+        else:
+            # Unlabeled path (e.g., inference): merge only checkpoint + selected students, then cleanup
+            student_id_col = self.cfg.student_id_col
+            df_unlabeled = pd.merge(
+                checkpoint_df,
+                pd.Series(selected_students.index, name=student_id_col),
+                how="inner",
+                on=student_id_col,
+            )
+            df_preprocessed = self.cleanup_features(df_unlabeled)
+            out_name = "preprocessed_unlabeled.parquet"
+
+        require(
+            not df_preprocessed.empty, f"Refusing to write empty output: {out_name}"
+        )
 
         # Write output using custom function
+        out_path = os.path.join(current_run_path, out_name)
         write_parquet(
             df_preprocessed,
-            file_path=f"{current_run_path}/preprocessed.parquet",
+            file_path=local_fs_path(out_path),
             index=False,
             overwrite=True,
             verbose=True,
@@ -196,12 +341,26 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
+    parser.add_argument(
+        "--job_type", type=str, choices=["training", "inference"], required=False
+    )
+
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_arguments()
+    if not getattr(args, "job_type", None):
+        args.job_type = "training"
+        logging.info("No --job_type passed; defaulting to job_type='training'.")
     task = ModelPrepTask(args)
+    # Attach per-run file logging (log lives under resolved run folder)
+    log_path = init_file_logging(
+        args,
+        task.cfg,
+        logger_name=__name__,
+        log_file_name="pdp_model_prep.log",
+    )
     task.run()
     for h in logging.getLogger().handlers:
         try:

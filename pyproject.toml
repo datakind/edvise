@@ -1,6 +1,6 @@
 [project]
 name = "edvise"
-version = "0.1.5"
+version = "0.1.9"
 description = "School-agnostic lib for implementing Student Success Tool workflows."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
@@ -31,7 +31,8 @@ dependencies = [
     "types-markdown~=3.8",
     "h2o==3.46.0.7",
     "polars~=0.20",
-    "tomlkit==0.13.3"
+    "tomlkit==0.13.3",
+    "requests==2.32.5",
 ]
 
 [project.urls]
@@ -44,6 +45,7 @@ dev = [
     "mypy~=1.11",
     "pytest~=8.3",
     "ruff~=0.9",
+    "types-requests==2.32.4.20250913",
 ]
 
 [build-system]

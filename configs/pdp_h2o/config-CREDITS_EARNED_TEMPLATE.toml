@@ -10,7 +10,7 @@ pred_col = "pred"
 pred_prob_col = "pred_prob"
 pos_label = true
 random_state = 12345
-pipeline_version = "v0.1.2"
+pipeline_version = "v0.1.9"
 
 [datasets]
 raw_course = "FILE_NAME_COURSE.csv"
@@ -19,38 +19,43 @@ raw_cohort = "FILE_NAME_COHORT.csv"
 [model]
 experiment_id = "EXPERIMENT_ID"
 run_id = "RUN_ID"
-framework = "h2o"
-calibrate_underpred = false
 
 [preprocessing]
 splits = { train = 0.6, test = 0.2, validate = 0.2 }
 sample_class_weight = "balanced"
+# TODO: change to true if school wants otherwise
 include_pre_cohort_courses = false
 
 [preprocessing.features]
 min_passing_grade = 1.0
 min_num_credits_full_time = 12
-course_level_pattern =  '^(?:[A-Z_-]+)?(?P<course_level>\d)\d{2}(?:-?[A-Z\d]+)?$'
+course_level_pattern = '^(?:[A-Z_-]+)?(?P<course_level>\d)\d{2}(?:-?[A-Z\d]+)?$'
 core_terms = ["FALL", "SPRING"]
 key_course_subject_areas = []
 key_course_ids = []
 
 [preprocessing.selection]
-# if fall-to-fall retention, specify cohort_term = "FALL"
-student_criteria = { enrollment_type = "FIRST-TIME", credential_type_sought_year_1 = "ASSOCIATE'S DEGREE", cohort_term = ["FALL", "SPRING"] }
+student_criteria = { enrollment_type = "FIRST-TIME", credential_type_sought_year_1 = "ASSOCIATE'S DEGREE" }
+# TODO: edit based on timelines for full-time vs. part-time students
+intensity_time_limits = { FULL-TIME = [3.0, "year"], PART-TIME = [6.0, "year"] }
 
 [preprocessing.checkpoint]
-name = "end_of_first_term"
-type_ = "first_within_cohort"
-# TODO: edit based on school's preferences for checkpoint; default is core terms only and excluding any pre-cohort terms 
-# NOTE: older schools should use exclude_non_core_terms = false, b/c this is how the function previously operated by default 
-exclude_non_core_terms = true
-exclude_pre_cohort_terms = true
+# TODO: edit based on how many credits need to be earned prior to checkin
+name = "30_credits_earned"
+type_ = "first_at_num_credits_earned"
+min_num_credits = 30.0
+num_credits_col = "cumsum_num_credits_earned"
 
 [preprocessing.target]
-name = "retention"
-type_ = "retention"
-max_academic_year = "2024"
+name = "credits_earned"
+type_ = "credits_earned"
+# TODO: edits based on credits needed for degree awardal 
+min_num_credits = 60.0
+# TODO: edit based on timelines for full-time vs. part-time students
+intensity_time_limits = { FULL-TIME = [3.0, "year"], PART-TIME = [6.0, "year"] }
+# TODO: edit based on number of terms in a year
+num_terms_in_year = 4
+max_term_rank = "infer"
 
 [modeling.feature_selection]
 incomplete_threshold = 0.2
@@ -61,7 +66,7 @@ collinear_threshold = 10.0
 [modeling.training]
 primary_metric = "logloss"
 timeout_minutes = 10
-# exclude_frameworks = ["XGBoost", "GBM"]
+# exclude_frameworks = ["xgboost", "lightgbm"]
 # exclude_cols = []
 
 [modeling.evaluation]
@@ -70,5 +75,4 @@ topn_runs_included = 5
 [inference]
 num_top_features = 5
 min_prob_pos_label = 0.5
-background_data_sample = 500
 cohort = ['fall 2024-25']

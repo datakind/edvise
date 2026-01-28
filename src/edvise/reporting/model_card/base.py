@@ -14,7 +14,7 @@ from importlib.abc import Traversable
 from importlib.resources import files
 
 # internal SST modules
-from ... import dataio, modeling
+from edvise.modeling import h2o_ml
 
 # relative imports in 'reporting' module
 from ..sections import register_sections
@@ -97,10 +97,7 @@ class ModelCard(t.Generic[C]):
                 f"URI, run_id, or experiment_id missing."
             )
 
-        self.model = dataio.models.load_mlflow_model(
-            model_cfg.mlflow_model_uri,
-            model_cfg.framework,
-        )
+        self.model = h2o_ml.utils.load_h2o_model(model_cfg.run_id)
         self.run_id = model_cfg.run_id
         self.experiment_id = model_cfg.experiment_id
 
@@ -127,7 +124,7 @@ class ModelCard(t.Generic[C]):
         """
         Extracts the training data from the MLflow run utilizing SST internal subpackages (modeling).
         """
-        self.modeling_data = modeling.evaluation.extract_training_data_from_model(
+        self.modeling_data = h2o_ml.evaluation.extract_training_data_from_model(
             self.experiment_id
         )
         self.training_data = self.modeling_data
@@ -137,10 +134,7 @@ class ModelCard(t.Generic[C]):
                     f"Configured split_col '{self.cfg.split_col}' is not present in modeling data columns: "
                     f"{list(self.modeling_data.columns)}"
                 )
-            self.training_data = self.modeling_data[
-                self.modeling_data[self.cfg.split_col] == "train"
-            ]
-        self.context["training_dataset_size"] = self.training_data.shape[0]
+        self.context["training_dataset_size"] = self.modeling_data.shape[0]
         self.context["num_runs_in_experiment"] = utils.safe_count_runs(
             self.experiment_id
         )
@@ -227,31 +221,37 @@ class ModelCard(t.Generic[C]):
                 "Model Comparison",
                 "model_comparison.png",
                 "125mm",
+                "Model Comparison by Architecture",
             ),
             "test_calibration_curve": (
                 "Test Calibration Curve",
                 "calibration/test_calibration.png",
                 "125mm",
+                "Test Calibration Curve",
             ),
             "test_roc_curve": (
                 "Test ROC Curve",
                 "test_roc_curve_plot.png",
                 "125mm",
+                "Test ROC Curve",
             ),
             "test_confusion_matrix": (
                 "Test Confusion Matrix",
                 "test_confusion_matrix.png",
-                "125mm",
+                "175mm",
+                "Test Confusion Matrix",
             ),
             "test_histogram": (
                 "Test Histogram",
                 "preds/test_hist.png",
                 "125mm",
+                "Test Support Score Histogram",
             ),
             "feature_importances_by_shap_plot": (
                 "Feature Importances",
                 "feature_importances_by_shap_plot.png",
                 "150mm",
+                "Feature Importances by SHAP on Test Data",
             ),
         }
         return {
@@ -261,9 +261,10 @@ class ModelCard(t.Generic[C]):
                 artifact_path=path,
                 local_folder=self.assets_folder,
                 fixed_width=width,
+                caption=caption,
             )
             or ""
-            for key, (description, path, width) in plots.items()
+            for key, (description, path, width, caption) in plots.items()
         }
 
     def render(self):
@@ -292,11 +293,28 @@ class ModelCard(t.Generic[C]):
         """
         Styles card using CSS.
         """
-        # Convert Markdown to HTML
-        html_content = markdown.markdown(
-            self.md_content,
-            extensions=["extra", "tables", "sane_lists", "toc", "smarty"],
+        # Build a Markdown renderer with the right extensions
+        md = markdown.Markdown(
+            extensions=[
+                "extra",  # code, tables, etc.
+                "tables",
+                "sane_lists",
+                "attr_list",  # {#id} and {.class} on headings
+                "toc",  # [TOC] + internal anchors
+                "smarty",
+            ],
+            extension_configs={
+                "toc": {
+                    "permalink": False,
+                    "toc_depth": "2-6",
+                }
+            },
         )
+
+        # Convert Markdown text → HTML string
+        html_body = md.convert(
+            self.md_content
+        )  # ← this is a str, not a Markdown object
 
         # Load CSS from external file
         css_path = self._resolve("edvise.reporting.template.styles", "model_card.css")
@@ -304,29 +322,25 @@ class ModelCard(t.Generic[C]):
             style = f"<style>\n{f.read()}\n</style>"
 
         # Prepend CSS to HTML
-        self.html_content = style + html_content
+        self.html_content = style + html_body
         LOGGER.info("Applied CSS styling")
 
     def export_to_pdf(self):
         """
-        Export CSS styled HTML to PDF utilizing weasyprint for conversion.
-        Also logs the card, so it can be accessed as a PDF in the run artifacts.
+        Exports markdown to weasyprint with CSS styling.
         """
-        # Styles card using model_card.css
         self.style_card()
 
-        # Define PDF path
+        # Images are relative to the generated markdown/html location
         base_path = os.path.dirname(self.output_path) or "."
         self.pdf_path = self.output_path.replace(".md", ".pdf")
 
-        # Render PDF
         try:
             HTML(string=self.html_content, base_url=base_path).write_pdf(self.pdf_path)
             LOGGER.info(f"✅ PDF model card saved to {self.pdf_path}")
         except Exception as e:
             raise RuntimeError(f"Failed to create PDF: {e}")
 
-        # Save model card into gold volume for access web app compatibility
         utils.save_card_to_gold_volume(
             filename=self.pdf_path,
             catalog=self.catalog,

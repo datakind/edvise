@@ -1,33 +1,39 @@
 """Utility functions for sending emails in Databricks."""
 
 import smtplib
+import textwrap
 
 from email.message import EmailMessage
 
 SMTP_SERVER = "smtp.mandrillapp.com"
 # TODO: switch port?
 SMTP_PORT = 587  # or 465 for SSL
-COMPLETION_SUCCESS_SUBJECT = "Edvise: Inference Results Available"
-COMPLETION_SUCCESS_MESSAGE = """\
+# NOTE: we are using "prediction" instead of "inference" since it's more intuitive for end users
+COMPLETION_SUCCESS_SUBJECT = "Edvise: Prediction Results Available"
+COMPLETION_SUCCESS_MESSAGE = textwrap.dedent(
+    """\
     Hello!
     
-    Your most recent inference results are now available in Edvise. Please log in and download them at your earliest convenience. As a reminder, you should have the StudyID appended file from the NSC SFTP to reconnect our inferences to your students and begin supporting those most in need of intervention.
+    Your most recent prediction results are now available in Edvise. Please log in and download them at your earliest convenience. As a reminder, you should have the StudyID appended file from the NSC SFTP to reconnect our predictions to your students and begin supporting those most in need of intervention.
 
-    We are glad to help consult on anything you need clarification on - should new features have made themselves known or other questions arise, do not hesitate to reach out.
+    If you have questions about your latest predictions or need support using them, please reach out to your customer success manager.
 
     Best,
-    The Edvise Team
+    The DataKind Edvise Team
     """
+)
 
-INFERENCE_KICKOFF_SUBJECT = "Edvise: Inference Run In Progress"
-INFERENCE_KICKOFF_MESSAGE = """\
+INFERENCE_KICKOFF_SUBJECT = "Edvise: Prediction Run In Progress"
+INFERENCE_KICKOFF_MESSAGE = textwrap.dedent(
+    """\
     Hello!
 
-    Your DataKind Edvise inference run has been successfully initiated. Once the results have been finalized, you will receive a follow-up email with instructions for accessing it.
+    Your DataKind Edvise prediction run has been successfully initiated. Once the results have been finalized, you will receive a follow-up email with instructions for accessing it.
 
-    Thank you,
-    The DataKind team
+    Best,
+    The DataKind Edvise Team
     """
+)
 
 
 def send_email(

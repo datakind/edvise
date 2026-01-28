@@ -48,6 +48,11 @@ from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
     log_pre_cohort_courses,
 )
+from edvise.shared.logger import (
+    resolve_run_path,
+    local_fs_path,
+)
+from edvise.shared.validation import require
 
 logging.basicConfig(
     level=logging.INFO,
@@ -147,19 +152,11 @@ class PDPDataAuditTask:
 
     def run(self):
         """Executes the data preprocessing pipeline."""
-        # Create a folder to save all the files in
-        if self.args.job_type == "training":
-            current_run_path = f"{self.args.silver_volume_path}/{self.args.db_run_id}"
-            os.makedirs(current_run_path, exist_ok=True)
-        elif self.args.job_type == "inference":
-            if self.cfg.model.run_id is None:
-                raise ValueError("cfg.model.run_id must be set for inference runs.")
-            current_run_path = f"{self.args.silver_volume_path}/{self.cfg.model.run_id}"
-        else:
-            raise ValueError(f"Unsupported job_type: {self.args.job_type}")
-
-        def local_fs_path(p: str) -> str:
-            return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
+        # Ensure correct folder: training or inference
+        current_run_path = resolve_run_path(
+            self.args, self.cfg, self.args.silver_volume_path
+        )
+        os.makedirs(current_run_path, exist_ok=True)
 
         # Convert to local filesystem path if using DBFS
         local_run_path = local_fs_path(current_run_path)
@@ -167,24 +164,42 @@ class PDPDataAuditTask:
         # Make sure the folder exists on the local FS
         os.makedirs(local_run_path, exist_ok=True)
 
-        # Build log file path (local FS form)
+        # Build full path (local FS form)
         log_file_path = os.path.join(local_run_path, "pdp_data_audit.log")
 
-        # Attach file handler
+        # Build full path (local FS form)
+        log_file_path = os.path.join(local_run_path, "pdp_data_audit.log")
+        abs_log_file_path = os.path.abspath(log_file_path)
+
         try:
-            file_handler = logging.FileHandler(log_file_path, mode="w")
+            root_logger = logging.getLogger()
+
+            # --- IMPORTANT PART 1: remove any existing handlers for this file ---
+            for h in list(root_logger.handlers):
+                if (
+                    isinstance(h, logging.FileHandler)
+                    and getattr(h, "baseFilename", None) == abs_log_file_path
+                ):
+                    root_logger.removeHandler(h)
+                    try:
+                        h.close()
+                    except Exception:
+                        pass
+
+            # --- IMPORTANT PART 2: open in write mode so we overwrite each run ---
+            file_handler = logging.FileHandler(abs_log_file_path, mode="w")
             file_handler.setFormatter(
                 logging.Formatter(
                     "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
                 )
             )
-            logging.getLogger().addHandler(file_handler)
+
+            root_logger.addHandler(file_handler)
             LOGGER.info(
-                "File logging initialized. Logs will be saved to: %s", log_file_path
+                "File logging initialized. Logs will be overwritten at: %s",
+                log_file_path,
             )
-            # Quick existence check (should be True immediately)
-            if not os.path.exists(log_file_path):
-                LOGGER.warning("Log file does not appear yet: %s", log_file_path)
+
         except Exception as e:
             LOGGER.exception(
                 "Failed to initialize file logging at %s: %s", log_file_path, e
@@ -230,6 +245,14 @@ class PDPDataAuditTask:
                 " Failed to parse course data with all known datetime formats."
             )
 
+        # Ensure cohort/course files are non-empty
+        for label, df in [
+            ("Raw cohort", df_cohort_raw),
+            ("Raw course", df_course_raw),
+        ]:
+            require(len(df_cohort_raw) > 0, f"{label} dataset is empty (0 rows).")
+            require(len(df_course_raw) > 0, f"{label} dataset is empty (0 rows).")
+
         LOGGER.info(
             " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
         )
@@ -274,6 +297,8 @@ class PDPDataAuditTask:
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
 
         LOGGER.info(" Cohort data standardized.")
+
+        student_id_col = getattr(self.cfg, "student_id_col", None) or "student_id"
 
         # --- Load COURSE dataset - with schema ---
 
@@ -333,8 +358,27 @@ class PDPDataAuditTask:
 
         LOGGER.info(" Course data standardized.")
 
+        for label, df in [
+            ("Standardized cohort", df_cohort_standardized),
+            ("Standardized course", df_course_standardized),
+        ]:
+            require(
+                student_id_col in df.columns,
+                f"{label} missing required column: {student_id_col}",
+            )
+            nulls = int(df[student_id_col].isna().sum())
+            require(
+                nulls == 0, f"{label} contains {nulls} null {student_id_col} values."
+            )
+
+        LOGGER.info(
+            " Validated that cohort and course files both have a 'student_id' column with no nulls."
+        )
+
         # Log Math/English gateway courses and add to config
-        ids_cips = compute_gateway_course_ids_and_cips(df_course_standardized)
+        ids, cips, has_upper_level, lower_ids, lower_cips = (
+            compute_gateway_course_ids_and_cips(df_course_standardized)
+        )
 
         # Auto-populate only at training time to avoid training-inference skew
         if self.args.job_type == "training":
@@ -343,15 +387,70 @@ class PDPDataAuditTask:
                 self.cfg.preprocessing.features.key_course_ids,
                 self.cfg.preprocessing.features.key_course_subject_areas,
             )
-            if len(ids_cips[0]) <= 25 and len(ids_cips[1]) <= 25:
+            if has_upper_level:
+                if (
+                    lower_ids
+                    and lower_cips
+                    and len(lower_ids) <= 10
+                    and len(lower_cips) <= 10
+                ):
+                    LOGGER.warning(
+                        " Upper-level (>=200) gateway courses detected. Auto-populating config with LOWER-level (<200) "
+                        "gateway courses and CIP codes only. Please confirm with the school and adjust if needed."
+                    )
+                    update_key_courses_and_cips(
+                        self.args.config_file_path,
+                        key_course_ids=lower_ids,
+                        key_course_subject_areas=lower_cips,
+                    )
+
+                    existing_ids = set(
+                        self.cfg.preprocessing.features.key_course_ids or []
+                    )
+                    existing_cips = set(
+                        self.cfg.preprocessing.features.key_course_subject_areas or []
+                    )
+
+                    self.cfg.preprocessing.features.key_course_ids = list(
+                        existing_ids.union(lower_ids)
+                    )
+                    self.cfg.preprocessing.features.key_course_subject_areas = list(
+                        existing_cips.union(lower_cips)
+                    )
+
+                    LOGGER.info(
+                        "New config course IDs and subject areas: %s | %s",
+                        self.cfg.preprocessing.features.key_course_ids,
+                        self.cfg.preprocessing.features.key_course_subject_areas,
+                    )
+                else:
+                    LOGGER.warning(
+                        " Skipping auto-populating of config: upper-level gateways present but no acceptable lower-level set "
+                        "was identified (or too many) to auto-populate. Please check in with the school and update config manually."
+                    )
+
+            elif len(ids) <= 25 and len(cips) <= 25:
                 LOGGER.info(
-                    " Auto-populating config with below course IDs and cip codes: change if necessary"
+                    " Auto-populating config with below course IDs and CIP codes: change if necessary"
                 )
                 update_key_courses_and_cips(
                     self.args.config_file_path,
-                    key_course_ids=ids_cips[0],
-                    key_course_subject_areas=ids_cips[1],
+                    key_course_ids=ids,
+                    key_course_subject_areas=cips,
                 )
+
+                existing_ids = set(self.cfg.preprocessing.features.key_course_ids or [])
+                existing_cips = set(
+                    self.cfg.preprocessing.features.key_course_subject_areas or []
+                )
+
+                self.cfg.preprocessing.features.key_course_ids = list(
+                    existing_ids.union(ids)
+                )
+                self.cfg.preprocessing.features.key_course_subject_areas = list(
+                    existing_cips.union(cips)
+                )
+
                 LOGGER.info(
                     "New config course IDs and subject areas: %s | %s",
                     self.cfg.preprocessing.features.key_course_ids,
@@ -359,7 +458,8 @@ class PDPDataAuditTask:
                 )
             else:
                 LOGGER.warning(
-                    " Skipping auto-populating of config due to too many IDs that were identified. Please manually update config."
+                    " Skipping auto-populating of config due to too many IDs that were identified. "
+                    "Please check in with school and manually update config."
                 )
 
         # Log changes before and after pre-processing
@@ -380,14 +480,18 @@ class PDPDataAuditTask:
             df_cohort_standardized,
         )
 
+        # --- Check that standardized cohort/course files aren't empty ---
+        require(len(df_cohort_standardized) > 0, "df_cohort_standardized is empty.")
+        require(len(df_course_standardized) > 0, "df_course_standardized is empty.")
+
         # --- Write results ---
         write_parquet(
             df_cohort_standardized,
-            f"{current_run_path}/df_cohort_standardized.parquet",
+            os.path.join(current_run_path, "df_cohort_standardized.parquet"),
         )
         write_parquet(
             df_course_standardized,
-            f"{current_run_path}/df_course_standardized.parquet",
+            os.path.join(current_run_path, "df_course_standardized.parquet"),
         )
 
 
