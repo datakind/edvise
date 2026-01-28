@@ -4,7 +4,7 @@ resources:
       name: edvise_github_sourced_pdp_inference_pipeline
       notifications:
         on_failure:
-          - destination: ${var.inference_slack_destination}
+          - id: ${var.inference_slack_webhook_id}
       max_concurrent_runs: 5
       tasks:
         - task_key: data_ingestion
