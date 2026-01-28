@@ -2,6 +2,9 @@ resources:
   jobs:
     github_sourced_pdp_training_pipeline:
       name: github_sourced_pdp_training_pipeline
+      webhook_notifications:
+        on_failure:
+          - id: ${var.training_slack_webhook_id}
       max_concurrent_runs: 5
       tasks:
         - task_key: data_audit

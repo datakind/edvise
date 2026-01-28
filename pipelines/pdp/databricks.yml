@@ -36,6 +36,10 @@ variables:
   model_name:
     description: "Name of the model once it's registered and ready to be used for inference"
     default: ""
+  training_slack_destination:
+    description: "Slack destination name for training pipeline failure notifications"
+  inference_slack_destination:
+    description: "Slack destination name for inference pipeline failure notifications"
 
 run_as:
   service_principal_name: ${var.ds_run_as}
@@ -45,6 +49,8 @@ targets:
     mode: development
     variables:
       DB_workspace: "dev_sst_02"
+      training_slack_destination: "edvise-data-crew"
+      inference_slack_destination: "edvise-data-crew"
     resources:
       jobs:
         github_sourced_pdp_training_pipeline:
@@ -71,6 +77,8 @@ targets:
     mode: production
     variables:
       DB_workspace: "staging_sst_01"
+      training_slack_destination: "edvise-data-crew"
+      inference_slack_destination: "edvise-support"
     resources:
       jobs:
         github_sourced_pdp_training_pipeline:
