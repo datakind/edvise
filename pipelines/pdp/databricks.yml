@@ -49,8 +49,8 @@ targets:
     mode: development
     variables:
       DB_workspace: "dev_sst_02"
-      training_slack_destination: "edvise-data-crew"
-      inference_slack_destination: "edvise-data-crew"
+      training_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"    # edvise-data-crew                         
+      inference_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"   # edvise-data-crew 
     resources:
       jobs:
         github_sourced_pdp_training_pipeline:
@@ -77,8 +77,8 @@ targets:
     mode: production
     variables:
       DB_workspace: "staging_sst_01"
-      training_slack_destination: "edvise-data-crew"
-      inference_slack_destination: "edvise-support"
+      training_slack_webhook_id: "???"  # Need edvise-data-crew ID for staging                                        
+      inference_slack_webhook_id: "c51b737e-988d-45dd-ad9b-6f9024a6b56b"  # edvise-support 
     resources:
       jobs:
         github_sourced_pdp_training_pipeline:
