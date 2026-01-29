@@ -1,5 +1,5 @@
 bundle:
-  name: Edvise pdp training pipeline
+  name: Edvise training pipeline
   uuid: 99992898-07ae-4641-b086-dd3ba80ffc2f
 
 include:
@@ -29,9 +29,12 @@ variables:
   ds_run_as:
     description: "Account to run the pipeline (Databricks SP client/app ID)"
   databricks_institution_name:
-    description: "Institution ID to use for the pdp training"
+    description: "Institution ID to use for the pdp/custom training"
   config_file_name:
-    description: "Name of the config file to use for the pdp training"
+    description: "Name of the config file to use for the pdp/custom training"
+    default: "config.toml"
+  features_table_path:
+    description: "Name of the config file to use for the pdp/custom training"
     default: "config.toml"
   datakind_group_to_manage_workflow:
     description: "Group with permissions to manage the job"

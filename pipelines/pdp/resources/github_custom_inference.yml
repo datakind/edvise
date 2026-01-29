@@ -5,7 +5,25 @@ resources:
       max_concurrent_runs: 5
 
       tasks:
+        - task_key: inference_setup
+          spark_python_task:
+            python_file: src/edvise/scripts/custom_inference_inputs.py
+            source: GIT
+            parameters:
+              - --model_name
+              - "{{job.parameters.model_name}}"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+          job_cluster_key: edvise-custom-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: mlflow~=2.22
+
         - task_key: inference_h2o
+          depends_on:
+            - task_key: inference_setup
           spark_python_task:
             python_file: src/edvise/scripts/inference_h2o.py
             source: GIT
@@ -15,7 +33,7 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/inference_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.inference_setup.values.config_file_path}}"
               - --datakind_notification_email
               - "{{job.parameters.datakind_notification_email}}"
               - --DK_CC_EMAIL
@@ -26,6 +44,8 @@ resources:
               - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
               - --schema_type
               - "custom"
+              - --features_table_path
+              - "{{tasks.inference_setup.values.features_table_path}}"
           job_cluster_key: edvise-custom-inference-pipeline-cluster
           libraries:
             - pypi: 
@@ -101,8 +121,8 @@ resources:
           default: "{{job.run_id}}"
         - name: DB_workspace
           default: ${var.DB_workspace}
-        - name: config_file_name
-          default: ${var.config_file_name}
+        - name: model_name
+          default: ${var.model_name}
         - name: gcp_bucket_name
           default: databricks-2052166062819251-unitycatalog
         - name: service_account_executer
