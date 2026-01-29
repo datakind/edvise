@@ -16,6 +16,10 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/inference_inputs/{{job.parameters.config_file_name}}"
+              - --datakind_notification_email
+              - "{{job.parameters.datakind_notification_email}}"
+              - --DK_CC_EMAIL
+              - "{{job.parameters.DK_CC_EMAIL}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
               - --gold_table_path
@@ -62,31 +66,13 @@ resources:
               - "{{job.parameters.gcp_bucket_name}}"
               - --datakind_notification_email
               - "{{job.parameters.datakind_notification_email}}"
-          job_cluster_key: edvise-custom-inference-cluster
+          job_cluster_key: edvise-custom-inference-pipeline-cluster
           libraries:
-            # keep this list minimal; add only what output_publish imports
-            - pypi: { package: pandas==2.2.3 }
-            - pypi: { package: pyarrow~=16.0 }
+            - pypi: 
+                package: pandas==2.2.3
+            - pypi: 
+                package: pyarrow~=16.0
       job_clusters:
-        - job_cluster_key: edvise-custom-inference-pipeline-cluster
-          new_cluster:
-            cluster_name: ""
-            spark_version: 15.4.x-cpu-ml-scala2.12
-            spark_conf:
-              spark.master: local[*, 4]
-              spark.databricks.cluster.profile: singleNode
-            gcp_attributes:
-              use_preemptible_executors: false
-              availability: ON_DEMAND_GCP
-              zone_id: HA
-            node_type_id: n2-standard-16
-            custom_tags:
-              ResourceClass: SingleNode
-              x-databricks-nextgen-cluster: "true"
-            enable_elastic_disk: true
-            data_security_mode: SINGLE_USER
-            runtime_engine: STANDARD
-            num_workers: 0
         - job_cluster_key: edvise-custom-inference-pipeline-cluster
           new_cluster:
             cluster_name: ""
@@ -121,6 +107,10 @@ resources:
           default: databricks-2052166062819251-unitycatalog
         - name: service_account_executer
           default: ${var.service_account_executer}
+        - name: datakind_notification_email
+          default: ${var.datakind_notification_email}
+        - name: DK_CC_EMAIL
+          default: ${var.datakind_notification_email}
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE

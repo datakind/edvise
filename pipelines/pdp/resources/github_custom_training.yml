@@ -104,8 +104,6 @@ resources:
           default: ${var.datakind_notification_email}
         - name: service_account_executer
           default: ${var.service_account_executer}
-        - name: pipeline_version
-          default: ${var.pipeline_version}
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
           level: CAN_MANAGE
