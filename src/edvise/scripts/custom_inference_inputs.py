@@ -14,6 +14,7 @@ def get_dbutils():
     """Get dbutils if available (Databricks environment)."""
     try:
         from databricks.sdk.runtime import dbutils  # type: ignore
+
         return dbutils
     except Exception:
         return None
@@ -167,7 +168,9 @@ def parse_arguments() -> argparse.Namespace:
         required=True,
         help="Name of the registered model (without UC path prefix)",
     )
-    parser.add_argument("--DB_workspace", required=True, help="Databricks workspace name")
+    parser.add_argument(
+        "--DB_workspace", required=True, help="Databricks workspace name"
+    )
     parser.add_argument(
         "--databricks_institution_name", required=True, help="Institution identifier"
     )
