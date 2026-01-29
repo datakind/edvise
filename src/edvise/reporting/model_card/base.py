@@ -14,7 +14,7 @@ from importlib.abc import Traversable
 from importlib.resources import files
 
 # internal SST modules
-from ... import dataio, modeling
+from edvise.modeling import h2o_ml
 
 # relative imports in 'reporting' module
 from ..sections import register_sections
@@ -97,10 +97,7 @@ class ModelCard(t.Generic[C]):
                 f"URI, run_id, or experiment_id missing."
             )
 
-        self.model = dataio.models.load_mlflow_model(
-            model_cfg.mlflow_model_uri,
-            model_cfg.framework,
-        )
+        self.model = h2o_ml.utils.load_h2o_model(model_cfg.run_id)
         self.run_id = model_cfg.run_id
         self.experiment_id = model_cfg.experiment_id
 
@@ -127,7 +124,7 @@ class ModelCard(t.Generic[C]):
         """
         Extracts the training data from the MLflow run utilizing SST internal subpackages (modeling).
         """
-        self.modeling_data = modeling.evaluation.extract_training_data_from_model(
+        self.modeling_data = h2o_ml.evaluation.extract_training_data_from_model(
             self.experiment_id
         )
         self.training_data = self.modeling_data

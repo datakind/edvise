@@ -199,6 +199,7 @@ def build_and_log_ranked_feature_table(
     artifact_path: str = "selected_features",
     filename: str = "ranked_selected_features.csv",
     log_to_mlflow: bool = False,
+    original_dtypes: t.Optional[dict[str, t.Any]] = None,
 ) -> pd.DataFrame | None:
     """
     Builds the ranked SHAP feature-importance table.
@@ -211,6 +212,7 @@ def build_and_log_ranked_feature_table(
             shap_values=grouped_contribs_df.to_numpy(),
             features_table=features_table,
             metadata=True,
+            original_dtypes=original_dtypes,
         )
 
         if sfi is None or sfi.empty:
@@ -330,6 +332,7 @@ def run_predictions(
         features_table=ft,
         run_id=pred_cfg.model_run_id,
         log_to_mlflow=(run_type == RunType.TRAIN),
+        original_dtypes=getattr(imp, "input_dtypes", None),
     )
 
     default_inference_params = {
