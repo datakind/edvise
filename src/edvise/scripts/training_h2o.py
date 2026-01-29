@@ -173,15 +173,23 @@ class TrainingTask:
             # Try table paths first (Delta table), then file paths (parquet)
             # Support both new (train_*) and legacy (*) field names
             if modeling_dataset.table_path or modeling_dataset.train_table_path:
-                table_path = modeling_dataset.train_table_path or modeling_dataset.table_path
-                logging.info("Custom: loading modeling dataset from Delta table: %s", table_path)
+                table_path = (
+                    modeling_dataset.train_table_path or modeling_dataset.table_path
+                )
+                logging.info(
+                    "Custom: loading modeling dataset from Delta table: %s", table_path
+                )
                 df_modeling = dataio.read.from_delta_table(
                     table_path,
                     spark_session=self.spark_session,
                 )
             elif modeling_dataset.file_path or modeling_dataset.train_file_path:
-                file_path = modeling_dataset.train_file_path or modeling_dataset.file_path
-                logging.info("Custom: loading modeling dataset from file: %s", file_path)
+                file_path = (
+                    modeling_dataset.train_file_path or modeling_dataset.file_path
+                )
+                logging.info(
+                    "Custom: loading modeling dataset from file: %s", file_path
+                )
                 df_modeling = dataio.read.read_parquet(file_path)
             else:
                 raise ValueError(
@@ -227,7 +235,9 @@ class TrainingTask:
         """
         Enforce the modeling dataset contract so training/inference/model cards stay consistent.
         """
-        require(df_modeling is not None and not df_modeling.empty, "modeling df is empty")
+        require(
+            df_modeling is not None and not df_modeling.empty, "modeling df is empty"
+        )
         require(df_modeling.columns.is_unique, "modeling df has duplicate columns")
 
         required_cols = [self.cfg.student_id_col, self.cfg.target_col]
@@ -239,8 +249,12 @@ class TrainingTask:
 
         if self.cfg.split_col:
             allowed = {"train", "test", "validate"}
-            bad = sorted(set(df_modeling[self.cfg.split_col].dropna().unique()) - allowed)
-            require(not bad, f"Unexpected split values in '{self.cfg.split_col}': {bad}")
+            bad = sorted(
+                set(df_modeling[self.cfg.split_col].dropna().unique()) - allowed
+            )
+            require(
+                not bad, f"Unexpected split values in '{self.cfg.split_col}': {bad}"
+            )
 
         non_feature_cols = set(self.cfg.non_feature_cols)
         feature_cols = [c for c in df_modeling.columns if c not in non_feature_cols]

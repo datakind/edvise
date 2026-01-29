@@ -251,16 +251,32 @@ class ModelInferenceTask:
 
             # Try table paths first (Delta table), then file paths (parquet)
             # Support both new (predict_*) and legacy (*) field names for inference
-            if preprocessed_dataset.table_path or preprocessed_dataset.predict_table_path:
-                table_path = preprocessed_dataset.predict_table_path or preprocessed_dataset.table_path
-                logging.info("Custom: loading preprocessed dataset from Delta table: %s", table_path)
+            if (
+                preprocessed_dataset.table_path
+                or preprocessed_dataset.predict_table_path
+            ):
+                table_path = (
+                    preprocessed_dataset.predict_table_path
+                    or preprocessed_dataset.table_path
+                )
+                logging.info(
+                    "Custom: loading preprocessed dataset from Delta table: %s",
+                    table_path,
+                )
                 df_processed = dataio.read.from_delta_table(
                     table_path,
                     spark_session=self.spark_session,
                 )
-            elif preprocessed_dataset.file_path or preprocessed_dataset.predict_file_path:
-                file_path = preprocessed_dataset.predict_file_path or preprocessed_dataset.file_path
-                logging.info("Custom: loading preprocessed dataset from file: %s", file_path)
+            elif (
+                preprocessed_dataset.file_path or preprocessed_dataset.predict_file_path
+            ):
+                file_path = (
+                    preprocessed_dataset.predict_file_path
+                    or preprocessed_dataset.file_path
+                )
+                logging.info(
+                    "Custom: loading preprocessed dataset from file: %s", file_path
+                )
                 df_processed = dataio.read.read_parquet(file_path)
             else:
                 raise ValueError(
