@@ -27,6 +27,8 @@ resources:
               - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
               - --schema_type
               - "custom"
+              - --features_table_path
+              - "{{job.parameters.features_table_path}}"
           job_cluster_key: edvise-custom-training-pipeline-cluster
           libraries:
             - pypi:
@@ -104,6 +106,8 @@ resources:
           default: ${var.datakind_notification_email}
         - name: service_account_executer
           default: ${var.service_account_executer}
+        - name: features_table_path
+          default: ${var.features_table_path}
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
           level: CAN_MANAGE
