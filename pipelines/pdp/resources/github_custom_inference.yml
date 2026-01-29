@@ -2,7 +2,7 @@ resources:
   jobs:
     edvise_github_sourced_custom_inference_pipeline:
       name: edvise_github_sourced_custom_inference_pipeline
-      max_concurrent_runs: 20
+      max_concurrent_runs: 5
 
       tasks:
         - task_key: inference_h2o
@@ -24,16 +24,26 @@ resources:
               - "custom"
           job_cluster_key: edvise-custom-inference-pipeline-cluster
           libraries:
-            - pypi: { package: numpy==1.26.4 }
-            - pypi: { package: pandas==2.2.3 }
-            - pypi: { package: pyarrow~=16.0 }
-            - pypi: { package: polars~=0.20 }
-            - pypi: { package: scikit-learn==1.5.2 }
-            - pypi: { package: mlflow~=2.22 }
-            - pypi: { package: h2o==3.46.0.7 }
-            - pypi: { package: pydantic~=2.10 }
-            - pypi: { package: tomli==2.2.1 }
-            - pypi: { package: tomlkit==0.13.3 }
+            - pypi: 
+                package: numpy==1.26.4
+            - pypi: 
+                package: pandas==2.2.3
+            - pypi: 
+                package: pyarrow~=16.0 
+            - pypi: 
+                package: polars~=0.20
+            - pypi: 
+                package: scikit-learn==1.5.2
+            - pypi: 
+                package: mlflow~=2.22
+            - pypi: 
+                package: h2o==3.46.0.7
+            - pypi:
+                package: pydantic~=2.10
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
 
         - task_key: output_publish
           depends_on:
