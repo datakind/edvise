@@ -476,7 +476,7 @@ class TrainingTask:
             schema=self.spec.cfg_schema,
         )
 
-    def make_predictions(self, current_run_path):
+    def make_predictions(self, df_modeling: pd.DataFrame):
         cfg = PredConfig(
             model_run_id=self.cfg.model.run_id,
             experiment_id=self.cfg.model.experiment_id,
@@ -515,11 +515,6 @@ class TrainingTask:
                 label="Training Support Overview table",
             )
 
-            # read modeling parquet for roc table
-            modeling_df = dataio.read.read_parquet(
-                local_fs_path(os.path.join(current_run_path, "modeling.parquet"))
-            )
-
             # training-only logging
             if mlflow.active_run():
                 mlflow.end_run()
@@ -533,7 +528,7 @@ class TrainingTask:
                     catalog=self.args.DB_workspace,
                     institution_id=self.cfg.institution_id,
                     automl_run_id=self.cfg.model.run_id,
-                    modeling_df=modeling_df,
+                    modeling_df=df_modeling,
                 )
 
         finally:
@@ -706,7 +701,7 @@ class TrainingTask:
         )
 
         logging.info("Generating training predictions & SHAP values")
-        self.make_predictions(current_run_path=current_run_path)
+        self.make_predictions(df_modeling=df_modeling)
 
         logging.info("Validate training tables were created for FE")
         self.validate_train_tables(

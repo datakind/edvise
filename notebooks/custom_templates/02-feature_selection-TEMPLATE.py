@@ -162,6 +162,6 @@ df = df.loc[:, df_selected.columns]
 #   [datasets.silver.modeling]
 #   table_path = "catalog.schema.table_name"
 # The training_h2o.py script will read from this same configured path
-dataio.write.to_parquet_safe(
+dataio.write.to_delta_table(
     df, cfg.datasets.silver["modeling"].table_path, spark_session=spark
 )
