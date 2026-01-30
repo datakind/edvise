@@ -711,7 +711,7 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
         )
 
 
-def print_credential_and_enrollment_types_and_retention(
+def print_credential_and_enrollment_types(
     df_cohort: pd.DataFrame,
 ) -> None:
     pct_credentials = (
@@ -723,13 +723,6 @@ def print_credential_and_enrollment_types_and_retention(
     pct_enroll = (
         df_cohort["enrollment_type"].value_counts(dropna=False, normalize=True) * 100
     )
-    retention = (
-        df_cohort[["cohort", "retention"]].value_counts(dropna=False).sort_index()
-    )
-    LOGGER.warning(
-        "  ⚠️ Breakdown for retention by cohort: IF MOST RECENT YEAR'S SPLIT IS DISPROPORTIONATE, exclude from training by changing max_academic_year in the config! \n%s ",
-        retention.to_string(),
-    )
     LOGGER.info(
         " Percent breakdown for credential types: \n%s ",
         pct_credentials.to_string(),
@@ -737,6 +730,32 @@ def print_credential_and_enrollment_types_and_retention(
     LOGGER.info(
         " Percent breakdown for enrollment types: \n%s ",
         pct_enroll.to_string(),
+    )
+
+
+def print_retention(df_cohort: pd.DataFrame) -> None:
+    retention = (
+        df_cohort[["cohort", "retention"]].value_counts(dropna=False).sort_index()
+    )
+    LOGGER.warning(
+        "  ⚠️ Breakdown for retention by cohort: IF MOST RECENT YEAR'S SPLIT IS DISPROPORTIONATE, exclude from training by changing max_academic_year in the config! \n%s ",
+        retention.to_string(),
+    )
+
+
+def log_top_majors(df_cohort: pd.DataFrame) -> None:
+    """
+    Logs the top majors by program of study for the first term.
+    """
+    top_majors = (
+        df_cohort["program_of_study_term_1"]
+        .value_counts(dropna=False)
+        .sort_values(ascending=False)
+        .head(10)
+    )
+    LOGGER.info(
+        " Top majors: \n%s ",
+        top_majors.to_string(),
     )
 
 
@@ -890,6 +909,8 @@ def check_earned_vs_attempted(
     attempted_col: str,
 ) -> t.Dict[str, pd.DataFrame]:
     """
+    CUSTOM SCHOOL FUNCTION
+
     Row-wise checks that:
       1. credits_earned <= credits_attempted
       2. credits_earned = 0 when credits_attempted = 0
@@ -917,134 +938,332 @@ def check_earned_vs_attempted(
 
 
 def validate_credit_consistency(
-    semester_df: pd.DataFrame,
     course_df: pd.DataFrame,
-    cohort_df: pd.DataFrame,
+    semester_df: t.Optional[pd.DataFrame],
+    cohort_df: t.Optional[pd.DataFrame],
     *,
     id_col: str = "student_id",
     sem_col: str = "semester_code",
-    # course-level credit columns
+    # course-level credit columns (preferred)
     course_credits_attempted_col: str = "credits_attempted",
     course_credits_earned_col: str = "credits_earned",
     # semester-level credit columns
     semester_credits_attempted_col: str = "number_of_semester_credits_attempted",
     semester_credits_earned_col: str = "number_of_semester_credits_earned",
     semester_courses_count_col: str = "number_of_semester_courses_enrolled",
-    # cohort-level credit columns (df_cohort)
+    # cohort-level credit columns
     cohort_credits_attempted_col: str = "inst_tot_credits_attempted",
     cohort_credits_earned_col: str = "inst_tot_credits_earned",
     credit_tol: float = 0.0,
 ) -> t.Dict[str, t.Any]:
     """
+    CUSTOM SCHOOL FUNCTION
+
     Unified credit validation:
 
-    1) Reconcile semester-level aggregates (semester_df) against
-       course-level details (course_df).
+    A) Course-level row-wise checks (always attempted if course cols exist):
+       - credits_earned <= credits_attempted (cannot earn more than attempted)
 
-    2) Check row-wise consistency of credits earned vs attempted
-       on cohort_df (df_cohort).
+    B) (Optional) Reconcile semester-level aggregates (semester_df) against course_df.
+       Runs only if:
+         - semester_df is provided (not None), AND
+         - semester_df has the required semester credit/count columns, AND
+         - course_df has the required course credit columns.
+
+    C) (Optional) Cohort-level row-wise checks (earned <= attempted).
+       Runs only if cohort_df has the required cohort credit columns.
+
+    Course column fallback:
+      If course_credits_attempted_col/course_credits_earned_col not found, tries:
+        - 'course_credits_attempted' and 'course_credits_earned'
     """
 
-    # ---------- 1) RECONCILIATION: semester vs course ----------
-
-    c = course_df[
-        [id_col, sem_col, course_credits_attempted_col, course_credits_earned_col]
-    ].copy()
-    s = semester_df[
-        [
-            id_col,
-            sem_col,
-            semester_credits_attempted_col,
-            semester_credits_earned_col,
-            semester_courses_count_col,
-        ]
-    ].copy()
-
-    agg = (
-        c.groupby([id_col, sem_col], dropna=False)
-        .agg(
-            course_sum_attempted=(course_credits_attempted_col, "sum"),
-            course_sum_earned=(course_credits_earned_col, "sum"),
-            course_count=(course_credits_attempted_col, "size"),
-        )
-        .reset_index()
+    # ----------------------------
+    # Resolve course credit cols
+    # ----------------------------
+    LOGGER.info(
+        "Starting credit consistency validation "
+        "(course_df=%d rows, semester_df=%s, cohort_df=%s)",
+        len(course_df),
+        "provided" if semester_df is not None else "None",
+        "provided" if cohort_df is not None else "None",
     )
+    resolved_course_attempted_col = course_credits_attempted_col
+    resolved_course_earned_col = course_credits_earned_col
 
-    merged = s.merge(agg, on=[id_col, sem_col], how="left", indicator="_merge_agg")
-    merged["has_course_rows"] = merged["_merge_agg"].eq("both")
-    merged["course_sum_attempted"] = merged["course_sum_attempted"].fillna(0.0)
-    merged["course_sum_earned"] = merged["course_sum_earned"].fillna(0.0)
-    merged["course_count"] = merged["course_count"].fillna(0.0)
-
-    # Ensure numeric semester columns
-    for col in (
-        semester_credits_attempted_col,
-        semester_credits_earned_col,
-        semester_courses_count_col,
+    if (
+        resolved_course_attempted_col not in course_df.columns
+        and "course_credits_attempted" in course_df.columns
     ):
-        if not pd.api.types.is_numeric_dtype(merged[col]):
-            merged[col] = pd.to_numeric(merged[col], errors="coerce")
+        resolved_course_attempted_col = "course_credits_attempted"
 
-    merged["diff_attempted"] = (
-        merged["course_sum_attempted"] - merged[semester_credits_attempted_col]
+    if (
+        resolved_course_earned_col not in course_df.columns
+        and "course_credits_earned" in course_df.columns
+    ):
+        resolved_course_earned_col = "course_credits_earned"
+
+    has_course_credit_cols = (
+        resolved_course_attempted_col in course_df.columns
+        and resolved_course_earned_col in course_df.columns
     )
-    merged["diff_earned"] = (
-        merged["course_sum_earned"] - merged[semester_credits_earned_col]
-    )
-    merged["diff_courses"] = merged["course_count"] - merged[
-        semester_courses_count_col
-    ].fillna(0.0)
 
-    merged["match_attempted"] = merged["diff_attempted"].abs() <= credit_tol
-    merged["match_earned"] = merged["diff_earned"].abs() <= credit_tol
-    merged["match_courses"] = merged["diff_courses"] == 0.0
+    # =========================================================
+    # A) COURSE-LEVEL ROW-WISE CHECKS: earned <= attempted
+    # =========================================================
+    course_anomalies = None
+    course_anomalies_summary = None
 
-    mismatches = (
-        merged.loc[
-            ~(
-                merged["match_attempted"]
-                & merged["match_earned"]
-                & merged["match_courses"]
+    if has_course_credit_cols:
+        LOGGER.info("Running course-level earned <= attempted checks")
+        cchk = course_df[
+            [col for col in [id_col, sem_col] if col in course_df.columns]
+            + [resolved_course_attempted_col, resolved_course_earned_col]
+        ].copy()
+
+        # Ensure numeric
+        cchk[resolved_course_attempted_col] = pd.to_numeric(
+            cchk[resolved_course_attempted_col], errors="coerce"
+        )
+        cchk[resolved_course_earned_col] = pd.to_numeric(
+            cchk[resolved_course_earned_col], errors="coerce"
+        )
+
+        # earned > attempted (allowing tolerance if desired)
+        # i.e., anomaly if earned - attempted > credit_tol
+        cchk["diff_earned_minus_attempted"] = (
+            cchk[resolved_course_earned_col] - cchk[resolved_course_attempted_col]
+        )
+
+        # Optional extra sanity checks (kept simple)
+        cchk["attempted_is_negative"] = cchk[resolved_course_attempted_col].lt(0)
+        cchk["earned_is_negative"] = cchk[resolved_course_earned_col].lt(0)
+
+        cchk["earned_exceeds_attempted"] = cchk["diff_earned_minus_attempted"].gt(
+            credit_tol
+        )
+
+        course_anomalies = (
+            cchk.loc[
+                cchk["earned_exceeds_attempted"]
+                | cchk["attempted_is_negative"]
+                | cchk["earned_is_negative"],
+                [col for col in cchk.columns if col not in []],
+            ]
+            .sort_values([c for c in [id_col, sem_col] if c in cchk.columns])
+            .reset_index(drop=True)
+        )
+
+        course_anomalies_summary = {
+            "rows_checked": int(len(cchk)),
+            "rows_with_anomalies": int(len(course_anomalies)),
+            "rows_earned_exceeds_attempted": int(
+                cchk["earned_exceeds_attempted"].sum()
             ),
-            [
-                id_col,
-                sem_col,
+            "rows_attempted_negative": int(cchk["attempted_is_negative"].sum()),
+            "rows_earned_negative": int(cchk["earned_is_negative"].sum()),
+        }
+        if course_anomalies_summary["rows_with_anomalies"] > 0:
+            LOGGER.warning(
+                "Detected %d course-level credit anomalies",
+                course_anomalies_summary["rows_with_anomalies"],
+            )
+        else:
+            LOGGER.info("No course-level credit anomalies detected")
+
+        LOGGER.debug("Course anomaly summary: %s", course_anomalies_summary)
+
+    # =========================================================
+    # B) OPTIONAL RECONCILIATION: semester vs course
+    # =========================================================
+    reconciliation_summary: t.Optional[dict[str, int]] = None
+    mismatches: t.Optional[pd.DataFrame] = None
+    merged: t.Optional[pd.DataFrame] = None
+
+    has_course_recon_cols = (
+        id_col in course_df.columns
+        and sem_col in course_df.columns
+        and has_course_credit_cols
+    )
+
+    if semester_df is None:
+        LOGGER.info("Semester dataframe not provided; skipping reconciliation")
+    else:
+        has_semester_cols = (
+            id_col in semester_df.columns
+            and sem_col in semester_df.columns
+            and semester_credits_attempted_col in semester_df.columns
+            and semester_credits_earned_col in semester_df.columns
+            and semester_courses_count_col in semester_df.columns
+        )
+
+        if not has_semester_cols:
+            LOGGER.warning(
+                "Semester dataframe missing required columns; skipping reconciliation"
+            )
+        elif not has_course_recon_cols:
+            LOGGER.warning(
+                "Course dataframe missing required columns for reconciliation; skipping"
+            )
+        else:
+            LOGGER.info("Reconciling semester-level aggregates with course data")
+            c = course_df[
+                [
+                    id_col,
+                    sem_col,
+                    resolved_course_attempted_col,
+                    resolved_course_earned_col,
+                ]
+            ].copy()
+
+            s = semester_df[
+                [
+                    id_col,
+                    sem_col,
+                    semester_credits_attempted_col,
+                    semester_credits_earned_col,
+                    semester_courses_count_col,
+                ]
+            ].copy()
+
+            agg = (
+                c.groupby([id_col, sem_col], dropna=False)
+                .agg(
+                    course_sum_attempted=(resolved_course_attempted_col, "sum"),
+                    course_sum_earned=(resolved_course_earned_col, "sum"),
+                    course_count=(resolved_course_attempted_col, "size"),
+                )
+                .reset_index()
+            )
+
+            merged = s.merge(
+                agg, on=[id_col, sem_col], how="left", indicator="_merge_agg"
+            )
+            merged["has_course_rows"] = merged["_merge_agg"].eq("both")
+            merged["course_sum_attempted"] = merged["course_sum_attempted"].fillna(0.0)
+            merged["course_sum_earned"] = merged["course_sum_earned"].fillna(0.0)
+            merged["course_count"] = merged["course_count"].fillna(0.0)
+
+            # Ensure numeric semester columns
+            for col in (
                 semester_credits_attempted_col,
-                "course_sum_attempted",
-                "diff_attempted",
                 semester_credits_earned_col,
-                "course_sum_earned",
-                "diff_earned",
                 semester_courses_count_col,
-                "course_count",
-                "diff_courses",
-                "has_course_rows",
-            ],
-        ]
-        .sort_values([id_col, sem_col])
-        .reset_index(drop=True)
-    )
+            ):
+                if not pd.api.types.is_numeric_dtype(merged[col]):
+                    merged[col] = pd.to_numeric(merged[col], errors="coerce")
 
-    reconciliation_summary = {
-        "total_semesters_in_semester_file": int(len(s)),
-        "unique_student_semesters_in_courses": int(len(agg)),
-        "rows_with_mismatches": int(len(mismatches)),
-    }
+            merged["diff_attempted"] = (
+                merged["course_sum_attempted"] - merged[semester_credits_attempted_col]
+            )
+            merged["diff_earned"] = (
+                merged["course_sum_earned"] - merged[semester_credits_earned_col]
+            )
+            merged["diff_courses"] = merged["course_count"] - merged[
+                semester_courses_count_col
+            ].fillna(0.0)
 
-    # ---------- 2) COHORT-LEVEL ROW-WISE CHECKS ----------
+            merged["match_attempted"] = merged["diff_attempted"].abs() <= credit_tol
+            merged["match_earned"] = merged["diff_earned"].abs() <= credit_tol
+            merged["match_courses"] = merged["diff_courses"] == 0.0
 
-    cohort_checks = check_earned_vs_attempted(
-        cohort_df,
-        earned_col=cohort_credits_earned_col,
-        attempted_col=cohort_credits_attempted_col,
-    )
+            mismatches = (
+                merged.loc[
+                    ~(
+                        merged["match_attempted"]
+                        & merged["match_earned"]
+                        & merged["match_courses"]
+                    ),
+                    [
+                        id_col,
+                        sem_col,
+                        semester_credits_attempted_col,
+                        "course_sum_attempted",
+                        "diff_attempted",
+                        semester_credits_earned_col,
+                        "course_sum_earned",
+                        "diff_earned",
+                        semester_courses_count_col,
+                        "course_count",
+                        "diff_courses",
+                        "has_course_rows",
+                    ],
+                ]
+                .sort_values([id_col, sem_col])
+                .reset_index(drop=True)
+            )
+
+            reconciliation_summary = {
+                "total_semesters_in_semester_file": int(len(s)),
+                "unique_student_semesters_in_courses": int(len(agg)),
+                "rows_with_mismatches": int(len(mismatches)),
+            }
+            LOGGER.info(
+                "Semester reconciliation complete: %d mismatched rows",
+                reconciliation_summary["rows_with_mismatches"],
+            )
+
+    # =========================================================
+    # C) OPTIONAL COHORT CHECKS: earned <= attempted
+    # =========================================================
+    cohort_anomalies: t.Optional[pd.DataFrame] = None
+    cohort_anomalies_summary: t.Optional[t.Dict[str, t.Any]] = None
+
+    if cohort_df is None:
+        LOGGER.info("Cohort dataframe not provided; skipping cohort checks")
+    else:
+        has_cohort_cols = (
+            cohort_credits_attempted_col in cohort_df.columns
+            and cohort_credits_earned_col in cohort_df.columns
+        )
+
+        if not has_cohort_cols:
+            LOGGER.warning(
+                "Cohort dataframe missing credit columns; skipping cohort checks"
+            )
+        else:
+            LOGGER.info("Running cohort-level earned <= attempted checks")
+            cohort_checks = check_earned_vs_attempted(
+                cohort_df,
+                earned_col=cohort_credits_earned_col,
+                attempted_col=cohort_credits_attempted_col,
+            )
+
+            # Expecting check_earned_vs_attempted to return something like:
+            # {"anomalies": <DataFrame|None>, "summary": <dict|None>, ...}
+            cohort_anomalies = t.cast(
+                t.Optional[pd.DataFrame], cohort_checks.get("anomalies")
+            )
+            cohort_anomalies_summary = t.cast(
+                t.Optional[t.Dict[str, t.Any]], cohort_checks.get("summary")
+            )
+
+            rows_with_anomalies = int(
+                (cohort_anomalies_summary or {}).get("rows_with_anomalies", 0)
+            )
+
+            if rows_with_anomalies > 0:
+                LOGGER.warning(
+                    "Detected %d cohort-level credit anomalies",
+                    rows_with_anomalies,
+                )
+            else:
+                LOGGER.info("No cohort-level credit anomalies detected")
 
     return {
+        # course checks
+        "course_anomalies": course_anomalies,
+        "course_anomalies_summary": course_anomalies_summary,
+        # reconciliation outputs are None if skipped
         "reconciliation_summary": reconciliation_summary,
         "reconciliation_mismatches": mismatches,
         "reconciliation_merged_detail": merged,
-        "cohort_anomalies": cohort_checks["anomalies"],
-        "cohort_anomalies_summary": cohort_checks["summary"],
+        # cohort outputs are None if skipped
+        "cohort_anomalies": cohort_anomalies,
+        "cohort_anomalies_summary": cohort_anomalies_summary,
+        # for debugging / transparency
+        "resolved_course_credits_attempted_col": resolved_course_attempted_col,
+        "resolved_course_credits_earned_col": resolved_course_earned_col,
     }
 
 
@@ -1054,6 +1273,8 @@ def check_pf_grade_consistency(
     pf_col="pass_fail_flag",
     credits_col="credits_earned",
     *,
+    # TODO: add these to the config and allow for customization
+    # change to no default values
     passing_grades=(
         "P",
         "P*",
@@ -1068,16 +1289,6 @@ def check_pf_grade_consistency(
         "D+",
         "D",
         "D-",
-        "REP",
-        "S",
-        "^C-",
-        "^D-",
-        "^D",
-        "^D+",
-        "ZD-",
-        "ZD",
-        "^C",
-        "CH",
     ),
     failing_grades=(
         "F",
@@ -1085,28 +1296,17 @@ def check_pf_grade_consistency(
         "^E",
         "F*",
         "REF",
-        "ZE",
         "NR",
         "W",
         "W*",
-        "WI",
-        "WE",
-        "WC",
-        "WA",
-        "WB+",
-        "WB",
-        "WB-",
-        "WD",
-        "WD-",
-        "WC+",
-        "WC-",
-        "WA-",
         "I",
     ),
     pass_flags=("P",),
     fail_flags=("F",),
 ):
     """
+    CUSTOM SCHOOL FUNCTION
+
     Checks that:
       1. Students NEVER earn credits for failing grades.
       2. Students DO always earn credits for passing grades.
@@ -1114,12 +1314,27 @@ def check_pf_grade_consistency(
 
     Returns (anomalies_df, summary_df)
     """
+    LOGGER.info(
+        "Running PF/grade consistency checks "
+        "(rows=%d, grade_col=%s, pf_col=%s, credits_col=%s)",
+        len(df),
+        grade_col,
+        pf_col,
+        credits_col,
+    )
+
     out = df.copy()
 
     # Normalize
     g = out[grade_col].astype(str).str.strip().str.upper()
     pf = out[pf_col].astype(str).str.strip().str.upper()
     credits = pd.to_numeric(out[credits_col], errors="coerce")  # keep NaNs as NaN
+    LOGGER.debug(
+        "Normalized grade/PF/credits (non-null counts: grade=%d, pf=%d, credits=%d)",
+        g.notna().sum(),
+        pf.notna().sum(),
+        credits.notna().sum(),
+    )
 
     # Pass/fail from grade (for disagreement only)
     pfg = pd.Series(
@@ -1141,13 +1356,31 @@ def check_pf_grade_consistency(
         dtype="object",
     )
 
-    # Credit rules (PF-based only)
+    LOGGER.debug(
+        "Derived PF indicators (from grade: pass=%d fail=%d unknown=%d; "
+        "from flag: pass=%d fail=%d unknown=%d)",
+        int((pfg == True).sum()),
+        int((pfg == False).sum()),
+        int(pfg.isna().sum()),
+        int((pff == True).sum()),
+        int((pff == False).sum()),
+        int(pff.isna().sum()),
+    )
+
+    # ----------------------------
+    # Rule checks
+    # ----------------------------
     rows_with_earned_with_failing_pf = (pff == False) & credits.notna() & (credits > 0)
     rows_with_no_credits_with_passing = (pff == True) & credits.notna() & (credits == 0)
-
-    # Grade vs PF disagreement (only where both known)
     rows_with_grade_pf_disagree = pfg.notna() & pff.notna() & (pfg != pff)
 
+    LOGGER.debug(
+        "Rule violations: earned_with_failing_pf=%d, "
+        "no_credits_with_passing=%d, grade_pf_disagree=%d",
+        int(rows_with_earned_with_failing_pf.sum()),
+        int(rows_with_no_credits_with_passing.sum()),
+        int(rows_with_grade_pf_disagree.sum()),
+    )
     # Collect anomalies
     mask = (
         rows_with_earned_with_failing_pf
@@ -1175,6 +1408,15 @@ def check_pf_grade_consistency(
         }
     )
 
+    if summary["total_anomalous_rows"].iloc[0] > 0:
+        LOGGER.warning(
+            "Detected %d PF/grade consistency anomalies",
+            summary["total_anomalous_rows"].iloc[0],
+        )
+    else:
+        LOGGER.info("No PF/grade consistency anomalies detected")
+
+    LOGGER.debug("PF/grade anomaly summary:\n%s", summary)
     return anomalies, summary
 
 
@@ -1214,6 +1456,105 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
             LOGGER.info("'M' grades: %d (%.1f%% of non-null grades).", m_count, m_pct)
     else:
         LOGGER.info("'M' grade not found or no valid grade data available.")
+
+
+def order_terms(
+    df: pd.DataFrame, term_col: str, season_order: dict[str, int] | None = None
+) -> pd.DataFrame:
+    """
+    CUSTOM SCHOOL FUNCTION
+
+    Make df[term_col] an ordered categorical based on Season + Year.
+    Expects terms like 'Spring 2024', 'Fall 2023', etc.
+    Compatible with CleanSpec.term_order_fn(df, term_col).
+
+    Args:
+        df: DataFrame containing the term column
+        term_col: Name of the column containing term strings
+        season_order: Optional dict mapping season names to sort order.
+                     Defaults to Spring=1, Summer=2, Fall=3, Winter=4
+    """
+    if term_col not in df.columns:
+        return df
+
+    if season_order is None:
+        season_order = {"Spring": 1, "Summer": 2, "Fall": 3, "Winter": 4}
+
+    out = df.copy()
+    out[term_col] = out[term_col].astype("string")
+
+    unique_terms = out[term_col].dropna().unique()
+    if len(unique_terms) == 0:
+        return out
+
+    sorted_terms = sorted(
+        unique_terms, key=lambda term: _parse_term(term, season_order)
+    )
+
+    out[term_col] = pd.Categorical(
+        out[term_col],
+        categories=sorted_terms,
+        ordered=True,
+    )
+
+    LOGGER.info(
+        "term_order_fn: term_col=%s, categories=%s",
+        term_col,
+        list(out[term_col].cat.categories),
+    )
+    return out
+
+
+def _parse_term(term: str, season_order: dict[str, int]) -> tuple[int, int]:
+    """
+    Parse a term string like 'Spring 2024' into (year, season_rank) for sorting.
+
+    Returns (9999, 999) for invalid/NA terms to push them to the end.
+    """
+    if pd.isna(term):
+        return (9999, 999)
+
+    parts = str(term).strip().split()
+    if len(parts) != 2:
+        return (9999, 999)
+
+    season, year = parts
+    try:
+        year_int = int(year)
+    except ValueError:
+        year_int = 9999
+
+    return (year_int, season_order.get(season, 999))
+
+
+def convert_numeric_columns(df, columns):
+    """
+    CUSTOM SCHOOL FUNCTION
+
+    Converts string-based numeric columns to a numeric dtype for plotting purposes ONLY
+    (we want to maintain dtypes in our modeling dataframe, so ONLY use this for help with EDA).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame containing the columns to clean.
+    columns : list of str
+        List of column names to clean and convert.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with specified columns cleaned and converted to numeric.
+    """
+    df = df.copy()
+    for col in columns:
+        s = df[col].astype(str).str.strip()
+        s = s.str.replace(",", "", regex=False)  # remove commas
+        s = s.str.replace(
+            r"[^\d.\-]", "", regex=True
+        )  # keep only digits, dot (decimals), dash (negative sign)
+        df[col] = pd.to_numeric(s, errors="coerce")
+    return df
 
 
 def check_variable_missingness(
