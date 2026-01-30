@@ -1,0 +1,108 @@
+name: Start Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 0.1.9)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  create-release-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Validate version format
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
+        run: |
+          VERSION="${VERSION_INPUT}"
+          # Strip "v" prefix if provided (e.g., "v0.1.9" -> "0.1.9")
+          VERSION="${VERSION#v}"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Error: Version must be in format X.Y.Z (e.g., 0.1.9 or v0.1.9)"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Check if version already exists
+        run: |
+          git fetch origin --tags --prune
+          if git rev-parse "refs/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "Error: Tag v${VERSION} already exists"
+            exit 1
+          fi
+          if git show-ref --verify --quiet "refs/remotes/origin/release/${VERSION}"; then
+            echo "Error: Release branch release/${VERSION} already exists"
+            exit 1
+          fi
+      - name: Fetch latest changes
+        run: |
+          git fetch origin
+          git checkout develop
+          git pull origin develop
+
+      - name: Create release branch (local only)
+        run: |
+          git checkout -b "release/${{ env.VERSION }}"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11.11'
+
+      - name: Install uv
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+
+      - name: Install project dependencies (uv)
+        run: |
+          uv venv
+          uv pip install .
+
+      - name: Update version metadata
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          uv run python -m edvise.scripts.update_version \
+            --version "${VERSION}" \
+            --changelog CHANGELOG.md \
+            --pyproject pyproject.toml \
+            --repo "${{ github.repository }}" \
+            --token "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Run uv sync
+        run: |
+          uv sync
+
+      - name: Commit and push changes
+        run: |
+          git add CHANGELOG.md pyproject.toml uv.lock
+          git commit -m "chore(release): prepare ${VERSION}"
+          git push -u origin "release/${VERSION}"
+
+      - name: Summary
+        run: |
+          echo "## Release branch created: release/${VERSION}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Version metadata updated" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Release branch pushed (integration tests will run automatically)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Next step:** Once integration tests pass, use the 'Finish Release' workflow to create PRs."
+
