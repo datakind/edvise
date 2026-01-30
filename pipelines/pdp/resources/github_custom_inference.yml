@@ -52,26 +52,32 @@ resources:
               - "{{tasks.inference_setup.values.features_table_path}}"
           job_cluster_key: edvise-custom-inference-pipeline-cluster
           libraries:
-            - pypi: 
-                package: numpy==1.26.4
-            - pypi: 
-                package: pandas==2.2.3
-            - pypi: 
-                package: pyarrow~=16.0 
-            - pypi: 
-                package: polars~=0.20
-            - pypi: 
-                package: scikit-learn==1.5.2
-            - pypi: 
-                package: mlflow~=2.22
-            - pypi: 
-                package: h2o==3.46.0.7
             - pypi:
-                package: pydantic~=2.10
+                package: numpy==1.26.4
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: missingno==0.5.2
             - pypi:
                 package: tomli==2.2.1
             - pypi:
                 package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+            - pypi:
+                package: h2o==3.46.0.7
+            - pypi:
+                package: shap~=0.46.0
+            - pypi:
+                package: mlflow~=2.22
+            - pypi:
+                package: scikit-learn==1.5.2
 
         - task_key: output_publish
           depends_on:
