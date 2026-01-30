@@ -268,6 +268,49 @@ class TrainingTask:
             leak = sorted([c for c in feature_cols if c in forbidden])
             require(not leak, f"Student-group columns leaked into features: {leak}")
 
+    def _validate_features_in_ft(self, df_modeling: pd.DataFrame) -> None:
+        """
+        Validate that:
+        1. All features in modeling dataset exist as keys in features_table
+        2. All features have at least some non-null values
+        """
+        import tomli
+
+        features_table_path = local_fs_path(self.spec.features_table_path)
+        logging.info("Validating features from: %s", features_table_path)
+
+        # Load features_table
+        with open(features_table_path, "rb") as f:
+            features_table = tomli.load(f)
+
+        # Get feature columns from modeling dataset
+        non_feature_cols = set(self.cfg.non_feature_cols)
+        feature_cols = [c for c in df_modeling.columns if c not in non_feature_cols]
+
+        # Check 1: All features exist in features_table
+        features_table_keys = set(features_table.keys())
+        undefined_features = [f for f in feature_cols if f not in features_table_keys]
+        if undefined_features:
+            raise ValueError(
+                f"Features in modeling dataset but not defined in features_table: {undefined_features}"
+            )
+
+        # Check 2: All features have non-null values
+        null_features = []
+        for feat in feature_cols:
+            if df_modeling[feat].isna().all():
+                null_features.append(feat)
+
+        if null_features:
+            raise ValueError(
+                f"Features with all null values in modeling dataset: {null_features}"
+            )
+
+        logging.info(
+            "Features validation passed: %d features validated (all defined in features_table with non-null values)",
+            len(feature_cols),
+        )
+
     def feature_selection(self, df_preprocessed: pd.DataFrame) -> pd.DataFrame:
         if self.cfg.modeling is None or self.cfg.modeling.feature_selection is None:
             raise ValueError(
@@ -685,9 +728,28 @@ class TrainingTask:
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
 
+        # Copy features_table file to run folder for custom schools
+        if self.spec.schema_type == "custom":
+            import shutil
+
+            features_table_src = local_fs_path(self.spec.features_table_path)
+            features_table_name = os.path.basename(self.spec.features_table_path)
+            features_table_dest = os.path.join(
+                current_run_path_local, features_table_name
+            )
+            logging.info(
+                "Copying features table from %s to %s",
+                features_table_src,
+                features_table_dest,
+            )
+            shutil.copy2(features_table_src, features_table_dest)
+
         df_modeling = self._load_or_build_modeling_df(
             current_run_path=current_run_path,
         )
+
+        logging.info("Validating all selected features exist in features_table")
+        self._validate_features_in_ft(df_modeling)
 
         logging.info("Training model")
         # Convert to pandas nullable dtypes right before training to preserve nullable dtypes prior to sklearn imputation
