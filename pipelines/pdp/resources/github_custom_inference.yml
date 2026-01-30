@@ -32,6 +32,8 @@ resources:
             python_file: src/edvise/scripts/inference_h2o.py
             source: GIT
             parameters:
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --silver_volume_path
@@ -44,6 +46,8 @@ resources:
               - "{{job.parameters.DK_CC_EMAIL}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
+              - --job_root_dir
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
               - --gold_table_path
               - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
               - --schema_type
