@@ -497,12 +497,6 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--features_table_path", type=str, required=False)
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument(
-        "--preprocessed_table_path",
-        type=str,
-        required=False,
-        help="Path to Delta table containing preprocessed data for inference (custom schools)",
-    )
-    parser.add_argument(
         "--job_type", type=str, choices=["inference"], default="inference"
     )
     parser.add_argument(
