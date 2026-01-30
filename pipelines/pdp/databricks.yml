@@ -41,6 +41,10 @@ variables:
   model_name:
     description: "Name of the model once it's registered and ready to be used for inference"
     default: ""
+  training_slack_webhook_id:
+    description: "Slack webhook ID for training pipeline failure notifications"
+  inference_slack_webhook_id:
+    description: "Slack webhook ID for inference pipeline failure notifications"
 
 run_as:
   service_principal_name: ${var.ds_run_as}
@@ -50,6 +54,8 @@ targets:
     mode: development
     variables:
       DB_workspace: "dev_sst_02"
+      training_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"    # edvise-data-crew channel on dev_sst_02                            
+      inference_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"   # edvise-data-crew channel on dev_sst_02  
     resources:
       jobs:
         github_sourced_pdp_training_pipeline:
@@ -89,6 +95,8 @@ targets:
     mode: production
     variables:
       DB_workspace: "staging_sst_01"
+      training_slack_webhook_id: "0fb252f8-f343-4be7-91de-b55f5408a031"  # edvise-data-crew channel on staging_sst_01                                        
+      inference_slack_webhook_id: "c51b737e-988d-45dd-ad9b-6f9024a6b56b"  # edvise-support channel on staging_sst_01  
     resources:
       jobs:
         github_sourced_pdp_training_pipeline:
