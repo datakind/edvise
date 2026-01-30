@@ -116,15 +116,17 @@ def compute_target(
             "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
         )
     )
-    intensity_num_terms_for_eligibility_minus_1 = {
+    intensity_num_terms_minus_1 = {
         intensity: max(num_terms - 1, 0)
         for intensity, num_terms in intensity_num_terms_for_eligibility.items()
     }
-
-    intensity_time_limits_for_eligibility = {
-        intensity: (num_terms, "term")
-        for intensity, num_terms in intensity_num_terms_for_eligibility_minus_1.items()
-    }
+    intensity_time_limits_for_eligibility = t.cast(
+    utils.types.IntensityTimeLimitsType,
+    {
+        intensity: (float(num_terms), "term")
+        for intensity, num_terms in intensity_num_terms_minus_1.items()
+    },
+    )
     df_labelable_students = shared.get_students_with_max_target_term_in_dataset(
         df,
         checkpoint=df_ckpt,
