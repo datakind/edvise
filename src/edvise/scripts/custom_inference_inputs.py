@@ -69,19 +69,19 @@ class CustomInferenceInputs:
         return str(latest_version.run_id)
 
     def find_file_in_run_folder(
-        self, run_root: str, file_pattern: str, description: str
+        self, run_root: str, file_name: str, description: str
     ) -> str:
         """
-        Finds a file matching the pattern under the run root.
+        Finds a file with the given name under the run root.
         Searches in: run_root, run_root/training/, run_root/inference/
 
         Args:
             run_root: Root directory of the training run
-            file_pattern: Glob pattern to match (e.g. "*.toml")
+            file_name: Exact filename to search for (e.g. "config.toml")
             description: Human-readable description for error messages
 
         Returns:
-            Path to the first matching file
+            Path to the matching file
 
         Raises:
             FileNotFoundError: If no matching file is found
@@ -96,14 +96,14 @@ class CustomInferenceInputs:
             base = pathlib.Path(local_fs_path(cand))
             if not base.exists():
                 continue
-            matching_files = list(base.rglob(file_pattern))
-            if matching_files:
-                found_path = str(matching_files[0])
+            file_path = base / file_name
+            if file_path.exists():
+                found_path = str(file_path)
                 logging.info("Found %s: %s", description, found_path)
                 return found_path
 
         raise FileNotFoundError(
-            f"No {description} matching '{file_pattern}' found under: {run_root} "
+            f"No {description} named '{file_name}' found under: {run_root} "
             f"(searched run root, training/, inference/)"
         )
 
@@ -129,15 +129,14 @@ class CustomInferenceInputs:
         )
         logging.info("Looking for training artifacts in: %s", silver_run_root)
 
-        # Find config file (should be a .toml file)
+        # Find config file by exact name
         config_file_path = self.find_file_in_run_folder(
-            silver_run_root, "*.toml", "config file"
+            silver_run_root, self.args.config_file_name, "config file"
         )
 
-        # Find features_table file (looking for files with 'features' in the name)
-        # Adjust the pattern based on your naming convention
+        # Find features_table file by exact name
         features_table_path = self.find_file_in_run_folder(
-            silver_run_root, "*features*.toml", "features table"
+            silver_run_root, self.args.features_table_name, "features table"
         )
 
         logging.info("Using config file: %s", config_file_path)
@@ -173,6 +172,16 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--databricks_institution_name", required=True, help="Institution identifier"
+    )
+    parser.add_argument(
+        "--config_file_name",
+        required=True,
+        help="Name of the config file to search for (e.g., 'config.toml')",
+    )
+    parser.add_argument(
+        "--features_table_name",
+        required=True,
+        help="Name of the features table file to search for (e.g., 'features_table.toml')",
     )
 
     return parser.parse_args()

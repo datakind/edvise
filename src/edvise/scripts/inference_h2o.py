@@ -243,24 +243,24 @@ class ModelInferenceTask:
 
         # Custom: read from config-specified path
         if self.spec.schema_type == "custom":
-            preprocessed_dataset = self.cfg.datasets.silver.get("preprocessed")
-            if not preprocessed_dataset:
+            model_features_dataset = self.cfg.datasets.silver.get("model_features")
+            if not model_features_dataset:
                 raise ValueError(
-                    "Custom inference requires cfg.datasets.silver['preprocessed'] to be configured"
+                    "Custom inference requires cfg.datasets.silver['model_features'] to be configured"
                 )
 
             # Try table paths first (Delta table), then file paths (parquet)
             # Support both new (predict_*) and legacy (*) field names for inference
             if (
-                preprocessed_dataset.table_path
-                or preprocessed_dataset.predict_table_path
+                model_features_dataset.table_path
+                or model_features_dataset.predict_table_path
             ):
                 table_path = (
-                    preprocessed_dataset.predict_table_path
-                    or preprocessed_dataset.table_path
+                    model_features_dataset.predict_table_path
+                    or model_features_dataset.table_path
                 )
                 logging.info(
-                    "Custom: loading preprocessed dataset from Delta table: %s",
+                    "Custom: loading model_features dataset from Delta table: %s",
                     table_path,
                 )
                 df_processed = dataio.read.from_delta_table(
@@ -268,20 +268,20 @@ class ModelInferenceTask:
                     spark_session=self.spark_session,
                 )
             elif (
-                preprocessed_dataset.file_path or preprocessed_dataset.predict_file_path
+                model_features_dataset.file_path or model_features_dataset.predict_file_path
             ):
                 file_path = (
-                    preprocessed_dataset.predict_file_path
-                    or preprocessed_dataset.file_path
+                    model_features_dataset.predict_file_path
+                    or model_features_dataset.file_path
                 )
                 logging.info(
-                    "Custom: loading preprocessed dataset from file: %s", file_path
+                    "Custom: loading model_features dataset from file: %s", file_path
                 )
                 df_processed = dataio.read.read_parquet(file_path)
             else:
                 raise ValueError(
                     "Custom inference requires either table_path/predict_table_path or "
-                    "file_path/predict_file_path in cfg.datasets.silver['preprocessed']"
+                    "file_path/predict_file_path in cfg.datasets.silver['model_features']"
                 )
         else:
             # PDP: use run-specific path
@@ -495,6 +495,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--DK_CC_EMAIL", type=str, required=True)
     parser.add_argument("--features_table_path", type=str, required=False)
     parser.add_argument("--ds_run_as", type=str, required=False)
+    parser.add_argument(
+        "--preprocessed_table_path",
+        type=str,
+        required=False,
+        help="Path to Delta table containing preprocessed data for inference (custom schools)",
+    )
     parser.add_argument(
         "--job_type", type=str, choices=["inference"], default="inference"
     )

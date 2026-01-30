@@ -16,6 +16,10 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
+              - --config_file_name
+              - "{{job.parameters.config_file_name}}"
+              - --features_table_name
+              - "{{job.parameters.features_table_name}}"
           job_cluster_key: edvise-custom-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -123,6 +127,10 @@ resources:
           default: ${var.DB_workspace}
         - name: model_name
           default: ${var.model_name}
+        - name: config_file_name
+          default: ${var.config_file_name}
+        - name: features_table_name
+          default: ${var.features_table_name}
         - name: gcp_bucket_name
           default: databricks-2052166062819251-unitycatalog
         - name: service_account_executer
