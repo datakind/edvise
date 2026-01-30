@@ -476,7 +476,7 @@ class TrainingTask:
             schema=self.spec.cfg_schema,
         )
 
-    def make_predictions(self, df_modeling: pd.DataFrame):
+    def make_predictions(self, df_modeling: pd.DataFrame) -> None:
         cfg = PredConfig(
             model_run_id=self.cfg.model.run_id,
             experiment_id=self.cfg.model.experiment_id,
@@ -519,12 +519,12 @@ class TrainingTask:
             if mlflow.active_run():
                 mlflow.end_run()
             with mlflow.start_run(run_id=self.cfg.model.run_id):
-                _ = modeling.evaluation.log_confusion_matrix(
+                modeling.evaluation.log_confusion_matrix(
                     catalog=self.args.DB_workspace,
                     institution_id=self.cfg.institution_id,
                     automl_run_id=self.cfg.model.run_id,
                 )
-                _ = modeling.h2o_ml.evaluation.log_roc_table(
+                modeling.h2o_ml.evaluation.log_roc_table(
                     catalog=self.args.DB_workspace,
                     institution_id=self.cfg.institution_id,
                     automl_run_id=self.cfg.model.run_id,
