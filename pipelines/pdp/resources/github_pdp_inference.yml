@@ -2,6 +2,9 @@ resources:
   jobs:
     edvise_github_sourced_pdp_inference_pipeline:
       name: edvise_github_sourced_pdp_inference_pipeline
+      webhook_notifications:
+        on_failure:
+          - id: ${var.inference_slack_webhook_id}
       max_concurrent_runs: 5
       tasks:
         - task_key: data_ingestion
