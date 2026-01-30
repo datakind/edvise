@@ -48,8 +48,6 @@ resources:
               - "{{job.parameters.db_run_id}}"
               - --job_root_dir
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
-              - --gold_table_path
-              - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
               - --schema_type
               - "custom"
               - --features_table_path
