@@ -111,8 +111,10 @@ def compute_target(
     )
     # get all students for which a target label can accurately be computed
     # i.e. the data in df covers their last "on-time" graduation term
-    intensity_num_terms_for_eligibility = utils.data_cleaning.convert_intensity_time_limits(
-    "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
+    intensity_num_terms_for_eligibility = (
+        utils.data_cleaning.convert_intensity_time_limits(
+            "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
+        )
     )
     intensity_num_terms_for_eligibility_minus_1 = {
         intensity: max(num_terms - 1, 0)
