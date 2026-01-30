@@ -57,7 +57,7 @@ from edvise.targets import graduation
             "student_id",
             pd.Series(
                 data=[True],
-                index=pd.Index(["01"], dtype="string", name="student_id"),
+                index=pd.Index(["01", "02"], dtype="string", name="student_id"),
                 dtype="boolean",
                 name="target",
             ),
