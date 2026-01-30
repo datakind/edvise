@@ -243,10 +243,10 @@ class ModelInferenceTask:
 
         # Custom: read from config-specified path
         if self.spec.schema_type == "custom":
-            model_features_dataset = self.cfg.datasets.silver.get("model_features")
+            model_features_dataset = self.cfg.datasets.silver.model_features
             if not model_features_dataset:
                 raise ValueError(
-                    "Custom inference requires cfg.datasets.silver['model_features'] to be configured"
+                    "Custom inference requires cfg.datasets.silver.model_features to be configured"
                 )
 
             # Try table paths first (Delta table), then file paths (parquet)
@@ -281,7 +281,7 @@ class ModelInferenceTask:
             else:
                 raise ValueError(
                     "Custom inference requires either table_path/predict_table_path or "
-                    "file_path/predict_file_path in cfg.datasets.silver['model_features']"
+                    "file_path/predict_file_path in cfg.datasets.silver.model_features"
                 )
         else:
             # PDP: use run-specific path

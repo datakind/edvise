@@ -159,15 +159,15 @@ class TrainingTask:
           - else read preprocessed.parquet -> feature selection -> write modeling.parquet
 
         Custom:
-          - read from cfg.datasets.silver["modeling"] (table_path or file_path)
+          - read from cfg.datasets.silver.modeling (table_path or file_path)
           - do NOT run feature selection here
         """
         # Custom: use config-specified path
         if self.spec.schema_type == "custom":
-            modeling_dataset = self.cfg.datasets.silver.get("modeling")
+            modeling_dataset = self.cfg.datasets.silver.modeling
             if not modeling_dataset:
                 raise ValueError(
-                    "Custom training requires cfg.datasets.silver['modeling'] to be configured"
+                    "Custom training requires cfg.datasets.silver.modeling to be configured"
                 )
 
             # Try table paths first (Delta table), then file paths (parquet)
@@ -194,7 +194,7 @@ class TrainingTask:
             else:
                 raise ValueError(
                     "Custom training requires either table_path/train_table_path or "
-                    "file_path/train_file_path in cfg.datasets.silver['modeling']"
+                    "file_path/train_file_path in cfg.datasets.silver.modeling"
                 )
 
             self._validate_modeling_contract(df_modeling)

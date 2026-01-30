@@ -94,11 +94,15 @@ cfg
 
 # MAGIC %md
 # MAGIC # read preprocessed dataset
+# MAGIC
+# MAGIC Read the intermediate preprocessed data from step 01 (before feature selection).
+# MAGIC This should be the output table from 01-preprocess-data-TEMPLATE.py
 
 # COMMAND ----------
 
+# TODO: Replace this path with your intermediate preprocessed data table
 df = dataio.read.from_delta_table(
-    cfg.datasets.silver["preprocessed"].table_path,
+    cfg.datasets.silver["preprocessed"].table_path, # Adjust to match your preprocessing output
     spark_session=spark,
 )
 df.head()
@@ -160,8 +164,8 @@ df = df.loc[:, df_selected.columns]
 # save modeling dataset with all splits
 # NOTE: This path should be configured in config-TEMPLATE.toml under:
 #   [datasets.silver.modeling]
-#   table_path = "catalog.schema.table_name"
+#   train_table_path = "catalog.schema.modeling_table"
 # The training_h2o.py script will read from this same configured path
 dataio.write.to_delta_table(
-    df, cfg.datasets.silver["modeling"].table_path, spark_session=spark
+    df, cfg.datasets.silver.modeling.train_table_path, spark_session=spark
 )
