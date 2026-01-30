@@ -20,12 +20,6 @@ import typing as t
 from dataclasses import dataclass
 from email.headerregistry import Address
 
-from edvise.utils.api_requests import (
-    validate_custom_institution_exist,
-    validate_custom_model_exist,
-    log_custom_job,
-)
-
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
 repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
@@ -57,6 +51,11 @@ from edvise.shared.logger import resolve_run_path, local_fs_path
 from edvise.shared.validation import (
     validate_tables_exist,
     ExpectedTable,
+)
+from edvise.utils.api_requests import (
+    validate_custom_institution_exist,
+    validate_custom_model_exist,
+    log_custom_job,
 )
 
 # Shared predictions pipeline (your extracted module)
