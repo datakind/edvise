@@ -200,7 +200,13 @@ class ModelInferenceTask:
         This is required for custom-school inference runs that interact with FE APIs.
         """
         w = WorkspaceClient()
-        api_key = w.dbutils.secrets.get(scope=scope, key=key)
+        api_key = w.dbutils.secrets.get(scope=scope, key=key).strip()
+        logging.info(
+            "Loaded SST API key (masked): len=%d prefix=%s suffix=%s",
+            len(api_key),
+            api_key[:4],
+            api_key[-4:],
+        )
         if not api_key:
             raise RuntimeError(
                 f"Missing SST API key in Databricks secrets "
