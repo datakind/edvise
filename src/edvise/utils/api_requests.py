@@ -1,14 +1,32 @@
 # Standard library imports
 import logging
 import re
+import os
 import typing as t
 from typing import cast
 from urllib.parse import quote
+
+from google.auth.transport.requests import Request
+from google.oauth2 import id_token
 
 # Third-party imports
 import requests
 
 LOGGER = logging.getLogger(__name__)
+
+
+def fetch_iap_token(iap_audience: str) -> str:
+    # Uses ADC (same auth mechanism as google.cloud.storage.Client()).
+    return id_token.fetch_id_token(Request(), iap_audience)
+
+def get_iap_audience() -> str:
+    aud = os.getenv("SST_IAP_AUDIENCE")
+    if not aud:
+        raise RuntimeError(
+            "Missing SST_IAP_AUDIENCE env var (should be the IAP OAuth client ID / audience, "
+            "like '...apps.googleusercontent.com')."
+        )
+    return aud
 
 
 def get_base_url(DB_workspace: str) -> str:
@@ -39,42 +57,36 @@ def get_base_url(DB_workspace: str) -> str:
         )
 
 
-def get_access_tokens(api_key: str, DB_workspace: str) -> t.Any:
-    if not api_key or not isinstance(api_key, str):
-        return {"ok": False, "stage": "validation", "error": "api_key must be a non-empty string"}
+def get_access_tokens(api_key: str, DB_workspace: str) -> str:
+    if not isinstance(api_key, str) or not api_key.strip():
+        raise ValueError("api_key must be a non-empty string")
 
     api_key = api_key.strip()
+    base_url = get_base_url(DB_workspace)
+    url = f"{base_url}/api/v1/token-from-api-key"
 
-    session = requests.Session()
-    token_headers = {
-        "X-API-KEY": api_key,
-        "x-api-key": api_key,  # robustness / brittle backend
-        "Content-Type": "application/json",
+    iap_jwt = fetch_iap_token(get_iap_audience())
+
+    headers = {
+        "Authorization": f"Bearer {iap_jwt}",  # required by IAP
+        "X-API-KEY": api_key,                  # consumed by your app
         "Accept": "application/json",
     }
 
-    base_url = get_base_url(DB_workspace)
-    access_token_url = f"{base_url}/api/v1/token-from-api-key"
-    token_resp = session.post(access_token_url, headers=token_headers, timeout=15)
+    resp = requests.post(url, headers=headers, timeout=15)
 
-    if token_resp.status_code == 401:
-        LOGGER.error("401 from token endpoint. url=%s", access_token_url)
-        LOGGER.error("sent header keys=%s", list(token_headers.keys()))
-        LOGGER.error("response headers (partial)=%s", {
-            "www-authenticate": token_resp.headers.get("WWW-Authenticate"),
-            "content-type": token_resp.headers.get("Content-Type"),
-            # if present, often useful for backend tracing:
-            "x-request-id": token_resp.headers.get("X-Request-Id") or token_resp.headers.get("X-Amzn-Trace-Id"),
-        })
-        LOGGER.error("response body (first 500 chars)=%r", token_resp.text[:500])
+    # Helpful debug if IAP blocks you again
+    if resp.status_code == 401 and "Invalid IAP credentials" in (resp.text or ""):
+        raise RuntimeError(
+            "Blocked by IAP (Invalid IAP credentials). "
+            "Either SST_IAP_AUDIENCE is wrong, or the Databricks identity lacks IAP access."
+        )
 
-    token_resp.raise_for_status()
-
-    token_json = token_resp.json()
-    access_token = token_json.get("access_token") if isinstance(token_json, dict) else None
+    resp.raise_for_status()
+    token_json = resp.json()
+    access_token = token_json.get("access_token")
     if not access_token:
         raise KeyError(f"No 'access_token' in token response: {token_json}")
-
     return access_token
 
 
