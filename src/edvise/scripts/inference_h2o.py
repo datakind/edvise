@@ -308,6 +308,7 @@ class ModelInferenceTask:
             validate_custom_institution_exist(
                 inst_id=self.cfg.institution_id,
                 api_key=api_key,
+                DB_workspace=self.args.DB_workspace,
             )
 
             logging.info("Validating that model exists on FE for custom school")
@@ -315,6 +316,7 @@ class ModelInferenceTask:
                 inst_id=self.cfg.institution_id,
                 model_name=self.model_name,
                 api_key=api_key,
+                DB_workspace=self.args.DB_workspace,
             )
 
         logging.info("Sending kickoff email")
@@ -448,6 +450,7 @@ class ModelInferenceTask:
                 job_run_id=self.args.db_run_id,
                 model_name=self.model_name,
                 api_key=api_key,
+                DB_workspace=self.args.DB_workspace,
             )
 
         logging.info("Inference task completed successfully.")

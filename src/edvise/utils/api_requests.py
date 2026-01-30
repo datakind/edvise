@@ -11,7 +11,35 @@ import requests
 LOGGER = logging.getLogger(__name__)
 
 
-def get_access_tokens(api_key: str) -> t.Any:
+def get_base_url(DB_workspace: str) -> str:
+    """
+    Map DB_workspace to the appropriate API base URL.
+
+    Args:
+        DB_workspace: The Databricks workspace identifier (e.g., 'dev_sst_02', 'staging_sst_01')
+
+    Returns:
+        Base URL for the API
+
+    Raises:
+        ValueError: If DB_workspace is not recognized
+    """
+    workspace_lower = DB_workspace.lower().strip()
+
+    # Map workspace to base URL based on pattern matching
+    # Dev workspaces (dev_sst_02, etc.)
+    if workspace_lower.startswith("dev"):
+        return "https://dev-sst.datakind.org"
+    # Staging workspaces (staging_sst_01, etc.)
+    elif workspace_lower.startswith("staging"):
+        return "https://staging-sst.datakind.org"
+    else:
+        raise ValueError(
+            f"Unknown DB_workspace '{DB_workspace}'. Must start with 'dev' or 'staging'"
+        )
+
+
+def get_access_tokens(api_key: str, DB_workspace: str) -> t.Any:
     if not api_key or not isinstance(api_key, str):
         return {
             "ok": False,
@@ -28,7 +56,8 @@ def get_access_tokens(api_key: str) -> t.Any:
         "Accept": "application/json",
     }
 
-    access_token_url = "https://staging-sst.datakind.org/api/v1/token-from-api-key"
+    base_url = get_base_url(DB_workspace)
+    access_token_url = f"{base_url}/api/v1/token-from-api-key"
     token_resp = session.post(access_token_url, headers=token_headers, timeout=15)
     token_resp.raise_for_status()
 
@@ -51,6 +80,7 @@ def create_custom_model(
     model_name: str,
     api_key: str,
     valid: bool,
+    DB_workspace: str,
 ) -> t.Any:
     "Retrieve access token and log custom job ids on the GCP Cloud SQL JobTable"
 
@@ -76,7 +106,7 @@ def create_custom_model(
         return {"ok": False, "stage": "validation", "error": "valid must be a boolean"}
 
     session = requests.Session()
-    access_token = get_access_tokens(api_key=api_key)
+    access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
     # Log custom jobs in JobTable
     custom_model_headers = {
@@ -105,9 +135,8 @@ def create_custom_model(
         ],
     }
 
-    create_model_endpoint_url = (
-        f"https://staging-sst.datakind.org/api/v1/{inst_id}/models/"
-    )
+    base_url = get_base_url(DB_workspace)
+    create_model_endpoint_url = f"{base_url}/api/v1/{inst_id}/models/"
     resp = session.post(
         create_model_endpoint_url, json=payload, headers=custom_model_headers
     )
@@ -119,7 +148,7 @@ def create_custom_model(
         return resp.text
 
 
-def validate_custom_institution_exist(inst_id: str, api_key: str) -> t.Any:
+def validate_custom_institution_exist(inst_id: str, api_key: str, DB_workspace: str) -> t.Any:
     if not inst_id or not isinstance(inst_id, str):
         return {
             "ok": False,
@@ -135,7 +164,7 @@ def validate_custom_institution_exist(inst_id: str, api_key: str) -> t.Any:
 
     session = requests.Session()
 
-    access_token = get_access_tokens(api_key=api_key)
+    access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
     # Verify institution exists
     custom_model_headers = {
@@ -144,9 +173,8 @@ def validate_custom_institution_exist(inst_id: str, api_key: str) -> t.Any:
         "Content-Type": "application/json",
     }
 
-    read_inst_endpoint_url = (
-        f"https://staging-sst.datakind.org/api/v1/institutions/{inst_id}"
-    )
+    base_url = get_base_url(DB_workspace)
+    read_inst_endpoint_url = f"{base_url}/api/v1/institutions/{inst_id}"
     resp = session.get(read_inst_endpoint_url, headers=custom_model_headers)
     resp.raise_for_status()
 
@@ -156,7 +184,7 @@ def validate_custom_institution_exist(inst_id: str, api_key: str) -> t.Any:
         return resp.text
 
 
-def validate_custom_model_exist(inst_id: str, model_name: str, api_key: str) -> t.Any:
+def validate_custom_model_exist(inst_id: str, model_name: str, api_key: str, DB_workspace: str) -> t.Any:
     if not isinstance(inst_id, str) or not inst_id.strip():
         raise ValueError("inst_id must be a non-empty string")
     if not isinstance(model_name, str) or not model_name.strip():
@@ -165,7 +193,7 @@ def validate_custom_model_exist(inst_id: str, model_name: str, api_key: str) -> 
         raise ValueError("api_key must be a non-empty string")
 
     session = requests.Session()
-    access_token = get_access_tokens(api_key=api_key)
+    access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
     # Verify institution exists
     custom_model_headers = {
@@ -174,7 +202,8 @@ def validate_custom_model_exist(inst_id: str, model_name: str, api_key: str) -> 
         "Content-Type": "application/json",
     }
 
-    read_model_endpoint_url = f"https://staging-sst.datakind.org/api/v1/institutions/{inst_id}/models/{model_name}"
+    base_url = get_base_url(DB_workspace)
+    read_model_endpoint_url = f"{base_url}/api/v1/institutions/{inst_id}/models/{model_name}"
     resp = session.get(read_model_endpoint_url, headers=custom_model_headers)
     resp.raise_for_status()
 
@@ -298,13 +327,14 @@ def reverse_databricksify_inst_name(databricks_name: str) -> str:
     return name.title()
 
 
-def _fetch_institution_by_name(normalized_name: str, access_token: str) -> t.Any:
+def _fetch_institution_by_name(normalized_name: str, access_token: str, DB_workspace: str) -> t.Any:
     """
     Fetch institution data from API by normalized name.
 
     Args:
         normalized_name: Institution name normalized to lowercase
         access_token: Bearer token for authentication
+        DB_workspace: The Databricks workspace identifier
 
     Returns:
         JSON response data from API
@@ -321,9 +351,8 @@ def _fetch_institution_by_name(normalized_name: str, access_token: str) -> t.Any
 
     # URL-encode the institution name to handle spaces, special chars, unicode, etc.
     encoded_name = quote(normalized_name, safe="")
-    institution_endpoint_url = (
-        f"https://staging-sst.datakind.org/api/v1/institutions/name/{encoded_name}"
-    )
+    base_url = get_base_url(DB_workspace)
+    institution_endpoint_url = f"{base_url}/api/v1/institutions/name/{encoded_name}"
     resp = session.get(
         institution_endpoint_url, headers=institution_headers, timeout=15
     )
@@ -432,7 +461,7 @@ def _parse_institution_response(institution_data: t.Any, institution_name: str) 
 
 
 def get_institution_id_by_name(
-    institution_name: str, api_key: str, is_databricks_name: bool = False
+    institution_name: str, api_key: str, DB_workspace: str, is_databricks_name: bool = False
 ) -> t.Any:
     """
     Retrieve institution ID by institution name from the API.
@@ -474,19 +503,19 @@ def get_institution_id_by_name(
     if validation_error is not None:
         return validation_error
 
-    access_token = get_access_tokens(api_key=api_key)
+    access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
     # Look up institution by name
     # Normalize to lowercase - the API endpoint performs case-insensitive matching
     # by comparing lowercase(name) == lowercase(input), so we normalize here for consistency
     normalized_name = institution_name.strip().lower()
 
-    institution_data = _fetch_institution_by_name(normalized_name, access_token)
+    institution_data = _fetch_institution_by_name(normalized_name, access_token, DB_workspace)
     return _parse_institution_response(institution_data, normalized_name)
 
 
 def log_custom_job(
-    inst_id: str, job_run_id: str, model_name: str, api_key: str
+    inst_id: str, job_run_id: str, model_name: str, api_key: str, DB_workspace: str
 ) -> t.Any:
     "Retrieve access token and log custom job ids on the GCP Cloud SQL JobTable"
     if not isinstance(inst_id, str) or not inst_id.strip():
@@ -499,7 +528,7 @@ def log_custom_job(
         raise ValueError("api_key must be a non-empty string")
 
     session = requests.Session()
-    access_token = get_access_tokens(api_key=api_key)
+    access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
     # Log custom jobs in JobTable
     custom_job_headers = {
@@ -507,7 +536,8 @@ def log_custom_job(
         "Content-Type": "application/json",
     }
 
-    custom_job_endpoint_url = f"https://staging-sst.datakind.org/api/v1/{inst_id}/add-custom-school-job/{job_run_id}?model_name={model_name}"
+    base_url = get_base_url(DB_workspace)
+    custom_job_endpoint_url = f"{base_url}/api/v1/{inst_id}/add-custom-school-job/{job_run_id}?model_name={model_name}"
     resp = session.post(custom_job_endpoint_url, headers=custom_job_headers)
     resp.raise_for_status()
 
