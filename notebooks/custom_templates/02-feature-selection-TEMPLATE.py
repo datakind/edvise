@@ -102,7 +102,9 @@ cfg
 
 # TODO: Replace this path with your intermediate preprocessed data table
 df = dataio.read.from_delta_table(
-    cfg.datasets.silver["preprocessed"].table_path, # Adjust to match your preprocessing output
+    cfg.datasets.silver[
+        "preprocessed"
+    ].table_path,  # Adjust to match your preprocessing output
     spark_session=spark,
 )
 df.head()

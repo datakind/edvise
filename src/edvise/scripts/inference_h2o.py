@@ -268,7 +268,8 @@ class ModelInferenceTask:
                     spark_session=self.spark_session,
                 )
             elif (
-                model_features_dataset.file_path or model_features_dataset.predict_file_path
+                model_features_dataset.file_path
+                or model_features_dataset.predict_file_path
             ):
                 file_path = (
                     model_features_dataset.predict_file_path
