@@ -41,17 +41,14 @@ def get_base_url(DB_workspace: str) -> str:
 
 def get_access_tokens(api_key: str, DB_workspace: str) -> t.Any:
     if not api_key or not isinstance(api_key, str):
-        return {
-            "ok": False,
-            "stage": "validation",
-            "error": "api_key must be a non-empty string",
-        }
+        return {"ok": False, "stage": "validation", "error": "api_key must be a non-empty string"}
+
+    api_key = api_key.strip()
 
     session = requests.Session()
-
-    # Retrieve API token
     token_headers = {
         "X-API-KEY": api_key,
+        "x-api-key": api_key,  # robustness / brittle backend
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
@@ -59,16 +56,22 @@ def get_access_tokens(api_key: str, DB_workspace: str) -> t.Any:
     base_url = get_base_url(DB_workspace)
     access_token_url = f"{base_url}/api/v1/token-from-api-key"
     token_resp = session.post(access_token_url, headers=token_headers, timeout=15)
+
+    if token_resp.status_code == 401:
+        LOGGER.error("401 from token endpoint. url=%s", access_token_url)
+        LOGGER.error("sent header keys=%s", list(token_headers.keys()))
+        LOGGER.error("response headers (partial)=%s", {
+            "www-authenticate": token_resp.headers.get("WWW-Authenticate"),
+            "content-type": token_resp.headers.get("Content-Type"),
+            # if present, often useful for backend tracing:
+            "x-request-id": token_resp.headers.get("X-Request-Id") or token_resp.headers.get("X-Amzn-Trace-Id"),
+        })
+        LOGGER.error("response body (first 500 chars)=%r", token_resp.text[:500])
+
     token_resp.raise_for_status()
 
-    try:
-        token_json = token_resp.json()
-    except ValueError as e:
-        raise ValueError(f"Token endpoint returned non-JSON: {token_resp.text}") from e
-
-    access_token = (
-        token_json.get("access_token") if isinstance(token_json, dict) else None
-    )
+    token_json = token_resp.json()
+    access_token = token_json.get("access_token") if isinstance(token_json, dict) else None
     if not access_token:
         raise KeyError(f"No 'access_token' in token response: {token_json}")
 
