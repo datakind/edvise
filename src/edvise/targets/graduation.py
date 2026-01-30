@@ -113,6 +113,19 @@ def compute_target(
     )
     # get all students for which a target label can accurately be computed
     # i.e. the data in df covers their last "on-time" graduation term
+    intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
+        "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
+    )
+
+    intensity_num_terms_minus_1 = {
+        intensity: max(num_terms - 1, 0)
+        for intensity, num_terms in intensity_num_terms.items()
+    }
+
+    intensity_time_limits_for_eligibility = {
+        intensity: (num_terms, "term")
+        for intensity, num_terms in intensity_num_terms_minus_1.items()
+    }
     df_labelable_students = shared.get_students_with_max_target_term_in_dataset(
         df,
         checkpoint=ft.partial(
@@ -124,7 +137,7 @@ def compute_target(
             term_is_core_col="term_is_core",
             exclude_non_core_terms=False,
         ),
-        intensity_time_limits=intensity_time_limits,
+        intensity_time_limits=intensity_time_limits_for_eligibility,
         max_term_rank=max_term_rank,
         num_terms_in_year=num_terms_in_year,
         student_id_cols=student_id_cols,
