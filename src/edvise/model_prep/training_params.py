@@ -1,6 +1,5 @@
 import logging
 import typing as t
-import os
 
 import pandas as pd
 import sklearn.utils
