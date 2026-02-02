@@ -3,9 +3,10 @@ name: deploy
 on:
   # deploy only when version tags are pushed
   push:
-    tags:
-      - 'v*'
-
+    # tags:
+    #   - 'v*'
+    branches:
+      - 'fix/deploy-dev-target-configuration'
 concurrency:
   group: deploy-prod-${{ github.ref_name }}-${{ github.job }}
   cancel-in-progress: false
@@ -69,7 +70,7 @@ jobs:
             --var="databricks_institution_name=midway_uni" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
-            --var="git_tag=${{ github.ref_name }}"
+            --var="git_tag=v0.1.10"
 
   # DEV (dev-sst-02)
   deploy-dev:
@@ -129,4 +130,4 @@ jobs:
             --var="databricks_institution_name=synthetic" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
-            --var="git_tag=${{ github.ref_name }}" 
+            --var="git_tag=v0.1.10"
