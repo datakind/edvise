@@ -133,7 +133,6 @@ class DatasetsConfig(pyd.BaseModel):
 class ModelConfig(pyd.BaseModel):
     experiment_id: str
     run_id: str
-    framework: t.Literal["sklearn", "h2o"] = "sklearn"
     calibrate_underpred: t.Optional[bool] = False
 
     @pyd.computed_field  # type: ignore[misc]

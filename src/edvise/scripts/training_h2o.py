@@ -552,6 +552,8 @@ class TrainingTask:
         logging.info(f"Modeling file saved to {modeling_path}")
 
         logging.info("Training model")
+        # Convert to pandas nullable dtypes right before training to preserve nullable dtypes prior to sklearn imputation
+        df_modeling = df_modeling.convert_dtypes()
         experiment_id = self.train_model(df_modeling)
 
         logging.info("Evaluating models")

@@ -60,9 +60,7 @@ def register_metric_sections(card, registry):
         will still print out how many experiments were run but the sample weight details are optional, depending
         on where a column with a substring of "sample_weight" exists in the training data.
         """
-        platform = (
-            "H2O AutoML" if card.cfg.model.framework == "h2o" else "Databricks AutoML"
-        )
+        platform = "H2O AutoML"
         used_weights = any(
             col.startswith("sample_weight") for col in card.training_data.columns
         )
