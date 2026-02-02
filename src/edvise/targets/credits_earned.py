@@ -25,6 +25,10 @@ def compute_target(
     Compute *insufficient* credits earned target for each distinct student in ``df`` ,
     for which intensity-specific time limits determine if credits earned is "on-time".
 
+    Target = True: Student did NOT earn min_num_credits within the allowed time → at-risk student
+    Target = False: Student DID earn enough credits on time → successful student
+    Target = NA: Not enough data to determine (student's "on-time window" extends beyond available data)
+
     Args:
         df: Student-term dataset.
         min_num_credits: Minimum number of credits earned within specified time limits
@@ -53,9 +57,13 @@ def compute_target(
         term_rank_col: Column whose values give the absolute integer ranking of a given
             term within the full dataset ``df`` .
     """
+    # 1. :
+    # Get unique students
     student_id_cols = utils.types.to_list(student_id_cols)
-    # we want a target for every student in input df; this will ensure it
     df_distinct_students = df[student_id_cols].drop_duplicates(ignore_index=True)
+
+    # 2. Find checkpoint term
+    # Determine "checkpoint" (starting point) term - usually first enrollment or a milestone like earning 30 credits
     df_ckpt = (
         checkpoint.copy(deep=True)
         if isinstance(checkpoint, pd.DataFrame)
@@ -64,6 +72,8 @@ def compute_target(
     if df_ckpt.groupby(by=student_id_cols).size().gt(1).any():
         raise ValueError("checkpoint df must include exactly 1 row per student")
 
+    # 3. Find target term
+    # For each student, find the first term they reached min_num_credits (e.g., 120 credits for a degree)
     df_tgt = checkpoints.nth_student_terms.first_student_terms_at_num_credits_earned(
         df,
         min_num_credits=min_num_credits,
@@ -72,6 +82,8 @@ def compute_target(
         num_credits_col=num_credits_col,
         include_cols=[enrollment_intensity_col],
     )
+
+    # 4. Combine checkpoint and target data to be able to calculate time elapsed
     df_at = pd.merge(
         df_ckpt,
         df_tgt,
@@ -79,46 +91,44 @@ def compute_target(
         how="left",
         suffixes=("_ckpt", "_tgt"),
     )
-    # convert from year limits to term limits, as needed
+
+    # 5. Convert from year limits to term limits for time limits provided in years
     intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
         "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
     )
-    # compute all intensity/term boolean arrays separately
-    # then combine with a logical OR
-    tr_col = term_rank_col  # hack, so logic below fits on lines
+
+    # 6. Apply intensity-specific time limits and select at-risk student IDs
+    # Check if student took more terms than allowed (e.g., full-time students get 12 terms, part-time get 16)
+    # Or if they never reached the credit threshold (target is na)
+    tr_col = term_rank_col  
     targets = [
         (
-            # enrollment intensity is equal to a specified value or "*" given as intensity
             (
                 df_at[f"{enrollment_intensity_col}_ckpt"].eq(intensity)
                 | (intensity == "*")
             )
             & (
-                # num terms between target/checkpoint greater than max num allowed
+
                 (df_at[f"{tr_col}_tgt"] - df_at[f"{tr_col}_ckpt"]).gt(num_terms)
-                # or they *never* earned enough credits for target
                 | df_at[f"{tr_col}_tgt"].isna()
             )
         )
         for intensity, num_terms in intensity_num_terms.items()
     ]
     target = np.logical_or.reduce(targets)
-    # assign True to all students passing intensity/year condition(s) above
+
+
+    # create a dataframe of just the at-risk students and add a column 'target' that is true boolean value
     df_target_true = (
-        df_at.loc[target, student_id_cols]
-        .assign(target=True)
-        .astype({"target": "boolean"})
+        df_at.loc[target, student_id_cols]  
+        .assign(target=True)        
+        .astype({"target": "boolean"})      
     )
-    # get all students for which a target label can accurately be computed
-    # i.e. the data in df covers their last "on-time" graduation term
-    intensity_num_terms_for_eligibility = (
-        utils.data_cleaning.convert_intensity_time_limits(
-            "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
-        )
-    )
+
+    # 7. Eligibility:
     intensity_num_terms_minus_1 = {
         intensity: max(num_terms - 1, 0)
-        for intensity, num_terms in intensity_num_terms_for_eligibility.items()
+        for intensity, num_terms in intensity_num_terms.items()
     }
     intensity_time_limits_for_eligibility = t.cast(
         utils.types.IntensityTimeLimitsType,
@@ -127,6 +137,10 @@ def compute_target(
             for intensity, num_terms in intensity_num_terms_minus_1.items()
         },
     )
+
+    # Filter to labelable students:
+    # Only label students whose "deadline term" falls within the available data
+    # Prevents mislabeling: if a student's data ends before their deadline, we can't know if they'll succeed
     df_labelable_students = shared.get_students_with_max_target_term_in_dataset(
         df,
         checkpoint=df_ckpt,
@@ -137,6 +151,10 @@ def compute_target(
         enrollment_intensity_col=enrollment_intensity_col,
         term_rank_col=term_rank_col,
     )
+    # 8. Assign labels:
+    # Labelable students who took too long or never graduated → True
+    # Labelable students who made it on time → False
+    # Students with insufficient data → NA (dropped)
     df_labeled = (
         # match positive labels to label-able students
         pd.merge(df_labelable_students, df_target_true, on=student_id_cols, how="left")
