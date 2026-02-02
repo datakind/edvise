@@ -54,7 +54,6 @@ jobs:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_STAGING_HOST }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_STAGING_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_STAGING_CLIENT_SECRET }}
-          DB_WORKSPACE:         staging_sst_01
           SA_EXECUTER:          ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
           DS_RUN_AS:            ${{ secrets.STAGING_DS_RUN_AS }}
           GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
@@ -65,7 +64,6 @@ jobs:
           databricks bundle deploy \
             --target=prod \
             --force-lock \
-            --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$DS_RUN_AS" \
             --var="databricks_institution_name=midway_uni" \
@@ -110,24 +108,22 @@ jobs:
         run: |
           databricks version
 
-      - name: Deploy bundle (prod target -> dev_sst_02)
+      - name: Deploy bundle (dev target -> dev_sst_02)
         working-directory: pipelines/pdp
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
-          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }} 
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
-          DB_WORKSPACE:         dev_sst_02
           SA_EXECUTER:          ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
           DS_RUN_AS:            ${{ secrets.DEV_DS_RUN_AS }}
           GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
           DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
         run: |
           databricks current-user me
-          echo "Deploying PROD target to dev_sst_02 for tag ${{ github.ref_name }}..."
+          echo "Deploying dev target to dev_sst_02 for tag ${{ github.ref_name }}..."
           databricks bundle deploy \
-            --target=prod \
+            --target=dev \
             --force-lock \
-            --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$DS_RUN_AS" \
             --var="databricks_institution_name=synthetic" \
