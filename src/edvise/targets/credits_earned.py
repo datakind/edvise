@@ -100,7 +100,7 @@ def compute_target(
     # 6. Apply intensity-specific time limits and select at-risk student IDs
     # Check if student took more terms than allowed (e.g., full-time students get 12 terms, part-time get 16)
     # Or if they never reached the credit threshold (target is na)
-    tr_col = term_rank_col  
+    tr_col = term_rank_col
     targets = [
         (
             (
@@ -108,7 +108,6 @@ def compute_target(
                 | (intensity == "*")
             )
             & (
-
                 (df_at[f"{tr_col}_tgt"] - df_at[f"{tr_col}_ckpt"]).gt(num_terms)
                 | df_at[f"{tr_col}_tgt"].isna()
             )
@@ -117,12 +116,11 @@ def compute_target(
     ]
     target = np.logical_or.reduce(targets)
 
-
     # create a dataframe of just the at-risk students and add a column 'target' that is true boolean value
     df_target_true = (
-        df_at.loc[target, student_id_cols]  
-        .assign(target=True)        
-        .astype({"target": "boolean"})      
+        df_at.loc[target, student_id_cols]
+        .assign(target=True)
+        .astype({"target": "boolean"})
     )
 
     # 7. Eligibility:
