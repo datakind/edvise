@@ -7,6 +7,7 @@ on:
     #   - 'v*'
     branches:
       - 'fix/deploy-dev-target-configuration'
+  workflow_dispatch:
 concurrency:
   group: deploy-prod-${{ github.ref_name }}-${{ github.job }}
   cancel-in-progress: false
