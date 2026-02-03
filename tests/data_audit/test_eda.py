@@ -360,10 +360,7 @@ class TestEdaSummary:
         # Note: EdaSummary now uses .dropna() instead of filtering "UK"
         # If schema validation hasn't been applied, "UK" values will remain
         gender_categories = sorted(
-            sample_cohort_data["gender"]
-            .dropna()
-            .unique()
-            .tolist()
+            sample_cohort_data["gender"].dropna().unique().tolist()
         )
         age_df = (
             sample_cohort_data[["gender", "student_age"]]
@@ -469,7 +466,9 @@ class TestEdaSummary:
         # UK should not appear in the results after validation
         if result and "series" in result:
             data_keys = list(result["series"][0]["data"].keys())
-            assert "UK" not in data_keys, "UK values should be converted to NaN during validation"
+            assert "UK" not in data_keys, (
+                "UK values should be converted to NaN during validation"
+            )
 
     def test_validate_false_preserves_data(self, sample_cohort_data):
         """Test that validate=False skips validation and preserves data as-is."""
