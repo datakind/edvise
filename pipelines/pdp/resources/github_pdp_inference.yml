@@ -313,7 +313,7 @@ resources:
         enabled: true
       parameters:
         - name: term_filter
-          default: null
+          default: ""
         - name: cohort_file_name
           default: AO1600pdp_AO1600_AR_DEIDENTIFIED_STUDYID_20250723040724.csv
         - name: course_file_name
