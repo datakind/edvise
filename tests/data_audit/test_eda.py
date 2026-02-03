@@ -111,6 +111,18 @@ class TestEdaSummary:
         )
         assert isinstance(stats["avg_year1_gpa_all_students"], float)
 
+    def test_summary_stats_returns_zero_for_invalid_gpa(self):
+        df = pd.DataFrame(
+            {
+                "study_id": ["student-1", "student-2"],
+                "enrollment_type": ["First-Time", "Transfer-In"],
+                "gpa_group_year_1": ["invalid", None],
+            }
+        )
+        eda = EdaSummary(df, validate=False)
+        stats = eda.summary_stats
+        assert stats["avg_year1_gpa_all_students"] == 0.0
+
     def test_gpa_by_enrollment_type_structure(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data, validate=False)
         result = eda.gpa_by_enrollment_type

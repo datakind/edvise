@@ -1749,16 +1749,19 @@ class EdaSummary:
                 - transfer_students: Integer count of transfer students
                 - avg_year1_gpa_all_students: Float average GPA (or 0.0 if no valid data)
         """
+        avg_year1_gpa = pd.to_numeric(
+            self.df_cohort["gpa_group_year_1"], errors="coerce"
+        ).mean()
+        if pd.isna(avg_year1_gpa):
+            avg_year1_gpa = 0.0
+        else:
+            avg_year1_gpa = float(round(avg_year1_gpa, 2))
         return {
             "total_students": int(self.df_cohort["study_id"].nunique()),
             "transfer_students": int(
                 (self.df_cohort["enrollment_type"] == "Transfer-In").sum()
             ),
-            "avg_year1_gpa_all_students": pd.to_numeric(
-                self.df_cohort["gpa_group_year_1"], errors="coerce"
-            )
-            .mean()
-            .round(2),
+            "avg_year1_gpa_all_students": avg_year1_gpa,
         }
 
     @cached_property
