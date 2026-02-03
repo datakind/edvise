@@ -1819,10 +1819,9 @@ class EdaSummary:
                 .reset_index()
                 .assign(
                     label=lambda d: d["key"].str.title(),
-                    data=lambda d: d.drop(columns=["key", "label"])
-                    .astype(int)
-                    .to_numpy()
-                    .tolist(),
+                    data=lambda d: (
+                        d.drop(columns=["key", "label"]).astype(int).to_numpy().tolist()
+                    ),
                 )
                 .loc[:, ["key", "label", "data"]]
                 .to_dict(orient="records")
