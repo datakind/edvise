@@ -1679,12 +1679,13 @@ class EdaSummary:
         return list[str](years.tolist())
 
     def _format_series_data(self, df: pd.DataFrame) -> list[dict[str, t.Any]]:
-        return (
+        result = (
             df.reset_index(names="name")
             .assign(data=lambda d: d.drop(columns="name").to_numpy().tolist())
             .loc[:, ["name", "data"]]
             .to_dict(orient="records")
         )
+        return t.cast(list[dict[str, t.Any]], result)
 
     @cached_property
     def summary_stats(self) -> dict[str, int | float]:
