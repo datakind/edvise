@@ -711,7 +711,7 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
         )
 
 
-def print_credential_and_enrollment_types(
+def print_demographics(
     df_cohort: pd.DataFrame,
 ) -> None:
     pct_credentials = (
@@ -720,8 +720,11 @@ def print_credential_and_enrollment_types(
         )
         * 100
     )
-    pct_enroll = (
+    pct_enroll_types = (
         df_cohort["enrollment_type"].value_counts(dropna=False, normalize=True) * 100
+    )
+    pct_enroll_intensity = (
+        df_cohort["enrollment_intensity_first_term"].value_counts(dropna=False, normalize=True) * 100
     )
     LOGGER.info(
         " Percent breakdown for credential types: \n%s ",
@@ -729,7 +732,11 @@ def print_credential_and_enrollment_types(
     )
     LOGGER.info(
         " Percent breakdown for enrollment types: \n%s ",
-        pct_enroll.to_string(),
+        pct_enroll_types.to_string(),
+    )
+    LOGGER.info(
+        " Percent breakdown for enrollment intensities: \n%s ",
+        pct_enroll_intensity.to_string(),
     )
 
 
