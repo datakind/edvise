@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats as ss
 from edvise import utils as edvise_utils
+from edvise.reporting.model_card.h2o_base import as_percent
 
 LOGGER = logging.getLogger(__name__)
 
@@ -714,31 +715,25 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
 def print_credential_and_enrollment_types_and_intensities(
     df_cohort: pd.DataFrame,
 ) -> None:
-    pct_credentials = (
-        df_cohort["credential_type_sought_year_1"].value_counts(
-            dropna=False, normalize=True
-        )
-        * 100
-    )
-    pct_enroll_types = (
-        df_cohort["enrollment_type"].value_counts(dropna=False, normalize=True) * 100
-    )
-    pct_enroll_intensity = (
-        df_cohort["enrollment_intensity_first_term"].value_counts(
-            dropna=False, normalize=True
-        )
-        * 100
-    )
+    def pct_breakdown(series: pd.Series) -> pd.Series:
+        return series.value_counts(dropna=False, normalize=True).map(as_percent)
+
+    pct_credentials = pct_breakdown(df_cohort["credential_type_sought_year_1"])
+
+    pct_enroll_types = pct_breakdown(df_cohort["enrollment_type"])
+
+    pct_enroll_intensity = pct_breakdown(df_cohort["enrollment_intensity_first_term"])
+
     LOGGER.info(
-        " Percent breakdown for credential types: \n%s ",
+        "Percent breakdown for credential types:\n%s",
         pct_credentials.to_string(),
     )
     LOGGER.info(
-        " Percent breakdown for enrollment types: \n%s ",
+        "Percent breakdown for enrollment types:\n%s",
         pct_enroll_types.to_string(),
     )
     LOGGER.info(
-        " Percent breakdown for enrollment intensities: \n%s ",
+        "Percent breakdown for enrollment intensities:\n%s",
         pct_enroll_intensity.to_string(),
     )
 

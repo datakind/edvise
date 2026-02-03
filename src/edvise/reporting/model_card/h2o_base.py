@@ -67,6 +67,10 @@ class H2OModelCard(ModelCard[C]):
             )
         )
 
+    def as_percent(val: float | int) -> str:
+        val = float(val) * 100
+        return str(int(val) if val.is_integer() else round(val, 2))
+
     def get_feature_metadata(self) -> dict[str, str]:
         """
         Collects feature count from the H2O model and feature selection config.
@@ -74,11 +78,6 @@ class H2OModelCard(ModelCard[C]):
         Returns:
             A dictionary with feature metadata for the template.
         """
-
-        def as_percent(val: float | int) -> str:
-            val = float(val) * 100
-            return str(int(val) if val.is_integer() else round(val, 2))
-
         feature_count = len(h2o_ml.inference.get_h2o_used_features(self.model))
         if not self.cfg.modeling or not self.cfg.modeling.feature_selection:
             raise ValueError(
