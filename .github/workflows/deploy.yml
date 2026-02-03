@@ -121,7 +121,10 @@ jobs:
           DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
         run: |
           databricks current-user me
-          echo "Deploying dev target to dev_sst_02 for tag ${{ github.ref_name }}..."
+          echo "Deploying dev target to dev_sst_02 for commit ${{ github.ref_name }}..."
+          echo "DEBUG: github.sha = ${{ github.sha }}"
+          echo "DEBUG: github.ref = ${{ github.ref }}"
+          echo "DEBUG: github.ref_name = ${{ github.ref_name }}"
           databricks bundle deploy \
             --target=dev \
             --force-lock \
