@@ -12,7 +12,7 @@ from edvise.utils.data_cleaning import (
 )
 from .eda import (
     log_high_null_columns,
-    print_demographics,
+    print_credential_and_enrollment_types_and_intensities,
     print_retention,
     log_grade_distribution,
     check_bias_variables,
@@ -45,7 +45,7 @@ class PDPCohortStandardizer(BaseStandardizer):
             df: As output by :func:`dataio.read_raw_pdp_cohort_data_from_file()` .
         """
         log_high_null_columns(df)
-        print_demographics(df)
+        print_credential_and_enrollment_types_and_intensities(df)
         print_retention(df)
         check_bias_variables(df)
         cols_to_drop = [

@@ -711,7 +711,7 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
         )
 
 
-def print_demographics(
+def print_credential_and_enrollment_types_and_intensities(
     df_cohort: pd.DataFrame,
 ) -> None:
     pct_credentials = (
