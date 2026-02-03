@@ -1696,10 +1696,14 @@ class EdaSummary:
             )
 
             # Use lazy=True to collect all validation errors (same as pipeline)
-            self.df_cohort = RawPDPCohortDataSchema.validate(df_cohort, lazy=True)
+            self.df_cohort: pd.DataFrame = RawPDPCohortDataSchema.validate(
+                df_cohort, lazy=True
+            )
 
             if df_course is not None:
-                self.df_course = RawPDPCourseDataSchema.validate(df_course, lazy=True)
+                self.df_course: pd.DataFrame | None = RawPDPCourseDataSchema.validate(
+                    df_course, lazy=True
+                )
             else:
                 self.df_course = None
         else:
