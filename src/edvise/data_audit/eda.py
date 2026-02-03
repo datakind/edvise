@@ -1680,12 +1680,12 @@ class EdaSummary:
         validate: bool = True,
     ):
         """
-        Initialize EdaSummary with cohort and optional course data.
+        Initialize EdaSummary with cohort and course data.
 
         Args:
             df_cohort: DataFrame containing cohort/student data with columns like
                 'study_id', 'enrollment_type', 'gpa_group_year_1', etc.
-            df_course: Optional DataFrame containing course data
+            df_course: DataFrame containing course data
             validate: Whether to apply schema validation. Default True.
                 Set to False if data has already been schema-validated.
         """
@@ -1727,7 +1727,7 @@ class EdaSummary:
         if formatted:
             years = years.str.replace("-", " - ", regex=False)
 
-        return list[str](years.tolist())
+        return t.cast(list[str], years.tolist())
 
     def _format_series_data(self, df: pd.DataFrame) -> list[dict[str, t.Any]]:
         result = (
