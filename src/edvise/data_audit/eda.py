@@ -724,7 +724,10 @@ def print_demographics(
         df_cohort["enrollment_type"].value_counts(dropna=False, normalize=True) * 100
     )
     pct_enroll_intensity = (
-        df_cohort["enrollment_intensity_first_term"].value_counts(dropna=False, normalize=True) * 100
+        df_cohort["enrollment_intensity_first_term"].value_counts(
+            dropna=False, normalize=True
+        )
+        * 100
     )
     LOGGER.info(
         " Percent breakdown for credential types: \n%s ",
