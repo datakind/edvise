@@ -94,10 +94,14 @@ def normalize_degree(text: str) -> str:
         "Associates"
     """
     # remove the word "degree" (case-insensitive) at the end
+    text = text.strip()
+
+    # remove the word "degree" (case-insensitive) at the end
     text = re.sub(r"\s*degree\s*$", "", text, flags=re.IGNORECASE)
 
-    # normalize "associate's" / "associates'" → "associates"
-    text = re.sub(r"\bassociate[’']?s\b", "associates", text, flags=re.IGNORECASE)
+    # normalize possessive degrees: bachelor's/master's/associate's -> bachelors/masters/associates
+    # handles straight and curly apostrophes
+    text = re.sub(r"[’']s\b", "s", text, flags=re.IGNORECASE)
 
     # normalize capitalization
     return text.lower().capitalize()
