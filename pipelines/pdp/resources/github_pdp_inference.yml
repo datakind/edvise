@@ -41,6 +41,8 @@ resources:
             parameters:
               - --bronze_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume"
+              - --term_filter
+              - "{{job.parameters.term_filter}}"
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --DB_workspace
@@ -310,6 +312,8 @@ resources:
       queue:
         enabled: true
       parameters:
+        - name: term_filter
+          default: ""
         - name: cohort_file_name
           default: AO1600pdp_AO1600_AR_DEIDENTIFIED_STUDYID_20250723040724.csv
         - name: course_file_name
