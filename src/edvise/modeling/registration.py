@@ -33,7 +33,6 @@ def register_mlflow_model(
     References:
         - https://mlflow.org/docs/latest/model-registry.html
     """
-    # Model name is already UC-compatible (lowercase with underscores)
     model_path = f"{catalog}.{institution_id}_gold.{model_name}"
     LOGGER.info("Registering model '%s' to Unity Catalog", model_path)
     mlflow.set_registry_uri(registry_uri)
