@@ -489,8 +489,9 @@ class TrainingTask:
     def register_model(self):
         model_name = modeling.registration.get_model_name(
             institution_id=self.cfg.institution_id,
-            target=self.cfg.preprocessing.target.name,
-            checkpoint=self.cfg.preprocessing.checkpoint.name,
+            target=self.cfg.preprocessing.target,
+            student_criteria=self.cfg.preprocessing.selection.student_criteria,
+            checkpoint=self.cfg.preprocessing.checkpoint,
         )
         try:
             modeling.registration.register_mlflow_model(

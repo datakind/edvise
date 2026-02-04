@@ -1,6 +1,6 @@
 import logging
 import typing as t
-
+import re
 import mlflow
 import mlflow.exceptions
 import mlflow.tracking
@@ -74,18 +74,100 @@ def register_mlflow_model(
         LOGGER.info("Set alias '%s' to version %s", model_alias, mv.version)
 
 
+def normalize_degree(text: str) -> str:
+    """
+    Normalize degree text by removing the word 'degree' and standardizing capitalization.
+
+    Removes trailing 'degree' (case-insensitive) and converts text to title case
+    (lowercase with first letter capitalized).
+
+    Args:
+        text: Degree text to normalize (e.g., "ASSOCIATE'S DEGREE", "Bachelor's degree")
+
+    Returns:
+        Normalized degree text (e.g., "Associate's", "Bachelor's")
+
+    Examples:
+        normalize_degree("ASSOCIATE'S DEGREE")
+        "Associate's"
+    """
+    # remove the word "degree" (case-insensitive)
+    text = re.sub(r"\s*degree\s*$", "", text, flags=re.IGNORECASE)
+    # normalize capitalization
+    return text.lower().capitalize()
+
+
+def extract_time_limits(intensity_time_limits: dict) -> str:
+    """Transform intensity time limits into compact string like '3Y FT, 6Y PT'"""
+    # Define order
+    order = ["FULL-TIME", "PART-TIME"]
+
+    parts = []
+    for enroll_intensity in order:
+        if enroll_intensity not in intensity_time_limits:
+            continue
+
+        duration, unit = intensity_time_limits[enroll_intensity]
+        duration_str = (
+            str(int(duration)) if duration == int(duration) else str(duration)
+        )
+        unit_abbrev = unit[0].upper()
+        intensity_abbrev = "".join(word[0] for word in enroll_intensity.split("-"))
+
+        parts.append(f"{duration_str}{unit_abbrev} {intensity_abbrev}")
+
+    return ", ".join(parts)
+
+
 def get_model_name(
     *,
     institution_id: str,
-    target: str,
-    checkpoint: str,
+    target: t.Any,
+    checkpoint: t.Any,
+    student_criteria: dict,
     extra_info: t.Optional[str] = None,
 ) -> str:
     """
-    Get a standard model name generated from key components, formatted as
-    "{institution_id}_{target}_{checkpoint}[_{extra_info}]"
+    Get a standard model name generated from key components, depending on target type and student criteria.
     """
-    model_name = f"{institution_id}_{target}_{checkpoint}"
+    if target["_type"] == "retention":
+        if "credential_type_sought_year_1" in student_criteria:
+            credential_type = normalize_degree(
+                student_criteria["credential_type_sought_year_1"]
+            )
+            model_name = f"{target['_type']} into Year 2: {credential_type}"
+        else:
+            # we can keep or remove All Degrees here, but just to make it more clear to schools who go with an "all-in" approach
+            model_name = f"{target['_type']} into Year 2: All Degrees"
+    elif target["_type"] == "graduation":
+        time_limits = extract_time_limits(target["intensity_time_limits"])
+        if checkpoint["_type"] == "nth":
+            if checkpoint["exclude_non_core_terms"] == True:
+                model_name = f"{target['type_']} in {time_limits} (Checkpoint: {checkpoint['n'] + 1} Core Terms)"
+            else:
+                model_name = f"{target['type_']} in {time_limits} (Checkpoint:{checkpoint['n'] + 1} Total Terms)"
+        elif checkpoint["type_"] == "first_student_terms":
+            model_name = f"{target['type_']} in {time_limits} (Checkpoint: First Term)"
+        elif checkpoint["type_"] == "first_student_terms_within_cohort":
+            model_name = (
+                f"{target['type_']} in {time_limits} (Checkpoint: First Cohort Term)"
+            )
+        elif checkpoint["type_"] == "first_at_num_credits_earned":
+            model_name = f"{target['type_']} in {time_limits} (Checkpoint: {str(checkpoint['min_num_credits'])} Credits)"
+    elif target["_type"] == "credits_earned":
+        time_limits = extract_time_limits(target["intensity_time_limits"])
+        if checkpoint["_type"] == "nth":
+            if checkpoint["exclude_non_core_terms"] == True:
+                model_name = f"{str(target['min_num_credits'])} Credits in {time_limits} (Checkpoint: {checkpoint['n'] + 1} Core Terms)"
+            else:
+                model_name = f"{str(target['min_num_credits'])} Credits in {time_limits} (Checkpoint: {checkpoint['n'] + 1} Total Terms)"
+        elif checkpoint["type_"] == "first_student_terms":
+            model_name = f"{str(target['min_num_credits'])} Credits in {time_limits} (Checkpoint: First Term)"
+        elif checkpoint["type_"] == "first_student_terms_within_cohort":
+            model_name = f"{str(target['min_num_credits'])} Credits in {time_limits} (Checkpoint: First Cohort Term)"
+        elif checkpoint["type_"] == "first_at_num_credits_earned":
+            model_name = f"{str(target['min_num_credits'])} Credits in {time_limits} (Checkpoint: {str(checkpoint['min_num_credits'])} Credits)"
+    # do we still need this extra info section? what's it for?
     if extra_info is not None:
         model_name = f"{model_name}_{extra_info}"
     return model_name

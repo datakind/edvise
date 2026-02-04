@@ -41,13 +41,11 @@ intensity_time_limits = { FULL-TIME = [3.0, "year"], PART-TIME = [6.0, "year"] }
 
 [preprocessing.checkpoint]
 # TODO: edit based on how many credits need to be earned prior to checkin
-name = "30_credits_earned"
 type_ = "first_at_num_credits_earned"
 min_num_credits = 30.0
 num_credits_col = "cumsum_num_credits_earned"
 
 [preprocessing.target]
-name = "credits_earned"
 type_ = "credits_earned"
 # TODO: edits based on credits needed for degree awardal 
 min_num_credits = 60.0
