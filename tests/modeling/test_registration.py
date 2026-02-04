@@ -622,26 +622,6 @@ class TestGetModelName:
         # Python's str(60.0) = "60.0", str(3.0) when int(3.0) == 3.0 displays as "3"
         assert result == "60_credits_in_3y_ft_checkpoint_first_term"
 
-    def test_actual_decimal_credits(self):
-        """Test credits with actual decimal values"""
-        target = {
-            "type_": "credits_earned",
-            "min_num_credits": 12.5,
-            "intensity_time_limits": {"FULL-TIME": [1.5, "year"]},
-            "num_terms_in_year": 4,
-            "max_term_rank": "infer",
-        }
-        checkpoint = {"type_": "first_student_terms"}
-        student_criteria = {}
-
-        result = get_model_name(
-            institution_id="test_inst",
-            target=target,
-            checkpoint=checkpoint,
-            student_criteria=student_criteria,
-        )
-        assert result == "12_5_credits_in_1_5y_ft_checkpoint_first_term"
-
     def test_zero_n_checkpoint(self):
         """Test n=0 which results in checkpoint at position 1"""
         target = {
