@@ -141,7 +141,7 @@ def get_model_name(
             model_name = f"{target['_type']} into Year 2: All Degrees"
     elif target["_type"] == "graduation":
         time_limits = extract_time_limits(target["intensity_time_limits"])
-        if checkpoint["_type"] == "nth":
+        if checkpoint["type_"] == "nth":
             if checkpoint["exclude_non_core_terms"] == True:
                 model_name = f"{target['type_']} in {time_limits} (Checkpoint: {checkpoint['n'] + 1} Core Terms)"
             else:
@@ -156,7 +156,7 @@ def get_model_name(
             model_name = f"{target['type_']} in {time_limits} (Checkpoint: {str(checkpoint['min_num_credits'])} Credits)"
     elif target["_type"] == "credits_earned":
         time_limits = extract_time_limits(target["intensity_time_limits"])
-        if checkpoint["_type"] == "nth":
+        if checkpoint["type_"] == "nth":
             if checkpoint["exclude_non_core_terms"] == True:
                 model_name = f"{str(target['min_num_credits'])} Credits in {time_limits} (Checkpoint: {checkpoint['n'] + 1} Core Terms)"
             else:
