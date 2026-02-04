@@ -8,6 +8,48 @@ import mlflow.tracking
 LOGGER = logging.getLogger(__name__)
 
 
+def sanitize_model_name_for_uc(model_name: str) -> str:
+    """
+    Sanitize a model name for Unity Catalog compliance.
+
+    Unity Catalog does not allow spaces, forward slashes, or periods in object names.
+    This function replaces these characters to create a valid UC name while keeping
+    the name human-readable.
+
+    Args:
+        model_name: The human-readable model name (e.g., "retention into Year 2: Associate's")
+
+    Returns:
+        A sanitized name suitable for Unity Catalog (e.g., "retention_into_Year_2_Associates")
+
+    Examples:
+        >>> sanitize_model_name_for_uc("retention into Year 2: Associate's")
+        'retention_into_Year_2_Associates'
+        >>> sanitize_model_name_for_uc("Graduation in 3Y FT, 6Y PT (Checkpoint: 2 Core Terms)")
+        'Graduation_in_3Y_FT_6Y_PT_Checkpoint_2_Core_Terms'
+    """
+    # Replace spaces with underscores
+    sanitized = model_name.replace(" ", "_")
+
+    # Remove colons, parentheses, commas, and apostrophes
+    sanitized = sanitized.replace(":", "")
+    sanitized = sanitized.replace("(", "")
+    sanitized = sanitized.replace(")", "")
+    sanitized = sanitized.replace(",", "")
+    sanitized = sanitized.replace("'", "")
+
+    # Remove any other non-alphanumeric characters except underscores
+    sanitized = re.sub(r"[^a-zA-Z0-9_]", "", sanitized)
+
+    # Remove any double underscores that might have been created
+    sanitized = re.sub(r"_+", "_", sanitized)
+
+    # Remove leading/trailing underscores
+    sanitized = sanitized.strip("_")
+
+    return sanitized
+
+
 def register_mlflow_model(
     model_name: str,
     institution_id: str,
@@ -22,7 +64,7 @@ def register_mlflow_model(
     Register an mlflow model from a run, using run-level tags to prevent duplicate registration.
 
     Args:
-        model_name
+        model_name: Human-readable model name (will be sanitized for Unity Catalog)
         institution_id
         run_id
         catalog
@@ -33,7 +75,14 @@ def register_mlflow_model(
     References:
         - https://mlflow.org/docs/latest/model-registry.html
     """
-    model_path = f"{catalog}.{institution_id}_gold.{model_name}"
+    # Sanitize model name for Unity Catalog compliance (no spaces, slashes, or periods)
+    sanitized_model_name = sanitize_model_name_for_uc(model_name)
+    model_path = f"{catalog}.{institution_id}_gold.{sanitized_model_name}"
+    LOGGER.info(
+        "Model name '%s' sanitized to '%s' for Unity Catalog",
+        model_name,
+        sanitized_model_name,
+    )
     mlflow.set_registry_uri(registry_uri)
 
     # Create the registered model if it doesn't exist

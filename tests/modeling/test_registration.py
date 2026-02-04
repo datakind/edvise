@@ -6,6 +6,7 @@ from edvise.modeling.registration import (
     get_model_name,
     normalize_degree,
     extract_time_limits,
+    sanitize_model_name_for_uc,
 )
 
 
@@ -743,3 +744,194 @@ class TestGetModelName:
             extra_info="experimental_v2",
         )
         assert result == "Graduation in 4Y FT (Checkpoint: First Term)_experimental_v2"
+
+
+# Tests for sanitize_model_name_for_uc function
+class TestSanitizeModelNameForUC:
+    """
+    Tests for sanitize_model_name_for_uc function that ensures model names
+    are compatible with Unity Catalog naming restrictions.
+
+    Unity Catalog does not allow spaces, forward slashes, or periods in object names.
+    """
+
+    def test_retention_model_name_sanitization(self):
+        """Test sanitization of retention model names"""
+        input_name = "retention into Year 2: Associate's"
+        expected = "retention_into_Year_2_Associates"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+
+    def test_retention_bachelor_degree(self):
+        """Test retention with Bachelor's degree"""
+        input_name = "retention into Year 2: Bachelor's"
+        expected = "retention_into_Year_2_Bachelors"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+
+    def test_retention_all_degrees(self):
+        """Test retention with 'All Degrees' variant"""
+        input_name = "retention into Year 2: All Degrees"
+        expected = "retention_into_Year_2_All_Degrees"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+
+    def test_graduation_model_name_sanitization(self):
+        """Test sanitization of graduation model names with parentheses and commas"""
+        input_name = "Graduation in 3Y FT, 6Y PT (Checkpoint: 2 Core Terms)"
+        expected = "Graduation_in_3Y_FT_6Y_PT_Checkpoint_2_Core_Terms"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+
+    def test_graduation_total_terms(self):
+        """Test graduation with total terms checkpoint"""
+        input_name = "Graduation in 4Y FT (Checkpoint:3 Total Terms)"
+        expected = "Graduation_in_4Y_FT_Checkpoint3_Total_Terms"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+
+    def test_graduation_credits_checkpoint(self):
+        """Test graduation with credits-based checkpoint"""
+        input_name = "Graduation in 3Y FT, 6Y PT (Checkpoint: 30.0 Credits)"
+        expected = "Graduation_in_3Y_FT_6Y_PT_Checkpoint_300_Credits"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+
+    def test_graduation_first_term(self):
+        """Test graduation with first term checkpoint"""
+        input_name = "Graduation in 2Y FT (Checkpoint: First Term)"
+        expected = "Graduation_in_2Y_FT_Checkpoint_First_Term"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+
+    def test_graduation_first_cohort_term(self):
+        """Test graduation with first cohort term checkpoint"""
+        input_name = "Graduation in 6Y PT (Checkpoint: First Cohort Term)"
+        expected = "Graduation_in_6Y_PT_Checkpoint_First_Cohort_Term"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+
+    def test_credits_earned_model_name_sanitization(self):
+        """Test sanitization of credits earned model names"""
+        input_name = "60.0 Credits in 3Y FT, 6Y PT (Checkpoint: 30.0 Credits)"
+        expected = "600_Credits_in_3Y_FT_6Y_PT_Checkpoint_300_Credits"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+
+    def test_credits_earned_with_integer(self):
+        """Test credits earned with integer credits"""
+        input_name = "60 Credits in 2Y FT (Checkpoint: 2 Core Terms)"
+        expected = "60_Credits_in_2Y_FT_Checkpoint_2_Core_Terms"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+
+    def test_credits_earned_total_terms(self):
+        """Test credits earned with total terms checkpoint"""
+        input_name = "30 Credits in 1Y FT, 2Y PT (Checkpoint: 1 Total Terms)"
+        expected = "30_Credits_in_1Y_FT_2Y_PT_Checkpoint_1_Total_Terms"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+
+    def test_credits_earned_first_term(self):
+        """Test credits earned with first term checkpoint"""
+        input_name = "15 Credits in 1T FT (Checkpoint: First Term)"
+        expected = "15_Credits_in_1T_FT_Checkpoint_First_Term"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+
+    def test_with_extra_info(self):
+        """Test model name with extra_info suffix"""
+        input_name = "retention into Year 2: All Degrees_pilot"
+        expected = "retention_into_Year_2_All_Degrees_pilot"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+
+    def test_removes_all_special_characters(self):
+        """Test that all special characters are removed or replaced"""
+        input_name = "Test: Name (with) many, special! @#$%^&* characters"
+        # Should remove: : ( ) , ! @ # $ % ^ & *
+        # Should keep: letters, numbers, underscores (replacing spaces)
+        result = sanitize_model_name_for_uc(input_name)
+        # Should only contain alphanumeric and underscores
+        assert all(c.isalnum() or c == "_" for c in result)
+
+    def test_removes_double_underscores(self):
+        """Test that multiple consecutive spaces become single underscore"""
+        input_name = "Model  with   multiple    spaces"
+        result = sanitize_model_name_for_uc(input_name)
+        assert "__" not in result
+        assert result == "Model_with_multiple_spaces"
+
+    def test_strips_leading_trailing_underscores(self):
+        """Test that leading/trailing underscores are removed"""
+        input_name = "  Model Name  "
+        result = sanitize_model_name_for_uc(input_name)
+        assert not result.startswith("_")
+        assert not result.endswith("_")
+
+    def test_already_sanitized_name(self):
+        """Test that an already valid name passes through correctly"""
+        input_name = "valid_model_name_123"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == input_name
+
+    def test_decimal_in_name(self):
+        """Test that decimals (periods) are removed"""
+        input_name = "Model with 3.5 Credits"
+        expected = "Model_with_35_Credits"
+        result = sanitize_model_name_for_uc(input_name)
+        assert result == expected
+        assert "." not in result
+
+    def test_forward_slash_removed(self):
+        """Test that forward slashes are removed (not allowed in UC)"""
+        input_name = "Model/Name/With/Slashes"
+        result = sanitize_model_name_for_uc(input_name)
+        assert "/" not in result
+
+    def test_preserves_case(self):
+        """Test that the function preserves the original case"""
+        input_name = "Graduation in 3Y FT (Checkpoint: First Term)"
+        result = sanitize_model_name_for_uc(input_name)
+        # Should maintain original capitalization
+        assert result == "Graduation_in_3Y_FT_Checkpoint_First_Term"
+        assert result[0].isupper()  # Starts with uppercase G
+
+
+class TestRegisterMLflowModelSanitization:
+    """Test that register_mlflow_model properly sanitizes model names"""
+
+    def test_register_mlflow_model_sanitizes_name(self, mock_client):
+        """Test that model names are sanitized when registering to UC"""
+        run_id = "abc123"
+        # Human-readable model name with spaces and special characters
+        model_name = "retention into Year 2: Associate's"
+        institution_id = "inst"
+        catalog = "main"
+        version = Mock()
+        version.version = 5
+
+        mock_client.create_registered_model.side_effect = None
+        mock_client.get_run.return_value.data.tags = {}
+        mock_client.create_model_version.return_value = version
+
+        register_mlflow_model(
+            model_name=model_name,
+            institution_id=institution_id,
+            run_id=run_id,
+            catalog=catalog,
+            mlflow_client=mock_client,
+        )
+
+        # Verify that the sanitized name is used in the model path
+        sanitized_name = "retention_into_Year_2_Associates"
+        expected_model_path = f"{catalog}.{institution_id}_gold.{sanitized_name}"
+
+        mock_client.create_registered_model.assert_called_once_with(
+            name=expected_model_path
+        )
+        mock_client.create_model_version.assert_called_once_with(
+            name=expected_model_path,
+            source=f"runs:/{run_id}/model",
+            run_id=run_id,
+        )

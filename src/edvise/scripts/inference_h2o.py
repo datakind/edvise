@@ -97,10 +97,15 @@ class ModelInferenceTask:
         client = MlflowClient(registry_uri="databricks-uc")
         model_name = modeling.registration.get_model_name(
             institution_id=self.cfg.institution_id,
-            target=self.cfg.preprocessing.target.name,  # type: ignore
-            checkpoint=self.cfg.preprocessing.checkpoint.name,  # type: ignore
+            target=self.cfg.preprocessing.target,  # type: ignore
+            checkpoint=self.cfg.preprocessing.checkpoint,  # type: ignore
+            student_criteria=self.cfg.preprocessing.selection.student_criteria,
         )
-        full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{model_name}"
+        # Sanitize model name for Unity Catalog compliance
+        sanitized_model_name = modeling.registration.sanitize_model_name_for_uc(
+            model_name
+        )
+        full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{sanitized_model_name}"
 
         mv = max(
             client.search_model_versions(f"name='{full_model_name}'"),
