@@ -21,8 +21,7 @@ from ..utils import utils
 from ..utils.formatting import Formatting
 from ..utils.types import ModelCardConfig
 
-# Import sanitization function for Unity Catalog model names
-from ...modeling.registration import sanitize_model_name_for_uc
+# Model names are already UC-compatible (lowercase with underscores)
 
 LOGGER = logging.getLogger(__name__)
 C = t.TypeVar("C", bound=ModelCardConfig)
@@ -48,14 +47,10 @@ class ModelCard(t.Generic[C], ABC):
         self.cfg = config
         self.catalog = catalog
         self.model_name = model_name
-        # Sanitize model name for Unity Catalog compliance
-        sanitized_model_name = sanitize_model_name_for_uc(model_name)
-        self.uc_model_name = (
-            f"{catalog}.{self.cfg.institution_id}_gold.{sanitized_model_name}"
-        )
+        # Model name is already UC-compatible (lowercase with underscores)
+        self.uc_model_name = f"{catalog}.{self.cfg.institution_id}_gold.{model_name}"
         LOGGER.info(
-            "Initializing ModelCard for model: %s (sanitized: %s)",
-            model_name,
+            "Initializing ModelCard for model: %s",
             self.uc_model_name,
         )
 

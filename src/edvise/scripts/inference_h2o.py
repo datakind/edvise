@@ -105,11 +105,8 @@ class ModelInferenceTask:
             checkpoint=self.cfg.preprocessing.checkpoint,  # type: ignore
             student_criteria=self.cfg.preprocessing.selection.student_criteria,
         )
-        # Sanitize model name for Unity Catalog compliance
-        sanitized_model_name = modeling.registration.sanitize_model_name_for_uc(
-            model_name
-        )
-        full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{sanitized_model_name}"
+        # Model name is already UC-compatible (lowercase with underscores)
+        full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{model_name}"
 
         mv = max(
             client.search_model_versions(f"name='{full_model_name}'"),

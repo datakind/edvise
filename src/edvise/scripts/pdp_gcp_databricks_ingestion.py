@@ -11,8 +11,7 @@ from google.cloud import storage
 from google.api_core.exceptions import Forbidden, NotFound
 import google.auth
 
-# Import sanitization function for Unity Catalog model names
-from edvise.modeling.registration import sanitize_model_name_for_uc
+# Model names from get_model_name() are already UC-compatible
 
 
 def local_fs_path(p: str) -> str:
@@ -152,9 +151,8 @@ class DataIngestionTask:
             run_id: The run ID associated with the latest version of the model.
         """
         client = MlflowClient(registry_uri=registry_uri)
-        # Sanitize model name for Unity Catalog compliance
-        sanitized_model_name = sanitize_model_name_for_uc(model_name)
-        full_model_name = f"{workspace}.{institution}_gold.{sanitized_model_name}"
+        # Model name is already UC-compatible (lowercase with underscores)
+        full_model_name = f"{workspace}.{institution}_gold.{model_name}"
 
         versions = client.search_model_versions(f"name='{full_model_name}'")
         if not versions:

@@ -8,48 +8,6 @@ import mlflow.tracking
 LOGGER = logging.getLogger(__name__)
 
 
-def sanitize_model_name_for_uc(model_name: str) -> str:
-    """
-    Sanitize a model name for Unity Catalog compliance.
-
-    Unity Catalog does not allow spaces, forward slashes, or periods in object names.
-    This function replaces these characters to create a valid UC name while keeping
-    the name human-readable.
-
-    Args:
-        model_name: The human-readable model name (e.g., "retention into Year 2: Associate's")
-
-    Returns:
-        A sanitized name suitable for Unity Catalog (e.g., "retention_into_Year_2_Associates")
-
-    Examples:
-        >>> sanitize_model_name_for_uc("retention into Year 2: Associate's")
-        'retention_into_Year_2_Associates'
-        >>> sanitize_model_name_for_uc("Graduation in 3Y FT, 6Y PT (Checkpoint: 2 Core Terms)")
-        'Graduation_in_3Y_FT_6Y_PT_Checkpoint_2_Core_Terms'
-    """
-    # Replace spaces with underscores
-    sanitized = model_name.replace(" ", "_")
-
-    # Remove colons, parentheses, commas, and apostrophes
-    sanitized = sanitized.replace(":", "")
-    sanitized = sanitized.replace("(", "")
-    sanitized = sanitized.replace(")", "")
-    sanitized = sanitized.replace(",", "")
-    sanitized = sanitized.replace("'", "")
-
-    # Remove any other non-alphanumeric characters except underscores
-    sanitized = re.sub(r"[^a-zA-Z0-9_]", "", sanitized)
-
-    # Remove any double underscores that might have been created
-    sanitized = re.sub(r"_+", "_", sanitized)
-
-    # Remove leading/trailing underscores
-    sanitized = sanitized.strip("_")
-
-    return sanitized
-
-
 def register_mlflow_model(
     model_name: str,
     institution_id: str,
@@ -64,7 +22,7 @@ def register_mlflow_model(
     Register an mlflow model from a run, using run-level tags to prevent duplicate registration.
 
     Args:
-        model_name: Human-readable model name (will be sanitized for Unity Catalog)
+        model_name: Unity Catalog compatible model name (lowercase with underscores)
         institution_id
         run_id
         catalog
@@ -75,14 +33,9 @@ def register_mlflow_model(
     References:
         - https://mlflow.org/docs/latest/model-registry.html
     """
-    # Sanitize model name for Unity Catalog compliance (no spaces, slashes, or periods)
-    sanitized_model_name = sanitize_model_name_for_uc(model_name)
-    model_path = f"{catalog}.{institution_id}_gold.{sanitized_model_name}"
-    LOGGER.info(
-        "Model name '%s' sanitized to '%s' for Unity Catalog",
-        model_name,
-        sanitized_model_name,
-    )
+    # Model name is already UC-compatible (lowercase with underscores)
+    model_path = f"{catalog}.{institution_id}_gold.{model_name}"
+    LOGGER.info("Registering model '%s' to Unity Catalog", model_path)
     mlflow.set_registry_uri(registry_uri)
 
     # Create the registered model if it doesn't exist
@@ -177,46 +130,105 @@ def get_model_name(
     extra_info: t.Optional[str] = None,
 ) -> str:
     """
-    Get a standard model name generated from key components, depending on target type and student criteria.
+    Get a simple, lowercase, underscore-separated model name for Unity Catalog.
+
+    Use Formatting().friendly_case() from reporting.utils.formatting to convert
+    to display format for front-end.
+
+    Args:
+        target: Target config object (supports both dict and Pydantic model access)
+        checkpoint: Checkpoint config object (supports both dict and Pydantic model access)
+        student_criteria: Dictionary of student selection criteria
+
+    Returns:
+        Simple lowercase model name like "retention_into_year_2_associates"
+
+    Examples:
+        >>> # Retention example
+        >>> get_model_name(...)
+        'retention_into_year_2_associates'
+
+        >>> # Graduation example
+        >>> get_model_name(...)
+        'graduation_in_3y_ft_6y_pt_checkpoint_2_core_terms'
     """
-    if target["_type"] == "retention":
+
+    # Helper to get attribute that works with both dicts and objects
+    def get_attr(obj, key, default=None):
+        if isinstance(obj, dict):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    # Helper to format time limits as simple underscore string
+    def format_time_limits(intensity_time_limits):
+        parts = []
+        for intensity in ["FULL-TIME", "PART-TIME"]:
+            if intensity not in intensity_time_limits:
+                continue
+            duration, unit = intensity_time_limits[intensity]
+            duration_str = (
+                str(int(duration)) if duration == int(duration) else str(duration)
+            )
+            unit_abbrev = unit[0].lower()
+            intensity_abbrev = "".join(word[0] for word in intensity.split("-")).lower()
+            parts.append(f"{duration_str}{unit_abbrev}_{intensity_abbrev}")
+        return "_".join(parts)
+
+    target_type = get_attr(target, "type_")
+
+    if target_type == "retention":
         if "credential_type_sought_year_1" in student_criteria:
             credential_type = normalize_degree(
                 student_criteria["credential_type_sought_year_1"]
-            )
-            model_name = f"{target['_type']} into Year 2: {credential_type}"
+            ).lower()
+            model_name = f"retention_into_year_2_{credential_type}"
         else:
-            # we can keep or remove All Degrees here, but just to make it more clear to schools who go with an "all-in" approach
-            model_name = f"{target['_type']} into Year 2: All Degrees"
-    elif target["_type"] == "graduation":
-        time_limits = extract_time_limits(target["intensity_time_limits"])
-        if checkpoint["type_"] == "nth":
-            if checkpoint["exclude_non_core_terms"] == True:
-                model_name = f"{target['type_']} in {time_limits} (Checkpoint: {checkpoint['n'] + 1} Core Terms)"
+            model_name = "retention_into_year_2_all_degrees"
+    elif target_type == "graduation":
+        time_limits = format_time_limits(get_attr(target, "intensity_time_limits"))
+        checkpoint_type = get_attr(checkpoint, "type_")
+        if checkpoint_type == "nth":
+            n_plus_1 = get_attr(checkpoint, "n") + 1
+            if get_attr(checkpoint, "exclude_non_core_terms") == True:
+                model_name = (
+                    f"graduation_in_{time_limits}_checkpoint_{n_plus_1}_core_terms"
+                )
             else:
-                model_name = f"{target['type_']} in {time_limits} (Checkpoint:{checkpoint['n'] + 1} Total Terms)"
-        elif checkpoint["type_"] == "first_student_terms":
-            model_name = f"{target['type_']} in {time_limits} (Checkpoint: First Term)"
-        elif checkpoint["type_"] == "first_student_terms_within_cohort":
+                model_name = (
+                    f"graduation_in_{time_limits}_checkpoint_{n_plus_1}_total_terms"
+                )
+        elif checkpoint_type == "first_student_terms":
+            model_name = f"graduation_in_{time_limits}_checkpoint_first_term"
+        elif checkpoint_type == "first_student_terms_within_cohort":
+            model_name = f"graduation_in_{time_limits}_checkpoint_first_cohort_term"
+        elif checkpoint_type == "first_at_num_credits_earned":
+            creds = get_attr(checkpoint, "min_num_credits")
+            credits = str(int(creds)) if creds == int(creds) else str(creds)
+            model_name = f"graduation_in_{time_limits}_checkpoint_{credits}_credits"
+    elif target_type == "credits_earned":
+        time_limits = format_time_limits(get_attr(target, "intensity_time_limits"))
+        checkpoint_type = get_attr(checkpoint, "type_")
+        creds = get_attr(target, "min_num_credits")
+        credits = str(int(creds)) if creds == int(creds) else str(creds)
+        if checkpoint_type == "nth":
+            n_plus_1 = get_attr(checkpoint, "n") + 1
+            if get_attr(checkpoint, "exclude_non_core_terms") == True:
+                model_name = f"{credits}_credits_in_{time_limits}_checkpoint_{n_plus_1}_core_terms"
+            else:
+                model_name = f"{credits}_credits_in_{time_limits}_checkpoint_{n_plus_1}_total_terms"
+        elif checkpoint_type == "first_student_terms":
+            model_name = f"{credits}_credits_in_{time_limits}_checkpoint_first_term"
+        elif checkpoint_type == "first_student_terms_within_cohort":
             model_name = (
-                f"{target['type_']} in {time_limits} (Checkpoint: First Cohort Term)"
+                f"{credits}_credits_in_{time_limits}_checkpoint_first_cohort_term"
             )
-        elif checkpoint["type_"] == "first_at_num_credits_earned":
-            model_name = f"{target['type_']} in {time_limits} (Checkpoint: {str(checkpoint['min_num_credits'])} Credits)"
-    elif target["_type"] == "credits_earned":
-        time_limits = extract_time_limits(target["intensity_time_limits"])
-        if checkpoint["type_"] == "nth":
-            if checkpoint["exclude_non_core_terms"] == True:
-                model_name = f"{str(target['min_num_credits'])} Credits in {time_limits} (Checkpoint: {checkpoint['n'] + 1} Core Terms)"
-            else:
-                model_name = f"{str(target['min_num_credits'])} Credits in {time_limits} (Checkpoint: {checkpoint['n'] + 1} Total Terms)"
-        elif checkpoint["type_"] == "first_student_terms":
-            model_name = f"{str(target['min_num_credits'])} Credits in {time_limits} (Checkpoint: First Term)"
-        elif checkpoint["type_"] == "first_student_terms_within_cohort":
-            model_name = f"{str(target['min_num_credits'])} Credits in {time_limits} (Checkpoint: First Cohort Term)"
-        elif checkpoint["type_"] == "first_at_num_credits_earned":
-            model_name = f"{str(target['min_num_credits'])} Credits in {time_limits} (Checkpoint: {str(checkpoint['min_num_credits'])} Credits)"
-    # do we still need this extra info section? what's it for?
+        elif checkpoint_type == "first_at_num_credits_earned":
+            chk_creds = get_attr(checkpoint, "min_num_credits")
+            checkpoint_credits = (
+                str(int(chk_creds)) if chk_creds == int(chk_creds) else str(chk_creds)
+            )
+            model_name = f"{credits}_credits_in_{time_limits}_checkpoint_{checkpoint_credits}_credits"
+
     if extra_info is not None:
         model_name = f"{model_name}_{extra_info}"
     return model_name

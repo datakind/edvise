@@ -6,7 +6,6 @@ from edvise.modeling.registration import (
     get_model_name,
     normalize_degree,
     extract_time_limits,
-    sanitize_model_name_for_uc,
 )
 
 
@@ -215,12 +214,10 @@ class TestGetModelName:
     def test_retention_with_associate_degree(self):
         """Retention template default: Associate's degree"""
         target = {
-            "_type": "retention",
             "type_": "retention",
             "max_academic_year": "2024",
         }
         checkpoint = {
-            "_type": "first_within_cohort",
             "type_": "first_within_cohort",
             "exclude_non_core_terms": True,
             "exclude_pre_cohort_terms": True,
@@ -237,17 +234,15 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "retention into Year 2: Associate's"
+        assert result == "retention_into_year_2_associates"
 
     def test_retention_with_bachelor_degree(self):
         """Retention with Bachelor's degree variant"""
         target = {
-            "_type": "retention",
             "type_": "retention",
             "max_academic_year": "2024",
         }
         checkpoint = {
-            "_type": "first_within_cohort",
             "type_": "first_within_cohort",
         }
         student_criteria = {
@@ -260,17 +255,15 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "retention into Year 2: Bachelor's"
+        assert result == "retention_into_year_2_bachelors"
 
     def test_retention_without_credential_type(self):
         """Retention with no credential type specified -> 'All Degrees'"""
         target = {
-            "_type": "retention",
             "type_": "retention",
             "max_academic_year": "2024",
         }
         checkpoint = {
-            "_type": "first_within_cohort",
             "type_": "first_within_cohort",
         }
         student_criteria = {}
@@ -281,17 +274,15 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "retention into Year 2: All Degrees"
+        assert result == "retention_into_year_2_all_degrees"
 
     def test_retention_with_extra_info(self):
         """Retention with optional extra_info parameter"""
         target = {
-            "_type": "retention",
             "type_": "retention",
             "max_academic_year": "2024",
         }
         checkpoint = {
-            "_type": "first_within_cohort",
             "type_": "first_within_cohort",
         }
         student_criteria = {}
@@ -303,7 +294,7 @@ class TestGetModelName:
             student_criteria=student_criteria,
             extra_info="pilot",
         )
-        assert result == "retention into Year 2: All Degrees_pilot"
+        assert result == "retention_into_year_2_all_degrees_pilot"
 
     # === GRADUATION TARGET TESTS (based on config-GRADUATION_TEMPLATE.toml) ===
 
@@ -313,8 +304,7 @@ class TestGetModelName:
         Matches config-GRADUATION_TEMPLATE.toml
         """
         target = {
-            "_type": "graduation",
-            "type_": "Graduation",
+            "type_": "graduation",
             "intensity_time_limits": {
                 "FULL-TIME": [3.0, "year"],
                 "PART-TIME": [6.0, "year"],
@@ -324,7 +314,6 @@ class TestGetModelName:
             "max_term_rank": "infer",
         }
         checkpoint = {
-            "_type": "nth",
             "type_": "nth",
             "n": 1,
             "term_is_core_col": "term_is_core",
@@ -342,20 +331,18 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "Graduation in 3Y FT, 6Y PT (Checkpoint: 2 Core Terms)"
+        assert result == "graduation_in_3y_ft_6y_pt_checkpoint_2_core_terms"
 
     def test_graduation_nth_checkpoint_total_terms(self):
         """Graduation with nth checkpoint counting all terms (not just core)"""
         target = {
-            "_type": "graduation",
-            "type_": "Graduation",
+            "type_": "graduation",
             "intensity_time_limits": {"FULL-TIME": [4.0, "year"]},
             "years_to_degree_col": "first_year_to_bachelors_at_cohort_inst",
             "num_terms_in_year": 4,
             "max_term_rank": "infer",
         }
         checkpoint = {
-            "_type": "nth",
             "type_": "nth",
             "n": 2,
             "exclude_non_core_terms": False,
@@ -368,7 +355,7 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "Graduation in 4Y FT (Checkpoint:3 Total Terms)"
+        assert result == "graduation_in_4y_ft_checkpoint_3_total_terms"
 
     def test_graduation_first_at_num_credits_checkpoint(self):
         """
@@ -376,8 +363,7 @@ class TestGetModelName:
         Matches config-GRADUATION_TEMPLATE.toml Option 2
         """
         target = {
-            "_type": "graduation",
-            "type_": "Graduation",
+            "type_": "graduation",
             "intensity_time_limits": {
                 "FULL-TIME": [3.0, "year"],
                 "PART-TIME": [6.0, "year"],
@@ -399,13 +385,12 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "Graduation in 3Y FT, 6Y PT (Checkpoint: 30.0 Credits)"
+        assert result == "graduation_in_3y_ft_6y_pt_checkpoint_30_credits"
 
     def test_graduation_first_student_terms_checkpoint(self):
         """Graduation with first term checkpoint"""
         target = {
-            "_type": "graduation",
-            "type_": "Graduation",
+            "type_": "graduation",
             "intensity_time_limits": {"FULL-TIME": [2.0, "year"]},
             "years_to_degree_col": "first_year_to_degree",
             "num_terms_in_year": 4,
@@ -420,13 +405,12 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "Graduation in 2Y FT (Checkpoint: First Term)"
+        assert result == "graduation_in_2y_ft_checkpoint_first_term"
 
     def test_graduation_first_student_terms_within_cohort_checkpoint(self):
         """Graduation with first cohort term checkpoint"""
         target = {
-            "_type": "graduation",
-            "type_": "Graduation",
+            "type_": "graduation",
             "intensity_time_limits": {"PART-TIME": [6.0, "year"]},
             "years_to_degree_col": "first_year_to_degree",
             "num_terms_in_year": 4,
@@ -441,13 +425,12 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "Graduation in 6Y PT (Checkpoint: First Cohort Term)"
+        assert result == "graduation_in_6y_pt_checkpoint_first_cohort_term"
 
     def test_graduation_with_term_based_time_limits(self):
         """Graduation using terms instead of years"""
         target = {
-            "_type": "graduation",
-            "type_": "Graduation",
+            "type_": "graduation",
             "intensity_time_limits": {
                 "FULL-TIME": [6.0, "term"],
                 "PART-TIME": [12.0, "term"],
@@ -465,7 +448,7 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "Graduation in 6T FT, 12T PT (Checkpoint: First Term)"
+        assert result == "graduation_in_6t_ft_12t_pt_checkpoint_first_term"
 
     # === CREDITS_EARNED TARGET TESTS (based on config-CREDITS_EARNED_TEMPLATE.toml) ===
 
@@ -475,7 +458,6 @@ class TestGetModelName:
         Matches config-CREDITS_EARNED_TEMPLATE.toml exactly
         """
         target = {
-            "_type": "credits_earned",
             "type_": "credits_earned",
             "min_num_credits": 60.0,
             "intensity_time_limits": {
@@ -501,12 +483,11 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "60.0 Credits in 3Y FT, 6Y PT (Checkpoint: 30.0 Credits)"
+        assert result == "60_credits_in_3y_ft_6y_pt_checkpoint_30_credits"
 
     def test_credits_earned_with_nth_checkpoint_core_terms(self):
         """Credits earned with nth core terms checkpoint"""
         target = {
-            "_type": "credits_earned",
             "type_": "credits_earned",
             "min_num_credits": 60,
             "intensity_time_limits": {"FULL-TIME": [2.0, "year"]},
@@ -514,7 +495,6 @@ class TestGetModelName:
             "max_term_rank": "infer",
         }
         checkpoint = {
-            "_type": "nth",
             "type_": "nth",
             "n": 1,
             "exclude_non_core_terms": True,
@@ -527,12 +507,11 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "60 Credits in 2Y FT (Checkpoint: 2 Core Terms)"
+        assert result == "60_credits_in_2y_ft_checkpoint_2_core_terms"
 
     def test_credits_earned_with_nth_checkpoint_total_terms(self):
         """Credits earned with nth total terms checkpoint"""
         target = {
-            "_type": "credits_earned",
             "type_": "credits_earned",
             "min_num_credits": 30,
             "intensity_time_limits": {
@@ -543,7 +522,6 @@ class TestGetModelName:
             "max_term_rank": "infer",
         }
         checkpoint = {
-            "_type": "nth",
             "type_": "nth",
             "n": 0,
             "exclude_non_core_terms": False,
@@ -556,12 +534,11 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "30 Credits in 1Y FT, 2Y PT (Checkpoint: 1 Total Terms)"
+        assert result == "30_credits_in_1y_ft_2y_pt_checkpoint_1_total_terms"
 
     def test_credits_earned_with_first_student_terms_checkpoint(self):
         """Credits earned with first term checkpoint"""
         target = {
-            "_type": "credits_earned",
             "type_": "credits_earned",
             "min_num_credits": 15,
             "intensity_time_limits": {"FULL-TIME": [1.0, "term"]},
@@ -577,12 +554,11 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "15 Credits in 1T FT (Checkpoint: First Term)"
+        assert result == "15_credits_in_1t_ft_checkpoint_first_term"
 
     def test_credits_earned_with_first_student_terms_within_cohort_checkpoint(self):
         """Credits earned with first cohort term checkpoint"""
         target = {
-            "_type": "credits_earned",
             "type_": "credits_earned",
             "min_num_credits": 45,
             "intensity_time_limits": {"PART-TIME": [3.0, "year"]},
@@ -598,12 +574,11 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "45 Credits in 3Y PT (Checkpoint: First Cohort Term)"
+        assert result == "45_credits_in_3y_pt_checkpoint_first_cohort_term"
 
     def test_credits_earned_with_term_based_time_limits(self):
         """Credits earned using terms instead of years"""
         target = {
-            "_type": "credits_earned",
             "type_": "credits_earned",
             "min_num_credits": 24,
             "intensity_time_limits": {
@@ -622,14 +597,13 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "24 Credits in 4T FT, 8T PT (Checkpoint: First Term)"
+        assert result == "24_credits_in_4t_ft_8t_pt_checkpoint_first_term"
 
     # === EDGE CASES AND ADDITIONAL SCENARIOS ===
 
     def test_decimal_credits_as_integer(self):
         """Test that 60.0 displays as-is per Python's str()"""
         target = {
-            "_type": "credits_earned",
             "type_": "credits_earned",
             "min_num_credits": 60.0,
             "intensity_time_limits": {"FULL-TIME": [3.0, "year"]},
@@ -646,12 +620,11 @@ class TestGetModelName:
             student_criteria=student_criteria,
         )
         # Python's str(60.0) = "60.0", str(3.0) when int(3.0) == 3.0 displays as "3"
-        assert result == "60.0 Credits in 3Y FT (Checkpoint: First Term)"
+        assert result == "60_credits_in_3y_ft_checkpoint_first_term"
 
     def test_actual_decimal_credits(self):
         """Test credits with actual decimal values"""
         target = {
-            "_type": "credits_earned",
             "type_": "credits_earned",
             "min_num_credits": 12.5,
             "intensity_time_limits": {"FULL-TIME": [1.5, "year"]},
@@ -667,20 +640,18 @@ class TestGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "12.5 Credits in 1.5Y FT (Checkpoint: First Term)"
+        assert result == "12_5_credits_in_1_5y_ft_checkpoint_first_term"
 
     def test_zero_n_checkpoint(self):
         """Test n=0 which results in checkpoint at position 1"""
         target = {
-            "_type": "graduation",
-            "type_": "Graduation",
+            "type_": "graduation",
             "intensity_time_limits": {"FULL-TIME": [2.0, "year"]},
             "years_to_degree_col": "first_year_to_degree",
             "num_terms_in_year": 4,
             "max_term_rank": "infer",
         }
         checkpoint = {
-            "_type": "nth",
             "type_": "nth",
             "n": 0,
             "exclude_non_core_terms": True,
@@ -694,20 +665,18 @@ class TestGetModelName:
             student_criteria=student_criteria,
         )
         # n=0 means first term, so displays as "1 Core Terms"
-        assert result == "Graduation in 2Y FT (Checkpoint: 1 Core Terms)"
+        assert result == "graduation_in_2y_ft_checkpoint_1_core_terms"
 
     def test_large_n_checkpoint(self):
         """Test large n value (e.g., for long programs)"""
         target = {
-            "_type": "graduation",
-            "type_": "Graduation",
+            "type_": "graduation",
             "intensity_time_limits": {"FULL-TIME": [6.0, "year"]},
             "years_to_degree_col": "first_year_to_degree",
             "num_terms_in_year": 4,
             "max_term_rank": "infer",
         }
         checkpoint = {
-            "_type": "nth",
             "type_": "nth",
             "n": 11,
             "exclude_non_core_terms": False,
@@ -721,13 +690,12 @@ class TestGetModelName:
             student_criteria=student_criteria,
         )
         # n=11 means 12th term
-        assert result == "Graduation in 6Y FT (Checkpoint:12 Total Terms)"
+        assert result == "graduation_in_6y_ft_checkpoint_12_total_terms"
 
     def test_graduation_with_extra_info(self):
         """Test extra_info parameter with graduation"""
         target = {
-            "_type": "graduation",
-            "type_": "Graduation",
+            "type_": "graduation",
             "intensity_time_limits": {"FULL-TIME": [4.0, "year"]},
             "years_to_degree_col": "first_year_to_degree",
             "num_terms_in_year": 4,
@@ -743,195 +711,4 @@ class TestGetModelName:
             student_criteria=student_criteria,
             extra_info="experimental_v2",
         )
-        assert result == "Graduation in 4Y FT (Checkpoint: First Term)_experimental_v2"
-
-
-# Tests for sanitize_model_name_for_uc function
-class TestSanitizeModelNameForUC:
-    """
-    Tests for sanitize_model_name_for_uc function that ensures model names
-    are compatible with Unity Catalog naming restrictions.
-
-    Unity Catalog does not allow spaces, forward slashes, or periods in object names.
-    """
-
-    def test_retention_model_name_sanitization(self):
-        """Test sanitization of retention model names"""
-        input_name = "retention into Year 2: Associate's"
-        expected = "retention_into_Year_2_Associates"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-
-    def test_retention_bachelor_degree(self):
-        """Test retention with Bachelor's degree"""
-        input_name = "retention into Year 2: Bachelor's"
-        expected = "retention_into_Year_2_Bachelors"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-
-    def test_retention_all_degrees(self):
-        """Test retention with 'All Degrees' variant"""
-        input_name = "retention into Year 2: All Degrees"
-        expected = "retention_into_Year_2_All_Degrees"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-
-    def test_graduation_model_name_sanitization(self):
-        """Test sanitization of graduation model names with parentheses and commas"""
-        input_name = "Graduation in 3Y FT, 6Y PT (Checkpoint: 2 Core Terms)"
-        expected = "Graduation_in_3Y_FT_6Y_PT_Checkpoint_2_Core_Terms"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-
-    def test_graduation_total_terms(self):
-        """Test graduation with total terms checkpoint"""
-        input_name = "Graduation in 4Y FT (Checkpoint:3 Total Terms)"
-        expected = "Graduation_in_4Y_FT_Checkpoint3_Total_Terms"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-
-    def test_graduation_credits_checkpoint(self):
-        """Test graduation with credits-based checkpoint"""
-        input_name = "Graduation in 3Y FT, 6Y PT (Checkpoint: 30.0 Credits)"
-        expected = "Graduation_in_3Y_FT_6Y_PT_Checkpoint_300_Credits"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-
-    def test_graduation_first_term(self):
-        """Test graduation with first term checkpoint"""
-        input_name = "Graduation in 2Y FT (Checkpoint: First Term)"
-        expected = "Graduation_in_2Y_FT_Checkpoint_First_Term"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-
-    def test_graduation_first_cohort_term(self):
-        """Test graduation with first cohort term checkpoint"""
-        input_name = "Graduation in 6Y PT (Checkpoint: First Cohort Term)"
-        expected = "Graduation_in_6Y_PT_Checkpoint_First_Cohort_Term"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-
-    def test_credits_earned_model_name_sanitization(self):
-        """Test sanitization of credits earned model names"""
-        input_name = "60.0 Credits in 3Y FT, 6Y PT (Checkpoint: 30.0 Credits)"
-        expected = "600_Credits_in_3Y_FT_6Y_PT_Checkpoint_300_Credits"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-
-    def test_credits_earned_with_integer(self):
-        """Test credits earned with integer credits"""
-        input_name = "60 Credits in 2Y FT (Checkpoint: 2 Core Terms)"
-        expected = "60_Credits_in_2Y_FT_Checkpoint_2_Core_Terms"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-
-    def test_credits_earned_total_terms(self):
-        """Test credits earned with total terms checkpoint"""
-        input_name = "30 Credits in 1Y FT, 2Y PT (Checkpoint: 1 Total Terms)"
-        expected = "30_Credits_in_1Y_FT_2Y_PT_Checkpoint_1_Total_Terms"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-
-    def test_credits_earned_first_term(self):
-        """Test credits earned with first term checkpoint"""
-        input_name = "15 Credits in 1T FT (Checkpoint: First Term)"
-        expected = "15_Credits_in_1T_FT_Checkpoint_First_Term"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-
-    def test_with_extra_info(self):
-        """Test model name with extra_info suffix"""
-        input_name = "retention into Year 2: All Degrees_pilot"
-        expected = "retention_into_Year_2_All_Degrees_pilot"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-
-    def test_removes_all_special_characters(self):
-        """Test that all special characters are removed or replaced"""
-        input_name = "Test: Name (with) many, special! @#$%^&* characters"
-        # Should remove: : ( ) , ! @ # $ % ^ & *
-        # Should keep: letters, numbers, underscores (replacing spaces)
-        result = sanitize_model_name_for_uc(input_name)
-        # Should only contain alphanumeric and underscores
-        assert all(c.isalnum() or c == "_" for c in result)
-
-    def test_removes_double_underscores(self):
-        """Test that multiple consecutive spaces become single underscore"""
-        input_name = "Model  with   multiple    spaces"
-        result = sanitize_model_name_for_uc(input_name)
-        assert "__" not in result
-        assert result == "Model_with_multiple_spaces"
-
-    def test_strips_leading_trailing_underscores(self):
-        """Test that leading/trailing underscores are removed"""
-        input_name = "  Model Name  "
-        result = sanitize_model_name_for_uc(input_name)
-        assert not result.startswith("_")
-        assert not result.endswith("_")
-
-    def test_already_sanitized_name(self):
-        """Test that an already valid name passes through correctly"""
-        input_name = "valid_model_name_123"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == input_name
-
-    def test_decimal_in_name(self):
-        """Test that decimals (periods) are removed"""
-        input_name = "Model with 3.5 Credits"
-        expected = "Model_with_35_Credits"
-        result = sanitize_model_name_for_uc(input_name)
-        assert result == expected
-        assert "." not in result
-
-    def test_forward_slash_removed(self):
-        """Test that forward slashes are removed (not allowed in UC)"""
-        input_name = "Model/Name/With/Slashes"
-        result = sanitize_model_name_for_uc(input_name)
-        assert "/" not in result
-
-    def test_preserves_case(self):
-        """Test that the function preserves the original case"""
-        input_name = "Graduation in 3Y FT (Checkpoint: First Term)"
-        result = sanitize_model_name_for_uc(input_name)
-        # Should maintain original capitalization
-        assert result == "Graduation_in_3Y_FT_Checkpoint_First_Term"
-        assert result[0].isupper()  # Starts with uppercase G
-
-
-class TestRegisterMLflowModelSanitization:
-    """Test that register_mlflow_model properly sanitizes model names"""
-
-    def test_register_mlflow_model_sanitizes_name(self, mock_client):
-        """Test that model names are sanitized when registering to UC"""
-        run_id = "abc123"
-        # Human-readable model name with spaces and special characters
-        model_name = "retention into Year 2: Associate's"
-        institution_id = "inst"
-        catalog = "main"
-        version = Mock()
-        version.version = 5
-
-        mock_client.create_registered_model.side_effect = None
-        mock_client.get_run.return_value.data.tags = {}
-        mock_client.create_model_version.return_value = version
-
-        register_mlflow_model(
-            model_name=model_name,
-            institution_id=institution_id,
-            run_id=run_id,
-            catalog=catalog,
-            mlflow_client=mock_client,
-        )
-
-        # Verify that the sanitized name is used in the model path
-        sanitized_name = "retention_into_Year_2_Associates"
-        expected_model_path = f"{catalog}.{institution_id}_gold.{sanitized_name}"
-
-        mock_client.create_registered_model.assert_called_once_with(
-            name=expected_model_path
-        )
-        mock_client.create_model_version.assert_called_once_with(
-            name=expected_model_path,
-            source=f"runs:/{run_id}/model",
-            run_id=run_id,
-        )
+        assert result == "graduation_in_4y_ft_checkpoint_first_term_experimental_v2"
