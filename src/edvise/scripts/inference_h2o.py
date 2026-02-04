@@ -95,6 +95,10 @@ class ModelInferenceTask:
     def load_mlflow_model_metadata(self) -> None:
         """Discover UC model latest version -> run_id + experiment_id (no model object needed here)."""
         client = MlflowClient(registry_uri="databricks-uc")
+
+        # Assert preprocessing is not None (should be validated by config loading)
+        assert self.cfg.preprocessing is not None, "preprocessing config is required"
+
         model_name = modeling.registration.get_model_name(
             institution_id=self.cfg.institution_id,
             target=self.cfg.preprocessing.target,  # type: ignore
