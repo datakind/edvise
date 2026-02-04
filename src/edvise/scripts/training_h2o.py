@@ -62,8 +62,6 @@ class TrainingParams(t.TypedDict, total=False):
     timeout_minutes: int
     exclude_cols: t.List[str]
     exclude_frameworks: t.Optional[t.List[str]]
-    target_name: str
-    checkpoint_name: str
     workspace_path: str
     seed: int
 
@@ -200,8 +198,6 @@ class TrainingTask:
             "timeout_minutes": timeout_minutes,
             "exclude_cols": sorted(exclude_cols),
             "exclude_frameworks": training_cfg.exclude_frameworks,
-            "target_name": preprocessing_cfg.target.name,
-            "checkpoint_name": preprocessing_cfg.checkpoint.name,
             "workspace_path": workspace_path,
             "seed": self.cfg.random_state or 42,  # fallback to ensure it's an int
         }
