@@ -836,8 +836,6 @@ def log_model_metadata_to_mlflow(
 def set_or_create_experiment(
     workspace_path: str,
     institution_id: str,
-    target_name: str,
-    checkpoint_name: str,
     client: t.Optional[MlflowClient] = None,
 ) -> str:
     """
@@ -846,8 +844,6 @@ def set_or_create_experiment(
     Args:
         workspace_path: Base MLflow workspace path.
         institution_id: Institution or tenant identifier used for experiment naming.
-        target_name: Name of the target variable.
-        checkpoint_name: Name of the modeling checkpoint.
         client: MLflow client. A new one is created if not provided.
 
     Returns:
@@ -858,7 +854,7 @@ def set_or_create_experiment(
 
     timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S")
 
-    name_parts = [institution_id, target_name, checkpoint_name, "h2o_automl", timestamp]
+    name_parts = [institution_id, "h2o_automl", timestamp]
     experiment_name = "/".join(
         [
             workspace_path.rstrip("/"),
