@@ -122,15 +122,15 @@ class TestNormalizeDegree:
 
     def test_removes_degree_suffix_uppercase(self):
         result = normalize_degree("ASSOCIATE'S DEGREE")
-        assert result == "Associate's"
+        assert result == "Associates"
 
     def test_removes_degree_suffix_lowercase(self):
         result = normalize_degree("bachelor's degree")
-        assert result == "Bachelor's"
+        assert result == "Bachelors"
 
     def test_removes_degree_suffix_mixed_case(self):
         result = normalize_degree("Master's Degree")
-        assert result == "Master's"
+        assert result == "Masters"
 
     def test_removes_degree_with_extra_spaces(self):
         result = normalize_degree("DOCTORAL  DEGREE  ")
@@ -142,7 +142,7 @@ class TestNormalizeDegree:
 
     def test_preserves_apostrophe_in_title_case(self):
         result = normalize_degree("BACHELOR'S DEGREE")
-        assert result == "Bachelor's"
+        assert result == "Bachelors"
 
 
 # Tests for extract_time_limits helper function

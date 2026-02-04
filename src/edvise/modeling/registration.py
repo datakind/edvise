@@ -91,10 +91,14 @@ def normalize_degree(text: str) -> str:
 
     Examples:
         normalize_degree("ASSOCIATE'S DEGREE")
-        "Associate's"
+        "Associates"
     """
-    # remove the word "degree" (case-insensitive)
+    # remove the word "degree" (case-insensitive) at the end
     text = re.sub(r"\s*degree\s*$", "", text, flags=re.IGNORECASE)
+
+    # normalize "associate's" / "associates'" → "associates"
+    text = re.sub(r"\bassociate[’']?s\b", "associates", text, flags=re.IGNORECASE)
+
     # normalize capitalization
     return text.lower().capitalize()
 

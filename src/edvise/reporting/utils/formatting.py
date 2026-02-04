@@ -99,7 +99,9 @@ class Formatting:
         # Add comma between time limit components (e.g., "3Y Ft 6Y Pt" → "3Y FT, 6Y PT")
         result = re.sub(
             r"(\d+[YyTt]) ([Ff][Tt])(\s+\d+[YyTt]) ([Pp][Tt])",
-            lambda m: f"{m.group(1).upper()} {m.group(2).upper()}, {m.group(3).upper()} {m.group(4).upper()}",
+            lambda m: (
+                f"{m.group(1).upper()} {m.group(2).upper()}, {m.group(3).upper()} {m.group(4).upper()}"
+            ),
             result,
         )
 
