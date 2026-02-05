@@ -967,6 +967,7 @@ def drop_readmits(
     cohort_df: pd.DataFrame,
     entry_col: str = "entry_type",
     student_col: str = "student_id",
+    readmit_value: str = "readmit",
 ) -> pd.DataFrame:
     """
     Remove ALL rows for any student who has an entry_type of 'readmit'
