@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats as ss
 from edvise import utils as edvise_utils
-from edvise.reporting.model_card.h2o_base import as_percent
+from edvise.shared.utils import as_percent
 
 LOGGER = logging.getLogger(__name__)
 

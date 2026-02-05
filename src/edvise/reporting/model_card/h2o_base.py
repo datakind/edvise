@@ -5,6 +5,7 @@ from edvise.modeling import h2o_ml
 from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.utils.types import ModelCardConfig
 import edvise.reporting.utils as reporting_utils
+from edvise.shared.utils import as_percent
 
 
 C = t.TypeVar("C", bound=ModelCardConfig)
@@ -66,10 +67,6 @@ class H2OModelCard(ModelCard[C]):
                 self.experiment_id
             )
         )
-
-    def as_percent(val: float | int) -> str:
-        val = float(val) * 100
-        return str(int(val) if val.is_integer() else round(val, 2))
 
     def get_feature_metadata(self) -> dict[str, str]:
         """
