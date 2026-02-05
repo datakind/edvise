@@ -949,7 +949,7 @@ def _extract_readmit_ids(
     df: pd.DataFrame,
     entry_col: str = "entry_type",
     student_col: str = "student_id",
-    readmit_value: str = "readmit", #default readmit, but can be something else based on school. This offers more flexibility!
+    readmit_value: str = "readmit",  # default readmit, but can be something else based on school. This offers more flexibility!
 ) -> np.ndarray:
     """
     Return the array of student_ids that have entry_type == 'readmit' in this df.
