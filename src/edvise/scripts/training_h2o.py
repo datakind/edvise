@@ -200,8 +200,8 @@ class TrainingTask:
             "timeout_minutes": timeout_minutes,
             "exclude_cols": sorted(exclude_cols),
             "exclude_frameworks": training_cfg.exclude_frameworks,
-            "target_name": preprocessing_cfg.target.name,
-            "checkpoint_name": preprocessing_cfg.checkpoint.name,
+            "target_name": preprocessing_cfg.target.type_,
+            "checkpoint_name": preprocessing_cfg.checkpoint.type_,
             "workspace_path": workspace_path,
             "seed": self.cfg.random_state or 42,  # fallback to ensure it's an int
         }
