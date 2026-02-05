@@ -36,12 +36,11 @@ def test_register_evaluation_sections_success(
     registry = SectionRegistry()
     register_evaluation_sections(mock_card, registry)
     rendered = registry.render_all()
-    print(rendered["evaluation_by_group_section"])
-    assert (
-        "Evaluation Metrics by Student Group" in rendered["evaluation_by_group_section"]
-    )
-    assert "Gender Bias Metrics" in rendered["evaluation_by_group_section"]
-    assert "| Accuracy | 0.9 |" in rendered["evaluation_by_group_section"]
+    html = rendered["evaluation_by_group_section"]
+
+    assert "<figcaption>Gender Bias Metrics</figcaption>" in html
+    assert "<td>Accuracy</td>" in html
+    assert "<td>0.9</td>" in html
 
 
 @patch("edvise.reporting.sections.evaluation_sections.utils.list_paths_in_directory")

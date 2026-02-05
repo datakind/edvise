@@ -3,10 +3,14 @@ import typing as t
 
 import pydantic as pyd
 
-# allowed primary metrics by framework
-_ALLOWED_BY_FRAMEWORK = {
-    "sklearn": {"f1", "log_loss", "precision", "accuracy", "roc_auc"},
-    "h2o": {"logloss", "auc", "aucpr", "rmse", "mae", "mean_per_class_error"},
+# allowed primary metrics for h2o
+_ALLOWED_PRIMARY_METRICS = {
+    "logloss",
+    "auc",
+    "aucpr",
+    "rmse",
+    "mae",
+    "mean_per_class_error",
 }
 
 
@@ -112,45 +116,29 @@ class CustomProjectConfig(pyd.BaseModel):
         return self
 
     @pyd.model_validator(mode="after")
-    def _normalize_and_validate_metric_using_framework(self) -> "CustomProjectConfig":
-        fw = "sklearn"
-        if self.model and self.model.framework:
-            fw = self.model.framework
-
+    def _normalize_and_validate_primary_metric(self) -> "CustomProjectConfig":
         if (
             self.modeling
             and self.modeling.training
             and self.modeling.training.primary_metric
         ):
             pm = self.modeling.training.primary_metric
-            allowed = _ALLOWED_BY_FRAMEWORK.get(fw)
-            if not allowed:
-                raise ValueError(f"Unknown framework '{fw}' for metric normalization")
 
-            # choose framework-preferred spelling for log loss
+            # Normalize legacy spelling to H2O spelling
             if pm in {"logloss", "log_loss"}:
-                pm = "logloss" if fw == "h2o" else "log_loss"
+                pm = "logloss"
 
-            # final gate
-            if pm not in allowed:
+            if pm not in _ALLOWED_PRIMARY_METRICS:
                 raise ValueError(
-                    f"Unsupported primary_metric '{pm}' for framework '{fw}'. "
-                    f"Allowed: {sorted(allowed)}"
+                    f"Unsupported primary_metric '{pm}' for H2O. "
+                    f"Allowed: {sorted(_ALLOWED_PRIMARY_METRICS)}"
                 )
+
             self.modeling.training.primary_metric = pm
         return self
 
     @pyd.model_validator(mode="after")
-    def _validate_h2o_inference_background_sample(self) -> "CustomProjectConfig":
-        # Default to sklearn if framework is unset (keeps STANDARD behavior)
-        fw = "sklearn"
-        if self.model and self.model.framework:
-            fw = self.model.framework
-
-        # Only enforce for H2O
-        if fw != "h2o":
-            return self
-
+    def _validate_inference_background_sample(self) -> "CustomProjectConfig":
         if self.inference and self.inference.background_data_sample is not None:
             n = self.inference.background_data_sample
             if not (500 <= n <= 2000):
@@ -231,7 +219,6 @@ class AllDatasetStagesConfig(pyd.BaseModel):
 class ModelConfig(pyd.BaseModel):
     experiment_id: str
     run_id: str
-    framework: t.Optional[t.Literal["sklearn", "h2o"]] = "sklearn"
     calibrate_underpred: t.Optional[bool] = False
 
     @pyd.computed_field  # type: ignore[misc]
@@ -278,19 +265,18 @@ class CleaningConfig(pyd.BaseModel):
     schema_contract_path: t.Optional[str] = pyd.Field(
         default=None,
         description=(
-            "Absolute path on volumes to the schema_contract.json file "
+            "Absolute path on volumes to the schema_contract.json file. "
             "This file contains the frozen multi-dataset schema contract "
             "used for schema enforcement for custom schools. This is needed "
-            "for data reliability and to ensure minimal training-inference skew."
+            "for data reliability and to ensure minimal training–inference skew."
         ),
     )
     student_id_alias: t.Optional[str] = pyd.Field(
         default=None,
         description=(
-            "Sometimes custom schools give us a 'student_id' column, "
-            "but it's notated differently. Zogotech infamously gives us a column "
-            "called 'student_id_randomized_datakind'. This needs to be normalized "
-            "back to 'student_id' for our own sanity."
+            "Optional alternate name for the student_id column. "
+            "E.g., Zogotech uses 'student_id_randomized_datakind'. "
+            "If provided, it will be normalized to 'student_id'."
         ),
     )
     null_tokens: list[str] = pyd.Field(
@@ -336,6 +322,21 @@ class CleaningConfig(pyd.BaseModel):
         },
         description=(
             "Mapping for interpreting string tokens as booleans during dtype generation."
+        ),
+    )
+    forced_dtypes: dict[str, str] = pyd.Field(
+        default_factory=dict,
+        description=(
+            "Optional mapping of normalized column names → forced pandas nullable dtypes "
+            "(e.g. {'student_id': 'string', 'term_order': 'Int64'}). "
+            "These overrides are applied BEFORE dtype inference across ALL datasets."
+        ),
+    )
+    allow_forced_cast_fallback: bool = pyd.Field(
+        default=True,
+        description=(
+            "If True, failures to cast a forced dtype fall back to inferred dtype with a warning. "
+            "If False, such failures raise an exception."
         ),
     )
 
@@ -442,7 +443,7 @@ class FeatureSelectionConfig(pyd.BaseModel):
 class TrainingConfig(pyd.BaseModel):
     """
     References:
-        - https://docs.databricks.com/en/machine-learning/automl/automl-api-reference.html#classify
+        - https://docs.h2o.ai/h2o/latest-stable/h2o-docs/automl.html
     """
 
     exclude_cols: t.Optional[list[str]] = pyd.Field(
@@ -458,15 +459,15 @@ class TrainingConfig(pyd.BaseModel):
     )
     exclude_frameworks: t.Optional[list[str]] = pyd.Field(
         default=None,
-        description="List of algorithm frameworks that AutoML excludes from training.",
+        description="List of algorithm frameworks that H2O AutoML excludes from training.",
     )
     primary_metric: str = pyd.Field(
-        default="log_loss",
+        default="logloss",
         description="Metric used to evaluate and rank model performance.",
     )
     timeout_minutes: t.Optional[int] = pyd.Field(
         default=None,
-        description="Maximum time to wait for AutoML trials to complete.",
+        description="Maximum time to wait for H2O AutoML trials to complete.",
     )
 
 

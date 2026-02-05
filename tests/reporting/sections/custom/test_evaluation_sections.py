@@ -56,10 +56,12 @@ def test_register_evaluation_sections_with_aliases(
         mock_card_with_aliases, registry
     )
     rendered = registry.render_all()
+    html = rendered["evaluation_by_group_section"]
 
-    assert "Gender Identity Bias Metrics" in rendered["evaluation_by_group_section"]
-    assert "Race/Ethnicity Bias Metrics" in rendered["evaluation_by_group_section"]
-    assert "| Accuracy | 0.95 |" in rendered["evaluation_by_group_section"]
+    assert '<figure class="table">' in html
+    assert "<figcaption>Gender Identity Bias Metrics</figcaption>" in html
+    assert "<td>Accuracy</td>" in html
+    assert "<td>0.95</td>" in html
 
 
 @patch(
@@ -84,9 +86,11 @@ def test_register_evaluation_sections_fallback_to_friendly_case(
         mock_card_without_aliases, registry
     )
     rendered = registry.render_all()
+    html = rendered["evaluation_by_group_section"]
 
-    assert "Race Demo Bias Metrics" in rendered["evaluation_by_group_section"]
-    assert "| Precision | 0.81 |" in rendered["evaluation_by_group_section"]
+    assert "<figcaption>Race Demo Bias Metrics</figcaption>" in html
+    assert "<td>Precision</td>" in html
+    assert "<td>0.81</td>" in html
 
 
 @patch(

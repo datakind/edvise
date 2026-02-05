@@ -1,11 +1,13 @@
 import argparse
 import importlib
+import json
 import logging
 import typing as t
 import sys
 import pandas as pd
 import pathlib
 import os
+from functools import partial
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
@@ -48,7 +50,11 @@ from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
     log_pre_cohort_courses,
 )
-from edvise.shared.logger import local_fs_path, resolve_run_path
+from edvise.shared.logger import (
+    resolve_run_path,
+    local_fs_path,
+)
+from edvise.shared.validation import require
 
 logging.basicConfig(
     level=logging.INFO,
@@ -60,6 +66,27 @@ LOGGER = logging.getLogger(__name__)
 
 # Create callable type
 ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
+
+
+def _parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
+    """Parse --term_filter job param. Treat None, '', 'null' as not provided; else json.loads.
+    Empty list after parse -> not provided (use config). Invalid JSON -> raise."""
+    if value is None:
+        return None
+    s = value.strip()
+    if s in ("", "null", "None"):
+        return None
+    try:
+        parsed = json.loads(s)
+    except json.JSONDecodeError as e:
+        LOGGER.error("Invalid JSON for term_filter param: %s", value)
+        raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
+    if not isinstance(parsed, list):
+        raise ValueError("--term_filter must be a JSON list of strings")
+    labels = [str(item).strip() for item in parsed if str(item).strip()]
+    if not labels:
+        return None  # empty list -> use config
+    return labels
 
 
 class PDPDataAuditTask:
@@ -75,12 +102,32 @@ class PDPDataAuditTask:
         self.cfg = read_config(
             file_path=self.args.config_file_path, schema=PDPProjectConfig
         )
+        # Resolve inference cohort from job param or config (term_filter is generic for cohort/graduation)
+        if getattr(self.args, "job_type", None) == "inference":
+            param_cohort = _parse_term_filter_param(
+                getattr(self.args, "term_filter", None)
+            )
+            if param_cohort is not None:
+                if self.cfg.inference is None:
+                    from edvise.configs.pdp import InferenceConfig
+
+                    self.cfg.inference = InferenceConfig(cohort=param_cohort)
+                else:
+                    self.cfg.inference.cohort = param_cohort
+                LOGGER.info(
+                    "Inference cohort source: job param; term_filter=%s", param_cohort
+                )
+            else:
+                LOGGER.info(
+                    "Inference cohort source: config; cohort=%s",
+                    self.cfg.inference.cohort if self.cfg.inference else None,
+                )
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
         # Use default converter to handle duplicates if none provided
         self.course_converter_func: ConverterFunc = (
-            handling_duplicates
+            partial(handling_duplicates, school_type="pdp")
             if course_converter_func is None
             else course_converter_func
         )
@@ -241,6 +288,14 @@ class PDPDataAuditTask:
                 " Failed to parse course data with all known datetime formats."
             )
 
+        # Ensure cohort/course files are non-empty
+        for label, df in [
+            ("Raw cohort", df_cohort_raw),
+            ("Raw course", df_course_raw),
+        ]:
+            require(len(df_cohort_raw) > 0, f"{label} dataset is empty (0 rows).")
+            require(len(df_course_raw) > 0, f"{label} dataset is empty (0 rows).")
+
         LOGGER.info(
             " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
         )
@@ -285,6 +340,8 @@ class PDPDataAuditTask:
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
 
         LOGGER.info(" Cohort data standardized.")
+
+        student_id_col = getattr(self.cfg, "student_id_col", None) or "student_id"
 
         # --- Load COURSE dataset - with schema ---
 
@@ -343,6 +400,23 @@ class PDPDataAuditTask:
         df_course_standardized = self.course_std.standardize(df_course_validated)
 
         LOGGER.info(" Course data standardized.")
+
+        for label, df in [
+            ("Standardized cohort", df_cohort_standardized),
+            ("Standardized course", df_course_standardized),
+        ]:
+            require(
+                student_id_col in df.columns,
+                f"{label} missing required column: {student_id_col}",
+            )
+            nulls = int(df[student_id_col].isna().sum())
+            require(
+                nulls == 0, f"{label} contains {nulls} null {student_id_col} values."
+            )
+
+        LOGGER.info(
+            " Validated that cohort and course files both have a 'student_id' column with no nulls."
+        )
 
         # Log Math/English gateway courses and add to config
         ids, cips, has_upper_level, lower_ids, lower_cips = (
@@ -449,6 +523,10 @@ class PDPDataAuditTask:
             df_cohort_standardized,
         )
 
+        # --- Check that standardized cohort/course files aren't empty ---
+        require(len(df_cohort_standardized) > 0, "df_cohort_standardized is empty.")
+        require(len(df_course_standardized) > 0, "df_course_standardized is empty.")
+
         # --- Write results ---
         write_parquet(
             df_cohort_standardized,
@@ -473,6 +551,12 @@ def parse_arguments() -> argparse.Namespace:
         "--cohort_dataset_validated_path",
         required=False,
         help="Name of the cohort data file during inference with GCS blobs when connected to webapp",
+    )
+    parser.add_argument(
+        "--term_filter",
+        type=str,
+        default=None,
+        help='JSON list of term/cohort labels (e.g. ["fall 2024-25"]). Omit or null for config default. Used for cohort and graduation models.',
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--bronze_volume_path", type=str, required=False)

@@ -120,3 +120,24 @@ def update_key_courses_and_cips(
 
     # Save to the original config path
     editor.save()
+
+
+def update_pipeline_version(
+    config_path: str,
+    pipeline_version: str,
+    extra_save_paths: list[str] | None = None,
+) -> None:
+    """
+    Update the TOML config at the end of the training pipeline such that we can save the
+    version as metadata from training. This is critical so that we know schools' pipeline version
+    without having to manually set it in each config which does not scale well.
+    """
+    editor = TomlConfigEditor(config_path)
+    editor.update_field(["pipeline_version"], pipeline_version)
+    editor.save()
+
+    if extra_save_paths:
+        for path in extra_save_paths:
+            editor.save(output_path=path)
+
+    editor.confirm_field(["pipeline_version"])

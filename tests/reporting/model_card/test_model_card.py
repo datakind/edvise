@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import patch, MagicMock
-import pandas as pd
 
 from edvise.reporting.model_card.base import ModelCard
 
@@ -8,9 +7,7 @@ from edvise.reporting.model_card.base import ModelCard
 @pytest.fixture
 def mock_config():
     cfg = MagicMock()
-    cfg.model = MagicMock(
-        mlflow_model_uri="uri", framework="sklearn", run_id="123", experiment_id="456"
-    )
+    cfg.model = MagicMock(mlflow_model_uri="uri", run_id="123", experiment_id="456")
     cfg.institution_id = "inst"
     cfg.institution_name = "TestInstitution"
     cfg.modeling.feature_selection.collinear_threshold = 0.9
@@ -25,35 +22,27 @@ def mock_client():
     return MagicMock()
 
 
-def test_init_defaults(mock_config, mock_client):
-    card = ModelCard(
-        config=mock_config,
-        catalog="catalog",
-        model_name="inst_my_model",
-        mlflow_client=mock_client,
-    )
-    assert card.model_name == "inst_my_model"
-    assert card.uc_model_name == "catalog.inst_gold.inst_my_model"
-    assert card.assets_folder == "card_assets"
-    assert isinstance(card.context, dict)
-
-
-@patch("edvise.reporting.model_card.base.dataio.models.load_mlflow_model")
-def test_load_model_success(mock_load_model, mock_config, mock_client):
-    card = ModelCard(
-        config=mock_config,
-        catalog="catalog",
-        model_name="inst_my_model",
-        mlflow_client=mock_client,
-    )
-    card.load_model()
-    mock_load_model.assert_called_once_with("uri", "sklearn")
-    assert card.run_id == "123"
-    assert card.experiment_id == "456"
-
-
 def test_find_model_version_found(mock_config, mock_client):
-    card = ModelCard(
+    """Test finding model version when it exists."""
+
+    # Create a minimal concrete implementation for testing
+    class ConcreteModelCard(ModelCard):
+        def load_model(self):
+            pass
+
+        def extract_training_data(self):
+            pass
+
+        def get_feature_metadata(self):
+            return {}
+
+        def get_model_plots(self):
+            return {}
+
+        def _register_sections(self):
+            pass
+
+    card = ConcreteModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",
@@ -67,8 +56,26 @@ def test_find_model_version_found(mock_config, mock_client):
 
 
 def test_find_model_version_not_found(mock_config, mock_client):
+    """Test when model version is not found."""
+
+    class ConcreteModelCard(ModelCard):
+        def load_model(self):
+            pass
+
+        def extract_training_data(self):
+            pass
+
+        def get_feature_metadata(self):
+            return {}
+
+        def get_model_plots(self):
+            return {}
+
+        def _register_sections(self):
+            pass
+
     mock_client.search_model_versions.return_value = []
-    card = ModelCard(
+    card = ConcreteModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",
@@ -79,28 +86,28 @@ def test_find_model_version_not_found(mock_config, mock_client):
     assert card.context["version_number"] is None
 
 
-def test_get_feature_metadata_success(mock_config, mock_client):
-    card = ModelCard(
-        config=mock_config,
-        catalog="catalog",
-        model_name="inst_my_model",
-        mlflow_client=mock_client,
-    )
-    card.model = MagicMock()
-    card.model.named_steps = {
-        "column_selector": MagicMock(get_params=lambda: {"cols": ["a", "b", "c"]})
-    }
-    metadata = card.get_feature_metadata()
-    assert metadata["number_of_features"] == "3"
-    assert metadata["collinearity_threshold"] == "0.9"
-    assert metadata["low_variance_threshold"] == "0.01"
-    assert metadata["incomplete_threshold"] == "5"
-
-
 @patch("edvise.reporting.model_card.base.utils.download_static_asset")
 def test_get_basic_context(mock_download, mock_config, mock_client):
+    """Test basic context retrieval."""
+
+    class ConcreteModelCard(ModelCard):
+        def load_model(self):
+            pass
+
+        def extract_training_data(self):
+            pass
+
+        def get_feature_metadata(self):
+            return {}
+
+        def get_model_plots(self):
+            return {}
+
+        def _register_sections(self):
+            pass
+
     mock_download.return_value = "<img>Logo</img>"
-    card = ModelCard(
+    card = ConcreteModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",
@@ -112,7 +119,25 @@ def test_get_basic_context(mock_download, mock_config, mock_client):
 
 
 def test_build_calls_all_steps(mock_config, mock_client):
-    card = ModelCard(
+    """Test that build() calls all required steps in sequence."""
+
+    class ConcreteModelCard(ModelCard):
+        def load_model(self):
+            pass
+
+        def extract_training_data(self):
+            pass
+
+        def get_feature_metadata(self):
+            return {}
+
+        def get_model_plots(self):
+            return {}
+
+        def _register_sections(self):
+            pass
+
+    card = ConcreteModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",
@@ -141,41 +166,31 @@ def test_build_calls_all_steps(mock_config, mock_client):
         method.assert_called_once()
 
 
-@patch("edvise.reporting.model_card.base.utils.safe_count_runs")
-@patch(
-    "edvise.reporting.model_card.base.modeling.evaluation.extract_training_data_from_model"
-)
-@patch("edvise.reporting.model_card.base.dataio.models.load_mlflow_model")
-def test_extract_training_data_with_split_call_load_model(
-    mock_load_model, mock_extract_data, mock_safe_count, mock_config, mock_client
-):
-    mock_config.split_col = "split"
-    df = pd.DataFrame(
-        {"feature": [1, 2, 3, 4], "split": ["train", "test", "train", "val"]}
-    )
-    mock_extract_data.return_value = df
-    mock_safe_count.return_value = 2  # simulate 2 runs in experiment
-
-    card = ModelCard(
-        config=mock_config,
-        catalog="catalog",
-        model_name="inst_my_model",
-        mlflow_client=mock_client,
-    )
-    card.load_model()
-    card.extract_training_data()
-
-    assert card.context["training_dataset_size"] == 2
-    assert card.context["num_runs_in_experiment"] == 2
-
-
 @patch("builtins.open", new_callable=MagicMock)
 def test_render_template_and_output(mock_open, mock_config, mock_client):
+    """Test template rendering and output writing."""
+
+    class ConcreteModelCard(ModelCard):
+        def load_model(self):
+            pass
+
+        def extract_training_data(self):
+            pass
+
+        def get_feature_metadata(self):
+            return {}
+
+        def get_model_plots(self):
+            return {}
+
+        def _register_sections(self):
+            pass
+
     mock_file = MagicMock()
     mock_open.return_value.__enter__.return_value = mock_file
     mock_file.read.return_value = "Model: {institution_name}"
 
-    card = ModelCard(
+    card = ConcreteModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="inst_my_model",
