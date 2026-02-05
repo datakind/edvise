@@ -1,7 +1,8 @@
 import argparse
 import pandas as pd
 import logging
-
+import json
+import typing as t
 import os
 import sys
 
@@ -21,6 +22,7 @@ print("sys.path:", sys.path)
 
 from edvise.model_prep import cleanup_features as cleanup
 from edvise.dataio.read import read_parquet, read_config
+from edvise.data_audit.cohort_selection import select_inference_cohort
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
@@ -33,7 +35,7 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
 
@@ -41,6 +43,47 @@ class InferencePrepTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.cfg = read_config(args.config_file_path, schema=PDPProjectConfig)
+
+        # Resolve inference cohort from job param or config (term_filter is generic for cohort/graduation)
+        if getattr(self.args, "job_type", None) == "inference":
+            param_cohort = self._parse_term_filter_param(
+                getattr(self.args, "term_filter", None)
+            )
+            if param_cohort is not None:
+                if self.cfg.inference is None:
+                    from edvise.configs.pdp import InferenceConfig
+
+                    self.cfg.inference = InferenceConfig(cohort=param_cohort)
+                else:
+                    self.cfg.inference.cohort = param_cohort
+                LOGGER.info(
+                    "Inference cohort source: job param; term_filter=%s", param_cohort
+                )
+            else:
+                LOGGER.info(
+                    "Inference cohort source: config; cohort=%s",
+                    self.cfg.inference.cohort if self.cfg.inference else None,
+                )
+
+    def _parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
+        """Parse --term_filter job param. Treat None, '', 'null' as not provided; else json.loads.
+        Empty list after parse -> not provided (use config). Invalid JSON -> raise."""
+        if value is None:
+            return None
+        s = value.strip()
+        if s in ("", "null", "None"):
+            return None
+        try:
+            parsed = json.loads(s)
+        except json.JSONDecodeError as e:
+            LOGGER.error("Invalid JSON for term_filter param: %s", value)
+            raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
+        if not isinstance(parsed, list):
+            raise ValueError("--term_filter must be a JSON list of strings")
+        labels = [str(item).strip() for item in parsed if str(item).strip()]
+        if not labels:
+            return None  # empty list -> use config
+        return labels
 
     def merge_data(
         self,
@@ -68,7 +111,7 @@ class InferencePrepTask:
             (n_checkpoint_ok / total_selected * 100) if total_selected else 0.0
         )
 
-        logger.info(
+        LOGGER.info(
             "Checkpoint-evaluable subset: %d/%d criteria-selected students (%.2f%%) meet the checkpoint.",
             n_checkpoint_ok,
             total_selected,
@@ -100,7 +143,7 @@ class InferencePrepTask:
             logger_name=__name__,
             log_file_name="pdp_inference_prep.log",
         )
-        logger.info("Per-run log file initialized at %s", log_path)
+        LOGGER.info("Per-run log file initialized at %s", log_path)
 
         # Read inputs (DBFS-safe)
         ckpt_path = os.path.join(current_run_path, "checkpoint.parquet")
@@ -133,6 +176,15 @@ class InferencePrepTask:
         require(
             not df_labeled.empty,
             "Merge produced 0 labeled rows (checkpoint ∩ selected ∩ selected_students is empty).",
+        )
+
+        LOGGER.info(" Selecting inference cohort")
+        if self.cfg.inference is None or self.cfg.inference.cohort is None:
+            raise ValueError("cfg.inference.cohort must be configured.")
+
+        inf_cohort = self.cfg.inference.cohort
+        df_course_validated = select_inference_cohort(
+            df_course_validated, cohorts_list=inf_cohort
         )
 
         cohort_counts = (
