@@ -1780,7 +1780,7 @@ class EdaSummary:
                 gpa=pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce")
             )[["cohort", "enrollment_type", "gpa"]]
             .dropna()
-            .groupby(["enrollment_type", "cohort"])["gpa"]
+            .groupby(["enrollment_type", "cohort"], observed=True)["gpa"]
             .mean()
             .unstack()
             .reindex(columns=self.cohort_years(formatted=False))
@@ -1822,7 +1822,9 @@ class EdaSummary:
                 ["cohort", "enrollment_intensity_first_term", "gpa"],
             ]
             .dropna()
-            .groupby(["enrollment_intensity_first_term", "cohort"])["gpa"]
+            .groupby(["enrollment_intensity_first_term", "cohort"], observed=True)[
+                "gpa"
+            ]
             .mean()
             .unstack()
             .reindex(columns=self.cohort_years(formatted=False))
@@ -1942,7 +1944,9 @@ class EdaSummary:
         counts_df = (
             self.df_cohort[["enrollment_type", "enrollment_intensity_first_term"]]
             .dropna()
-            .groupby(["enrollment_intensity_first_term", "enrollment_type"])
+            .groupby(
+                ["enrollment_intensity_first_term", "enrollment_type"], observed=True
+            )
             .size()
             .unstack(fill_value=0)
         )
@@ -2012,7 +2016,7 @@ class EdaSummary:
 
         data = (
             self.df_cohort.dropna(subset=["pell_status_first_year"])
-            .groupby("pell_status_first_year")
+            .groupby("pell_status_first_year", observed=True)
             .size()
             .to_dict()
         )
@@ -2069,7 +2073,7 @@ class EdaSummary:
         race_df = race_df[race_df["pell_status_first_year"].isin(["Yes", "No"])]
 
         counts_df = (
-            race_df.groupby(["pell_status_first_year", "race"])
+            race_df.groupby(["pell_status_first_year", "race"], observed=True)
             .size()
             .unstack(fill_value=0)
         )

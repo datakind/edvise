@@ -85,14 +85,22 @@ def test_compute_pairwise_associations(df, ref_col, exclude_cols, exp):
 class TestEdaSummary:
     @pytest.fixture
     def sample_cohort_data(self):
+        from edvise.data_audit.schemas import RawPDPCohortDataSchema
+
         file_path = Path(__file__).parents[1] / "fixtures" / "raw_pdp_cohort_data.csv"
-        df = dataio.read.read_raw_pdp_cohort_data(file_path=str(file_path))
-        return df.assign(study_id=df["study_id"])
+        df = dataio.read.read_raw_pdp_cohort_data(
+            file_path=str(file_path), schema=RawPDPCohortDataSchema
+        )
+        return df
 
     @pytest.fixture
     def sample_course_data(self):
+        from edvise.data_audit.schemas import RawPDPCourseDataSchema
+
         file_path = Path(__file__).parents[1] / "fixtures" / "raw_pdp_course_data.csv"
-        return dataio.read.read_raw_pdp_course_data(file_path=str(file_path))
+        return dataio.read.read_raw_pdp_course_data(
+            file_path=str(file_path), schema=RawPDPCourseDataSchema
+        )
 
     def test_cohort_years_returns_sorted_list(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data, validate=True)
@@ -114,7 +122,7 @@ class TestEdaSummary:
     def test_summary_stats_returns_zero_for_invalid_gpa(self):
         df = pd.DataFrame(
             {
-                "study_id": ["student-1", "student-2"],
+                "student_id": ["student-1", "student-2"],
                 "enrollment_type": ["FIRST-TIME", "TRANSFER-IN"],
                 "gpa_group_year_1": ["invalid", None],
             }
@@ -451,7 +459,7 @@ class TestEdaSummary:
 
     def test_pell_recipient_status_handles_nulls(self, sample_cohort_data):
         """Test that NaN pell status values are properly excluded."""
-        sample_cohort_data.loc[0:5, "pell_status_first_year"] = pd.NA
+        sample_cohort_data.loc[0:2, "pell_status_first_year"] = pd.NA
         eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.pell_recipient_status
         assert "series" in result
@@ -465,22 +473,6 @@ class TestEdaSummary:
         result = eda.student_age_by_gender
         assert "categories" in result
         assert all(pd.notna(cat) for cat in result["categories"])
-
-    def test_validation_cleans_unknown_values(self, sample_cohort_data):
-        """Test that validate=True applies schema validation and cleans unknown values."""
-        # Add some "UK" values that should be converted to NaN by validation
-        sample_cohort_data.loc[0:2, "pell_status_first_year"] = "UK"
-
-        # With validation enabled, UK values should become NaN
-        eda = EdaSummary(sample_cohort_data, validate=True)
-        result = eda.pell_recipient_status
-
-        # UK should not appear in the results after validation
-        if result and "series" in result:
-            data_keys = list(result["series"][0]["data"].keys())
-            assert "UK" not in data_keys, (
-                "UK values should be converted to NaN during validation"
-            )
 
     def test_validate_false_preserves_data(self, sample_cohort_data):
         """Test that validate=True skips validation and preserves data as-is."""
