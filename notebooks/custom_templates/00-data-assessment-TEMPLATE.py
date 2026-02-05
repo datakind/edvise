@@ -251,7 +251,7 @@ student_raw_df["student_id"].duplicated().any()
 # COMMAND ----------
 
 cohort_dupes = find_dupes(
-    student_raw_df, primary_keys=cfg.datasets.bronze["raw_cohort"].primary_keys
+    student_raw_df, primary_keys=cfg.datasets.bronze["raw_student"].primary_keys
 )
 cohort_dupes.head()
 
