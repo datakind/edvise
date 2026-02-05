@@ -66,7 +66,9 @@ def test_set_or_create_experiment_new(mock_set_experiment):
     mock_client.get_experiment_by_name.return_value = None
     mock_client.create_experiment.return_value = "exp-123"
 
-    exp_id = utils.set_or_create_experiment("/workspace", "inst1", client=mock_client)
+    exp_id = utils.set_or_create_experiment(
+        "/workspace", "inst1", "target", "chkpt1", client=mock_client
+    )
     assert exp_id == "exp-123"
 
 
@@ -77,7 +79,9 @@ def test_set_or_create_experiment_existing(mock_set_experiment):
         experiment_id="exp-456"
     )
 
-    exp_id = utils.set_or_create_experiment("/workspace", "inst1", client=mock_client)
+    exp_id = utils.set_or_create_experiment(
+        "/workspace", "inst1", "target", "chkpt1", client=mock_client
+    )
     assert exp_id == "exp-456"
 
 

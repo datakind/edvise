@@ -102,6 +102,8 @@ def test_run_h2o_automl_success(
         primary_metric="AUC",
         institution_id="inst1",
         student_id_col="student_id",
+        target_name="Dropout Risk",
+        checkpoint_name="ckpt_001",
         workspace_path="mlflow_experiments/",
     )
 
@@ -117,3 +119,22 @@ def test_run_h2o_automl_success(
     expected_df = sample_df.loc[sample_df["split"] == "train", raw_model_features]
     actual_df = mock_imputer.fit.call_args[0][0]
     assert_frame_equal(actual_df, expected_df)
+
+
+@mock.patch("edvise.modeling.h2o_ml.training.h2o.H2OFrame")
+def test_run_h2o_automl_missing_logging_param(mock_h2oframe, sample_df):
+    fake_h2o_frame = mock.MagicMock()
+    fake_h2o_frame.columns = sample_df.columns.tolist()
+    mock_h2oframe.return_value = fake_h2o_frame
+
+    with pytest.raises(ValueError, match="Missing logging parameters: target_name"):
+        training.run_h2o_automl_classification(
+            sample_df,
+            target_col="target",
+            primary_metric="AUC",
+            institution_id="inst1",
+            student_id_col="student_id",
+            # target_name is missing
+            checkpoint_name="ckpt_001",
+            workspace_path="mlflow_experiments/",
+        )

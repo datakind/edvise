@@ -99,12 +99,19 @@ class ModelInferenceTask:
         # Assert preprocessing is not None (should be validated by config loading)
         assert self.cfg.preprocessing is not None, "preprocessing config is required"
 
-        model_name = modeling.registration.get_model_name(
-            institution_id=self.cfg.institution_id,
-            target=self.cfg.preprocessing.target,  # type: ignore
-            checkpoint=self.cfg.preprocessing.checkpoint,  # type: ignore
-            student_criteria=self.cfg.preprocessing.selection.student_criteria,
-        )
+        # First tries PDP logic
+        try:
+            model_name = modeling.registration.pdp_get_model_name(
+                target=self.cfg.preprocessing.target,  # type: ignore
+                checkpoint=self.cfg.preprocessing.checkpoint,  # type: ignore
+                student_criteria=self.cfg.preprocessing.selection.student_criteria,
+            )
+        except Exception:  # Assumes custom instead of PDP
+            model_name = modeling.registration.get_model_name(
+                institution_id=self.cfg.institution_id,
+                target=self.cfg.preprocessing.target.name,  # type: ignore
+                checkpoint=self.cfg.preprocessing.checkpoint.name,  # type: ignore
+            )
         # Model name is already UC-compatible (lowercase with underscores)
         full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{model_name}"
 

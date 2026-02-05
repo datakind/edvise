@@ -130,13 +130,51 @@ def extract_time_limits(intensity_time_limits: dict) -> str:
 
 def get_model_name(
     *,
-    institution_id: str,
+    institution_id: t.Optional[str] = None,
+    target: str = "",
+    checkpoint: str = "",
+    extra_info: t.Optional[str] = None,
+) -> str:
+    """
+    Get a standard model name generated from key components, formatted as
+    "[{institution_id}_]{target}[_{checkpoint}][_{extra_info}]"
+
+    Args:
+        institution_id: Optional institution identifier
+        target: Target name
+        checkpoint: Optional checkpoint name
+        extra_info: Optional additional information
+
+    Returns:
+        Formatted model name
+    """
+    parts = []
+    if institution_id:
+        parts.append(institution_id)
+    if target:
+        parts.append(target)
+    if checkpoint:
+        parts.append(checkpoint)
+
+    model_name = "_".join(parts)
+
+    if extra_info is not None:
+        model_name = f"{model_name}_{extra_info}"
+
+    return model_name
+
+
+def pdp_get_model_name(
+    *,
     target: t.Any,
     checkpoint: t.Any,
     student_criteria: dict,
     extra_info: t.Optional[str] = None,
 ) -> str:
     """
+    PDP-specific wrapper for get_model_name that derives target and checkpoint names
+    from config objects using PDP's standard logic.
+
     Get a simple, lowercase, underscore-separated model name for Unity Catalog.
 
     Use Formatting().friendly_case() from reporting.utils.formatting to convert
@@ -146,17 +184,18 @@ def get_model_name(
         target: Target config object (supports both dict and Pydantic model access)
         checkpoint: Checkpoint config object (supports both dict and Pydantic model access)
         student_criteria: Dictionary of student selection criteria
+        extra_info: Optional additional information to append to model name
 
     Returns:
         Simple lowercase model name like "retention_into_year_2_associates"
 
     Examples:
         >>> # Retention example
-        >>> get_model_name(...)
+        >>> pdp_get_model_name(...)
         'retention_into_year_2_associates'
 
         >>> # Graduation example
-        >>> get_model_name(...)
+        >>> pdp_get_model_name(...)
         'graduation_in_3y_ft_6y_pt_checkpoint_2_core_terms'
     """
 
@@ -182,36 +221,40 @@ def get_model_name(
         return "_".join(parts)
 
     target_type = get_attr(target, "type_")
+    target_name = ""
+    checkpoint_name = ""
 
     if target_type == "retention":
         if "credential_type_sought_year_1" in student_criteria:
             credential_type = normalize_degree(
                 student_criteria["credential_type_sought_year_1"]
             ).lower()
-            model_name = f"retention_into_year_2_{credential_type}"
+            target_name = f"retention_into_year_2_{credential_type}"
         else:
-            model_name = "retention_into_year_2_all_degrees"
+            target_name = "retention_into_year_2_all_degrees"
+        checkpoint_name = ""
     elif target_type == "graduation":
         time_limits = format_time_limits(get_attr(target, "intensity_time_limits"))
         checkpoint_type = get_attr(checkpoint, "type_")
         if checkpoint_type == "nth":
             n_plus_1 = get_attr(checkpoint, "n") + 1
             if get_attr(checkpoint, "exclude_non_core_terms") == True:
-                model_name = (
-                    f"graduation_in_{time_limits}_checkpoint_{n_plus_1}_core_terms"
-                )
+                target_name = f"graduation_in_{time_limits}"
+                checkpoint_name = f"checkpoint_{n_plus_1}_core_terms"
             else:
-                model_name = (
-                    f"graduation_in_{time_limits}_checkpoint_{n_plus_1}_total_terms"
-                )
+                target_name = f"graduation_in_{time_limits}"
+                checkpoint_name = f"checkpoint_{n_plus_1}_total_terms"
         elif checkpoint_type == "first_student_terms":
-            model_name = f"graduation_in_{time_limits}_checkpoint_first_term"
+            target_name = f"graduation_in_{time_limits}"
+            checkpoint_name = "checkpoint_first_term"
         elif checkpoint_type == "first_student_terms_within_cohort":
-            model_name = f"graduation_in_{time_limits}_checkpoint_first_cohort_term"
+            target_name = f"graduation_in_{time_limits}"
+            checkpoint_name = "checkpoint_first_cohort_term"
         elif checkpoint_type == "first_at_num_credits_earned":
             creds = get_attr(checkpoint, "min_num_credits")
             credits = str(int(creds)) if creds == int(creds) else str(creds)
-            model_name = f"graduation_in_{time_limits}_checkpoint_{credits}_credits"
+            target_name = f"graduation_in_{time_limits}"
+            checkpoint_name = f"checkpoint_{credits}_credits"
     elif target_type == "credits_earned":
         time_limits = format_time_limits(get_attr(target, "intensity_time_limits"))
         checkpoint_type = get_attr(checkpoint, "type_")
@@ -220,25 +263,30 @@ def get_model_name(
         if checkpoint_type == "nth":
             n_plus_1 = get_attr(checkpoint, "n") + 1
             if get_attr(checkpoint, "exclude_non_core_terms") == True:
-                model_name = f"{credits}_credits_in_{time_limits}_checkpoint_{n_plus_1}_core_terms"
+                target_name = f"{credits}_credits_in_{time_limits}"
+                checkpoint_name = f"checkpoint_{n_plus_1}_core_terms"
             else:
-                model_name = f"{credits}_credits_in_{time_limits}_checkpoint_{n_plus_1}_total_terms"
+                target_name = f"{credits}_credits_in_{time_limits}"
+                checkpoint_name = f"checkpoint_{n_plus_1}_total_terms"
         elif checkpoint_type == "first_student_terms":
-            model_name = f"{credits}_credits_in_{time_limits}_checkpoint_first_term"
+            target_name = f"{credits}_credits_in_{time_limits}"
+            checkpoint_name = "checkpoint_first_term"
         elif checkpoint_type == "first_student_terms_within_cohort":
-            model_name = (
-                f"{credits}_credits_in_{time_limits}_checkpoint_first_cohort_term"
-            )
+            target_name = f"{credits}_credits_in_{time_limits}"
+            checkpoint_name = "checkpoint_first_cohort_term"
         elif checkpoint_type == "first_at_num_credits_earned":
             chk_creds = get_attr(checkpoint, "min_num_credits")
             checkpoint_credits = (
                 str(int(chk_creds)) if chk_creds == int(chk_creds) else str(chk_creds)
             )
-            model_name = f"{credits}_credits_in_{time_limits}_checkpoint_{checkpoint_credits}_credits"
+            target_name = f"{credits}_credits_in_{time_limits}"
+            checkpoint_name = f"checkpoint_{checkpoint_credits}_credits"
 
-    if extra_info is not None:
-        model_name = f"{model_name}_{extra_info}"
-    return model_name
+    return get_model_name(
+        target=target_name,
+        checkpoint=checkpoint_name,
+        extra_info=extra_info,
+    )
 
 
 def get_mlflow_model_uri(

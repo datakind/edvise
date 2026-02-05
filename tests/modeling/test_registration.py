@@ -4,6 +4,7 @@ import mlflow
 from edvise.modeling.registration import (
     register_mlflow_model,
     get_model_name,
+    pdp_get_model_name,
     normalize_degree,
     extract_time_limits,
 )
@@ -198,10 +199,44 @@ class TestExtractTimeLimits:
         assert result == "3Y FT"
 
 
-# Tests for get_model_name function
+# Tests for get_model_name function (simple version)
 class TestGetModelName:
+    """Tests for the simple get_model_name function that takes string parameters."""
+
+    def test_basic_model_name_format(self):
+        """Test basic format: institution_id_target_checkpoint"""
+        result = get_model_name(
+            institution_id="test_inst",
+            target="retention_into_year_2",
+            checkpoint="first_term",
+        )
+        assert result == "test_inst_retention_into_year_2_first_term"
+
+    def test_model_name_with_extra_info(self):
+        """Test format with extra_info: institution_id_target_checkpoint_extra_info"""
+        result = get_model_name(
+            institution_id="test_inst",
+            target="graduation_in_3y",
+            checkpoint="checkpoint_2",
+            extra_info="pilot",
+        )
+        assert result == "test_inst_graduation_in_3y_checkpoint_2_pilot"
+
+    def test_model_name_without_extra_info(self):
+        """Test that extra_info is optional"""
+        result = get_model_name(
+            institution_id="my_school",
+            target="custom_target",
+            checkpoint="custom_checkpoint",
+            extra_info=None,
+        )
+        assert result == "my_school_custom_target_custom_checkpoint"
+
+
+# Tests for pdp_get_model_name function
+class TestPDPGetModelName:
     """
-    Comprehensive tests for get_model_name based on actual config templates.
+    Comprehensive tests for pdp_get_model_name based on actual config templates.
 
     Config templates tested:
     - config-RETENTION_TEMPLATE.toml
@@ -228,8 +263,7 @@ class TestGetModelName:
             "cohort_term": ["FALL", "SPRING"],
         }
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -249,8 +283,7 @@ class TestGetModelName:
             "credential_type_sought_year_1": "BACHELOR'S DEGREE",
         }
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -268,8 +301,7 @@ class TestGetModelName:
         }
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -287,8 +319,7 @@ class TestGetModelName:
         }
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -325,8 +356,7 @@ class TestGetModelName:
             "credential_type_sought_year_1": "ASSOCIATE'S DEGREE",
         }
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -349,8 +379,7 @@ class TestGetModelName:
         }
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -379,8 +408,7 @@ class TestGetModelName:
         }
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -399,8 +427,7 @@ class TestGetModelName:
         checkpoint = {"type_": "first_student_terms"}
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -419,8 +446,7 @@ class TestGetModelName:
         checkpoint = {"type_": "first_student_terms_within_cohort"}
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -442,8 +468,7 @@ class TestGetModelName:
         checkpoint = {"type_": "first_student_terms"}
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -477,8 +502,7 @@ class TestGetModelName:
             "credential_type_sought_year_1": "ASSOCIATE'S DEGREE",
         }
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -501,8 +525,7 @@ class TestGetModelName:
         }
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -528,8 +551,7 @@ class TestGetModelName:
         }
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -548,8 +570,7 @@ class TestGetModelName:
         checkpoint = {"type_": "first_student_terms"}
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -568,8 +589,7 @@ class TestGetModelName:
         checkpoint = {"type_": "first_student_terms_within_cohort"}
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -591,8 +611,7 @@ class TestGetModelName:
         checkpoint = {"type_": "first_student_terms"}
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -613,8 +632,7 @@ class TestGetModelName:
         checkpoint = {"type_": "first_student_terms"}
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -638,8 +656,7 @@ class TestGetModelName:
         }
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -663,8 +680,7 @@ class TestGetModelName:
         }
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
@@ -684,8 +700,7 @@ class TestGetModelName:
         checkpoint = {"type_": "first_student_terms"}
         student_criteria = {}
 
-        result = get_model_name(
-            institution_id="test_inst",
+        result = pdp_get_model_name(
             target=target,
             checkpoint=checkpoint,
             student_criteria=student_criteria,
