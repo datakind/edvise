@@ -959,7 +959,7 @@ def _extract_readmit_ids(
         return np.array([], dtype=object)
 
     entry = df[entry_col].astype("string").str.lower().str.strip()
-    readmit_ids = df.loc[entry == "readmit", student_col].dropna().unique()
+    readmit_ids = df.loc[entry == readmit_value, student_col].dropna().unique()
     return np.asarray(readmit_ids, dtype=object)
 
 
@@ -975,7 +975,10 @@ def drop_readmits(
     """
     out = cohort_df.copy()
     readmit_ids = _extract_readmit_ids(
-        out, entry_col=entry_col, student_col=student_col
+        out,
+        entry_col=entry_col,
+        student_col=student_col,
+        readmit_value=readmit_value,
     )
 
     if len(readmit_ids) == 0:
