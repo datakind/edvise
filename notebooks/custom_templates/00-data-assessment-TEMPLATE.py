@@ -100,11 +100,16 @@ cfg
 # COMMAND ----------
 
 student_raw_df = dataio.read.from_csv_file(
-    cfg.datasets.bronze["raw_cohort"].file_path,
+    cfg.datasets.bronze["raw_student"].file_path,
     spark_session=spark,
 )
 course_raw_df = dataio.read.from_csv_file(
     cfg.datasets.bronze["raw_course"].file_path,
+    spark_session=spark,
+)
+# for non-Edvise Schema schools
+semester_raw_df = dataio.read.from_csv_file(
+    cfg.datasets.bronze["raw_semester"].file_path,
     spark_session=spark,
 )
 
