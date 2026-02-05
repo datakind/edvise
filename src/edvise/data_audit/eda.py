@@ -1757,9 +1757,9 @@ class EdaSummary:
         else:
             avg_year1_gpa = float(round(avg_year1_gpa, 2))
         return {
-            "total_students": int(self.df_cohort["study_id"].nunique()),
+            "total_students": int(self.df_cohort["student_id"].nunique()),
             "transfer_students": int(
-                (self.df_cohort["enrollment_type"] == "Transfer-In").sum()
+                (self.df_cohort["enrollment_type"] == "TRANSFER-IN").sum()
             ),
             "avg_year1_gpa_all_students": avg_year1_gpa,
         }
@@ -1789,9 +1789,9 @@ class EdaSummary:
 
         series_data = gpa_df.rename(
             index=lambda value: {
-                "first-time": "First Time",
-                "re-admit": "Re-admit",
-                "transfer-in": "Transfer",
+                "FIRST-TIME": "First Time",
+                "RE-ADMIT": "Re-admit",
+                "TRANSFER-IN": "Transfer",
             }.get(str(value).lower(), str(value).replace("-", " ").strip())
         )
         series_data = self._format_series_data(series_data)
@@ -1851,7 +1851,7 @@ class EdaSummary:
         )
         counts_df.columns = counts_df.columns.str.lower()
 
-        term_order = {"fall": 0, "winter": 1, "spring": 2, "summer": 3}
+        term_order = {"FALL": 0, "WINTER": 1, "SPRING": 2, "SUMMER": 3}
         ordered_terms = (
             counts_df.columns.to_series()
             .map(term_order)
@@ -1911,7 +1911,7 @@ class EdaSummary:
                 - percentage: Float percentage of total students
                 - name: String name of the degree type
         """
-        total_students = self.df_cohort["study_id"].nunique()
+        total_students = self.df_cohort["student_id"].nunique()
         if not total_students:
             return []
 
@@ -1952,9 +1952,9 @@ class EdaSummary:
                 counts_df.columns.to_series()
                 .map(
                     lambda value: {
-                        "first-time": "First Time",
-                        "re-admit": "Re-admit",
-                        "transfer-in": "Transfer",
+                        "FIRST-TIME": "First Time",
+                        "RE-ADMIT": "Re-admit",
+                        "TRANSFER-IN": "Transfer",
                     }.get(str(value).lower(), str(value).replace("-", " ").strip())
                 )
                 .tolist()
