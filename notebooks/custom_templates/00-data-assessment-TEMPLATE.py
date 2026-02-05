@@ -281,9 +281,10 @@ cleaned_cohort = keep_earlier_record(cleaned_cohort)
 # check now to ensure all student IDs are unique
 print(cleaned_cohort.shape)
 print(
-    f"{raw_cohort.shape[0] - cleaned_cohort.shape[0]} records dropped due to re-admit data and duplicates, leaving us with {cleaned_cohort['student_id'].nunique()} unique student IDs."
+    f"{student_raw_df.shape[0] - cleaned_cohort.shape[0]} records dropped due to re-admit data and duplicates, leaving us with {cleaned_cohort['student_id'].nunique()} unique student IDs."
 )
-
+# re-run find dupes; sanity check, ensure 0
+find_dupes(cleaned_cohort, primary_keys=["student_id", "first_enrollment_date"])
 # COMMAND ----------
 
 # MAGIC %md
