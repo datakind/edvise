@@ -87,7 +87,7 @@ class TestEdaSummary:
     def sample_cohort_data(self):
         file_path = Path(__file__).parents[1] / "fixtures" / "raw_pdp_cohort_data.csv"
         df = dataio.read.read_raw_pdp_cohort_data(file_path=str(file_path))
-        return df.assign(study_id=df["student_guid"])
+        return df.assign(study_id=df["student_id"])
 
     @pytest.fixture
     def sample_course_data(self):
