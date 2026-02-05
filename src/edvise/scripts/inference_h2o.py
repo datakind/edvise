@@ -102,17 +102,16 @@ class ModelInferenceTask:
         # First tries PDP logic
         try:
             model_name = modeling.registration.pdp_get_model_name(
-                target=self.cfg.preprocessing.target,  
-                checkpoint=self.cfg.preprocessing.checkpoint,  
+                target=self.cfg.preprocessing.target,
+                checkpoint=self.cfg.preprocessing.checkpoint,
                 student_criteria=self.cfg.preprocessing.selection.student_criteria,
             )
         except Exception:  # Assumes custom instead of PDP
             model_name = modeling.registration.get_model_name(
                 institution_id=self.cfg.institution_id,
-                target=self.cfg.preprocessing.target.name,  
-                checkpoint=self.cfg.preprocessing.checkpoint.name, 
+                target=self.cfg.preprocessing.target.name,
+                checkpoint=self.cfg.preprocessing.checkpoint.name,
             )
-        # Model name is already UC-compatible (lowercase with underscores)
         full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{model_name}"
 
         mv = max(
