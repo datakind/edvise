@@ -87,7 +87,7 @@ class TestEdaSummary:
     def sample_cohort_data(self):
         file_path = Path(__file__).parents[1] / "fixtures" / "raw_pdp_cohort_data.csv"
         df = dataio.read.read_raw_pdp_cohort_data(file_path=str(file_path))
-        return df.assign(study_id=df["student_id"])
+        return df.assign(study_id=df["study_id"])
 
     @pytest.fixture
     def sample_course_data(self):
@@ -95,7 +95,7 @@ class TestEdaSummary:
         return dataio.read.read_raw_pdp_course_data(file_path=str(file_path))
 
     def test_cohort_years_returns_sorted_list(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         expected = [
             str(y).replace("-", " - ")
             for y in sorted(sample_cohort_data["cohort"].dropna().unique().tolist())
@@ -103,7 +103,7 @@ class TestEdaSummary:
         assert eda.cohort_years(formatted=True) == expected
 
     def test_summary_stats_calculates_correctly(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         stats = eda.summary_stats
         assert stats["total_students"] == sample_cohort_data["student_id"].nunique()
         assert stats["transfer_students"] == int(
@@ -114,17 +114,17 @@ class TestEdaSummary:
     def test_summary_stats_returns_zero_for_invalid_gpa(self):
         df = pd.DataFrame(
             {
-                "student_id": ["student-1", "student-2"],
-                "enrollment_type": ["FIRST-TIME", "TRANSFER-IN"],
+                "study_id": ["student-1", "student-2"],
+                "enrollment_type": ["first-time", "transfer-in"],
                 "gpa_group_year_1": ["invalid", None],
             }
         )
-        eda = EdaSummary(df, validate=False)
+        eda = EdaSummary(df, validate=True)
         stats = eda.summary_stats
         assert stats["avg_year1_gpa_all_students"] == 0.0
 
     def test_gpa_by_enrollment_type_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.gpa_by_enrollment_type
         assert "cohort_years" in result
         assert "series" in result
@@ -134,7 +134,7 @@ class TestEdaSummary:
         assert len(result["series"]) == len(expected_types)
 
     def test_gpa_by_enrollment_intensity_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.gpa_by_enrollment_intensity
         assert "cohort_years" in result
         assert "series" in result
@@ -157,7 +157,7 @@ class TestEdaSummary:
             assert len(series["data"]) == len(result["cohort_years"])
 
     def test_students_by_cohort_term_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.students_by_cohort_term
         assert "years" in result
         assert "terms" in result
@@ -189,7 +189,7 @@ class TestEdaSummary:
         assert eda.course_enrollments == {}
 
     def test_degree_types_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.degree_types
         assert isinstance(result, list)
         assert len(result) > 0
@@ -203,7 +203,7 @@ class TestEdaSummary:
             assert isinstance(item["name"], str)
 
     def test_degree_types_calculates_correctly(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.degree_types
         expected_counts = sample_cohort_data[
             "credential_type_sought_year_1"
@@ -218,7 +218,7 @@ class TestEdaSummary:
             assert degree_counts[degree_type] == int(count)
 
     def test_enrollment_type_by_intensity_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.enrollment_type_by_intensity
         assert "categories" in result
         assert "series" in result
@@ -235,7 +235,7 @@ class TestEdaSummary:
     def test_enrollment_type_by_intensity_calculates_correctly(
         self, sample_cohort_data
     ):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.enrollment_type_by_intensity
         raw_categories = sorted(
             sample_cohort_data["enrollment_type"].dropna().unique().tolist()
@@ -277,7 +277,7 @@ class TestEdaSummary:
             assert series["data"] == expected_counts
 
     def test_pell_recipient_by_first_gen_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.pell_recipient_by_first_gen
         if result == {}:
             return
@@ -293,7 +293,7 @@ class TestEdaSummary:
             assert len(series["data"]) == len(result["categories"])
 
     def test_pell_recipient_by_first_gen_calculates_correctly(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.pell_recipient_by_first_gen
         if result == {}:
             return
@@ -319,12 +319,12 @@ class TestEdaSummary:
 
     def test_pell_recipient_by_first_gen_fills_missing(self, sample_cohort_data):
         sample_cohort_data["first_gen"] = None
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.pell_recipient_by_first_gen
         assert result == {}
 
     def test_pell_recipient_status_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.pell_recipient_status
         assert "series" in result
         assert isinstance(result["series"], list)
@@ -333,7 +333,7 @@ class TestEdaSummary:
         assert isinstance(result["series"][0]["data"], dict)
 
     def test_pell_recipient_status_calculates_correctly(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.pell_recipient_status
         # Note: EdaSummary now uses .dropna() instead of filtering "UK"
         # If schema validation hasn't been applied, "UK" values will remain
@@ -346,7 +346,7 @@ class TestEdaSummary:
         assert result["series"][0]["data"] == expected_counts
 
     def test_student_age_by_gender_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.student_age_by_gender
         assert "categories" in result
         assert "series" in result
@@ -362,7 +362,7 @@ class TestEdaSummary:
             assert len(series["data"]) == len(result["categories"])
 
     def test_student_age_by_gender_calculates_correctly(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.student_age_by_gender
         # Check categories are sorted
         assert result["categories"] == sorted(result["categories"])
@@ -390,7 +390,7 @@ class TestEdaSummary:
             assert series["data"] == expected_counts
 
     def test_race_by_pell_status_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.race_by_pell_status
         assert "categories" in result
         assert "series" in result
@@ -409,7 +409,7 @@ class TestEdaSummary:
         assert all(name in ["Yes", "No"] for name in series_names)
 
     def test_race_by_pell_status_calculates_correctly(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.race_by_pell_status
         pell_map = {"Y": "Yes", "N": "No", "y": "Yes", "n": "No"}
         race_df = (
@@ -443,7 +443,7 @@ class TestEdaSummary:
     def test_gpa_by_enrollment_intensity_handles_nulls(self, sample_cohort_data):
         """Test that NaN enrollment_intensity values are properly excluded."""
         sample_cohort_data.loc[0:5, "enrollment_intensity_first_term"] = pd.NA
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.gpa_by_enrollment_intensity
         assert "series" in result
         series_names = [s["name"] for s in result["series"]]
@@ -452,7 +452,7 @@ class TestEdaSummary:
     def test_pell_recipient_status_handles_nulls(self, sample_cohort_data):
         """Test that NaN pell status values are properly excluded."""
         sample_cohort_data.loc[0:5, "pell_status_first_year"] = pd.NA
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.pell_recipient_status
         assert "series" in result
         data_keys = result["series"][0]["data"].keys()
@@ -461,7 +461,7 @@ class TestEdaSummary:
     def test_student_age_by_gender_handles_nulls(self, sample_cohort_data):
         """Test that NaN gender values are properly excluded."""
         sample_cohort_data.loc[0:5, "gender"] = pd.NA
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.student_age_by_gender
         assert "categories" in result
         assert all(pd.notna(cat) for cat in result["categories"])
@@ -483,9 +483,9 @@ class TestEdaSummary:
             )
 
     def test_validate_false_preserves_data(self, sample_cohort_data):
-        """Test that validate=False skips validation and preserves data as-is."""
-        # This test verifies that when validate=False, we don't modify the data
-        eda_no_validate = EdaSummary(sample_cohort_data, validate=False)
+        """Test that validate=True skips validation and preserves data as-is."""
+        # This test verifies that when validate=True, we don't modify the data
+        eda_no_validate = EdaSummary(sample_cohort_data, validate=True)
 
         # Should work without error even with unvalidated data
         result = eda_no_validate.summary_stats
@@ -493,7 +493,7 @@ class TestEdaSummary:
         assert result["total_students"] > 0
 
     def test_cached_property_only_computes_once(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, validate=False)
+        eda = EdaSummary(sample_cohort_data, validate=True)
         # Access multiple times - should only compute once
         first = eda.summary_stats
         second = eda.summary_stats
