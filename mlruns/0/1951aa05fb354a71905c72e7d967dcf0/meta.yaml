@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/noreenmayat/Downloads/edvise/mlruns/0/1951aa05fb354a71905c72e7d967dcf0/artifacts
+end_time: 1770309537158
+entry_point_name: ''
+experiment_id: '0'
+lifecycle_stage: active
+run_id: 1951aa05fb354a71905c72e7d967dcf0
+run_name: melodic-shark-283
+run_uuid: 1951aa05fb354a71905c72e7d967dcf0
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1770309536873
+status: 3
+tags: []
+user_id: noreenmayat

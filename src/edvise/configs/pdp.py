@@ -263,6 +263,10 @@ class SelectionConfig(pyd.BaseModel):
 
 
 class CheckpointBaseConfig(pyd.BaseModel):
+    name: str = pyd.Field(
+        default=...,
+        description="Descriptive name for checkpoint, used as a component in model name",
+    )
     type_: types.CheckpointTypeType = pyd.Field(
         default=..., description="Type of checkpoint to which config is applied"
     )
@@ -313,6 +317,10 @@ class CheckpointLastInEnrollmentYearConfig(CheckpointBaseConfig):
 
 
 class TargetBaseConfig(pyd.BaseModel):
+    name: str = pyd.Field(
+        default=...,
+        description="Descriptive name for target, used as a component in model name",
+    )
     type_: types.TargetTypeType = pyd.Field(
         default=..., description="Type of target to which config is applied"
     )
