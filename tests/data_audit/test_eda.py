@@ -105,17 +105,17 @@ class TestEdaSummary:
     def test_summary_stats_calculates_correctly(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data, validate=False)
         stats = eda.summary_stats
-        assert stats["total_students"] == sample_cohort_data["study_id"].nunique()
+        assert stats["total_students"] == sample_cohort_data["student_id"].nunique()
         assert stats["transfer_students"] == int(
-            (sample_cohort_data["enrollment_type"] == "Transfer-In").sum()
+            (sample_cohort_data["enrollment_type"] == "TRANSFER-IN").sum()
         )
         assert isinstance(stats["avg_year1_gpa_all_students"], float)
 
     def test_summary_stats_returns_zero_for_invalid_gpa(self):
         df = pd.DataFrame(
             {
-                "study_id": ["student-1", "student-2"],
-                "enrollment_type": ["First-Time", "Transfer-In"],
+                "student_id": ["student-1", "student-2"],
+                "enrollment_type": ["FIRST-TIME", "TRANSFER-IN"],
                 "gpa_group_year_1": ["invalid", None],
             }
         )
@@ -241,9 +241,9 @@ class TestEdaSummary:
             sample_cohort_data["enrollment_type"].dropna().unique().tolist()
         )
         normalized_names = {
-            "first-time": "First Time",
-            "re-admit": "Re-admit",
-            "transfer-in": "Transfer",
+            "FIRST-TIME": "First Time",
+            "RE-ADMIT": "Re-admit",
+            "TRANSFER-IN": "Transfer",
         }
         expected_categories = [
             normalized_names.get(str(c).lower(), str(c).replace("-", " ").strip())
