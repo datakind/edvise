@@ -547,15 +547,6 @@ def _infer_student_id_col(df: pd.DataFrame) -> str:
         return "student_id"
 
 
-def _infer_credits_col(df: pd.DataFrame) -> str | None:
-    """Infer the credits column name from available columns."""
-    if "course_credits" in df.columns:
-        return "course_credits"
-    elif "number_of_credits_attempted" in df.columns:
-        return "number_of_credits_attempted"
-    return None
-
-
 def _is_lab_lecture_combo(s: pd.Series) -> bool:
     """Check if a series contains both Lab and Lecture course types (case-insensitive)."""
     LAB_LABELS = {"lab"}
@@ -833,7 +824,7 @@ def _log_schema_summary(
     LOGGER.info("")
 
 
-def _handle_schema_duplicates(df: pd.DataFrame, unique_cols: list[str]) -> pd.DataFrame:
+def _handle_schema_duplicates(df: pd.DataFrame, unique_cols: list[str], credits_col = str) -> pd.DataFrame:
     """Handle duplicates for Edvise schema mode."""
     LOGGER.info("handle_duplicates: edvise schema mode triggered")
     unique_cols = unique_cols
@@ -856,7 +847,7 @@ def _handle_schema_duplicates(df: pd.DataFrame, unique_cols: list[str]) -> pd.Da
 
     has_course_type = "course_type" in df.columns
     has_course_name = "course_name" in df.columns
-    credits_col = _infer_credits_col(df)
+    credits_col = credits_col
 
     # Log duplicate groups breakdown
     _log_duplicate_groups(duplicate_rows, unique_cols, has_course_type, has_course_name)
@@ -914,7 +905,7 @@ def _handle_schema_duplicates(df: pd.DataFrame, unique_cols: list[str]) -> pd.Da
     return df
 
 
-def handling_duplicates(df: pd.DataFrame, school_type: str, unique_cols=list(str)) -> pd.DataFrame:
+def handling_duplicates(df: pd.DataFrame, school_type: str, unique_cols: list(str), credits_col: str) -> pd.DataFrame:
     """
     Combined duplicate handling with a school_type switch.
 
@@ -945,4 +936,4 @@ def handling_duplicates(df: pd.DataFrame, school_type: str, unique_cols=list(str
     if school_type == "pdp":
         return _handle_pdp_duplicates(df)
     else:
-        return _handle_schema_duplicates(df, unique_cols=unique_cols)
+        return _handle_schema_duplicates, credits_col=credits_col)
