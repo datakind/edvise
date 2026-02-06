@@ -1838,30 +1838,38 @@ class EdaSummary:
         return t.cast(list[dict[str, t.Any]], result)
 
     @cached_property
-    def summary_stats(self) -> dict[str, int | float]:
+    def total_students(self) -> int | None:
         """
-        Compute summary statistics for the dashboard.
+        Compute the total number of students.
+        """
+        if "student_id" in self.df_cohort.columns:
+            return int(self.df_cohort["student_id"].nunique())
+        if "study_id" in self.df_cohort.columns:
+            LOGGER.warning(
+                "total_students: using study_id because student_id is missing"
+            )
+            return int(self.df_cohort["study_id"].nunique())
+        LOGGER.warning(
+            "total_students: could not compute because student_id and study_id are missing"
+        )
+        return None
 
-        Returns:
-            Dictionary with keys:
-                - total_students: Integer count of unique students
-                - transfer_students: Integer count of transfer students
-                - avg_year1_gpa_all_students: Float average GPA (or 0.0 if no valid data)
+    @cached_property
+    @required_columns(cohort=["enrollment_type"])
+    def transfer_students(self) -> int:
         """
-        avg_year1_gpa = pd.to_numeric(
-            self.df_cohort["gpa_group_year_1"], errors="coerce"
-        ).mean()
-        if pd.isna(avg_year1_gpa):
-            avg_year1_gpa = 0.0
-        else:
-            avg_year1_gpa = float(round(avg_year1_gpa, 2))
-        return {
-            "total_students": int(self.df_cohort["student_id"].nunique()),
-            "transfer_students": int(
-                (self.df_cohort["enrollment_type"] == "TRANSFER-IN").sum()
-            ),
-            "avg_year1_gpa_all_students": avg_year1_gpa,
-        }
+        Compute the number of transfer students.
+        """
+        return int((self.df_cohort["enrollment_type"] == "TRANSFER-IN").sum())
+
+    @cached_property
+    @required_columns(cohort=["gpa_group_year_1"])
+    def avg_year1_gpa_all_students(self) -> float:
+        """
+        Compute the average GPA for all students.
+        """
+        return float(round(pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce").mean(), 2))
+
 
     @cached_property
     def gpa_by_enrollment_type(self) -> dict[str, list | float]:
@@ -2013,13 +2021,12 @@ class EdaSummary:
                 - percentage: Float percentage of total students
                 - name: String name of the degree type
         """
-        total_students = self.df_cohort["student_id"].nunique()
-        if not total_students:
+        if not self.total_students:
             return []
 
         value_counts = self.df_cohort["credential_type_sought_year_1"].value_counts()
         degree_df = value_counts.rename("count").to_frame()
-        degree_df["percentage"] = ((degree_df["count"] / total_students) * 100).round(2)
+        degree_df["percentage"] = ((degree_df["count"] / self.total_students) * 100).round(2)
 
         return t.cast(
             list[dict[str, int | float | str]],
