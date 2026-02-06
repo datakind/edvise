@@ -185,8 +185,8 @@ class InferencePrepTask:
             raise ValueError("cfg.inference.cohort must be configured.")
 
         inf_cohort = self.cfg.inference.cohort
-        df_course_validated = select_inference_cohort(
-            df_course_validated, cohorts_list=inf_cohort
+        df_selected_cohorts = select_inference_cohort(
+            df_labeled, cohorts_list=inf_cohort
         )
 
         cohort_counts = (
@@ -198,7 +198,7 @@ class InferencePrepTask:
             "Cohort & Cohort Term breakdowns (counts):\n%s",
             cohort_counts.to_string(),
         )
-        df_preprocessed = self.cleanup_features(df_labeled)
+        df_preprocessed = self.cleanup_features(df_selected_cohorts)
 
         # Write output using custom function
         out_path = os.path.join(current_run_path, "preprocessed.parquet")
