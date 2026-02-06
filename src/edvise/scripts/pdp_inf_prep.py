@@ -190,7 +190,7 @@ class InferencePrepTask:
         )
 
         cohort_counts = (
-            df_labeled[["cohort", "cohort_term"]]
+            df_selected_cohorts[["cohort", "cohort_term"]]
             .value_counts(dropna=False)
             .sort_index()
         )
