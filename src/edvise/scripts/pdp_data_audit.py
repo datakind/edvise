@@ -102,26 +102,26 @@ class PDPDataAuditTask:
         self.cfg = read_config(
             file_path=self.args.config_file_path, schema=PDPProjectConfig
         )
-        # Resolve inference cohort from job param or config (term_filter is generic for cohort/graduation)
-        if getattr(self.args, "job_type", None) == "inference":
-            param_cohort = _parse_term_filter_param(
-                getattr(self.args, "term_filter", None)
-            )
-            if param_cohort is not None:
-                if self.cfg.inference is None:
-                    from edvise.configs.pdp import InferenceConfig
+        # # Resolve inference cohort from job param or config (term_filter is generic for cohort/graduation)
+        # if getattr(self.args, "job_type", None) == "inference":
+        #     param_cohort = _parse_term_filter_param(
+        #         getattr(self.args, "term_filter", None)
+        #     )
+        #     if param_cohort is not None:
+        #         if self.cfg.inference is None:
+        #             from edvise.configs.pdp import InferenceConfig
 
-                    self.cfg.inference = InferenceConfig(cohort=param_cohort)
-                else:
-                    self.cfg.inference.cohort = param_cohort
-                LOGGER.info(
-                    "Inference cohort source: job param; term_filter=%s", param_cohort
-                )
-            else:
-                LOGGER.info(
-                    "Inference cohort source: config; cohort=%s",
-                    self.cfg.inference.cohort if self.cfg.inference else None,
-                )
+        #             self.cfg.inference = InferenceConfig(cohort=param_cohort)
+        #         else:
+        #             self.cfg.inference.cohort = param_cohort
+        #         LOGGER.info(
+        #             "Inference cohort source: job param; term_filter=%s", param_cohort
+        #         )
+        #     else:
+        #         LOGGER.info(
+        #             "Inference cohort source: config; cohort=%s",
+        #             self.cfg.inference.cohort if self.cfg.inference else None,
+        #         )
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
