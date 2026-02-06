@@ -1628,3 +1628,32 @@ def check_bias_variables(
         bias_vars = DEFAULT_BIAS_VARS
     LOGGER.info("Check Bias Variables Missingness")
     check_variable_missingness(df, bias_vars)
+
+
+def duplicate_conflict_columns(df: pd.DataFrame, key_cols):
+    dup = df[df.duplicated(subset=key_cols, keep=False)]
+
+    if dup.empty:
+        return pd.DataFrame(columns=["column", "pct_conflicting_groups"])
+
+    grp = dup.groupby(key_cols, dropna=False)
+
+    # For each group + column: does this column conflict?
+    conflict = grp.nunique(dropna=False) > 1
+
+    # Keep only groups that have *any* conflict
+    conflict = conflict[conflict.any(axis=1)]
+
+    if conflict.empty:
+        return pd.DataFrame(columns=["column", "pct_conflicting_groups"])
+
+    # Percent of conflicting groups where each column conflicts
+    pct = conflict.mean().mul(100)
+
+    return (
+        pct.rename("pct_conflicting_groups")
+        .reset_index()
+        .rename(columns={"index": "column"})
+        .sort_values("pct_conflicting_groups", ascending=False)
+        .reset_index(drop=True)
+    )
