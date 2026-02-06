@@ -38,6 +38,26 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
+def parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
+    """Parse --term_filter job param. Treat None, '', 'null' as not provided; else json.loads.
+    Empty list after parse -> not provided (use config). Invalid JSON -> raise."""
+    if value is None:
+        return None
+    s = value.strip()
+    if s in ("", "null", "None"):
+        return None
+    try:
+        parsed = json.loads(s)
+    except json.JSONDecodeError as e:
+        LOGGER.error("Invalid JSON for term_filter param: %s", value)
+        raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
+    if not isinstance(parsed, list):
+        raise ValueError("--term_filter must be a JSON list of strings")
+    labels = [str(item).strip() for item in parsed if str(item).strip()]
+    if not labels:
+        return None  # empty list -> use config
+    return labels
+
 
 class InferencePrepTask:
     def __init__(self, args: argparse.Namespace):
@@ -46,7 +66,7 @@ class InferencePrepTask:
 
         # Resolve inference cohort from job param or config (term_filter is generic for cohort/graduation)
         if getattr(self.args, "job_type", None) == "inference":
-            param_cohort = self._parse_term_filter_param(
+            param_cohort = parse_term_filter_param(
                 getattr(self.args, "term_filter", None)
             )
             if param_cohort is not None:
@@ -65,25 +85,7 @@ class InferencePrepTask:
                     self.cfg.inference.cohort if self.cfg.inference else None,
                 )
 
-    def _parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
-        """Parse --term_filter job param. Treat None, '', 'null' as not provided; else json.loads.
-        Empty list after parse -> not provided (use config). Invalid JSON -> raise."""
-        if value is None:
-            return None
-        s = value.strip()
-        if s in ("", "null", "None"):
-            return None
-        try:
-            parsed = json.loads(s)
-        except json.JSONDecodeError as e:
-            LOGGER.error("Invalid JSON for term_filter param: %s", value)
-            raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
-        if not isinstance(parsed, list):
-            raise ValueError("--term_filter must be a JSON list of strings")
-        labels = [str(item).strip() for item in parsed if str(item).strip()]
-        if not labels:
-            return None  # empty list -> use config
-        return labels
+
 
     def merge_data(
         self,
