@@ -833,10 +833,10 @@ def _log_schema_summary(
     LOGGER.info("")
 
 
-def _handle_schema_duplicates(df: pd.DataFrame) -> pd.DataFrame:
+def _handle_schema_duplicates(df: pd.DataFrame, unique_cols: list[str]) -> pd.DataFrame:
     """Handle duplicates for Edvise schema mode."""
     LOGGER.info("handle_duplicates: edvise schema mode triggered")
-    unique_cols = ["student_id", "term", "course_subject", "course_number"]
+    unique_cols = unique_cols
     total_before = len(df)
 
     # Key-based duplicates BEFORE removing exact dupes
