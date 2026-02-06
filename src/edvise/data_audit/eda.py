@@ -6,12 +6,11 @@ import numpy as np
 import pandas as pd
 import scipy.stats as ss
 from edvise import utils as edvise_utils
-from functools import cached_property
+from functools import cached_property, wraps
 
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_BIAS_VARS = ["first_gen", "gender", "race", "ethnicity", "student_age"]
-
 
 def assess_unique_values(data: pd.DataFrame, cols: str | list[str]) -> dict[str, int]:
     """
@@ -1673,6 +1672,106 @@ class EdaSummary:
         >>> eda = EdaSummary(df_cohort_validated, validate=False)
     """
 
+    def required_columns(
+        *,
+        cohort: list[str] | None = None,
+        course: list[str] | None = None,
+    ):
+        """
+        Decorator for EdaSummary methods that require specific columns.
+
+        Logs a warning and returns the default if required columns are missing.
+        """
+
+        def decorator(func):
+            @wraps(func)
+            def wrapper(self, *args, **kwargs):
+                required_map = {
+                    "cohort": (cohort or [], "df_cohort"),
+                    "course": (course or [], "df_course"),
+                }
+
+                for label, (cols, df_attr) in required_map.items():
+                    if not cols:
+                        continue
+                    df = getattr(self, df_attr, None)
+                    if df is None:
+                        # #region agent log
+                        try:
+                            with open(
+                                "/Users/billy/Devo/DataKind/edvise-api/.cursor/debug.log",
+                                "a",
+                            ) as _f:
+                                _f.write(
+                                    json.dumps(
+                                        {
+                                            "sessionId": "debug-session",
+                                            "runId": "pre-fix",
+                                            "hypothesisId": "H2",
+                                            "location": "eda.py:required_columns",
+                                            "message": "missing dataframe",
+                                            "data": {
+                                                "method": func.__name__,
+                                                "df_attr": df_attr,
+                                            },
+                                            "timestamp": int(time.time() * 1000),
+                                        }
+                                    )
+                                    + "\n"
+                                )
+                        except Exception:
+                            pass
+                        # #endregion
+                        LOGGER.warning(
+                            "%s: could not compute because %s is missing",
+                            func.__name__,
+                            df_attr,
+                        )
+                        return None
+                    missing = [c for c in cols if c not in df.columns]
+                    if missing:
+                        # #region agent log
+                        try:
+                            with open(
+                                "/Users/billy/Devo/DataKind/edvise-api/.cursor/debug.log",
+                                "a",
+                            ) as _f:
+                                _f.write(
+                                    json.dumps(
+                                        {
+                                            "sessionId": "debug-session",
+                                            "runId": "pre-fix",
+                                            "hypothesisId": "H2",
+                                            "location": "eda.py:required_columns",
+                                            "message": "missing required columns",
+                                            "data": {
+                                                "method": func.__name__,
+                                                "df_attr": df_attr,
+                                                "missing": missing,
+                                                "columns": list(df.columns)[:15],
+                                            },
+                                            "timestamp": int(time.time() * 1000),
+                                        }
+                                    )
+                                    + "\n"
+                                )
+                        except Exception:
+                            pass
+                        # #endregion
+                        LOGGER.warning(
+                            "%s: could not compute because missing %s columns: %s",
+                            func.__name__,
+                            label,
+                            missing,
+                        )
+                        return None
+
+                return func(self, *args, **kwargs)
+
+            return wrapper
+
+        return decorator
+
     def __init__(
         self,
         df_cohort: pd.DataFrame,
@@ -1903,6 +2002,7 @@ class EdaSummary:
         return self._term_counts_by_cohort(self.df_course)
 
     @cached_property
+    @required_columns(cohort=["credential_type_sought_year_1"])
     def degree_types(self) -> list[dict[str, int | float | str]]:
         """
         Compute degree type counts and percentages.
