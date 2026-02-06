@@ -914,7 +914,7 @@ def _handle_schema_duplicates(df: pd.DataFrame, unique_cols: list[str]) -> pd.Da
     return df
 
 
-def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
+def handling_duplicates(df: pd.DataFrame, school_type: str, unique_cols=list(str)) -> pd.DataFrame:
     """
     Combined duplicate handling with a school_type switch.
 
@@ -945,4 +945,4 @@ def handling_duplicates(df: pd.DataFrame, school_type: str) -> pd.DataFrame:
     if school_type == "pdp":
         return _handle_pdp_duplicates(df)
     else:
-        return _handle_schema_duplicates(df)
+        return _handle_schema_duplicates(df, unique_cols=unique_cols)
