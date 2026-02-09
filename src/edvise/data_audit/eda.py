@@ -1969,14 +1969,9 @@ class EdaSummary:
         )
         counts_df.columns = counts_df.columns.str.lower()
 
-        term_order = {"FALL": 0, "WINTER": 1, "SPRING": 2, "SUMMER": 3}
-        ordered_terms = (
-            counts_df.columns.to_series()
-            .map(term_order)
-            .dropna()
-            .sort_values()
-            .index.tolist()
-        )
+        ordered_terms = [
+            t for t in ("fall", "winter", "spring", "summer") if t in counts_df.columns
+        ]
 
         return {
             "years": self.cohort_years(formatted=True),
