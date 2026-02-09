@@ -1,4 +1,4 @@
-# Set before any import that might load pyspark/pyarrow (e.g. via databricks-connect).
+# Silence pyspark/pandas warning about PYARROW_IGNORE_TIMEZONE
 import os
 
 os.environ.setdefault("PYARROW_IGNORE_TIMEZONE", "1")
