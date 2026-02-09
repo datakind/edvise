@@ -1964,7 +1964,7 @@ class EdaSummary:
         Build term counts by cohort for a given DataFrame.
         """
         counts_df = (
-            df.groupby(["cohort", "cohort_term"])
+            df.groupby(["cohort", "cohort_term"], observed=True)
             .size()
             .unstack(level=1, fill_value=0)
             .reindex(index=self.cohort_years(formatted=False), fill_value=0)
@@ -2188,9 +2188,9 @@ class EdaSummary:
             self.df_cohort[["race", "pell_status_first_year"]]
             .dropna()
             .assign(
-                pell_status_first_year=lambda d: d["pell_status_first_year"].replace(
-                    pell_map
-                )
+                pell_status_first_year=lambda d: d["pell_status_first_year"]
+                .astype(str)
+                .replace(pell_map)
             )
         )
         race_df = race_df[race_df["pell_status_first_year"].isin(["Yes", "No"])]

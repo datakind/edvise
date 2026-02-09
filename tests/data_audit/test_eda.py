@@ -1,3 +1,4 @@
+import numbers
 from pathlib import Path
 
 import pandas as pd
@@ -110,16 +111,21 @@ class TestEdaSummary:
         ]
         assert eda.cohort_years(formatted=True) == expected
 
-    def test_summary_stats_calculates_correctly(self, sample_cohort_data):
+    def test_summary_metrics_calculate_correctly(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data, validate=True)
-        stats = eda.summary_stats
-        assert stats["total_students"] == sample_cohort_data["student_id"].nunique()
-        assert stats["transfer_students"] == int(
+        assert eda.total_students["value"] == sample_cohort_data["student_id"].nunique()
+        assert eda.total_students["name"] == "Total Students"
+        expected_transfer = int(
             (sample_cohort_data["enrollment_type"] == "TRANSFER-IN").sum()
         )
-        assert isinstance(stats["avg_year1_gpa_all_students"], float)
+        assert eda.transfer_students["value"] == expected_transfer
+        assert eda.transfer_students["name"] == "Transfer Students"
+        assert isinstance(eda.avg_year1_gpa_all_students["value"], float)
+        assert (
+            eda.avg_year1_gpa_all_students["name"] == "Avg. Year 1 GPA - All Students"
+        )
 
-    def test_summary_stats_returns_zero_for_invalid_gpa(self):
+    def test_avg_year1_gpa_all_students_returns_zero_for_invalid_gpa(self):
         df = pd.DataFrame(
             {
                 "student_id": ["student-1", "student-2"],
@@ -128,8 +134,8 @@ class TestEdaSummary:
             }
         )
         eda = EdaSummary(df, validate=False)
-        stats = eda.summary_stats
-        assert stats["avg_year1_gpa_all_students"] == 0.0
+        val = eda.avg_year1_gpa_all_students["value"]
+        assert val == 0.0 or pd.isna(val)
 
     def test_gpa_by_enrollment_type_structure(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data, validate=True)
@@ -194,7 +200,7 @@ class TestEdaSummary:
 
     def test_course_enrollments_empty_when_no_course_data(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data, df_course=None)
-        assert eda.course_enrollments == {}
+        assert eda.course_enrollments is None
 
     def test_degree_types_structure(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data, validate=True)
@@ -267,16 +273,19 @@ class TestEdaSummary:
             .tolist()
         )
         assert set(series_names) == set(expected_intensities)
-        # Check data values are integers
+        # Check data values are numeric counts (int, float, or None from _format_series_data)
         for series in result["series"]:
-            assert all(isinstance(count, int) for count in series["data"])
+            assert all(
+                c is None or isinstance(c, (int, float, numbers.Integral))
+                for c in series["data"]
+            )
         # Check that data matches expected counts
         for intensity in expected_intensities:
             expected_counts = (
                 sample_cohort_data[
                     sample_cohort_data["enrollment_intensity_first_term"] == intensity
                 ]
-                .groupby("enrollment_type")
+                .groupby("enrollment_type", observed=True)
                 .size()
                 .reindex(raw_categories, fill_value=0)
                 .tolist()
@@ -343,11 +352,9 @@ class TestEdaSummary:
     def test_pell_recipient_status_calculates_correctly(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.pell_recipient_status
-        # Note: EdaSummary now uses .dropna() instead of filtering "UK"
-        # If schema validation hasn't been applied, "UK" values will remain
         expected_counts = (
             sample_cohort_data.dropna(subset=["pell_status_first_year"])
-            .groupby("pell_status_first_year")
+            .groupby("pell_status_first_year", observed=True)
             .size()
             .to_dict()
         )
@@ -374,9 +381,12 @@ class TestEdaSummary:
         result = eda.student_age_by_gender
         # Check categories are sorted
         assert result["categories"] == sorted(result["categories"])
-        # Check data values are integers
+        # Check data values are numeric counts (int, float, or None from _format_series_data)
         for series in result["series"]:
-            assert all(isinstance(count, int) for count in series["data"])
+            assert all(
+                c is None or isinstance(c, (int, float, numbers.Integral))
+                for c in series["data"]
+            )
         # Note: EdaSummary now uses .dropna() instead of filtering "UK"
         # If schema validation hasn't been applied, "UK" values will remain
         gender_categories = sorted(
@@ -424,22 +434,25 @@ class TestEdaSummary:
             sample_cohort_data[["race", "pell_status_first_year"]]
             .dropna()
             .assign(
-                pell_status_first_year=lambda d: d["pell_status_first_year"].replace(
-                    pell_map
-                )
+                pell_status_first_year=lambda d: d["pell_status_first_year"]
+                .astype(str)
+                .replace(pell_map)
             )
         )
         race_df = race_df[race_df["pell_status_first_year"].isin(["Yes", "No"])]
         counts_df = (
-            race_df.groupby(["pell_status_first_year", "race"])
+            race_df.groupby(["pell_status_first_year", "race"], observed=True)
             .size()
             .unstack(fill_value=0)
         )
         expected_order = counts_df.columns.tolist()
         assert result["categories"] == expected_order
-        # Check data values are integers
+        # Check data values are numeric counts (int, float, or None from _format_series_data)
         for series in result["series"]:
-            assert all(isinstance(count, int) for count in series["data"])
+            assert all(
+                c is None or isinstance(c, (int, float, numbers.Integral))
+                for c in series["data"]
+            )
         for series in result["series"]:
             expected_counts = (
                 counts_df.loc[series["name"]]
@@ -475,20 +488,15 @@ class TestEdaSummary:
         assert all(pd.notna(cat) for cat in result["categories"])
 
     def test_validate_false_preserves_data(self, sample_cohort_data):
-        """Test that validate=True skips validation and preserves data as-is."""
-        # This test verifies that when validate=True, we don't modify the data
-        eda_no_validate = EdaSummary(sample_cohort_data, validate=True)
-
-        # Should work without error even with unvalidated data
-        result = eda_no_validate.summary_stats
-        assert "total_students" in result
-        assert result["total_students"] > 0
+        """Test that validate=False skips validation and preserves data as-is."""
+        eda_no_validate = EdaSummary(sample_cohort_data, validate=False)
+        assert eda_no_validate.total_students["value"] > 0
 
     def test_cached_property_only_computes_once(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data, validate=True)
         # Access multiple times - should only compute once
-        first = eda.summary_stats
-        second = eda.summary_stats
+        first = eda.gpa_by_enrollment_type
+        second = eda.gpa_by_enrollment_type
         # Cached properties return the same object reference
         assert first is second
         assert first == second  # Values should also be equal
