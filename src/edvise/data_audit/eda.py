@@ -881,7 +881,7 @@ def validate_ids_terms_consistency(
     }
 
 
-def find_dupes(df: pd.DataFrame, key_cols, sort=None):
+def find_dupes(df: pd.DataFrame, key_cols: list[str], sort=None) -> pd.DataFrame:
     """
     Find duplicate rows by key columns and summarize column-level conflicts
     within duplicate groups.
@@ -900,7 +900,8 @@ def find_dupes(df: pd.DataFrame, key_cols, sort=None):
 
     if dupes.empty:
         conflicts = pd.DataFrame(columns=["column", "pct_conflicting_groups"])
-        return dupes, conflicts
+        print(conflicts)
+        return dupes
 
     grp = dupes.groupby(key_cols, dropna=False)
 
