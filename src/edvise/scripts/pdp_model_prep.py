@@ -29,6 +29,7 @@ from edvise.shared.logger import (
     init_file_logging,
 )
 from edvise.shared.validation import require, warn_if
+from edvise.utils.update_config import update_training_cohorts
 
 logging.basicConfig(
     level=logging.INFO,
@@ -233,6 +234,28 @@ class ModelPrepTask:
                 "Cohort Target breakdown (counts):\n%s",
                 cohort_target_counts.to_string(),
             )
+
+            logging.info("Updating training cohorts in config")
+            training_cohorts = (
+                df_labeled[["cohort", "cohort_term"]]
+                .dropna()
+                .astype(str)
+                .agg(" ".join, axis=1)
+                .str.lower()
+                .unique()
+                .tolist()
+            )
+            if training_cohorts is not None:
+                update_training_cohorts(
+                    config_path=self.args.config_file_path,
+                    training_cohorts=training_cohorts,
+                    extra_save_paths=[
+                        os.path.join(current_run_path, self.args.config_file_name)
+                    ],
+                )
+            else:
+                logging.info("There are no cohorts selected for training.")
+
             df_preprocessed = self.cleanup_features(df_labeled)
             # Splits/weights require targets; only apply when present
             df_preprocessed = self.apply_dataset_splits(df_preprocessed)
@@ -344,6 +367,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--job_type", type=str, choices=["training", "inference"], required=False
     )
+    parser.add_argument("--config_file_name", type=str, required=True)
 
     return parser.parse_args()
 

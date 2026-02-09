@@ -61,3 +61,5 @@ def select_inference_cohort(
     df_filtered.drop(columns="cohort_selection", inplace=True)
 
     return df_filtered
+
+

@@ -260,6 +260,7 @@ class SelectionConfig(pyd.BaseModel):
         default_factory=dict,
         description="Any additional parameters needed to configure student selection",
     )
+    
 
 
 class CheckpointBaseConfig(pyd.BaseModel):
@@ -394,6 +395,10 @@ class TrainingConfig(pyd.BaseModel):
     timeout_minutes: t.Optional[int] = pyd.Field(
         default=None,
         description="Maximum time to wait for H2O AutoML trials to complete.",
+    )
+    cohort: t.Optional[list[str]] = pyd.Field(
+        default=[],
+        description="List of cohorts used in training. e.g. ['Fall 2024-25']"
     )
 
 

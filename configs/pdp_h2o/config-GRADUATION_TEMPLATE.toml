@@ -39,6 +39,7 @@ student_criteria = { enrollment_type = "FIRST-TIME", credential_type_sought_year
 # TODO: edit based on timelines for full-time vs. part-time students
 intensity_time_limits = { FULL-TIME = [3.0, "year"], PART-TIME = [6.0, "year"] }
 
+
 [preprocessing.checkpoint]
 # TODO: select and edit option 1 if using a term-based checkpoint and remove option 2; select and edit option 2 if using a credits based checkpoint and remove option 1
 # Option 1
@@ -77,6 +78,7 @@ collinear_threshold = 10.0
 [modeling.training]
 primary_metric = "logloss"
 timeout_minutes = 10
+cohort = [] 
 # exclude_frameworks = ["xgboost", "lightgbm"]
 # exclude_cols = []
 

@@ -141,3 +141,18 @@ def update_pipeline_version(
             editor.save(output_path=path)
 
     editor.confirm_field(["pipeline_version"])
+
+
+def update_training_cohorts(
+    config_path: str,
+    training_cohorts: list[str],
+    extra_save_paths: list[str] | None = None,
+) -> None:
+    editor = TomlConfigEditor(config_path)
+    editor._merge_list_field(key_path=["modeling", "training", "cohort"], new_values=training_cohorts)
+    editor.save()
+    # Save to any additional paths provided, e.g. the model run folder
+    if extra_save_paths:
+        for path in extra_save_paths:
+            editor.save(output_path=path)
+    editor.confirm_field(key_path=["modeling", "training", "cohort"])
