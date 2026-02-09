@@ -1866,8 +1866,17 @@ class EdaSummary:
         """
         Compute the average GPA for all students.
         """
-        return float(round(pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce").mean(), 2))
-
+        return {
+            "name": "Avg. Year 1 GPA - All Students",
+            "value": float(
+                round(
+                    pd.to_numeric(
+                        self.df_cohort["gpa_group_year_1"], errors="coerce"
+                    ).mean(),
+                    2,
+                )
+            ),
+        }
 
     @cached_property
     @required_columns(cohort=["enrollment_type", "gpa_group_year_1"])
