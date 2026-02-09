@@ -1832,7 +1832,12 @@ class EdaSummary:
     def _format_series_data(self, df: pd.DataFrame) -> list[dict[str, t.Any]]:
         result = (
             df.reset_index(names="name")
-            .assign(data=lambda d: d.drop(columns="name").to_numpy().tolist())
+            .assign(
+                data=lambda d: [
+                    [None if pd.isna(x) else float(x) for x in row]
+                    for row in d.drop(columns="name").to_numpy()
+                ]
+            )
             .loc[:, ["name", "data"]]
             .to_dict(orient="records")
         )
@@ -1914,7 +1919,9 @@ class EdaSummary:
         return {
             "cohort_years": self.cohort_years(formatted=True),
             "series": series_data,
-            "min_gpa": gpa_df.replace(0, np.nan).min().min().round(2),
+            "min_gpa": float(round(gpa_df.replace(0, np.nan).min().min(), 2))
+            if pd.notna(gpa_df.replace(0, np.nan).min().min())
+            else None,
         }
 
     @cached_property
@@ -1932,11 +1939,7 @@ class EdaSummary:
         gpa_df = (
             self.df_cohort.assign(
                 gpa=pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce")
-            )
-            .loc[
-                self.df_cohort["enrollment_intensity_first_term"].notna(),
-                ["cohort", "enrollment_intensity_first_term", "gpa"],
-            ]
+            )[["cohort", "enrollment_intensity_first_term", "gpa"]]
             .dropna()
             .groupby(["enrollment_intensity_first_term", "cohort"], observed=True)[
                 "gpa"
@@ -1953,7 +1956,7 @@ class EdaSummary:
         return {
             "cohort_years": self.cohort_years(formatted=True),
             "series": series_data,
-            "min_gpa": gpa_df.replace(0, np.nan).min().min().round(2),
+            "min_gpa": float(round(gpa_df.replace(0, np.nan).min().min(), 2)),
         }
 
     def _term_counts_by_cohort(self, df: pd.DataFrame) -> dict[str, t.Any]:
