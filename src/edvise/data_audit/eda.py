@@ -881,25 +881,52 @@ def validate_ids_terms_consistency(
     }
 
 
-def find_dupes(df, primary_keys, sort=None, summarize=False, n=20):
+def find_dupes(df: pd.DataFrame, key_cols, sort=None):
     """
-    Quickly find and summarize duplicates by primary key columns for each dataset (cohort, course, and semester).
+    Find duplicate rows by key columns and summarize column-level conflicts
+    within duplicate groups.
+
+    Returns
+    -------
+    dupes : pd.DataFrame
+        All rows involved in duplicate key groups
+    conflicts : pd.DataFrame
+        Columns and % of duplicate groups where values conflict
     """
-    if summarize:
-        out = (
-            df.groupby(primary_keys)
-            .size()
-            .value_counts()
-            .rename_axis("dup_count")
-            .reset_index(name="n_groups")
-        )
-        print(out.head(10))
-        return out
-    dupes = df[df.duplicated(primary_keys, keep=False)]
+    dupes = df[df.duplicated(subset=key_cols, keep=False)]
+
     if sort:
         dupes = dupes.sort_values(sort, ignore_index=True)
-    print(f"{len(dupes)} duplicates based on {primary_keys}")
-    return dupes
+
+    print(f"{len(dupes)} duplicates based on {key_cols}")
+
+    if dupes.empty:
+        conflicts = pd.DataFrame(columns=["column", "pct_conflicting_groups"])
+        return dupes, conflicts
+
+    grp = dupes.groupby(key_cols, dropna=False)
+
+    # does each column conflict within each dup group?
+    conflict = grp.nunique(dropna=False) > 1
+
+    # keep only groups with at least one conflict
+    conflict = conflict[conflict.any(axis=1)]
+
+    if conflict.empty:
+        conflicts = pd.DataFrame(columns=["column", "pct_conflicting_groups"])
+        return dupes, conflicts
+
+    conflicts = (
+        conflict.mean()
+        .mul(100)
+        .rename("pct_conflicting_groups")
+        .reset_index()
+        .rename(columns={"index": "column"})
+        .sort_values("pct_conflicting_groups", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    return dupes, conflicts
 
 
 def check_earned_vs_attempted(
