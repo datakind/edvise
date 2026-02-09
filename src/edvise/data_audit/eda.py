@@ -12,6 +12,7 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_BIAS_VARS = ["first_gen", "gender", "race", "ethnicity", "student_age"]
 
+
 def assess_unique_values(data: pd.DataFrame, cols: str | list[str]) -> dict[str, int]:
     """
     Assess unique values in ``data`` given by the combination of columns in ``cols`` ,
@@ -2027,7 +2028,9 @@ class EdaSummary:
 
         value_counts = self.df_cohort["credential_type_sought_year_1"].value_counts()
         degree_df = value_counts.rename("count").to_frame()
-        degree_df["percentage"] = ((degree_df["count"] / self.total_students) * 100).round(2)
+        degree_df["percentage"] = (
+            (degree_df["count"] / self.total_students["value"]) * 100
+        ).round(2)
 
         return t.cast(
             list[dict[str, int | float | str]],
