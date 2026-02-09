@@ -881,20 +881,21 @@ def validate_ids_terms_consistency(
     }
 
 
-def find_dupes(df: pd.DataFrame, key_cols: list[str], sort=None) -> pd.DataFrame:
+def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
     """
-    Find duplicate rows by key columns and summarize column-level conflicts
+    Find duplicate rows by key columns and print a summary of column-level conflicts
     within duplicate groups.
 
     Returns
     -------
     dupes : pd.DataFrame
-        All rows involved in duplicate key groups
+        All rows involved in duplicate key groups (sorted by student_id)
     """
-    dupes = df[df.duplicated(subset=key_cols, keep=False)]
+    dupes = df[df.duplicated(subset=key_cols, keep=False)].copy()
 
-    if sort:
-        dupes = dupes.sort_values(sort, ignore_index=True)
+    # Always sort by student_id (guard in case column missing)
+    if "student_id" in dupes.columns:
+        dupes = dupes.sort_values("student_id", ignore_index=True)
 
     print(f"{len(dupes)} duplicates based on {key_cols}")
 
@@ -913,7 +914,8 @@ def find_dupes(df: pd.DataFrame, key_cols: list[str], sort=None) -> pd.DataFrame
 
     if conflict.empty:
         conflicts = pd.DataFrame(columns=["column", "pct_conflicting_groups"])
-        return dupes, conflicts
+        print(conflicts)
+        return dupes
 
     conflicts = (
         conflict.mean()
@@ -924,6 +926,7 @@ def find_dupes(df: pd.DataFrame, key_cols: list[str], sort=None) -> pd.DataFrame
         .sort_values("pct_conflicting_groups", ascending=False)
         .reset_index(drop=True)
     )
+
     print(conflicts)
     return dupes
 
