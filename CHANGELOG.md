@@ -1,3 +1,23 @@
+## 0.1.10 (2026-02-02)
+- feat: adding slack notifications for training/inference pipelines failures on staging & dev (#51)
+- feat: automate releases (#84)
+- feat: adding bias variable check to data audit (#86)
+- feat: adding custom school functions to repo (#88)
+- feat: Add `get_institution_id_by_name` helper function to retrieve institution ID by name (#90)
+- fix: preserve pandas nullable dtypes pre-modeling; fix boolean classification post-modeling (#92)
+- fix: remove framework field and dataio with sklearn models; standardize on h2o model loading (#93)
+- refactor: refining ModelCard classes (#94)
+
+## 0.1.9 (2025-01-20)
+- fix: import error in inference script from validation module 
+- fix: fetching latest commit from develop for health check 
+- feat: adding PDP pipeline high-level validation and sanity checks 
+- feat: update pipeline version during training
+- fix: email indents 
+- fix: cleanup schedule 
+- refactor: remove sklearn modeling 
+- feat: model card revision 
+
 ## 0.1.8 (2025-12-11)
 - fix: adding exclude_frameworks into training script 
 - fix: dtype overrides in custom cleaning module

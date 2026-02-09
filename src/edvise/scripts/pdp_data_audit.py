@@ -1,11 +1,13 @@
 import argparse
 import importlib
+import json
 import logging
 import typing as t
 import sys
 import pandas as pd
 import pathlib
 import os
+from functools import partial
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
@@ -66,6 +68,27 @@ LOGGER = logging.getLogger(__name__)
 ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
 
 
+def _parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
+    """Parse --term_filter job param. Treat None, '', 'null' as not provided; else json.loads.
+    Empty list after parse -> not provided (use config). Invalid JSON -> raise."""
+    if value is None:
+        return None
+    s = value.strip()
+    if s in ("", "null", "None"):
+        return None
+    try:
+        parsed = json.loads(s)
+    except json.JSONDecodeError as e:
+        LOGGER.error("Invalid JSON for term_filter param: %s", value)
+        raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
+    if not isinstance(parsed, list):
+        raise ValueError("--term_filter must be a JSON list of strings")
+    labels = [str(item).strip() for item in parsed if str(item).strip()]
+    if not labels:
+        return None  # empty list -> use config
+    return labels
+
+
 class PDPDataAuditTask:
     """Encapsulates the data preprocessing logic for the SST pipeline."""
 
@@ -79,12 +102,32 @@ class PDPDataAuditTask:
         self.cfg = read_config(
             file_path=self.args.config_file_path, schema=PDPProjectConfig
         )
+        # Resolve inference cohort from job param or config (term_filter is generic for cohort/graduation)
+        if getattr(self.args, "job_type", None) == "inference":
+            param_cohort = _parse_term_filter_param(
+                getattr(self.args, "term_filter", None)
+            )
+            if param_cohort is not None:
+                if self.cfg.inference is None:
+                    from edvise.configs.pdp import InferenceConfig
+
+                    self.cfg.inference = InferenceConfig(cohort=param_cohort)
+                else:
+                    self.cfg.inference.cohort = param_cohort
+                LOGGER.info(
+                    "Inference cohort source: job param; term_filter=%s", param_cohort
+                )
+            else:
+                LOGGER.info(
+                    "Inference cohort source: config; cohort=%s",
+                    self.cfg.inference.cohort if self.cfg.inference else None,
+                )
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
         # Use default converter to handle duplicates if none provided
         self.course_converter_func: ConverterFunc = (
-            handling_duplicates
+            partial(handling_duplicates, school_type="pdp")
             if course_converter_func is None
             else course_converter_func
         )
@@ -508,6 +551,12 @@ def parse_arguments() -> argparse.Namespace:
         "--cohort_dataset_validated_path",
         required=False,
         help="Name of the cohort data file during inference with GCS blobs when connected to webapp",
+    )
+    parser.add_argument(
+        "--term_filter",
+        type=str,
+        default=None,
+        help='JSON list of term/cohort labels (e.g. ["fall 2024-25"]). Omit or null for config default. Used for cohort and graduation models.',
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--bronze_volume_path", type=str, required=False)

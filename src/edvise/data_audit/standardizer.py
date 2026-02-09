@@ -58,6 +58,7 @@ class PDPCohortStandardizer(BaseStandardizer):
         print_credential_and_enrollment_types(df)
         print_retention(df)
         log_top_majors(df)
+        check_bias_variables(df)
         cols_to_drop = [
             # not a viable target variable, but highly correlated with it
             "time_to_credential",
@@ -112,7 +113,6 @@ class PDPCohortStandardizer(BaseStandardizer):
         df = drop_columns_safely(df, cols_to_drop)
         df = replace_na_firstgen_and_pell(df)
         df = self.add_empty_columns_if_missing(df, col_val_dtypes)
-
         return df
 
 
