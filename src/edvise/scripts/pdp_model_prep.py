@@ -236,6 +236,7 @@ class ModelPrepTask:
             )
 
             logging.info("Updating training cohorts in config")
+
             training_cohorts = (
                 df_labeled[["cohort", "cohort_term"]]
                 .dropna()
@@ -245,6 +246,18 @@ class ModelPrepTask:
                 .unique()
                 .tolist()
             )
+            #TODO: I believe this is going to be added to the config, so update this to use that when we do, 
+            # esp for custom schools, less a worry for PDP
+            term_order = {"fall": 1, "winter": 2, "spring": 3, "summer": 4}
+
+            training_cohorts = sorted(
+                training_cohorts,
+                key=lambda x: (
+                    int(x.split()[0].split("-")[0]),
+                    term_order.get(x.split()[1], 99),
+                ),
+            )
+
             if training_cohorts is not None:
                 update_training_cohorts(
                     config_path=self.args.config_file_path,
