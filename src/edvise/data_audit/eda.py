@@ -1838,29 +1838,26 @@ class EdaSummary:
         return t.cast(list[dict[str, t.Any]], result)
 
     @cached_property
+    @required_columns(cohort=["student_id"])
     def total_students(self) -> int | None:
         """
         Compute the total number of students.
         """
-        if "student_id" in self.df_cohort.columns:
-            return int(self.df_cohort["student_id"].nunique())
-        if "study_id" in self.df_cohort.columns:
-            LOGGER.warning(
-                "total_students: using study_id because student_id is missing"
-            )
-            return int(self.df_cohort["study_id"].nunique())
-        LOGGER.warning(
-            "total_students: could not compute because student_id and study_id are missing"
-        )
-        return None
+
+        return {
+            "name": "Total Students",
+            "value": int(self.df_cohort["student_id"].nunique()),
+        }
 
     @cached_property
     @required_columns(cohort=["enrollment_type"])
-    def transfer_students(self) -> int:
+    def transfer_students(self) -> int | None:
         """
         Compute the number of transfer students.
+        Returns None if there are no transfer students.
         """
-        return int((self.df_cohort["enrollment_type"] == "TRANSFER-IN").sum())
+        n = int((self.df_cohort["enrollment_type"] == "TRANSFER-IN").sum())
+        return {"name": "Transfer Students", "value": n} if n else None
 
     @cached_property
     @required_columns(cohort=["gpa_group_year_1"])
@@ -1872,6 +1869,7 @@ class EdaSummary:
 
 
     @cached_property
+    @required_columns(cohort=["enrollment_type", "gpa_group_year_1"])
     def gpa_by_enrollment_type(self) -> dict[str, list | float]:
         """
         Compute GPA by enrollment type across cohort years.
@@ -1910,6 +1908,7 @@ class EdaSummary:
         }
 
     @cached_property
+    @required_columns(cohort=["enrollment_intensity_first_term", "gpa_group_year_1"])
     def gpa_by_enrollment_intensity(self) -> dict[str, list | float]:
         """
         Compute GPA by enrollment intensity across cohort years.
@@ -1987,6 +1986,7 @@ class EdaSummary:
         }
 
     @cached_property
+    @required_columns(cohort=["cohort_term"])
     def students_by_cohort_term(self) -> dict[str, t.Any]:
         """
         Compute student counts by term across cohort years.
@@ -1999,6 +1999,7 @@ class EdaSummary:
         return self._term_counts_by_cohort(self.df_cohort)
 
     @cached_property
+    @required_columns(course=["cohort_term"])
     def course_enrollments(self) -> dict[str, t.Any]:
         """
         Compute course enrollment counts by term across cohort years.
@@ -2037,6 +2038,7 @@ class EdaSummary:
         )
 
     @cached_property
+    @required_columns(cohort=["enrollment_type", "enrollment_intensity_first_term"])
     def enrollment_type_by_intensity(self) -> dict[str, t.Any]:
         """
         Compute enrollment type by intensity.
@@ -2074,6 +2076,7 @@ class EdaSummary:
         }
 
     @cached_property
+    @required_columns(cohort=["first_gen", "pell_status_first_year"])
     def pell_recipient_by_first_gen(self) -> dict[str, t.Any]:
         """
         Compute Pell recipient status by first generation status.
@@ -2108,6 +2111,7 @@ class EdaSummary:
         }
 
     @cached_property
+    @required_columns(cohort=["pell_status_first_year"])
     def pell_recipient_status(self) -> dict[str, t.Any]:
         """
         Compute Pell recipient status without first generation split.
@@ -2132,6 +2136,7 @@ class EdaSummary:
         }
 
     @cached_property
+    @required_columns(cohort=["gender", "student_age"])
     def student_age_by_gender(self) -> dict[str, t.Any]:
         """
         Compute student age groups by gender.
@@ -2157,6 +2162,7 @@ class EdaSummary:
         }
 
     @cached_property
+    @required_columns(cohort=["race", "pell_status_first_year"])
     def race_by_pell_status(self) -> dict[str, t.Any]:
         """
         Compute race by Pell recipient status.
