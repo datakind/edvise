@@ -890,8 +890,6 @@ def find_dupes(df: pd.DataFrame, key_cols, sort=None):
     -------
     dupes : pd.DataFrame
         All rows involved in duplicate key groups
-    conflicts : pd.DataFrame
-        Columns and % of duplicate groups where values conflict
     """
     dupes = df[df.duplicated(subset=key_cols, keep=False)]
 
@@ -925,8 +923,8 @@ def find_dupes(df: pd.DataFrame, key_cols, sort=None):
         .sort_values("pct_conflicting_groups", ascending=False)
         .reset_index(drop=True)
     )
-
-    return dupes, conflicts
+    print(conflicts)
+    return dupes
 
 
 def check_earned_vs_attempted(
