@@ -68,13 +68,16 @@ def get_students_with_max_target_term_in_dataset(
     )
     if "*" in intensity_num_terms:
         df_ckpt = df_ckpt.assign(
-            student_max_term_rank=lambda df: df[term_rank_col]
-            + intensity_num_terms["*"]
+            student_max_term_rank=lambda df: (
+                df[term_rank_col] + intensity_num_terms["*"]
+            )
         )
     else:
         df_ckpt = df_ckpt.assign(
-            student_max_term_rank=lambda df: df[term_rank_col]
-            + df[enrollment_intensity_col].map(intensity_num_terms)
+            student_max_term_rank=lambda df: (
+                df[term_rank_col]
+                + df[enrollment_intensity_col].map(intensity_num_terms)
+            )
         )
     df_out = (
         df_ckpt.loc[

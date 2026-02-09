@@ -38,6 +38,7 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
+
 def parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
     """Parse --term_filter job param. Treat None, '', 'null' as not provided; else json.loads.
     Empty list after parse -> not provided (use config). Invalid JSON -> raise."""
@@ -84,8 +85,6 @@ class InferencePrepTask:
                     "Inference cohort source: config; cohort=%s",
                     self.cfg.inference.cohort if self.cfg.inference else None,
                 )
-
-
 
     def merge_data(
         self,
