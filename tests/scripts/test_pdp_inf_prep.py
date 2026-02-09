@@ -1,8 +1,8 @@
-"""Tests for term_filter param parsing in pdp_data_audit."""
+"""Tests for term_filter param parsing in pdp_inf_prep."""
 
 import pytest
 
-from edvise.scripts.pdp_data_audit import _parse_term_filter_param
+from edvise.scripts.pdp_inf_prep import _parse_term_filter_param
 
 
 def test_parse_term_filter_param_none_returns_none():
