@@ -949,6 +949,7 @@ def _extract_readmit_ids(
     df: pd.DataFrame,
     entry_col: str = "entry_type",
     student_col: str = "student_id",
+    readmit_value: str = "readmit",  # default readmit, but can be something else based on school. This offers more flexibility!
 ) -> np.ndarray:
     """
     Return the array of student_ids that have entry_type == 'readmit' in this df.
@@ -958,7 +959,7 @@ def _extract_readmit_ids(
         return np.array([], dtype=object)
 
     entry = df[entry_col].astype("string").str.lower().str.strip()
-    readmit_ids = df.loc[entry == "readmit", student_col].dropna().unique()
+    readmit_ids = df.loc[entry == readmit_value, student_col].dropna().unique()
     return np.asarray(readmit_ids, dtype=object)
 
 
@@ -966,6 +967,7 @@ def drop_readmits(
     cohort_df: pd.DataFrame,
     entry_col: str = "entry_type",
     student_col: str = "student_id",
+    readmit_value: str = "readmit",
 ) -> pd.DataFrame:
     """
     Remove ALL rows for any student who has an entry_type of 'readmit'
@@ -973,7 +975,10 @@ def drop_readmits(
     """
     out = cohort_df.copy()
     readmit_ids = _extract_readmit_ids(
-        out, entry_col=entry_col, student_col=student_col
+        out,
+        entry_col=entry_col,
+        student_col=student_col,
+        readmit_value=readmit_value,
     )
 
     if len(readmit_ids) == 0:
