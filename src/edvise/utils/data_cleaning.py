@@ -966,10 +966,10 @@ def _handle_schema_duplicates(
 def handling_duplicates(
     df: pd.DataFrame,
     school_type: str,
-    unique_cols: list[str] | None = None,
-    credits_col: str | None = None,
-    course_type_col: str | None = None,
-    course_name_col: str | None = None,
+    unique_cols: list[str] | None = ["student_id", "academic_term", "course_prefix", "course_number"],
+    credits_col: str | None = "course_credits_attempted",
+    course_type_col: str | None = "course_classification",
+    course_name_col: str | None = "course_name",
 ) -> pd.DataFrame:
     """
     Combined duplicate handling with a school_type switch.
