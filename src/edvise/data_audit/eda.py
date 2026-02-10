@@ -1681,7 +1681,7 @@ class EdaSummary:
         """
         Decorator for EdaSummary methods that require specific columns.
 
-        Logs a warning and returns the default if required columns are missing.
+        Logs a warning and returns None if required columns are missing.
         """
 
         def decorator(func):
@@ -1697,32 +1697,6 @@ class EdaSummary:
                         continue
                     df = getattr(self, df_attr, None)
                     if df is None:
-                        # #region agent log
-                        try:
-                            with open(
-                                "/Users/billy/Devo/DataKind/edvise-api/.cursor/debug.log",
-                                "a",
-                            ) as _f:
-                                _f.write(
-                                    json.dumps(
-                                        {
-                                            "sessionId": "debug-session",
-                                            "runId": "pre-fix",
-                                            "hypothesisId": "H2",
-                                            "location": "eda.py:required_columns",
-                                            "message": "missing dataframe",
-                                            "data": {
-                                                "method": func.__name__,
-                                                "df_attr": df_attr,
-                                            },
-                                            "timestamp": int(time.time() * 1000),
-                                        }
-                                    )
-                                    + "\n"
-                                )
-                        except Exception:
-                            pass
-                        # #endregion
                         LOGGER.warning(
                             "%s: could not compute because %s is missing",
                             func.__name__,
@@ -1731,34 +1705,6 @@ class EdaSummary:
                         return None
                     missing = [c for c in cols if c not in df.columns]
                     if missing:
-                        # #region agent log
-                        try:
-                            with open(
-                                "/Users/billy/Devo/DataKind/edvise-api/.cursor/debug.log",
-                                "a",
-                            ) as _f:
-                                _f.write(
-                                    json.dumps(
-                                        {
-                                            "sessionId": "debug-session",
-                                            "runId": "pre-fix",
-                                            "hypothesisId": "H2",
-                                            "location": "eda.py:required_columns",
-                                            "message": "missing required columns",
-                                            "data": {
-                                                "method": func.__name__,
-                                                "df_attr": df_attr,
-                                                "missing": missing,
-                                                "columns": list(df.columns)[:15],
-                                            },
-                                            "timestamp": int(time.time() * 1000),
-                                        }
-                                    )
-                                    + "\n"
-                                )
-                        except Exception:
-                            pass
-                        # #endregion
                         LOGGER.warning(
                             "%s: could not compute because missing %s columns: %s",
                             func.__name__,
