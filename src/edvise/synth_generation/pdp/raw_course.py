@@ -2,6 +2,7 @@ import typing as t
 from datetime import date
 
 from faker.providers import BaseProvider
+from dateutil.relativedelta import relativedelta
 
 from ... import utils
 
@@ -139,7 +140,7 @@ class Provider(BaseProvider):
 
     def cohort(self, min_yr: int = 2010, max_yr: t.Optional[int] = None) -> str:
         start_dt = self.generator.date_between(start_date=date(min_yr, 1, 1))
-        end_dt = start_dt.replace(year=start_dt.year + 1)
+        end_dt = start_dt + relativedelta(years=1)
         return f"{start_dt:%Y}-{end_dt:%y}"
 
     def cohort_term(self) -> str:
@@ -150,7 +151,7 @@ class Provider(BaseProvider):
             start_date=date(min_yr, 1, 1),
             end_date=(date(max_yr, 1, 1) if max_yr else "today"),
         ).replace(day=1)
-        end_dt = start_dt.replace(year=start_dt.year + 1)
+        end_dt = start_dt + relativedelta(years=1)
         return f"{start_dt:%Y}-{end_dt:%y}"
 
     def academic_term(self) -> str:
