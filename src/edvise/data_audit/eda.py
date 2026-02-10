@@ -1708,11 +1708,12 @@ class EdaSummary:
         df_course: Optional DataFrame containing course-level data
     """
 
+    @staticmethod
     def required_columns(
         *,
         cohort: list[str] | None = None,
         course: list[str] | None = None,
-    ):
+    ) -> t.Callable[[t.Callable[..., t.Any]], t.Callable[..., t.Any]]:
         """
         Decorator for EdaSummary methods that require specific columns.
 
@@ -1816,7 +1817,7 @@ class EdaSummary:
 
     @cached_property
     @required_columns(cohort=["enrollment_type"])
-    def transfer_students(self) -> int | None:
+    def transfer_students(self) -> dict[str, t.Any] | None:
         """
         Compute the number of transfer students.
         Returns None if there are no transfer students.
@@ -1826,7 +1827,7 @@ class EdaSummary:
 
     @cached_property
     @required_columns(cohort=["gpa_group_year_1"])
-    def avg_year1_gpa_all_students(self) -> float:
+    def avg_year1_gpa_all_students(self) -> dict[str, t.Any]:
         """
         Compute the average GPA for all students.
         """
@@ -1844,7 +1845,7 @@ class EdaSummary:
 
     @cached_property
     @required_columns(cohort=["enrollment_type", "gpa_group_year_1"])
-    def gpa_by_enrollment_type(self) -> dict[str, list | float]:
+    def gpa_by_enrollment_type(self) -> dict[str, list | float | None]:
         """
         Compute GPA by enrollment type across cohort years.
 
@@ -2145,9 +2146,9 @@ class EdaSummary:
             self.df_cohort[["race", "pell_status_first_year"]]
             .dropna()
             .assign(
-                pell_status_first_year=lambda d: d["pell_status_first_year"]
-                .astype(str)
-                .replace(pell_map)
+                pell_status_first_year=lambda d: (
+                    d["pell_status_first_year"].astype(str).replace(pell_map)
+                )
             )
         )
         race_df = race_df[race_df["pell_status_first_year"].isin(["Yes", "No"])]

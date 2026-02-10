@@ -437,9 +437,9 @@ class TestEdaSummary:
             sample_cohort_data[["race", "pell_status_first_year"]]
             .dropna()
             .assign(
-                pell_status_first_year=lambda d: d["pell_status_first_year"]
-                .astype(str)
-                .replace(pell_map)
+                pell_status_first_year=lambda d: (
+                    d["pell_status_first_year"].astype(str).replace(pell_map)
+                )
             )
         )
         race_df = race_df[race_df["pell_status_first_year"].isin(["Yes", "No"])]
