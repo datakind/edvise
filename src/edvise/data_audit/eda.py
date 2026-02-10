@@ -2020,32 +2020,30 @@ class EdaSummary:
 
     @cached_property
     @required_columns(cohort=["credential_type_sought_year_1"])
-    def degree_types(self) -> list[dict[str, int | float | str]]:
+    def degree_types(self) -> dict[str, t.Any]:
         """
         Compute degree type counts and percentages.
 
         Returns:
-            List of dictionaries with keys:
-                - count: Integer count of students with this degree type
-                - percentage: Float percentage of total students
-                - name: String name of the degree type
+            Dict with keys:
+                - total: Total number of students with a degree type
+                - degrees: List of { count, percentage, name } per degree type
         """
-        if not self.total_students:
-            return []
+        total = int(self.df_cohort["credential_type_sought_year_1"].notna().sum())
+        if total == 0:
+            return {"total": 0, "degrees": []}
 
         value_counts = self.df_cohort["credential_type_sought_year_1"].value_counts()
         degree_df = value_counts.rename("count").to_frame()
-        degree_df["percentage"] = (
-            (degree_df["count"] / self.total_students["value"]) * 100
-        ).round(2)
-
-        return t.cast(
+        degree_df["percentage"] = ((degree_df["count"] / total) * 100).round(2)
+        degrees = t.cast(
             list[dict[str, int | float | str]],
             degree_df.reset_index(names="name")
             .loc[:, ["count", "percentage", "name"]]
             .assign(count=lambda d: d["count"].astype(int))
             .to_dict(orient="records"),
         )
+        return {"total": total, "degrees": degrees}
 
     @cached_property
     @required_columns(cohort=["enrollment_type", "enrollment_intensity_first_term"])
