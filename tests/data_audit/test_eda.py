@@ -113,7 +113,7 @@ class TestEdaSummary:
 
     def test_summary_metrics_calculate_correctly(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data, validate=True)
-        assert eda.total_students["value"] == sample_cohort_data["student_id"].nunique()
+        assert eda.total_students["value"] == len(sample_cohort_data)
         assert eda.total_students["name"] == "Total Students"
         expected_transfer = int(
             (sample_cohort_data["enrollment_type"] == "TRANSFER-IN").sum()
@@ -205,10 +205,13 @@ class TestEdaSummary:
     def test_degree_types_structure(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.degree_types
-        assert isinstance(result, list)
-        assert len(result) > 0
-        # Check structure of each item
-        for item in result:
+        assert isinstance(result, dict)
+        assert "total" in result
+        assert "degrees" in result
+        assert isinstance(result["total"], int)
+        assert isinstance(result["degrees"], list)
+        assert len(result["degrees"]) > 0
+        for item in result["degrees"]:
             assert "count" in item
             assert "percentage" in item
             assert "name" in item
@@ -219,15 +222,15 @@ class TestEdaSummary:
     def test_degree_types_calculates_correctly(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data, validate=True)
         result = eda.degree_types
+        degrees = result["degrees"]
         expected_counts = sample_cohort_data[
             "credential_type_sought_year_1"
         ].value_counts()
-        assert len(result) == len(expected_counts)
-        # Check that percentages sum to approximately 100 (within rounding)
-        total_percentage = sum(item["percentage"] for item in result)
+        assert len(degrees) == len(expected_counts)
+        assert result["total"] == int(expected_counts.sum())
+        total_percentage = sum(item["percentage"] for item in degrees)
         assert abs(total_percentage - 100.0) < 0.1
-        # Check that counts match expected values
-        degree_counts = {item["name"]: item["count"] for item in result}
+        degree_counts = {item["name"]: item["count"] for item in degrees}
         for degree_type, count in expected_counts.items():
             assert degree_counts[degree_type] == int(count)
 
@@ -490,7 +493,7 @@ class TestEdaSummary:
     def test_validate_false_preserves_data(self, sample_cohort_data):
         """Test that validate=False skips validation and preserves data as-is."""
         eda_no_validate = EdaSummary(sample_cohort_data, validate=False)
-        assert eda_no_validate.total_students["value"] > 0
+        assert eda_no_validate.total_students["value"] == len(sample_cohort_data)
 
     def test_cached_property_only_computes_once(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data, validate=True)
