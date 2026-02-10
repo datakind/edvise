@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import scipy.stats as ss
 from edvise import utils as edvise_utils
+from edvise.shared.utils import as_percent
 
 LOGGER = logging.getLogger(__name__)
 
@@ -711,34 +712,40 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
         )
 
 
-def print_credential_and_enrollment_types(
+def pct_breakdown(series: pd.Series) -> pd.Series:
+    return series.value_counts(dropna=False, normalize=True).map(as_percent)
+
+
+def print_credential_and_enrollment_types_and_intensities(
     df_cohort: pd.DataFrame,
 ) -> None:
-    pct_credentials = (
-        df_cohort["credential_type_sought_year_1"].value_counts(
-            dropna=False, normalize=True
-        )
-        * 100
-    )
-    pct_enroll = (
-        df_cohort["enrollment_type"].value_counts(dropna=False, normalize=True) * 100
-    )
+    pct_credentials = pct_breakdown(df_cohort["credential_type_sought_year_1"])
+
+    pct_enroll_types = pct_breakdown(df_cohort["enrollment_type"])
+
+    pct_enroll_intensity = pct_breakdown(df_cohort["enrollment_intensity_first_term"])
+
     LOGGER.info(
-        " Percent breakdown for credential types: \n%s ",
+        "Percent breakdown for credential types:\n%s",
         pct_credentials.to_string(),
     )
     LOGGER.info(
-        " Percent breakdown for enrollment types: \n%s ",
-        pct_enroll.to_string(),
+        "Percent breakdown for enrollment types:\n%s",
+        pct_enroll_types.to_string(),
+    )
+    LOGGER.info(
+        "Percent breakdown for enrollment intensities:\n%s",
+        pct_enroll_intensity.to_string(),
     )
 
 
 def print_retention(df_cohort: pd.DataFrame) -> None:
-    retention = (
-        df_cohort[["cohort", "retention"]].value_counts(dropna=False).sort_index()
-    )
+    retention = df_cohort.groupby("cohort")["retention"].apply(pct_breakdown)
+
     LOGGER.warning(
-        "  ⚠️ Breakdown for retention by cohort: IF MOST RECENT YEAR'S SPLIT IS DISPROPORTIONATE, exclude from training by changing max_academic_year in the config! \n%s ",
+        "⚠️ Breakdown for retention by cohort: "
+        "IF MOST RECENT YEAR'S SPLIT IS DISPROPORTIONATE, "
+        "exclude from training by changing max_academic_year in the config!\n%s",
         retention.to_string(),
     )
 
@@ -881,24 +888,53 @@ def validate_ids_terms_consistency(
     }
 
 
-def find_dupes(df, primary_keys, sort=None, summarize=False, n=20):
+def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
     """
-    Quickly find and summarize duplicates by primary key columns for each dataset (cohort, course, and semester).
+    Find duplicate rows by key columns and print a summary of column-level conflicts
+    within duplicate groups.
+
+    Returns
+    -------
+    dupes : pd.DataFrame
+        All rows involved in duplicate key groups (sorted by student_id)
     """
-    if summarize:
-        out = (
-            df.groupby(primary_keys)
-            .size()
-            .value_counts()
-            .rename_axis("dup_count")
-            .reset_index(name="n_groups")
-        )
-        print(out.head(10))
-        return out
-    dupes = df[df.duplicated(primary_keys, keep=False)]
-    if sort:
-        dupes = dupes.sort_values(sort, ignore_index=True)
-    print(f"{len(dupes)} duplicates based on {primary_keys}")
+    dupes = df[df.duplicated(subset=key_cols, keep=False)].copy()
+
+    # Always sort by student_id (guard in case column missing)
+    if "student_id" in dupes.columns:
+        dupes = dupes.sort_values("student_id", ignore_index=True)
+
+    print(f"{len(dupes)} duplicates based on {key_cols}")
+
+    if dupes.empty:
+        conflicts = pd.DataFrame(columns=["column", "pct_conflicting_groups"])
+        print(conflicts)
+        return dupes
+
+    grp = dupes.groupby(key_cols, dropna=False)
+
+    # does each column conflict within each dup group?
+    conflict = grp.nunique(dropna=False) > 1
+
+    # keep only groups with at least one conflict
+    conflict = conflict[conflict.any(axis=1)]
+
+    if conflict.empty:
+        conflicts = pd.DataFrame(columns=["column", "pct_conflicting_groups"])
+        print(conflicts)
+        return dupes
+
+    conflicts = (
+        conflict.mean()
+        .mul(100)
+        .rename("pct_conflicting_groups")
+        .reset_index()
+        .rename(columns={"index": "column"})
+        .sort_values("pct_conflicting_groups", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    print(conflicts)
     return dupes
 
 
@@ -1628,3 +1664,32 @@ def check_bias_variables(
         bias_vars = DEFAULT_BIAS_VARS
     LOGGER.info("Check Bias Variables Missingness")
     check_variable_missingness(df, bias_vars)
+
+
+def duplicate_conflict_columns(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
+    dup = df[df.duplicated(subset=key_cols, keep=False)]
+
+    if dup.empty:
+        return pd.DataFrame(columns=["column", "pct_conflicting_groups"])
+
+    grp = dup.groupby(key_cols, dropna=False)
+
+    # For each group + column: does this column conflict?
+    conflict = grp.nunique(dropna=False) > 1
+
+    # Keep only groups that have *any* conflict
+    conflict = conflict[conflict.any(axis=1)]
+
+    if conflict.empty:
+        return pd.DataFrame(columns=["column", "pct_conflicting_groups"])
+
+    # Percent of conflicting groups where each column conflicts
+    pct = conflict.mean().mul(100)
+
+    return (
+        pct.rename("pct_conflicting_groups")
+        .reset_index()
+        .rename(columns={"index": "column"})
+        .sort_values("pct_conflicting_groups", ascending=False)
+        .reset_index(drop=True)
+    )
