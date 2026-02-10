@@ -260,7 +260,6 @@ class SelectionConfig(pyd.BaseModel):
         default_factory=dict,
         description="Any additional parameters needed to configure student selection",
     )
-    
 
 
 class CheckpointBaseConfig(pyd.BaseModel):
@@ -398,7 +397,7 @@ class TrainingConfig(pyd.BaseModel):
     )
     cohort: t.Optional[list[str]] = pyd.Field(
         default=[],
-        description="List of cohorts used in training. e.g. ['Fall 2024-25']"
+        description="List of cohorts used in training. e.g. ['Fall 2024-25']",
     )
 
 

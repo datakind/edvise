@@ -246,7 +246,7 @@ class ModelPrepTask:
                 .unique()
                 .tolist()
             )
-            #TODO: I believe this is going to be added to the config, so update this to use that when we do, 
+            # TODO: I believe this is going to be added to the config, so update this to use that when we do,
             # esp for custom schools, less a worry for PDP
             term_order = {"fall": 1, "winter": 2, "spring": 3, "summer": 4}
 
