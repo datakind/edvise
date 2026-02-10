@@ -149,8 +149,8 @@ def update_training_cohorts(
     extra_save_paths: list[str] | None = None,
 ) -> None:
     editor = TomlConfigEditor(config_path)
-    editor._merge_list_field(
-        key_path=["modeling", "training", "cohort"], new_values=training_cohorts
+    editor.update_field(
+        key_path=["modeling", "training", "cohort"], value=training_cohorts
     )
     editor.save()
     # Save to any additional paths provided, e.g. the model run folder
