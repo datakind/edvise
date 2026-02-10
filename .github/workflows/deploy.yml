@@ -5,6 +5,7 @@ on:
   push:
     tags:
       - 'v*'
+
 concurrency:
   group: deploy-prod-${{ github.ref_name }}-${{ github.job }}
   cancel-in-progress: false
@@ -38,7 +39,7 @@ jobs:
           uv venv
           uv pip install .
 
-      - name: Configure Databricks env (Staging)
+      - name: Configure Databricks env (Dev)
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_STAGING_HOST }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_STAGING_CLIENT_ID }}
@@ -119,7 +120,6 @@ jobs:
           DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
         run: |
           databricks current-user me
-          echo "Deploying dev target to dev_sst_02 for commit ${{ github.ref_name }}..."
           databricks bundle deploy \
             --target=dev \
             --force-lock \
