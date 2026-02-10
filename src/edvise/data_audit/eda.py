@@ -1703,25 +1703,9 @@ class EdaSummary:
     This class encapsulates EDA (Exploratory Data Analysis) calculations that can be
     used across multiple contexts: dashboards, reports, and API endpoints.
 
-    Important Notes:
-        - By default, applies schema validation to ensure data quality
-        - Set validate=False if data has already been schema-validated (e.g., in pipeline)
-        - Unknown/invalid values (e.g., "UK", "UNKNOWN") are converted to NaN during validation
-        - Methods use .dropna() to exclude missing values after validation
-
     Args:
         df_cohort: DataFrame containing cohort/student-level data
         df_course: Optional DataFrame containing course-level data
-        validate: Whether to apply schema validation. Default True.
-            Set to False if data is already validated (e.g., from pipeline)
-
-    Example:
-        >>> # Automatic validation (ad-hoc usage)
-        >>> eda = EdaSummary(df_cohort_raw)
-        >>> stats = eda.summary_stats()
-        >>>
-        >>> # Skip validation (pipeline usage - already validated)
-        >>> eda = EdaSummary(df_cohort_validated, validate=False)
     """
 
     def required_columns(
@@ -1774,7 +1758,6 @@ class EdaSummary:
         self,
         df_cohort: pd.DataFrame,
         df_course: pd.DataFrame | None = None,
-        validate: bool = True,
     ):
         """
         Initialize EdaSummary with cohort and course data.
@@ -1782,30 +1765,10 @@ class EdaSummary:
         Args:
             df_cohort: DataFrame containing cohort/student data with columns like
                 'study_id', 'enrollment_type', 'gpa_group_year_1', etc.
-            df_course: DataFrame containing course data
-            validate: Whether to apply schema validation. Default True.
-                Set to False if data has already been schema-validated.
+            df_course: Optional DataFrame containing course data
         """
-        if validate:
-            from edvise.data_audit.schemas import (
-                RawPDPCohortDataSchema,
-                RawPDPCourseDataSchema,
-            )
-
-            # Use lazy=True to collect all validation errors (same as pipeline)
-            self.df_cohort: pd.DataFrame = RawPDPCohortDataSchema.validate(
-                df_cohort, lazy=True
-            )
-
-            if df_course is not None:
-                self.df_course: pd.DataFrame | None = RawPDPCourseDataSchema.validate(
-                    df_course, lazy=True
-                )
-            else:
-                self.df_course = None
-        else:
-            self.df_cohort = df_cohort
-            self.df_course = df_course
+        self.df_cohort = df_cohort
+        self.df_course = df_course
 
     def cohort_years(self, formatted: bool = True) -> list[str]:
         """
