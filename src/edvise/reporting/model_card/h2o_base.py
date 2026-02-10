@@ -5,6 +5,7 @@ from edvise.modeling import h2o_ml
 from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.utils.types import ModelCardConfig
 import edvise.reporting.utils as reporting_utils
+from edvise.shared.utils import as_percent
 
 
 C = t.TypeVar("C", bound=ModelCardConfig)
@@ -74,11 +75,6 @@ class H2OModelCard(ModelCard[C]):
         Returns:
             A dictionary with feature metadata for the template.
         """
-
-        def as_percent(val: float | int) -> str:
-            val = float(val) * 100
-            return str(int(val) if val.is_integer() else round(val, 2))
-
         feature_count = len(h2o_ml.inference.get_h2o_used_features(self.model))
         if not self.cfg.modeling or not self.cfg.modeling.feature_selection:
             raise ValueError(
