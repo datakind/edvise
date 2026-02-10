@@ -5,6 +5,7 @@ import typing as t
 import numpy as np
 import pandas as pd
 import scipy.stats as ss
+from functools import cached_property, wraps
 from edvise import utils as edvise_utils
 from edvise.shared.utils import as_percent
 
@@ -1693,3 +1694,504 @@ def duplicate_conflict_columns(df: pd.DataFrame, key_cols: list[str]) -> pd.Data
         .sort_values("pct_conflicting_groups", ascending=False)
         .reset_index(drop=True)
     )
+
+
+class EdaSummary:
+    """
+    Provides summary statistics and analysis for student cohort and course data.
+
+    This class encapsulates EDA (Exploratory Data Analysis) calculations that can be
+    used across multiple contexts: dashboards, reports, and API endpoints.
+
+    Important Notes:
+        - By default, applies schema validation to ensure data quality
+        - Set validate=False if data has already been schema-validated (e.g., in pipeline)
+        - Unknown/invalid values (e.g., "UK", "UNKNOWN") are converted to NaN during validation
+        - Methods use .dropna() to exclude missing values after validation
+
+    Args:
+        df_cohort: DataFrame containing cohort/student-level data
+        df_course: Optional DataFrame containing course-level data
+        validate: Whether to apply schema validation. Default True.
+            Set to False if data is already validated (e.g., from pipeline)
+
+    Example:
+        >>> # Automatic validation (ad-hoc usage)
+        >>> eda = EdaSummary(df_cohort_raw)
+        >>> stats = eda.summary_stats()
+        >>>
+        >>> # Skip validation (pipeline usage - already validated)
+        >>> eda = EdaSummary(df_cohort_validated, validate=False)
+    """
+
+    def required_columns(
+        *,
+        cohort: list[str] | None = None,
+        course: list[str] | None = None,
+    ):
+        """
+        Decorator for EdaSummary methods that require specific columns.
+
+        Logs a warning and returns None if required columns are missing.
+        """
+
+        def decorator(func):
+            @wraps(func)
+            def wrapper(self, *args, **kwargs):
+                required_map = {
+                    "cohort": (cohort or [], "df_cohort"),
+                    "course": (course or [], "df_course"),
+                }
+
+                for label, (cols, df_attr) in required_map.items():
+                    if not cols:
+                        continue
+                    df = getattr(self, df_attr, None)
+                    if df is None:
+                        LOGGER.warning(
+                            "%s: could not compute because %s is missing",
+                            func.__name__,
+                            df_attr,
+                        )
+                        return None
+                    missing = [c for c in cols if c not in df.columns]
+                    if missing:
+                        LOGGER.warning(
+                            "%s: could not compute because missing %s columns: %s",
+                            func.__name__,
+                            label,
+                            missing,
+                        )
+                        return None
+
+                return func(self, *args, **kwargs)
+
+            return wrapper
+
+        return decorator
+
+    def __init__(
+        self,
+        df_cohort: pd.DataFrame,
+        df_course: pd.DataFrame | None = None,
+        validate: bool = True,
+    ):
+        """
+        Initialize EdaSummary with cohort and course data.
+
+        Args:
+            df_cohort: DataFrame containing cohort/student data with columns like
+                'study_id', 'enrollment_type', 'gpa_group_year_1', etc.
+            df_course: DataFrame containing course data
+            validate: Whether to apply schema validation. Default True.
+                Set to False if data has already been schema-validated.
+        """
+        if validate:
+            from edvise.data_audit.schemas import (
+                RawPDPCohortDataSchema,
+                RawPDPCourseDataSchema,
+            )
+
+            # Use lazy=True to collect all validation errors (same as pipeline)
+            self.df_cohort: pd.DataFrame = RawPDPCohortDataSchema.validate(
+                df_cohort, lazy=True
+            )
+
+            if df_course is not None:
+                self.df_course: pd.DataFrame | None = RawPDPCourseDataSchema.validate(
+                    df_course, lazy=True
+                )
+            else:
+                self.df_course = None
+        else:
+            self.df_cohort = df_cohort
+            self.df_course = df_course
+
+    def cohort_years(self, formatted: bool = True) -> list[str]:
+        """
+        Get the unique cohort years from the cohort data, sorted.
+        If formatted is True, return the years as "YYYY - YYYY" format.
+        Otherwise, return the years as "YYYY-YYYY" format.
+        """
+
+        years = (
+            self.df_cohort["cohort"]
+            .dropna()
+            .astype(str)
+            .sort_values()
+            .drop_duplicates()
+        )
+        if formatted:
+            years = years.str.replace("-", " - ", regex=False)
+
+        return t.cast(list[str], years.tolist())
+
+    def _format_series_data(self, df: pd.DataFrame) -> list[dict[str, t.Any]]:
+        result = (
+            df.reset_index(names="name")
+            .assign(
+                data=lambda d: [
+                    [None if pd.isna(x) else float(x) for x in row]
+                    for row in d.drop(columns="name").to_numpy()
+                ]
+            )
+            .loc[:, ["name", "data"]]
+            .to_dict(orient="records")
+        )
+        return t.cast(list[dict[str, t.Any]], result)
+
+    @cached_property
+    def total_students(self) -> dict[str, t.Any]:
+        """
+        Total number of cohort records (rows in the cohort DataFrame).
+        """
+        return {"name": "Total Students", "value": len(self.df_cohort)}
+
+    @cached_property
+    @required_columns(cohort=["enrollment_type"])
+    def transfer_students(self) -> int | None:
+        """
+        Compute the number of transfer students.
+        Returns None if there are no transfer students.
+        """
+        n = int((self.df_cohort["enrollment_type"] == "TRANSFER-IN").sum())
+        return {"name": "Transfer Students", "value": n} if n else None
+
+    @cached_property
+    @required_columns(cohort=["gpa_group_year_1"])
+    def avg_year1_gpa_all_students(self) -> float:
+        """
+        Compute the average GPA for all students.
+        """
+        return {
+            "name": "Avg. Year 1 GPA - All Students",
+            "value": float(
+                round(
+                    pd.to_numeric(
+                        self.df_cohort["gpa_group_year_1"], errors="coerce"
+                    ).mean(),
+                    2,
+                )
+            ),
+        }
+
+    @cached_property
+    @required_columns(cohort=["enrollment_type", "gpa_group_year_1"])
+    def gpa_by_enrollment_type(self) -> dict[str, list | float]:
+        """
+        Compute GPA by enrollment type across cohort years.
+
+        Returns:
+            Dictionary with:
+                - cohort_years: List of cohort year strings
+                - series: List of dicts with 'name' and 'data' keys
+        """
+
+        gpa_df = (
+            self.df_cohort.assign(
+                gpa=pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce")
+            )[["cohort", "enrollment_type", "gpa"]]
+            .dropna()
+            .groupby(["enrollment_type", "cohort"], observed=True)["gpa"]
+            .mean()
+            .unstack()
+            .reindex(columns=self.cohort_years(formatted=False))
+            .round(2)
+        )
+
+        series_data = gpa_df.rename(
+            index=lambda value: {
+                "FIRST-TIME": "First Time",
+                "RE-ADMIT": "Re-admit",
+                "TRANSFER-IN": "Transfer",
+            }.get(str(value).lower(), str(value).replace("-", " ").strip())
+        )
+        series_data = self._format_series_data(series_data)
+
+        return {
+            "cohort_years": self.cohort_years(formatted=True),
+            "series": series_data,
+            "min_gpa": float(round(gpa_df.replace(0, np.nan).min().min(), 2))
+            if pd.notna(gpa_df.replace(0, np.nan).min().min())
+            else None,
+        }
+
+    @cached_property
+    @required_columns(cohort=["enrollment_intensity_first_term", "gpa_group_year_1"])
+    def gpa_by_enrollment_intensity(self) -> dict[str, list | float]:
+        """
+        Compute GPA by enrollment intensity across cohort years.
+
+        Returns:
+            Dictionary with:
+                - cohort_years: List of cohort year strings
+                - series: List of dicts with 'name' and 'data' keys
+        """
+
+        gpa_df = (
+            self.df_cohort.assign(
+                gpa=pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce")
+            )[["cohort", "enrollment_intensity_first_term", "gpa"]]
+            .dropna()
+            .groupby(["enrollment_intensity_first_term", "cohort"], observed=True)[
+                "gpa"
+            ]
+            .mean()
+            .unstack()
+            .reindex(columns=self.cohort_years(formatted=False))
+            .round(2)
+        )
+
+        series_data = gpa_df.rename(index=lambda value: str(value).replace("-", " "))
+        series_data = self._format_series_data(series_data)
+
+        return {
+            "cohort_years": self.cohort_years(formatted=True),
+            "series": series_data,
+            "min_gpa": float(round(gpa_df.replace(0, np.nan).min().min(), 2)),
+        }
+
+    def _term_counts_by_cohort(self, df: pd.DataFrame) -> dict[str, t.Any]:
+        """
+        Build term counts by cohort for a given DataFrame.
+        """
+        counts_df = (
+            df.groupby(["cohort", "cohort_term"], observed=True)
+            .size()
+            .unstack(level=1, fill_value=0)
+            .reindex(index=self.cohort_years(formatted=False), fill_value=0)
+            .astype(int)
+        )
+        counts_df.columns = counts_df.columns.str.lower()
+
+        ordered_terms = [
+            t for t in ("fall", "winter", "spring", "summer") if t in counts_df.columns
+        ]
+
+        return {
+            "years": self.cohort_years(formatted=True),
+            "terms": (
+                counts_df.reindex(columns=ordered_terms)
+                .T.rename_axis("key")
+                .reset_index()
+                .assign(
+                    label=lambda d: d["key"].str.title(),
+                    data=lambda d: (
+                        d.drop(columns=["key", "label"]).astype(int).to_numpy().tolist()
+                    ),
+                )
+                .loc[:, ["key", "label", "data"]]
+                .to_dict(orient="records")
+            ),
+        }
+
+    @cached_property
+    @required_columns(cohort=["cohort_term"])
+    def students_by_cohort_term(self) -> dict[str, t.Any]:
+        """
+        Compute student counts by term across cohort years.
+
+        Returns:
+            Dictionary keyed by cohort year, with values being
+            dictionaries of term -> count. Only terms with count > 0 are included.
+            Example: {'2020 - 2021': {'fall': 42, 'spring': 40}, '2021 - 2022': {'fall': 50}}
+        """
+        return self._term_counts_by_cohort(self.df_cohort)
+
+    @cached_property
+    @required_columns(course=["cohort_term"])
+    def course_enrollments(self) -> dict[str, t.Any]:
+        """
+        Compute course enrollment counts by term across cohort years.
+        Returns empty dict when df_course is None (no course file in batch).
+        """
+        if self.df_course is None:
+            return {}
+
+        return self._term_counts_by_cohort(self.df_course)
+
+    @cached_property
+    @required_columns(cohort=["credential_type_sought_year_1"])
+    def degree_types(self) -> dict[str, t.Any]:
+        """
+        Compute degree type counts and percentages.
+
+        Returns:
+            Dict with keys:
+                - total: Total number of students with a degree type
+                - degrees: List of { count, percentage, name } per degree type
+        """
+        total = int(self.df_cohort["credential_type_sought_year_1"].notna().sum())
+        if total == 0:
+            return {"total": 0, "degrees": []}
+
+        value_counts = self.df_cohort["credential_type_sought_year_1"].value_counts()
+        degree_df = value_counts.rename("count").to_frame()
+        degree_df["percentage"] = ((degree_df["count"] / total) * 100).round(2)
+        degrees = t.cast(
+            list[dict[str, int | float | str]],
+            degree_df.reset_index(names="name")
+            .loc[:, ["count", "percentage", "name"]]
+            .assign(count=lambda d: d["count"].astype(int))
+            .to_dict(orient="records"),
+        )
+        return {"total": total, "degrees": degrees}
+
+    @cached_property
+    @required_columns(cohort=["enrollment_type", "enrollment_intensity_first_term"])
+    def enrollment_type_by_intensity(self) -> dict[str, t.Any]:
+        """
+        Compute enrollment type by intensity.
+
+        Returns:
+            Dictionary with keys:
+                - categories: Sorted list of enrollment type names
+                - series: List of dictionaries with keys:
+                    - name: Enrollment intensity value (e.g., "Full-Time", "Part-Time")
+                    - data: List of counts per category
+        """
+        counts_df = (
+            self.df_cohort[["enrollment_type", "enrollment_intensity_first_term"]]
+            .dropna()
+            .groupby(
+                ["enrollment_intensity_first_term", "enrollment_type"], observed=True
+            )
+            .size()
+            .unstack(fill_value=0)
+        )
+
+        return {
+            "categories": (
+                counts_df.columns.to_series()
+                .map(
+                    lambda value: {
+                        "FIRST-TIME": "First Time",
+                        "RE-ADMIT": "Re-admit",
+                        "TRANSFER-IN": "Transfer",
+                    }.get(str(value).lower(), str(value).replace("-", " ").strip())
+                )
+                .tolist()
+            ),
+            "series": self._format_series_data(counts_df),
+        }
+
+    @cached_property
+    @required_columns(cohort=["first_gen", "pell_status_first_year"])
+    def pell_recipient_by_first_gen(self) -> dict[str, t.Any]:
+        """
+        Compute Pell recipient status by first generation status.
+
+        Returns:
+            Dictionary with keys:
+                - categories: Sorted list of Pell status values
+                - series: List of dictionaries with keys:
+                    - name: First generation status value
+                    - data: List of counts per category
+        """
+        df = self.df_cohort
+        if "first_gen" not in df.columns or "pell_status_first_year" not in df.columns:
+            return {}
+        if (
+            df["first_gen"].dropna().empty
+            or df["pell_status_first_year"].dropna().empty
+        ):
+            return {}
+
+        pell_df = (
+            df[["pell_status_first_year", "first_gen"]]
+            .assign(first_gen=lambda d: d["first_gen"].fillna("N"))
+            .dropna(subset=["pell_status_first_year"])
+            .value_counts()
+            .unstack(fill_value=0)
+        )
+
+        return {
+            "categories": pell_df.index.tolist(),
+            "series": self._format_series_data(pell_df.T),
+        }
+
+    @cached_property
+    @required_columns(cohort=["pell_status_first_year"])
+    def pell_recipient_status(self) -> dict[str, t.Any]:
+        """
+        Compute Pell recipient status without first generation split.
+
+        Returns:
+            Dictionary with keys:
+                - series: Single series with counts per Pell status
+        """
+        if "pell_status_first_year" not in self.df_cohort.columns:
+            return {}
+        if self.df_cohort["pell_status_first_year"].dropna().empty:
+            return {}
+
+        data = (
+            self.df_cohort.dropna(subset=["pell_status_first_year"])
+            .groupby("pell_status_first_year", observed=True)
+            .size()
+            .to_dict()
+        )
+        return {
+            "series": [{"name": "All Students", "data": data}],
+        }
+
+    @cached_property
+    @required_columns(cohort=["gender", "student_age"])
+    def student_age_by_gender(self) -> dict[str, t.Any]:
+        """
+        Compute student age groups by gender.
+
+        Returns:
+            Dictionary with keys:
+                - categories: Sorted list of gender values (excluding NaN)
+                - series: List of dictionaries with keys:
+                    - name: Age group ("20 or younger", "20 - 24", "Older than 24")
+                    - data: List of counts per category
+        """
+
+        age_group_df = (
+            self.df_cohort[["gender", "student_age"]]
+            .dropna()
+            .value_counts()
+            .unstack(fill_value=0)
+        )
+
+        return {
+            "categories": age_group_df.index.tolist(),
+            "series": self._format_series_data(age_group_df.T),
+        }
+
+    @cached_property
+    @required_columns(cohort=["race", "pell_status_first_year"])
+    def race_by_pell_status(self) -> dict[str, t.Any]:
+        """
+        Compute race by Pell recipient status.
+
+        Returns:
+            Dictionary with keys:
+                - categories: Race values ordered by count descending (most common first)
+                - series: List of dicts with "name" (Pell status) and "data" (counts per category)
+        """
+
+        pell_map = {"Y": "Yes", "N": "No", "y": "Yes", "n": "No"}
+        race_df = (
+            self.df_cohort[["race", "pell_status_first_year"]]
+            .dropna()
+            .assign(
+                pell_status_first_year=lambda d: d["pell_status_first_year"]
+                .astype(str)
+                .replace(pell_map)
+            )
+        )
+        race_df = race_df[race_df["pell_status_first_year"].isin(["Yes", "No"])]
+
+        counts_df = (
+            race_df.groupby(["pell_status_first_year", "race"], observed=True)
+            .size()
+            .unstack(fill_value=0)
+        )
+
+        return {
+            "categories": counts_df.columns.tolist(),
+            "series": self._format_series_data(counts_df),
+        }
