@@ -1790,16 +1790,11 @@ class EdaSummary:
         return t.cast(list[dict[str, t.Any]], result)
 
     @cached_property
-    @required_columns(cohort=["student_id"])
-    def total_students(self) -> int | None:
+    def total_students(self) -> dict[str, t.Any]:
         """
-        Compute the total number of students.
+        Total number of cohort records (rows in the cohort DataFrame).
         """
-
-        return {
-            "name": "Total Students",
-            "value": int(self.df_cohort["student_id"].nunique()),
-        }
+        return {"name": "Total Students", "value": len(self.df_cohort)}
 
     @cached_property
     @required_columns(cohort=["enrollment_type"])
