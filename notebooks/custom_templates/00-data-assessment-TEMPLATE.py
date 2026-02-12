@@ -246,7 +246,9 @@ print(summary)
 print(student_raw_df["student_id"].nunique())
 
 # confirm if Student_ID is unique - should be FALSE
-student_raw_df["student_id"].duplicated().any()
+duplicates = student_raw_df.loc[student_raw_df["student_id"].duplicated(), "student_id"]
+
+assert duplicates.empty, f"Duplicate student_id values found: {duplicates.tolist()}"
 
 # COMMAND ----------
 
@@ -284,7 +286,8 @@ print(
     f"{student_raw_df.shape[0] - cleaned_cohort.shape[0]} records dropped due to re-admit data and duplicates, leaving us with {cleaned_cohort['student_id'].nunique()} unique student IDs."
 )
 # re-run find dupes; sanity check, ensure 0
-find_dupes(cleaned_cohort, primary_keys=["student_id", "first_enrollment_date"])
+dupes = find_dupes(cleaned_cohort, primary_keys=["student_id", "first_enrollment_date"])
+assert dupes.empty
 # COMMAND ----------
 
 # MAGIC %md
