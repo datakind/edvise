@@ -49,9 +49,15 @@ def run_h2o_automl_classification(
     sample_weight_col = str(kwargs.pop("sample_weight_col", "sample_weight"))
     pos_label = bool(kwargs.pop("pos_label", True))
     calibrate = bool(kwargs.pop("calibrate_underpred", False))
-    target_name_raw = kwargs.pop("target_name", None)
-    checkpoint_name_raw = kwargs.pop("checkpoint_name", None)
-    workspace_path = kwargs.pop("workspace_path", None)
+    target_name = str(kwargs.pop("target_name", ""))
+    checkpoint_name = str(kwargs.pop("checkpoint_name", ""))
+    workspace_path = str(kwargs.pop("workspace_path", ""))
+
+    if not all([target_name, checkpoint_name, workspace_path]):
+        raise ValueError(
+            "Missing logging parameters: target_name, checkpoint_name, workspace_path"
+        )
+
     metric = primary_metric.lower()
 
     exclude_cols = t.cast(list[str], kwargs.pop("exclude_cols", []) or [])
@@ -60,13 +66,8 @@ def run_h2o_automl_classification(
     exclude_frameworks = t.cast(list[str], kwargs.pop("exclude_frameworks", []) or [])
     exclude_frameworks = [c for c in exclude_frameworks if c is not None]
 
-    if not all([target_name_raw, checkpoint_name_raw, workspace_path]):
-        raise ValueError(
-            "Missing logging parameters: target_name, checkpoint_name, workspace_path"
-        )
-
-    target_name = str(target_name_raw)
-    checkpoint_name = str(checkpoint_name_raw)
+    target_name = str(target_name)
+    checkpoint_name = str(checkpoint_name)
     if target_col not in df or split_col not in df:
         raise ValueError("Missing target_col or split column in DataFrame.")
     if metric not in VALID_H2O_METRICS:
