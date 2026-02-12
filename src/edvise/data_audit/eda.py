@@ -1281,8 +1281,9 @@ def validate_credit_consistency(
                 t.Optional[t.Dict[str, t.Any]], cohort_checks.get("summary")
             )
 
-            rows_with_anomalies = int(
-                (cohort_anomalies_summary or {}).get("rows_with_anomalies", 0)
+            summary = cohort_anomalies_summary
+            rows_with_anomalies = (
+                int(summary.get("rows_with_anomalies", 0)) if summary is not None else 0
             )
 
             if rows_with_anomalies > 0:
