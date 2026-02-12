@@ -904,7 +904,14 @@ def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
     if "student_id" in dupes.columns:
         dupes = dupes.sort_values("student_id", ignore_index=True)
 
-    print(f"{len(dupes)} duplicates based on {key_cols}")
+    total_rows = len(df)
+    dupe_rows = len(dupes)
+    pct_dupes = (dupe_rows / total_rows * 100) if total_rows > 0 else 0.0
+
+    print(
+        f"{dupe_rows} duplicate rows based on {key_cols} "
+        f"({pct_dupes:.2f}% of {total_rows} total rows)"
+    )
 
     if dupes.empty:
         conflicts = pd.DataFrame(columns=["column", "pct_conflicting_groups"])
