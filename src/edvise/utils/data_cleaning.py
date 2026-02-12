@@ -966,8 +966,6 @@ def _handle_schema_duplicates(
         lab_lecture_rows,
         lab_lecture_pct,
         renumber_groups,
-        drop_groups,
-        dropped_rows,
         final_dupe_rows,
         len(df),
         course_type_col,
