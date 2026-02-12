@@ -21,11 +21,11 @@ def test_filter_by_joined_columns_single_match():
         }
     )
     result = _filter_by_joined_columns(
-        df, 
+        df,
         selection_list=["fall 2024-25"],
         first_column="first",
         second_column="second",
-        selection_type="test"
+        selection_type="test",
     )
     assert len(result) == 1
     assert result["id"].iloc[0] == 1
@@ -46,7 +46,7 @@ def test_filter_by_joined_columns_multi_value():
         selection_list=["fall 2024-25", "spring 2024-25"],
         first_column="first",
         second_column="second",
-        selection_type="test"
+        selection_type="test",
     )
     assert len(result) == 2
     assert set(result["id"]) == {1, 2}
@@ -67,7 +67,7 @@ def test_filter_by_joined_columns_case_insensitive():
         selection_list=["Fall 2024-25"],
         first_column="first",
         second_column="second",
-        selection_type="test"
+        selection_type="test",
     )
     assert len(result) == 1
     assert result["id"].iloc[0] == 1
@@ -88,7 +88,7 @@ def test_filter_by_joined_columns_empty_list_raises():
             selection_list=[],
             first_column="first",
             second_column="second",
-            selection_type="test"
+            selection_type="test",
         )
 
 
@@ -107,7 +107,7 @@ def test_filter_by_joined_columns_whitespace_only_raises():
             selection_list=["  ", "\t", ""],
             first_column="first",
             second_column="second",
-            selection_type="test"
+            selection_type="test",
         )
 
 
@@ -120,15 +120,13 @@ def test_filter_by_joined_columns_no_match_raises():
             "id": [1],
         }
     )
-    with pytest.raises(
-        ValueError, match="Filtered test resulted in empty DataFrame"
-    ):
+    with pytest.raises(ValueError, match="Filtered test resulted in empty DataFrame"):
         _filter_by_joined_columns(
             df,
             selection_list=["spring 2023-24"],
             first_column="first",
             second_column="second",
-            selection_type="test"
+            selection_type="test",
         )
 
 
@@ -146,7 +144,7 @@ def test_filter_by_joined_columns_drops_temp_column():
         selection_list=["fall 2024-25"],
         first_column="first",
         second_column="second",
-        selection_type="test"
+        selection_type="test",
     )
     assert "test_selection" not in result.columns
 
@@ -166,7 +164,7 @@ def test_filter_by_joined_columns_preserves_original():
         selection_list=["fall 2024-25"],
         first_column="first",
         second_column="second",
-        selection_type="test"
+        selection_type="test",
     )
     assert len(df) == original_len  # Original unchanged
     assert len(result) == 1  # Result is filtered

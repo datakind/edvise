@@ -186,7 +186,7 @@ class InferencePrepTask:
             raise ValueError("cfg.inference.term must be configured.")
 
         inf_terms = self.cfg.inference.term
-        df_selected_terms = filter_inference_term(df_labeled, term_list = inf_terms)
+        df_selected_terms = filter_inference_term(df_labeled, term_list=inf_terms)
 
         cohort_counts = (
             df_selected_terms[["cohort", "cohort_term"]]
