@@ -940,29 +940,6 @@ def _handle_schema_duplicates(
     # Remaining duplicates (key-based)
     dupes_mask = df.duplicated(unique_cols, keep=False)
     duplicate_rows = df.loc[dupes_mask]
-
-    # Log duplicate groups breakdown
-    keeper_rule = (
-        "keep highest credits; if tied, keep highest grade; if tied, keep first row"
-    )
-
-    _log_schema_summary(
-        total_before,
-        initial_dup_rows,
-        initial_dup_pct,
-        true_dupes_dropped,  # exact-identical
-        dropped_rows,  # keeper-drop
-        renumbered_rows,
-        lab_lecture_rows,
-        lab_lecture_pct,
-        renumber_groups,
-        final_dupe_rows,
-        len(df),
-        course_type_col,
-        course_name_col,
-        keeper_rule,
-    )
-
     # Classify duplicates: renumber vs drop
     (
         renumber_work_idx,
@@ -979,7 +956,7 @@ def _handle_schema_duplicates(
         grade_col,
     )
 
-    # Drop true duplicate rows
+    # Drop rows from duplicate-key groups (keeper logic)
     dropped_rows = len(drop_idx)
     df = _drop_true_duplicate_rows(df, drop_idx)
 
@@ -1000,29 +977,34 @@ def _handle_schema_duplicates(
     )
 
     # Calculate summary statistics
+    total_after = len(df)
     final_dupe_rows = int(df.duplicated(unique_cols, keep=False).sum())
     renumbered_rows = len(set(renumber_work_idx)) if renumber_work_idx else 0
     lab_lecture_pct = (
         (lab_lecture_rows / renumbered_rows * 100) if renumbered_rows else 0.0
     )
 
-    # Log summary
+    keeper_rule = (
+        "keep highest credits; if tied, keep highest grade; if tied, keep first row"
+    )
+
+    # Log summary (NOW everything exists)
     _log_schema_summary(
         total_before,
         initial_dup_rows,
         initial_dup_pct,
-        true_dupes_dropped,
+        true_dupes_dropped,  # exact-identical
+        dropped_rows,  # keeper-drop
         renumbered_rows,
         lab_lecture_rows,
         lab_lecture_pct,
         renumber_groups,
         final_dupe_rows,
-        len(df),
+        total_after,
         course_type_col,
         course_name_col,
+        keeper_rule,
     )
-
-    return df
 
 
 def handling_duplicates(
