@@ -761,12 +761,12 @@ def _drop_true_duplicate_rows(df: pd.DataFrame, drop_idx: list[int]) -> pd.DataF
         pct_dropped = (dropped_rows / len(df)) * 100 if len(df) else 0.0
         if pct_dropped < 0.1:
             LOGGER.warning(
-                "⚠️ Dropping %s rows (<0.1%% of data) from true-duplicate groups (keeping best row per key)",
+                "⚠️ Dropping %s rows (<0.1%% of data) from duplicate-key groups (keeping best row per key)",
                 dropped_rows,
             )
         else:
             LOGGER.warning(
-                "⚠️ Dropping %s rows (%.2f%% of data) from true-duplicate groups (keeping best row per key)",
+                "⚠️ Dropping %s rows (%.2f%% of data) from duplicate-key groups (keeping best row per key)",
                 dropped_rows,
                 pct_dropped,
             )
@@ -838,7 +838,8 @@ def _log_schema_summary(
     total_before: int,
     initial_dup_rows: int,
     initial_dup_pct: float,
-    true_dupes_dropped: int,
+    exact_dupes_dropped: int,
+    keeper_dropped_rows: int,
     renumbered_rows: int,
     lab_lecture_rows: int,
     lab_lecture_pct: float,
@@ -847,33 +848,36 @@ def _log_schema_summary(
     total_after: int,
     course_type_col: str | None,
     course_name_col: str | None,
+    keeper_rule: str,
 ) -> None:
     LOGGER.info("COURSE RECORD DUPLICATE SUMMARY (edvise schema)")
 
     LOGGER.info(
-        "Before cleanup: %s records, %s duplicate rows (%.2f%%)",
+        "Before cleanup: %s records, %s duplicate-key rows (%.2f%%)",
         total_before,
         initial_dup_rows,
         initial_dup_pct,
     )
 
+    total_removed = total_before - total_after
     LOGGER.info(
-        "Rows dropped (true duplicates): %s | Rows renumbered: %s",
-        true_dupes_dropped,
+        "Rows removed: %s total (exact-identical=%s, keeper-drop=%s) | Rows renumbered: %s",
+        total_removed,
+        exact_dupes_dropped,
+        keeper_dropped_rows,
         renumbered_rows,
     )
 
+    LOGGER.info("Keeper rule for drop-groups: %s", keeper_rule)
+
     if course_type_col is not None:
         LOGGER.info(
-            "Lab/lecture duplicates: %s rows (%.2f%% of duplicates)",
+            "Lab/lecture duplicates within renumbered rows: %s (%.2f%%)",
             lab_lecture_rows,
             lab_lecture_pct,
         )
 
-    LOGGER.info(
-        "Duplicate groups renumbered: %s",
-        renumber_groups,
-    )
+    LOGGER.info("Duplicate groups renumbered: %s", renumber_groups)
 
     LOGGER.info(
         "After cleanup: %s records | Remaining key-duplicates: %s",
@@ -938,7 +942,26 @@ def _handle_schema_duplicates(
     duplicate_rows = df.loc[dupes_mask]
 
     # Log duplicate groups breakdown
-    _log_duplicate_groups(duplicate_rows, unique_cols, course_type_col, course_name_col)
+    keeper_rule = (
+        "keep highest credits; if tied, keep highest grade; if tied, keep first row"
+    )
+
+    _log_schema_summary(
+        total_before,
+        initial_dup_rows,
+        initial_dup_pct,
+        true_dupes_dropped,  # exact-identical
+        dropped_rows,  # keeper-drop
+        renumbered_rows,
+        lab_lecture_rows,
+        lab_lecture_pct,
+        renumber_groups,
+        final_dupe_rows,
+        len(df),
+        course_type_col,
+        course_name_col,
+        keeper_rule,
+    )
 
     # Classify duplicates: renumber vs drop
     (
