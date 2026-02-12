@@ -1,4 +1,8 @@
 import re
+import typing as t
+from edvise.shared.utils import format_intensity_time_limit as _fmt
+
+Num = t.Union[int, float]
 
 
 class Formatting:
@@ -12,6 +16,15 @@ class Formatting:
             create a reliable interpretation of nested lists.
         """
         self.base_spaces = base_spaces
+
+    def format_intensity_time_limit(
+        self,
+        duration: t.Tuple[Num, str],
+        *,
+        style: t.Literal["long", "compact"] = "long",
+        intensity: str | None = None,
+    ) -> str:
+        return _fmt(duration, style=style, intensity=intensity)
 
     def indent_level(self, depth: int) -> str:
         """
