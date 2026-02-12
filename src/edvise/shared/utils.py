@@ -96,7 +96,10 @@ def format_intensity_time_limit(
     return f"{num_str}{unit_abbrev} {intensity_abbrev}"
 
 
-def extract_time_limits(self, intensity_time_limits: dict) -> str:
+def extract_time_limits(
+    self,
+    intensity_time_limits: dict[str, t.Tuple[Num, str]],
+) -> str:
     """
     Helper that uses the above `format_intensity_time_limit` to create a similar time limit format for the model name which is human-readable and shorter.
     """
