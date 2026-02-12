@@ -2,6 +2,7 @@ import pandas as pd
 import logging
 import re
 import typing as t
+from typing import Callable
 from collections.abc import Iterable
 from edvise.utils import types
 from edvise.dataio.pdp_course_converters import dedupe_by_renumbering_courses
@@ -729,8 +730,15 @@ def _classify_duplicate_groups(
             # Grade as a numeric score (descending)
             if grade_col is not None and grade_col in grp_sorted.columns:
                 score_col = "__grade_score__"
+
+                scorer = make_grade_to_score_from_series(
+                    grp_sorted[grade_col]
+                )  # <-- pass the Series here
+
                 grp_sorted = grp_sorted.assign(
-                    **{score_col: grp_sorted[grade_col].map(_grade_to_score)}
+                    **{
+                        score_col: grp_sorted[grade_col].map(scorer)
+                    }  # <-- map with the per-value scorer
                 )
                 sort_cols.append(score_col)
                 ascending.append(False)
@@ -1057,43 +1065,105 @@ def handling_duplicates(
         )
 
 
-def _grade_to_score(val: object) -> float:
+# Completed letter grades (includes E if present)
+COMPLETE_LETTER_RE = re.compile(r"^([A-F])([+-])?$")
+
+# Incomplete variants like I, IA, IB+, IC-, IU, etc.
+INCOMPLETE_RE = re.compile(r"^I([A-FU])([+-])?$")
+
+
+def make_grade_to_score_from_series(
+    grade_series: pd.Series,
+    *,
+    plus_delta: float = 0.3,
+    minus_delta: float = 0.3,
+    treat_pass_as: float
+    | None = None,  # set to e.g. 2.0 if you *want* S/PR to participate
+) -> Callable[[object], float]:
     """
-    Convert a grade value to a numeric score for sorting.
-    Handles numeric grades (e.g., 92, "3.7") and letter grades (A, A-, B+ ...).
-    Unknown/blank -> -inf so it loses ties.
+    Build a grade->numeric score function using observed tokens for a school.
+
+    Rules:
+    - Completed A–F(+/-) are scored (includes E if present in data).
+    - Incompletes (I, IA, IB+, ... , IU) => -inf (won't win ties)
+    - Withdrawals/status (W, WC, AU, UC, IS, etc.) => -inf
+    - Pass/Unsat (S/U/PR) default => -inf unless treat_pass_as is set.
+    - Numeric strings still parse as floats.
     """
-    if val is None or (isinstance(val, float) and pd.isna(val)):
-        return float("-inf")
 
-    s = str(val).strip().upper()
-    if not s:
-        return float("-inf")
+    # Which completed letter grades exist at this school?
+    observed_complete_letters: set[str] = set()
+    tokens = (
+        grade_series.dropna()
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .loc[lambda s: s != ""]
+        .unique()
+    )
 
-    # Numeric grade?
-    try:
-        return float(s)
-    except ValueError:
-        pass
+    for t in tokens:
+        m = COMPLETE_LETTER_RE.match(t)
+        if m:
+            observed_complete_letters.add(m.group(1))
 
-    # Letter grades
-    # You can tune this mapping to your schema.
-    base = {
-        "A": 4.0,
-        "B": 3.0,
-        "C": 2.0,
-        "D": 1.0,
-        "F": 0.0,
-    }
+    # Build points only for letters that appear (A highest, then B, C, D, E, F if present)
+    conventional_order = ["A", "B", "C", "D", "E", "F"]
+    points: dict[str, float] = {}
+    base = 4.0
+    for L in conventional_order:
+        if L in observed_complete_letters:
+            points[L] = base
+            base -= 1.0
 
-    m = re.match(r"^([A-F])([+-])?$", s)
-    if not m:
-        return float("-inf")
+    PASS_TOKENS = {"S", "PR"}
+    UNSAT_TOKENS = {"U"}
+    WITHDRAW_TOKENS = {"W", "WC"}
+    # You can add other known “status” tokens here if you like, but unknowns already go to -inf.
+    STATUS_TOKENS = {"AU", "UC", "IS"}
 
-    letter, sign = m.group(1), m.group(2)
-    score = base[letter]
-    if sign == "+":
-        score += 0.3
-    elif sign == "-":
-        score -= 0.3
+    def score(val: object) -> float:
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return float("-inf")
+
+        s = str(val).strip().upper()
+        if not s:
+            return float("-inf")
+
+        # Numeric?
+        try:
+            return float(s)
+        except ValueError:
+            pass
+
+        # Incomplete variants: I, IA, IB+, ...
+        if s == "I" or INCOMPLETE_RE.match(s):
+            return float("-inf")
+
+        # Withdrawals/status codes
+        if s in WITHDRAW_TOKENS or s in STATUS_TOKENS:
+            return float("-inf")
+
+        # Pass/unsat tokens
+        if s in PASS_TOKENS:
+            return float("-inf") if treat_pass_as is None else float(treat_pass_as)
+        if s in UNSAT_TOKENS:
+            return float("-inf") if treat_pass_as is None else float("-inf")
+
+        # Completed letter grade
+        m = COMPLETE_LETTER_RE.match(s)
+        if not m:
+            return float("-inf")
+
+        letter, sign = m.group(1), m.group(2)
+        if letter not in points:
+            return float("-inf")
+
+        out = points[letter]
+        if sign == "+":
+            out += plus_delta
+        elif sign == "-":
+            out -= minus_delta
+        return out
+
     return score
