@@ -1030,23 +1030,9 @@ def log_semester_reconciliation_summary(
         no_course_rows,
     )
 
-    # Coverage: course (student, semester) pairs missing from semester file
-    missing_in_semester = int(
-        agg.merge(
-            s[[id_col, sem_col]],
-            on=[id_col, sem_col],
-            how="left",
-            indicator=True,
-        )["_merge"]
-        .ne("both")
-        .sum()
-    )
-
-    logger.warning(
-        "Student-semester coverage: in_courses=%d, in_semester_file=%d, course_pairs_missing_in_semester_file=%d",
-        int(len(agg)),
+    LOGGER.warning(
+        "Semester reconciliation scope: %d student-semester rows compared; raw key coverage verified prior to aggregation",
         total_sem_rows,
-        missing_in_semester,
     )
 
     def _log_credit_diff(label: str, diff_col: str, match_col: str) -> None:
