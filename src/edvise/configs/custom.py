@@ -1,5 +1,6 @@
 import re
 import typing as t
+import warnings
 
 import pydantic as pyd
 
@@ -501,4 +502,42 @@ class InferenceConfig(pyd.BaseModel):
     num_top_features: int = pyd.Field(default=5)
     min_prob_pos_label: t.Optional[float] = 0.5
     background_data_sample: t.Optional[int] = 500
-    cohort: t.Optional[list[str]] = ["fall 2024-25"]
+    term: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="List of terms to use for inference. Students will be selected if they meet the checkpoint in one of these terms. "
+        "Typically most often the most recent term. e.g. ['fall 2024-25', 'spring 2024-25']"
+    )
+    
+    cohort: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="DEPRECATED: Use 'term' instead. This field will be removed in a future version."
+    )
+    
+    @pyd.model_validator(mode='after')
+    def validate_term_or_cohort(self) -> 'InferenceConfig':
+        """Ensure either term or cohort is provided, with deprecation warning for cohort."""
+        if self.cohort is not None and self.term is not None:
+            warnings.warn(
+                "Both 'cohort' and 'term' are provided. 'cohort' is deprecated and will be ignored. "
+                "Please use only 'term' in your configuration.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            # Use term, ignore cohort
+            return self
+        
+        if self.cohort is not None:
+            warnings.warn(
+                "The 'cohort' field is deprecated and will be removed in a future version. "
+                "Please use 'term' instead.",
+                DeprecationWarning,
+                stacklevel=2
+            )
+            # Migrate cohort to term
+            self.term = self.cohort
+            return self
+        
+        if self.term is None:
+            raise ValueError("Either 'term' or 'cohort' must be provided in the inference configuration.")
+        
+        return self
