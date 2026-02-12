@@ -253,7 +253,7 @@ assert duplicates.empty, f"Duplicate student_id values found: {duplicates.tolist
 # COMMAND ----------
 
 cohort_dupes = find_dupes(
-    student_raw_df, primary_keys=cfg.datasets.bronze["raw_student"].primary_keys
+    student_raw_df, key_cols=cfg.datasets.bronze["raw_student"].primary_keys
 )
 cohort_dupes.head()
 
@@ -266,9 +266,7 @@ print(cohort_dupes["entry_type"].value_counts())
 # COMMAND ----------
 
 # check for duplicates of both stuent ID AND entry term
-cohort_term_dupes = find_dupes(
-    student_raw_df, primary_keys=["student_id", "entry_term"]
-)
+cohort_term_dupes = find_dupes(student_raw_df, key_cols=["student_id", "entry_term"])
 cohort_term_dupes.head()
 
 # COMMAND ----------
@@ -286,7 +284,7 @@ print(
     f"{student_raw_df.shape[0] - cleaned_cohort.shape[0]} records dropped due to re-admit data and duplicates, leaving us with {cleaned_cohort['student_id'].nunique()} unique student IDs."
 )
 # re-run find dupes; sanity check, ensure 0
-dupes = find_dupes(cleaned_cohort, primary_keys=["student_id", "first_enrollment_date"])
+dupes = find_dupes(cleaned_cohort, key_cols=["student_id", "first_enrollment_date"])
 assert dupes.empty
 # COMMAND ----------
 
@@ -582,7 +580,7 @@ filtered_course.head()
 
 # exploring course file duplicates
 course_dupes = find_dupes(
-    filtered_course, primary_keys=cfg.datasets.bronze["raw_course"].primary_keys
+    filtered_course, key_cols=cfg.datasets.bronze["raw_course"].primary_keys
 )
 course_dupes.head()
 
@@ -801,7 +799,7 @@ na_percent_by_term
 # COMMAND ----------
 
 semester_dupes = find_dupes(
-    raw_semester, primary_keys=cfg.datasets.bronze["raw_semester"].primary_keys
+    raw_semester, key_cols=cfg.datasets.bronze["raw_semester"].primary_keys
 )
 semester_dupes.head()
 
