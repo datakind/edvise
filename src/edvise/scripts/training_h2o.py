@@ -486,20 +486,24 @@ class TrainingTask:
 
         validate_tables_exist(self.spark_session, train_tables)
 
-    def register_model(self):
-        # First tries PDP logic
-        try:
+    def register_model(self, *, school_type: str):
+        school_type_norm = school_type.strip().lower()
+        if school_type_norm not in {"pdp", "edvise", "custom"}:
+            raise ValueError("school_type must be one of: 'pdp', 'edvise', 'custom'")
+
+        if school_type_norm == "pdp":
             model_name = modeling.registration.pdp_get_model_name(
                 target=self.cfg.preprocessing.target,
                 student_criteria=self.cfg.preprocessing.selection.student_criteria,
                 checkpoint=self.cfg.preprocessing.checkpoint,
             )
-        except Exception:  # Assumes custom instead of PDP
+        else:
             model_name = modeling.registration.get_model_name(
                 institution_id=self.cfg.institution_id,
                 target=self.cfg.preprocessing.target.name,
                 checkpoint=self.cfg.preprocessing.checkpoint.name,
             )
+
         try:
             modeling.registration.register_mlflow_model(
                 model_name,

@@ -92,27 +92,35 @@ class ModelInferenceTask:
             logging.error("Error reading configuration file: %s", e)
             raise
 
-    def load_mlflow_model_metadata(self) -> None:
+    def load_mlflow_model_metadata(self, *, school_type: str) -> None:
         """Discover UC model latest version -> run_id + experiment_id (no model object needed here)."""
         client = MlflowClient(registry_uri="databricks-uc")
 
         # Assert preprocessing is not None (should be validated by config loading)
         assert self.cfg.preprocessing is not None, "preprocessing config is required"
 
-        # First tries PDP logic
-        try:
+        school_type_norm = school_type.strip().lower()
+        if school_type_norm not in {"pdp", "edvise", "custom"}:
+            raise ValueError("school_type must be one of: 'pdp', 'edvise', 'custom'")
+
+        if school_type_norm == "pdp":
             model_name = modeling.registration.pdp_get_model_name(
                 target=self.cfg.preprocessing.target,
                 checkpoint=self.cfg.preprocessing.checkpoint,
                 student_criteria=self.cfg.preprocessing.selection.student_criteria,
             )
-        except Exception:  # Assumes custom instead of PDP
+        else:
             model_name = modeling.registration.get_model_name(
                 institution_id=self.cfg.institution_id,
                 target=self.cfg.preprocessing.target.name,
                 checkpoint=self.cfg.preprocessing.checkpoint.name,
             )
-        full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{model_name}"
+
+        full_model_name = (
+            f"{self.args.DB_workspace}."
+            f"{self.args.databricks_institution_name}_gold."
+            f"{model_name}"
+        )
 
         mv = max(
             client.search_model_versions(f"name='{full_model_name}'"),
