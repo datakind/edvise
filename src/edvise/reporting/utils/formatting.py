@@ -1,6 +1,4 @@
 import re
-import typing as t
-from edvise.shared.utils import format_intensity_time_limit
 
 
 class Formatting:

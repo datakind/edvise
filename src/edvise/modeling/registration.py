@@ -1,10 +1,9 @@
 import logging
 import typing as t
-import re
 import mlflow
 import mlflow.exceptions
 import mlflow.tracking
-from edvise.shared.utils import normalize_degree, extract_time_limits
+from edvise.shared.utils import normalize_degree
 
 LOGGER = logging.getLogger(__name__)
 
