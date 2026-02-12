@@ -822,30 +822,44 @@ def _log_schema_summary(
     lab_lecture_rows: int,
     lab_lecture_pct: float,
     renumber_groups: int,
-    drop_groups: int,
-    dropped_rows: int,
     final_dupe_rows: int,
     total_after: int,
     course_type_col: str | None,
     course_name_col: str | None,
 ) -> None:
-    """Log summary statistics for schema mode duplicate handling."""
     LOGGER.info("COURSE RECORD DUPLICATE SUMMARY (edvise schema)")
-    LOGGER.info(f"Total course records before:      {total_before}")
+
     LOGGER.info(
-        f"Duplicate records found:          {initial_dup_rows} ({initial_dup_pct:.2f}%)"
+        "Before cleanup: %s records, %s duplicate rows (%.2f%%)",
+        total_before,
+        initial_dup_rows,
+        initial_dup_pct,
     )
-    LOGGER.info(f"True duplicates dropped:          {true_dupes_dropped}")
-    LOGGER.info(f"Records renumbered:               {renumbered_rows}")
+
+    LOGGER.info(
+        "Rows dropped (true duplicates): %s | Rows renumbered: %s",
+        true_dupes_dropped,
+        renumbered_rows,
+    )
+
     if course_type_col is not None:
         LOGGER.info(
-            f"Lab/lecture duplicate rows:       {lab_lecture_rows} ({lab_lecture_pct:.2f}%)"
+            "Lab/lecture duplicates: %s rows (%.2f%% of duplicates)",
+            lab_lecture_rows,
+            lab_lecture_pct,
         )
-    LOGGER.info(f"Duplicate groups renumbered:      {renumber_groups}")
-    LOGGER.info(f"Duplicate groups dropped:         {drop_groups}")
-    LOGGER.info(f"Rows dropped from true dupes:     {dropped_rows}")
-    LOGGER.info(f"Total course records after:       {total_after}")
-    LOGGER.info(f"Remaining key-duplicate rows:     {final_dupe_rows}")
+
+    LOGGER.info(
+        "Duplicate groups renumbered: %s",
+        renumber_groups,
+    )
+
+    LOGGER.info(
+        "After cleanup: %s records | Remaining key-duplicates: %s",
+        total_after,
+        final_dupe_rows,
+    )
+
     LOGGER.info("")
 
 
@@ -952,8 +966,6 @@ def _handle_schema_duplicates(
         lab_lecture_rows,
         lab_lecture_pct,
         renumber_groups,
-        drop_groups,
-        dropped_rows,
         final_dupe_rows,
         len(df),
         course_type_col,
@@ -966,10 +978,15 @@ def _handle_schema_duplicates(
 def handling_duplicates(
     df: pd.DataFrame,
     school_type: str,
-    unique_cols: list[str] | None = None,
-    credits_col: str | None = None,
-    course_type_col: str | None = None,
-    course_name_col: str | None = None,
+    unique_cols: list[str] | None = [
+        "student_id",
+        "academic_term",
+        "course_prefix",
+        "course_number",
+    ],
+    credits_col: str | None = "course_credits_attempted",
+    course_type_col: str | None = "course_classification",
+    course_name_col: str | None = "course_name",
 ) -> pd.DataFrame:
     """
     Combined duplicate handling with a school_type switch.
