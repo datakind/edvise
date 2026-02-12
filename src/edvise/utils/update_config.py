@@ -83,7 +83,7 @@ def update_save_confirm_fields(
 ) -> None:
     """
     Update multiple fields in a TOML config, save, and confirm all updates.
-    
+
     Args:
         config_path: Path to the TOML config file
         updates: Dictionary mapping key paths (as tuples) to new values
@@ -91,19 +91,19 @@ def update_save_confirm_fields(
         extra_save_paths: Optional list of additional paths to save the config to
     """
     editor = TomlConfigEditor(config_path)
-    
+
     # Update all fields
     for key_path, new_value in updates.items():
         editor.update_field(list(key_path), new_value)
-    
+
     # Save once after all updates
     editor.save()
-    
+
     # Save to any additional paths
     if extra_save_paths:
         for path in extra_save_paths:
             editor.save(output_path=path)
-    
+
     # Confirm all fields
     for key_path in updates.keys():
         editor.confirm_field(list(key_path))
@@ -159,6 +159,7 @@ def update_training_cohorts(
         extra_save_paths=extra_save_paths,
     )
 
+
 def update_key_courses_and_cips(
     config_path: str,
     key_course_ids: list[str],
@@ -172,14 +173,14 @@ def update_key_courses_and_cips(
     editor = TomlConfigEditor(config_path)
     editor.merge_list_field(
         key_path=["preprocessing", "features", "key_course_ids"],
-        new_values=key_course_ids
+        new_values=key_course_ids,
     )
     editor.merge_list_field(
         key_path=["preprocessing", "features", "key_course_subject_areas"],
-        new_values=key_course_subject_areas
+        new_values=key_course_subject_areas,
     )
     editor.save()
-    
+
     if extra_save_paths:
         for path in extra_save_paths:
             editor.save(output_path=path)
