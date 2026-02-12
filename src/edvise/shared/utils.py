@@ -60,7 +60,6 @@ def normalize_degree(text: str) -> str:
 
 
 def format_intensity_time_limit(
-    self,
     duration: t.Tuple[Num, str],
     *,
     style: t.Literal["long", "compact"] = "long",
@@ -97,20 +96,20 @@ def format_intensity_time_limit(
 
 
 def extract_time_limits(
-    self,
     intensity_time_limits: dict[str, t.Tuple[Num, str]],
 ) -> str:
     """
-    Helper that uses the above `format_intensity_time_limit` to create a similar time limit format for the model name which is human-readable and shorter.
+    Helper that uses `format_intensity_time_limit` to create a compact string
+    like '3Y FT, 6Y PT' for model naming.
     """
     order = ["FULL-TIME", "PART-TIME"]
-    parts = []
+    parts: list[str] = []
 
     for intensity in order:
         if intensity not in intensity_time_limits:
             continue
         parts.append(
-            self.format_intensity_time_limit(
+            format_intensity_time_limit(
                 intensity_time_limits[intensity],
                 style="compact",
                 intensity=intensity,

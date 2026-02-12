@@ -486,7 +486,9 @@ class TrainingTask:
 
         validate_tables_exist(self.spark_session, train_tables)
 
-    def register_model(self, *, school_type: str):
+    def register_model(self, *, school_type: str) -> str:
+        assert self.cfg.preprocessing is not None, "preprocessing config is required"
+        assert self.cfg.model is not None, "model config is required"
         school_type_norm = school_type.strip().lower()
         if school_type_norm not in {"pdp", "edvise", "custom"}:
             raise ValueError("school_type must be one of: 'pdp', 'edvise', 'custom'")
