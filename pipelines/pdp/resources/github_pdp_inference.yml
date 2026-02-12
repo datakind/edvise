@@ -315,9 +315,9 @@ resources:
         - name: term_filter
           default: ""
         - name: cohort_file_name
-          default: AO1600pdp_AO1600_AR_DEIDENTIFIED_STUDYID_20250723040724.csv
+          default: AO1600pdp_AO1600_AR_DEIDENTIFIED_STUDYID_20250618030630.csv
         - name: course_file_name
-          default: AO1600pdp_AO1600_COURSE_LEVEL_AR_DEIDENTIFIED_STUDYID_20250723040724.csv
+          default: AO1600pdp_AO1600_COURSE_LEVEL_AR_DEIDENTIFIED_STUDYID_20250618030630.csv
         - name: databricks_institution_name
           default: ${var.databricks_institution_name}
         - name: db_run_id

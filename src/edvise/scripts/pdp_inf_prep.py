@@ -185,11 +185,11 @@ class InferencePrepTask:
         if self.cfg.inference is None or self.cfg.inference.term is None:
             raise ValueError("cfg.inference.term must be configured.")
 
-        inf_cohort = self.cfg.inference.term
-        df_selected_cohorts = filter_inference_term(df_labeled, cohorts_list=inf_cohort)
+        inf_terms = self.cfg.inference.term
+        df_selected_terms = filter_inference_term(df_labeled, term_list = inf_terms)
 
         cohort_counts = (
-            df_selected_cohorts[["cohort", "cohort_term"]]
+            df_selected_terms[["cohort", "cohort_term"]]
             .value_counts(dropna=False)
             .sort_index()
         )
@@ -197,7 +197,7 @@ class InferencePrepTask:
             "Cohort & Cohort Term breakdowns (counts):\n%s",
             cohort_counts.to_string(),
         )
-        df_preprocessed = self.cleanup_features(df_selected_cohorts)
+        df_preprocessed = self.cleanup_features(df_selected_terms)
 
         # Write output using custom function
         out_path = os.path.join(current_run_path, "preprocessed.parquet")
