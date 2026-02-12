@@ -197,6 +197,16 @@ class InferencePrepTask:
             "Cohort & Cohort Term breakdowns (counts):\n%s",
             cohort_counts.to_string(),
         )
+
+        term_counts = (
+            df_selected_terms[["academic_year", "academic_term"]]
+            .value_counts(dropna=False)
+            .sort_index()
+        )
+        logging.info(
+            "Term breakdowns (counts):\n%s",
+            term_counts.to_string(),
+        )
         df_preprocessed = self.cleanup_features(df_selected_terms)
 
         # Write output using custom function
