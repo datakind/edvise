@@ -857,6 +857,8 @@ def _log_schema_summary(
     course_type_col: str | None,
     course_name_col: str | None,
     keeper_rule: str,
+    duplicate_rows: pd.DataFrame,
+    unique_cols: list[str],
 ) -> None:
     LOGGER.info("COURSE RECORD DUPLICATE SUMMARY (edvise schema)")
 
@@ -892,6 +894,16 @@ def _log_schema_summary(
         total_after,
         final_dupe_rows,
     )
+
+    if not duplicate_rows.empty:
+        LOGGER.info("")
+        LOGGER.info("Duplicate group breakdown (post exact-dedup, pre-resolution):")
+        _log_duplicate_groups(
+            duplicate_rows,
+            unique_cols=unique_cols,
+            course_type_col=course_type_col,
+            course_name_col=course_name_col,
+        )
 
     LOGGER.info("")
 
@@ -1012,6 +1024,8 @@ def _handle_schema_duplicates(
         course_type_col,
         course_name_col,
         keeper_rule,
+        duplicate_rows,
+        unique_cols,
     )
 
     return df
