@@ -1021,3 +1021,45 @@ def handling_duplicates(
         return _handle_schema_duplicates(
             df, unique_cols, credits_col, course_type_col, course_name_col
         )
+
+
+def _grade_to_score(val: object) -> float:
+    """
+    Convert a grade value to a numeric score for sorting.
+    Handles numeric grades (e.g., 92, "3.7") and letter grades (A, A-, B+ ...).
+    Unknown/blank -> -inf so it loses ties.
+    """
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return float("-inf")
+
+    s = str(val).strip().upper()
+    if not s:
+        return float("-inf")
+
+    # Numeric grade?
+    try:
+        return float(s)
+    except ValueError:
+        pass
+
+    # Letter grades
+    # You can tune this mapping to your schema.
+    base = {
+        "A": 4.0,
+        "B": 3.0,
+        "C": 2.0,
+        "D": 1.0,
+        "F": 0.0,
+    }
+
+    m = re.match(r"^([A-F])([+-])?$", s)
+    if not m:
+        return float("-inf")
+
+    letter, sign = m.group(1), m.group(2)
+    score = base[letter]
+    if sign == "+":
+        score += 0.3
+    elif sign == "-":
+        score -= 0.3
+    return score
