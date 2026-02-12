@@ -22,7 +22,7 @@ print("sys.path:", sys.path)
 
 from edvise.model_prep import cleanup_features as cleanup
 from edvise.dataio.read import read_parquet, read_config
-from edvise.utils.filter_inference import filter_inference_term
+from edvise.student_selection.filter_inference import filter_inference_term
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
@@ -76,14 +76,14 @@ class InferencePrepTask:
 
                     self.cfg.inference = InferenceConfig(cohort=param_cohort)
                 else:
-                    self.cfg.inference.cohort = param_cohort
+                    self.cfg.inference.term = param_cohort
                 LOGGER.info(
                     "Inference cohort source: job param; term_filter=%s", param_cohort
                 )
             else:
                 LOGGER.info(
                     "Inference cohort source: config; cohort=%s",
-                    self.cfg.inference.cohort if self.cfg.inference else None,
+                    self.cfg.inference.term if self.cfg.inference else None,
                 )
 
     def merge_data(
@@ -179,11 +179,11 @@ class InferencePrepTask:
             "Merge produced 0 labeled rows (checkpoint ∩ selected ∩ selected_students is empty).",
         )
 
-        LOGGER.info(" Selecting inference cohort")
-        if self.cfg.inference is None or self.cfg.inference.cohort is None:
-            raise ValueError("cfg.inference.cohort must be configured.")
+        LOGGER.info(" Selecting students for inference, i.e. met the checkpoint in term(s) of interest")
+        if self.cfg.inference is None or self.cfg.inference.term is None:
+            raise ValueError("cfg.inference.term must be configured.")
 
-        inf_cohort = self.cfg.inference.cohort
+        inf_cohort = self.cfg.inference.term
         df_selected_cohorts = filter_inference_term(
             df_labeled, cohorts_list=inf_cohort
         )
