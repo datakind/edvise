@@ -1,5 +1,6 @@
 import re
 import typing as t
+from edvise.shared.utils import format_intensity_time_limit
 
 
 class Formatting:
@@ -117,23 +118,3 @@ class Formatting:
             result = re.sub(r"(Checkpoint:[^)]+?)\s*(?=$|_)", r"\1)", result)
 
         return result
-
-    def format_intensity_time_limit(self, duration: t.Tuple[str, str]) -> str:
-        """
-        We want to format a intensity_limit within config.toml by unpacking
-        the value (3.0) and unit ("year"), for example.
-
-        Args:
-            duration: intensity limit in config (3.0, "year"), for example.
-        """
-        num, unit = duration
-
-        # Format number cleanly
-        if isinstance(num, float):
-            if num.is_integer():
-                num = int(num)
-            else:
-                num = round(num, 2)
-
-        unit = unit if num == 1 else unit + "s"
-        return f"{num} {unit}"

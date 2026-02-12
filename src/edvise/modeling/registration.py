@@ -4,6 +4,7 @@ import re
 import mlflow
 import mlflow.exceptions
 import mlflow.tracking
+from edvise.shared.utils import normalize_degree, extract_time_limits
 
 LOGGER = logging.getLogger(__name__)
 
@@ -73,59 +74,6 @@ def register_mlflow_model(
     if model_alias:
         mlflow_client.set_registered_model_alias(model_path, model_alias, mv.version)
         LOGGER.info("Set alias '%s' to version %s", model_alias, mv.version)
-
-
-def normalize_degree(text: str) -> str:
-    """
-    Normalize degree text by removing the word 'degree' and standardizing capitalization.
-
-    Removes trailing 'degree' (case-insensitive) and converts text to title case
-    (lowercase with first letter capitalized).
-
-    Args:
-        text: Degree text to normalize (e.g., "ASSOCIATE'S DEGREE", "Bachelor's degree")
-
-    Returns:
-        Normalized degree text (e.g., "Associate's", "Bachelor's")
-
-    Examples:
-        normalize_degree("ASSOCIATE'S DEGREE")
-        "Associates"
-    """
-    # remove the word "degree" (case-insensitive) at the end
-    text = text.strip()
-
-    # remove the word "degree" (case-insensitive) at the end
-    text = re.sub(r"\s*degree\s*$", "", text, flags=re.IGNORECASE)
-
-    # normalize possessive degrees: bachelor's/master's/associate's -> bachelors/masters/associates
-    # handles straight and curly apostrophes
-    text = re.sub(r"[’']s\b", "s", text, flags=re.IGNORECASE)
-
-    # normalize capitalization
-    return text.lower().capitalize()
-
-
-def extract_time_limits(intensity_time_limits: dict) -> str:
-    """Transform intensity time limits into compact string like '3Y FT, 6Y PT'"""
-    # Define order
-    order = ["FULL-TIME", "PART-TIME"]
-
-    parts = []
-    for enroll_intensity in order:
-        if enroll_intensity not in intensity_time_limits:
-            continue
-
-        duration, unit = intensity_time_limits[enroll_intensity]
-        duration_str = (
-            str(int(duration)) if duration == int(duration) else str(duration)
-        )
-        unit_abbrev = unit[0].upper()
-        intensity_abbrev = "".join(word[0] for word in enroll_intensity.split("-"))
-
-        parts.append(f"{duration_str}{unit_abbrev} {intensity_abbrev}")
-
-    return ", ".join(parts)
 
 
 def get_model_name(
