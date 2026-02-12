@@ -1872,7 +1872,7 @@ class EdaSummary:
                 "FIRST-TIME": "First Time",
                 "RE-ADMIT": "Re-admit",
                 "TRANSFER-IN": "Transfer",
-            }.get(str(value).lower(), str(value).replace("-", " ").strip())
+            }.get(str(value), str(value).replace("-", " ").strip())
         )
         series_data = self._format_series_data(series_data)
 
@@ -1933,7 +1933,7 @@ class EdaSummary:
         counts_df.columns = counts_df.columns.str.lower()
 
         ordered_terms = [
-            t for t in ("fall", "winter", "spring", "summer") if t in counts_df.columns
+            t for t in ("FALL", "WINTER", "SPRING", "SUMMER") if t in counts_df.columns
         ]
 
         return {
@@ -2036,7 +2036,7 @@ class EdaSummary:
                         "FIRST-TIME": "First Time",
                         "RE-ADMIT": "Re-admit",
                         "TRANSFER-IN": "Transfer",
-                    }.get(str(value).lower(), str(value).replace("-", " ").strip())
+                    }.get(str(value), str(value).replace("-", " ").strip())
                 )
                 .tolist()
             ),
@@ -2141,7 +2141,7 @@ class EdaSummary:
                 - series: List of dicts with "name" (Pell status) and "data" (counts per category)
         """
 
-        pell_map = {"Y": "Yes", "N": "No", "y": "Yes", "n": "No"}
+        pell_map = {"Y": "Yes", "N": "No"}
         race_df = (
             self.df_cohort[["race", "pell_status_first_year"]]
             .dropna()
