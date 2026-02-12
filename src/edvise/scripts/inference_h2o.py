@@ -95,7 +95,7 @@ class ModelInferenceTask:
             logging.error("Error reading configuration file: %s", e)
             raise
 
-    def load_mlflow_model_metadata(self, *, school_type: str) -> None:
+    def load_mlflow_model_metadata(self) -> None:
         """Discover UC model latest version -> run_id + experiment_id (no model object needed here)."""
         client = MlflowClient(registry_uri="databricks-uc")
 
