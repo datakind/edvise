@@ -679,6 +679,7 @@ def _classify_duplicate_groups(
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
     credits_col: str | None = "course_credits_attempted",
+    grade_col: str | None = "grade",
 ) -> tuple[list[int], list[int], int, int, int]:
     """
     Classify duplicate groups into renumber vs drop categories.
@@ -714,13 +715,33 @@ def _classify_duplicate_groups(
                 lab_lecture_rows += len(grp)
         else:
             drop_groups += 1
-            # Keep best row (highest credits if possible), drop the rest
-            if credits_col is not None:
-                grp_sorted = grp.sort_values(
-                    by=[credits_col], ascending=False, kind="mergesort"
+
+            grp_sorted = grp
+
+            # Build sort keys (descending)
+            sort_cols: list[str] = []
+            ascending: list[bool] = []
+
+            if credits_col is not None and credits_col in grp_sorted.columns:
+                sort_cols.append(credits_col)
+                ascending.append(False)
+
+            # Grade as a numeric score (descending)
+            if grade_col is not None and grade_col in grp_sorted.columns:
+                score_col = "__grade_score__"
+                grp_sorted = grp_sorted.assign(
+                    **{score_col: grp_sorted[grade_col].map(_grade_to_score)}
                 )
-            else:
-                grp_sorted = grp
+                sort_cols.append(score_col)
+                ascending.append(False)
+
+            if sort_cols:
+                grp_sorted = grp_sorted.sort_values(
+                    by=sort_cols,
+                    ascending=ascending,
+                    kind="mergesort",  # stable: preserves original order on ties
+                )
+
             keep_one = grp_sorted.index[0]
             drop_idx.extend([i for i in grp_sorted.index if i != keep_one])
 
@@ -869,6 +890,7 @@ def _handle_schema_duplicates(
     credits_col: str | None = "course_credits_attempted",
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
+    grade_col: str | None = "grade",
 ) -> pd.DataFrame:
     """Handle duplicates for Edvise schema mode."""
     LOGGER.info("handle_duplicates: edvise schema mode triggered")
@@ -926,7 +948,12 @@ def _handle_schema_duplicates(
         drop_groups,
         lab_lecture_rows,
     ) = _classify_duplicate_groups(
-        duplicate_rows, unique_cols, course_type_col, course_name_col, credits_col
+        duplicate_rows,
+        unique_cols,
+        course_type_col,
+        course_name_col,
+        credits_col,
+        grade_col,
     )
 
     # Drop true duplicate rows
