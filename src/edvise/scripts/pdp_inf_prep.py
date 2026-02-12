@@ -179,14 +179,14 @@ class InferencePrepTask:
             "Merge produced 0 labeled rows (checkpoint ∩ selected ∩ selected_students is empty).",
         )
 
-        LOGGER.info(" Selecting students for inference, i.e. met the checkpoint in term(s) of interest")
+        LOGGER.info(
+            " Selecting students for inference, i.e. met the checkpoint in term(s) of interest"
+        )
         if self.cfg.inference is None or self.cfg.inference.term is None:
             raise ValueError("cfg.inference.term must be configured.")
 
         inf_cohort = self.cfg.inference.term
-        df_selected_cohorts = filter_inference_term(
-            df_labeled, cohorts_list=inf_cohort
-        )
+        df_selected_cohorts = filter_inference_term(df_labeled, cohorts_list=inf_cohort)
 
         cohort_counts = (
             df_selected_cohorts[["cohort", "cohort_term"]]

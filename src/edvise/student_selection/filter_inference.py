@@ -28,10 +28,14 @@ def _filter_by_joined_columns(
     """
     # Normalize labels to lowercase so matching is case-insensitive
     selection_list_normalized = [
-        label.strip().lower() for label in selection_list if label and str(label).strip()
+        label.strip().lower()
+        for label in selection_list
+        if label and str(label).strip()
     ]
     if not selection_list_normalized:
-        raise ValueError(f"{selection_type}_list had no non-empty {selection_type} labels.")
+        raise ValueError(
+            f"{selection_type}_list had no non-empty {selection_type} labels."
+        )
 
     # Combine columns and normalize to lowercase
     temp_column = f"{selection_type}_selection"

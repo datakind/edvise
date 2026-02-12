@@ -505,16 +505,16 @@ class InferenceConfig(pyd.BaseModel):
     term: t.Optional[list[str]] = pyd.Field(
         default=None,
         description="List of terms to use for inference. Students will be selected if they meet the checkpoint in one of these terms. "
-        "Typically most often the most recent term. e.g. ['fall 2024-25', 'spring 2024-25']"
+        "Typically most often the most recent term. e.g. ['fall 2024-25', 'spring 2024-25']",
     )
-    
+
     cohort: t.Optional[list[str]] = pyd.Field(
         default=None,
-        description="DEPRECATED: Use 'term' instead. This field will be removed in a future version."
+        description="DEPRECATED: Use 'term' instead. This field will be removed in a future version.",
     )
-    
-    @pyd.model_validator(mode='after')
-    def migrate_cohort_to_term(self) -> 'InferenceConfig':
+
+    @pyd.model_validator(mode="after")
+    def migrate_cohort_to_term(self) -> "InferenceConfig":
         """Migrate deprecated cohort field to term and ensure one is provided."""
         # Case 1: Both provided - term takes precedence
         if self.cohort is not None and self.term is not None:
@@ -522,26 +522,26 @@ class InferenceConfig(pyd.BaseModel):
                 "Both 'cohort' and 'term' are provided. 'cohort' is deprecated and will be ignored. "
                 "Please use only 'term' in your configuration.",
                 DeprecationWarning,
-                stacklevel=2
+                stacklevel=2,
             )
             # term already has the right value, cohort will be ignored
             return self
-        
+
         # Case 2: Only cohort provided - migrate to term
         if self.cohort is not None and self.term is None:
             warnings.warn(
                 "The 'cohort' field is deprecated and will be removed in a future version. "
                 "Please update your configuration to use 'term' instead.",
                 DeprecationWarning,
-                stacklevel=2
+                stacklevel=2,
             )
             self.term = self.cohort
             return self
-        
+
         # Case 3: Only term provided - all good, no warning needed
         if self.term is not None:
             return self
-        
+
         # Case 4: Neither provided - error
         raise ValueError(
             "Either 'term' or 'cohort' must be provided in the inference configuration. "
