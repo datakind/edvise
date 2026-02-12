@@ -263,7 +263,7 @@ class TestEdaSummary:
             "TRANSFER-IN": "Transfer",
         }
         expected_categories = [
-            normalized_names.get(str(c).lower(), str(c).replace("-", " ").strip())
+            normalized_names.get(str(c), str(c).replace("-", " ").strip())
             for c in raw_categories
         ]
         assert result["categories"] == expected_categories
@@ -432,7 +432,7 @@ class TestEdaSummary:
     def test_race_by_pell_status_calculates_correctly(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data)
         result = eda.race_by_pell_status
-        pell_map = {"Y": "Yes", "N": "No", "y": "Yes", "n": "No"}
+        pell_map = {"Y": "Yes", "N": "No"}
         race_df = (
             sample_cohort_data[["race", "pell_status_first_year"]]
             .dropna()
