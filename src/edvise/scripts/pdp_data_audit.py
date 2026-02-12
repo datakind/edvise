@@ -332,17 +332,6 @@ class PDPDataAuditTask:
         else:
             log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
-        # # Select inference cohort if applicable
-        # if self.args.job_type == "inference":
-        #     LOGGER.info(" Selecting inference cohort")
-        #     if self.cfg.inference is None or self.cfg.inference.cohort is None:
-        #         raise ValueError("cfg.inference.cohort must be configured.")
-
-        #     inf_cohort = self.cfg.inference.cohort
-        #     df_course_validated = select_inference_cohort(
-        #         df_course_validated, cohorts_list=inf_cohort
-        #     )
-
         # Standardize course data
         LOGGER.info(" Standardizing course data:")
         df_course_standardized = self.course_std.standardize(df_course_validated)
@@ -535,14 +524,6 @@ if __name__ == "__main__":
         course_converter_func = None
         LOGGER.info("Running task default course converter func")
         LOGGER.warning(f"Failed to load custom converter functions: {e}")
-
-    # try:
-    #     schemas = importlib.import_module("schemas")
-    #     LOGGER.info("Running task with custom schema")
-    # except Exception as e:
-    #     from data_audit import schemas as schemas
-    #     LOGGER.info("Running task with default schema")
-    #     LOGGER.warning(f"Failed to load custom schema: {e}")
 
     task = PDPDataAuditTask(
         args,
