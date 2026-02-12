@@ -22,7 +22,7 @@ print("sys.path:", sys.path)
 
 from edvise.model_prep import cleanup_features as cleanup
 from edvise.dataio.read import read_parquet, read_config
-from edvise.data_audit.cohort_selection import select_inference_cohort
+from edvise.utils.filter_inference import filter_inference_term
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
@@ -184,7 +184,7 @@ class InferencePrepTask:
             raise ValueError("cfg.inference.cohort must be configured.")
 
         inf_cohort = self.cfg.inference.cohort
-        df_selected_cohorts = select_inference_cohort(
+        df_selected_cohorts = filter_inference_term(
             df_labeled, cohorts_list=inf_cohort
         )
 
