@@ -1006,6 +1006,8 @@ def _handle_schema_duplicates(
         keeper_rule,
     )
 
+    return df
+
 
 def handling_duplicates(
     df: pd.DataFrame,
