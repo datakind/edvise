@@ -6,7 +6,7 @@ from edvise.modeling.registration import (
     get_model_name,
     pdp_get_model_name,
     normalize_degree,
-    extract_time_limits,
+    format_enrollment_intensity_time_limits,
 )
 
 
@@ -146,18 +146,22 @@ class TestNormalizeDegree:
         assert result == "Bachelors"
 
 
-# Tests for extract_time_limits helper function
-class TestExtractTimeLimits:
-    """Tests for extract_time_limits function used in get_model_name"""
+# Tests for format_enrollment_intensity_time_limits helper function
+class TestFormatEnrollmentIntensityTimeLimits:
+    """Tests for format_enrollment_intensity_time_limits function used in get_model_name"""
 
     def test_full_time_only_years(self):
         intensity_time_limits = {"FULL-TIME": [3.0, "year"]}
-        result = extract_time_limits(intensity_time_limits)
+        result = format_enrollment_intensity_time_limits(
+            intensity_time_limits=intensity_time_limits, style="compact"
+        )
         assert result == "3Y FT"
 
     def test_part_time_only_years(self):
         intensity_time_limits = {"PART-TIME": [6.0, "year"]}
-        result = extract_time_limits(intensity_time_limits)
+        result = format_enrollment_intensity_time_limits(
+            intensity_time_limits=intensity_time_limits, style="compact"
+        )
         assert result == "6Y PT"
 
     def test_both_full_time_and_part_time_years(self):
@@ -166,12 +170,16 @@ class TestExtractTimeLimits:
             "FULL-TIME": [3.0, "year"],
             "PART-TIME": [6.0, "year"],
         }
-        result = extract_time_limits(intensity_time_limits)
+        result = format_enrollment_intensity_time_limits(
+            intensity_time_limits=intensity_time_limits, style="compact"
+        )
         assert result == "3Y FT, 6Y PT"
 
     def test_decimal_duration(self):
         intensity_time_limits = {"FULL-TIME": [2.5, "year"]}
-        result = extract_time_limits(intensity_time_limits)
+        result = format_enrollment_intensity_time_limits(
+            intensity_time_limits=intensity_time_limits, style="compact"
+        )
         assert result == "2.5Y FT"
 
     def test_terms_unit(self):
@@ -180,7 +188,9 @@ class TestExtractTimeLimits:
             "FULL-TIME": [4.0, "term"],
             "PART-TIME": [8.0, "term"],
         }
-        result = extract_time_limits(intensity_time_limits)
+        result = format_enrollment_intensity_time_limits(
+            intensity_time_limits=intensity_time_limits, style="compact"
+        )
         assert result == "4T FT, 8T PT"
 
     def test_respects_order_full_time_first(self):
@@ -189,13 +199,17 @@ class TestExtractTimeLimits:
             "PART-TIME": [6.0, "year"],
             "FULL-TIME": [3.0, "year"],
         }
-        result = extract_time_limits(intensity_time_limits)
+        result = format_enrollment_intensity_time_limits(
+            intensity_time_limits=intensity_time_limits, style="compact"
+        )
         assert result == "3Y FT, 6Y PT"
 
     def test_integer_duration_no_decimal_point(self):
         """3.0 should display as '3' not '3.0'"""
         intensity_time_limits = {"FULL-TIME": [3.0, "year"]}
-        result = extract_time_limits(intensity_time_limits)
+        result = format_enrollment_intensity_time_limits(
+            intensity_time_limits=intensity_time_limits, style="compact"
+        )
         assert result == "3Y FT"
 
 
@@ -223,7 +237,7 @@ class TestGetModelName:
         assert result == "test_inst_graduation_in_3y_checkpoint_2_pilot"
 
     def test_model_name_without_extra_info(self):
-        """Test that extra_info is optional"""
+        """Test that extra_info is optional (None omits suffix)"""
         result = get_model_name(
             institution_id="my_school",
             target="custom_target",
@@ -231,6 +245,41 @@ class TestGetModelName:
             extra_info=None,
         )
         assert result == "my_school_custom_target_custom_checkpoint"
+
+    def test_model_name_without_institution_id(self):
+        """Test format when institution_id is omitted (target only or target + checkpoint)"""
+        result = get_model_name(
+            target="retention_into_year_2_associates",
+            checkpoint="",
+        )
+        assert result == "retention_into_year_2_associates"
+
+    def test_model_name_target_and_checkpoint_only(self):
+        """Test format with target and checkpoint, no institution_id"""
+        result = get_model_name(
+            target="graduation_in_3y_ft_6y_pt",
+            checkpoint="checkpoint_2_core_terms",
+        )
+        assert result == "graduation_in_3y_ft_6y_pt_checkpoint_2_core_terms"
+
+    def test_model_name_target_only_no_checkpoint(self):
+        """Test format with only target (empty checkpoint)"""
+        result = get_model_name(
+            target="retention_into_year_2_all_degrees",
+            checkpoint="",
+        )
+        assert result == "retention_into_year_2_all_degrees"
+
+    def test_model_name_produces_lowercase_underscore_separated(self):
+        """Test that output is lowercase with underscores (Unity Catalog compatible)"""
+        result = get_model_name(
+            institution_id="my_inst",
+            target="credits_30_in_3y_ft_6y_pt",
+            checkpoint="checkpoint_2_core_terms",
+        )
+        assert result == "my_inst_credits_30_in_3y_ft_6y_pt_checkpoint_2_core_terms"
+        assert " " not in result
+        assert result == result.lower()
 
 
 # Tests for pdp_get_model_name function

@@ -5,12 +5,12 @@ import mlflow.exceptions
 import mlflow.tracking
 from edvise.shared.utils import (
     normalize_degree,
-    format_time_limits,
+    format_enrollment_intensity_time_limits,
 )
 
 __all__ = [
     "normalize_degree",
-    "format_time_limits",
+    "format_enrollment_intensity_time_limits",
 ]
 
 LOGGER = logging.getLogger(__name__)
@@ -174,7 +174,7 @@ def pdp_get_model_name(
             target_name = "retention_into_year_2_all_degrees"
         checkpoint_name = ""
     elif target_type == "graduation":
-        time_limits = format_time_limits(
+        time_limits = format_enrollment_intensity_time_limits(
             intensity_time_limits=get_attr(target, "intensity_time_limits"),
             style="underscore",
         )
@@ -199,7 +199,7 @@ def pdp_get_model_name(
             target_name = f"graduation_in_{time_limits}"
             checkpoint_name = f"checkpoint_{credits}_credits"
     elif target_type == "credits_earned":
-        time_limits = format_time_limits(
+        time_limits = format_enrollment_intensity_time_limits(
             intensity_time_limits=get_attr(target, "intensity_time_limits"),
             style="underscore",
         )

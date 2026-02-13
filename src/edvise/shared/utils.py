@@ -59,7 +59,7 @@ def normalize_degree(text: str) -> str:
     return text.lower().capitalize()
 
 
-def format_time_limits(
+def format_enrollment_intensity_time_limits(
     *,
     intensity_time_limits: dict[str, t.Tuple[Num, str]] | None = None,
     duration: t.Tuple[Num, str] | None = None,
@@ -135,7 +135,9 @@ def format_time_limits(
     def _intensity_abbrev(intensity_str: str) -> str:
         return "".join(word[0] for word in intensity_str.split("-"))
 
-    def _fmt_single(dur: t.Tuple[Num, str], *, style: str, intensity: str | None) -> str:
+    def _fmt_single(
+        dur: t.Tuple[Num, str], *, style: str, intensity: str | None
+    ) -> str:
         num, unit = dur
         num = _normalize_num(num)
 
@@ -152,12 +154,16 @@ def format_time_limits(
 
     # Validate input mode
     if (intensity_time_limits is None) == (duration is None):
-        raise ValueError("Provide exactly one of `intensity_time_limits` or `duration`.")
+        raise ValueError(
+            "Provide exactly one of `intensity_time_limits` or `duration`."
+        )
 
     # Single duration mode
     if duration is not None:
         if style == "underscore":
-            raise ValueError('style="underscore" requires `intensity_time_limits`, not `duration`.')
+            raise ValueError(
+                'style="underscore" requires `intensity_time_limits`, not `duration`.'
+            )
         return _fmt_single(duration, style=style, intensity=intensity)
 
     # Map mode
@@ -189,7 +195,9 @@ def format_time_limits(
         for k in order:
             if k not in intensity_time_limits:
                 continue
-            parts.append(_fmt_single(intensity_time_limits[k], style="compact", intensity=k))
+            parts.append(
+                _fmt_single(intensity_time_limits[k], style="compact", intensity=k)
+            )
         return ", ".join(parts)
 
     if style == "long":
@@ -197,7 +205,9 @@ def format_time_limits(
         for k in order:
             if k not in intensity_time_limits:
                 continue
-            parts.append(f"{_fmt_single(intensity_time_limits[k], style='long', intensity=None)} ({_intensity_abbrev(k)})")
+            parts.append(
+                f"{_fmt_single(intensity_time_limits[k], style='long', intensity=None)} ({_intensity_abbrev(k)})"
+            )
         return ", ".join(parts)
 
     raise ValueError(f"Unknown style: {style}")

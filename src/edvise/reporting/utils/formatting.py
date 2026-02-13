@@ -1,6 +1,6 @@
 import re
 import typing as t
-from edvise.shared.utils import format_intensity_time_limit as _fmt
+from edvise.shared.utils import format_enrollment_intensity_time_limits
 
 Num = t.Union[int, float]
 
@@ -17,14 +17,18 @@ class Formatting:
         """
         self.base_spaces = base_spaces
 
-    def format_intensity_time_limit(
+    def format_time_limit_display(
         self,
         duration: t.Tuple[Num, str],
         *,
         style: t.Literal["long", "compact"] = "long",
         intensity: str | None = None,
     ) -> str:
-        return _fmt(duration, style=style, intensity=intensity)
+        return format_enrollment_intensity_time_limits(
+            duration=duration,
+            style=style,
+            intensity=intensity,
+        )
 
     def indent_level(self, depth: int) -> str:
         """
