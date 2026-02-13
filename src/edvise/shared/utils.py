@@ -191,23 +191,23 @@ def format_enrollment_intensity_time_limits(
         return "_".join(parts)
 
     if style == "compact":
-        parts: list[str] = []
+        compact_parts: list[str] = []
         for k in order:
             if k not in intensity_time_limits:
                 continue
-            parts.append(
+            compact_parts.append(
                 _fmt_single(intensity_time_limits[k], style="compact", intensity=k)
             )
-        return ", ".join(parts)
+        return ", ".join(compact_parts)
 
     if style == "long":
-        parts: list[str] = []
+        long_parts: list[str] = []
         for k in order:
             if k not in intensity_time_limits:
                 continue
-            parts.append(
+            long_parts.append(
                 f"{_fmt_single(intensity_time_limits[k], style='long', intensity=None)} ({_intensity_abbrev(k)})"
             )
-        return ", ".join(parts)
+        return ", ".join(long_parts)
 
     raise ValueError(f"Unknown style: {style}")

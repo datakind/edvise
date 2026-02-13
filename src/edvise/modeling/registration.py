@@ -1,12 +1,39 @@
 import logging
 import typing as t
+
 import mlflow
 import mlflow.exceptions
 import mlflow.tracking
+
 from edvise.shared.utils import (
-    normalize_degree,
     format_enrollment_intensity_time_limits,
+    normalize_degree,
 )
+
+if t.TYPE_CHECKING:
+    from edvise.configs.pdp import (
+        CheckpointFirstAtNumCreditsEarnedConfig,
+        CheckpointFirstConfig,
+        CheckpointFirstWithinCohortConfig,
+        CheckpointLastConfig,
+        CheckpointLastInEnrollmentYearConfig,
+        CheckpointNthConfig,
+        TargetCreditsEarnedConfig,
+        TargetGraduationConfig,
+        TargetRetentionConfig,
+    )
+
+    TargetConfigType = (
+        TargetCreditsEarnedConfig | TargetGraduationConfig | TargetRetentionConfig
+    )
+    CheckpointConfigType = (
+        CheckpointFirstAtNumCreditsEarnedConfig
+        | CheckpointFirstConfig
+        | CheckpointFirstWithinCohortConfig
+        | CheckpointLastConfig
+        | CheckpointLastInEnrollmentYearConfig
+        | CheckpointNthConfig
+    )
 
 __all__ = [
     "normalize_degree",
@@ -121,8 +148,8 @@ def get_model_name(
 
 def pdp_get_model_name(
     *,
-    target: str,
-    checkpoint: str,
+    target: "TargetConfigType | dict[str, t.Any]",
+    checkpoint: "CheckpointConfigType | dict[str, t.Any]",
     student_criteria: dict,
     extra_info: t.Optional[str] = None,
 ) -> str:
