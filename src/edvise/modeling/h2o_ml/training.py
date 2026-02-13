@@ -66,8 +66,6 @@ def run_h2o_automl_classification(
     exclude_frameworks = t.cast(list[str], kwargs.pop("exclude_frameworks", []) or [])
     exclude_frameworks = [c for c in exclude_frameworks if c is not None]
 
-    target_name = str(target_name)
-    checkpoint_name = str(checkpoint_name)
     if target_col not in df or split_col not in df:
         raise ValueError("Missing target_col or split column in DataFrame.")
     if metric not in VALID_H2O_METRICS:
