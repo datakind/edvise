@@ -421,17 +421,6 @@ class InferenceConfig(pyd.BaseModel):
         description="DEPRECATED: Use 'term' instead. This field will be removed in a future version.",
     )
 
-    term: t.Optional[list[str]] = pyd.Field(
-        default=None,
-        description="List of terms to use for inference. Students will be selected if they meet the checkpoint in one of these terms. "
-        "Typically most often the most recent term. e.g. ['fall 2024-25', 'spring 2024-25']",
-    )
-
-    cohort: t.Optional[list[str]] = pyd.Field(
-        default=None,
-        description="DEPRECATED: Use 'term' instead. This field will be removed in a future version.",
-    )
-
     @pyd.model_validator(mode="after")
     def migrate_cohort_to_term(self) -> "InferenceConfig":
         """Migrate deprecated cohort field to term and ensure one is provided."""
