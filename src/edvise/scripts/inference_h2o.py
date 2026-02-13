@@ -73,9 +73,9 @@ class ModelInferenceTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.school_type = args.school_type.strip().lower()
-        if self.school_type not in {"pdp", "edvise_custom"}:
-            raise ValueError("school_type must be one of: 'pdp', 'edvise_custom'")
+        self.schema_type = args.schema_type.strip().lower()
+        if self.schema_type not in {"pdp", "edvise", "custom"}:
+            raise ValueError("schema_type must be one of: 'pdp', 'edvise', 'custom'")
         self.spark_session = get_spark_session()
         self.cfg = dataio.read.read_config(
             self.args.config_file_path, schema=PDPProjectConfig
@@ -102,13 +102,13 @@ class ModelInferenceTask:
         # Assert preprocessing is not None (should be validated by config loading)
         assert self.cfg.preprocessing is not None, "preprocessing config is required"
 
-        if self.school_type == "pdp":
+        if self.schema_type == "pdp":
             model_name = modeling.registration.pdp_get_model_name(
                 target=self.cfg.preprocessing.target,
                 checkpoint=self.cfg.preprocessing.checkpoint,
                 student_criteria=self.cfg.preprocessing.selection.student_criteria,
             )
-        else:  # edvise_custom
+        else:  # edvise or custom
             model_name = modeling.registration.get_model_name(
                 institution_id=self.cfg.institution_id,
                 target=self.cfg.preprocessing.target.name,
@@ -390,9 +390,9 @@ def parse_arguments() -> argparse.Namespace:
         "--job_type", type=str, choices=["inference"], default="inference"
     )
     parser.add_argument(
-        "--school_type",
+        "--schema_type",
         type=str,
-        choices=["pdp", "edvise_custom"],
+        choices=["pdp", "edvise", "custom"],
         required=True,
     )
     return parser.parse_args()

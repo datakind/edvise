@@ -73,9 +73,9 @@ class TrainingTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.school_type = args.school_type.strip().lower()
-        if self.school_type not in {"pdp", "edvise_custom"}:
-            raise ValueError("school_type must be one of: 'pdp', 'edvise_custom'")
+        self.schema_type = args.schema_type.strip().lower()
+        if self.schema_type not in {"pdp", "edvise", "custom"}:
+            raise ValueError("schema_type must be one of: 'pdp', 'edvise', 'custom'")
         self.spark_session = self.get_spark_session()
         self.cfg = dataio.read.read_config(
             self.args.config_file_path,
@@ -492,13 +492,13 @@ class TrainingTask:
     def register_model(self) -> str:
         assert self.cfg.preprocessing is not None, "preprocessing config is required"
         assert self.cfg.model is not None, "model config is required"
-        if self.school_type == "pdp":
+        if self.schema_type == "pdp":
             model_name = modeling.registration.pdp_get_model_name(
                 target=self.cfg.preprocessing.target,
                 student_criteria=self.cfg.preprocessing.selection.student_criteria,
                 checkpoint=self.cfg.preprocessing.checkpoint,
             )
-        else:  # edvise_custom
+        else:  # edvise or custom
             model_name = modeling.registration.get_model_name(
                 institution_id=self.cfg.institution_id,
                 target=self.cfg.preprocessing.target.name,
@@ -635,9 +635,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--config_file_name", type=str, required=True)
     parser.add_argument("--job_type", type=str, choices=["training"], required=False)
     parser.add_argument(
-        "--school_type",
+        "--schema_type",
         type=str,
-        choices=["pdp", "edvise_custom"],
+        choices=["pdp", "edvise", "custom"],
         required=True,
     )
     return parser.parse_args()
