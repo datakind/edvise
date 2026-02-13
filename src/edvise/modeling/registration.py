@@ -43,6 +43,40 @@ __all__ = [
 LOGGER = logging.getLogger(__name__)
 
 
+def _get_attr(obj: t.Any, key: str, default: t.Any = None) -> t.Any:
+    """Get attribute from dict or object (supports both config representations)."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _checkpoint_suffix(
+    checkpoint: t.Any,
+    checkpoint_type: str | None,
+) -> str:
+    """Build checkpoint suffix for model name from checkpoint config."""
+    if checkpoint_type == "nth":
+        n_plus_1 = _get_attr(checkpoint, "n") + 1
+        core = bool(_get_attr(checkpoint, "exclude_non_core_terms"))
+        return f"checkpoint_{n_plus_1}_{'core_terms' if core else 'total_terms'}"
+
+    if checkpoint_type == "first_student_terms":
+        return "checkpoint_first_term"
+
+    if checkpoint_type == "first_student_terms_within_cohort":
+        return "checkpoint_first_cohort_term"
+
+    if checkpoint_type == "first_at_num_credits_earned":
+        creds = _get_attr(checkpoint, "min_num_credits")
+        credits = str(int(creds)) if creds == int(creds) else str(creds)
+        return f"checkpoint_{credits}_credits"
+
+    if checkpoint_type in (None, ""):
+        return ""
+
+    raise ValueError(f"Unsupported checkpoint type: {checkpoint_type!r}")
+
+
 def register_mlflow_model(
     model_name: str,
     institution_id: str,
@@ -180,80 +214,40 @@ def pdp_get_model_name(
         >>> pdp_get_model_name(...)
         'graduation_in_3y_ft_6y_pt_checkpoint_2_core_terms'
     """
+    target_type = _get_attr(target, "type_")
+    if not target_type:
+        raise ValueError("target.type_ is required to build model name")
 
-    # Helper to get attribute that works with both dicts and objects
-    def get_attr(obj, key, default=None):
-        if isinstance(obj, dict):
-            return obj.get(key, default)
-        return getattr(obj, key, default)
+    checkpoint_type = _get_attr(checkpoint, "type_") if checkpoint is not None else None
 
-    target_type = get_attr(target, "type_")
-    target_name = ""
-    checkpoint_name = ""
-
+    # --- Retention ---
     if target_type == "retention":
         if "credential_type_sought_year_1" in student_criteria:
-            credential_type = normalize_degree(
+            credential = normalize_degree(
                 student_criteria["credential_type_sought_year_1"]
             ).lower()
-            target_name = f"retention_into_year_2_{credential_type}"
+            target_name = f"retention_into_year_2_{credential}"
         else:
             target_name = "retention_into_year_2_all_degrees"
         checkpoint_name = ""
-    elif target_type == "graduation":
+
+    # --- Graduation / Credits Earned share time limit formatting ---
+    elif target_type in {"graduation", "credits_earned"}:
         time_limits = format_enrollment_intensity_time_limits(
-            intensity_time_limits=get_attr(target, "intensity_time_limits"),
+            intensity_time_limits=_get_attr(target, "intensity_time_limits"),
             style="underscore",
         )
-        checkpoint_type = get_attr(checkpoint, "type_")
-        if checkpoint_type == "nth":
-            n_plus_1 = get_attr(checkpoint, "n") + 1
-            if get_attr(checkpoint, "exclude_non_core_terms") == True:
-                target_name = f"graduation_in_{time_limits}"
-                checkpoint_name = f"checkpoint_{n_plus_1}_core_terms"
-            else:
-                target_name = f"graduation_in_{time_limits}"
-                checkpoint_name = f"checkpoint_{n_plus_1}_total_terms"
-        elif checkpoint_type == "first_student_terms":
-            target_name = f"graduation_in_{time_limits}"
-            checkpoint_name = "checkpoint_first_term"
-        elif checkpoint_type == "first_student_terms_within_cohort":
-            target_name = f"graduation_in_{time_limits}"
-            checkpoint_name = "checkpoint_first_cohort_term"
-        elif checkpoint_type == "first_at_num_credits_earned":
-            creds = get_attr(checkpoint, "min_num_credits")
+        if target_type == "graduation":
+            base = "graduation_in"
+        else:
+            creds = _get_attr(target, "min_num_credits")
             credits = str(int(creds)) if creds == int(creds) else str(creds)
-            target_name = f"graduation_in_{time_limits}"
-            checkpoint_name = f"checkpoint_{credits}_credits"
-    elif target_type == "credits_earned":
-        time_limits = format_enrollment_intensity_time_limits(
-            intensity_time_limits=get_attr(target, "intensity_time_limits"),
-            style="underscore",
-        )
-        checkpoint_type = get_attr(checkpoint, "type_")
-        creds = get_attr(target, "min_num_credits")
-        credits = str(int(creds)) if creds == int(creds) else str(creds)
-        if checkpoint_type == "nth":
-            n_plus_1 = get_attr(checkpoint, "n") + 1
-            if get_attr(checkpoint, "exclude_non_core_terms") == True:
-                target_name = f"{credits}_credits_in_{time_limits}"
-                checkpoint_name = f"checkpoint_{n_plus_1}_core_terms"
-            else:
-                target_name = f"{credits}_credits_in_{time_limits}"
-                checkpoint_name = f"checkpoint_{n_plus_1}_total_terms"
-        elif checkpoint_type == "first_student_terms":
-            target_name = f"{credits}_credits_in_{time_limits}"
-            checkpoint_name = "checkpoint_first_term"
-        elif checkpoint_type == "first_student_terms_within_cohort":
-            target_name = f"{credits}_credits_in_{time_limits}"
-            checkpoint_name = "checkpoint_first_cohort_term"
-        elif checkpoint_type == "first_at_num_credits_earned":
-            chk_creds = get_attr(checkpoint, "min_num_credits")
-            checkpoint_credits = (
-                str(int(chk_creds)) if chk_creds == int(chk_creds) else str(chk_creds)
-            )
-            target_name = f"{credits}_credits_in_{time_limits}"
-            checkpoint_name = f"checkpoint_{checkpoint_credits}_credits"
+            base = f"{credits}_credits_in"
+        target_name = f"{base}_{time_limits}"
+        checkpoint_name = _checkpoint_suffix(checkpoint, checkpoint_type)
+
+    else:
+        raise ValueError(f"Unsupported target type: {target_type!r}")
 
     return get_model_name(
         target=target_name,
