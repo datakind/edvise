@@ -1,0 +1,156 @@
+resources:
+  jobs:
+    edvise_github_sourced_custom_inference_pipeline:
+      name: edvise_github_sourced_custom_inference_pipeline
+      max_concurrent_runs: 5
+
+      tasks:
+        - task_key: inference_setup
+          spark_python_task:
+            python_file: src/edvise/scripts/custom_inference_inputs.py
+            source: GIT
+            parameters:
+              - --model_name
+              - "{{job.parameters.model_name}}"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --config_file_name
+              - "{{job.parameters.config_file_name}}"
+              - --features_table_name
+              - "{{job.parameters.features_table_name}}"
+          job_cluster_key: edvise-custom-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: mlflow~=2.22
+
+        - task_key: inference_h2o
+          depends_on:
+            - task_key: inference_setup
+          spark_python_task:
+            python_file: src/edvise/scripts/inference_h2o.py
+            source: GIT
+            parameters:
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --silver_volume_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --config_file_path
+              - "{{tasks.inference_setup.values.config_file_path}}"
+              - --datakind_notification_email
+              - "{{job.parameters.datakind_notification_email}}"
+              - --DK_CC_EMAIL
+              - "{{job.parameters.DK_CC_EMAIL}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --job_root_dir
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
+              - --schema_type
+              - "custom"
+              - --features_table_path
+              - "{{tasks.inference_setup.values.features_table_path}}"
+          job_cluster_key: edvise-custom-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+            - pypi:
+                package: h2o==3.46.0.7
+            - pypi:
+                package: shap~=0.46.0
+            - pypi:
+                package: mlflow~=2.22
+            - pypi:
+                package: scikit-learn==1.5.2
+
+        - task_key: output_publish
+          depends_on:
+            - task_key: inference_h2o
+          spark_python_task:
+            python_file: src/edvise/scripts/output_publish.py
+            source: GIT
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --datakind_notification_email
+              - "{{job.parameters.datakind_notification_email}}"
+          job_cluster_key: edvise-custom-inference-pipeline-cluster
+          libraries:
+            - pypi: 
+                package: pandas==2.2.3
+            - pypi: 
+                package: pyarrow~=16.0
+      job_clusters:
+        - job_cluster_key: edvise-custom-inference-pipeline-cluster
+          new_cluster:
+            cluster_name: ""
+            spark_version: 15.4.x-cpu-ml-scala2.12
+            spark_conf:
+              spark.master: local[*, 4]
+              spark.databricks.cluster.profile: singleNode
+            gcp_attributes:
+              use_preemptible_executors: false
+              availability: ON_DEMAND_GCP
+              zone_id: HA
+            node_type_id: n2-standard-16
+            custom_tags:
+              ResourceClass: SingleNode
+              x-databricks-nextgen-cluster: "true"
+            enable_elastic_disk: true
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            num_workers: 0
+      queue:
+        enabled: true
+      parameters:
+        - name: databricks_institution_name
+          default: ${var.databricks_institution_name}
+        - name: db_run_id
+          default: "{{job.run_id}}"
+        - name: DB_workspace
+          default: ${var.DB_workspace}
+        - name: model_name
+          default: ${var.model_name}
+        - name: config_file_name
+          default: ${var.config_file_name}
+        - name: features_table_name
+          default: ${var.features_table_name}
+        - name: gcp_bucket_name
+          default: databricks-2052166062819251-unitycatalog
+        - name: service_account_executer
+          default: ${var.service_account_executer}
+        - name: datakind_notification_email
+          default: ${var.datakind_notification_email}
+        - name: DK_CC_EMAIL
+          default: ${var.datakind_notification_email}
+      permissions:
+        - group_name: ${var.datakind_group_to_manage_workflow} 
+          level: CAN_MANAGE
+        - service_principal_name: ${var.ds_run_as}
+          level: CAN_MANAGE
+        - user_name: ${var.service_account_executer}
+          level: CAN_MANAGE

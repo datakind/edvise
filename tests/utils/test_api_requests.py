@@ -34,12 +34,12 @@ class TestGetInstitutionIdByName:
 
         # Execute
         result = api_requests.get_institution_id_by_name(
-            "Test University", "test-api-key"
+            "Test University", "test-api-key", "dev"
         )
 
         # Assert
         assert result == "abc123-def456-ghi789"
-        mock_get_tokens.assert_called_once_with(api_key="test-api-key")
+        mock_get_tokens.assert_called_once_with(api_key="test-api-key", DB_workspace="dev")
         mock_session.get.assert_called_once()
         call_args = mock_session.get.call_args
         # Name is normalized to lowercase before API call
@@ -70,7 +70,7 @@ class TestGetInstitutionIdByName:
         ]
 
         for institution_name, *expected_parts in test_cases:
-            api_requests.get_institution_id_by_name(institution_name, "api-key")
+            api_requests.get_institution_id_by_name(institution_name, "api-key", "dev")
             call_url = mock_session.get.call_args[0][0].lower()
             # Check that all lowercase parts of the name appear in the URL
             for part in expected_parts:
@@ -91,7 +91,7 @@ class TestGetInstitutionIdByName:
         mock_session_class.return_value = mock_session
 
         # Execute with leading/trailing whitespace
-        api_requests.get_institution_id_by_name("  Test University  ", "api-key")
+        api_requests.get_institution_id_by_name("  Test University  ", "api-key", "dev")
 
         # Assert URL doesn't have leading/trailing encoded spaces
         # Name is normalized to lowercase before API call
@@ -101,7 +101,7 @@ class TestGetInstitutionIdByName:
 
     def test_validation_error_empty_institution_name(self):
         """Test that empty institution name returns error dict."""
-        result = api_requests.get_institution_id_by_name("", "test-api-key")
+        result = api_requests.get_institution_id_by_name("", "test-api-key", "dev")
 
         assert isinstance(result, dict)
         assert result["ok"] is False
@@ -110,7 +110,7 @@ class TestGetInstitutionIdByName:
 
     def test_validation_error_whitespace_only_institution_name(self):
         """Test that whitespace-only institution name returns error dict."""
-        result = api_requests.get_institution_id_by_name("   ", "test-api-key")
+        result = api_requests.get_institution_id_by_name("   ", "test-api-key", "dev")
 
         assert isinstance(result, dict)
         assert result["ok"] is False
@@ -119,7 +119,7 @@ class TestGetInstitutionIdByName:
 
     def test_validation_error_none_institution_name(self):
         """Test that None institution name returns error dict."""
-        result = api_requests.get_institution_id_by_name(None, "test-api-key")  # type: ignore
+        result = api_requests.get_institution_id_by_name(None, "test-api-key", "dev")  # type: ignore
 
         assert isinstance(result, dict)
         assert result["ok"] is False
@@ -127,7 +127,7 @@ class TestGetInstitutionIdByName:
 
     def test_validation_error_non_string_institution_name(self):
         """Test that non-string institution name returns error dict."""
-        result = api_requests.get_institution_id_by_name(123, "test-api-key")  # type: ignore
+        result = api_requests.get_institution_id_by_name(123, "test-api-key", "dev")  # type: ignore
 
         assert isinstance(result, dict)
         assert result["ok"] is False
@@ -135,7 +135,7 @@ class TestGetInstitutionIdByName:
 
     def test_validation_error_empty_api_key(self):
         """Test that empty API key returns error dict."""
-        result = api_requests.get_institution_id_by_name("Test University", "")
+        result = api_requests.get_institution_id_by_name("Test University", "", "dev")
 
         assert isinstance(result, dict)
         assert result["ok"] is False
@@ -144,7 +144,7 @@ class TestGetInstitutionIdByName:
 
     def test_validation_error_none_api_key(self):
         """Test that None API key returns error dict."""
-        result = api_requests.get_institution_id_by_name("Test University", None)  # type: ignore
+        result = api_requests.get_institution_id_by_name("Test University", None, "dev")  # type: ignore
 
         assert isinstance(result, dict)
         assert result["ok"] is False
@@ -170,7 +170,7 @@ class TestGetInstitutionIdByName:
         mock_session_class.return_value = mock_session
 
         with pytest.raises(requests.HTTPError) as exc_info:
-            api_requests.get_institution_id_by_name("Nonexistent University", "api-key")
+            api_requests.get_institution_id_by_name("Nonexistent University", "api-key", "dev")
 
         assert "404" in str(exc_info.value)
         # Verify that the name was normalized to lowercase in the API call
@@ -193,7 +193,7 @@ class TestGetInstitutionIdByName:
         mock_session_class.return_value = mock_session
 
         # Test with mixed case input
-        result = api_requests.get_institution_id_by_name("Test University", "api-key")
+        result = api_requests.get_institution_id_by_name("Test University", "api-key", "dev")
 
         assert result == "test-id-123"
         # Verify that the API was called with lowercase version
@@ -218,7 +218,7 @@ class TestGetInstitutionIdByName:
         mock_session_class.return_value = mock_session
 
         with pytest.raises(requests.HTTPError):
-            api_requests.get_institution_id_by_name("Test University", "api-key")
+            api_requests.get_institution_id_by_name("Test University", "api-key", "dev")
 
     @patch("edvise.utils.api_requests.get_access_tokens")
     @patch("edvise.utils.api_requests.requests.Session")
@@ -239,7 +239,7 @@ class TestGetInstitutionIdByName:
         mock_session_class.return_value = mock_session
 
         with pytest.raises(KeyError) as exc_info:
-            api_requests.get_institution_id_by_name("Test University", "api-key")
+            api_requests.get_institution_id_by_name("Test University", "api-key", "dev")
 
         assert "inst_id" in str(exc_info.value)
 
@@ -258,7 +258,7 @@ class TestGetInstitutionIdByName:
         mock_session_class.return_value = mock_session
 
         with pytest.raises(KeyError) as exc_info:
-            api_requests.get_institution_id_by_name("Test University", "api-key")
+            api_requests.get_institution_id_by_name("Test University", "api-key", "dev")
 
         assert "inst_id" in str(exc_info.value)
 
@@ -278,7 +278,7 @@ class TestGetInstitutionIdByName:
         mock_session_class.return_value = mock_session
 
         with pytest.raises(ValueError) as exc_info:
-            api_requests.get_institution_id_by_name("Test University", "api-key")
+            api_requests.get_institution_id_by_name("Test University", "api-key", "dev")
 
         assert "non-json" in str(exc_info.value).lower()
         assert "Not JSON" in str(exc_info.value)
@@ -289,7 +289,7 @@ class TestGetInstitutionIdByName:
         mock_get_tokens.side_effect = KeyError("No access_token in response")
 
         with pytest.raises(KeyError) as exc_info:
-            api_requests.get_institution_id_by_name("Test University", "api-key")
+            api_requests.get_institution_id_by_name("Test University", "api-key", "dev")
 
         assert "access_token" in str(exc_info.value)
 
@@ -309,7 +309,7 @@ class TestGetInstitutionIdByName:
         mock_session.get.return_value = mock_response
         mock_session_class.return_value = mock_session
 
-        api_requests.get_institution_id_by_name("Test University", "api-key")
+        api_requests.get_institution_id_by_name("Test University", "api-key", "dev")
 
         headers = mock_session.get.call_args[1]["headers"]
         assert "Accept" in headers
@@ -338,7 +338,7 @@ class TestGetInstitutionIdByName:
 
         # Execute with databricks name
         result = api_requests.get_institution_id_by_name(
-            "motlow_state_cc", "test-api-key", is_databricks_name=True
+            "motlow_state_cc", "test-api-key", "dev", is_databricks_name=True
         )
 
         # Assert
@@ -354,7 +354,7 @@ class TestGetInstitutionIdByName:
     def test_databricks_name_invalid_format(self, mock_session_class, mock_get_tokens):
         """Test that invalid databricks name format returns error."""
         result = api_requests.get_institution_id_by_name(
-            "Invalid Name!", "test-api-key", is_databricks_name=True
+            "Invalid Name!", "test-api-key", "dev", is_databricks_name=True
         )
 
         assert isinstance(result, dict)
@@ -385,7 +385,7 @@ class TestGetInstitutionIdByName:
 
         # Execute with databricks name that has whitespace
         result = api_requests.get_institution_id_by_name(
-            "  test_uni  ", "test-api-key", is_databricks_name=True
+            "  test_uni  ", "test-api-key", "dev", is_databricks_name=True
         )
 
         # Should work - whitespace is stripped and name is normalized to lowercase
@@ -401,7 +401,7 @@ class TestGetInstitutionIdByName:
     ):
         """Test that errors are logged when databricks name is invalid."""
         result = api_requests.get_institution_id_by_name(
-            "Invalid Name!", "test-api-key", is_databricks_name=True
+            "Invalid Name!", "test-api-key", "dev", is_databricks_name=True
         )
 
         # Verify result is an error dict
@@ -434,7 +434,7 @@ class TestGetInstitutionIdByName:
         mock_session_class.return_value = mock_session
 
         with pytest.raises(ValueError):
-            api_requests.get_institution_id_by_name("Test University", "api-key")
+            api_requests.get_institution_id_by_name("Test University", "api-key", "dev")
 
         # Verify logging was called with context (name is normalized to lowercase)
         mock_logger.error.assert_called_once()
@@ -465,7 +465,7 @@ class TestGetInstitutionIdByName:
         mock_session_class.return_value = mock_session
 
         with pytest.raises(KeyError):
-            api_requests.get_institution_id_by_name("Test University", "api-key")
+            api_requests.get_institution_id_by_name("Test University", "api-key", "dev")
 
         # Verify logging was called with context (name is normalized to lowercase)
         mock_logger.error.assert_called_once()

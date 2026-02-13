@@ -237,6 +237,8 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
               - --config_file_path
               - "{{tasks.data_ingestion.values.config_file_path}}"
+              - --schema_type
+              - "pdp"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -270,7 +272,7 @@ resources:
             - task_key: inference_h2o
           run_if: AT_LEAST_ONE_SUCCESS
           spark_python_task: 
-            python_file: src/edvise/scripts/pdp_inference_output_publish.py
+            python_file: src/edvise/scripts/inference_output_publish.py
             source: GIT
             parameters:
               - --DB_workspace

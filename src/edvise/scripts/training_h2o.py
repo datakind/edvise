@@ -2,6 +2,7 @@ import typing as t
 import logging
 import argparse
 import pandas as pd
+from dataclasses import dataclass
 import mlflow
 import os
 import sys
@@ -28,6 +29,8 @@ from edvise import modeling, dataio, configs
 from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
+from edvise.reporting.model_card.h2o_custom import H2OCustomModelCard
+
 from edvise import utils as edvise_utils
 from edvise.shared.logger import (
     resolve_run_path,
@@ -48,6 +51,36 @@ from edvise.scripts.predictions_h2o import (
     RunType,
     run_predictions,
 )
+
+
+@dataclass(frozen=True)
+class SchemaSpec:
+    schema_type: t.Literal["pdp", "custom"]
+    cfg_schema: type[t.Any]
+    model_card_cls: type["ModelCard[t.Any]"]
+    features_table_path: str
+
+
+def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
+    # pdp
+    if args.schema_type == "pdp":
+        return SchemaSpec(
+            schema_type="pdp",
+            cfg_schema=configs.pdp.PDPProjectConfig,
+            model_card_cls=H2OPDPModelCard,
+            features_table_path="shared/assets/pdp_features_table.toml",
+        )
+
+    # custom
+    if not args.features_table_path:
+        raise ValueError("--features_table_path required when --schema_type=custom")
+
+    return SchemaSpec(
+        schema_type="custom",
+        cfg_schema=configs.custom.CustomProjectConfig,
+        model_card_cls=H2OCustomModelCard,
+        features_table_path=args.features_table_path,
+    )
 
 
 class TrainingParams(t.TypedDict, total=False):
@@ -73,13 +106,13 @@ class TrainingTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
+        self.spec = resolve_spec(self.args)
         self.spark_session = self.get_spark_session()
         self.cfg = dataio.read.read_config(
             self.args.config_file_path,
-            schema=configs.pdp.PDPProjectConfig,
+            schema=self.spec.cfg_schema,
         )
         self.client = MlflowClient()
-        self.features_table_path = "shared/assets/pdp_features_table.toml"
         h2o_utils.safe_h2o_init()
         os.environ["MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR"] = "false"
 
@@ -114,12 +147,180 @@ class TrainingTask:
         )
         logging.info("%s data written to: %s", table_name_suffix, table_path)
 
+    def _load_or_build_modeling_df(
+        self,
+        current_run_path: str,
+    ) -> pd.DataFrame:
+        """
+        Returns the modeling dataset used for training.
+
+        PDP:
+          - prefer modeling.parquet if present
+          - else read preprocessed.parquet -> feature selection -> write modeling.parquet
+
+        Custom:
+          - read from cfg.datasets.silver.modeling (table_path or file_path)
+          - do NOT run feature selection here
+        """
+        # Custom: use config-specified path
+        if self.spec.schema_type == "custom":
+            modeling_dataset = self.cfg.datasets.silver.modeling
+            if not modeling_dataset:
+                raise ValueError(
+                    "Custom training requires cfg.datasets.silver.modeling to be configured"
+                )
+
+            # Try table paths first (Delta table), then file paths (parquet)
+            # Support both new (train_*) and legacy (*) field names
+            if modeling_dataset.table_path or modeling_dataset.train_table_path:
+                table_path = (
+                    modeling_dataset.train_table_path or modeling_dataset.table_path
+                )
+                logging.info(
+                    "Custom: loading modeling dataset from Delta table: %s", table_path
+                )
+                df_modeling = dataio.read.from_delta_table(
+                    table_path,
+                    spark_session=self.spark_session,
+                )
+            elif modeling_dataset.file_path or modeling_dataset.train_file_path:
+                file_path = (
+                    modeling_dataset.train_file_path or modeling_dataset.file_path
+                )
+                logging.info(
+                    "Custom: loading modeling dataset from file: %s", file_path
+                )
+                df_modeling = dataio.read.read_parquet(file_path)
+            else:
+                raise ValueError(
+                    "Custom training requires either table_path/train_table_path or "
+                    "file_path/train_file_path in cfg.datasets.silver.modeling"
+                )
+
+            self._validate_modeling_contract(df_modeling)
+            return df_modeling
+
+        # PDP: use run-specific path
+        modeling_path = os.path.join(current_run_path, "modeling.parquet")
+        modeling_path_local = local_fs_path(modeling_path)
+
+        if os.path.exists(modeling_path_local):
+            logging.info("Loading modeling.parquet: %s", modeling_path)
+            df_modeling = pd.read_parquet(modeling_path_local)
+            self._validate_modeling_contract(df_modeling)
+            return df_modeling
+
+        # PDP fallback path
+        preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
+        preproc_path_local = local_fs_path(preproc_path)
+        if not os.path.exists(preproc_path_local):
+            raise FileNotFoundError(
+                f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
+            )
+
+        logging.info("PDP: loading preprocessed.parquet: %s", preproc_path)
+        df_preprocessed = pd.read_parquet(preproc_path_local)
+
+        logging.info("PDP: running feature selection")
+        df_modeling = self.feature_selection(df_preprocessed)
+
+        os.makedirs(local_fs_path(current_run_path), exist_ok=True)
+        df_modeling.to_parquet(modeling_path_local, index=False)
+        logging.info("Saved modeling.parquet: %s", modeling_path)
+
+        self._validate_modeling_contract(df_modeling)
+        return df_modeling
+
+    def _validate_modeling_contract(self, df_modeling: pd.DataFrame) -> None:
+        """
+        Enforce the modeling dataset contract so training/inference/model cards stay consistent.
+        """
+        require(
+            df_modeling is not None and not df_modeling.empty, "modeling df is empty"
+        )
+        require(df_modeling.columns.is_unique, "modeling df has duplicate columns")
+
+        required_cols = [self.cfg.student_id_col, self.cfg.target_col]
+        if self.cfg.split_col:
+            required_cols.append(self.cfg.split_col)
+
+        missing = [c for c in required_cols if c not in df_modeling.columns]
+        require(not missing, f"modeling df missing required columns: {missing}")
+
+        if self.cfg.split_col:
+            allowed = {"train", "test", "validate"}
+            bad = sorted(
+                set(df_modeling[self.cfg.split_col].dropna().unique()) - allowed
+            )
+            require(
+                not bad, f"Unexpected split values in '{self.cfg.split_col}': {bad}"
+            )
+
+        non_feature_cols = set(self.cfg.non_feature_cols)
+        feature_cols = [c for c in df_modeling.columns if c not in non_feature_cols]
+        require(
+            len(feature_cols) > 0,
+            "No feature columns found after excluding non_feature_cols",
+        )
+
+        if self.spec.schema_type == "custom":
+            forbidden = set(self.cfg.student_group_cols or [])
+            leak = sorted([c for c in feature_cols if c in forbidden])
+            require(not leak, f"Student-group columns leaked into features: {leak}")
+
+    def _validate_features_in_ft(self, df_modeling: pd.DataFrame) -> None:
+        """
+        Validate that:
+        1. All features in modeling dataset exist as keys in features_table
+        2. All features have at least some non-null values
+        """
+        import tomli
+
+        features_table_path = local_fs_path(self.spec.features_table_path)
+        logging.info("Validating features from: %s", features_table_path)
+
+        # Load features_table
+        with open(features_table_path, "rb") as f:
+            features_table = tomli.load(f)
+
+        # Get feature columns from modeling dataset
+        non_feature_cols = set(self.cfg.non_feature_cols)
+        feature_cols = [c for c in df_modeling.columns if c not in non_feature_cols]
+
+        # Check 1: All features exist in features_table
+        features_table_keys = set(features_table.keys())
+        undefined_features = [f for f in feature_cols if f not in features_table_keys]
+        if undefined_features:
+            raise ValueError(
+                f"Features in modeling dataset but not defined in features_table: {undefined_features}"
+            )
+
+        # Check 2: All features have non-null values
+        null_features = []
+        for feat in feature_cols:
+            if df_modeling[feat].isna().all():
+                null_features.append(feat)
+
+        if null_features:
+            raise ValueError(
+                f"Features with all null values in modeling dataset: {null_features}"
+            )
+
+        logging.info(
+            "Features validation passed: %d features validated (all defined in features_table with non-null values)",
+            len(feature_cols),
+        )
+
     def feature_selection(self, df_preprocessed: pd.DataFrame) -> pd.DataFrame:
         if self.cfg.modeling is None or self.cfg.modeling.feature_selection is None:
             raise ValueError(
                 "FEATURE SELECTION SECTION OF MODELING DOES NOT EXIST IN THE CONFIG, PLEASE ADD"
             )
-
+        if self.spec.schema_type == "custom":
+            raise RuntimeError(
+                "feature_selection() should not run for custom schools in this job. "
+                "Custom training must provide modeling.parquet."
+            )
         modeling_cfg = self.cfg.modeling
         fs = modeling_cfg.feature_selection
         if (
@@ -315,10 +516,10 @@ class TrainingTask:
         # create parameter for updated config post model-selection
         self.cfg = dataio.read.read_config(
             self.args.config_file_path,
-            schema=configs.pdp.PDPProjectConfig,
+            schema=self.spec.cfg_schema,
         )
 
-    def make_predictions(self, current_run_path):
+    def make_predictions(self, df_modeling: pd.DataFrame) -> None:
         cfg = PredConfig(
             model_run_id=self.cfg.model.run_id,
             experiment_id=self.cfg.model.experiment_id,
@@ -330,9 +531,7 @@ class TrainingTask:
             cfg_inference_params=self.cfg.inference.dict(),
             random_state=self.cfg.random_state,
         )
-        paths = PredPaths(
-            features_table_path="shared/assets/pdp_features_table.toml",
-        )
+        paths = PredPaths(features_table_path=self.spec.features_table_path)
 
         try:
             out = run_predictions(
@@ -359,25 +558,20 @@ class TrainingTask:
                 label="Training Support Overview table",
             )
 
-            # read modeling parquet for roc table
-            modeling_df = dataio.read.read_parquet(
-                local_fs_path(os.path.join(current_run_path, "modeling.parquet"))
-            )
-
             # training-only logging
             if mlflow.active_run():
                 mlflow.end_run()
             with mlflow.start_run(run_id=self.cfg.model.run_id):
-                _ = modeling.evaluation.log_confusion_matrix(
+                modeling.evaluation.log_confusion_matrix(
                     catalog=self.args.DB_workspace,
                     institution_id=self.cfg.institution_id,
                     automl_run_id=self.cfg.model.run_id,
                 )
-                _ = modeling.h2o_ml.evaluation.log_roc_table(
+                modeling.h2o_ml.evaluation.log_roc_table(
                     catalog=self.args.DB_workspace,
                     institution_id=self.cfg.institution_id,
                     automl_run_id=self.cfg.model.run_id,
-                    modeling_df=modeling_df,
+                    modeling_df=df_modeling,
                 )
 
         finally:
@@ -508,7 +702,7 @@ class TrainingTask:
 
     def create_model_card(self, model_name):
         # Initialize card
-        card = H2OPDPModelCard(
+        card = self.spec.model_card_cls(
             config=self.cfg,
             catalog=self.args.DB_workspace,
             model_name=model_name,
@@ -534,22 +728,28 @@ class TrainingTask:
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
 
-        logging.info("Loading preprocessed data")
-        preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
-        preproc_path_local = local_fs_path(preproc_path)
-        if not os.path.exists(preproc_path_local):
-            raise FileNotFoundError(
-                f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
+        # Copy features_table file to run folder for custom schools
+        if self.spec.schema_type == "custom":
+            import shutil
+
+            features_table_src = local_fs_path(self.spec.features_table_path)
+            features_table_name = os.path.basename(self.spec.features_table_path)
+            features_table_dest = os.path.join(
+                current_run_path_local, features_table_name
             )
-        df_preprocessed = pd.read_parquet(preproc_path_local)
+            logging.info(
+                "Copying features table from %s to %s",
+                features_table_src,
+                features_table_dest,
+            )
+            shutil.copy2(features_table_src, features_table_dest)
 
-        logging.info("Selecting features")
-        df_modeling = self.feature_selection(df_preprocessed)
+        df_modeling = self._load_or_build_modeling_df(
+            current_run_path=current_run_path,
+        )
 
-        logging.info("Saving modeling data")
-        modeling_path = os.path.join(current_run_path, "modeling.parquet")
-        df_modeling.to_parquet(local_fs_path(modeling_path), index=False)
-        logging.info(f"Modeling file saved to {modeling_path}")
+        logging.info("Validating all selected features exist in features_table")
+        self._validate_features_in_ft(df_modeling)
 
         logging.info("Training model")
         # Convert to pandas nullable dtypes right before training to preserve nullable dtypes prior to sklearn imputation
@@ -565,7 +765,7 @@ class TrainingTask:
         )
 
         logging.info("Generating training predictions & SHAP values")
-        self.make_predictions(current_run_path=current_run_path)
+        self.make_predictions(df_modeling=df_modeling)
 
         logging.info("Validate training tables were created for FE")
         self.validate_train_tables(
@@ -575,7 +775,7 @@ class TrainingTask:
         )
 
         logging.info("Validate that model artifacts needed for model card exist")
-        self.validate_model_card_artifacts(card_cls=H2OPDPModelCard)
+        self.validate_model_card_artifacts(card_cls=self.spec.model_card_cls)
 
         logging.info("Registering model in UC gold volume")
         model_name = self.register_model()
@@ -622,6 +822,11 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--gold_table_path", type=str, required=True)
     parser.add_argument("--config_file_name", type=str, required=True)
     parser.add_argument("--job_type", type=str, choices=["training"], required=False)
+    parser.add_argument(
+        "--schema_type", type=str, choices=["pdp", "custom"], required=True
+    )
+    parser.add_argument("--features_table_path", type=str, required=False)
+
     return parser.parse_args()
 
 
@@ -644,7 +849,7 @@ if __name__ == "__main__":
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_training.log",
+        log_file_name=f"{args.schema_type}_training.log",
     )
     task.run()
     # --- Final flush & shutdown ---

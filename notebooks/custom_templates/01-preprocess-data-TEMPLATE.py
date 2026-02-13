@@ -159,3 +159,38 @@ else:
 student_df = aligned["student_df"]
 course_df = aligned["course_df"]
 semester_df = aligned["semester_df"]
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## TODO: Complete this template
+# MAGIC
+# MAGIC This template needs additional steps:
+# MAGIC 1. Merge student_df, course_df, semester_df into a single preprocessed dataframe
+# MAGIC 2. Add target, checkpoint, splits, sample_weight columns (for training)
+# MAGIC 3. Write the preprocessed dataframe to the appropriate silver dataset:
+# MAGIC    - For training: This will be used to create cfg.datasets.silver.modeling (after feature selection in next notebook)
+# MAGIC    - For inference: cfg.datasets.silver.model_features (features ready for model predictions)
+# MAGIC
+# MAGIC Example:
+# MAGIC ```python
+# MAGIC # ... merge dataframes, add columns ...
+# MAGIC # preprocessed_df = ...
+# MAGIC
+# MAGIC # Write to configured path
+# MAGIC # Note: For training, this intermediate preprocessed data will go through feature selection
+# MAGIC #       before being saved as cfg.datasets.silver.modeling
+# MAGIC # For inference, save directly to model_features (assumes same features as training)
+# MAGIC if run_type == "train":
+# MAGIC     # Save intermediate preprocessed data for feature selection step
+# MAGIC     path = "catalog.schema.preprocessed_train"  # temporary intermediate table
+# MAGIC else:
+# MAGIC     # Save directly to model_features for inference
+# MAGIC     path = cfg.datasets.silver.model_features.predict_table_path
+# MAGIC
+# MAGIC dataio.write.to_delta_table(
+# MAGIC     df=preprocessed_df,
+# MAGIC     table_path=path,
+# MAGIC     spark_session=spark
+# MAGIC )
+# MAGIC ```

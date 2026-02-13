@@ -210,9 +210,85 @@ class DatasetConfig(pyd.BaseModel):
             raise ValueError(f"Unknown mode: {mode}")
 
 
+class ModelingDatasetConfig(pyd.BaseModel):
+    """Dataset config for training - only allows train-related paths."""
+
+    train_file_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Absolute path to training dataset on disk.",
+    )
+    train_table_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Unity Catalog table path for training dataset, e.g., 'catalog.schema.table'.",
+    )
+    # Legacy support
+    file_path: t.Optional[str] = None
+    table_path: t.Optional[str] = None
+
+    @pyd.model_validator(mode="after")
+    def validate_paths(self) -> "ModelingDatasetConfig":
+        any_paths = [
+            self.train_file_path,
+            self.train_table_path,
+            self.file_path,
+            self.table_path,
+        ]
+        if not any(any_paths):
+            raise ValueError(
+                "At least one training dataset path must be specified: "
+                "`train_file_path`, `train_table_path`, `file_path`, or `table_path`"
+            )
+        return self
+
+
+class ModelFeaturesDatasetConfig(pyd.BaseModel):
+    """Dataset config for inference - only allows predict-related paths."""
+
+    predict_file_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Absolute path to prediction/inference dataset on disk.",
+    )
+    predict_table_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Unity Catalog table path for prediction/inference dataset.",
+    )
+    # Legacy support
+    file_path: t.Optional[str] = None
+    table_path: t.Optional[str] = None
+
+    @pyd.model_validator(mode="after")
+    def validate_paths(self) -> "ModelFeaturesDatasetConfig":
+        any_paths = [
+            self.predict_file_path,
+            self.predict_table_path,
+            self.file_path,
+            self.table_path,
+        ]
+        if not any(any_paths):
+            raise ValueError(
+                "At least one prediction dataset path must be specified: "
+                "`predict_file_path`, `predict_table_path`, `file_path`, or `table_path`"
+            )
+        return self
+
+
+class SilverDatasetConfig(pyd.BaseModel):
+    """Silver layer datasets with explicit naming for training and inference."""
+
+    modeling: ModelingDatasetConfig = pyd.Field(
+        description="Training dataset with features, target, and split columns"
+    )
+    model_features: ModelFeaturesDatasetConfig = pyd.Field(
+        description="Inference dataset with features only, ready for model predictions"
+    )
+
+    # Allow additional custom datasets beyond the two required ones
+    model_config = pyd.ConfigDict(extra="allow")
+
+
 class AllDatasetStagesConfig(pyd.BaseModel):
     bronze: dict[str, DatasetConfig]
-    silver: dict[str, DatasetConfig]
+    silver: SilverDatasetConfig
     gold: dict[str, DatasetConfig]
 
 
