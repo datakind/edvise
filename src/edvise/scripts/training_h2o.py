@@ -73,9 +73,6 @@ class TrainingTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.schema_type = args.schema_type.strip().lower()
-        if self.schema_type not in {"pdp", "edvise", "custom"}:
-            raise ValueError("schema_type must be one of: 'pdp', 'edvise', 'custom'")
         self.spark_session = self.get_spark_session()
         self.cfg = dataio.read.read_config(
             self.args.config_file_path,
@@ -492,18 +489,10 @@ class TrainingTask:
     def register_model(self) -> str:
         assert self.cfg.preprocessing is not None, "preprocessing config is required"
         assert self.cfg.model is not None, "model config is required"
-        if self.schema_type == "pdp":
-            model_name = modeling.registration.pdp_get_model_name(
-                target=self.cfg.preprocessing.target,
-                student_criteria=self.cfg.preprocessing.selection.student_criteria,
-                checkpoint=self.cfg.preprocessing.checkpoint,
-            )
-        else:  # edvise or custom
-            model_name = modeling.registration.get_model_name(
-                institution_id=self.cfg.institution_id,
-                target=self.cfg.preprocessing.target.name,
-                checkpoint=self.cfg.preprocessing.checkpoint.name,
-            )
+        model_name = modeling.registration.get_model_name_from_config(
+            preprocessing=self.cfg.preprocessing,
+            institution_id=self.cfg.institution_id,
+        )
         try:
             modeling.registration.register_mlflow_model(
                 model_name,
@@ -634,12 +623,6 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--gold_table_path", type=str, required=True)
     parser.add_argument("--config_file_name", type=str, required=True)
     parser.add_argument("--job_type", type=str, choices=["training"], required=False)
-    parser.add_argument(
-        "--schema_type",
-        type=str,
-        choices=["pdp", "edvise", "custom"],
-        required=True,
-    )
     return parser.parse_args()
 
 

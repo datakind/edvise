@@ -4,6 +4,7 @@ import mlflow
 from edvise.modeling.registration import (
     register_mlflow_model,
     get_model_name,
+    get_model_name_from_config,
     pdp_get_model_name,
     normalize_degree,
     format_enrollment_intensity_time_limits,
@@ -280,6 +281,63 @@ class TestGetModelName:
         assert result == "my_inst_credits_30_in_3y_ft_6y_pt_checkpoint_2_core_terms"
         assert " " not in result
         assert result == result.lower()
+
+
+# Tests for get_model_name_from_config (try PDP first, fallback to custom)
+class TestGetModelNameFromConfig:
+    """Tests for get_model_name_from_config: tries PDP logic first, falls back to target.name/checkpoint.name."""
+
+    def test_pdp_graduation_uses_pdp_logic(self):
+        """PDP-style config should use pdp_get_model_name and produce graduation model name."""
+        preprocessing = type("Preprocessing", (), {})()
+        preprocessing.target = {
+            "type_": "graduation",
+            "intensity_time_limits": {
+                "FULL-TIME": [3.0, "year"],
+                "PART-TIME": [6.0, "year"],
+            },
+        }
+        preprocessing.checkpoint = {
+            "type_": "nth",
+            "n": 1,
+            "exclude_non_core_terms": True,
+        }
+        preprocessing.selection = type("Selection", (), {"student_criteria": {}})()
+
+        result = get_model_name_from_config(
+            preprocessing=preprocessing,
+            institution_id="test_inst",
+        )
+        assert result == "graduation_in_3y_ft_6y_pt_checkpoint_2_core_terms"
+
+    def test_custom_fallback_uses_target_checkpoint_name(self):
+        """Custom-style config (no type_ or unsupported) should fall back to target.name, checkpoint.name."""
+        preprocessing = type("Preprocessing", (), {})()
+        preprocessing.target = type("Target", (), {"name": "my_custom_target"})()
+        preprocessing.checkpoint = type("Checkpoint", (), {"name": "my_checkpoint"})()
+        preprocessing.selection = None
+
+        result = get_model_name_from_config(
+            preprocessing=preprocessing,
+            institution_id="my_school",
+        )
+        assert result == "my_school_my_custom_target_my_checkpoint"
+
+    def test_fallback_when_pdp_raises_unsupported_target_type(self):
+        """When target type is unsupported, fall back to .name."""
+        preprocessing = type("Preprocessing", (), {})()
+        preprocessing.target = {
+            "type_": "unsupported_type",
+            "name": "fallback_target",
+        }
+        preprocessing.checkpoint = {"name": "fallback_checkpoint"}
+        preprocessing.selection = type("Selection", (), {"student_criteria": {}})()
+
+        result = get_model_name_from_config(
+            preprocessing=preprocessing,
+            institution_id="inst",
+        )
+        assert result == "inst_fallback_target_fallback_checkpoint"
 
 
 # Tests for pdp_get_model_name function

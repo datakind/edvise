@@ -256,6 +256,44 @@ def pdp_get_model_name(
     )
 
 
+def get_model_name_from_config(
+    *,
+    preprocessing: t.Any,
+    institution_id: str,
+) -> str:
+    """
+    Get model name by trying PDP logic first, then falling back to custom/edvise
+    (target.name, checkpoint.name) if PDP logic fails.
+
+    Args:
+        preprocessing: Preprocessing config with target, checkpoint, and optional selection
+        institution_id: Institution ID (used for custom/edvise fallback)
+
+    Returns:
+        Model name string for Unity Catalog
+    """
+    target = preprocessing.target
+    checkpoint = preprocessing.checkpoint
+    try:
+        selection = getattr(preprocessing, "selection", None)
+        student_criteria = (
+            getattr(selection, "student_criteria", {}) or {}
+            if selection is not None
+            else {}
+        )
+        return pdp_get_model_name(
+            target=target,
+            checkpoint=checkpoint,
+            student_criteria=student_criteria,
+        )
+    except (ValueError, AttributeError, TypeError):
+        return get_model_name(
+            institution_id=institution_id,
+            target=_get_attr(target, "name", ""),
+            checkpoint=_get_attr(checkpoint, "name", ""),
+        )
+
+
 def get_mlflow_model_uri(
     *,
     model_name: t.Optional[str] = None,
