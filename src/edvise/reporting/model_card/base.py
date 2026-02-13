@@ -44,8 +44,8 @@ class ModelCard(t.Generic[C], ABC):
         """
         self.cfg = config
         self.catalog = catalog
-        self.model_name = model_name.lower() # UC lowercases model name
-        self.uc_model_name = f"{self.catalog}.{self.cfg.institution_id}_gold.{self.model_name}"
+        self.model_name = model_name
+        self.uc_model_name = f"{catalog}.{self.cfg.institution_id}_gold.{model_name}"
         LOGGER.info("Initializing ModelCard for model: %s", self.uc_model_name)
 
         self.client = mlflow_client or MlflowClient()
