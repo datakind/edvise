@@ -5,23 +5,18 @@ from abc import ABC, abstractmethod
 
 from mlflow.tracking import MlflowClient
 
-# export .md to .pdf
 import markdown
 from weasyprint import HTML
 import tempfile
 
-# resolving files in templates module within package
 from importlib.abc import Traversable
 from importlib.resources import files
 
-# relative imports in 'reporting' module
 from ..sections import register_sections
 from ..sections.registry import SectionRegistry
 from ..utils import utils
 from ..utils.formatting import Formatting
 from ..utils.types import ModelCardConfig
-
-# Model names are already UC-compatible (lowercase with underscores)
 
 LOGGER = logging.getLogger(__name__)
 C = t.TypeVar("C", bound=ModelCardConfig)
@@ -47,7 +42,6 @@ class ModelCard(t.Generic[C], ABC):
         self.cfg = config
         self.catalog = catalog
         self.model_name = model_name
-        # Model name is already UC-compatible (lowercase with underscores)
         self.uc_model_name = f"{catalog}.{self.cfg.institution_id}_gold.{model_name}"
         LOGGER.info(
             "Initializing ModelCard for model: %s",
