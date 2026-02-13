@@ -204,3 +204,42 @@ def test_render_template_and_output(mock_open, mock_config, mock_client):
     mock_open.assert_any_call("template.md", "r")
     mock_open.assert_any_call("output.md", "w")
     mock_file.write.assert_called_once_with("Model: TestInstitution")
+
+
+def test_build_output_path_lower_case(mock_config, mock_client):
+    """Test that _build_output_path() has the correct file name (lowered)."""
+
+    class ConcreteModelCard(ModelCard):
+        def load_model(self):
+            pass
+
+        def extract_training_data(self):
+            pass
+
+        def get_feature_metadata(self):
+            return {}
+
+        def get_model_plots(self):
+            return {}
+
+        def _register_sections(self):
+            pass
+
+    mock_file = MagicMock()
+    mock_file.read.return_value = "Model: {institution_name}"
+
+    card = ConcreteModelCard(
+        config=mock_config,
+        catalog="catalog",
+        model_name="INST_my_MODEL",
+        mlflow_client=mock_client,
+    )
+    # Verify model_name is lowercased (used in output path)
+    assert card.model_name == "inst_my_model"
+    # Verify uc_model_name also uses lowercased model name (used in MLflow queries)
+    assert card.uc_model_name == "catalog.inst_gold.inst_my_model"
+    assert "INST_my_MODEL" not in card.uc_model_name
+    # Verify output path uses lowercased model name
+    assert "inst_my_model" in card.output_path
+    assert "INST_my_MODEL" not in card.output_path
+    
