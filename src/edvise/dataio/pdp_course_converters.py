@@ -62,7 +62,7 @@ def dedupe_by_renumbering_courses(
             grp_num=lambda d: (
                 d.groupby(unique_cols)["course_number"].transform("cumcount") + 1
             ),
-            course_number=lambda d: d["course_number"].str.cat(
+            course_number=lambda d: d["course_number"].astype("string").str.cat(
                 d["grp_num"].astype("string"), sep="-"
             ),
         )
