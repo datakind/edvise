@@ -123,8 +123,8 @@ def get_model_name(
 
 def pdp_get_model_name(
     *,
-    target: t.Any,
-    checkpoint: t.Any,
+    target: str,
+    checkpoint: str,
     student_criteria: dict,
     extra_info: t.Optional[str] = None,
 ) -> str:
