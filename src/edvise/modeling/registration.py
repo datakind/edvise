@@ -5,14 +5,12 @@ import mlflow.exceptions
 import mlflow.tracking
 from edvise.shared.utils import (
     normalize_degree,
-    extract_time_limits,
-    format_intensity_time_limit,
+    format_time_limits,
 )
 
 __all__ = [
     "normalize_degree",
-    "extract_time_limits",
-    "format_intensity_time_limit",
+    "format_time_limits",
 ]
 
 LOGGER = logging.getLogger(__name__)
@@ -162,21 +160,6 @@ def pdp_get_model_name(
             return obj.get(key, default)
         return getattr(obj, key, default)
 
-    # Helper to format time limits as simple underscore string
-    def format_time_limits(intensity_time_limits):
-        parts = []
-        for intensity in ["FULL-TIME", "PART-TIME"]:
-            if intensity not in intensity_time_limits:
-                continue
-            duration, unit = intensity_time_limits[intensity]
-            duration_str = (
-                str(int(duration)) if duration == int(duration) else str(duration)
-            )
-            unit_abbrev = unit[0].lower()
-            intensity_abbrev = "".join(word[0] for word in intensity.split("-")).lower()
-            parts.append(f"{duration_str}{unit_abbrev}_{intensity_abbrev}")
-        return "_".join(parts)
-
     target_type = get_attr(target, "type_")
     target_name = ""
     checkpoint_name = ""
@@ -191,7 +174,10 @@ def pdp_get_model_name(
             target_name = "retention_into_year_2_all_degrees"
         checkpoint_name = ""
     elif target_type == "graduation":
-        time_limits = format_time_limits(get_attr(target, "intensity_time_limits"))
+        time_limits = format_time_limits(
+            intensity_time_limits=get_attr(target, "intensity_time_limits"),
+            style="underscore",
+        )
         checkpoint_type = get_attr(checkpoint, "type_")
         if checkpoint_type == "nth":
             n_plus_1 = get_attr(checkpoint, "n") + 1
@@ -213,7 +199,10 @@ def pdp_get_model_name(
             target_name = f"graduation_in_{time_limits}"
             checkpoint_name = f"checkpoint_{credits}_credits"
     elif target_type == "credits_earned":
-        time_limits = format_time_limits(get_attr(target, "intensity_time_limits"))
+        time_limits = format_time_limits(
+            intensity_time_limits=get_attr(target, "intensity_time_limits"),
+            style="underscore",
+        )
         checkpoint_type = get_attr(checkpoint, "type_")
         creds = get_attr(target, "min_num_credits")
         credits = str(int(creds)) if creds == int(creds) else str(creds)
