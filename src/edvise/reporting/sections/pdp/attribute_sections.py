@@ -59,11 +59,11 @@ def register_attribute_sections(card, registry):
                 )
                 return f"{card.format.bold('Timeframe for Outcome Variable Not Found')}"
 
-            full_str = card.format.format_intensity_time_limit(full_time)
+            full_str = card.format.format_time_limit_display(full_time)
             description = f"This model predicts the likelihood of {outcome} within {full_str} for full-time students"
 
             if part_time:
-                part_str = card.format.format_intensity_time_limit(part_time)
+                part_str = card.format.format_time_limit_display(part_time)
                 description += f", and within {part_str} for part-time students"
 
             description += ", based on student, course, and academic data."
