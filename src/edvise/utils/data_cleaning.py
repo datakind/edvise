@@ -1033,7 +1033,7 @@ def _handle_schema_duplicates(
 
 def handling_duplicates(
     df: pd.DataFrame,
-    school_type: str,
+    schema_type: str,
     unique_cols: list[str] | None = [
         "student_id",
         "academic_term",
@@ -1045,7 +1045,7 @@ def handling_duplicates(
     course_name_col: str | None = "course_name",
 ) -> pd.DataFrame:
     """
-    Combined duplicate handling with a school_type switch.
+    Combined duplicate handling with a schema_type switch.
 
     PDP mode: keep logic as close as possible to original `handling_duplicates`:
       - infer student_id_col
@@ -1065,13 +1065,13 @@ def handling_duplicates(
       - include handle_duplicates-style summary logging + breakdown
     """
     df = df.copy()
-    school_type = (school_type or "").strip().lower()
-    if school_type not in {"pdp", "schema"}:
+    schema_type = (schema_type or "").strip().lower()
+    if schema_type not in {"pdp", "schema"}:
         raise ValueError(
-            "school_type must be either 'pdp' or 'schema', short for edvise schema."
+            "schema_type must be either 'pdp' or 'schema', short for edvise schema."
         )
 
-    if school_type == "pdp":
+    if schema_type == "pdp":
         return _handle_pdp_duplicates(df)
     else:
         return _handle_schema_duplicates(
