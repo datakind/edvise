@@ -77,5 +77,7 @@ def dedupe_by_renumbering_courses(
         (len(deduped_course_numbers) / len(df)) * 100,
     )
 
+    # Convert to string so we can assign renumbered values like "380-1" (numeric dtypes fail)
+    df["course_number"] = df["course_number"].astype("string")
     df.update(deduped_course_numbers, overwrite=True)
     return df
