@@ -55,7 +55,7 @@ class TomlConfigEditor:
         value = self.get(key_path, default=None)
         LOGGER.info("Confirmed %s = %s", ".".join(key_path), value)
 
-    def _merge_list_field(self, key_path: list[str], new_values: list[str]) -> None:
+    def merge_list_field(self, key_path: list[str], new_values: list[str]) -> None:
         """
         Merge new list values into an existing list at the given key path, avoiding duplicates.
         If no values need to be added, no update is performed.
@@ -75,16 +75,38 @@ class TomlConfigEditor:
                 "No update needed for %s; values already present", ".".join(key_path)
             )
 
-    def update_key_course_ids(self, ids: list[str]) -> None:
-        self._merge_list_field(
-            key_path=["preprocessing", "features", "key_course_ids"], new_values=ids
-        )
 
-    def update_key_course_subject_areas(self, cips: list[str]) -> None:
-        self._merge_list_field(
-            key_path=["preprocessing", "features", "key_course_subject_areas"],
-            new_values=cips,
-        )
+def update_save_confirm_fields(
+    config_path: str,
+    updates: dict[tuple[str, ...], Any],
+    extra_save_paths: list[str] | None = None,
+) -> None:
+    """
+    Update multiple fields in a TOML config, save, and confirm all updates.
+
+    Args:
+        config_path: Path to the TOML config file
+        updates: Dictionary mapping key paths (as tuples) to new values
+                 e.g., {("model", "run_id"): "123", ("model", "experiment_id"): "exp1"}
+        extra_save_paths: Optional list of additional paths to save the config to
+    """
+    editor = TomlConfigEditor(config_path)
+
+    # Update all fields
+    for key_path, new_value in updates.items():
+        editor.update_field(list(key_path), new_value)
+
+    # Save once after all updates
+    editor.save()
+
+    # Save to any additional paths
+    if extra_save_paths:
+        for path in extra_save_paths:
+            editor.save(output_path=path)
+
+    # Confirm all fields
+    for key_path in updates.keys():
+        editor.confirm_field(list(key_path))
 
 
 def update_run_metadata(
@@ -93,38 +115,20 @@ def update_run_metadata(
     experiment_id: str,
     extra_save_paths: list[str] | None = None,
 ) -> None:
-    editor = TomlConfigEditor(config_path)
-    editor.update_field(["model", "run_id"], run_id)
-    editor.update_field(["model", "experiment_id"], experiment_id)
-    editor.save()
-    # Save to any additional paths provided, e.g. the model run folder
-    if extra_save_paths:
-        for path in extra_save_paths:
-            editor.save(output_path=path)
-    editor.confirm_field(["model", "run_id"])
-    editor.confirm_field(["model", "experiment_id"])
-
-
-def update_key_courses_and_cips(
-    config_path: str,
-    key_course_ids: list[str],
-    key_course_subject_areas: list[str],
-) -> None:
-    """
-    Update the TOML config with key course IDs and cip codes under [preprocessing.features],
-    and optionally save the updated config to one or more additional paths.
-    """
-    editor = TomlConfigEditor(config_path)
-    editor.update_key_course_ids(key_course_ids)
-    editor.update_key_course_subject_areas(key_course_subject_areas)
-
-    # Save to the original config path
-    editor.save()
+    """Update run metadata (run_id and experiment_id) in the config."""
+    update_save_confirm_fields(
+        config_path=config_path,
+        updates={
+            ("model", "run_id"): run_id,
+            ("model", "experiment_id"): experiment_id,
+        },
+        extra_save_paths=extra_save_paths,
+    )
 
 
 def update_pipeline_version(
     config_path: str,
-    pipeline_version: str,
+    pipeline_version: Any,
     extra_save_paths: list[str] | None = None,
 ) -> None:
     """
@@ -132,12 +136,51 @@ def update_pipeline_version(
     version as metadata from training. This is critical so that we know schools' pipeline version
     without having to manually set it in each config which does not scale well.
     """
+    update_save_confirm_fields(
+        config_path=config_path,
+        updates={
+            ("pipeline_version",): pipeline_version,
+        },
+        extra_save_paths=extra_save_paths,
+    )
+
+
+def update_training_cohorts(
+    config_path: str,
+    training_cohorts: list[str],
+    extra_save_paths: list[str] | None = None,
+) -> None:
+    """Update training cohorts in the config."""
+    update_save_confirm_fields(
+        config_path=config_path,
+        updates={
+            ("modeling", "training", "cohort"): training_cohorts,
+        },
+        extra_save_paths=extra_save_paths,
+    )
+
+
+def update_key_courses_and_cips(
+    config_path: str,
+    key_course_ids: list[str],
+    key_course_subject_areas: list[str],
+    extra_save_paths: list[str] | None = None,
+) -> None:
+    """
+    Update the TOML config with key course IDs and CIP codes under [preprocessing.features],
+    merging with existing values to avoid duplicates.
+    """
     editor = TomlConfigEditor(config_path)
-    editor.update_field(["pipeline_version"], pipeline_version)
+    editor.merge_list_field(
+        key_path=["preprocessing", "features", "key_course_ids"],
+        new_values=key_course_ids,
+    )
+    editor.merge_list_field(
+        key_path=["preprocessing", "features", "key_course_subject_areas"],
+        new_values=key_course_subject_areas,
+    )
     editor.save()
 
     if extra_save_paths:
         for path in extra_save_paths:
             editor.save(output_path=path)
-
-    editor.confirm_field(["pipeline_version"])

@@ -491,6 +491,10 @@ class TrainingConfig(pyd.BaseModel):
         default=None,
         description="Maximum time to wait for H2O AutoML trials to complete.",
     )
+    cohort: t.Optional[list[str]] = pyd.Field(
+        default=[],
+        description="List of cohorts used in training. e.g. ['Fall 2024-25']",
+    )
 
 
 class EvaluationConfig(pyd.BaseModel):
