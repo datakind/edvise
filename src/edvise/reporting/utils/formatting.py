@@ -1,5 +1,8 @@
 import re
 import typing as t
+from edvise.shared.utils import format_enrollment_intensity_time_limits
+
+Num = t.Union[int, float]
 
 
 class Formatting:
@@ -13,6 +16,19 @@ class Formatting:
             create a reliable interpretation of nested lists.
         """
         self.base_spaces = base_spaces
+
+    def format_time_limit_display(
+        self,
+        duration: t.Tuple[Num, str],
+        *,
+        style: t.Literal["long", "compact"] = "long",
+        intensity: str | None = None,
+    ) -> str:
+        return format_enrollment_intensity_time_limits(
+            duration=duration,
+            style=style,
+            intensity=intensity,
+        )
 
     def indent_level(self, depth: int) -> str:
         """
@@ -53,6 +69,11 @@ class Formatting:
         Converts strings like 'bachelor's degree' or 'full-time' into human-friendly forms,
         preserving hyphens and apostrophes, with optional capitalization.
 
+        Also handles model name formatting with special rules:
+        - Adds colon after "Year 2"
+        - Adds commas between time limit components (e.g., "3Y FT, 6Y PT")
+        - Wraps checkpoint info in parentheses with colon
+
         Args:
             text: Text to be converted
             capitalize: Whether to title-case each word. If False, keeps original casing.
@@ -85,24 +106,30 @@ class Formatting:
 
         # Regex preserves apostrophes and hyphens
         tokens = re.findall(r"[\w'-]+", text)
-        return " ".join(smart_cap(tok) for tok in tokens)
+        result = " ".join(smart_cap(tok) for tok in tokens)
 
-    def format_intensity_time_limit(self, duration: t.Tuple[str, str]) -> str:
-        """
-        We want to format a intensity_limit within config.toml by unpacking
-        the value (3.0) and unit ("year"), for example.
+        # Apply model name formatting rules
+        # Add colon after "Year 2" (for retention models)
+        result = re.sub(r"\bYear 2\b(?= \w)", r"Year 2:", result)
 
-        Args:
-            duration: intensity limit in config (3.0, "year"), for example.
-        """
-        num, unit = duration
+        # Add comma between time limit components (e.g., "3Y Ft 6Y Pt" → "3Y FT, 6Y PT")
+        result = re.sub(
+            r"(\d+[YyTt]) ([Ff][Tt])(\s+\d+[YyTt]) ([Pp][Tt])",
+            lambda m: (
+                f"{m.group(1).upper()} {m.group(2).upper()}, {m.group(3).upper()} {m.group(4).upper()}"
+            ),
+            result,
+        )
 
-        # Format number cleanly
-        if isinstance(num, float):
-            if num.is_integer():
-                num = int(num)
-            else:
-                num = round(num, 2)
+        # Wrap checkpoint in parentheses with colon (e.g., "Checkpoint X" → "(Checkpoint: X)")
+        result = re.sub(
+            r"\bCheckpoint\b\s+(\d+|First|[^_]+?)(?=\s*(?:Core|Total|Terms|Credits|$))",
+            r"(Checkpoint: \1",
+            result,
+        )
+        # Add closing parenthesis at the end of checkpoint section
+        if "(Checkpoint:" in result:
+            # Find where to close the parenthesis - before underscore suffix or at end
+            result = re.sub(r"(Checkpoint:[^)]+?)\s*(?=$|_)", r"\1)", result)
 
-        unit = unit if num == 1 else unit + "s"
-        return f"{num} {unit}"
+        return result

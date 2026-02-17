@@ -10,7 +10,7 @@ pred_col = "pred"
 pred_prob_col = "pred_prob"
 pos_label = true
 random_state = 12345
-pipeline_version = "v0.1.9"
+pipeline_version = ""
 
 [datasets]
 raw_course = "FILE_NAME_COURSE.csv"
@@ -42,7 +42,7 @@ intensity_time_limits = { FULL-TIME = [3.0, "year"], PART-TIME = [6.0, "year"] }
 [preprocessing.checkpoint]
 # TODO: select and edit option 1 if using a term-based checkpoint and remove option 2; select and edit option 2 if using a credits based checkpoint and remove option 1
 # Option 1
-name = "term 2 including only core terms"
+name = "nth"
 type_ = "nth"
 n = 1
 term_is_core_col = "term_is_core"
@@ -51,14 +51,14 @@ exclude_non_core_terms = true
 exclude_pre_cohort_terms = true
 
 # Option 2
-# name = "30_credits_earned"
+# name = "first_at_num_credits_earned"
 # type_ = "first_at_num_credits_earned"
 # min_num_credits = 30.0
 # num_credits_col = "cumsum_num_credits_earned"
 
 [preprocessing.target]
 # TODO: edit based on target timeline for school
-name = "graduation_150pct_time"
+name = "graduation"
 type_ = "graduation"
 # TODO: edit based on timelines for full-time vs. part-time students
 intensity_time_limits = { FULL-TIME = [3.0, "year"], PART-TIME = [6.0, "year"] }
