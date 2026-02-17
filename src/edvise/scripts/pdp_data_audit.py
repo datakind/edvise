@@ -44,7 +44,6 @@ from edvise.data_audit.eda import (
     log_misjoined_records,
 )
 
-# from edvise.data_audit.cohort_selection import select_inference_cohort
 from edvise.utils.update_config import update_key_courses_and_cips
 from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,

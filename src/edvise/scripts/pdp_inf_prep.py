@@ -24,7 +24,7 @@ from edvise.model_prep import cleanup_features as cleanup
 from edvise.dataio.read import read_parquet, read_config
 from edvise.student_selection.filter_inference import filter_inference_term
 from edvise.dataio.write import write_parquet
-from edvise.configs.pdp import PDPProjectConfig
+from edvise.configs.pdp import PDPProjectConfig, InferenceConfig
 from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
 from edvise.shared.validation import (
     require,
@@ -72,8 +72,6 @@ class InferencePrepTask:
             )
             if param_cohort is not None:
                 if self.cfg.inference is None:
-                    from edvise.configs.pdp import InferenceConfig
-
                     self.cfg.inference = InferenceConfig(cohort=param_cohort)
                 else:
                     self.cfg.inference.term = param_cohort
