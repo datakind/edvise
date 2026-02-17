@@ -10,7 +10,7 @@ pred_col = "pred"
 pred_prob_col = "pred_prob"
 pos_label = true
 random_state = 12345
-pipeline_version = "v0.1.9"
+pipeline_version = ""
 
 [datasets]
 raw_course = "FILE_NAME_COURSE.csv"
@@ -39,7 +39,7 @@ key_course_ids = []
 student_criteria = { enrollment_type = "FIRST-TIME", credential_type_sought_year_1 = "ASSOCIATE'S DEGREE", cohort_term = ["FALL", "SPRING"] }
 
 [preprocessing.checkpoint]
-name = "end_of_first_term"
+name = "first_within_cohort"
 type_ = "first_within_cohort"
 # TODO: edit based on school's preferences for checkpoint; default is core terms only and excluding any pre-cohort terms 
 # NOTE: older schools should use exclude_non_core_terms = false, b/c this is how the function previously operated by default 
