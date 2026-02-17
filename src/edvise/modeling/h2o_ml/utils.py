@@ -846,8 +846,8 @@ def set_or_create_experiment(
     Args:
         workspace_path: Base MLflow workspace path.
         institution_id: Institution or tenant identifier used for experiment naming.
-        target_name: Name of the target variable.
-        checkpoint_name: Name of the modeling checkpoint.
+        target_name: Target name for the experiment.
+        checkpoint_name: Checkpoint name for the experiment.
         client: MLflow client. A new one is created if not provided.
 
     Returns:

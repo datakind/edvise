@@ -366,6 +366,17 @@ class CheckpointConfig(pyd.BaseModel):
             raise ValueError("Value must be greater than zero.")
         return v
 
+    @pyd.field_validator("name", mode="after")
+    @classmethod
+    def check_name_is_lowercase(cls, value: str) -> str:
+        if value != value.lower():
+            raise ValueError(
+                f"checkpoint.name='{value}' must be lowercase. "
+                "Unity Catalog will lowercase model names automatically. "
+                "To ensure consistency across our codebase, we require lowercase names."
+            )
+        return value
+
 
 class TargetConfig(pyd.BaseModel):
     name: str = pyd.Field(default="target")
@@ -392,6 +403,17 @@ class TargetConfig(pyd.BaseModel):
         if v is not None and v <= 0:
             raise ValueError("Value must be greater than zero.")
         return v
+
+    @pyd.field_validator("name", mode="after")
+    @classmethod
+    def check_name_is_lowercase(cls, value: str) -> str:
+        if value != value.lower():
+            raise ValueError(
+                f"target.name='{value}' must be lowercase. "
+                "Unity Catalog will lowercase model names automatically. "
+                "To ensure consistency across our codebase, we require lowercase names."
+            )
+        return value
 
 
 class SelectionConfig(pyd.BaseModel):

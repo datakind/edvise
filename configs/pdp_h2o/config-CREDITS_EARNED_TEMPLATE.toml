@@ -10,7 +10,7 @@ pred_col = "pred"
 pred_prob_col = "pred_prob"
 pos_label = true
 random_state = 12345
-pipeline_version = "v0.1.9"
+pipeline_version = ""
 
 [datasets]
 raw_course = "FILE_NAME_COURSE.csv"
@@ -41,7 +41,7 @@ intensity_time_limits = { FULL-TIME = [3.0, "year"], PART-TIME = [6.0, "year"] }
 
 [preprocessing.checkpoint]
 # TODO: edit based on how many credits need to be earned prior to checkin
-name = "30_credits_earned"
+name = "first_at_num_credits_earned"
 type_ = "first_at_num_credits_earned"
 min_num_credits = 30.0
 num_credits_col = "cumsum_num_credits_earned"
