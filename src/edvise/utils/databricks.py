@@ -2,6 +2,7 @@ import logging
 import mlflow
 import typing as t
 import pydantic as pyd
+import os
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,13 +32,6 @@ def get_spark_session() -> SparkSession:
     except Exception:
         logging.error("Unable to create Spark session.")
         raise
-
-
-import logging
-import typing as t
-
-LOGGER = logging.getLogger(__name__)
-
 
 def get_db_widget_param(name: str, *, default: t.Optional[object] = None) -> object:
     """
@@ -117,3 +111,9 @@ def mock_pandera():
 
     sys.modules[m1.__name__] = m1
     sys.modules[m2.__name__] = m2
+
+
+def in_databricks() -> bool:
+    return bool(
+        os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER")
+    )
