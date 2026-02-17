@@ -486,11 +486,12 @@ class TrainingTask:
 
         validate_tables_exist(self.spark_session, train_tables)
 
-    def register_model(self):
-        model_name = modeling.registration.get_model_name(
+    def register_model(self) -> str:
+        assert self.cfg.preprocessing is not None, "preprocessing config is required"
+        assert self.cfg.model is not None, "model config is required"
+        model_name = modeling.registration.get_model_name_from_config(
+            preprocessing=self.cfg.preprocessing,
             institution_id=self.cfg.institution_id,
-            target=self.cfg.preprocessing.target.name,
-            checkpoint=self.cfg.preprocessing.checkpoint.name,
         )
         try:
             modeling.registration.register_mlflow_model(

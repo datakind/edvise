@@ -280,6 +280,17 @@ class CheckpointBaseConfig(pyd.BaseModel):
         description="Optional subset of columns to include in checkpoint student-terms.",
     )
 
+    @pyd.field_validator("name", mode="after")
+    @classmethod
+    def check_name_is_lowercase(cls, value: str) -> str:
+        if value != value.lower():
+            raise ValueError(
+                f"checkpoint.name='{value}' must be lowercase. "
+                "Unity Catalog will lowercase model names automatically. "
+                "To ensure consistency across our codebase, we require lowercase names."
+            )
+        return value
+
 
 class CheckpointNthConfig(CheckpointBaseConfig):
     type_: types.CheckpointTypeType = "nth"
@@ -325,6 +336,17 @@ class TargetBaseConfig(pyd.BaseModel):
     type_: types.TargetTypeType = pyd.Field(
         default=..., description="Type of target to which config is applied"
     )
+
+    @pyd.field_validator("name", mode="after")
+    @classmethod
+    def check_name_is_lowercase(cls, value: str) -> str:
+        if value != value.lower():
+            raise ValueError(
+                f"target.name='{value}' must be lowercase. "
+                "Unity Catalog will lowercase model names automatically. "
+                "To ensure consistency across our codebase, we require lowercase names."
+            )
+        return value
 
 
 class TargetGraduationConfig(TargetBaseConfig):
