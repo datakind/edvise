@@ -1930,10 +1930,10 @@ class EdaSummary:
             .reindex(index=self.cohort_years(formatted=False), fill_value=0)
             .astype(int)
         )
-        counts_df.columns = counts_df.columns.str.lower()
+        counts_df.columns = counts_df.columns.str.capitalize()
 
         ordered_terms = [
-            t for t in ("FALL", "WINTER", "SPRING", "SUMMER") if t in counts_df.columns
+            t for t in ("Fall", "Winter", "Spring", "Summer") if t in counts_df.columns
         ]
 
         return {
