@@ -33,24 +33,6 @@ LOGGER = logging.getLogger(__name__)
 ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
 
 
-def _parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
-    """Parse --term_filter job param. Treat None, '', 'null' as not provided; else json.loads."""
-    if value is None:
-        return None
-    s = value.strip()
-    if s in ("", "null", "None"):
-        return None
-    try:
-        parsed = json.loads(s)
-    except json.JSONDecodeError as e:
-        LOGGER.error("Invalid JSON for term_filter param: %s", value)
-        raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
-    if not isinstance(parsed, list):
-        raise ValueError("--term_filter must be a JSON list of strings")
-    labels = [str(item).strip() for item in parsed if str(item).strip()]
-    return labels if labels else None
-
-
 class DataAuditBackend(t.NamedTuple):
     """Schema-specific pieces for the data audit. Pass from script (PDP or ES)."""
 
@@ -63,8 +45,6 @@ class DataAuditBackend(t.NamedTuple):
     raw_course_schema: type
     log_basename: str
     default_course_converter: t.Optional[ConverterFunc] = None
-    # When inference cohort comes from --term_filter and cfg.inference is None, use this to create it.
-    inference_config_factory: t.Optional[t.Callable[[list[str]], t.Any]] = None
 
 
 class DataAuditTask:
@@ -85,23 +65,6 @@ class DataAuditTask:
             file_path=self.args.config_file_path,
             schema=backend.config_schema,
         )
-        if getattr(self.args, "job_type", None) == "inference":
-            param_cohort = _parse_term_filter_param(
-                getattr(self.args, "term_filter", None)
-            )
-            if param_cohort is not None:
-                if self.cfg.inference is None and self._backend.inference_config_factory:
-                    self.cfg.inference = self._backend.inference_config_factory(param_cohort)
-                elif self.cfg.inference is not None:
-                    self.cfg.inference.cohort = param_cohort
-                LOGGER.info(
-                    "Inference cohort source: job param; term_filter=%s", param_cohort
-                )
-            else:
-                LOGGER.info(
-                    "Inference cohort source: config; cohort=%s",
-                    self.cfg.inference.cohort if self.cfg.inference else None,
-                )
         self.spark = get_spark_session()
         self.cohort_std = backend.cohort_standardizer
         self.course_std = backend.course_standardizer
@@ -215,14 +178,6 @@ class DataAuditTask:
             converter_func=self.cohort_converter_func,
             spark_session=self.spark,
         )
-
-        if self.args.job_type == "inference":
-            LOGGER.info(" Selecting inference cohort")
-            if self.cfg.inference is None or self.cfg.inference.cohort is None:
-                raise ValueError("cfg.inference.cohort must be configured.")
-            df_cohort_validated = select_inference_cohort(
-                df_cohort_validated, cohorts_list=self.cfg.inference.cohort
-            )
 
         LOGGER.info(" Standardizing cohort data:")
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
