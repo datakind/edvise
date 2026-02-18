@@ -1,59 +1,21 @@
 import argparse
 import importlib
-import json
 import logging
-import typing as t
 import sys
-import pandas as pd
-import os
-from functools import partial
 
-# Go up 3 levels from the current file's directory to reach repo root
-script_dir = os.getcwd()
-repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
-src_path = os.path.join(repo_root, "src")
-
-if os.path.isdir(src_path) and src_path not in sys.path:
-    sys.path.insert(0, src_path)
-
-# Debug info
-print("Script dir:", script_dir)
-print("Repo root:", repo_root)
-print("src_path:", src_path)
-print("sys.path:", sys.path)
-
+from edvise.data_audit.data_audit import DataAuditBackend, DataAuditTask
 from edvise.data_audit.schemas import RawPDPCohortDataSchema, RawPDPCourseDataSchema
 from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
-from edvise.utils.databricks import get_spark_session
 from edvise.utils.data_cleaning import handling_duplicates
-
 from edvise.dataio.read import (
-    read_config,
     read_raw_pdp_cohort_data,
     read_raw_pdp_course_data,
 )
-from edvise.dataio.write import write_parquet
-from edvise.configs.pdp import PDPProjectConfig
-from edvise.data_audit.eda import (
-    compute_gateway_course_ids_and_cips,
-    log_record_drops,
-    log_terms,
-    log_misjoined_records,
-)
-from edvise.data_audit.cohort_selection import select_inference_cohort
-from edvise.utils.update_config import update_key_courses_and_cips
-from edvise.utils.data_cleaning import (
-    remove_pre_cohort_courses,
-    log_pre_cohort_courses,
-)
-from edvise.shared.logger import (
-    resolve_run_path,
-    local_fs_path,
-)
-from edvise.shared.validation import require
+from edvise.configs.pdp import PDPProjectConfig, InferenceConfig
+from functools import partial
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,353 +25,20 @@ logging.basicConfig(
 logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
-# Create callable type
-ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
 
-
-
-class PDPDataAuditTask:
-    """Encapsulates the data preprocessing logic for the SST pipeline."""
-
-    def __init__(
-        self,
-        args: argparse.Namespace,
-        course_converter_func: t.Optional[ConverterFunc] = None,
-        cohort_converter_func: t.Optional[ConverterFunc] = None,
-    ):
-        self.args = args
-        self.cfg = read_config(
-            file_path=self.args.config_file_path, schema=PDPProjectConfig
-        )
-        self.spark = get_spark_session()
-        self.cohort_std = PDPCohortStandardizer()
-        self.course_std = PDPCourseStandardizer()
-        # Use default converter to handle duplicates if none provided
-        self.course_converter_func: ConverterFunc = (
-            partial(handling_duplicates, school_type="pdp")
-            if course_converter_func is None
-            else course_converter_func
-        )
-        self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
-
-    def run(self):
-        """Executes the data audit step."""
-        # Ensure correct folder: training or inference
-        current_run_path = resolve_run_path(
-            self.args, self.cfg, self.args.silver_volume_path
-        )
-        os.makedirs(current_run_path, exist_ok=True)
-
-        # Convert to local filesystem path if using DBFS
-        local_run_path = local_fs_path(current_run_path)
-
-        # Make sure the folder exists on the local FS
-        os.makedirs(local_run_path, exist_ok=True)
-
-        # Build full path (local FS form)
-        log_file_path = os.path.join(local_run_path, "pdp_data_audit.log")
-        abs_log_file_path = os.path.abspath(log_file_path)
-
-        try:
-            root_logger = logging.getLogger()
-
-            # --- IMPORTANT PART 1: remove any existing handlers for this file ---
-            for h in list(root_logger.handlers):
-                if (
-                    isinstance(h, logging.FileHandler)
-                    and getattr(h, "baseFilename", None) == abs_log_file_path
-                ):
-                    root_logger.removeHandler(h)
-                    try:
-                        h.close()
-                    except Exception:
-                        pass
-
-            # --- IMPORTANT PART 2: open in write mode so we overwrite each run ---
-            file_handler = logging.FileHandler(abs_log_file_path, mode="w")
-            file_handler.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
-            )
-
-            root_logger.addHandler(file_handler)
-            LOGGER.info(
-                "File logging initialized. Logs will be overwritten at: %s",
-                log_file_path,
-            )
-
-        except Exception as e:
-            LOGGER.exception(
-                "Failed to initialize file logging at %s: %s", log_file_path, e
-            )
-
-        # Determine file paths
-        cohort_dataset_raw_path = self._pick_existing_path(
-            self.args.cohort_dataset_validated_path,
-            f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
-            "cohort",
-        )
-        course_dataset_raw_path = self._pick_existing_path(
-            self.args.course_dataset_validated_path,
-            f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
-            "course",
-        )
-
-        # --- Load RAW datasets ---
-        LOGGER.info(" Loading raw cohort and course datasets:")
-
-        # Raw cohort data
-        df_cohort_raw = read_raw_pdp_cohort_data(
-            file_path=cohort_dataset_raw_path,
-            schema=None,
-            spark_session=self.spark,
-        )
-
-        # Raw course data
-        dttm_formats = ["ISO8601", "%Y%m%d.0"]
-        for fmt in dttm_formats:
-            try:
-                df_course_raw = read_raw_pdp_course_data(
-                    file_path=course_dataset_raw_path,
-                    schema=None,
-                    dttm_format=fmt,
-                    spark_session=self.spark,
-                )
-                break  # success — exit loop
-            except ValueError:
-                continue  # try next format
-        else:
-            raise ValueError(
-                " Failed to parse course data with all known datetime formats."
-            )
-
-        # Ensure cohort/course files are non-empty
-        for label, df in [
-            ("Raw cohort", df_cohort_raw),
-            ("Raw course", df_course_raw),
-        ]:
-            require(len(df_cohort_raw) > 0, f"{label} dataset is empty (0 rows).")
-            require(len(df_course_raw) > 0, f"{label} dataset is empty (0 rows).")
-
-        LOGGER.info(
-            " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
-        )
-        log_misjoined_records(df_cohort_raw, df_course_raw)
-
-        # Logs cohort year and terms and academic year and terms, grouped and sorted
-
-        LOGGER.info(
-            " Listing grouped cohort year and terms and academic year and terms for raw cohort and course data files: "
-        )
-        log_terms(
-            df_course_raw,
-            df_cohort_raw,
-        )
-
-        # TODO: we may want to add checks here for expected columns, rows, etc. that could break the schemas
-
-        # --- Load COHORT dataset - with schema ---
-
-        # Schema validate cohort data
-        LOGGER.info(" Reading and schema validating cohort data:")
-        df_cohort_validated = read_raw_pdp_cohort_data(
-            file_path=cohort_dataset_raw_path,
-            schema=RawPDPCohortDataSchema,
-            converter_func=self.cohort_converter_func,
-            spark_session=self.spark,
-        )
-
-        # Standardize cohort data
-        LOGGER.info(" Standardizing cohort data:")
-        df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
-
-        LOGGER.info(" Cohort data standardized.")
-
-        student_id_col = getattr(self.cfg, "student_id_col", None) or "student_id"
-
-        # --- Load COURSE dataset - with schema ---
-
-        # Schema validate course data and handle duplicates
-        LOGGER.info(
-            " Reading and schema validating course data, handling any duplicates:"
-        )
-
-        for fmt in dttm_formats:
-            try:
-                df_course_validated = read_raw_pdp_course_data(
-                    file_path=course_dataset_raw_path,
-                    schema=RawPDPCourseDataSchema,
-                    dttm_format=fmt,
-                    converter_func=self.course_converter_func,
-                    spark_session=self.spark,
-                )
-                break  # success — exit loop
-            except ValueError:
-                continue  # try next format
-        else:
-            raise ValueError(
-                " Failed to parse course data with all known datetime formats."
-            )
-        LOGGER.info(" Course data read and schema validated, duplicates handled.")
-
-        # TODO: can't tell if this is working?
-        try:
-            include_pre_cohort = self.cfg.preprocessing.include_pre_cohort_courses
-        except AttributeError:
-            raise AttributeError(
-                "Config error: 'include_pre_cohort_courses' is missing. "
-                "Please set it explicitly in the config file under 'preprocessing' based on your school's preference (for default models, this should always be false)."
-            )
-
-        if not include_pre_cohort:
-            df_course_validated = remove_pre_cohort_courses(
-                df_course_validated, self.cfg.student_id_col
-            )
-        else:
-            log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
-
-        # Standardize course data
-        LOGGER.info(" Standardizing course data:")
-        df_course_standardized = self.course_std.standardize(df_course_validated)
-
-        LOGGER.info(" Course data standardized.")
-
-        for label, df in [
-            ("Standardized cohort", df_cohort_standardized),
-            ("Standardized course", df_course_standardized),
-        ]:
-            require(
-                student_id_col in df.columns,
-                f"{label} missing required column: {student_id_col}",
-            )
-            nulls = int(df[student_id_col].isna().sum())
-            require(
-                nulls == 0, f"{label} contains {nulls} null {student_id_col} values."
-            )
-
-        LOGGER.info(
-            " Validated that cohort and course files both have a 'student_id' column with no nulls."
-        )
-
-        # Log Math/English gateway courses and add to config
-        ids, cips, has_upper_level, lower_ids, lower_cips = (
-            compute_gateway_course_ids_and_cips(df_course_standardized)
-        )
-
-        # Auto-populate only at training time to avoid training-inference skew
-        if self.args.job_type == "training":
-            LOGGER.info(
-                "Existing config course IDs and subject areas: %s | %s",
-                self.cfg.preprocessing.features.key_course_ids,
-                self.cfg.preprocessing.features.key_course_subject_areas,
-            )
-            if has_upper_level:
-                if (
-                    lower_ids
-                    and lower_cips
-                    and len(lower_ids) <= 10
-                    and len(lower_cips) <= 10
-                ):
-                    LOGGER.warning(
-                        " Upper-level (>=200) gateway courses detected. Auto-populating config with LOWER-level (<200) "
-                        "gateway courses and CIP codes only. Please confirm with the school and adjust if needed."
-                    )
-                    update_key_courses_and_cips(
-                        self.args.config_file_path,
-                        key_course_ids=lower_ids,
-                        key_course_subject_areas=lower_cips,
-                    )
-
-                    existing_ids = set(
-                        self.cfg.preprocessing.features.key_course_ids or []
-                    )
-                    existing_cips = set(
-                        self.cfg.preprocessing.features.key_course_subject_areas or []
-                    )
-
-                    self.cfg.preprocessing.features.key_course_ids = list(
-                        existing_ids.union(lower_ids)
-                    )
-                    self.cfg.preprocessing.features.key_course_subject_areas = list(
-                        existing_cips.union(lower_cips)
-                    )
-
-                    LOGGER.info(
-                        "New config course IDs and subject areas: %s | %s",
-                        self.cfg.preprocessing.features.key_course_ids,
-                        self.cfg.preprocessing.features.key_course_subject_areas,
-                    )
-                else:
-                    LOGGER.warning(
-                        " Skipping auto-populating of config: upper-level gateways present but no acceptable lower-level set "
-                        "was identified (or too many) to auto-populate. Please check in with the school and update config manually."
-                    )
-
-            elif len(ids) <= 25 and len(cips) <= 25:
-                LOGGER.info(
-                    " Auto-populating config with below course IDs and CIP codes: change if necessary"
-                )
-                update_key_courses_and_cips(
-                    self.args.config_file_path,
-                    key_course_ids=ids,
-                    key_course_subject_areas=cips,
-                )
-
-                existing_ids = set(self.cfg.preprocessing.features.key_course_ids or [])
-                existing_cips = set(
-                    self.cfg.preprocessing.features.key_course_subject_areas or []
-                )
-
-                self.cfg.preprocessing.features.key_course_ids = list(
-                    existing_ids.union(ids)
-                )
-                self.cfg.preprocessing.features.key_course_subject_areas = list(
-                    existing_cips.union(cips)
-                )
-
-                LOGGER.info(
-                    "New config course IDs and subject areas: %s | %s",
-                    self.cfg.preprocessing.features.key_course_ids,
-                    self.cfg.preprocessing.features.key_course_subject_areas,
-                )
-            else:
-                LOGGER.warning(
-                    " Skipping auto-populating of config due to too many IDs that were identified. "
-                    "Please check in with school and manually update config."
-                )
-
-        # Log changes before and after pre-processing
-        log_record_drops(
-            df_cohort_raw,
-            df_cohort_standardized,
-            df_course_raw,
-            df_course_standardized,
-        )
-
-        LOGGER.info(
-            " Listing grouped cohort year and terms and academic year and terms for *standardized* cohort and course data files: "
-        )
-
-        # Logs cohort year and terms and academic year and terms, grouped and sorted
-        log_terms(
-            df_course_standardized,
-            df_cohort_standardized,
-        )
-
-        # --- Check that standardized cohort/course files aren't empty ---
-        require(len(df_cohort_standardized) > 0, "df_cohort_standardized is empty.")
-        require(len(df_course_standardized) > 0, "df_course_standardized is empty.")
-
-        # --- Write results ---
-        write_parquet(
-            df_cohort_standardized,
-            os.path.join(current_run_path, "df_cohort_standardized.parquet"),
-        )
-        write_parquet(
-            df_course_standardized,
-            os.path.join(current_run_path, "df_course_standardized.parquet"),
-        )
+def _pdp_backend() -> DataAuditBackend:
+    return DataAuditBackend(
+        config_schema=PDPProjectConfig,
+        cohort_standardizer=PDPCohortStandardizer(),
+        course_standardizer=PDPCourseStandardizer(),
+        read_raw_cohort_data=read_raw_pdp_cohort_data,
+        read_raw_course_data=read_raw_pdp_course_data,
+        raw_cohort_schema=RawPDPCohortDataSchema,
+        raw_course_schema=RawPDPCourseDataSchema,
+        log_basename="pdp_data_audit.log",
+        default_course_converter=partial(handling_duplicates, school_type="pdp"),
+        inference_config_factory=lambda cohort: InferenceConfig(cohort=cohort),
+    )
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -452,7 +81,7 @@ if __name__ == "__main__":
     except Exception as e:
         cohort_converter_func = None
         LOGGER.info("Running task with default cohort converter func")
-        LOGGER.warning(f"Failed to load custom converter functions: {e}")
+        LOGGER.warning("Failed to load custom converter functions: %s", e)
     try:
         converter_func = importlib.import_module("dataio")
         course_converter_func = converter_func.converter_func_course
@@ -460,23 +89,15 @@ if __name__ == "__main__":
     except Exception as e:
         course_converter_func = None
         LOGGER.info("Running task default course converter func")
-        LOGGER.warning(f"Failed to load custom converter functions: {e}")
+        LOGGER.warning("Failed to load custom converter functions: %s", e)
 
-    # try:
-    #     schemas = importlib.import_module("schemas")
-    #     LOGGER.info("Running task with custom schema")
-    # except Exception as e:
-    #     from data_audit import schemas as schemas
-    #     LOGGER.info("Running task with default schema")
-    #     LOGGER.warning(f"Failed to load custom schema: {e}")
-
-    task = PDPDataAuditTask(
+    task = DataAuditTask(
         args,
-        cohort_converter_func=cohort_converter_func,
+        _pdp_backend(),
         course_converter_func=course_converter_func,
+        cohort_converter_func=cohort_converter_func,
     )
     task.run()
-    # Ensure all logs are flushed to disk
     for h in logging.getLogger().handlers:
         try:
             h.flush()
