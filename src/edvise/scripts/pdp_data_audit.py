@@ -15,7 +15,7 @@ from edvise.dataio.read import (
     read_raw_pdp_cohort_data,
     read_raw_pdp_course_data,
 )
-from edvise.configs.pdp import PDPProjectConfig, InferenceConfig
+from edvise.configs.pdp import PDPProjectConfig
 from functools import partial
 
 logging.basicConfig(
@@ -38,7 +38,6 @@ def _pdp_backend() -> DataAuditBackend:
         raw_course_schema=RawPDPCourseDataSchema,
         log_basename="pdp_data_audit.log",
         default_course_converter=partial(handling_duplicates, school_type="pdp"),
-        inference_config_factory=lambda cohort: InferenceConfig(cohort=cohort),
     )
 
 

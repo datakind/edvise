@@ -60,7 +60,7 @@ class DataAuditTask:
     ):
         self.args = args
         self._backend = backend
-        self.cfg = read_config(
+        self.cfg: t.Any = read_config(
             file_path=self.args.config_file_path,
             schema=backend.config_schema,
         )
@@ -216,7 +216,7 @@ class DataAuditTask:
             df_course_validated = remove_pre_cohort_courses(
                 df_course_validated, self.cfg.student_id_col
             )
-        else:
+        if include_pre_cohort:
             log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
         LOGGER.info(" Standardizing course data:")

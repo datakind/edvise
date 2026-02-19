@@ -111,7 +111,9 @@ class PDPCohortStandardizer(BaseStandardizer):
             "first_year_to_certificate_at_other_inst": (None, "Int8"),
         }
         df = drop_columns_safely(df, cols_to_drop)
-        df = replace_na_firstgen_and_pell(df)
+        df = replace_na_in_columns(
+            df, {"first_gen": "N", "pell_status_first_year": "N"}
+        )
         df = self.add_empty_columns_if_missing(df, col_val_dtypes)
         return df
 
@@ -162,7 +164,7 @@ class ESCohortStandardizer(BaseStandardizer):
         Args:
             df: cohort dataframe
         """
-        print_credential_and_enrollment_types(df)
+        print_credential_and_enrollment_types_and_intensities(df)
         log_high_null_columns(df)
         check_bias_variables(df)
         log_grade_distribution(df)
@@ -174,11 +176,11 @@ class ESCohortStandardizer(BaseStandardizer):
         )
         primary_keys = ["student_id"]
         LOGGER.info("Checking for cohort file duplicates...")
-        find_dupes(df, primary_keys=primary_keys)
+        find_dupes(df, key_cols=primary_keys)
         LOGGER.info("Dropping readmits ")
         df = drop_readmits(df)
         LOGGER.info("Dropped readmits: checking again for duplicates...")
-        dupes = find_dupes(df, primary_keys=primary_keys)
+        dupes = find_dupes(df, key_cols=primary_keys)
         if len(dupes) == 0:
             LOGGER.info("No duplicates found after dropping readmits.")
         else:
@@ -186,7 +188,7 @@ class ESCohortStandardizer(BaseStandardizer):
             LOGGER.info(
                 "Duplicates still found; running keep_earlier_record; checking again for duplicates..."
             )
-            dupes = find_dupes(df, primary_keys=primary_keys)
+            dupes = find_dupes(df, key_cols=primary_keys)
             if len(dupes) == 0:
                 LOGGER.info("No duplicates found after keep_earlier_record.")
             else:
@@ -220,10 +222,10 @@ class ESCourseStandardizer(BaseStandardizer):
         log_high_null_columns(df)
         primary_keys = ["student_id", "term", "course_subject", "course_num"]
         LOGGER.info("Checking for course file duplicates...")
-        find_dupes(df, primary_keys=primary_keys)
-        df = handling_duplicates(df)
+        find_dupes(df, key_cols=primary_keys)
+        df = handling_duplicates(df, school_type="schema", unique_cols=primary_keys)
         check_pf_grade_consistency(df)
-        validate_credit_consistency(df)
+        validate_credit_consistency(df, None, None)
         df = assign_numeric_grade(df)
         df = self.add_empty_columns_if_missing(df, {})
         return df
