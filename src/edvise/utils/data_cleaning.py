@@ -683,7 +683,6 @@ def _classify_duplicate_groups(
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
     credits_col: str | None = "course_credits_attempted",
-    grade_col: str | None = "grade",
 ) -> tuple[list[int], list[int], int, int, int]:
     """
     Classify duplicate groups into renumber vs drop categories.
@@ -728,22 +727,6 @@ def _classify_duplicate_groups(
 
             if credits_col is not None and credits_col in grp_sorted.columns:
                 sort_cols.append(credits_col)
-                ascending.append(False)
-
-            # Grade as a numeric score (descending)
-            if grade_col is not None and grade_col in grp_sorted.columns:
-                score_col = "__grade_score__"
-
-                scorer = make_grade_to_score_from_series(
-                    grp_sorted[grade_col]
-                )  # <-- pass the Series here
-
-                grp_sorted = grp_sorted.assign(
-                    **{
-                        score_col: grp_sorted[grade_col].map(scorer)
-                    }  # <-- map with the per-value scorer
-                )
-                sort_cols.append(score_col)
                 ascending.append(False)
 
             if sort_cols:
@@ -859,7 +842,6 @@ def _log_schema_summary(
     total_after: int,
     course_type_col: str | None,
     course_name_col: str | None,
-    keeper_rule: str,
     duplicate_rows: pd.DataFrame,
     unique_cols: list[str],
 ) -> None:
@@ -880,8 +862,6 @@ def _log_schema_summary(
         keeper_dropped_rows,
         renumbered_rows,
     )
-
-    LOGGER.info("Keeper rule for drop-groups: %s", keeper_rule)
 
     if course_type_col is not None:
         LOGGER.info(
@@ -917,7 +897,6 @@ def _handle_schema_duplicates(
     credits_col: str | None = "course_credits_attempted",
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
-    grade_col: str | None = "grade",
 ) -> pd.DataFrame:
     """Handle duplicates for Edvise schema mode."""
     LOGGER.info("handle_duplicates: edvise schema mode triggered")
@@ -934,7 +913,6 @@ def _handle_schema_duplicates(
         df, course_name_col, "course_name", logger=LOGGER
     )
     credits_col = validate_optional_column(df, credits_col, "credits", logger=LOGGER)
-    grade_col = validate_optional_column(df, grade_col, "grade", logger=LOGGER)
 
     total_before = len(df)
 
@@ -965,7 +943,6 @@ def _handle_schema_duplicates(
         course_type_col,
         course_name_col,
         credits_col,
-        grade_col,
     )
 
     # Drop rows from duplicate-key groups (keeper logic)
@@ -996,10 +973,6 @@ def _handle_schema_duplicates(
         (lab_lecture_rows / renumbered_rows * 100) if renumbered_rows else 0.0
     )
 
-    keeper_rule = (
-        "keep highest credits; if tied, keep highest grade; if tied, keep first row"
-    )
-
     # Log summary (NOW everything exists)
     _log_schema_summary(
         total_before,
@@ -1015,7 +988,6 @@ def _handle_schema_duplicates(
         total_after,
         course_type_col,
         course_name_col,
-        keeper_rule,
         duplicate_rows,
         unique_cols,
     )
@@ -1035,7 +1007,6 @@ def handling_duplicates(
     credits_col: str | None = "course_credits_attempted",
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
-    grade_col: str | None = "grade",
 ) -> pd.DataFrame:
     """
     Combined duplicate handling with a schema_type switch.
@@ -1073,7 +1044,6 @@ def handling_duplicates(
             credits_col,
             course_type_col,
             course_name_col,
-            grade_col,
         )
 
 
@@ -1082,100 +1052,3 @@ COMPLETE_LETTER_RE = re.compile(r"^([A-F])([+-])?$")
 
 # Incomplete variants like I, IA, IB+, IC-, IU, etc.
 INCOMPLETE_RE = re.compile(r"^I([A-FU])([+-])?$")
-
-
-def make_grade_to_score_from_series(
-    grade_series: pd.Series,
-    *,
-    plus_delta: float = 0.3,
-    minus_delta: float = 0.3,
-    treat_pass_as: float
-    | None = None,  # set to e.g. 2.0 if you *want* S/PR to participate
-) -> Callable[[object], float]:
-    """
-    Build a grade->numeric score function using observed tokens for a school.
-
-    Rules:
-    - Completed A–F(+/-) are scored (includes E if present in data).
-    - Incompletes (I, IA, IB+, ... , IU) => -inf (won't win ties)
-    - Withdrawals/status (W, WC, AU, UC, IS, etc.) => -inf
-    - Pass/Unsat (S/U/PR) default => -inf unless treat_pass_as is set.
-    - Numeric strings still parse as floats.
-    """
-
-    # Which completed letter grades exist at this school?
-    observed_complete_letters: set[str] = set()
-    tokens = (
-        grade_series.dropna()
-        .astype(str)
-        .str.strip()
-        .str.upper()
-        .loc[lambda s: s != ""]
-        .unique()
-    )
-
-    for t in tokens:
-        m = COMPLETE_LETTER_RE.match(t)
-        if m:
-            observed_complete_letters.add(m.group(1))
-
-    # Build points only for letters that appear (A highest, then B, C, D, E, F if present)
-    conventional_order = ["A", "B", "C", "D", "E", "F"]
-    points: dict[str, float] = {}
-    base = 4.0
-    for L in conventional_order:
-        if L in observed_complete_letters:
-            points[L] = base
-            base -= 1.0
-
-    PASS_TOKENS = {"S", "PR"}
-    UNSAT_TOKENS = {"U"}
-    WITHDRAW_TOKENS = {"W", "WC"}
-    # You can add other known “status” tokens here if you like, but unknowns already go to -inf.
-    STATUS_TOKENS = {"AU", "UC", "IS"}
-
-    def score(val: object) -> float:
-        if val is None or (isinstance(val, float) and pd.isna(val)):
-            return float("-inf")
-
-        s = str(val).strip().upper()
-        if not s:
-            return float("-inf")
-
-        # Numeric?
-        try:
-            return float(s)
-        except ValueError:
-            pass
-
-        # Incomplete variants: I, IA, IB+, ...
-        if s == "I" or INCOMPLETE_RE.match(s):
-            return float("-inf")
-
-        # Withdrawals/status codes
-        if s in WITHDRAW_TOKENS or s in STATUS_TOKENS:
-            return float("-inf")
-
-        # Pass/unsat tokens
-        if s in PASS_TOKENS:
-            return float("-inf") if treat_pass_as is None else float(treat_pass_as)
-        if s in UNSAT_TOKENS:
-            return float("-inf") if treat_pass_as is None else float("-inf")
-
-        # Completed letter grade
-        m = COMPLETE_LETTER_RE.match(s)
-        if not m:
-            return float("-inf")
-
-        letter, sign = m.group(1), m.group(2)
-        if letter not in points:
-            return float("-inf")
-
-        out = points[letter]
-        if sign == "+":
-            out += plus_delta
-        elif sign == "-":
-            out -= minus_delta
-        return out
-
-    return score
