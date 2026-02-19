@@ -1068,7 +1068,7 @@ def handling_duplicates(
         return _handle_pdp_duplicates(df)
     else:
         return _handle_schema_duplicates(
-            df, unique_cols, credits_col, course_type_col, course_name_col
+            df, unique_cols, credits_col, course_type_col, course_name_col, grade_col,
         )
 
 
