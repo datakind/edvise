@@ -213,10 +213,8 @@ class ESCourseStandardizer(BaseStandardizer):
         Args:
             df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
         """
+        df = strip_trailing_decimal_strings(df, cols = ["course_number"])
         log_high_null_columns(df)
-        # not sure which other columns might need to be dropped
-        # cols_to_drop = []
-        # df = drop_columns_safely(df, cols_to_drop)
         primary_keys = ["student_id", "term", "course_subject", "course_num"]
         LOGGER.info("Checking for course file duplicates...")
         find_dupes(df, primary_keys=primary_keys)
