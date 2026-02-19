@@ -1449,9 +1449,7 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
         - Percentage of 'M' grades
         - Warning if 'M' grades exceed 5% of all non-null grades
     """
-    grade_col = validate_optional_column(
-        df_course, grade_col, "grade", logger=LOGGER
-    )
+    grade_col = validate_optional_column(df_course, grade_col, "grade", logger=LOGGER)
     if grade_col is None:
         return
 

@@ -518,10 +518,11 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
 
 
 def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
-    for col, label in [("course_number", "course_number"), ("course_cip", "course_cip")]:
-        validated = validate_optional_column(
-            df_course, col, label, logger=LOGGER
-        )
+    for col, label in [
+        ("course_number", "course_number"),
+        ("course_cip", "course_cip"),
+    ]:
+        validated = validate_optional_column(df_course, col, label, logger=LOGGER)
         if validated is not None:
             df_course[validated] = df_course[validated].astype("string")
             pre_truncated = df_course[validated].copy()
@@ -932,12 +933,8 @@ def _handle_schema_duplicates(
     course_name_col = validate_optional_column(
         df, course_name_col, "course_name", logger=LOGGER
     )
-    credits_col = validate_optional_column(
-        df, credits_col, "credits", logger=LOGGER
-    )
-    grade_col = validate_optional_column(
-        df, grade_col, "grade", logger=LOGGER
-    )
+    credits_col = validate_optional_column(df, credits_col, "credits", logger=LOGGER)
+    grade_col = validate_optional_column(df, grade_col, "grade", logger=LOGGER)
 
     total_before = len(df)
 
