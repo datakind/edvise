@@ -33,6 +33,7 @@ def get_spark_session() -> SparkSession:
         logging.error("Unable to create Spark session.")
         raise
 
+
 def get_db_widget_param(name: str, *, default: t.Optional[object] = None) -> object:
     """
     Get a Databricks widget parameter by ``name``,
@@ -114,6 +115,4 @@ def mock_pandera():
 
 
 def in_databricks() -> bool:
-    return bool(
-        os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER")
-    )
+    return bool(os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER"))

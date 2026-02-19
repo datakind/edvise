@@ -1,6 +1,7 @@
 """
 Generalized data audit task. Schema-specific behavior is injected via DataAuditBackend.
 """
+
 import argparse
 import json
 import logging

@@ -18,6 +18,7 @@ from edvise.utils.databricks import in_databricks
 def local_fs_path(p: str) -> str:
     return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
+
 def get_dbutils():
     try:
         from databricks.sdk.runtime import dbutils  # type: ignore

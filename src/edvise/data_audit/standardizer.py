@@ -125,7 +125,7 @@ class PDPCourseStandardizer(BaseStandardizer):
         Args:
             df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
         """
-        df = strip_trailing_decimal_strings(df, cols = ["course_number", "course_cip"])
+        df = strip_trailing_decimal_strings(df, cols=["course_number", "course_cip"])
         df = drop_course_rows_missing_identifiers(df)
         log_high_null_columns(df)
         log_grade_distribution(df)
@@ -169,9 +169,10 @@ class ESCohortStandardizer(BaseStandardizer):
         log_grade_distribution(df)
         log_top_majors(df)
 
-        df = replace_na_in_columns(df, 
-        {"pell_status_first_year": "N", "first_gen": "N"},
-            )
+        df = replace_na_in_columns(
+            df,
+            {"pell_status_first_year": "N", "first_gen": "N"},
+        )
         primary_keys = ["student_id"]
         LOGGER.info("Checking for cohort file duplicates...")
         find_dupes(df, primary_keys=primary_keys)
@@ -216,7 +217,7 @@ class ESCourseStandardizer(BaseStandardizer):
         Args:
             df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
         """
-        df = strip_trailing_decimal_strings(df, cols = ["course_number"])
+        df = strip_trailing_decimal_strings(df, cols=["course_number"])
         log_high_null_columns(df)
         primary_keys = ["student_id", "term", "course_subject", "course_num"]
         LOGGER.info("Checking for course file duplicates...")

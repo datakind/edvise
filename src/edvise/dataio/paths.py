@@ -4,6 +4,7 @@ import sys
 import typing as t
 
 from edvise.utils.databricks import in_databricks
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -28,6 +29,7 @@ def path_exists(p: str) -> bool:
     # Local Posix path (Vols are mounted here)
     return pathlib.Path(p).exists()
 
+
 def pick_existing_path(
     prefer_path: t.Optional[str],
     fallback_path: str,
@@ -48,11 +50,7 @@ def pick_existing_path(
     if prefer and not path_exists(prefer):
         LOGGER.warning("%s: inference-provided path not found: %s", label, prefer)
 
-    if (
-        use_fallback_on_dbx
-        and in_databricks()
-        and path_exists(fallback_path)
-    ):
+    if use_fallback_on_dbx and in_databricks() and path_exists(fallback_path):
         LOGGER.info(
             "%s: utilizing training-config path on Databricks: %s",
             label,
