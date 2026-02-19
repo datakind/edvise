@@ -517,16 +517,16 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
     return df_cohort
 
 
-def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
-    for col in ["course_number", "course_cip"]:
-        if col in df_course.columns:
-            df_course[col] = df_course[col].astype("string")
-            pre_truncated = df_course[col].copy()
+def strip_trailing_decimal_strings(df: pd.DataFrame, cols: list) -> pd.DataFrame:
+    for col in cols:
+        if col in df.columns:
+            df[col] = df[col].astype("string")
+            pre_truncated = df[col].copy()
 
             # Only remove literal ".0" at the end of the string
-            df_course[col] = df_course[col].str.replace(r"\.0$", "", regex=True)
+            df[col] = df[col].str.replace(r"\.0$", "", regex=True)
 
-            truncated = (pre_truncated != df_course[col]).sum(min_count=1)
+            truncated = (pre_truncated != df[col]).sum(min_count=1)
             LOGGER.info(
                 ' Stripped trailing ".0" in %s rows for column "%s".',
                 int(truncated or 0),
@@ -534,7 +534,7 @@ def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
             )
         else:
             LOGGER.warning(' ⚠️ Column "%s" not found', col)
-    return df_course
+    return df
 
 
 def _infer_student_id_col(df: pd.DataFrame) -> str:

@@ -125,7 +125,7 @@ class PDPCourseStandardizer(BaseStandardizer):
         Args:
             df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
         """
-        df = strip_trailing_decimal_strings(df)
+        df = strip_trailing_decimal_strings(df, cols = ["course_number", "course_cip"])
         df = drop_course_rows_missing_identifiers(df)
         log_high_null_columns(df)
         log_grade_distribution(df)
@@ -155,7 +155,7 @@ class PDPCourseStandardizer(BaseStandardizer):
         return df
 
 
-class CustomCohortStandardizer(BaseStandardizer):
+class ESCohortStandardizer(BaseStandardizer):
     def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Clean up and drop some columns from raw cohort dataset.
@@ -205,7 +205,7 @@ class CustomCohortStandardizer(BaseStandardizer):
         return df
 
 
-class CustomCourseStandardizer(BaseStandardizer):
+class ESCourseStandardizer(BaseStandardizer):
     def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Drop some columns and anomalous rows from raw course dataset.
