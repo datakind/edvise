@@ -1,5 +1,6 @@
 import argparse
 import importlib
+import json
 import logging
 import sys
 
@@ -39,6 +40,31 @@ def _pdp_backend() -> DataAuditBackend:
         default_course_converter=partial(handling_duplicates, school_type="pdp"),
         inference_config_factory=lambda cohort: InferenceConfig(cohort=cohort),
     )
+
+
+def _parse_term_filter_param(value: str | None) -> list[str] | None:
+    """
+    Parse the --term_filter CLI parameter into a list of term labels or None.
+
+    Treats None, empty string, whitespace, 'null', 'None', and [] as not provided (returns None).
+    Valid JSON list of strings is returned (trimmed, empty elements dropped).
+    Raises ValueError for invalid JSON or non-list JSON.
+    """
+    if value is None:
+        return None
+    s = value.strip()
+    if not s or s.lower() in ("null", "none"):
+        return None
+    try:
+        parsed = json.loads(s)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
+    if not isinstance(parsed, list):
+        raise ValueError(
+            '--term_filter must be a JSON list of term labels (e.g. ["fall 2024-25"])'
+        )
+    result = [item.strip() for item in parsed if item is not None and str(item).strip()]
+    return result if result else None
 
 
 def parse_arguments() -> argparse.Namespace:

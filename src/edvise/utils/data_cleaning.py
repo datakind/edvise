@@ -935,9 +935,11 @@ def _handle_schema_duplicates(
     )
 
     # Build course_id (always in schema mode)
-    df["course_id"] = (
-        df["course_prefix"].astype("string").str.strip()
-        + df["course_number"].astype("string").str.strip()
+    df = df.assign(
+        course_id=(
+            df["course_prefix"].astype("string").str.strip()
+            + df["course_number"].astype("string").str.strip()
+        )
     )
 
     # Calculate summary statistics
