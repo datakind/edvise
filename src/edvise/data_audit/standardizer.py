@@ -8,7 +8,7 @@ from edvise.utils.drop_columns_safely import drop_columns_safely
 from edvise.utils.data_cleaning import (
     drop_course_rows_missing_identifiers,
     strip_trailing_decimal_strings,
-    replace_na_firstgen_and_pell,
+    replace_na_in_columns,
     handling_duplicates,
 )
 from edvise.data_audit.custom_cleaning import (
@@ -168,7 +168,10 @@ class ESCohortStandardizer(BaseStandardizer):
         check_bias_variables(df)
         log_grade_distribution(df)
         log_top_majors(df)
-        df = replace_na_firstgen_and_pell(df)
+
+        df = replace_na_in_columns(df, 
+        {"pell_status_first_year": "N", "first_gen": "N"},
+            )
         primary_keys = ["student_id"]
         LOGGER.info("Checking for cohort file duplicates...")
         find_dupes(df, primary_keys=primary_keys)

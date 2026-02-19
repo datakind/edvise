@@ -472,50 +472,40 @@ def log_pre_cohort_courses(df_course: pd.DataFrame, student_id_col: str) -> None
         )
 
 
-def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
-    if "pell_status_first_year" in df_cohort.columns:
+def replace_na_in_columns(
+    df: pd.DataFrame,
+    column_replacement_map: dict[str, str | float | int],
+) -> pd.DataFrame:
+    """
+    Fill NA in one or more columns. Map: column_name -> replacement_value.
+    No-op for columns that are not present (logs a warning).
+    """
+    for column_name, replacement_value in column_replacement_map.items():
+        if column_name not in df.columns:
+            LOGGER.warning(
+                ' ⚠️ Column "%s" not found; skipping NA replacement.',
+                column_name,
+            )
+            continue
         LOGGER.info(
-            " Before replacing 'pell_status_first_year':\n%s",
-            df_cohort["pell_status_first_year"].value_counts(dropna=False),
+            " Before replacing '%s':\n%s",
+            column_name,
+            df[column_name].value_counts(dropna=False),
         )
-        na_pell = df_cohort["pell_status_first_year"].isna().sum()
-        df_cohort["pell_status_first_year"] = df_cohort[
-            "pell_status_first_year"
-        ].fillna("N")
+        na_count = df[column_name].isna().sum()
+        df[column_name] = df[column_name].fillna(replacement_value)
         LOGGER.info(
-            ' Filled %s NAs in "pell_status_first_year" to "N".',
-            int(na_pell),
-        )
-        LOGGER.info(
-            " After replacing 'pell_status_first_year':\n%s",
-            df_cohort["pell_status_first_year"].value_counts(dropna=False),
-        )
-    else:
-        LOGGER.warning(
-            ' ⚠️ Column "pell_status_first_year" not found; skipping Pell status NA replacement.'
-        )
-
-    if "first_gen" in df_cohort.columns:
-        LOGGER.info(
-            " Before filling 'first_gen':\n%s",
-            df_cohort["first_gen"].value_counts(dropna=False),
-        )
-        na_first = df_cohort["first_gen"].isna().sum()
-        df_cohort["first_gen"] = df_cohort["first_gen"].fillna("N")
-        LOGGER.info(
-            ' Filled %s NAs in "first_gen" with "N".',
-            int(na_first),
+            ' Filled %s NAs in "%s" with %r.',
+            int(na_count),
+            column_name,
+            replacement_value,
         )
         LOGGER.info(
-            " After filling 'first_gen':\n%s",
-            df_cohort["first_gen"].value_counts(dropna=False),
+            " After replacing '%s':\n%s",
+            column_name,
+            df[column_name].value_counts(dropna=False),
         )
-    else:
-        LOGGER.warning(
-            ' ⚠️ Column "first_gen" not found; skipping first-gen NA replacement.'
-        )
-    return df_cohort
-
+    return df
 
 def strip_trailing_decimal_strings(df: pd.DataFrame, cols: list) -> pd.DataFrame:
     for col in cols:
