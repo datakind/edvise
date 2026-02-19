@@ -1,9 +1,47 @@
+import logging
 import re
 import typing as t
 
+import pandas as pd
+
 Num = t.Union[int, float]
 
+LOGGER = logging.getLogger(__name__)
+
 """Shared utility functions used across multiple modules."""
+
+
+def validate_optional_column(
+    df: pd.DataFrame,
+    col: str | None,
+    label: str,
+    *,
+    logger: logging.Logger | None = None,
+) -> str | None:
+    """
+    If col is not None and not in df.columns, log warning and return None.
+    Otherwise return col.
+
+    Args:
+        df: DataFrame to check for column presence.
+        col: Column name to validate (None is allowed).
+        label: Label for log message (e.g. "course_type", "grade").
+        logger: Optional logger; defaults to module logger.
+
+    Returns:
+        col if present in df, else None.
+    """
+    if col is None:
+        return None
+    if col not in df.columns:
+        log = logger or LOGGER
+        log.warning(
+            "Column '%s' not found in dataframe. Will skip %s-based operations.",
+            col,
+            label,
+        )
+        return None
+    return col
 
 
 def as_percent(val: float | int) -> str:

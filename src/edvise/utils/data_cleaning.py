@@ -1,11 +1,14 @@
-import pandas as pd
 import logging
 import re
 import typing as t
-from typing import Callable
 from collections.abc import Iterable
-from edvise.utils import types
+from typing import Callable
+
+import pandas as pd
+
 from edvise.dataio.pdp_course_converters import dedupe_by_renumbering_courses
+from edvise.shared.utils import validate_optional_column
+from edvise.utils import types
 
 LOGGER = logging.getLogger(__name__)
 
@@ -474,67 +477,66 @@ def log_pre_cohort_courses(df_course: pd.DataFrame, student_id_col: str) -> None
 
 
 def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
-    if "pell_status_first_year" in df_cohort.columns:
+    pell_col = validate_optional_column(
+        df_cohort, "pell_status_first_year", "Pell status", logger=LOGGER
+    )
+    if pell_col is not None:
         LOGGER.info(
             " Before replacing 'pell_status_first_year':\n%s",
-            df_cohort["pell_status_first_year"].value_counts(dropna=False),
+            df_cohort[pell_col].value_counts(dropna=False),
         )
-        na_pell = df_cohort["pell_status_first_year"].isna().sum()
-        df_cohort["pell_status_first_year"] = df_cohort[
-            "pell_status_first_year"
-        ].fillna("N")
+        na_pell = df_cohort[pell_col].isna().sum()
+        df_cohort[pell_col] = df_cohort[pell_col].fillna("N")
         LOGGER.info(
             ' Filled %s NAs in "pell_status_first_year" to "N".',
             int(na_pell),
         )
         LOGGER.info(
             " After replacing 'pell_status_first_year':\n%s",
-            df_cohort["pell_status_first_year"].value_counts(dropna=False),
-        )
-    else:
-        LOGGER.warning(
-            ' ⚠️ Column "pell_status_first_year" not found; skipping Pell status NA replacement.'
+            df_cohort[pell_col].value_counts(dropna=False),
         )
 
-    if "first_gen" in df_cohort.columns:
+    first_gen_col = validate_optional_column(
+        df_cohort, "first_gen", "first-gen", logger=LOGGER
+    )
+    if first_gen_col is not None:
         LOGGER.info(
             " Before filling 'first_gen':\n%s",
-            df_cohort["first_gen"].value_counts(dropna=False),
+            df_cohort[first_gen_col].value_counts(dropna=False),
         )
-        na_first = df_cohort["first_gen"].isna().sum()
-        df_cohort["first_gen"] = df_cohort["first_gen"].fillna("N")
+        na_first = df_cohort[first_gen_col].isna().sum()
+        df_cohort[first_gen_col] = df_cohort[first_gen_col].fillna("N")
         LOGGER.info(
             ' Filled %s NAs in "first_gen" with "N".',
             int(na_first),
         )
         LOGGER.info(
             " After filling 'first_gen':\n%s",
-            df_cohort["first_gen"].value_counts(dropna=False),
-        )
-    else:
-        LOGGER.warning(
-            ' ⚠️ Column "first_gen" not found; skipping first-gen NA replacement.'
+            df_cohort[first_gen_col].value_counts(dropna=False),
         )
     return df_cohort
 
 
 def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
-    for col in ["course_number", "course_cip"]:
-        if col in df_course.columns:
-            df_course[col] = df_course[col].astype("string")
-            pre_truncated = df_course[col].copy()
+    for col, label in [("course_number", "course_number"), ("course_cip", "course_cip")]:
+        validated = validate_optional_column(
+            df_course, col, label, logger=LOGGER
+        )
+        if validated is not None:
+            df_course[validated] = df_course[validated].astype("string")
+            pre_truncated = df_course[validated].copy()
 
             # Only remove literal ".0" at the end of the string
-            df_course[col] = df_course[col].str.replace(r"\.0$", "", regex=True)
+            df_course[validated] = df_course[validated].str.replace(
+                r"\.0$", "", regex=True
+            )
 
-            truncated = (pre_truncated != df_course[col]).sum(min_count=1)
+            truncated = (pre_truncated != df_course[validated]).sum(min_count=1)
             LOGGER.info(
                 ' Stripped trailing ".0" in %s rows for column "%s".',
                 int(truncated or 0),
-                col,
+                validated,
             )
-        else:
-            LOGGER.warning(' ⚠️ Column "%s" not found', col)
     return df_course
 
 
@@ -923,26 +925,19 @@ def _handle_schema_duplicates(
     if unique_cols is None:
         unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
 
-    # Validate course_type_col
-    if course_type_col not in df.columns:
-        LOGGER.warning(
-            f"Column '{course_type_col}' not found in dataframe. Will skip course_type operations."
-        )
-        course_type_col = None
-
-    # Validate course_name_col
-    if course_name_col not in df.columns:
-        LOGGER.warning(
-            f"Column '{course_name_col}' not found in dataframe. Will skip course_name operations."
-        )
-        course_name_col = None
-
-    # Validate credits_col
-    if credits_col not in df.columns:
-        LOGGER.warning(
-            f"Column '{credits_col}' not found in dataframe. Will skip credits-based operations."
-        )
-        credits_col = None
+    # Validate optional columns; set to None if missing
+    course_type_col = validate_optional_column(
+        df, course_type_col, "course_type", logger=LOGGER
+    )
+    course_name_col = validate_optional_column(
+        df, course_name_col, "course_name", logger=LOGGER
+    )
+    credits_col = validate_optional_column(
+        df, credits_col, "credits", logger=LOGGER
+    )
+    grade_col = validate_optional_column(
+        df, grade_col, "grade", logger=LOGGER
+    )
 
     total_before = len(df)
 
@@ -1043,6 +1038,7 @@ def handling_duplicates(
     credits_col: str | None = "course_credits_attempted",
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
+    grade_col: str | None = "grade",
 ) -> pd.DataFrame:
     """
     Combined duplicate handling with a schema_type switch.

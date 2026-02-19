@@ -7,7 +7,7 @@ import pandas as pd
 import scipy.stats as ss
 from functools import cached_property, wraps
 from edvise import utils as edvise_utils
-from edvise.shared.utils import as_percent
+from edvise.shared.utils import as_percent, validate_optional_column
 
 LOGGER = logging.getLogger(__name__)
 
@@ -1449,8 +1449,10 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
         - Percentage of 'M' grades
         - Warning if 'M' grades exceed 5% of all non-null grades
     """
-    if grade_col not in df_course.columns:
-        LOGGER.warning("Column '%s' not found in DataFrame.", grade_col)
+    grade_col = validate_optional_column(
+        df_course, grade_col, "grade", logger=LOGGER
+    )
+    if grade_col is None:
         return
 
     grade_counts = df_course[grade_col].value_counts(dropna=False).sort_index()
