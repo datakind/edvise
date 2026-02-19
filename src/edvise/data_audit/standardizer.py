@@ -26,7 +26,6 @@ from .eda import (
     log_top_majors,
     check_pf_grade_consistency,
     validate_credit_consistency,
-    log_top_majors,
 )
 
 # TODO think of a better name than standardizer
