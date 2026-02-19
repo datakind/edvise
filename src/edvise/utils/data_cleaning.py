@@ -507,7 +507,6 @@ def replace_na_in_columns(
         )
     return df
 
-
 def strip_trailing_decimal_strings(df: pd.DataFrame, cols: list) -> pd.DataFrame:
     for col in cols:
         if col in df.columns:
