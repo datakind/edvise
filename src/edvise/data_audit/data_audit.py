@@ -220,14 +220,6 @@ class DataAuditTask:
         else:
             log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
-        if self.args.job_type == "inference":
-            LOGGER.info(" Selecting inference cohort")
-            if self.cfg.inference is None or self.cfg.inference.cohort is None:
-                raise ValueError("cfg.inference.cohort must be configured.")
-            df_course_validated = select_inference_cohort(
-                df_course_validated, cohorts_list=self.cfg.inference.cohort
-            )
-
         LOGGER.info(" Standardizing course data:")
         df_course_standardized = self.course_std.standardize(df_course_validated)
         LOGGER.info(" Course data standardized.")
