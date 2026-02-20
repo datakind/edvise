@@ -2,59 +2,21 @@ import argparse
 import importlib
 import json
 import logging
-import typing as t
 import sys
-import pandas as pd
-import pathlib
-import os
-from functools import partial
 
-# Go up 3 levels from the current file's directory to reach repo root
-script_dir = os.getcwd()
-repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
-src_path = os.path.join(repo_root, "src")
-
-if os.path.isdir(src_path) and src_path not in sys.path:
-    sys.path.insert(0, src_path)
-
-# Debug info
-print("Script dir:", script_dir)
-print("Repo root:", repo_root)
-print("src_path:", src_path)
-print("sys.path:", sys.path)
-
+from edvise.data_audit.data_audit import DataAuditBackend, DataAuditTask
 from edvise.data_audit.schemas import RawPDPCohortDataSchema, RawPDPCourseDataSchema
 from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
-from edvise.utils.databricks import get_spark_session
 from edvise.utils.data_cleaning import handling_duplicates
-
 from edvise.dataio.read import (
-    read_config,
     read_raw_pdp_cohort_data,
     read_raw_pdp_course_data,
 )
-from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.data_audit.eda import (
-    compute_gateway_course_ids_and_cips,
-    log_record_drops,
-    log_terms,
-    log_misjoined_records,
-)
-from edvise.data_audit.cohort_selection import select_inference_cohort
-from edvise.utils.update_config import update_key_courses_and_cips
-from edvise.utils.data_cleaning import (
-    remove_pre_cohort_courses,
-    log_pre_cohort_courses,
-)
-from edvise.shared.logger import (
-    resolve_run_path,
-    local_fs_path,
-)
-from edvise.shared.validation import require
+from functools import partial
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,22 +26,37 @@ logging.basicConfig(
 logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
-# Create callable type
-ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
+
+def _pdp_backend() -> DataAuditBackend:
+    return DataAuditBackend(
+        config_schema=PDPProjectConfig,
+        cohort_standardizer=PDPCohortStandardizer(),
+        course_standardizer=PDPCourseStandardizer(),
+        read_raw_cohort_data=read_raw_pdp_cohort_data,
+        read_raw_course_data=read_raw_pdp_course_data,
+        raw_cohort_schema=RawPDPCohortDataSchema,
+        raw_course_schema=RawPDPCourseDataSchema,
+        log_basename="pdp_data_audit.log",
+        default_course_converter=partial(handling_duplicates, school_type="pdp"),
+    )
 
 
-def _parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
-    """Parse --term_filter job param. Treat None, '', 'null' as not provided; else json.loads.
-    Empty list after parse -> not provided (use config). Invalid JSON -> raise."""
+def _parse_term_filter_param(value: str | None) -> list[str] | None:
+    """
+    Parse the --term_filter CLI parameter into a list of term labels or None.
+
+    Treats None, empty string, whitespace, 'null', 'None', and [] as not provided (returns None).
+    Valid JSON list of strings is returned (trimmed, empty elements dropped).
+    Raises ValueError for invalid JSON or non-list JSON.
+    """
     if value is None:
         return None
     s = value.strip()
-    if s in ("", "null", "None"):
+    if not s or s.lower() in ("null", "none"):
         return None
     try:
         parsed = json.loads(s)
     except json.JSONDecodeError as e:
-        LOGGER.error("Invalid JSON for term_filter param: %s", value)
         raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
     if not isinstance(parsed, list):
         raise ValueError("--term_filter must be a JSON list of strings")
@@ -536,6 +513,8 @@ class PDPDataAuditTask:
             df_course_standardized,
             os.path.join(current_run_path, "df_course_standardized.parquet"),
         )
+    result = [item.strip() for item in parsed if item is not None and str(item).strip()]
+    return result if result else None
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -578,7 +557,7 @@ if __name__ == "__main__":
     except Exception as e:
         cohort_converter_func = None
         LOGGER.info("Running task with default cohort converter func")
-        LOGGER.warning(f"Failed to load custom converter functions: {e}")
+        LOGGER.warning("Failed to load custom converter functions: %s", e)
     try:
         converter_func = importlib.import_module("dataio")
         course_converter_func = converter_func.converter_func_course
@@ -586,23 +565,15 @@ if __name__ == "__main__":
     except Exception as e:
         course_converter_func = None
         LOGGER.info("Running task default course converter func")
-        LOGGER.warning(f"Failed to load custom converter functions: {e}")
+        LOGGER.warning("Failed to load custom converter functions: %s", e)
 
-    # try:
-    #     schemas = importlib.import_module("schemas")
-    #     LOGGER.info("Running task with custom schema")
-    # except Exception as e:
-    #     from data_audit import schemas as schemas
-    #     LOGGER.info("Running task with default schema")
-    #     LOGGER.warning(f"Failed to load custom schema: {e}")
-
-    task = PDPDataAuditTask(
+    task = DataAuditTask(
         args,
-        cohort_converter_func=cohort_converter_func,
+        _pdp_backend(),
         course_converter_func=course_converter_func,
+        cohort_converter_func=cohort_converter_func,
     )
     task.run()
-    # Ensure all logs are flushed to disk
     for h in logging.getLogger().handlers:
         try:
             h.flush()
