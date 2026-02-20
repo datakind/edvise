@@ -461,7 +461,7 @@ class TestHandlingDuplicates:
 
     @patch("edvise.utils.data_cleaning.LOGGER")
     def test_calls_schema_handler_for_schema_mode(self, mock_logger, schema_sample_df):
-        result = data_cleaning.handling_duplicates(schema_sample_df, "schema")
+        result = data_cleaning.handling_duplicates(schema_sample_df, "es")
         assert isinstance(result, pd.DataFrame)
         assert "course_id" in result.columns
 

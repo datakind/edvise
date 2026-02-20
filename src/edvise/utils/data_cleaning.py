@@ -1029,9 +1029,9 @@ def handling_duplicates(
     """
     df = df.copy()
     schema_type = (schema_type or "").strip().lower()
-    if schema_type not in {"pdp", "schema"}:
+    if schema_type not in {"pdp", "es"}:
         raise ValueError(
-            "schema_type must be either 'pdp' or 'schema', short for edvise schema."
+            "schema_type must be either 'pdp' or 'es', short for edvise schema."
         )
 
     if schema_type == "pdp":
