@@ -180,7 +180,7 @@ training_params = {
     "calibrate": cfg.model.calibrate,
     "primary_metric": cfg.modeling.training.primary_metric,
     "timeout_minutes": cfg.modeling.training.timeout_minutes,
-    "threshold": cfg.modeling.training.threshold,
+    "positive_class_threshold": cfg.modeling.training.positive_class_threshold,
     "exclude_cols": sorted(
         set(
             (cfg.modeling.training.exclude_cols or [])
