@@ -1,16 +1,13 @@
-import os
-import pandas as pd
-import re
-import stat
 import hashlib
+import os
+import re
 import shlex
-from pyspark.sql import SparkSession
-from pyspark.sql import types as T
-from azure.storage.blob import BlobServiceClient
+import stat
 import traceback
-import paramiko
 
 from datetime import datetime, timezone
+
+import pandas as pd
 
 
 class CustomLogger:
@@ -44,6 +41,8 @@ def connect_sftp(host: str, username: str, password: str, port: int = 22):
     """
     Return (transport, sftp_client). Caller must close both.
     """
+    import paramiko
+
     transport = paramiko.Transport((host, port))
     transport.connect(username=username, password=password)
     sftp = paramiko.SFTPClient.from_transport(transport)
@@ -51,7 +50,7 @@ def connect_sftp(host: str, username: str, password: str, port: int = 22):
     return transport, sftp
 
 
-def list_receive_files(sftp: paramiko.SFTPClient, remote_dir: str, source_system: str):
+def list_receive_files(sftp, remote_dir: str, source_system: str):
     """
     List non-directory files in remote_dir with metadata.
     Returns list[dict] with keys: source_system, sftp_path, file_name, file_size, file_modified_time
@@ -390,6 +389,8 @@ def update_manifest(
     Update ingestion_manifest for this file_fingerprint.
     Assumes upstream inserted status=NEW already.
     """
+    from pyspark.sql import types as T
+
     now_ts = datetime.now(timezone.utc)
 
     # ingested_at only set when we finish BRONZE_WRITTEN
@@ -441,6 +442,8 @@ def process_and_save_file(volume_dir, file_name, df):
 def move_file_to_blob(
     dbfs_file_path, blob_container_name, blob_file_name, connection_string
 ):
+    from azure.storage.blob import BlobServiceClient
+
     # Create a blob service client
     blob_service_client = BlobServiceClient.from_connection_string(connection_string)
 
@@ -461,7 +464,9 @@ def move_file_to_blob(
 
 
 def initialize_data(path):
-    spark = SparkSession.builder.appName("Data Initialization App").getOrCreate()
+    from databricks.connect import DatabricksSession
+
+    spark = DatabricksSession.builder.getOrCreate()
 
     def is_table_format(p):
         return "." in p and not p.endswith((".csv", ".xlsx"))
@@ -532,6 +537,8 @@ def remove_from_sftp(host, user, password=None, remote_folder=None, file_name=No
     """
     Connects to the SFTP server and removes a specific file.
     """
+    import paramiko
+
     # Setup SSH client
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
