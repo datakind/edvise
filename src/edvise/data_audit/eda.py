@@ -2024,7 +2024,7 @@ class EdaSummary:
 
     @cached_property
     @required_columns(cohort=["first_gen", "pell_status_first_year"])
-    def pell_recipient_by_first_gen(self) -> dict[str, t.Any]:
+    def pell_recipient_by_first_gen(self) -> dict[str, t.Any] | None:
         """
         Compute Pell recipient status by first generation status.
 
@@ -2037,12 +2037,12 @@ class EdaSummary:
         """
         df = self.df_cohort
         if "first_gen" not in df.columns or "pell_status_first_year" not in df.columns:
-            return {}
+            return None
         if (
             df["first_gen"].dropna().empty
             or df["pell_status_first_year"].dropna().empty
         ):
-            return {}
+            return None
 
         pell_df = (
             df[["pell_status_first_year", "first_gen"]]
@@ -2059,7 +2059,7 @@ class EdaSummary:
 
     @cached_property
     @required_columns(cohort=["pell_status_first_year"])
-    def pell_recipient_status(self) -> dict[str, t.Any]:
+    def pell_recipient_status(self) -> dict[str, t.Any] | None:
         """
         Compute Pell recipient status without first generation split.
 
@@ -2068,9 +2068,9 @@ class EdaSummary:
                 - series: Single series with counts per Pell status
         """
         if "pell_status_first_year" not in self.df_cohort.columns:
-            return {}
+            return None
         if self.df_cohort["pell_status_first_year"].dropna().empty:
-            return {}
+            return None
 
         data = (
             self.df_cohort.dropna(subset=["pell_status_first_year"])

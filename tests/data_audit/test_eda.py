@@ -299,7 +299,7 @@ class TestEdaSummary:
     def test_pell_recipient_by_first_gen_structure(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data)
         result = eda.pell_recipient_by_first_gen
-        if result == {}:
+        if result is None:
             return
         assert "categories" in result
         assert "series" in result
@@ -315,7 +315,7 @@ class TestEdaSummary:
     def test_pell_recipient_by_first_gen_calculates_correctly(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data)
         result = eda.pell_recipient_by_first_gen
-        if result == {}:
+        if result is None:
             return
         df = sample_cohort_data.copy()
         # Note: EdaSummary now uses .dropna() instead of filtering "UK"
@@ -341,7 +341,7 @@ class TestEdaSummary:
         sample_cohort_data["first_gen"] = None
         eda = EdaSummary(sample_cohort_data)
         result = eda.pell_recipient_by_first_gen
-        assert result == {}
+        assert result is None
 
     def test_pell_recipient_status_structure(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data)
