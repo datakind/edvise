@@ -506,15 +506,16 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
         na_first = df_cohort[first_gen_col].isna().sum()
         df_cohort[first_gen_col] = df_cohort[first_gen_col].fillna("N")
         LOGGER.info(
-            ' Filled %s NAs in "first_gen" with "N".',
-            int(na_first),
+            ' Filled %s NAs in "%s" with %r.',
+            int(na_count),
+            column_name,
+            replacement_value,
         )
         LOGGER.info(
             " After filling 'first_gen':\n%s",
             df_cohort[first_gen_col].value_counts(dropna=False),
         )
-    return df_cohort
-
+    return df
 
 def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
     for col, label in [
@@ -959,9 +960,11 @@ def _handle_schema_duplicates(
     )
 
     # Build course_id (always in schema mode)
-    df["course_id"] = (
-        df["course_prefix"].astype("string").str.strip()
-        + df["course_number"].astype("string").str.strip()
+    df = df.assign(
+        course_id=(
+            df["course_prefix"].astype("string").str.strip()
+            + df["course_number"].astype("string").str.strip()
+        )
     )
 
     # Calculate summary statistics

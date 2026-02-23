@@ -10,18 +10,13 @@ from mlflow.tracking import MlflowClient
 from google.cloud import storage
 from google.api_core.exceptions import Forbidden, NotFound
 import google.auth
+from edvise.utils.databricks import in_databricks
 
 # Model names from get_model_name() are already UC-compatible
 
 
 def local_fs_path(p: str) -> str:
     return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
-
-
-def in_databricks() -> bool:
-    # Both of these are present on DBR clusters
-    return bool(os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER"))
-
 
 def get_dbutils():
     try:
