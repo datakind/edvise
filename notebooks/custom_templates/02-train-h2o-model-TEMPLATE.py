@@ -263,6 +263,7 @@ for run_id in top_runs.values():
             features=df_features_imp,
             model=model,
             pos_label=cfg.pos_label,
+            positive_class_threshold=cfg.modeling.training.positive_class_threshold,
         )
         df_pred = df.assign(
             **{

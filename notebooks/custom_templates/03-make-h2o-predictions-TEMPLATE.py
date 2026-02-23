@@ -155,8 +155,23 @@ unique_ids = df_test[cfg.student_id_col]
 # Try to load a calibrator (ok if missing)
 calibrator = h2o_ml.calibration.SklearnCalibratorWrapper.load(run_id=cfg.model.run_id)
 
+# Get threshold from MLflow run params or config
+positive_class_threshold = 0.5
+try:
+    import mlflow
+    from mlflow.tracking import MlflowClient
+    client = MlflowClient()
+    run = client.get_run(cfg.model.run_id)
+    if "positive_class_threshold" in run.data.params:
+        positive_class_threshold = float(run.data.params["positive_class_threshold"])
+except Exception:
+    # Fallback to config if available
+    if hasattr(cfg, "modeling") and cfg.modeling and hasattr(cfg.modeling, "training"):
+        positive_class_threshold = cfg.modeling.training.positive_class_threshold
+
 pred_labels, pred_probs = h2o_ml.inference.predict_h2o(
     features_df,
+    positive_class_threshold=positive_class_threshold,
     model=model,
     feature_names=model_feature_names,
     pos_label=cfg.pos_label,

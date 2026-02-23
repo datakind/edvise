@@ -53,7 +53,7 @@ def get_metrics_fixed_threshold_all_splits(
     test: h2o.H2OFrame,
     target_col: str,
     pos_label: PosLabelType,
-    threshold: float = 0.5,
+    positive_class_threshold: float = 0.5,
     sample_weight_col: t.Optional[str] = None,
     calibrator: t.Optional[calibration.SklearnCalibratorWrapper] = None,
 ) -> tuple[t.Dict[str, float], dict]:
@@ -83,7 +83,7 @@ def get_metrics_fixed_threshold_all_splits(
 
         # Unify label space {0,1}
         y_true_bin = utils._binarize_targets(y_true, pos_label)
-        y_pred = (y_prob >= threshold).astype(int)
+        y_pred = (y_prob >= positive_class_threshold).astype(int)
 
         # Metrics (all in {0,1})
         acc = accuracy_score(y_true_bin, y_pred, sample_weight=w)
@@ -98,7 +98,7 @@ def get_metrics_fixed_threshold_all_splits(
         ).ravel()
 
         metrics = {
-            f"{label}_threshold": float(threshold),
+            f"{label}_threshold": float(positive_class_threshold),
             f"{label}_precision": float(prec),
             f"{label}_recall": float(rec),
             f"{label}_accuracy": float(acc),

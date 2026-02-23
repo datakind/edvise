@@ -573,7 +573,7 @@ def log_h2o_model(
             test=test,
             target_col=target_col,
             pos_label=pos_label,
-            threshold=positive_class_threshold,
+            positive_class_threshold=positive_class_threshold,
             sample_weight_col=sample_weight_col,
             calibrator=calibrator,
         )

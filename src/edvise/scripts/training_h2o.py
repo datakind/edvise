@@ -265,11 +265,18 @@ class TrainingTask:
                 calibrator = modeling.h2o_ml.calibration.SklearnCalibratorWrapper.load(
                     run_id=run_id
                 )
+                # Get threshold from config for predictions and bias evaluation
+                positive_class_threshold = (
+                    self.cfg.modeling.training.positive_class_threshold
+                    if self.cfg.modeling and self.cfg.modeling.training
+                    else 0.5
+                )
                 labels, probs = modeling.h2o_ml.inference.predict_h2o(
                     features=df_features_imp,
                     model=model,
                     pos_label=pos_label,
                     calibrator=calibrator,
+                    positive_class_threshold=positive_class_threshold,
                 )
                 df_pred = df_modeling.assign(
                     **{
@@ -287,6 +294,7 @@ class TrainingTask:
                     student_group_cols=student_group_cols,
                     target_col=self.cfg.target_col,
                     pos_label=pos_label,
+                    positive_class_threshold=positive_class_threshold,
                 )
                 logging.info("Run %s: Completed", run_id)
 
@@ -323,6 +331,12 @@ class TrainingTask:
         )
 
     def make_predictions(self, current_run_path):
+        # Get threshold from config
+        positive_class_threshold = (
+            self.cfg.modeling.training.positive_class_threshold
+            if self.cfg.modeling and self.cfg.modeling.training
+            else 0.5
+        )
         cfg = PredConfig(
             model_run_id=self.cfg.model.run_id,
             experiment_id=self.cfg.model.experiment_id,
@@ -333,6 +347,7 @@ class TrainingTask:
             background_data_sample=self.cfg.inference.background_data_sample,
             cfg_inference_params=self.cfg.inference.dict(),
             random_state=self.cfg.random_state,
+            positive_class_threshold=positive_class_threshold,
         )
         paths = PredPaths(
             features_table_path="shared/assets/pdp_features_table.toml",
