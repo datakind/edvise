@@ -33,6 +33,10 @@ from .eda import (
 
 
 class BaseStandardizer:
+    "This preps data for feature gen by "
+    "- dropping useless, redundant, unwanted cols"
+    "- ensuring columns exist by adding missing cols (this prevents many if statements in later steps)"
+    "- dropping the pdp course rows that are missing for students"
     def add_empty_columns_if_missing(
         self,
         df: pd.DataFrame,
@@ -112,7 +116,9 @@ class PDPCohortStandardizer(BaseStandardizer):
             "first_year_to_certificate_at_other_inst": (None, "Int8"),
         }
         df = drop_columns_safely(df, cols_to_drop)
-        df = replace_na_firstgen_and_pell(df)
+        df = replace_na_in_columns(df, 
+        {"pell_status_first_year": "N", "first_gen": "N"},
+            )
         df = self.add_empty_columns_if_missing(df, col_val_dtypes)
         return df
 
@@ -163,7 +169,7 @@ class ESCohortStandardizer(BaseStandardizer):
         Args:
             df: cohort dataframe
         """
-        print_credential_and_enrollment_types(df)
+        print_credential_and_enrollment_types_and_intensities(df)
         log_high_null_columns(df)
         check_bias_variables(df)
         log_grade_distribution(df)
@@ -193,18 +199,6 @@ class ESCohortStandardizer(BaseStandardizer):
                 LOGGER.warning(
                     "Duplicates still remain after keep_earlier_record func. Investigate further."
                 )
-        cols_to_drop = [
-            # not all demographics used for target variable bias checks
-            "incarcerated_status",
-            "military_status",
-            "employment_status",
-            "disability_status",
-        ]
-        # not sure if the below is needed?
-        # col_val_dtypes = {
-        # }
-        # df = self.add_empty_columns_if_missing(df, col_val_dtypes)
-        df = drop_columns_safely(df, cols_to_drop)
         return df
 
 
