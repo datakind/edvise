@@ -66,6 +66,7 @@ class TrainingParams(t.TypedDict, total=False):
     checkpoint_name: str
     workspace_path: str
     seed: int
+    threshold: float
 
 
 class TrainingTask:
@@ -188,6 +189,8 @@ class TrainingTask:
             else False
         )
 
+        threshold = training_cfg.threshold
+
         training_params: TrainingParams = {
             "db_run_id": db_run_id,
             "institution_id": self.cfg.institution_id,
@@ -204,6 +207,7 @@ class TrainingTask:
             "checkpoint_name": preprocessing_cfg.checkpoint.name,
             "workspace_path": workspace_path,
             "seed": self.cfg.random_state or 42,  # fallback to ensure it's an int
+            "threshold": threshold,
         }
 
         experiment_id, *_ = modeling.h2o_ml.training.run_h2o_automl_classification(

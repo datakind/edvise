@@ -368,6 +368,7 @@ def log_h2o_experiment(
     sample_weight_col: str = "sample_weight",
     calibrate: bool = False,
     imputer: t.Optional[imputation.SklearnImputerWrapper] = None,
+    threshold: float = 0.5,
 ) -> pd.DataFrame:
     """
     Logs evaluation metrics, plots, and model artifacts for all models in an H2O AutoML leaderboard to MLflow.
@@ -377,13 +378,13 @@ def log_h2o_experiment(
         train: H2OFrame containing the training split.
         valid: H2OFrame containing the validation split.
         test: H2OFrame containing the test split.
-        institution_id: Institution identifier, used to namespace the MLflow experiment.
         target_col: Column name of target (used for plotting and label extraction).
-        target_name: Name of the target of the model from the config.
-        checkpoint_name: Name of the checkpoint of the model from the config.
-        workspace_path: Path prefix for experiment naming within MLflow.
-        experiment_id: ID of experiment set during training call
-        client: Optional MLflowClient instance. If not provided, one will be created.
+        experiment_id: ID of experiment set during training call.
+        pos_label: Positive class label.
+        sample_weight_col: Column name for sample weights.
+        calibrate: Whether to calibrate probabilities.
+        imputer: Optional sklearn imputer wrapper.
+        threshold: Classification threshold for converting probabilities to binary predictions. Default is 0.5.
 
     Returns:
         results_df (pd.DataFrame): DataFrame with metrics and MLflow run IDs for all successfully logged models.
@@ -425,7 +426,6 @@ def log_h2o_experiment(
             calibration.SklearnCalibratorWrapper() if calibrate else None
         )
 
-        # Setting threshold to 0.5 due to binary classification
         metrics = log_h2o_model(
             aml=aml,
             model_id=model_id,
@@ -438,6 +438,7 @@ def log_h2o_experiment(
             primary_metric=aml.sort_metric,
             sample_weight_col=sample_weight_col,
             pos_label=pos_label,
+            threshold=threshold,
         )
 
         if metrics:

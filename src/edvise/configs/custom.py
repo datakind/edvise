@@ -495,6 +495,12 @@ class TrainingConfig(pyd.BaseModel):
         default=[],
         description="List of cohorts used in training. e.g. ['Fall 2024-25']",
     )
+    threshold: float = pyd.Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Classification threshold for converting probabilities to binary predictions. Default is 0.5.",
+    )
 
 
 class EvaluationConfig(pyd.BaseModel):
