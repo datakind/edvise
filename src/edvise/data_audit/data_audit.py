@@ -2,7 +2,6 @@
 Generalized data audit task. Schema-specific behavior is injected via DataAuditBackend.
 """
 import argparse
-import json
 import logging
 import os
 import typing as t
@@ -19,7 +18,6 @@ from edvise.data_audit.eda import (
     log_terms,
     log_misjoined_records,
 )
-from edvise.data_audit.cohort_selection import select_inference_cohort
 from edvise.utils.update_config import update_key_courses_and_cips
 from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
@@ -61,7 +59,7 @@ class DataAuditTask:
     ):
         self.args = args
         self._backend = backend
-        self.cfg = read_config(
+        self.cfg: t.Any = read_config(
             file_path=self.args.config_file_path,
             schema=backend.config_schema,
         )
@@ -217,7 +215,7 @@ class DataAuditTask:
             df_course_validated = remove_pre_cohort_courses(
                 df_course_validated, self.cfg.student_id_col
             )
-        else:
+        if include_pre_cohort:
             log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
         LOGGER.info(" Standardizing course data:")

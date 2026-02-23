@@ -1,10 +1,13 @@
-import pandas as pd
 import logging
 import re
 import typing as t
 from collections.abc import Iterable
-from edvise.utils import types
+
+import pandas as pd
+
 from edvise.dataio.pdp_course_converters import dedupe_by_renumbering_courses
+from edvise.shared.utils import validate_optional_column
+from edvise.utils import types
 
 LOGGER = logging.getLogger(__name__)
 
@@ -472,28 +475,36 @@ def log_pre_cohort_courses(df_course: pd.DataFrame, student_id_col: str) -> None
         )
 
 
-def replace_na_in_columns(
-    df: pd.DataFrame,
-    column_replacement_map: dict[str, str | float | int],
-) -> pd.DataFrame:
-    """
-    Fill NA in one or more columns. Map: column_name -> replacement_value.
-    No-op for columns that are not present (logs a warning).
-    """
-    for column_name, replacement_value in column_replacement_map.items():
-        if column_name not in df.columns:
-            LOGGER.warning(
-                ' ⚠️ Column "%s" not found; skipping NA replacement.',
-                column_name,
-            )
-            continue
+def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
+    pell_col = validate_optional_column(
+        df_cohort, "pell_status_first_year", "Pell status", logger=LOGGER
+    )
+    if pell_col is not None:
         LOGGER.info(
-            " Before replacing '%s':\n%s",
-            column_name,
-            df[column_name].value_counts(dropna=False),
+            " Before replacing 'pell_status_first_year':\n%s",
+            df_cohort[pell_col].value_counts(dropna=False),
         )
-        na_count = df[column_name].isna().sum()
-        df[column_name] = df[column_name].fillna(replacement_value)
+        na_pell = df_cohort[pell_col].isna().sum()
+        df_cohort[pell_col] = df_cohort[pell_col].fillna("N")
+        LOGGER.info(
+            ' Filled %s NAs in "pell_status_first_year" to "N".',
+            int(na_pell),
+        )
+        LOGGER.info(
+            " After replacing 'pell_status_first_year':\n%s",
+            df_cohort[pell_col].value_counts(dropna=False),
+        )
+
+    first_gen_col = validate_optional_column(
+        df_cohort, "first_gen", "first-gen", logger=LOGGER
+    )
+    if first_gen_col is not None:
+        LOGGER.info(
+            " Before filling 'first_gen':\n%s",
+            df_cohort[first_gen_col].value_counts(dropna=False),
+        )
+        na_first = df_cohort[first_gen_col].isna().sum()
+        df_cohort[first_gen_col] = df_cohort[first_gen_col].fillna("N")
         LOGGER.info(
             ' Filled %s NAs in "%s" with %r.',
             int(na_count),
@@ -501,30 +512,33 @@ def replace_na_in_columns(
             replacement_value,
         )
         LOGGER.info(
-            " After replacing '%s':\n%s",
-            column_name,
-            df[column_name].value_counts(dropna=False),
+            " After filling 'first_gen':\n%s",
+            df_cohort[first_gen_col].value_counts(dropna=False),
         )
     return df
 
-def strip_trailing_decimal_strings(df: pd.DataFrame, cols: list) -> pd.DataFrame:
-    for col in cols:
-        if col in df.columns:
-            df[col] = df[col].astype("string")
-            pre_truncated = df[col].copy()
+def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
+    for col, label in [
+        ("course_number", "course_number"),
+        ("course_cip", "course_cip"),
+    ]:
+        validated = validate_optional_column(df_course, col, label, logger=LOGGER)
+        if validated is not None:
+            df_course[validated] = df_course[validated].astype("string")
+            pre_truncated = df_course[validated].copy()
 
             # Only remove literal ".0" at the end of the string
-            df[col] = df[col].str.replace(r"\.0$", "", regex=True)
+            df_course[validated] = df_course[validated].str.replace(
+                r"\.0$", "", regex=True
+            )
 
-            truncated = (pre_truncated != df[col]).sum(min_count=1)
+            truncated = (pre_truncated != df_course[validated]).sum(min_count=1)
             LOGGER.info(
                 ' Stripped trailing ".0" in %s rows for column "%s".',
                 int(truncated or 0),
-                col,
+                validated,
             )
-        else:
-            LOGGER.warning(' ⚠️ Column "%s" not found', col)
-    return df
+    return df_course
 
 
 def _infer_student_id_col(df: pd.DataFrame) -> str:
@@ -704,13 +718,24 @@ def _classify_duplicate_groups(
                 lab_lecture_rows += len(grp)
         else:
             drop_groups += 1
-            # Keep best row (highest credits if possible), drop the rest
-            if credits_col is not None:
-                grp_sorted = grp.sort_values(
-                    by=[credits_col], ascending=False, kind="mergesort"
+
+            grp_sorted = grp
+
+            # Build sort keys (descending)
+            sort_cols: list[str] = []
+            ascending: list[bool] = []
+
+            if credits_col is not None and credits_col in grp_sorted.columns:
+                sort_cols.append(credits_col)
+                ascending.append(False)
+
+            if sort_cols:
+                grp_sorted = grp_sorted.sort_values(
+                    by=sort_cols,
+                    ascending=ascending,
+                    kind="mergesort",  # stable: preserves original order on ties
                 )
-            else:
-                grp_sorted = grp
+
             keep_one = grp_sorted.index[0]
             drop_idx.extend([i for i in grp_sorted.index if i != keep_one])
 
@@ -730,12 +755,12 @@ def _drop_true_duplicate_rows(df: pd.DataFrame, drop_idx: list[int]) -> pd.DataF
         pct_dropped = (dropped_rows / len(df)) * 100 if len(df) else 0.0
         if pct_dropped < 0.1:
             LOGGER.warning(
-                "⚠️ Dropping %s rows (<0.1%% of data) from true-duplicate groups (keeping best row per key)",
+                "⚠️ Dropping %s rows (<0.1%% of data) from duplicate-key groups (keeping best row per key)",
                 dropped_rows,
             )
         else:
             LOGGER.warning(
-                "⚠️ Dropping %s rows (%.2f%% of data) from true-duplicate groups (keeping best row per key)",
+                "⚠️ Dropping %s rows (%.2f%% of data) from duplicate-key groups (keeping best row per key)",
                 dropped_rows,
                 pct_dropped,
             )
@@ -807,7 +832,8 @@ def _log_schema_summary(
     total_before: int,
     initial_dup_rows: int,
     initial_dup_pct: float,
-    true_dupes_dropped: int,
+    exact_dupes_dropped: int,
+    keeper_dropped_rows: int,
     renumbered_rows: int,
     lab_lecture_rows: int,
     lab_lecture_pct: float,
@@ -816,39 +842,51 @@ def _log_schema_summary(
     total_after: int,
     course_type_col: str | None,
     course_name_col: str | None,
+    duplicate_rows: pd.DataFrame,
+    unique_cols: list[str],
 ) -> None:
     LOGGER.info("COURSE RECORD DUPLICATE SUMMARY (edvise schema)")
 
     LOGGER.info(
-        "Before cleanup: %s records, %s duplicate rows (%.2f%%)",
+        "Before cleanup: %s records, %s duplicate-key rows (%.2f%%)",
         total_before,
         initial_dup_rows,
         initial_dup_pct,
     )
 
+    total_removed = total_before - total_after
     LOGGER.info(
-        "Rows dropped (true duplicates): %s | Rows renumbered: %s",
-        true_dupes_dropped,
+        "Rows removed: %s total (exact-identical=%s, keeper-drop=%s) | Rows renumbered: %s",
+        total_removed,
+        exact_dupes_dropped,
+        keeper_dropped_rows,
         renumbered_rows,
     )
 
     if course_type_col is not None:
         LOGGER.info(
-            "Lab/lecture duplicates: %s rows (%.2f%% of duplicates)",
+            "Lab/lecture duplicates within renumbered rows: %s (%.2f%%)",
             lab_lecture_rows,
             lab_lecture_pct,
         )
 
-    LOGGER.info(
-        "Duplicate groups renumbered: %s",
-        renumber_groups,
-    )
+    LOGGER.info("Duplicate groups renumbered: %s", renumber_groups)
 
     LOGGER.info(
         "After cleanup: %s records | Remaining key-duplicates: %s",
         total_after,
         final_dupe_rows,
     )
+
+    if not duplicate_rows.empty:
+        LOGGER.info("")
+        LOGGER.info("Duplicate group breakdown (post exact-dedup, pre-resolution):")
+        _log_duplicate_groups(
+            duplicate_rows,
+            unique_cols=unique_cols,
+            course_type_col=course_type_col,
+            course_name_col=course_name_col,
+        )
 
     LOGGER.info("")
 
@@ -867,26 +905,14 @@ def _handle_schema_duplicates(
     if unique_cols is None:
         unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
 
-    # Validate course_type_col
-    if course_type_col not in df.columns:
-        LOGGER.warning(
-            f"Column '{course_type_col}' not found in dataframe. Will skip course_type operations."
-        )
-        course_type_col = None
-
-    # Validate course_name_col
-    if course_name_col not in df.columns:
-        LOGGER.warning(
-            f"Column '{course_name_col}' not found in dataframe. Will skip course_name operations."
-        )
-        course_name_col = None
-
-    # Validate credits_col
-    if credits_col not in df.columns:
-        LOGGER.warning(
-            f"Column '{credits_col}' not found in dataframe. Will skip credits-based operations."
-        )
-        credits_col = None
+    # Validate optional columns; set to None if missing
+    course_type_col = validate_optional_column(
+        df, course_type_col, "course_type", logger=LOGGER
+    )
+    course_name_col = validate_optional_column(
+        df, course_name_col, "course_name", logger=LOGGER
+    )
+    credits_col = validate_optional_column(df, credits_col, "credits", logger=LOGGER)
 
     total_before = len(df)
 
@@ -904,10 +930,6 @@ def _handle_schema_duplicates(
     # Remaining duplicates (key-based)
     dupes_mask = df.duplicated(unique_cols, keep=False)
     duplicate_rows = df.loc[dupes_mask]
-
-    # Log duplicate groups breakdown
-    _log_duplicate_groups(duplicate_rows, unique_cols, course_type_col, course_name_col)
-
     # Classify duplicates: renumber vs drop
     (
         renumber_work_idx,
@@ -916,10 +938,14 @@ def _handle_schema_duplicates(
         drop_groups,
         lab_lecture_rows,
     ) = _classify_duplicate_groups(
-        duplicate_rows, unique_cols, course_type_col, course_name_col, credits_col
+        duplicate_rows,
+        unique_cols,
+        course_type_col,
+        course_name_col,
+        credits_col,
     )
 
-    # Drop true duplicate rows
+    # Drop rows from duplicate-key groups (keeper logic)
     dropped_rows = len(drop_idx)
     df = _drop_true_duplicate_rows(df, drop_idx)
 
@@ -934,32 +960,38 @@ def _handle_schema_duplicates(
     )
 
     # Build course_id (always in schema mode)
-    df["course_id"] = (
-        df["course_prefix"].astype("string").str.strip()
-        + df["course_number"].astype("string").str.strip()
+    df = df.assign(
+        course_id=(
+            df["course_prefix"].astype("string").str.strip()
+            + df["course_number"].astype("string").str.strip()
+        )
     )
 
     # Calculate summary statistics
+    total_after = len(df)
     final_dupe_rows = int(df.duplicated(unique_cols, keep=False).sum())
     renumbered_rows = len(set(renumber_work_idx)) if renumber_work_idx else 0
     lab_lecture_pct = (
         (lab_lecture_rows / renumbered_rows * 100) if renumbered_rows else 0.0
     )
 
-    # Log summary
+    # Log summary (NOW everything exists)
     _log_schema_summary(
         total_before,
         initial_dup_rows,
         initial_dup_pct,
-        true_dupes_dropped,
+        true_dupes_dropped,  # exact-identical
+        dropped_rows,  # keeper-drop
         renumbered_rows,
         lab_lecture_rows,
         lab_lecture_pct,
         renumber_groups,
         final_dupe_rows,
-        len(df),
+        total_after,
         course_type_col,
         course_name_col,
+        duplicate_rows,
+        unique_cols,
     )
 
     return df
@@ -967,7 +999,7 @@ def _handle_schema_duplicates(
 
 def handling_duplicates(
     df: pd.DataFrame,
-    school_type: str,
+    schema_type: str,
     unique_cols: list[str] | None = [
         "student_id",
         "academic_term",
@@ -979,7 +1011,7 @@ def handling_duplicates(
     course_name_col: str | None = "course_name",
 ) -> pd.DataFrame:
     """
-    Combined duplicate handling with a school_type switch.
+    Combined duplicate handling with a schema_type switch.
 
     PDP mode: keep logic as close as possible to original `handling_duplicates`:
       - infer student_id_col
@@ -999,15 +1031,26 @@ def handling_duplicates(
       - include handle_duplicates-style summary logging + breakdown
     """
     df = df.copy()
-    school_type = (school_type or "").strip().lower()
-    if school_type not in {"pdp", "schema"}:
+    schema_type = (schema_type or "").strip().lower()
+    if schema_type not in {"pdp", "es"}:
         raise ValueError(
-            "school_type must be either 'pdp' or 'schema', short for edvise schema."
+            "schema_type must be either 'pdp' or 'es', short for edvise schema."
         )
 
-    if school_type == "pdp":
+    if schema_type == "pdp":
         return _handle_pdp_duplicates(df)
     else:
         return _handle_schema_duplicates(
-            df, unique_cols, credits_col, course_type_col, course_name_col
+            df,
+            unique_cols,
+            credits_col,
+            course_type_col,
+            course_name_col,
         )
+
+
+# Completed letter grades (includes E if present)
+COMPLETE_LETTER_RE = re.compile(r"^([A-F])([+-])?$")
+
+# Incomplete variants like I, IA, IB+, IC-, IU, etc.
+INCOMPLETE_RE = re.compile(r"^I([A-FU])([+-])?$")

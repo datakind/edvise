@@ -48,7 +48,7 @@ def mock_helpers(monkeypatch):
     )
 
 
-def test_compute_group_bias_metrics(mock_helpers):
+def test_compute_group_bias_metrics(mock_mlflow, mock_helpers):
     df = pd.DataFrame(
         {
             "group_col": ["A", "A", "B", "B"],
