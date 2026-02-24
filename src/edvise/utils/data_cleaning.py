@@ -896,6 +896,7 @@ def _handle_schema_duplicates(
     credits_col: str | None = "course_credits_attempted",
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
+    course_number_col: str | None = "course_number",
 ) -> pd.DataFrame:
     """Handle duplicates for Edvise schema mode."""
     LOGGER.info("handle_duplicates: edvise schema mode triggered")
@@ -948,6 +949,12 @@ def _handle_schema_duplicates(
     dropped_rows = len(drop_idx)
     df = _drop_true_duplicate_rows(df, drop_idx)
 
+    # Validate columns
+    if course_number_col in df.columns:
+        df[course_number_col] = df[course_number_col].astype("string").str.strip()
+    if "course_prefix" in df.columns:
+        df["course_prefix"] = df["course_prefix"].astype("string").str.strip()
+
     # Renumber duplicates
     df = _renumber_duplicates(
         df,
@@ -956,13 +963,11 @@ def _handle_schema_duplicates(
         credits_col,
         course_type_col,
         course_name_col,
+        course_number_col,
     )
 
     # Build course_id (always in schema mode)
-    df["course_id"] = (
-        df["course_prefix"].astype("string").str.strip()
-        + df["course_number"].astype("string").str.strip()
-    )
+    df["course_id"] = df["course_prefix"] + df[course_number_col]
 
     # Calculate summary statistics
     total_after = len(df)
