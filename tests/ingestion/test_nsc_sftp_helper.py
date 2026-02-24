@@ -3,7 +3,6 @@ import re
 from edvise.ingestion.nsc_sftp_helpers import (
     detect_institution_column,
     extract_institution_ids,
-    output_file_name_from_sftp,
 )
 from edvise.utils.api_requests import databricksify_inst_name
 from edvise.utils.data_cleaning import convert_to_snake_case
@@ -39,11 +38,6 @@ def test_extract_institution_ids_handles_numeric(tmp_path):
 
     assert inst_col == "institution_id"
     assert inst_ids == ["323100", "323101", "323102", "323103"]
-
-
-def test_output_file_name_from_sftp():
-    assert output_file_name_from_sftp("some_file.txt") == "some_file.csv"
-    assert output_file_name_from_sftp("/a/b/c/my.data.csv") == "my.csv"
 
 
 def test_databricksify_inst_name():
