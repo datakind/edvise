@@ -714,6 +714,6 @@ def fetch_institution_by_pdp_id(client: EdviseAPIClient, pdp_id: str) -> dict[st
         raise ValueError(f"Institution PDP ID not found in SST staging: {pid}")
 
     resp.raise_for_status()
-    data = resp.json()
+    data = cast(dict[str, Any], resp.json())
     client.institution_cache[pid] = data
     return data

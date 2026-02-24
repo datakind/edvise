@@ -1,6 +1,7 @@
 import logging
 import mlflow
 import typing as t
+from typing import Any
 import pydantic as pyd
 
 LOGGER = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ def get_spark_session() -> SparkSession:
 
 import logging
 import typing as t
+from typing import Any
 
 LOGGER = logging.getLogger(__name__)
 
@@ -201,18 +203,19 @@ def find_bronze_volume_name(spark: SparkSession, catalog: str, schema: str) -> s
         raise ValueError(f"No volumes found in {catalog}.{schema}")
 
     # Usually "volume_name", but be defensive
-    def _get_vol_name(row):
+    def _get_vol_name(row: Any) -> str:
         d = row.asDict()
         for k in ["volume_name", "volumeName", "name"]:
             if k in d:
-                return d[k]
-        return list(d.values())[0]
+                return str(d[k])
+        return str(list(d.values())[0])
 
     vol_names = [_get_vol_name(v) for v in vols]
     bronze_like = [v for v in vol_names if "bronze" in str(v).lower()]
     if bronze_like:
-        _bronze_volume_cache[key] = bronze_like[0]
-        return bronze_like[0]
+        result = bronze_like[0]
+        _bronze_volume_cache[key] = result
+        return result
 
     raise ValueError(
         f"No volume containing 'bronze' found in {catalog}.{schema}. Volumes={vol_names}"

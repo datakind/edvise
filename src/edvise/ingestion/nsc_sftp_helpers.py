@@ -5,17 +5,19 @@ NSC-specific utilities for processing SFTP files, extracting institution IDs,
 managing ingestion manifests, and working with Databricks schemas/volumes.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Optional
 
-import pandas as pd
-import pyspark.sql
-
 if TYPE_CHECKING:
     import paramiko
+
+import pandas as pd
+import pyspark.sql
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
@@ -203,7 +205,7 @@ def get_files_to_queue(
 
 def download_new_files_and_queue(
     spark: pyspark.sql.SparkSession,
-    sftp: "paramiko.SFTPClient",
+    sftp: paramiko.SFTPClient,
     df_new: pyspark.sql.DataFrame,
     logger: Optional[logging.Logger] = None,
 ) -> int:

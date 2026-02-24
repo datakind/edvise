@@ -5,18 +5,25 @@ Provides functions for connecting to SFTP servers, listing files, and downloadin
 files with atomic operations and verification.
 """
 
+from __future__ import annotations
+
 import hashlib
 import logging
 import os
 import shlex
 import stat
 from datetime import datetime, timezone
-from typing import Optional
+from typing import TYPE_CHECKING, Any, Optional, Tuple
+
+if TYPE_CHECKING:
+    import paramiko
 
 LOGGER = logging.getLogger(__name__)
 
 
-def connect_sftp(host: str, username: str, password: str, port: int = 22):
+def connect_sftp(
+    host: str, username: str, password: str, port: int = 22
+) -> tuple[paramiko.Transport, paramiko.SFTPClient]:
     """
     Connect to an SFTP server.
 
@@ -47,8 +54,8 @@ def connect_sftp(host: str, username: str, password: str, port: int = 22):
 
 
 def list_receive_files(
-    sftp, remote_dir: str, source_system: str
-) -> list[dict[str, any]]:
+    sftp: paramiko.SFTPClient, remote_dir: str, source_system: str
+) -> list[dict[str, Any]]:
     """
     List non-directory files in remote directory with metadata.
 
@@ -115,7 +122,9 @@ def _hash_file(
     return h.hexdigest()
 
 
-def _remote_hash(ssh, remote_path: str, algo: str = "sha256") -> Optional[str]:
+def _remote_hash(
+    ssh: paramiko.SSHClient, remote_path: str, algo: str = "sha256"
+) -> Optional[str]:
     """
     Compute hash of a remote file using SSH command.
 
@@ -142,19 +151,19 @@ def _remote_hash(ssh, remote_path: str, algo: str = "sha256") -> Optional[str]:
         if err:
             return None
         # Format: "<hash>  <filename>"
-        return out.split()[0]
+        return str(out.split()[0])
     except Exception:
         return None
 
 
 def download_sftp_atomic(
-    sftp,
+    sftp: paramiko.SFTPClient,
     remote_path: str,
     local_path: str,
     *,
     chunk: int = 150,
     verify: str = "size",  # "size" | "sha256" | "md5" | None
-    ssh_for_remote_hash=None,  # paramiko.SSHClient if you want remote hash verify
+    ssh_for_remote_hash: Optional[paramiko.SSHClient] = None,
     progress: bool = True,
 ) -> None:
     """
