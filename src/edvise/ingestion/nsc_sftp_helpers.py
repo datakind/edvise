@@ -9,11 +9,13 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import pandas as pd
-import paramiko
 import pyspark.sql
+
+if TYPE_CHECKING:
+    import paramiko
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
@@ -202,7 +204,7 @@ def get_files_to_queue(
 
 def download_new_files_and_queue(
     spark: pyspark.sql.SparkSession,
-    sftp: paramiko.SFTPClient,
+    sftp: "paramiko.SFTPClient",
     df_new: pyspark.sql.DataFrame,
     logger: Optional[logging.Logger] = None,
 ) -> int:
@@ -246,7 +248,9 @@ def download_new_files_and_queue(
             logger.info(
                 f"Downloading new file from SFTP: {remote_path} -> {local_path}"
             )
-            download_sftp_atomic(sftp, remote_path, local_path, chunk=SFTP_DOWNLOAD_CHUNK_MB)
+            download_sftp_atomic(
+                sftp, remote_path, local_path, chunk=SFTP_DOWNLOAD_CHUNK_MB
+            )
         else:
             logger.info(f"Local file already staged, skipping download: {local_path}")
 

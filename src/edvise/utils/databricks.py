@@ -155,9 +155,7 @@ def list_schemas_in_catalog(spark: SparkSession, catalog: str) -> set[str]:
     return schema_names
 
 
-def find_bronze_schema(
-    spark: SparkSession, catalog: str, inst_prefix: str
-) -> str:
+def find_bronze_schema(spark: SparkSession, catalog: str, inst_prefix: str) -> str:
     """
     Find bronze schema for institution prefix.
 
@@ -179,9 +177,7 @@ def find_bronze_schema(
     return target
 
 
-def find_bronze_volume_name(
-    spark: SparkSession, catalog: str, schema: str
-) -> str:
+def find_bronze_volume_name(spark: SparkSession, catalog: str, schema: str) -> str:
     """
     Find bronze volume name in schema (with caching).
 

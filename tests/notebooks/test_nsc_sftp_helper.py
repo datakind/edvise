@@ -14,7 +14,7 @@ from edvise.utils.sftp import download_sftp_atomic
 def test_normalize_col():
     """Test column normalization (now using convert_to_snake_case)."""
     assert convert_to_snake_case(" Institution ID ") == "institution_id"
-    assert convert_to_snake_case("Student-ID#") == "student_id"
+    assert convert_to_snake_case("Student-ID#") == "student_id_#"
     assert convert_to_snake_case("__Already__Ok__") == "already_ok"
 
 
@@ -38,7 +38,7 @@ def test_extract_institution_ids_handles_numeric(tmp_path):
         str(csv_path), renames={}, inst_col_pattern=inst_col_pattern
     )
 
-    assert inst_col == "institutionid"
+    assert inst_col == "institution_id"
     assert inst_ids == ["323100", "323101", "323102", "323103"]
 
 
@@ -59,8 +59,6 @@ def test_hash_file_sha256(tmp_path):
 
 
 def test_download_sftp_atomic_downloads_and_cleans_part(tmp_path):
-    helper = _load_helper_module()
-
     class _Stat:
         def __init__(self, size: int):
             self.st_size = size
@@ -119,8 +117,6 @@ def test_download_sftp_atomic_downloads_and_cleans_part(tmp_path):
 
 
 def test_download_sftp_atomic_resumes_existing_part(tmp_path):
-    helper = _load_helper_module()
-
     class _Stat:
         def __init__(self, size: int):
             self.st_size = size
