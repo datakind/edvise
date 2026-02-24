@@ -23,7 +23,6 @@ from edvise.ingestion.constants import (
     SFTP_DOWNLOAD_CHUNK_MB,
     SFTP_TMP_DIR,
 )
-from edvise.utils.api_requests import databricksify_inst_name
 from edvise.utils.data_cleaning import convert_to_snake_case, detect_institution_column
 from edvise.utils.databricks import find_bronze_schema, find_bronze_volume_name
 from edvise.utils.sftp import download_sftp_atomic, output_file_name_from_sftp
