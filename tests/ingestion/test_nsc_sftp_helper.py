@@ -4,7 +4,7 @@ from edvise.ingestion.nsc_sftp_helpers import (
     detect_institution_column,
     extract_institution_ids,
 )
-from edvise.utils.api_requests import databricksify_inst_name
+from edvise.utils.databricks import databricksify_inst_name
 from edvise.utils.data_cleaning import convert_to_snake_case
 from edvise.utils.sftp import download_sftp_atomic
 
