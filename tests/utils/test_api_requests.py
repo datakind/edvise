@@ -523,6 +523,49 @@ class TestGetInstitutionIdByName:
         assert "inst_id" in error_msg
 
 
+class TestDatabricksifyInstName:
+    """Test cases for databricksify_inst_name function."""
+
+    def test_community_college(self):
+        """Test community college abbreviation."""
+        assert api_requests.databricksify_inst_name("Motlow State Community College") == "motlow_state_cc"
+        assert api_requests.databricksify_inst_name("Northwest State Community College") == "northwest_state_cc"
+
+    def test_university(self):
+        """Test university abbreviation."""
+        assert api_requests.databricksify_inst_name("Kentucky State University") == "kentucky_state_uni"
+        assert api_requests.databricksify_inst_name("Metro State University Denver") == "metro_state_uni_denver"
+
+    def test_college(self):
+        """Test college abbreviation."""
+        assert api_requests.databricksify_inst_name("Central Arizona College") == "central_arizona_col"
+
+    def test_community_technical_college(self):
+        """Test community technical college abbreviation."""
+        assert api_requests.databricksify_inst_name("Southeast Kentucky community technical college") == "southeast_kentucky_ctc"
+
+    def test_science_and_technology(self):
+        """Test 'of science and technology' abbreviation."""
+        assert api_requests.databricksify_inst_name("Harrisburg University of Science and Technology") == "harrisburg_uni_st"
+
+    def test_special_characters(self):
+        """Test handling of special characters like & and -."""
+        assert api_requests.databricksify_inst_name("University of Science & Technology") == "uni_of_st_technology"
+        assert api_requests.databricksify_inst_name("State-Community College") == "state_community_col"
+
+    def test_invalid_characters(self):
+        """Test that invalid characters raise ValueError."""
+        with pytest.raises(ValueError) as exc_info:
+            api_requests.databricksify_inst_name("Northwest (invalid)")
+        error_msg = str(exc_info.value)
+        assert "Unexpected character found in Databricks compatible name" in error_msg
+        assert "northwest" in error_msg.lower()  # Error message includes the problematic name
+
+    def test_simple_name(self):
+        """Test simple name without abbreviations."""
+        assert api_requests.databricksify_inst_name("Big State University") == "big_state_uni"
+
+
 class TestReverseDatabricksifyInstName:
     """Test cases for reverse_databricksify_inst_name function."""
 
