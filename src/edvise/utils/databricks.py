@@ -36,7 +36,6 @@ def get_spark_session() -> SparkSession:
 
 import logging
 import typing as t
-from typing import Any
 
 LOGGER = logging.getLogger(__name__)
 

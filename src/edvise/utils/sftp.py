@@ -13,7 +13,7 @@ import os
 import shlex
 import stat
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     import paramiko
