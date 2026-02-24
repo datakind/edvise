@@ -109,12 +109,13 @@ def register_metric_sections(card, registry):
                 threshold = 0.5
 
         threshold_note = (
-            f"{card.format.indent_level(1)}- Classification Threshold: {threshold}\n"
-            f"{card.format.indent_level(2)}- The classification threshold determines the probability cutoff for "
-            f"predicting the positive class (students needing support).\n"
+            f"{card.format.indent_level(1)}- A classification threshold of {threshold} was used to convert "
+            f"predicted probabilities into final binary classifications. The model produces a probability that a student needs support. "
+            f"If this probability is greater than or equal to {threshold}, the student is classified as needing support.\n"
             f"{card.format.indent_level(2)}- Lower thresholds (e.g., 0.4) increase recall and sensitivity, "
-            f"resulting in more students identified for intervention.\n"
-            f"{card.format.indent_level(2)}- Higher thresholds (e.g., 0.6) increase precision and reduce false positives."
+            f"resulting in more students being identified for potential intervention.\n"
+            f"{card.format.indent_level(2)}- Higher thresholds (e.g., 0.6) increase precision and reduce false positives, "
+            f"resulting in fewer students being flagged."
         )
 
         return threshold_note
