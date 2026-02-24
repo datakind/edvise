@@ -49,7 +49,7 @@ def run_h2o_automl_classification(
     sample_weight_col = str(kwargs.pop("sample_weight_col", "sample_weight"))
     pos_label = bool(kwargs.pop("pos_label", True))
     calibrate = bool(kwargs.pop("calibrate_underpred", False))
-    positive_class_threshold = float(kwargs.pop("positive_class_threshold", 0.5))
+    classification_threshold = float(kwargs.pop("classification_threshold", 0.5))
     target_name = str(kwargs.pop("target_name", ""))
     checkpoint_name = str(kwargs.pop("checkpoint_name", ""))
     workspace_path = str(kwargs.pop("workspace_path", ""))
@@ -193,7 +193,7 @@ def run_h2o_automl_classification(
         calibrate=calibrate,
         sample_weight_col=sample_weight_col,
         pos_label=pos_label,
-        positive_class_threshold=positive_class_threshold,
+        classification_threshold=classification_threshold,
     )
 
     return experiment_id, aml, train, valid, test

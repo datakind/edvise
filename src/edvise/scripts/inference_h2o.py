@@ -234,16 +234,16 @@ class ModelInferenceTask:
         )
         
         # Get threshold from MLflow run params (logged during training), fallback to config
-        positive_class_threshold = 0.5
+        classification_threshold = 0.5
         try:
             client = MlflowClient()
             run = client.get_run(self.model_run_id)
-            if "positive_class_threshold" in run.data.params:
-                positive_class_threshold = float(run.data.params["positive_class_threshold"])
-                logging.info("Using threshold from MLflow run: %s", positive_class_threshold)
+            if "classification_threshold" in run.data.params:
+                classification_threshold = float(run.data.params["classification_threshold"])
+                logging.info("Using threshold from MLflow run: %s", classification_threshold)
             elif self.cfg.modeling and self.cfg.modeling.training:
-                positive_class_threshold = self.cfg.modeling.training.positive_class_threshold
-                logging.info("Using threshold from config: %s", positive_class_threshold)
+                classification_threshold = self.cfg.modeling.training.classification_threshold
+                logging.info("Using threshold from config: %s", classification_threshold)
         except Exception as e:
             logging.warning(
                 "Could not get threshold from MLflow run, using default 0.5: %s", e
@@ -261,7 +261,7 @@ class ModelInferenceTask:
                 12345 if self.cfg.random_state is None else self.cfg.random_state
             ),
             cfg_inference_params=inference_params,
-            positive_class_threshold=positive_class_threshold,
+            classification_threshold=classification_threshold,
         )
         # Choose the correct features table path your project uses
         features_table_path = self.features_table_path

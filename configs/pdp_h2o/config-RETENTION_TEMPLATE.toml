@@ -60,7 +60,7 @@ collinear_threshold = 10.0
 [modeling.training]
 primary_metric = "logloss"
 timeout_minutes = 10
-positive_class_threshold = 0.5
+classification_threshold = 0.5
 # exclude_frameworks = ["XGBoost", "GBM"]
 # exclude_cols = []
 

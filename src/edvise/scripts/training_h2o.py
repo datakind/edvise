@@ -66,7 +66,7 @@ class TrainingParams(t.TypedDict, total=False):
     checkpoint_name: str
     workspace_path: str
     seed: int
-    positive_class_threshold: float
+    classification_threshold: float
 
 
 class TrainingTask:
@@ -189,7 +189,7 @@ class TrainingTask:
             else False
         )
 
-        positive_class_threshold = training_cfg.positive_class_threshold
+        classification_threshold = training_cfg.classification_threshold
 
         training_params: TrainingParams = {
             "db_run_id": db_run_id,
@@ -207,7 +207,7 @@ class TrainingTask:
             "checkpoint_name": preprocessing_cfg.checkpoint.name,
             "workspace_path": workspace_path,
             "seed": self.cfg.random_state or 42,  # fallback to ensure it's an int
-            "positive_class_threshold": positive_class_threshold,
+            "classification_threshold": classification_threshold,
         }
 
         experiment_id, *_ = modeling.h2o_ml.training.run_h2o_automl_classification(
@@ -266,8 +266,8 @@ class TrainingTask:
                     run_id=run_id
                 )
                 # Get threshold from config for predictions and bias evaluation
-                positive_class_threshold = (
-                    self.cfg.modeling.training.positive_class_threshold
+                classification_threshold = (
+                    self.cfg.modeling.training.classification_threshold
                     if self.cfg.modeling and self.cfg.modeling.training
                     else 0.5
                 )
@@ -276,7 +276,7 @@ class TrainingTask:
                     model=model,
                     pos_label=pos_label,
                     calibrator=calibrator,
-                    positive_class_threshold=positive_class_threshold,
+                    classification_threshold=classification_threshold,
                 )
                 df_pred = df_modeling.assign(
                     **{
@@ -294,7 +294,7 @@ class TrainingTask:
                     student_group_cols=student_group_cols,
                     target_col=self.cfg.target_col,
                     pos_label=pos_label,
-                    positive_class_threshold=positive_class_threshold,
+                    classification_threshold=classification_threshold,
                 )
                 logging.info("Run %s: Completed", run_id)
 
@@ -332,8 +332,8 @@ class TrainingTask:
 
     def make_predictions(self, current_run_path):
         # Get threshold from config
-        positive_class_threshold = (
-            self.cfg.modeling.training.positive_class_threshold
+        classification_threshold = (
+            self.cfg.modeling.training.classification_threshold
             if self.cfg.modeling and self.cfg.modeling.training
             else 0.5
         )
@@ -347,7 +347,7 @@ class TrainingTask:
             background_data_sample=self.cfg.inference.background_data_sample,
             cfg_inference_params=self.cfg.inference.dict(),
             random_state=self.cfg.random_state,
-            positive_class_threshold=positive_class_threshold,
+            classification_threshold=classification_threshold,
         )
         paths = PredPaths(
             features_table_path="shared/assets/pdp_features_table.toml",

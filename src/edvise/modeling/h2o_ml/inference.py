@@ -254,7 +254,7 @@ def predict_h2o(
     *,
     pos_label: utils.PosLabelType = True,
     feature_names: t.Optional[list[str]] = None,
-    positive_class_threshold: float = 0.5,
+    classification_threshold: float = 0.5,
     calibrator: t.Optional[calibration.SklearnCalibratorWrapper] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Predict labels and probabilities using an H2O model.
@@ -265,7 +265,7 @@ def predict_h2o(
         feature_names: Required if features is a numpy.ndarray.
         pos_label: Label to extract probability for. If None, assumes binary classification and
             picks the second probability column (index 2).
-        positive_class_threshold: Classification threshold for converting probabilities to binary predictions. Default is 0.5.
+        classification_threshold: Classification threshold for converting probabilities to binary predictions. Default is 0.5.
         calibrator: Optional calibrator to transform probabilities.
 
     Returns:
@@ -304,7 +304,7 @@ def predict_h2o(
         probs = probs_raw
 
     # Apply threshold to get binary predictions
-    preds = (probs >= float(positive_class_threshold)).astype(int)
+    preds = (probs >= float(classification_threshold)).astype(int)
 
     return preds, probs
 

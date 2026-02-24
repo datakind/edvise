@@ -58,7 +58,7 @@ def evaluate_bias(
     pred_col: str = "pred",
     pred_prob_col: str = "pred_prob",
     sample_weight_col: str = "sample_weight_col",
-    positive_class_threshold: float = 0.5,
+    classification_threshold: float = 0.5,
 ) -> None:
     """
     Evaluates the bias in a model's predictions across different student groups for a split
@@ -112,7 +112,7 @@ def evaluate_bias(
             ]
 
             if group_flags:
-                fnr_fig = plot_fnr_group(fnr_data, positive_class_threshold=positive_class_threshold)
+                fnr_fig = plot_fnr_group(fnr_data, classification_threshold=classification_threshold)
                 mlflow.log_figure(
                     fnr_fig, f"fnr_plots/{split_name}_{group_col}_fnr.png"
                 )
@@ -642,7 +642,7 @@ def log_subgroup_metrics_to_mlflow(
             )
 
 
-def plot_fnr_group(fnr_data: list, positive_class_threshold: float = 0.5) -> matplotlib.figure.Figure:
+def plot_fnr_group(fnr_data: list, classification_threshold: float = 0.5) -> matplotlib.figure.Figure:
     """
     Plots False Negative Rate (FNR) for a group by subgroup on
     a split (train/test/val) of data with confidence intervals.
@@ -650,7 +650,7 @@ def plot_fnr_group(fnr_data: list, positive_class_threshold: float = 0.5) -> mat
     Args:
         fnr_data: List with dictionaries for each subgroup. Each dictionary
         comprises of group, fnr, ci (confidence interval), and split_name keys.
-        positive_class_threshold: Classification threshold used to generate predictions. Default is 0.5.
+        classification_threshold: Classification threshold used to generate predictions. Default is 0.5.
     """
     subgroups = [subgroup_data["subgroup"] for subgroup_data in fnr_data]
     fnr = [subgroup_data["fnr"] for subgroup_data in fnr_data]
@@ -687,7 +687,7 @@ def plot_fnr_group(fnr_data: list, positive_class_threshold: float = 0.5) -> mat
         ylim=(-1, len(subgroups)),
         ylabel="Subgroup",
         xlabel="False Negative Rate",
-        title=f"""FNR @ {positive_class_threshold} for {fnr_data[0]["group"]} on {fnr_data[0]["split_name"]}""",
+        title=f"""FNR @ {classification_threshold} for {fnr_data[0]["group"]} on {fnr_data[0]["split_name"]}""",
     )
     ax.tick_params(axis="both", labelsize=12)
     ax.grid(True, linestyle="--", alpha=0.6)
