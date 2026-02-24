@@ -1,6 +1,5 @@
 # Standard library imports
 import logging
-import re
 import typing as t
 from dataclasses import dataclass, field
 from typing import Any, cast
