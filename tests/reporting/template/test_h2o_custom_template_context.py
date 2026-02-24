@@ -224,6 +224,7 @@ def test_custom_school_model_card_template_placeholders_filled(
         "institution_name": "Custom Institution",
         "sample_weight_section": "Sample weighting",
         "data_split_table": "Split details",
+        "classification_threshold_section": "Classification threshold: 0.5",
         "bias_groups_section": "Bias groups",
         "selected_features_ranked_by_shap": "Ranked features",
         "development_note_section": "Model developed in 2025",

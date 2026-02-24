@@ -57,6 +57,7 @@
 
 - #### Model Development
 {sample_weight_section}
+{classification_threshold_section}
 {data_split_table}
 
 - #### Model Evaluation

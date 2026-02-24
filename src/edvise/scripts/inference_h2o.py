@@ -232,6 +232,31 @@ class ModelInferenceTask:
             if inf is None or inf.dict() is None
             else inf.dict()
         )
+
+        # Get threshold from MLflow run params (logged during training), fallback to config
+        classification_threshold = 0.5
+        try:
+            client = MlflowClient()
+            run = client.get_run(self.model_run_id)
+            if "classification_threshold" in run.data.params:
+                classification_threshold = float(
+                    run.data.params["classification_threshold"]
+                )
+                logging.info(
+                    "Using threshold from MLflow run: %s", classification_threshold
+                )
+            elif self.cfg.modeling and self.cfg.modeling.training:
+                classification_threshold = (
+                    self.cfg.modeling.training.classification_threshold
+                )
+                logging.info(
+                    "Using threshold from config: %s", classification_threshold
+                )
+        except Exception as e:
+            logging.warning(
+                "Could not get threshold from MLflow run, using default 0.5: %s", e
+            )
+
         pred_cfg = PredConfig(
             model_run_id=self.model_run_id,
             experiment_id=self.model_experiment_id,
@@ -244,6 +269,7 @@ class ModelInferenceTask:
                 12345 if self.cfg.random_state is None else self.cfg.random_state
             ),
             cfg_inference_params=inference_params,
+            classification_threshold=classification_threshold,
         )
         # Choose the correct features table path your project uses
         features_table_path = self.features_table_path

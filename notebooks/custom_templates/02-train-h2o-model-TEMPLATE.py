@@ -180,6 +180,7 @@ training_params = {
     "calibrate": cfg.model.calibrate,
     "primary_metric": cfg.modeling.training.primary_metric,
     "timeout_minutes": cfg.modeling.training.timeout_minutes,
+    "classification_threshold": cfg.modeling.training.classification_threshold,
     "exclude_cols": sorted(
         set(
             (cfg.modeling.training.exclude_cols or [])
@@ -262,6 +263,7 @@ for run_id in top_runs.values():
             features=df_features_imp,
             model=model,
             pos_label=cfg.pos_label,
+            classification_threshold=cfg.modeling.training.classification_threshold,
         )
         df_pred = df.assign(
             **{
