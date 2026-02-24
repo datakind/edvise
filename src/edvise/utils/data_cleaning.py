@@ -774,6 +774,7 @@ def _renumber_duplicates(
     credits_col: str | None = "course_credits_attempted",
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
+    course_number_col: str | None = "course_number",
 ) -> pd.DataFrame:
     """Renumber duplicate courses for schema mode."""
     if unique_cols is None:
