@@ -1,5 +1,6 @@
 import re
 import typing as t
+import math
 
 import pydantic as pyd
 
@@ -513,7 +514,9 @@ class TrainingConfig(pyd.BaseModel):
     @classmethod
     def validate_classification_threshold_multiple_of_5(cls, v: float) -> float:
         """Ensure classification_threshold is a multiple of 0.05 (5%)."""
-        if abs(v % 0.05) > 1e-10:  # Use small epsilon for floating point comparison
+        # Check if v is a multiple of 0.05 by checking if (v * 20) is an integer
+        # This avoids floating point precision issues with modulo
+        if abs(v * 20 - round(v * 20)) > 1e-10:
             raise ValueError(
                 f"classification_threshold must be a multiple of 0.05 (5%) for easier interpretation "
                 f"by institutional stakeholders and simplified implementation. Got {v}. "
