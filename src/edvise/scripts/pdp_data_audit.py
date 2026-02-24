@@ -1,6 +1,5 @@
 import argparse
 import importlib
-import json
 import logging
 import typing as t
 import sys
@@ -44,7 +43,7 @@ from edvise.data_audit.eda import (
     log_terms,
     log_misjoined_records,
 )
-from edvise.data_audit.cohort_selection import select_inference_cohort
+
 from edvise.utils.update_config import update_key_courses_and_cips
 from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
@@ -68,27 +67,6 @@ LOGGER = logging.getLogger(__name__)
 ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
 
 
-def _parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
-    """Parse --term_filter job param. Treat None, '', 'null' as not provided; else json.loads.
-    Empty list after parse -> not provided (use config). Invalid JSON -> raise."""
-    if value is None:
-        return None
-    s = value.strip()
-    if s in ("", "null", "None"):
-        return None
-    try:
-        parsed = json.loads(s)
-    except json.JSONDecodeError as e:
-        LOGGER.error("Invalid JSON for term_filter param: %s", value)
-        raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
-    if not isinstance(parsed, list):
-        raise ValueError("--term_filter must be a JSON list of strings")
-    labels = [str(item).strip() for item in parsed if str(item).strip()]
-    if not labels:
-        return None  # empty list -> use config
-    return labels
-
-
 class PDPDataAuditTask:
     """Encapsulates the data preprocessing logic for the SST pipeline."""
 
@@ -102,26 +80,6 @@ class PDPDataAuditTask:
         self.cfg = read_config(
             file_path=self.args.config_file_path, schema=PDPProjectConfig
         )
-        # Resolve inference cohort from job param or config (term_filter is generic for cohort/graduation)
-        if getattr(self.args, "job_type", None) == "inference":
-            param_cohort = _parse_term_filter_param(
-                getattr(self.args, "term_filter", None)
-            )
-            if param_cohort is not None:
-                if self.cfg.inference is None:
-                    from edvise.configs.pdp import InferenceConfig
-
-                    self.cfg.inference = InferenceConfig(cohort=param_cohort)
-                else:
-                    self.cfg.inference.cohort = param_cohort
-                LOGGER.info(
-                    "Inference cohort source: job param; term_filter=%s", param_cohort
-                )
-            else:
-                LOGGER.info(
-                    "Inference cohort source: config; cohort=%s",
-                    self.cfg.inference.cohort if self.cfg.inference else None,
-                )
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
@@ -324,17 +282,6 @@ class PDPDataAuditTask:
             spark_session=self.spark,
         )
 
-        # Select inference cohort if applicable
-        if self.args.job_type == "inference":
-            LOGGER.info(" Selecting inference cohort")
-            if self.cfg.inference is None or self.cfg.inference.cohort is None:
-                raise ValueError("cfg.inference.cohort must be configured.")
-
-            inf_cohort = self.cfg.inference.cohort
-            df_cohort_validated = select_inference_cohort(
-                df_cohort_validated, cohorts_list=inf_cohort
-            )
-
         # Standardize cohort data
         LOGGER.info(" Standardizing cohort data:")
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
@@ -383,17 +330,6 @@ class PDPDataAuditTask:
             )
         else:
             log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
-
-        # Select inference cohort if applicable
-        if self.args.job_type == "inference":
-            LOGGER.info(" Selecting inference cohort")
-            if self.cfg.inference is None or self.cfg.inference.cohort is None:
-                raise ValueError("cfg.inference.cohort must be configured.")
-
-            inf_cohort = self.cfg.inference.cohort
-            df_course_validated = select_inference_cohort(
-                df_course_validated, cohorts_list=inf_cohort
-            )
 
         # Standardize course data
         LOGGER.info(" Standardizing course data:")
@@ -587,14 +523,6 @@ if __name__ == "__main__":
         course_converter_func = None
         LOGGER.info("Running task default course converter func")
         LOGGER.warning(f"Failed to load custom converter functions: {e}")
-
-    # try:
-    #     schemas = importlib.import_module("schemas")
-    #     LOGGER.info("Running task with custom schema")
-    # except Exception as e:
-    #     from data_audit import schemas as schemas
-    #     LOGGER.info("Running task with default schema")
-    #     LOGGER.warning(f"Failed to load custom schema: {e}")
 
     task = PDPDataAuditTask(
         args,
