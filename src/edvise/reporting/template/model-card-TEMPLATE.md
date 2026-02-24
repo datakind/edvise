@@ -58,6 +58,7 @@
 - #### Model Development
 {sample_weight_section}
 {data_split_table}
+{classification_threshold_section}
 
 - #### Model Evaluation
     - Evaluated top models across standard classification metrics such as [Accuracy](#glossary-accuracy), [AUC](#glossary-auc), [F1-Score](#glossary-f1), [Log Loss](#glossary-log-loss), [Precision](#glossary-precision), [Recall](#glossary-recall).
