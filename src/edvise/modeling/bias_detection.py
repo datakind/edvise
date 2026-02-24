@@ -112,7 +112,9 @@ def evaluate_bias(
             ]
 
             if group_flags:
-                fnr_fig = plot_fnr_group(fnr_data, classification_threshold=classification_threshold)
+                fnr_fig = plot_fnr_group(
+                    fnr_data, classification_threshold=classification_threshold
+                )
                 mlflow.log_figure(
                     fnr_fig, f"fnr_plots/{split_name}_{group_col}_fnr.png"
                 )
@@ -642,7 +644,9 @@ def log_subgroup_metrics_to_mlflow(
             )
 
 
-def plot_fnr_group(fnr_data: list, classification_threshold: float = 0.5) -> matplotlib.figure.Figure:
+def plot_fnr_group(
+    fnr_data: list, classification_threshold: float = 0.5
+) -> matplotlib.figure.Figure:
     """
     Plots False Negative Rate (FNR) for a group by subgroup on
     a split (train/test/val) of data with confidence intervals.

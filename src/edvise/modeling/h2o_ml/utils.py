@@ -597,7 +597,9 @@ def log_h2o_model(
                 LOGGER.debug(f"Skipping mlflow.set_tag (no real run / mocked env): {e}")
 
             # Log classification threshold as a parameter
-            mlflow.log_param("classification_threshold", float(classification_threshold))
+            mlflow.log_param(
+                "classification_threshold", float(classification_threshold)
+            )
 
             if calibrator is not None:
                 calibration_applied = bool(
