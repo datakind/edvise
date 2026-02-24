@@ -36,6 +36,27 @@ def convert_to_snake_case(col: str) -> str:
     return "_".join(words).lower()
 
 
+def detect_institution_column(
+    cols: list[str], inst_col_pattern: re.Pattern
+) -> t.Optional[str]:
+    """
+    Detect institution ID column using regex pattern.
+
+    Args:
+        cols: List of column names
+        inst_col_pattern: Compiled regex pattern to match institution column
+
+    Returns:
+        Matched column name or None if not found
+
+    Example:
+        >>> pattern = re.compile(r"(?=.*institution)(?=.*id)", re.IGNORECASE)
+        >>> detect_institution_column(["student_id", "institution_id"], pattern)
+        'institution_id'
+    """
+    return next((c for c in cols if inst_col_pattern.search(c)), None)
+
+
 def convert_intensity_time_limits(
     unit: t.Literal["term", "year"],
     intensity_time_limits: types.IntensityTimeLimitsType,

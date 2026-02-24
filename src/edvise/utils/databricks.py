@@ -117,3 +117,107 @@ def mock_pandera():
 
     sys.modules[m1.__name__] = m1
     sys.modules[m2.__name__] = m2
+
+
+# Schema and volume caches for Databricks catalog operations
+_schema_cache: dict[str, set[str]] = {}
+_bronze_volume_cache: dict[str, str] = {}  # key: f"{catalog}.{schema}" -> volume_name
+
+
+def list_schemas_in_catalog(spark: SparkSession, catalog: str) -> set[str]:
+    """
+    List all schemas in a catalog (with caching).
+
+    Args:
+        spark: Spark session
+        catalog: Catalog name
+
+    Returns:
+        Set of schema names
+    """
+    if catalog in _schema_cache:
+        return _schema_cache[catalog]
+
+    rows = spark.sql(f"SHOW SCHEMAS IN {catalog}").collect()
+
+    schema_names: set[str] = set()
+    for row in rows:
+        d = row.asDict()
+        for k in ["databaseName", "database_name", "schemaName", "schema_name", "name"]:
+            v = d.get(k)
+            if v:
+                schema_names.add(v)
+                break
+        else:
+            schema_names.add(list(d.values())[0])
+
+    _schema_cache[catalog] = schema_names
+    return schema_names
+
+
+def find_bronze_schema(
+    spark: SparkSession, catalog: str, inst_prefix: str
+) -> str:
+    """
+    Find bronze schema for institution prefix.
+
+    Args:
+        spark: Spark session
+        catalog: Catalog name
+        inst_prefix: Institution prefix (e.g., "motlow_state_cc")
+
+    Returns:
+        Bronze schema name (e.g., "motlow_state_cc_bronze")
+
+    Raises:
+        ValueError: If bronze schema not found
+    """
+    target = f"{inst_prefix}_bronze"
+    schemas = list_schemas_in_catalog(spark, catalog)
+    if target not in schemas:
+        raise ValueError(f"Bronze schema not found: {catalog}.{target}")
+    return target
+
+
+def find_bronze_volume_name(
+    spark: SparkSession, catalog: str, schema: str
+) -> str:
+    """
+    Find bronze volume name in schema (with caching).
+
+    Args:
+        spark: Spark session
+        catalog: Catalog name
+        schema: Schema name
+
+    Returns:
+        Volume name containing "bronze"
+
+    Raises:
+        ValueError: If no bronze volume found
+    """
+    key = f"{catalog}.{schema}"
+    if key in _bronze_volume_cache:
+        return _bronze_volume_cache[key]
+
+    vols = spark.sql(f"SHOW VOLUMES IN {catalog}.{schema}").collect()
+    if not vols:
+        raise ValueError(f"No volumes found in {catalog}.{schema}")
+
+    # Usually "volume_name", but be defensive
+    def _get_vol_name(row):
+        d = row.asDict()
+        for k in ["volume_name", "volumeName", "name"]:
+            if k in d:
+                return d[k]
+        return list(d.values())[0]
+
+    vol_names = [_get_vol_name(v) for v in vols]
+    bronze_like = [v for v in vol_names if "bronze" in str(v).lower()]
+    if bronze_like:
+        _bronze_volume_cache[key] = bronze_like[0]
+        return bronze_like[0]
+
+    raise ValueError(
+        f"No volume containing 'bronze' found in {catalog}.{schema}. Volumes={vol_names}"
+    )

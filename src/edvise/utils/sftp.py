@@ -91,7 +91,9 @@ def list_receive_files(
     return results
 
 
-def _hash_file(path: str, algo: str = "sha256", chunk_size: int = 8 * 1024 * 1024) -> str:
+def _hash_file(
+    path: str, algo: str = "sha256", chunk_size: int = 8 * 1024 * 1024
+) -> str:
     """
     Compute hash of a file.
 
@@ -226,8 +228,12 @@ def download_sftp_atomic(
                     transferred += len(data)
                     if progress and remote_size:
                         pct = transferred / remote_size
-                        if pct % 0.1 < 0.01 or transferred == remote_size:  # Print every 10%
-                            LOGGER.info(f"{pct:.1%} transferred ({transferred:,}/{remote_size:,} bytes)")
+                        if (
+                            pct % 0.1 < 0.01 or transferred == remote_size
+                        ):  # Print every 10%
+                            LOGGER.info(
+                                f"{pct:.1%} transferred ({transferred:,}/{remote_size:,} bytes)"
+                            )
                 lf.flush()
                 os.fsync(lf.fileno())
 
@@ -264,3 +270,22 @@ def download_sftp_atomic(
     os.replace(tmp_path, local_path)
     if progress:
         LOGGER.info(f"Download complete (atomic & verified): {local_path}")
+
+
+def output_file_name_from_sftp(file_name: str) -> str:
+    """
+    Generate output filename from SFTP filename.
+
+    Removes extension and adds .csv extension.
+
+    Args:
+        file_name: Original SFTP filename
+
+    Returns:
+        Output filename with .csv extension
+
+    Example:
+        >>> output_file_name_from_sftp("data_2024.xlsx")
+        'data_2024.csv'
+    """
+    return f"{os.path.basename(file_name).split('.')[0]}.csv"

@@ -12,16 +12,291 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import pandas as pd
+import paramiko
 import pyspark.sql
+from pyspark.sql import functions as F
+from pyspark.sql import types as T
 
+from edvise.ingestion.constants import (
+    MANIFEST_TABLE_PATH,
+    QUEUE_TABLE_PATH,
+    SFTP_DOWNLOAD_CHUNK_MB,
+    SFTP_TMP_DIR,
+)
 from edvise.utils.api_requests import databricksify_inst_name
-from edvise.utils.data_cleaning import convert_to_snake_case
+from edvise.utils.data_cleaning import convert_to_snake_case, detect_institution_column
+from edvise.utils.databricks import find_bronze_schema, find_bronze_volume_name
+from edvise.utils.sftp import download_sftp_atomic, output_file_name_from_sftp
 
 LOGGER = logging.getLogger(__name__)
 
-# Schema and volume caches
-_schema_cache: dict[str, set[str]] = {}
-_bronze_volume_cache: dict[str, str] = {}  # key: f"{catalog}.{schema}" -> volume_name
+
+def ensure_manifest_and_queue_tables(spark: pyspark.sql.SparkSession) -> None:
+    """
+    Create required delta tables if missing.
+    - ingestion_manifest: includes file_fingerprint for idempotency
+    - pending_ingest_queue: holds local tmp path so downstream doesn't connect to SFTP again
+
+    Args:
+        spark: Spark session
+    """
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {MANIFEST_TABLE_PATH} (
+          file_fingerprint STRING,
+          source_system STRING,
+          sftp_path STRING,
+          file_name STRING,
+          file_size BIGINT,
+          file_modified_time TIMESTAMP,
+          ingested_at TIMESTAMP,
+          processed_at TIMESTAMP,
+          status STRING,
+          error_message STRING
+        )
+        USING DELTA
+        """
+    )
+
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {QUEUE_TABLE_PATH} (
+          file_fingerprint STRING,
+          source_system STRING,
+          sftp_path STRING,
+          file_name STRING,
+          file_size BIGINT,
+          file_modified_time TIMESTAMP,
+          local_tmp_path STRING,
+          queued_at TIMESTAMP
+        )
+        USING DELTA
+        """
+    )
+
+
+def build_listing_df(
+    spark: pyspark.sql.SparkSession, file_rows: list[dict]
+) -> pyspark.sql.DataFrame:
+    """
+    Build DataFrame from file listing rows with file fingerprints.
+
+    Creates a DataFrame with file metadata and computes a stable fingerprint
+    from metadata (file version identity).
+
+    Args:
+        spark: Spark session
+        file_rows: List of dicts with keys: source_system, sftp_path, file_name,
+                   file_size, file_modified_time
+
+    Returns:
+        DataFrame with file_fingerprint column added
+    """
+    schema = T.StructType(
+        [
+            T.StructField("source_system", T.StringType(), False),
+            T.StructField("sftp_path", T.StringType(), False),
+            T.StructField("file_name", T.StringType(), False),
+            T.StructField("file_size", T.LongType(), True),
+            T.StructField("file_modified_time", T.TimestampType(), True),
+        ]
+    )
+
+    df = spark.createDataFrame(file_rows, schema=schema)
+
+    # Stable fingerprint from metadata (file version identity)
+    # Note: cast mtime to string in a consistent format to avoid subtle timestamp formatting diffs.
+    df = df.withColumn(
+        "file_fingerprint",
+        F.sha2(
+            F.concat_ws(
+                "||",
+                F.col("source_system"),
+                F.col("sftp_path"),
+                F.col("file_name"),
+                F.coalesce(F.col("file_size").cast("string"), F.lit("")),
+                F.coalesce(
+                    F.date_format(
+                        F.col("file_modified_time"), "yyyy-MM-dd'T'HH:mm:ss.SSSXXX"
+                    ),
+                    F.lit(""),
+                ),
+            ),
+            256,
+        ),
+    )
+
+    return df
+
+
+def upsert_new_to_manifest(
+    spark: pyspark.sql.SparkSession, df_listing: pyspark.sql.DataFrame
+) -> None:
+    """
+    Insert NEW rows for unseen fingerprints only.
+
+    Args:
+        spark: Spark session
+        df_listing: DataFrame with file listing (must have file_fingerprint column)
+    """
+    df_manifest_insert = (
+        df_listing.select(
+            "file_fingerprint",
+            "source_system",
+            "sftp_path",
+            "file_name",
+            "file_size",
+            "file_modified_time",
+        )
+        .withColumn("ingested_at", F.lit(None).cast("timestamp"))
+        .withColumn("processed_at", F.lit(None).cast("timestamp"))
+        .withColumn("status", F.lit("NEW"))
+        .withColumn("error_message", F.lit(None).cast("string"))
+    )
+
+    df_manifest_insert.createOrReplaceTempView("incoming_manifest_rows")
+
+    spark.sql(
+        f"""
+        MERGE INTO {MANIFEST_TABLE_PATH} AS t
+        USING incoming_manifest_rows AS s
+        ON t.file_fingerprint = s.file_fingerprint
+        WHEN NOT MATCHED THEN INSERT *
+        """
+    )
+
+
+def get_files_to_queue(
+    spark: pyspark.sql.SparkSession, df_listing: pyspark.sql.DataFrame
+) -> pyspark.sql.DataFrame:
+    """
+    Return files that should be queued for downstream processing.
+
+    Criteria:
+      - present in current SFTP listing (df_listing)
+      - exist in manifest with status = 'NEW'
+      - NOT already present in pending_ingest_queue
+
+    Args:
+        spark: Spark session
+        df_listing: DataFrame with file listing (must have file_fingerprint column)
+
+    Returns:
+        DataFrame of files to queue
+    """
+    manifest_new = (
+        spark.table(MANIFEST_TABLE_PATH)
+        .select("file_fingerprint", "status")
+        .where(F.col("status") == F.lit("NEW"))
+        .select("file_fingerprint")
+    )
+
+    already_queued = spark.table(QUEUE_TABLE_PATH).select("file_fingerprint").distinct()
+
+    # Only queue files that are:
+    #   in current listing AND in manifest NEW AND not in queue
+    to_queue = df_listing.join(manifest_new, on="file_fingerprint", how="inner").join(
+        already_queued, on="file_fingerprint", how="left_anti"
+    )
+    return to_queue
+
+
+def download_new_files_and_queue(
+    spark: pyspark.sql.SparkSession,
+    sftp: paramiko.SFTPClient,
+    df_new: pyspark.sql.DataFrame,
+    logger: Optional[logging.Logger] = None,
+) -> int:
+    """
+    Download each new file to /tmp and upsert into pending_ingest_queue.
+
+    Args:
+        spark: Spark session
+        sftp: SFTP client connection
+        df_new: DataFrame of files to download and queue
+        logger: Optional logger instance (defaults to module logger)
+
+    Returns:
+        Number of files queued
+    """
+    if logger is None:
+        logger = LOGGER
+
+    os.makedirs(SFTP_TMP_DIR, exist_ok=True)
+
+    rows = df_new.select(
+        "file_fingerprint",
+        "source_system",
+        "sftp_path",
+        "file_name",
+        "file_size",
+        "file_modified_time",
+    ).collect()
+
+    queued = []
+    for r in rows:
+        fp = r["file_fingerprint"]
+        sftp_path = r["sftp_path"]
+        file_name = r["file_name"]
+
+        remote_path = f"{sftp_path.rstrip('/')}/{file_name}"
+        local_path = os.path.abspath(os.path.join(SFTP_TMP_DIR, f"{fp}__{file_name}"))
+
+        # If local already exists (e.g., rerun), skip re-download
+        if not os.path.exists(local_path):
+            logger.info(
+                f"Downloading new file from SFTP: {remote_path} -> {local_path}"
+            )
+            download_sftp_atomic(sftp, remote_path, local_path, chunk=SFTP_DOWNLOAD_CHUNK_MB)
+        else:
+            logger.info(f"Local file already staged, skipping download: {local_path}")
+
+        queued.append(
+            {
+                "file_fingerprint": fp,
+                "source_system": r["source_system"],
+                "sftp_path": sftp_path,
+                "file_name": file_name,
+                "file_size": r["file_size"],
+                "file_modified_time": r["file_modified_time"],
+                "local_tmp_path": local_path,
+                "queued_at": datetime.now(timezone.utc),
+            }
+        )
+
+    if not queued:
+        return 0
+
+    qschema = T.StructType(
+        [
+            T.StructField("file_fingerprint", T.StringType(), False),
+            T.StructField("source_system", T.StringType(), False),
+            T.StructField("sftp_path", T.StringType(), False),
+            T.StructField("file_name", T.StringType(), False),
+            T.StructField("file_size", T.LongType(), True),
+            T.StructField("file_modified_time", T.TimestampType(), True),
+            T.StructField("local_tmp_path", T.StringType(), False),
+            T.StructField("queued_at", T.TimestampType(), False),
+        ]
+    )
+
+    df_queue = spark.createDataFrame(queued, schema=qschema)
+    df_queue.createOrReplaceTempView("incoming_queue_rows")
+
+    # Upsert into queue (idempotent by fingerprint)
+    spark.sql(
+        f"""
+        MERGE INTO {QUEUE_TABLE_PATH} AS t
+        USING incoming_queue_rows AS s
+        ON t.file_fingerprint = s.file_fingerprint
+        WHEN MATCHED THEN UPDATE SET
+        t.local_tmp_path = s.local_tmp_path,
+        t.queued_at = s.queued_at
+        WHEN NOT MATCHED THEN INSERT *
+        """
+    )
+
+    return len(queued)
 
 
 def ensure_plan_table(spark: pyspark.sql.SparkSession, plan_table: str) -> None:
@@ -47,25 +322,6 @@ def ensure_plan_table(spark: pyspark.sql.SparkSession, plan_table: str) -> None:
         USING DELTA
         """
     )
-
-
-def detect_institution_column(cols: list[str], inst_col_pattern: re.Pattern) -> Optional[str]:
-    """
-    Detect institution ID column using regex pattern.
-
-    Args:
-        cols: List of column names
-        inst_col_pattern: Compiled regex pattern to match institution column
-
-    Returns:
-        Matched column name or None if not found
-
-    Example:
-        >>> pattern = re.compile(r"(?=.*institution)(?=.*id)", re.IGNORECASE)
-        >>> detect_institution_column(["student_id", "institution_id"], pattern)
-        'institution_id'
-    """
-    return next((c for c in cols if inst_col_pattern.search(c)), None)
 
 
 def extract_institution_ids(
@@ -139,124 +395,6 @@ def extract_institution_ids(
     return inst_col, sorted(ids)
 
 
-def output_file_name_from_sftp(file_name: str) -> str:
-    """
-    Generate output filename from SFTP filename.
-
-    Removes extension and adds .csv extension.
-
-    Args:
-        file_name: Original SFTP filename
-
-    Returns:
-        Output filename with .csv extension
-
-    Example:
-        >>> output_file_name_from_sftp("data_2024.xlsx")
-        'data_2024.csv'
-    """
-    return f"{os.path.basename(file_name).split('.')[0]}.csv"
-
-
-def list_schemas_in_catalog(spark: pyspark.sql.SparkSession, catalog: str) -> set[str]:
-    """
-    List all schemas in a catalog (with caching).
-
-    Args:
-        spark: Spark session
-        catalog: Catalog name
-
-    Returns:
-        Set of schema names
-    """
-    if catalog in _schema_cache:
-        return _schema_cache[catalog]
-
-    rows = spark.sql(f"SHOW SCHEMAS IN {catalog}").collect()
-
-    schema_names: set[str] = set()
-    for row in rows:
-        d = row.asDict()
-        for k in ["databaseName", "database_name", "schemaName", "schema_name", "name"]:
-            v = d.get(k)
-            if v:
-                schema_names.add(v)
-                break
-        else:
-            schema_names.add(list(d.values())[0])
-
-    _schema_cache[catalog] = schema_names
-    return schema_names
-
-
-def find_bronze_schema(
-    spark: pyspark.sql.SparkSession, catalog: str, inst_prefix: str
-) -> str:
-    """
-    Find bronze schema for institution prefix.
-
-    Args:
-        spark: Spark session
-        catalog: Catalog name
-        inst_prefix: Institution prefix (e.g., "motlow_state_cc")
-
-    Returns:
-        Bronze schema name (e.g., "motlow_state_cc_bronze")
-
-    Raises:
-        ValueError: If bronze schema not found
-    """
-    target = f"{inst_prefix}_bronze"
-    schemas = list_schemas_in_catalog(spark, catalog)
-    if target not in schemas:
-        raise ValueError(f"Bronze schema not found: {catalog}.{target}")
-    return target
-
-
-def find_bronze_volume_name(
-    spark: pyspark.sql.SparkSession, catalog: str, schema: str
-) -> str:
-    """
-    Find bronze volume name in schema (with caching).
-
-    Args:
-        spark: Spark session
-        catalog: Catalog name
-        schema: Schema name
-
-    Returns:
-        Volume name containing "bronze"
-
-    Raises:
-        ValueError: If no bronze volume found
-    """
-    key = f"{catalog}.{schema}"
-    if key in _bronze_volume_cache:
-        return _bronze_volume_cache[key]
-
-    vols = spark.sql(f"SHOW VOLUMES IN {catalog}.{schema}").collect()
-    if not vols:
-        raise ValueError(f"No volumes found in {catalog}.{schema}")
-
-    # Usually "volume_name", but be defensive
-    def _get_vol_name(row):
-        d = row.asDict()
-        for k in ["volume_name", "volumeName", "name"]:
-            if k in d:
-                return d[k]
-        return list(d.values())[0]
-
-    vol_names = [_get_vol_name(v) for v in vols]
-    bronze_like = [v for v in vol_names if "bronze" in str(v).lower()]
-    if bronze_like:
-        _bronze_volume_cache[key] = bronze_like[0]
-        return bronze_like[0]
-
-    raise ValueError(
-        f"No volume containing 'bronze' found in {catalog}.{schema}. Volumes={vol_names}"
-    )
-
-
 def update_manifest(
     spark: pyspark.sql.SparkSession,
     manifest_table: str,
@@ -317,9 +455,7 @@ def update_manifest(
     )
 
 
-def process_and_save_file(
-    volume_dir: str, file_name: str, df: pd.DataFrame
-) -> str:
+def process_and_save_file(volume_dir: str, file_name: str, df: pd.DataFrame) -> str:
     """
     Process DataFrame and save to Databricks volume.
 
