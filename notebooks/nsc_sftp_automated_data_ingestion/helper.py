@@ -1,3 +1,17 @@
+"""
+DEPRECATED: This helper file has been consolidated into the edvise source code.
+
+Functions have been moved to:
+- SFTP utilities: edvise.utils.sftp
+- API client: edvise.utils.api_requests
+- NSC-specific helpers: edvise.ingestion.nsc_sftp_helpers
+- Column normalization: edvise.utils.data_cleaning.convert_to_snake_case
+- Databricks name conversion: edvise.utils.api_requests.databricksify_inst_name
+
+This file is kept for backward compatibility with existing notebooks.
+New code should import from the consolidated modules above.
+"""
+
 import hashlib
 import os
 import re

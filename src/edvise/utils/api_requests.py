@@ -2,7 +2,8 @@
 import logging
 import re
 import typing as t
-from typing import cast
+from dataclasses import dataclass, field
+from typing import Any, cast
 from urllib.parse import quote
 
 # Third-party imports
@@ -257,6 +258,63 @@ def _reverse_abbreviation_replacements(name: str) -> str:
             name = pattern.sub(full_form, name)
 
     return name
+
+
+def databricksify_inst_name(inst_name: str) -> str:
+    """
+    Transform institution name to Databricks-compatible format.
+
+    Follows DK standardized rules for naming conventions used in Databricks:
+    - Lowercases the name
+    - Replaces common phrases with abbreviations (e.g., "community college" → "cc")
+    - Replaces special characters and spaces with underscores
+    - Validates final format contains only lowercase letters, numbers, and underscores
+
+    Args:
+        inst_name: Original institution name (e.g., "Motlow State Community College")
+
+    Returns:
+        Databricks-compatible name (e.g., "motlow_state_cc")
+
+    Raises:
+        ValueError: If the resulting name contains invalid characters
+
+    Example:
+        >>> databricksify_inst_name("Motlow State Community College")
+        'motlow_state_cc'
+        >>> databricksify_inst_name("University of Science & Technology")
+        'uni_of_st_technology'
+    """
+    name = inst_name.lower()
+
+    # Apply abbreviation replacements (most specific first)
+    dk_replacements = {
+        "community technical college": "ctc",
+        "community college": "cc",
+        "of science and technology": "st",
+        "university": "uni",
+        "college": "col",
+    }
+
+    for old, new in dk_replacements.items():
+        name = name.replace(old, new)
+
+    # Replace special characters
+    special_char_replacements = {" & ": " ", "&": " ", "-": " "}
+    for old, new in special_char_replacements.items():
+        name = name.replace(old, new)
+
+    # Replace spaces with underscores
+    final_name = name.replace(" ", "_")
+
+    # Validate format
+    pattern = "^[a-z0-9_]*$"
+    if not re.match(pattern, final_name):
+        raise ValueError(
+            f"Unexpected character found in Databricks compatible name: '{final_name}'"
+        )
+
+    return final_name
 
 
 def reverse_databricksify_inst_name(databricks_name: str) -> str:
@@ -515,3 +573,147 @@ def log_custom_job(
         return resp.json()
     except ValueError:
         return resp.text
+
+
+# ---------------------------
+# SST API Client (with caching and auto-refresh)
+# ---------------------------
+
+
+@dataclass
+class SstApiClient:
+    """
+    API client for SST (Student Success Tool) API with bearer token management.
+
+    Features:
+    - Automatic bearer token fetching and refresh
+    - Token caching within a session
+    - Institution lookup caching
+    - Automatic retry on 401 (unauthorized) errors
+
+    Example:
+        >>> client = SstApiClient(
+        ...     api_key="your-api-key",
+        ...     base_url="https://staging-sst.datakind.org",
+        ...     token_endpoint="/api/v1/token-from-api-key",
+        ...     institution_lookup_path="/api/v1/institutions/pdp-id/{pdp_id}"
+        ... )
+        >>> institution = fetch_institution_by_pdp_id(client, "12345")
+    """
+
+    api_key: str
+    base_url: str
+    token_endpoint: str
+    institution_lookup_path: str
+    session: requests.Session = field(default_factory=requests.Session)
+    bearer_token: str | None = None
+    institution_cache: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate and normalize API client configuration."""
+        self.api_key = self.api_key.strip()
+        if not self.api_key:
+            raise ValueError("Empty SST API key.")
+
+        self.base_url = self.base_url.rstrip("/")
+        self.token_endpoint = self.token_endpoint.strip()
+        self.institution_lookup_path = self.institution_lookup_path.strip()
+
+        self.session.headers.update({"accept": "application/json"})
+
+
+def _fetch_bearer_token_for_client(client: SstApiClient) -> str:
+    """
+    Fetch bearer token from API key using X-API-KEY header.
+
+    Assumes token endpoint returns JSON containing one of: access_token, token, bearer_token, jwt.
+
+    Args:
+        client: SstApiClient instance
+
+    Returns:
+        Bearer token string
+
+    Raises:
+        PermissionError: If API key is invalid (401 response)
+        ValueError: If token response is missing expected token field
+        requests.HTTPError: For other HTTP errors
+    """
+    resp = client.session.post(
+        client.token_endpoint,
+        headers={"accept": "application/json", "X-API-KEY": client.api_key},
+        timeout=30,
+    )
+    if resp.status_code == 401:
+        raise PermissionError(
+            "Unauthorized calling token endpoint (check X-API-KEY secret)."
+        )
+    resp.raise_for_status()
+
+    data = resp.json()
+    for k in ["access_token", "token", "bearer_token", "jwt"]:
+        v = data.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
+    raise ValueError(
+        "Token endpoint response missing expected token field. "
+        f"Keys={list(data.keys())}"
+    )
+
+
+def _ensure_auth(client: SstApiClient) -> None:
+    """Ensure client has a valid bearer token, fetching if needed."""
+    if client.bearer_token is None:
+        _refresh_auth(client)
+
+
+def _refresh_auth(client: SstApiClient) -> None:
+    """Refresh bearer token and update session headers."""
+    client.bearer_token = _fetch_bearer_token_for_client(client)
+    client.session.headers.update({"Authorization": f"Bearer {client.bearer_token}"})
+
+
+def fetch_institution_by_pdp_id(client: SstApiClient, pdp_id: str) -> dict[str, Any]:
+    """
+    Resolve institution for PDP id using SST API.
+
+    Cached within run. Automatically refreshes token on 401 errors.
+
+    Args:
+        client: SstApiClient instance
+        pdp_id: Institution PDP ID to look up
+
+    Returns:
+        Institution data dictionary from API
+
+    Raises:
+        ValueError: If institution PDP ID not found (404) or other API errors
+        requests.HTTPError: For HTTP errors other than 401/404
+
+    Example:
+        >>> client = SstApiClient(...)
+        >>> inst = fetch_institution_by_pdp_id(client, "12345")
+        >>> print(inst["name"])
+        'Example University'
+    """
+    pid = str(pdp_id).strip()
+    if pid in client.institution_cache:
+        return client.institution_cache[pid]
+
+    _ensure_auth(client)
+
+    url = client.base_url + client.institution_lookup_path.format(pdp_id=pid)
+    resp = client.session.get(url, timeout=30)
+
+    if resp.status_code == 401:
+        _refresh_auth(client)
+        resp = client.session.get(url, timeout=30)
+
+    if resp.status_code == 404:
+        raise ValueError(f"Institution PDP ID not found in SST staging: {pid}")
+
+    resp.raise_for_status()
+    data = resp.json()
+    client.institution_cache[pid] = data
+    return data
