@@ -6,10 +6,7 @@ from pathlib import Path
 def _load_helper_module():
     repo_root = Path(__file__).resolve().parents[2]
     helper_path = (
-        repo_root
-        / "notebooks"
-        / "nsc_sftp_automated_data_ingestion"
-        / "helper.py"
+        repo_root / "notebooks" / "nsc_sftp_automated_data_ingestion" / "helper.py"
     )
     spec = importlib.util.spec_from_file_location("nsc_sftp_helper", helper_path)
     assert spec is not None and spec.loader is not None
@@ -39,12 +36,7 @@ def test_extract_institution_ids_handles_numeric(tmp_path):
     helper = _load_helper_module()
     csv_path = tmp_path / "staged.csv"
     csv_path.write_text(
-        "InstitutionID,other\n"
-        "323100,1\n"
-        "323101.0,2\n"
-        ",3\n"
-        "323102.0,4\n"
-        " 323103 ,5\n"
+        "InstitutionID,other\n323100,1\n323101.0,2\n,3\n323102.0,4\n 323103 ,5\n"
     )
 
     inst_col_pattern = re.compile(r"(?=.*institution)(?=.*id)", re.IGNORECASE)
@@ -199,4 +191,3 @@ def test_download_sftp_atomic_resumes_existing_part(tmp_path):
 
     assert local_path.read_bytes() == remote_bytes
     assert not part_path.exists()
-
