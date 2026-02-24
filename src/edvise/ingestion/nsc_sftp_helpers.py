@@ -26,8 +26,7 @@ from edvise.ingestion.constants import (
     SFTP_TMP_DIR,
 )
 from edvise.utils.data_cleaning import convert_to_snake_case, detect_institution_column
-from edvise.utils.databricks import find_bronze_schema, find_bronze_volume_name
-from edvise.utils.sftp import download_sftp_atomic, output_file_name_from_sftp
+from edvise.utils.sftp import download_sftp_atomic
 
 LOGGER = logging.getLogger(__name__)
 
