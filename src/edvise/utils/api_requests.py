@@ -576,14 +576,14 @@ def log_custom_job(
 
 
 # ---------------------------
-# SST API Client (with caching and auto-refresh)
+# Edvise API Client (with caching and auto-refresh)
 # ---------------------------
 
 
 @dataclass
-class SstApiClient:
+class EdviseAPIClient:
     """
-    API client for SST (Student Success Tool) API with bearer token management.
+    API client for Edvise API with bearer token management.
 
     Features:
     - Automatic bearer token fetching and refresh
@@ -592,7 +592,7 @@ class SstApiClient:
     - Automatic retry on 401 (unauthorized) errors
 
     Example:
-        >>> client = SstApiClient(
+        >>> client = EdviseAPIClient(
         ...     api_key="your-api-key",
         ...     base_url="https://staging-sst.datakind.org",
         ...     token_endpoint="/api/v1/token-from-api-key",
@@ -613,7 +613,7 @@ class SstApiClient:
         """Validate and normalize API client configuration."""
         self.api_key = self.api_key.strip()
         if not self.api_key:
-            raise ValueError("Empty SST API key.")
+            raise ValueError("Empty Edvise API key.")
 
         self.base_url = self.base_url.rstrip("/")
         self.token_endpoint = self.token_endpoint.strip()
@@ -622,14 +622,14 @@ class SstApiClient:
         self.session.headers.update({"accept": "application/json"})
 
 
-def _fetch_bearer_token_for_client(client: SstApiClient) -> str:
+def _fetch_bearer_token_for_client(client: EdviseAPIClient) -> str:
     """
     Fetch bearer token from API key using X-API-KEY header.
 
     Assumes token endpoint returns JSON containing one of: access_token, token, bearer_token, jwt.
 
     Args:
-        client: SstApiClient instance
+        client: EdviseAPIClient instance
 
     Returns:
         Bearer token string
@@ -662,26 +662,26 @@ def _fetch_bearer_token_for_client(client: SstApiClient) -> str:
     )
 
 
-def _ensure_auth(client: SstApiClient) -> None:
+def _ensure_auth(client: EdviseAPIClient) -> None:
     """Ensure client has a valid bearer token, fetching if needed."""
     if client.bearer_token is None:
         _refresh_auth(client)
 
 
-def _refresh_auth(client: SstApiClient) -> None:
+def _refresh_auth(client: EdviseAPIClient) -> None:
     """Refresh bearer token and update session headers."""
     client.bearer_token = _fetch_bearer_token_for_client(client)
     client.session.headers.update({"Authorization": f"Bearer {client.bearer_token}"})
 
 
-def fetch_institution_by_pdp_id(client: SstApiClient, pdp_id: str) -> dict[str, Any]:
+def fetch_institution_by_pdp_id(client: EdviseAPIClient, pdp_id: str) -> dict[str, Any]:
     """
-    Resolve institution for PDP id using SST API.
+    Resolve institution for PDP id using Edvise API.
 
     Cached within run. Automatically refreshes token on 401 errors.
 
     Args:
-        client: SstApiClient instance
+        client: EdviseAPIClient instance
         pdp_id: Institution PDP ID to look up
 
     Returns:
@@ -692,7 +692,7 @@ def fetch_institution_by_pdp_id(client: SstApiClient, pdp_id: str) -> dict[str, 
         requests.HTTPError: For HTTP errors other than 401/404
 
     Example:
-        >>> client = SstApiClient(...)
+        >>> client = EdviseAPIClient(...)
         >>> inst = fetch_institution_by_pdp_id(client, "12345")
         >>> print(inst["name"])
         'Example University'
