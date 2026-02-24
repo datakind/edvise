@@ -339,7 +339,7 @@ resources:
         - name: job_type
           default: inference
         - name: model_name
-          default: northwest_state_cc_credits_earned_60_12_credits_earned
+          default: miles_cc_retention_end_of_first_term
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
