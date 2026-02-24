@@ -1,6 +1,5 @@
 import re
 import typing as t
-import math
 
 import pydantic as pyd
 
