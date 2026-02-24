@@ -260,6 +260,7 @@ def _validate_and_transform_institution_name(
     if is_databricks_name:
         try:
             from edvise.utils.databricks import reverse_databricksify_inst_name
+
             institution_name = reverse_databricksify_inst_name(institution_name.strip())
         except ValueError as e:
             LOGGER.error(

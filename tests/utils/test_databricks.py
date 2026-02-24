@@ -25,8 +25,7 @@ class TestDatabricksifyInstName:
     def test_university(self):
         """Test university abbreviation."""
         assert (
-            databricksify_inst_name("Kentucky State University")
-            == "kentucky_state_uni"
+            databricksify_inst_name("Kentucky State University") == "kentucky_state_uni"
         )
         assert (
             databricksify_inst_name("Metro State University Denver")
@@ -36,25 +35,20 @@ class TestDatabricksifyInstName:
     def test_college(self):
         """Test college abbreviation."""
         assert (
-            databricksify_inst_name("Central Arizona College")
-            == "central_arizona_col"
+            databricksify_inst_name("Central Arizona College") == "central_arizona_col"
         )
 
     def test_community_technical_college(self):
         """Test community technical college abbreviation."""
         assert (
-            databricksify_inst_name(
-                "Southeast Kentucky community technical college"
-            )
+            databricksify_inst_name("Southeast Kentucky community technical college")
             == "southeast_kentucky_ctc"
         )
 
     def test_science_and_technology(self):
         """Test 'of science and technology' abbreviation."""
         assert (
-            databricksify_inst_name(
-                "Harrisburg University of Science and Technology"
-            )
+            databricksify_inst_name("Harrisburg University of Science and Technology")
             == "harrisburg_uni_st"
         )
 
@@ -65,8 +59,7 @@ class TestDatabricksifyInstName:
             == "uni_of_st_technology"
         )
         assert (
-            databricksify_inst_name("State-Community College")
-            == "state_community_col"
+            databricksify_inst_name("State-Community College") == "state_community_col"
         )
 
     def test_invalid_characters(self):
@@ -81,10 +74,7 @@ class TestDatabricksifyInstName:
 
     def test_simple_name(self):
         """Test simple name without abbreviations."""
-        assert (
-            databricksify_inst_name("Big State University")
-            == "big_state_uni"
-        )
+        assert databricksify_inst_name("Big State University") == "big_state_uni"
 
 
 class TestReverseDatabricksifyInstName:
