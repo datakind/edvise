@@ -1,3 +1,38 @@
+## 0.1.11 (2026-02-20)
+- fix: modifying target functions to include an additional eligible term during training  (#98)
+- feat: create EDASummary class (#99)
+- feat: Add term_filter job param to PDP inference pipeline (#100)
+- fix: configure parameters in deploy.yml to dev target and avoid webhook error (#101)
+- feat: adding enrollment intensity percents to data audit (#102)
+- feat: standardizing PDP model names for better readability in webapp (#103)
+- feat: allowing for more flexibility across custom cleaning functions for edvise schema & current custom schools (#104)
+- feat: add cohorts selected for training into the config (#106)
+- feat: improving handle dupes func (#107)
+- feat: improving validate credit consistency function (#108)
+- fix: lower case model name in configs for UC consistency (#109)
+- fix: eda term and course data (#111)
+- fix: PDP model names in integration test parameters (#112)
+
+## 0.1.10 (2026-02-02)
+- feat: adding slack notifications for training/inference pipelines failures on staging & dev (#51)
+- feat: automate releases (#84)
+- feat: adding bias variable check to data audit (#86)
+- feat: adding custom school functions to repo (#88)
+- feat: Add `get_institution_id_by_name` helper function to retrieve institution ID by name (#90)
+- fix: preserve pandas nullable dtypes pre-modeling; fix boolean classification post-modeling (#92)
+- fix: remove framework field and dataio with sklearn models; standardize on h2o model loading (#93)
+- refactor: refining ModelCard classes (#94)
+
+## 0.1.9 (2025-01-20)
+- fix: import error in inference script from validation module 
+- fix: fetching latest commit from develop for health check 
+- feat: adding PDP pipeline high-level validation and sanity checks 
+- feat: update pipeline version during training
+- fix: email indents 
+- fix: cleanup schedule 
+- refactor: remove sklearn modeling 
+- feat: model card revision 
+
 ## 0.1.8 (2025-12-11)
 - fix: adding exclude_frameworks into training script 
 - fix: dtype overrides in custom cleaning module

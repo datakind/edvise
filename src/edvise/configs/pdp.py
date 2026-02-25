@@ -9,9 +9,13 @@ from edvise.utils import types
 
 
 # allowed primary metrics by framework
-_ALLOWED_BY_FRAMEWORK = {
-    "sklearn": {"f1", "log_loss", "precision", "accuracy", "roc_auc"},
-    "h2o": {"logloss", "auc", "aucpr", "rmse", "mae", "mean_per_class_error"},
+_ALLOWED_PRIMARY_METRICS = {
+    "logloss",
+    "auc",
+    "aucpr",
+    "rmse",
+    "mae",
+    "mean_per_class_error",
 }
 
 
@@ -89,45 +93,29 @@ class PDPProjectConfig(pyd.BaseModel):
     model_config = pyd.ConfigDict(extra="forbid", strict=True)
 
     @pyd.model_validator(mode="after")
-    def _normalize_and_validate_metric_using_framework(self) -> "PDPProjectConfig":
-        fw = "sklearn"
-        if self.model and self.model.framework:
-            fw = self.model.framework
-
+    def _normalize_and_validate_primary_metric(self) -> "PDPProjectConfig":
         if (
             self.modeling
             and self.modeling.training
             and self.modeling.training.primary_metric
         ):
             pm = self.modeling.training.primary_metric
-            allowed = _ALLOWED_BY_FRAMEWORK.get(fw)
-            if not allowed:
-                raise ValueError(f"Unknown framework '{fw}' for metric normalization")
 
-            # choose framework-preferred spelling for log loss
+            # Normalize legacy spelling to H2O spelling
             if pm in {"logloss", "log_loss"}:
-                pm = "logloss" if fw == "h2o" else "log_loss"
+                pm = "logloss"
 
-            # final gate
-            if pm not in allowed:
+            if pm not in _ALLOWED_PRIMARY_METRICS:
                 raise ValueError(
-                    f"Unsupported primary_metric '{pm}' for framework '{fw}'. "
-                    f"Allowed: {sorted(allowed)}"
+                    f"Unsupported primary_metric '{pm}' for H2O. "
+                    f"Allowed: {sorted(_ALLOWED_PRIMARY_METRICS)}"
                 )
+
             self.modeling.training.primary_metric = pm
         return self
 
     @pyd.model_validator(mode="after")
-    def _validate_h2o_inference_background_sample(self) -> "PDPProjectConfig":
-        # Default to sklearn if framework is unset (keeps STANDARD behavior)
-        fw = "sklearn"
-        if self.model and self.model.framework:
-            fw = self.model.framework
-
-        # Only enforce for H2O
-        if fw != "h2o":
-            return self
-
+    def _validate_inference_background_sample(self) -> "PDPProjectConfig":
         if self.inference and self.inference.background_data_sample is not None:
             n = self.inference.background_data_sample
             if not (500 <= n <= 2000):
@@ -137,51 +125,14 @@ class PDPProjectConfig(pyd.BaseModel):
         return self
 
 
-# class BronzeDatasetConfig(pyd.BaseModel):
-#     raw_course: "DatasetIOConfig"
-#     raw_cohort: "DatasetIOConfig"
-
-
-# class SilverDatasetConfig(pyd.BaseModel):
-#     preprocessed: "DatasetIOConfig"
-#     modeling: "DatasetIOConfig"
-
-
-# class GoldDatasetConfig(pyd.BaseModel):
-#     advisor_output: "DatasetIOConfig"
-
-
 class DatasetsConfig(pyd.BaseModel):
     raw_course: str
     raw_cohort: str
 
 
-# class DatasetIOConfig(pyd.BaseModel):
-#     table_path: t.Optional[str] = pyd.Field(
-#         default=None,
-#         description=(
-#             "Path to a table in Unity Catalog where dataset is stored, "
-#             "including the full three-level namespace: 'CATALOG.SCHEMA.TABLE'"
-#         ),
-#     )
-#     file_path: t.Optional[str] = pyd.Field(
-#         default=None,
-#         description="Full, absolute path to dataset on disk, e.g. a Databricks Volume",
-#     )
-#     # TODO: if/when we allow different file formats, add this parameter ...
-#     # file_format: t.Optional[t.Literal["csv", "parquet"]] = pyd.Field(default=None)
-
-#     @pyd.model_validator(mode="after")
-#     def check_some_nonnull_inputs(self):
-#         if self.table_path is None and self.file_path is None:
-#             raise ValueError("table_path and/or file_path must be non-null")
-#         return self
-
-
 class ModelConfig(pyd.BaseModel):
     experiment_id: str
     run_id: str
-    framework: t.Literal["sklearn", "h2o"] = "sklearn"
     calibrate_underpred: t.Optional[bool] = False
 
     @pyd.computed_field  # type: ignore[misc]
@@ -328,6 +279,17 @@ class CheckpointBaseConfig(pyd.BaseModel):
         description="Optional subset of columns to include in checkpoint student-terms.",
     )
 
+    @pyd.field_validator("name", mode="after")
+    @classmethod
+    def check_name_is_lowercase(cls, value: str) -> str:
+        if value != value.lower():
+            raise ValueError(
+                f"checkpoint.name='{value}' must be lowercase. "
+                "Unity Catalog will lowercase model names automatically. "
+                "To ensure consistency across our codebase, we require lowercase names."
+            )
+        return value
+
 
 class CheckpointNthConfig(CheckpointBaseConfig):
     type_: types.CheckpointTypeType = "nth"
@@ -374,6 +336,17 @@ class TargetBaseConfig(pyd.BaseModel):
         default=..., description="Type of target to which config is applied"
     )
 
+    @pyd.field_validator("name", mode="after")
+    @classmethod
+    def check_name_is_lowercase(cls, value: str) -> str:
+        if value != value.lower():
+            raise ValueError(
+                f"target.name='{value}' must be lowercase. "
+                "Unity Catalog will lowercase model names automatically. "
+                "To ensure consistency across our codebase, we require lowercase names."
+            )
+        return value
+
 
 class TargetGraduationConfig(TargetBaseConfig):
     type_: types.TargetTypeType = "graduation"
@@ -418,7 +391,7 @@ class FeatureSelectionConfig(pyd.BaseModel):
 class TrainingConfig(pyd.BaseModel):
     """
     References:
-        - https://docs.databricks.com/en/machine-learning/automl/automl-api-reference.html#classify
+        - https://docs.h2o.ai/h2o/latest-stable/h2o-docs/automl.html
     """
 
     exclude_cols: t.Optional[list[str]] = pyd.Field(
@@ -434,15 +407,19 @@ class TrainingConfig(pyd.BaseModel):
     )
     exclude_frameworks: t.Optional[list[str]] = pyd.Field(
         default=None,
-        description="List of algorithm frameworks that AutoML excludes from training.",
+        description="List of algorithm frameworks that H2O AutoML excludes from training.",
     )
     primary_metric: str = pyd.Field(
-        default="log_loss",
+        default="logloss",
         description="Metric used to evaluate and rank model performance.",
     )
     timeout_minutes: t.Optional[int] = pyd.Field(
         default=None,
-        description="Maximum time to wait for AutoML trials to complete.",
+        description="Maximum time to wait for H2O AutoML trials to complete.",
+    )
+    cohort: t.Optional[list[str]] = pyd.Field(
+        default=[],
+        description="List of cohorts used in training. e.g. ['Fall 2024-25']",
     )
 
 

@@ -23,8 +23,13 @@ from edvise.model_prep import cleanup_features as cleanup, training_params
 from edvise.dataio.read import read_parquet, read_config
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.shared.logger import local_fs_path, resolve_run_path, init_file_logging
-
+from edvise.shared.logger import (
+    local_fs_path,
+    resolve_run_path,
+    init_file_logging,
+)
+from edvise.shared.validation import require, warn_if
+from edvise.utils.update_config import update_training_cohorts
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,6 +90,11 @@ class ModelPrepTask:
             target_df,
             how="inner",
             on=student_id_col,
+        )
+
+        require(
+            not df_labeled.empty,
+            "Merge produced 0 labeled rows (checkpoint ∩ selected ∩ target is empty).",
         )
 
         n_target_ok = df_labeled[student_id_col].nunique()
@@ -224,11 +234,99 @@ class ModelPrepTask:
                 "Cohort Target breakdown (counts):\n%s",
                 cohort_target_counts.to_string(),
             )
+
+            logging.info("Updating training cohorts in config")
+
+            training_cohorts = (
+                df_labeled[["cohort", "cohort_term"]]
+                .dropna()
+                .astype(str)
+                .agg(" ".join, axis=1)
+                .str.lower()
+                .unique()
+                .tolist()
+            )
+            # TODO: I believe this is going to be added to the config, so update this to use that when we do,
+            # esp for custom schools, less a worry for PDP
+            term_order = {"fall": 1, "winter": 2, "spring": 3, "summer": 4}
+
+            training_cohorts = sorted(
+                training_cohorts,
+                key=lambda x: (
+                    int(x.split()[0].split("-")[0]),
+                    term_order.get(x.split()[1], 99),
+                ),
+            )
+
+            if training_cohorts is not None:
+                update_training_cohorts(
+                    config_path=self.args.config_file_path,
+                    training_cohorts=training_cohorts,
+                    extra_save_paths=[
+                        os.path.join(current_run_path, self.args.config_file_name)
+                    ],
+                )
+            else:
+                logging.info("There are no cohorts selected for training.")
+
             df_preprocessed = self.cleanup_features(df_labeled)
             # Splits/weights require targets; only apply when present
             df_preprocessed = self.apply_dataset_splits(df_preprocessed)
             df_preprocessed = self.apply_sample_weights(df_preprocessed)
             out_name = "preprocessed.parquet"
+
+            require(
+                not df_preprocessed.empty,
+                "preprocessed.parquet is empty after cleanup/splits/weights.",
+            )
+
+            # Must-have columns
+            require(
+                self.cfg.target_col in df_preprocessed.columns,
+                f"Missing target column '{self.cfg.target_col}' in preprocessed dataset.",
+            )
+            require(
+                (df_preprocessed[self.cfg.target_col].dtype == bool)
+                or (
+                    df_preprocessed[self.cfg.target_col]
+                    .dropna()
+                    .isin([0, 1, True, False])
+                    .all()
+                ),
+                "Target column is not boolean-like after preprocessing.",
+            )
+
+            # Degenerate target (warn)
+            vc = df_preprocessed[self.cfg.target_col].value_counts(dropna=False)
+            warn_if(
+                len(vc) == 1,
+                f"Target is degenerate after preprocessing (all {vc.index[0]}).",
+            )
+
+            # Split sanity
+            split_col = self.cfg.split_col or "split"
+            require(
+                split_col in df_preprocessed.columns,
+                f"Missing split column '{split_col}' after apply_dataset_splits.",
+            )
+            split_fracs = df_preprocessed[split_col].value_counts(
+                normalize=True, dropna=False
+            )
+            warn_if(
+                split_fracs.min() < 0.05,
+                f"One split has <5% of rows: {split_fracs.to_dict()}",
+            )
+
+            # Sample weight sanity
+            sw_col = self.cfg.sample_weight_col or "sample_weight"
+            require(
+                sw_col in df_preprocessed.columns,
+                f"Missing sample weight column '{sw_col}' after apply_sample_weights.",
+            )
+            require(
+                (df_preprocessed[sw_col] > 0).all(), "Sample weights must be positive."
+            )
+
             LOGGER.info(
                 "Merged target.parquet with selected_students.parquet and checkpoint.parquet into preprocessed.parquet"
             )
@@ -257,6 +355,10 @@ class ModelPrepTask:
             df_preprocessed = self.cleanup_features(df_unlabeled)
             out_name = "preprocessed_unlabeled.parquet"
 
+        require(
+            not df_preprocessed.empty, f"Refusing to write empty output: {out_name}"
+        )
+
         # Write output using custom function
         out_path = os.path.join(current_run_path, out_name)
         write_parquet(
@@ -278,6 +380,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--job_type", type=str, choices=["training", "inference"], required=False
     )
+    parser.add_argument("--config_file_name", type=str, required=True)
 
     return parser.parse_args()
 

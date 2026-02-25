@@ -1,22 +1,17 @@
 import os
 import logging
 import typing as t
+from abc import ABC, abstractmethod
 
 from mlflow.tracking import MlflowClient
 
-# export .md to .pdf
 import markdown
 from weasyprint import HTML
 import tempfile
 
-# resolving files in templates module within package
 from importlib.abc import Traversable
 from importlib.resources import files
 
-# internal SST modules
-from ... import dataio, modeling
-
-# relative imports in 'reporting' module
 from ..sections import register_sections
 from ..sections.registry import SectionRegistry
 from ..utils import utils
@@ -27,7 +22,7 @@ LOGGER = logging.getLogger(__name__)
 C = t.TypeVar("C", bound=ModelCardConfig)
 
 
-class ModelCard(t.Generic[C]):
+class ModelCard(t.Generic[C], ABC):
     DEFAULT_ASSETS_FOLDER = "card_assets"
     TEMPLATE_FILENAME = "model-card-TEMPLATE.md"
     LOGO_FILENAME = "logo.png"
@@ -48,7 +43,10 @@ class ModelCard(t.Generic[C]):
         self.catalog = catalog
         self.model_name = model_name
         self.uc_model_name = f"{catalog}.{self.cfg.institution_id}_gold.{model_name}"
-        LOGGER.info("Initializing ModelCard for model: %s", self.uc_model_name)
+        LOGGER.info(
+            "Initializing ModelCard for model: %s",
+            self.uc_model_name,
+        )
 
         self.client = mlflow_client or MlflowClient()
         self.section_registry = SectionRegistry()
@@ -82,28 +80,16 @@ class ModelCard(t.Generic[C]):
         self.collect_metadata()
         self.render()
 
+    @abstractmethod
     def load_model(self):
         """
-        Loads the MLflow model from the MLflow client based on the MLflow model URI.
-        Also assigns the run ID and experiment ID from the config.
-        """
-        model_cfg = self.cfg.model
-        if not model_cfg:
-            raise ValueError(f"Model configuration for '{self.model_name}' is missing.")
-        if not all(
-            [model_cfg.mlflow_model_uri, model_cfg.run_id, model_cfg.experiment_id]
-        ):
-            raise ValueError(
-                f"Incomplete model config for '{self.model_name}': "
-                f"URI, run_id, or experiment_id missing."
-            )
+        Loads the model from MLflow.
 
-        self.model = dataio.models.load_mlflow_model(
-            model_cfg.mlflow_model_uri,
-            model_cfg.framework,
-        )
-        self.run_id = model_cfg.run_id
-        self.experiment_id = model_cfg.experiment_id
+        Subclasses must implement this to handle framework-specific model loading
+        (e.g., H2O, sklearn, etc.) and assign self.model, self.run_id, and
+        self.experiment_id.
+        """
+        pass
 
     def find_model_version(self):
         """
@@ -124,24 +110,15 @@ class ModelCard(t.Generic[C]):
             )
             self.context["version_number"] = None
 
+    @abstractmethod
     def extract_training_data(self):
         """
-        Extracts the training data from the MLflow run utilizing SST internal subpackages (modeling).
+        Extracts the training data from the MLflow run.
+
+        Subclasses must implement this to handle framework-specific data extraction
+        and populate self.modeling_data, self.training_data, and relevant context fields.
         """
-        self.modeling_data = modeling.evaluation.extract_training_data_from_model(
-            self.experiment_id
-        )
-        self.training_data = self.modeling_data
-        if self.cfg.split_col:
-            if self.cfg.split_col not in self.modeling_data.columns:
-                raise ValueError(
-                    f"Configured split_col '{self.cfg.split_col}' is not present in modeling data columns: "
-                    f"{list(self.modeling_data.columns)}"
-                )
-        self.context["training_dataset_size"] = self.modeling_data.shape[0]
-        self.context["num_runs_in_experiment"] = utils.safe_count_runs(
-            self.experiment_id
-        )
+        pass
 
     def collect_metadata(self):
         """
@@ -179,97 +156,31 @@ class ModelCard(t.Generic[C]):
             "institution_name": self.cfg.institution_name,
         }
 
+    @abstractmethod
     def get_feature_metadata(self) -> dict[str, str]:
         """
-        Collects feature count from the MLflow run. Also, collects feature selection data
-        from the config file.
+        Collects feature count and feature selection metadata.
+
+        Subclasses must implement this to extract framework-specific feature information
+        (e.g., from sklearn pipeline or H2O model) and combine it with config data.
 
         Returns:
-            A dictionary with the keys as the variable names that will be called
-            dynamically in template with values for each variable.
+            A dictionary with feature metadata for the template.
         """
+        pass
 
-        def as_percent(val: float | int) -> str:
-            val = float(val) * 100
-            return str(int(val) if val.is_integer() else round(val, 2))
-
-        feature_count = len(
-            self.model.named_steps["column_selector"].get_params()["cols"]
-        )
-        if not self.cfg.modeling or not self.cfg.modeling.feature_selection:
-            raise ValueError(
-                "Modeling configuration or feature selection config is missing."
-            )
-
-        fs_cfg = self.cfg.modeling.feature_selection
-
-        return {
-            "number_of_features": str(feature_count),
-            "collinearity_threshold": str(fs_cfg.collinear_threshold),
-            "low_variance_threshold": str(fs_cfg.low_variance_threshold),
-            "incomplete_threshold": as_percent(fs_cfg.incomplete_threshold),
-        }
-
+    @abstractmethod
     def get_model_plots(self) -> dict[str, str]:
         """
-        Collects model plots from the MLflow run, downloads them locally. These will later be
-        rendered in the template.
+        Collects model plots from the MLflow run and downloads them locally.
+
+        Subclasses must implement this to specify which plot artifacts to download
+        and how to format them.
 
         Returns:
-            A dictionary with the keys as the plot names called in the template
-            and the values are inline HTML (since these are all images) for each
-            of the artifacts.
+            A dictionary with plot names as keys and inline HTML as values.
         """
-        plots = {
-            "model_comparison_plot": (
-                "Model Comparison",
-                "model_comparison.png",
-                "125mm",
-                "Model Comparison by Architecture",
-            ),
-            "test_calibration_curve": (
-                "Test Calibration Curve",
-                "calibration/test_calibration.png",
-                "125mm",
-                "Test Calibration Curve",
-            ),
-            "test_roc_curve": (
-                "Test ROC Curve",
-                "test_roc_curve_plot.png",
-                "125mm",
-                "Test ROC Curve",
-            ),
-            "test_confusion_matrix": (
-                "Test Confusion Matrix",
-                "test_confusion_matrix.png",
-                "175mm",
-                "Test Confusion Matrix",
-            ),
-            "test_histogram": (
-                "Test Histogram",
-                "preds/test_hist.png",
-                "125mm",
-                "Test Support Score Histogram",
-            ),
-            "feature_importances_by_shap_plot": (
-                "Feature Importances",
-                "feature_importances_by_shap_plot.png",
-                "150mm",
-                "Feature Importances by SHAP on Test Data",
-            ),
-        }
-        return {
-            key: utils.download_artifact(
-                run_id=self.run_id,
-                description=description,
-                artifact_path=path,
-                local_folder=self.assets_folder,
-                fixed_width=width,
-                caption=caption,
-            )
-            or ""
-            for key, (description, path, width, caption) in plots.items()
-        }
+        pass
 
     def render(self):
         """

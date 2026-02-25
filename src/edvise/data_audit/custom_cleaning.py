@@ -834,6 +834,288 @@ def load_or_build_schema_contract(
     return schema_contract
 
 
+def align_and_rank_dataframes(
+    dfs: t.List[pd.DataFrame],
+    term_column: str = "term_order",
+    core_term_col: t.Optional[str] = "is_core_term",
+) -> t.List[pd.DataFrame]:
+    """
+    Align multiple dataframes to a common term range and assign ranks.
+    - Always assigns `term_rank` based on chronological order.
+    - If `core_term_col` is provided AND exists in all dataframes,
+      adds `core_term_rank` based on rows where that column is True.
+    - If not provided or missing in any dataframe, `core_term_rank` is omitted.
+    """
+    if len(dfs) <= 1:
+        raise ValueError("Must provide at least two dataframes to align")
+    if not all(term_column in df.columns for df in dfs):
+        raise ValueError(f"All dataframes must have column '{term_column}'.")
+    if any(df.empty for df in dfs):
+        raise ValueError("There is an empty dataframe in the list of dataframes.")
+
+    # Check for dataframes with all null term values
+    for df in dfs:
+        if df[term_column].dropna().empty:
+            raise ValueError(
+                f"Cannot determine term range; one or more dataframes have no valid term values in '{term_column}'."
+            )
+
+    # Determine common overlapping term range
+    min_term = max(df[term_column].dropna().min() for df in dfs)
+    max_term = min(df[term_column].dropna().max() for df in dfs)
+    if pd.isna(min_term) or pd.isna(max_term) or min_term > max_term:
+        raise ValueError(f"No overlapping {term_column} range across dataframes.")
+    LOGGER.info("Common term range across dataframes: %s → %s", min_term, max_term)
+    # Check if we have a usable core-term column in all dataframes
+    has_core_flag = core_term_col is not None and all(
+        core_term_col in df.columns for df in dfs
+    )
+    if has_core_flag:
+        LOGGER.info(
+            "Detected '%s' in all dataframes; core-term ranking will be computed.",
+            core_term_col,
+        )
+    else:
+        LOGGER.info("No valid core-term column detected; skipping core-term ranking.")
+
+    # Collect all terms in range for rank mapping
+    term_union = pd.concat(
+        [
+            df.loc[df[term_column].between(min_term, max_term), [term_column]]
+            for df in dfs
+        ],
+        ignore_index=True,
+    ).drop_duplicates()
+    term_order_sorted = sorted(term_union[term_column].unique())
+    term_rank_map = {term: i for i, term in enumerate(term_order_sorted)}
+
+    # Build core-term rank map if applicable
+    core_term_rank_map = None
+    if has_core_flag:
+        core_union = pd.concat(
+            [
+                df.loc[
+                    df[term_column].between(min_term, max_term)
+                    & df[core_term_col].astype(bool),
+                    [term_column],
+                ]
+                for df in dfs
+            ],
+            ignore_index=True,
+        ).drop_duplicates()
+        if not core_union.empty:
+            core_term_order_sorted = sorted(core_union[term_column].unique())
+            core_term_rank_map = {
+                term: i for i, term in enumerate(core_term_order_sorted)
+            }
+            LOGGER.info(
+                "Computed core-term ranks for %d distinct terms (range: %s → %s).",
+                len(core_term_order_sorted),
+                core_term_order_sorted[0],
+                core_term_order_sorted[-1],
+            )
+    # Apply range filtering and rank assignment
+    result: t.List[pd.DataFrame] = []
+    for i, df in enumerate(dfs, start=1):
+        mask = df[term_column].between(min_term, max_term)
+        df_filtered = df.loc[mask].copy()
+        df_filtered["term_rank"] = (
+            df_filtered[term_column].map(term_rank_map).astype("Int64")
+        )
+        if has_core_flag and core_term_rank_map:
+            df_filtered["core_term_rank"] = (
+                df_filtered[term_column].map(core_term_rank_map).astype("Int64")
+            )
+
+        result.append(df_filtered.reset_index(drop=True))
+        LOGGER.info(
+            "DataFrame %d aligned: shape=%s, term range=[%s → %s]",
+            i,
+            df_filtered.shape,
+            df_filtered[term_column].min(),
+            df_filtered[term_column].max(),
+        )
+    LOGGER.info(
+        "Alignment complete: %d dataframes processed (core_term_col=%s, core_term_rank=%s).",
+        len(result),
+        core_term_col if has_core_flag else "None",
+        "included" if has_core_flag and core_term_rank_map else "omitted",
+    )
+
+    return result
+
+
+def _extract_readmit_ids(
+    df: pd.DataFrame,
+    entry_col: str = "entry_type",
+    student_col: str = "student_id",
+    readmit_value: str = "readmit",  # default readmit, but can be something else based on school. This offers more flexibility!
+) -> np.ndarray:
+    """
+    Return the array of student_ids that have entry_type == 'readmit' in this df.
+    If required columns are missing, returns an empty array.
+    """
+    if entry_col not in df.columns or student_col not in df.columns:
+        return np.array([], dtype=object)
+
+    entry = df[entry_col].astype("string").str.lower().str.strip()
+    readmit_ids = df.loc[entry == readmit_value, student_col].dropna().unique()
+    return np.asarray(readmit_ids, dtype=object)
+
+
+def drop_readmits(
+    cohort_df: pd.DataFrame,
+    entry_col: str = "entry_type",
+    student_col: str = "student_id",
+    readmit_value: str = "readmit",
+) -> pd.DataFrame:
+    """
+    Remove ALL rows for any student who has an entry_type of 'readmit'
+    (based only on this dataframe).
+    """
+    out = cohort_df.copy()
+    readmit_ids = _extract_readmit_ids(
+        out,
+        entry_col=entry_col,
+        student_col=student_col,
+        readmit_value=readmit_value,
+    )
+
+    if len(readmit_ids) == 0:
+        return out
+
+    before = len(out)
+    out = out[~out[student_col].isin(readmit_ids)].reset_index(drop=True)
+    LOGGER.info(
+        "drop_readmits: removed %d rows for %d readmit students",
+        before - len(out),
+        len(readmit_ids),
+    )
+    return out
+
+
+def keep_earlier_record(
+    df: pd.DataFrame,
+    id_col: str = "student_id",
+    term_col: str = "cohort_term",
+) -> pd.DataFrame:
+    """
+    Keeps the earliest record per id_col based on term_col, where term_col
+    looks like 'Spring 2020', 'Fall 2020', etc.
+    """
+
+    def term_to_sort_key(term):
+        if pd.isna(term):
+            return float("inf")  # treat missing as latest
+        term = str(term).strip().title()
+        parts = term.split()
+        if len(parts) != 2:
+            return float("inf")  # unknown format
+        season, year_str = parts
+        try:
+            year = int(year_str)
+        except ValueError:
+            return float("inf")
+        season_order = {"Spring": 1, "Summer": 2, "Fall": 3, "Winter": 4}
+        return year * 10 + season_order.get(season, 5)
+
+    out = df.copy()
+    out["_term_sort_key"] = out[term_col].apply(term_to_sort_key)
+
+    out = (
+        out.sort_values(by=[id_col, "_term_sort_key"])
+        .drop_duplicates(subset=id_col, keep="first")
+        .drop(columns=["_term_sort_key"])
+        .reset_index(drop=True)
+    )
+
+    return out
+
+
+def assign_numeric_grade(
+    df: pd.DataFrame,
+    *,
+    grade_numeric_map: t.Optional[dict[str, t.Optional[float]]] = None,
+    grade_col: str = "grade",
+    output_col: str = "course_numeric_grade",
+) -> pd.DataFrame:
+    """
+    CUSTOM SCHOOL FUNCTION
+
+    Assign a numeric value to each grade based on a provided mapping.
+    Grades not found in the mapping are skipped (NaN) and printed.
+
+    We need to standardize the mapping so we can use it for all custom schools
+
+    """
+
+    LOGGER.info("Starting assign_numeric_grade transformation.")
+
+    if grade_numeric_map is None:
+        grade_numeric_map = {
+            "A": 4.0,
+            "A-": 3.7,
+            "B+": 3.3,
+            "B": 3.0,
+            "B-": 2.7,
+            "C+": 2.3,
+            "C": 2.0,
+            "C-": 1.7,
+            "D+": 1.3,
+            "D": 1.0,
+            "D-": 0.7,
+            "P": 4.0,
+            "P*": 4.0,
+            "CH": 4.0,
+            "F": 0.0,
+            "F*": 0.0,
+            "E": 0.0,
+            "REF": 0.0,
+            "W": 0.0,
+            "W*": 0.0,
+            "WI": 0.0,
+            "WE": 0.0,
+            "WC": 0.0,
+            "WA": 0.0,
+            "WB+": 0.0,
+            "WB": 0.0,
+            "WB-": 0.0,
+            "WD": 0.0,
+            "WD-": 0.0,
+            "WC+": 0.0,
+            "WC-": 0.0,
+            "WA-": 0.0,
+            "I": 0.0,
+            # no numeric GPA equivalent
+            "^C": None,
+            "^C-": None,
+            "^D-": None,
+            "^D": None,
+            "^D+": None,
+            "^E": None,
+            "ZD-": None,
+            "ZD": None,
+            "ZE": None,
+            "NR": None,
+            "S": None,
+            "REP": None,
+        }
+
+    grades = df[grade_col].astype("string").str.strip().str.upper()
+    df[output_col] = grades.map(grade_numeric_map)
+
+    # -------------------------------------------------
+    # Print missing grade keys (present in data, absent from map)
+    # -------------------------------------------------
+    missing_keys = sorted(set(grades.dropna().unique()) - set(grade_numeric_map.keys()))
+
+    if missing_keys:
+        print(f"Grades not found in mapping (skipped): {missing_keys}")
+
+    LOGGER.info("Completed assign_numeric_grade transformation.")
+    return df
+
+
 # ---------------------------
 # Serialization helpers
 # ---------------------------
