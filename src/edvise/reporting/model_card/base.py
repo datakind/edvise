@@ -54,6 +54,7 @@ class ModelCard(t.Generic[C], ABC):
         self.context: dict[str, t.Any] = {}
 
         self.assets_folder = assets_path or self.DEFAULT_ASSETS_FOLDER
+        self.run_id = self._resolve_run_id()
         self.output_path = self._build_output_path()
         self.template_path = self._resolve(
             "edvise.reporting.template", self.TEMPLATE_FILENAME
@@ -259,13 +260,21 @@ class ModelCard(t.Generic[C], ABC):
             filename=self.pdf_path,
             catalog=self.catalog,
             institution_id=self.cfg.institution_id,
+            run_id=self.run_id,
         )
 
     def _build_output_path(self) -> str:
         """
         Builds the output path for the model card.
         """
-        out_dir = os.path.join(tempfile.gettempdir(), "model_cards")
+        run_id = getattr(self, "run_id", None)
+
+        if not run_id:
+            raise RuntimeError(
+                "ModelCard.run_id must be set before building output path"
+            )
+
+        out_dir = os.path.join(tempfile.gettempdir(), "model_cards", run_id)
         os.makedirs(out_dir, exist_ok=True)
         filename = f"model-card-{self.model_name}.md"
         return os.path.join(out_dir, filename)
@@ -282,3 +291,14 @@ class ModelCard(t.Generic[C], ABC):
         the file exists within the SST package itself.
         """
         return files(package).joinpath(filename)
+
+    def _resolve_run_id(self) -> str:
+        model_cfg = getattr(self.cfg, "model", None)
+        run_id = getattr(model_cfg, "run_id", None) if model_cfg is not None else None
+
+        if not run_id:
+            raise ValueError(
+                f"config.model.run_id is required for ModelCard '{self.model_name}', "
+                "but it was missing (config.model is None or run_id is empty)."
+            )
+        return str(run_id)

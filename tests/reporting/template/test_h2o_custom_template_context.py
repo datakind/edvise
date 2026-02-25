@@ -89,6 +89,7 @@ def make_custom_project_config():
     return CustomProjectConfig(
         institution_id="custom_inst_id",
         institution_name="Custom Institution",
+        model={"experiment_id": "exp123", "run_id": "abc"},
         student_id_col="student_id",
         target_col="target",
         split_col="split",
