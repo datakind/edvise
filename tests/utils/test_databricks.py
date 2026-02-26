@@ -54,9 +54,7 @@ class TestDatabricksifyInstName:
 
     def test_special_characters(self):
         """Test handling of special characters like & and -."""
-        assert (
-            databricksify_inst_name("State-Community College") == "state_community_col"
-        )
+        assert databricksify_inst_name("State-Community College") == "state_cc"
 
     def test_invalid_characters(self):
         """Test that invalid characters raise ValueError."""
