@@ -8,15 +8,17 @@ For environment-specific values (like secret scope names), see gcp_config.yaml.
 from typing import Any
 from unittest.mock import MagicMock
 
+dbutils: Any
+
 # Databricks catalog and schema
 try:
     from databricks.sdk.runtime import dbutils as _dbutils
 except Exception:
     # Local/offline context: allow imports/tests to run without Databricks.
-    dbutils: Any = MagicMock()
+    dbutils = MagicMock()
     CATALOG = "dev_sst_02"
 else:
-    dbutils: Any = _dbutils
+    dbutils = _dbutils
     try:
         workspace_id = str(
             dbutils.notebook.entry_point.getDbutils()
