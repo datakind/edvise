@@ -158,9 +158,10 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
     # Log dropped rows
     if num_dropped_rows > 0:
         LOGGER.warning(
-            " ⚠️ Dropped %s rows (%.1f%%) from course dataset due to missing course_prefix or course_number.",
+            " ⚠️ Dropped %s rows (%.1f%%) from course dataset due to missing course_prefix or course_number (%s students affected).",
             num_dropped_rows,
             pct_dropped_rows,
+            dropped_students,
         )
 
     # Warn if any full academic term was completely removed
@@ -439,10 +440,11 @@ def log_pre_cohort_courses(df_course: pd.DataFrame, student_id_col: str) -> None
 
     LOGGER.info(
         "log_pre_cohort_courses: %d pre-cohort course records found (%.1f%% of data) and will be kept "
-        "across %d students.",
+        "across %d/%d students.",
         n_pre,
         pct_pre,
         students_pre,
+        students_total,
     )
 
     # Students with only pre-cohort records
