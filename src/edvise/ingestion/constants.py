@@ -61,14 +61,16 @@ INSTITUTION_COLUMN_PATTERN = r"(?=.*institution)(?=.*id)"
 # Column name mappings (mangled -> normalized)
 # Applied after snake_case conversion
 COLUMN_RENAMES = {
-    "attemptedgatewaymathyear1": "attempted_gateway_math_year_1",
-    "attemptedgatewayenglishyear1": "attempted_gateway_english_year_1",
-    "completedgatewaymathyear1": "completed_gateway_math_year_1",
-    "completedgatewayenglishyear1": "completed_gateway_english_year_1",
-    "gatewaymathgradey1": "gateway_math_grade_y_1",
-    "gatewayenglishgradey1": "gateway_english_grade_y_1",
-    "attempteddevmathy1": "attempted_dev_math_y_1",
-    "attempteddevenglishy1": "attempted_dev_english_y_1",
-    "completeddevmathy1": "completed_dev_math_y_1",
-    "completeddevenglishy1": "completed_dev_english_y_1",
+    # NOTE: convert_to_snake_case splits trailing digit groups with an underscore,
+    # e.g. "attemptedgatewaymathyear1" -> "attemptedgatewaymathyear_1".
+    "attemptedgatewaymathyear_1": "attempted_gateway_math_year_1",
+    "attemptedgatewayenglishyear_1": "attempted_gateway_english_year_1",
+    "completedgatewaymathyear_1": "completed_gateway_math_year_1",
+    "completedgatewayenglishyear_1": "completed_gateway_english_year_1",
+    "gatewaymathgradey_1": "gateway_math_grade_y_1",
+    "gatewayenglishgradey_1": "gateway_english_grade_y_1",
+    "attempteddevmathy_1": "attempted_dev_math_y_1",
+    "attempteddevenglishy_1": "attempted_dev_english_y_1",
+    "completeddevmathy_1": "completed_dev_math_y_1",
+    "completeddevenglishy_1": "completed_dev_english_y_1",
 }
