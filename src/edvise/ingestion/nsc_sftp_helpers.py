@@ -23,16 +23,57 @@ from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
 from edvise.ingestion.constants import (
+    CATALOG,
+    DEFAULT_SCHEMA,
     MANIFEST_TABLE_PATH,
     QUEUE_TABLE_PATH,
     SFTP_DOWNLOAD_CHUNK_MB,
     SFTP_TMP_DIR,
+    SFTP_TMP_VOLUME_FQN,
+    SFTP_TMP_VOLUME_NAME,
     SFTP_VERIFY_DOWNLOAD,
 )
 from edvise.utils.data_cleaning import convert_to_snake_case, detect_institution_column
 from edvise.utils.sftp import download_sftp_atomic
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _ensure_sftp_staging_volume_exists(spark: pyspark.sql.SparkSession) -> None:
+    """
+    Ensure the configured UC volume used for SFTP staging exists and is accessible.
+
+    We stage files to a Unity Catalog volume (CATALOG.default.tmp) so paths remain
+    valid across workflow tasks/clusters.
+    """
+    try:
+        rows = spark.sql(f"SHOW VOLUMES IN {CATALOG}.{DEFAULT_SCHEMA}").collect()
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to verify staging volume exists. Expected UC volume: {SFTP_TMP_VOLUME_FQN}. "
+            f"Could not list volumes in {CATALOG}.{DEFAULT_SCHEMA}: {e}"
+        ) from e
+
+    def _volume_name(row: pyspark.sql.Row) -> str:
+        d = row.asDict()
+        for k in ["volume_name", "volumeName", "name"]:
+            v = d.get(k)
+            if v:
+                return str(v)
+        return str(list(d.values())[0])
+
+    volume_names = {_volume_name(r) for r in rows}
+    if SFTP_TMP_VOLUME_NAME not in volume_names:
+        raise RuntimeError(
+            f"Required staging UC volume not found: {SFTP_TMP_VOLUME_FQN}. "
+            "Create it before running NSC ingestion."
+        )
+
+    if not os.path.isdir(SFTP_TMP_DIR):
+        raise RuntimeError(
+            f"UC volume exists but filesystem path is not accessible: {SFTP_TMP_DIR}. "
+            f"Expected UC volume: {SFTP_TMP_VOLUME_FQN}."
+        )
 
 
 def ensure_manifest_and_queue_tables(spark: pyspark.sql.SparkSession) -> None:
@@ -225,8 +266,7 @@ def download_new_files_and_queue(
     """
     if logger is None:
         logger = LOGGER
-
-    os.makedirs(SFTP_TMP_DIR, exist_ok=True)
+    _ensure_sftp_staging_volume_exists(spark)
 
     rows = df_new.select(
         "file_fingerprint",
