@@ -7,14 +7,26 @@ For environment-specific values (like secret scope names), see gcp_config.yaml.
 
 # Databricks catalog and schema
 try:
-    dbutils
-    workspace_id = dbutils.notebook.entry_point.getDbutils().notebook().getContext().workspaceId().get()
+    dbutils  # noqa: F821
+    workspace_id = str(
+        dbutils.notebook.entry_point.getDbutils()
+        .notebook()
+        .getContext()
+        .workspaceId()
+        .get()
+    )  # noqa: F821
     if workspace_id == "4437281602191762":
         CATALOG = "dev_sst_02"
     elif workspace_id == "2052166062819251":
         CATALOG = "staging_sst_01"
-except:
+    else:
+        raise RuntimeError(
+            f"Unsupported Databricks workspace_id={workspace_id!r} for NSC ingestion. "
+            "Add a mapping in src/edvise/ingestion/constants.py."
+        )
+except NameError:
     from unittest.mock import MagicMock
+
     dbutils = MagicMock()
     CATALOG = "dev_sst_02"
 DEFAULT_SCHEMA = "default"

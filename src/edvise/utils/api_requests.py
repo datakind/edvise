@@ -3,7 +3,7 @@ import logging
 import typing as t
 from dataclasses import dataclass, field
 from typing import Any, cast
-from urllib.parse import quote
+from urllib.parse import quote, urljoin
 
 # Third-party imports
 import requests
@@ -469,8 +469,13 @@ def _fetch_bearer_token_for_client(client: EdviseAPIClient) -> str:
         ValueError: If token response is missing expected token field
         requests.HTTPError: For other HTTP errors
     """
+    token_url = (
+        client.token_endpoint
+        if client.token_endpoint.startswith(("http://", "https://"))
+        else urljoin(f"{client.base_url}/", client.token_endpoint)
+    )
     resp = client.session.post(
-        client.token_endpoint,
+        token_url,
         headers={"accept": "application/json", "X-API-KEY": client.api_key},
         timeout=30,
     )
