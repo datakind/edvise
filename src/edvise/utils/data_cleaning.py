@@ -36,6 +36,27 @@ def convert_to_snake_case(col: str) -> str:
     return "_".join(words).lower()
 
 
+def detect_institution_column(
+    cols: list[str], inst_col_pattern: re.Pattern
+) -> t.Optional[str]:
+    """
+    Detect institution ID column using regex pattern.
+
+    Args:
+        cols: List of column names
+        inst_col_pattern: Compiled regex pattern to match institution column
+
+    Returns:
+        Matched column name or None if not found
+
+    Example:
+        >>> pattern = re.compile(r"(?=.*institution)(?=.*id)", re.IGNORECASE)
+        >>> detect_institution_column(["student_id", "institution_id"], pattern)
+        'institution_id'
+    """
+    return next((c for c in cols if inst_col_pattern.search(c)), None)
+
+
 def convert_intensity_time_limits(
     unit: t.Literal["term", "year"],
     intensity_time_limits: types.IntensityTimeLimitsType,
@@ -137,9 +158,10 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
     # Log dropped rows
     if num_dropped_rows > 0:
         LOGGER.warning(
-            " ⚠️ Dropped %s rows (%.1f%%) from course dataset due to missing course_prefix or course_number.",
+            " ⚠️ Dropped %s rows (%.1f%%) from course dataset due to missing course_prefix or course_number (%s students affected).",
             num_dropped_rows,
             pct_dropped_rows,
+            dropped_students,
         )
 
     # Warn if any full academic term was completely removed
@@ -418,10 +440,11 @@ def log_pre_cohort_courses(df_course: pd.DataFrame, student_id_col: str) -> None
 
     LOGGER.info(
         "log_pre_cohort_courses: %d pre-cohort course records found (%.1f%% of data) and will be kept "
-        "across %d students.",
+        "across %d/%d students.",
         n_pre,
         pct_pre,
         students_pre,
+        students_total,
     )
 
     # Students with only pre-cohort records
