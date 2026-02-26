@@ -6,7 +6,17 @@ For environment-specific values (like secret scope names), see gcp_config.yaml.
 """
 
 # Databricks catalog and schema
-CATALOG = "staging_sst_01"
+try:
+    dbutils
+    workspace_id = dbutils.notebook.entry_point.getDbutils().notebook().getContext().workspaceId().get()
+    if workspace_id == "4437281602191762":
+        CATALOG = "dev_sst_02"
+    elif workspace_id == "2052166062819251":
+        CATALOG = "staging_sst_01"
+except:
+    from unittest.mock import MagicMock
+    dbutils = MagicMock()
+    CATALOG = "staging_sst_01"
 DEFAULT_SCHEMA = "default"
 
 # Table names (without catalog.schema prefix)
