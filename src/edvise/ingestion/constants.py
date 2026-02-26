@@ -16,7 +16,7 @@ try:
 except:
     from unittest.mock import MagicMock
     dbutils = MagicMock()
-    CATALOG = "staging_sst_01"
+    CATALOG = "dev_sst_02"
 DEFAULT_SCHEMA = "default"
 
 # Table names (without catalog.schema prefix)
