@@ -908,17 +908,17 @@ plt.show()
 
 # cohort x course
 student_raw_df.merge(
-    course_raw_df, on="student_id", indicator=True
+    course_raw_df, on="student_id", indicator=True, how="outer"
 )._merge.value_counts()
 
 # COMMAND ----------
 
 # NOTE: ONLY RUN IF YOU HAVE A SEMESTER FILE
 # cohort x semester
-# student_raw_df.merge(raw_semester, on=["student_id", "first_reg_date"], indicator=True)._merge.value_counts()
+# student_raw_df.merge(raw_semester, on=["student_id", "first_reg_date"], indicator=True, how="outer")._merge.value_counts()
 
 # COMMAND ----------
 
 # NOTE: ONLY RUN IF YOU HAVE A SEMESTER FILE
 # semester x course
-# raw_semester.merge(course_raw_df, on=["student_id", "term"], indicator=True)._merge.value_counts()
+# raw_semester.merge(course_raw_df, on=["student_id", "term"], indicator=True, how="outer")._merge.value_counts()
