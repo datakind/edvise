@@ -28,7 +28,7 @@ def test_detect_institution_column():
 def test_extract_institution_ids_handles_numeric(tmp_path):
     csv_path = tmp_path / "staged.csv"
     csv_path.write_text(
-        "InstitutionID,other\n323100,1\n323101.0,2\n,3\n323102.0,4\n 323103 ,5\n"
+        "InstitutionID,other\n323100,1\n323101.0,2\n,3\n323102.0,4\n 323103 ,5\ninf,6\n-inf,7\n"
     )
 
     inst_col_pattern = re.compile(r"(?=.*institution)(?=.*id)", re.IGNORECASE)

@@ -8,6 +8,7 @@ managing ingestion manifests, and working with Databricks schemas/volumes.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import re
 from datetime import datetime, timezone
@@ -379,6 +380,9 @@ def extract_institution_ids(
                 ids.add(str(v))
                 continue
             if isinstance(v, float):
+                # Treat +/-inf as invalid IDs
+                if not math.isfinite(v):
+                    continue
                 # If 323100.0 -> "323100"
                 if v.is_integer():
                     ids.add(str(int(v)))
@@ -389,7 +393,15 @@ def extract_institution_ids(
             pass
 
         s = str(v).strip()
-        if s == "" or s.lower() == "nan":
+        if s == "" or s.lower() in {
+            "nan",
+            "inf",
+            "+inf",
+            "-inf",
+            "infinity",
+            "+infinity",
+            "-infinity",
+        }:
             continue
         # If it's "323100.0" as string, coerce safely
         if re.fullmatch(r"\d+\.0+", s):
