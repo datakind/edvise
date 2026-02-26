@@ -27,6 +27,7 @@ from edvise.ingestion.constants import (
     QUEUE_TABLE_PATH,
     SFTP_DOWNLOAD_CHUNK_MB,
     SFTP_TMP_DIR,
+    SFTP_VERIFY_DOWNLOAD,
 )
 from edvise.utils.data_cleaning import convert_to_snake_case, detect_institution_column
 from edvise.utils.sftp import download_sftp_atomic
@@ -251,7 +252,11 @@ def download_new_files_and_queue(
                 f"Downloading new file from SFTP: {remote_path} -> {local_path}"
             )
             download_sftp_atomic(
-                sftp, remote_path, local_path, chunk=SFTP_DOWNLOAD_CHUNK_MB
+                sftp,
+                remote_path,
+                local_path,
+                chunk=SFTP_DOWNLOAD_CHUNK_MB,
+                verify=SFTP_VERIFY_DOWNLOAD,
             )
         else:
             logger.info(f"Local file already staged, skipping download: {local_path}")
