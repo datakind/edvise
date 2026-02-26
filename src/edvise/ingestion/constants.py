@@ -5,30 +5,41 @@ These values are fixed and don't vary between runs or environments.
 For environment-specific values (like secret scope names), see gcp_config.yaml.
 """
 
+from typing import Any
+from unittest.mock import MagicMock
+
 # Databricks catalog and schema
 try:
-    dbutils  # noqa: F821
-    workspace_id = str(
-        dbutils.notebook.entry_point.getDbutils()
-        .notebook()
-        .getContext()
-        .workspaceId()
-        .get()
-    )  # noqa: F821
-    if workspace_id == "4437281602191762":
-        CATALOG = "dev_sst_02"
-    elif workspace_id == "2052166062819251":
-        CATALOG = "staging_sst_01"
-    else:
-        raise RuntimeError(
-            f"Unsupported Databricks workspace_id={workspace_id!r} for NSC ingestion. "
-            "Add a mapping in src/edvise/ingestion/constants.py."
-        )
-except NameError:
-    from unittest.mock import MagicMock
-
-    dbutils = MagicMock()
+    from databricks.sdk.runtime import dbutils as _dbutils
+except Exception:
+    # Local/offline context: allow imports/tests to run without Databricks.
+    dbutils: Any = MagicMock()
     CATALOG = "dev_sst_02"
+else:
+    dbutils: Any = _dbutils
+    try:
+        workspace_id = str(
+            dbutils.notebook.entry_point.getDbutils()
+            .notebook()
+            .getContext()
+            .workspaceId()
+            .get()
+        )
+    except Exception:
+        # Databricks SDK is importable, but we're not running in a notebook/runtime
+        # context where workspace ID is available.
+        dbutils = MagicMock()
+        CATALOG = "dev_sst_02"
+    else:
+        if workspace_id == "4437281602191762":
+            CATALOG = "dev_sst_02"
+        elif workspace_id == "2052166062819251":
+            CATALOG = "staging_sst_01"
+        else:
+            raise RuntimeError(
+                f"Unsupported Databricks workspace_id={workspace_id!r} for NSC ingestion. "
+                "Add a mapping in src/edvise/ingestion/constants.py."
+            )
 DEFAULT_SCHEMA = "default"
 
 # Table names (without catalog.schema prefix)
