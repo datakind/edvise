@@ -9,8 +9,8 @@ validation rules. Column names and checks align with the JSON spec and the
 DataKind course file requirements.
 """
 
-import logging
 import re
+import typing as t
 
 import pandas as pd
 
@@ -25,13 +25,11 @@ except ModuleNotFoundError:
     import pandera.typing as pt
 
 from edvise.data_audit.schemas._edvise_shared import (
-    CREDENTIAL_DEGREE_PATTERN,
+    TERM_CATEGORIES,
+    _apply_edvise_pdp_transforms_course,
     StudentIdField,
-    TERM_PATTERN,
     YEAR_PATTERN,
 )
-
-LOGGER = logging.getLogger(__name__)
 
 # Course-specific pattern (edvise_schema_extension.json course model)
 TERM_ENROLLMENT_PATTERN = re.compile(r"(?i).*(full[\s-]?time|part[\s-]?time).*")
@@ -83,14 +81,15 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     Schema for raw Edvise course data.
 
     Validates column presence, dtypes, and value rules per the Edvise extension
-    and DataKind course file requirements. The DataFrame must contain all
-    columns defined below; optional columns may contain nulls.
+    and DataKind course file requirements. Only required columns must be
+    present; optional columns may be missing or null.
 
-    Required (non-null, format-checked): student_id, academic_year,
-    academic_term, course_prefix, course_number, course_name, grade,
-    course_credits_attempted, course_credits_earned, pass_fail_flag. Rows must
-    be unique on (student_id, academic_year, academic_term, course_prefix,
-    course_number).
+    Required (must be present, non-null, format-checked): student_id,
+    academic_year, academic_term, course_prefix, course_number, course_name,
+    grade, course_credits_attempted, course_credits_earned, pass_fail_flag.
+    Optional columns may be missing from the DataFrame or contain nulls; when
+    present they are validated. Rows must be unique on (student_id,
+    academic_year, academic_term, course_prefix, course_number).
     """
 
     # Required
@@ -99,9 +98,10 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         nullable=False,
         str_matches=YEAR_PATTERN,
     )
-    academic_term: pt.Series[pd.StringDtype] = pda.Field(
+    academic_term: pt.Series[pd.CategoricalDtype] = pda.Field(
         nullable=False,
-        str_matches=TERM_PATTERN,
+        dtype_kwargs={"categories": TERM_CATEGORIES, "ordered": True},
+        coerce=True,
     )
     course_prefix: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
     course_number: pt.Series["float64"] = pda.Field(nullable=False)
@@ -117,40 +117,67 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         isin=PASS_FAIL_VALUES,
     )
 
-    # Optional
-    department: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    course_classification: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    course_type: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    course_begin_date: pt.Series["datetime64[ns]"] = pda.Field(nullable=True)
-    course_end_date: pt.Series["datetime64[ns]"] = pda.Field(nullable=True)
-    delivery_method: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    core_course: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    prerequisite_course_flag: pt.Series[pd.StringDtype] = pda.Field(
-        nullable=True,
+    # Optional (column may be missing; when present, validated)
+    department: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    course_classification: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
     )
-    course_instructor_employment_status: pt.Series[pd.StringDtype] = pda.Field(
-        nullable=True,
+    course_type: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    course_begin_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
+        nullable=True
     )
-    gateway_or_development_flag: pt.Series[pd.StringDtype] = pda.Field(
-        nullable=True,
+    course_end_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(nullable=True)
+    delivery_method: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    core_course: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    prerequisite_course_flag: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
     )
-    course_section_size: pt.Series["float64"] = pda.Field(nullable=True, ge=0.0)
-    term_enrollment_intensity: pt.Series[pd.StringDtype] = pda.Field(
+    course_instructor_employment_status: t.Optional[pt.Series[pd.StringDtype]] = (
+        pda.Field(nullable=True)
+    )
+    gateway_or_development_flag: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
+    )
+    course_section_size: t.Optional[pt.Series["float64"]] = pda.Field(
+        nullable=True, ge=0.0
+    )
+    term_enrollment_intensity: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True,
         str_matches=TERM_ENROLLMENT_PATTERN,
     )
-    term_degree: pt.Series[pd.StringDtype] = pda.Field(
-        nullable=True,
-        str_matches=CREDENTIAL_DEGREE_PATTERN,
+    term_major: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    intent_to_transfer_flag: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
     )
-    term_major: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    intent_to_transfer_flag: pt.Series[pd.StringDtype] = pda.Field(
-        nullable=True,
-    )
-    term_pell_recipient: pt.Series[pd.StringDtype] = pda.Field(
+    term_pell_recipient: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True,
         isin=PELL_YES_NO,
     )
+
+    # PDP-compat: originals in raw_*; main column holds extracted/PDP value
+    term_degree: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True,
+        isin=["Bachelor's", "Associate's", "Certificate"],
+    )
+    raw_term_degree: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    raw_grade: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+
+    @classmethod
+    def validate(
+        cls,
+        check_obj: pd.DataFrame,
+        head: t.Optional[int] = None,
+        tail: t.Optional[int] = None,
+        sample: t.Optional[int] = None,
+        random_state: t.Optional[int] = None,
+        lazy: bool = False,
+        inplace: bool = False,
+    ) -> pd.DataFrame:
+        """Run PDP-compat transforms then validate (so coercion sees FALL, etc.)."""
+        check_obj = _apply_edvise_pdp_transforms_course(check_obj)
+        return super().validate(
+            check_obj, head, tail, sample, random_state, lazy, inplace
+        )
 
     class Config:
         coerce = True
