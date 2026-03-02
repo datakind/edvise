@@ -69,16 +69,26 @@ class CustomInferenceInputs:
         return str(latest_version.run_id)
 
     def find_file_in_run_folder(
-        self, run_root: str, file_name: str, description: str
+        self,
+        run_root: str,
+        file_name: str | None,
+        description: str,
+        keyword: str | None = None,
     ) -> str:
         """
         Finds a file with the given name under the run root.
         Searches in: run_root, run_root/training/, run_root/inference/
+        
+        If exact match fails, falls back to searching for .toml files containing
+        the specified keyword in the filename (e.g., "config" or "features_table").
 
         Args:
             run_root: Root directory of the training run
-            file_name: Exact filename to search for (e.g. "config.toml")
+            file_name: Optional exact filename to search for (e.g. "config.toml").
+                If None or not found, falls back to searching for files containing keyword.
             description: Human-readable description for error messages
+            keyword: Keyword to search for in filename when doing fallback search
+                (e.g., "config" or "features_table"). If None, searches for any .toml file.
 
         Returns:
             Path to the matching file
@@ -92,20 +102,74 @@ class CustomInferenceInputs:
             os.path.join(run_root, "inference"),
         ]
 
-        for cand in candidates:
-            base = pathlib.Path(local_fs_path(cand))
-            if not base.exists():
-                continue
-            file_path = base / file_name
-            if file_path.exists():
-                found_path = str(file_path)
-                logging.info("Found %s: %s", description, found_path)
-                return found_path
+        # First, try exact match if file_name is provided
+        if file_name:
+            for cand in candidates:
+                base = pathlib.Path(local_fs_path(cand))
+                if not base.exists():
+                    continue
+                file_path = base / file_name
+                if file_path.exists():
+                    found_path = str(file_path)
+                    logging.info("Found %s by exact name: %s", description, found_path)
+                    return found_path
 
-        raise FileNotFoundError(
-            f"No {description} named '{file_name}' found under: {run_root} "
+        # Fallback: search for .toml files containing the keyword in the filename
+        if keyword:
+            keyword_lower = keyword.lower()
+            for cand in candidates:
+                base = pathlib.Path(local_fs_path(cand))
+                if not base.exists():
+                    continue
+                toml_files = [
+                    f for f in base.rglob("*.toml")
+                    if keyword_lower in f.name.lower()
+                ]
+                if toml_files:
+                    found_path = str(toml_files[0])
+                    if file_name:
+                        logging.warning(
+                            "Exact match for '%s' not found, using fallback (contains '%s'): %s",
+                            file_name,
+                            keyword,
+                            found_path,
+                        )
+                    else:
+                        logging.info(
+                            "Found %s (fallback search, contains '%s'): %s",
+                            description,
+                            keyword,
+                            found_path,
+                        )
+                    return found_path
+        else:
+            # If no keyword specified, fall back to any .toml file
+            for cand in candidates:
+                base = pathlib.Path(local_fs_path(cand))
+                if not base.exists():
+                    continue
+                toml_files = list(base.rglob("*.toml"))
+                if toml_files:
+                    found_path = str(toml_files[0])
+                    if file_name:
+                        logging.warning(
+                            "Exact match for '%s' not found, using fallback: %s",
+                            file_name,
+                            found_path,
+                        )
+                    else:
+                        logging.info("Found %s (fallback search): %s", description, found_path)
+                    return found_path
+
+        error_msg = (
+            f"No {description} found under: {run_root} "
             f"(searched run root, training/, inference/)"
         )
+        if file_name:
+            error_msg += f" with name '{file_name}'"
+        if keyword:
+            error_msg += f" or containing '{keyword}' in filename"
+        raise FileNotFoundError(error_msg)
 
     def run(self):
         """
@@ -129,14 +193,22 @@ class CustomInferenceInputs:
         )
         logging.info("Looking for training artifacts in: %s", silver_run_root)
 
-        # Find config file by exact name
+        # Find config file (try exact name first, fallback to files containing "config")
+        config_file_name = getattr(self.args, "config_file_name", None)
         config_file_path = self.find_file_in_run_folder(
-            silver_run_root, self.args.config_file_name, "config file"
+            silver_run_root,
+            config_file_name,
+            "config file",
+            keyword="config",
         )
 
-        # Find features_table file by exact name
+        # Find features_table file (try exact name first, fallback to files containing "features_table")
+        features_table_name = getattr(self.args, "features_table_name", None)
         features_table_path = self.find_file_in_run_folder(
-            silver_run_root, self.args.features_table_name, "features table"
+            silver_run_root,
+            features_table_name,
+            "features table",
+            keyword="features_table",
         )
 
         logging.info("Using config file: %s", config_file_path)
@@ -175,13 +247,18 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--config_file_name",
-        required=True,
-        help="Name of the config file to search for (e.g., 'config.toml')",
+        required=False,
+        default=None,
+        help="Optional name of the config file to search for (e.g., 'config.toml'). "
+             "If provided, searches for exact match first, then falls back to any .toml file "
+             "excluding features_table.toml.",
     )
     parser.add_argument(
         "--features_table_name",
-        required=True,
-        help="Name of the features table file to search for (e.g., 'features_table.toml')",
+        required=False,
+        default=None,
+        help="Optional name of the features table file to search for (e.g., 'features_table.toml'). "
+             "If provided, searches for exact match first, then falls back to any .toml file.",
     )
 
     return parser.parse_args()
