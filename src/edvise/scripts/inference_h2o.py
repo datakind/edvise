@@ -286,8 +286,8 @@ class ModelInferenceTask:
                 df_processed = dataio.read.read_parquet(file_path)
             else:
                 raise ValueError(
-                    "Custom inference requires either table_path/predict_table_path or "
-                    "file_path/predict_file_path in cfg.datasets.silver.model_features"
+                    "Custom inference requires either table_path or predict_table_path / "
+                    "file_path or predict_file_path in cfg.datasets.silver.model_features"
                 )
         else:
             # PDP: use run-specific path
@@ -298,32 +298,6 @@ class ModelInferenceTask:
                     f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
                 )
             df_processed = dataio.read.read_parquet(preproc_path_local)
-
-        # --- CUSTOM SCHOOL PROCESSING ONLY ---
-        # NOTE: We currently can only kickoff custom schools from the BE
-        # So, before we run inference, we just need to validate that the
-        # institution/model exists on the FE.
-        api_key: str | None = None
-        if self.spec.schema_type == "custom":
-            logging.info(
-                "Retrieving SST API key from Databricks Secrets for custom school"
-            )
-            api_key = self.get_sst_api_key()
-
-            logging.info("Validating that institution exists on FE for custom school")
-            validate_custom_institution_exist(
-                inst_id=self.cfg.institution_id,
-                api_key=api_key,
-                DB_workspace=self.args.DB_workspace,
-            )
-
-            logging.info("Validating that model exists on FE for custom school")
-            validate_custom_model_exist(
-                inst_id=self.cfg.institution_id,
-                model_name=self.model_name,
-                api_key=api_key,
-                DB_workspace=self.args.DB_workspace,
-            )
 
         logging.info("Sending kickoff email")
         self._send_kickoff_email()
@@ -443,21 +417,6 @@ class ModelInferenceTask:
             dest_dir=f"{self.args.job_root_dir}/ext/",
             basename="inference_output",
         )
-
-        # --- CUSTOM SCHOOL PROCESSING ONLY ---
-        # NOTE: We currently can only kickoff custom schools from the BE
-        # So, after we run inference, we need to log the job manually in the FE Database
-        if self.spec.schema_type == "custom":
-            assert api_key is not None
-
-            logging.info("Logging job run in FE Database")
-            log_custom_job(
-                inst_id=self.cfg.institution_id,
-                job_run_id=self.args.db_run_id,
-                model_name=self.model_name,
-                api_key=api_key,
-                DB_workspace=self.args.DB_workspace,
-            )
 
         logging.info("Inference task completed successfully.")
 
