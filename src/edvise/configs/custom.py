@@ -495,6 +495,33 @@ class TrainingConfig(pyd.BaseModel):
         default=[],
         description="List of cohorts used in training. e.g. ['Fall 2024-25']",
     )
+    classification_threshold: float = pyd.Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Classification threshold for converting probabilities to binary predictions. "
+            "Must be a multiple of 0.05 (e.g., 0.40, 0.45, 0.50). "
+            "This constraint ensures easier interpretation for institutional stakeholders and simplifies implementation. "
+            "Lower thresholds (e.g., 0.4) increase recall and sensitivity to the positive class (students needing support), "
+            "resulting in more students identified for intervention. Higher thresholds (e.g., 0.6) increase precision "
+            "and reduce false positives. Default is 0.5."
+        ),
+    )
+
+    @pyd.field_validator("classification_threshold", mode="after")
+    @classmethod
+    def validate_classification_threshold_multiple_of_5(cls, v: float) -> float:
+        """Ensure classification_threshold is a multiple of 0.05 (5%)."""
+        # Check if v is a multiple of 0.05 by checking if (v * 20) is an integer
+        # This avoids floating point precision issues with modulo
+        if abs(v * 20 - round(v * 20)) > 1e-10:
+            raise ValueError(
+                f"classification_threshold must be a multiple of 0.05 (5%) for easier interpretation "
+                f"by institutional stakeholders and simplified implementation. Got {v}. "
+                f"Valid values: 0.00, 0.05, 0.10, ..., 0.95, 1.00"
+            )
+        return v
 
 
 class EvaluationConfig(pyd.BaseModel):
