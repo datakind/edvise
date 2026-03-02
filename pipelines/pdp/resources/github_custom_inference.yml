@@ -85,7 +85,7 @@ resources:
           depends_on:
             - task_key: inference_h2o
           spark_python_task:
-            python_file: src/edvise/scripts/output_publish.py
+            python_file: src/edvise/scripts/inference_output_publish.py
             source: GIT
             parameters:
               - --DB_workspace
