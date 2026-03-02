@@ -54,8 +54,8 @@ class ModelCard(t.Generic[C], ABC):
         self.context: dict[str, t.Any] = {}
 
         self.assets_folder = assets_path or self.DEFAULT_ASSETS_FOLDER
-        self.run_id = self._resolve_run_id()
-        self.output_path = self._build_output_path()
+        self.run_id = self._resolve_run_id()  # May be None if config is incomplete
+        self.output_path = self._build_output_path() if self.run_id else None
         self.template_path = self._resolve(
             "edvise.reporting.template", self.TEMPLATE_FILENAME
         )
@@ -186,6 +186,9 @@ class ModelCard(t.Generic[C], ABC):
         """
         Renders the model card using the template and context data.
         """
+        # Ensure output_path is set (in case run_id was set after __init__)
+        if not self.output_path:
+            self.output_path = self._build_output_path()
         with open(self.template_path, "r") as file:
             template = file.read()
         filled = template.format(**self.context)
@@ -292,13 +295,11 @@ class ModelCard(t.Generic[C], ABC):
         """
         return files(package).joinpath(filename)
 
-    def _resolve_run_id(self) -> str:
+    def _resolve_run_id(self) -> t.Optional[str]:
+        """
+        Resolves run_id from config if available.
+        Returns None if config is missing or incomplete (validation deferred to load_model).
+        """
         model_cfg = getattr(self.cfg, "model", None)
         run_id = getattr(model_cfg, "run_id", None) if model_cfg is not None else None
-
-        if not run_id:
-            raise ValueError(
-                f"config.model.run_id is required for ModelCard '{self.model_name}', "
-                "but it was missing (config.model is None or run_id is empty)."
-            )
-        return str(run_id)
+        return str(run_id) if run_id else None
