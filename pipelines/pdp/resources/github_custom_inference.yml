@@ -44,8 +44,6 @@ resources:
               - "{{job.parameters.datakind_notification_email}}"
               - --DK_CC_EMAIL
               - "{{job.parameters.DK_CC_EMAIL}}"
-              - --gcp_bucket_name
-              - "{{job.parameters.gcp_bucket_name}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
               - --job_root_dir
