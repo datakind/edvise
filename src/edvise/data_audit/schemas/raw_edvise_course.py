@@ -104,7 +104,7 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         coerce=True,
     )
     course_prefix: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
-    course_number: pt.Series["float64"] = pda.Field(nullable=False)
+    course_number: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
     course_name: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
     grade: pt.Series[pd.StringDtype] = pda.Field(
         nullable=False,

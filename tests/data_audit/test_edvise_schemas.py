@@ -78,7 +78,7 @@ def _minimal_valid_course_row() -> dict[str, Any]:
         "academic_year": "2024-25",
         "academic_term": "Fall",
         "course_prefix": "MATH",
-        "course_number": 101.0,
+        "course_number": "101",
         "course_name": "Calculus I",
         "grade": "B",
         "course_credits_attempted": 3.0,
@@ -580,7 +580,7 @@ def test_raw_edvise_course_schema_required_columns_only_passes() -> None:
         "academic_year": "2024-25",
         "academic_term": "Fall",
         "course_prefix": "MATH",
-        "course_number": 101.0,
+        "course_number": "101",
         "course_name": "Calculus I",
         "grade": "B",
         "course_credits_attempted": 3.0,
@@ -659,7 +659,7 @@ def test_raw_edvise_course_schema_multiple_rows() -> None:
     ]
     rows[1]["student_id"] = "s2"
     rows[1]["course_prefix"] = "ENGL"
-    rows[1]["course_number"] = 101.0
+    rows[1]["course_number"] = "101"
     df = pd.DataFrame(rows).reindex(columns=COURSE_COLUMNS)
     validated_df = RawEdviseCourseDataSchema.validate(df, lazy=True)
     assert len(validated_df) == 2
