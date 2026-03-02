@@ -212,3 +212,5 @@ __marimo__/
 
 # Claude
 .claude/
+*notebooks/nsc_sftp_automated_data_ingestion/tmp/
+*notebooks/nsc_sftp_automated_data_ingestion/gcp_config.yaml
