@@ -47,6 +47,7 @@ from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session
 from edvise.modeling.inference import top_n_features, features_box_whiskers_table
 from edvise.shared.logger import resolve_run_path, local_fs_path
+from edvise.shared.pipeline_runs import append_pipeline_run_event
 from edvise.shared.validation import (
     validate_tables_exist,
     ExpectedTable,
@@ -396,4 +397,40 @@ if __name__ == "__main__":
     #     logging.info("Running task with default schema")
 
     task = ModelInferenceTask(args)
-    task.run()
+    append_pipeline_run_event(
+        catalog=args.DB_workspace,
+        run_id=args.db_run_id,
+        run_type="inference",
+        task_key="inference_h2o",
+        event="started",
+        institution_id=getattr(task.cfg, "institution_id", None),
+        databricks_institution_name=getattr(args, "databricks_institution_name", None),
+        payload={"config_file_path": getattr(args, "config_file_path", None)},
+    )
+    try:
+        task.run()
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=args.db_run_id,
+            run_type="inference",
+            task_key="inference_h2o",
+            event="completed",
+            institution_id=getattr(task.cfg, "institution_id", None),
+            databricks_institution_name=getattr(args, "databricks_institution_name", None),
+            model_run_id=getattr(task, "model_run_id", None),
+            experiment_id=getattr(task, "model_experiment_id", None),
+        )
+    except Exception as e:
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=args.db_run_id,
+            run_type="inference",
+            task_key="inference_h2o",
+            event="failed",
+            institution_id=getattr(task.cfg, "institution_id", None),
+            databricks_institution_name=getattr(args, "databricks_institution_name", None),
+            model_run_id=getattr(task, "model_run_id", None),
+            experiment_id=getattr(task, "model_experiment_id", None),
+            error_message=str(e),
+        )
+        raise

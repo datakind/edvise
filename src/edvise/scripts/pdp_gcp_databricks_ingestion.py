@@ -6,10 +6,23 @@ import typing as t
 import importlib
 import pandas as pd
 import pathlib
+import sys
 from mlflow.tracking import MlflowClient
 from google.cloud import storage
 from google.api_core.exceptions import Forbidden, NotFound
 import google.auth
+
+# Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
+script_dir = os.path.dirname(os.path.abspath(__file__))
+repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
+src_path = os.path.join(repo_root, "src")
+if os.path.isdir(src_path) and src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+from edvise.shared.pipeline_runs import (
+    append_pipeline_run_event,
+    parse_ts14_from_filename,
+)
 
 # Model names from get_model_name() are already UC-compatible
 
@@ -74,6 +87,9 @@ class DataIngestionTask:
         # Strict would be outside DBR (lenient inside DBR unless overridden via flag)
         # Basically, we don't want to raise google errors when we're only running from backend/DBR
         self.strict = not in_databricks()
+        # Populated by run() for downstream observability logging
+        self.model_run_id: str | None = None
+        self.config_file_path: str | None = None
 
     def _logging(self, code: str, message: str, extra: dict | None = None) -> None:
         payload = {"code": code, "message": message, "extra": (extra or {})}
@@ -213,12 +229,14 @@ class DataIngestionTask:
             self.args.DB_workspace,
             self.args.databricks_institution_name,
         )
+        self.model_run_id = model_run_id
         # Run root: <silver>/<model_run_id>/  (config may be here or in training/ or inference/)
         silver_run_root = (
             f"/Volumes/{self.args.DB_workspace}/"
             f"{self.args.databricks_institution_name}_silver/silver_volume/{model_run_id}"
         )
         config_file_path = self.find_config_file_path(silver_run_root)
+        self.config_file_path = str(config_file_path)
         logging.info("Using config file path: %s", config_file_path)
         if self.dbutils:
             self.dbutils.jobs.taskValues.set(
@@ -247,6 +265,24 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     args = parse_arguments()
 
+    # Observability: append-only run events
+    dataset_ts = parse_ts14_from_filename(args.cohort_file_name) or parse_ts14_from_filename(
+        args.course_file_name
+    )
+    append_pipeline_run_event(
+        catalog=args.DB_workspace,
+        run_id=args.db_run_id,
+        run_type="inference",
+        task_key="data_ingestion",
+        event="started",
+        databricks_institution_name=args.databricks_institution_name,
+        cohort_dataset_name=args.cohort_file_name,
+        course_dataset_name=args.course_file_name,
+        dataset_ts=dataset_ts,
+        model_name=args.model_name,
+        payload={"gcp_bucket_name": args.gcp_bucket_name},
+    )
+
     # Ensure inference_inputs exists before listdir/imports
     base_inputs = f"/Volumes/{args.DB_workspace}/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
     os.makedirs(local_fs_path(base_inputs), exist_ok=True)
@@ -271,4 +307,35 @@ if __name__ == "__main__":
     task = DataIngestionTask(args)
     if hasattr(args, "strict") and args.strict:
         task.strict = True
-    task.run()
+    try:
+        task.run()
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=args.db_run_id,
+            run_type="inference",
+            task_key="data_ingestion",
+            event="completed",
+            databricks_institution_name=args.databricks_institution_name,
+            cohort_dataset_name=args.cohort_file_name,
+            course_dataset_name=args.course_file_name,
+            dataset_ts=dataset_ts,
+            model_name=args.model_name,
+            model_run_id=task.model_run_id,
+            payload={"config_file_path": task.config_file_path},
+        )
+    except Exception as e:
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=args.db_run_id,
+            run_type="inference",
+            task_key="data_ingestion",
+            event="failed",
+            databricks_institution_name=args.databricks_institution_name,
+            cohort_dataset_name=args.cohort_file_name,
+            course_dataset_name=args.course_file_name,
+            dataset_ts=dataset_ts,
+            model_name=args.model_name,
+            model_run_id=getattr(task, "model_run_id", None),
+            error_message=str(e),
+        )
+        raise

@@ -34,6 +34,10 @@ from edvise.shared.logger import (
     local_fs_path,
     init_file_logging,
 )
+from edvise.shared.pipeline_runs import (
+    append_pipeline_run_event,
+    infer_databricks_institution_name_from_volume_path,
+)
 from edvise.shared.validation import (
     require,
     require_attr,
@@ -647,7 +651,73 @@ if __name__ == "__main__":
         logger_name=__name__,
         log_file_name="pdp_training.log",
     )
-    task.run()
+    databricks_institution_name = infer_databricks_institution_name_from_volume_path(
+        getattr(args, "silver_volume_path", None),
+        suffix="_silver",
+    )
+    append_pipeline_run_event(
+        catalog=args.DB_workspace,
+        run_id=getattr(args, "db_run_id", None),
+        run_type="training",
+        task_key="training_h2o",
+        event="started",
+        institution_id=getattr(task.cfg, "institution_id", None),
+        databricks_institution_name=databricks_institution_name,
+        model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
+        experiment_id=getattr(getattr(task.cfg, "model", None), "experiment_id", None),
+        pipeline_version=getattr(args, "pipeline_version", None),
+        payload={"config_file_path": getattr(args, "config_file_path", None)},
+    )
+    try:
+        task.run()
+
+        model_name = None
+        try:
+            if task.cfg.preprocessing is not None:
+                model_name = modeling.registration.get_model_name_from_config(
+                    preprocessing=task.cfg.preprocessing,
+                    institution_id=task.cfg.institution_id,
+                )
+        except Exception:
+            model_name = None
+
+        model_card_path = None
+        if model_name:
+            model_card_path = (
+                f"/Volumes/{args.DB_workspace}/"
+                f"{task.cfg.institution_id}_gold/gold_volume/model_cards/"
+                f"model-card-{model_name}.pdf"
+            )
+
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=getattr(args, "db_run_id", None),
+            run_type="training",
+            task_key="training_h2o",
+            event="completed",
+            institution_id=getattr(task.cfg, "institution_id", None),
+            databricks_institution_name=databricks_institution_name,
+            model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
+            experiment_id=getattr(getattr(task.cfg, "model", None), "experiment_id", None),
+            model_name=model_name,
+            model_card_path=model_card_path,
+            pipeline_version=getattr(args, "pipeline_version", None),
+        )
+    except Exception as e:
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=getattr(args, "db_run_id", None),
+            run_type="training",
+            task_key="training_h2o",
+            event="failed",
+            institution_id=getattr(task.cfg, "institution_id", None),
+            databricks_institution_name=databricks_institution_name,
+            model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
+            experiment_id=getattr(getattr(task.cfg, "model", None), "experiment_id", None),
+            pipeline_version=getattr(args, "pipeline_version", None),
+            error_message=str(e),
+        )
+        raise
     # --- Final flush & shutdown ---
     root_logger = logging.getLogger()
     for h in root_logger.handlers:

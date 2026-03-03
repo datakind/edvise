@@ -55,6 +55,7 @@ from edvise.shared.logger import (
     local_fs_path,
 )
 from edvise.shared.validation import require
+from edvise.shared.pipeline_runs import append_pipeline_run_event
 
 logging.basicConfig(
     level=logging.INFO,
@@ -601,7 +602,77 @@ if __name__ == "__main__":
         cohort_converter_func=cohort_converter_func,
         course_converter_func=course_converter_func,
     )
-    task.run()
+    # Best-effort: infer databricks_institution_name from volume path like:
+    # /Volumes/<catalog>/<inst>_silver/silver_volume
+    databricks_institution_name = None
+    try:
+        for seg in pathlib.PurePosixPath(args.silver_volume_path).parts:
+            if seg.endswith("_silver"):
+                databricks_institution_name = seg[: -len("_silver")]
+                break
+    except Exception:
+        databricks_institution_name = None
+
+    # We only emit run-level events from this task for TRAINING runs.
+    if getattr(args, "job_type", None) == "training":
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=args.db_run_id,
+            run_type=args.job_type,
+            task_key="data_audit",
+            event="started",
+            institution_id=getattr(task.cfg, "institution_id", None),
+            databricks_institution_name=databricks_institution_name,
+            cohort_dataset_name=getattr(
+                getattr(task.cfg, "datasets", None), "raw_cohort", None
+            ),
+            course_dataset_name=getattr(
+                getattr(task.cfg, "datasets", None), "raw_course", None
+            ),
+            payload={
+                "bronze_volume_path": getattr(args, "bronze_volume_path", None),
+                "silver_volume_path": getattr(args, "silver_volume_path", None),
+                "config_file_path": getattr(args, "config_file_path", None),
+            },
+        )
+
+        try:
+            task.run()
+            append_pipeline_run_event(
+                catalog=args.DB_workspace,
+                run_id=args.db_run_id,
+                run_type=args.job_type,
+                task_key="data_audit",
+                event="completed",
+                institution_id=getattr(task.cfg, "institution_id", None),
+                databricks_institution_name=databricks_institution_name,
+                cohort_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_cohort", None
+                ),
+                course_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_course", None
+                ),
+            )
+        except Exception as e:
+            append_pipeline_run_event(
+                catalog=args.DB_workspace,
+                run_id=args.db_run_id,
+                run_type=args.job_type,
+                task_key="data_audit",
+                event="failed",
+                institution_id=getattr(task.cfg, "institution_id", None),
+                databricks_institution_name=databricks_institution_name,
+                cohort_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_cohort", None
+                ),
+                course_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_course", None
+                ),
+                error_message=str(e),
+            )
+            raise
+    else:
+        task.run()
     # Ensure all logs are flushed to disk
     for h in logging.getLogger().handlers:
         try:
