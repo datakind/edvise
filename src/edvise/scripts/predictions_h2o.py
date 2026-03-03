@@ -256,7 +256,7 @@ def run_predictions(
     *,
     run_type: RunType,
     df_inference: pd.DataFrame | None = None,
-    test_sample_cap: int = 200,
+    test_sample_cap: int | None = 200,
 ) -> PredOutputs:
     ft = load_features_table(pred_paths.features_table_path)
     model, model_feature_names = load_model_and_features(pred_cfg.model_run_id)
@@ -268,12 +268,16 @@ def run_predictions(
         df_train, df_test_all = extract_and_split_training_data(
             pred_cfg.experiment_id, pred_cfg.split_col
         )
-        df_test = sample_rows(
-            df_test_all,
-            min(test_sample_cap, len(df_test_all)),
-            pred_cfg.random_state,
-            "df_test(train)",
-        )
+        if test_sample_cap is None:
+            # Use full test dataset when test_sample_cap is None
+            df_test = df_test_all.copy()
+        else:
+            df_test = sample_rows(
+                df_test_all,
+                min(test_sample_cap, len(df_test_all)),
+                pred_cfg.random_state,
+                "df_test(train)",
+            )
     else:
         # PREDICT: inference input
         df_test = df_inference
