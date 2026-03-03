@@ -41,8 +41,6 @@ resources:
             parameters:
               - --bronze_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume"
-              - --term_filter
-              - "{{job.parameters.term_filter}}"
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --DB_workspace
@@ -190,6 +188,8 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
+              - --term_filter
+              - "{{job.parameters.term_filter}}"
               - --config_file_path
               - "{{tasks.data_ingestion.values.config_file_path}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
