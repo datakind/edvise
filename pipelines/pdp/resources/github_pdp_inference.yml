@@ -315,9 +315,9 @@ resources:
         - name: term_filter
           default: ""
         - name: cohort_file_name
-          default: AO1600pdp_AO1600_AR_DEIDENTIFIED_STUDYID_20250723040724.csv
+          default: AO1600pdp_AO1600_AR_DEIDENTIFIED_STUDYID_20250618030630.csv
         - name: course_file_name
-          default: AO1600pdp_AO1600_COURSE_LEVEL_AR_DEIDENTIFIED_STUDYID_20250723040724.csv
+          default: AO1600pdp_AO1600_COURSE_LEVEL_AR_DEIDENTIFIED_STUDYID_20250618030630.csv
         - name: databricks_institution_name
           default: ${var.databricks_institution_name}
         - name: db_run_id
@@ -339,7 +339,7 @@ resources:
         - name: job_type
           default: inference
         - name: model_name
-          default: northwest_state_cc_credits_earned_60_12_credits_earned
+          default: miles_cc_retention_end_of_first_term
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
