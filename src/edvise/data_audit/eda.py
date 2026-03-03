@@ -1843,10 +1843,10 @@ class EdaSummary:
                 .str.title(),
             )
             .loc[
-                lambda d: d["enrollment_type"].isin(
-                    ["First-Time", "Re-Admit", "Transfer-In"]
+                lambda d: (
+                    d["enrollment_type"].isin(["First-Time", "Re-Admit", "Transfer-In"])
+                    & d["gpa"].notna()
                 )
-                & d["gpa"].notna()
             ][["cohort", "enrollment_type", "gpa"]]
             .groupby(["enrollment_type", "cohort"], observed=True)["gpa"]
             .mean()
@@ -1887,10 +1887,12 @@ class EdaSummary:
                 .str.title(),
             )
             .loc[
-                lambda d: d["enrollment_intensity_first_term"].isin(
-                    ["Full-Time", "Part-Time"]
+                lambda d: (
+                    d["enrollment_intensity_first_term"].isin(
+                        ["Full-Time", "Part-Time"]
+                    )
+                    & d["gpa"].notna()
                 )
-                & d["gpa"].notna()
             ][["cohort", "enrollment_intensity_first_term", "gpa"]]
             .groupby(["enrollment_intensity_first_term", "cohort"], observed=True)[
                 "gpa"
