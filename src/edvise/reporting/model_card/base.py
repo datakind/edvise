@@ -163,7 +163,7 @@ class ModelCard(t.Generic[C], ABC):
                 description="Data Preparation Flowchart",
                 static_path=self.funnel_image_path,
                 local_folder=self.assets_folder,
-                fixed_width="44mm",
+                fixed_width="150mm",
                 alignment="center",
             )
             or "",
