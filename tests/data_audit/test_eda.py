@@ -193,7 +193,6 @@ class TestEdaSummary:
                     "terms": [
                         {"count": 2, "percentage": 100.0, "name": "Fall"},
                         {"count": 0, "percentage": 0.0, "name": "Spring"},
-                        {"count": 0, "percentage": 0.0, "name": "Summer"},
                     ],
                 },
                 {
@@ -202,7 +201,6 @@ class TestEdaSummary:
                     "terms": [
                         {"count": 1, "percentage": 100.0, "name": "Fall"},
                         {"count": 0, "percentage": 0.0, "name": "Spring"},
-                        {"count": 0, "percentage": 0.0, "name": "Summer"},
                     ],
                 },
                 {
@@ -211,7 +209,6 @@ class TestEdaSummary:
                     "terms": [
                         {"count": 0, "percentage": 0.0, "name": "Fall"},
                         {"count": 1, "percentage": 100.0, "name": "Spring"},
-                        {"count": 0, "percentage": 0.0, "name": "Summer"},
                     ],
                 },
                 {
@@ -220,7 +217,6 @@ class TestEdaSummary:
                     "terms": [
                         {"count": 2, "percentage": 100.0, "name": "Fall"},
                         {"count": 0, "percentage": 0.0, "name": "Spring"},
-                        {"count": 0, "percentage": 0.0, "name": "Summer"},
                     ],
                 },
                 {
@@ -229,7 +225,6 @@ class TestEdaSummary:
                     "terms": [
                         {"count": 0, "percentage": 0.0, "name": "Fall"},
                         {"count": 1, "percentage": 100.0, "name": "Spring"},
-                        {"count": 0, "percentage": 0.0, "name": "Summer"},
                     ],
                 },
                 {
@@ -238,7 +233,6 @@ class TestEdaSummary:
                     "terms": [
                         {"count": 2, "percentage": 100.0, "name": "Fall"},
                         {"count": 0, "percentage": 0.0, "name": "Spring"},
-                        {"count": 0, "percentage": 0.0, "name": "Summer"},
                     ],
                 },
             ],
