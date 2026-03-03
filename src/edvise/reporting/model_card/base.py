@@ -26,6 +26,7 @@ class ModelCard(t.Generic[C], ABC):
     DEFAULT_ASSETS_FOLDER = "card_assets"
     TEMPLATE_FILENAME = "model-card-TEMPLATE.md"
     LOGO_FILENAME = "logo.png"
+    METHODOLOGY_FUNNEL_FILENAME = "methodology_funnel.png"
 
     def __init__(
         self,
@@ -60,6 +61,9 @@ class ModelCard(t.Generic[C], ABC):
         )
         self.logo_path = self._resolve(
             "edvise.reporting.template.assets", self.LOGO_FILENAME
+        )
+        self.funnel_image_path = self._resolve(
+            "edvise.reporting.template.assets", self.METHODOLOGY_FUNNEL_FILENAME
         )
 
     def build(self):
@@ -149,6 +153,12 @@ class ModelCard(t.Generic[C], ABC):
             "logo": utils.download_static_asset(
                 description="Logo",
                 static_path=self.logo_path,
+                local_folder=self.assets_folder,
+            )
+            or "",
+            "funnel_image": utils.download_static_asset(
+                description="Data Preparation Flowchart",
+                static_path=self.funnel_image_path,
                 local_folder=self.assets_folder,
             )
             or "",

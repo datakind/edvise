@@ -31,34 +31,74 @@
 
 ### Methodology {{#methodology}}
 
+Before we train any model, we take several careful steps to make sure your data is accurate, consistent, and set up in a way that helps the model learn.
+
+{funnel_image}
+
+
 - #### Sample Development
     - Our first step was our data audit & validation, which included handling null and duplicate values, checking for inconsistencies between files, and ensuring all student IDs are unique.
     - After validation, we then proceeded with exploratory data analysis (EDA) to develop a deeper understanding of the raw dataset prior to our [feature engineering](#glossary-feature-engineering) & model development, ensuring alignment with stakeholders through an iterative process.
 
+- #### Sample Development
+
+    - **Goal: Create a reliable starting dataset**
+    - We begin with a comprehensive data audit and validation process to ensure the dataset is complete, consistent, and trustworthy.
+    - This includes:
+        - Reviewing and addressing [null values](#glossary-null-values)
+        - Removing [duplicate records](#glossary-duplicate-records)
+        - Confirming that each student–term (or student–course) record is unique
+        - Checking for inconsistencies across files
+    - After validation, we conduct exploratory data analysis (EDA) to better understand patterns in the data — such as enrollment trends, grade distributions, and outcome rates.  
+    - If unusual patterns appear, we pause and review them with stakeholders before moving forward. This iterative process ensures alignment prior to [feature engineering](#glossary-feature-engineering) and model development.
+
+
 - #### Feature Development
-    - We then proceeded with feature engineering, which involved transforming raw data into meaningful representations by applying semantic abstractions, aggregating at varying levels of term, course, or section analysis, and comparing values cumulatively over time.
-    - Stakeholder collaboration was also essential to our feature engineering effort, ensuring domain and use-case knowledge shaped the development of insightful features.
+
+    - **Goal: Transform raw data into meaningful student signals**
+    - Next, we apply [feature engineering](#glossary-feature-engineering) techniques to convert raw institutional data into variables that reflect real student behavior and progress.
+    - Examples include:
+        - Aggregating academic performance by term, year, or course level  
+        - Converting counts into interpretable rates (e.g., percent of courses passed)  
+        - Calculating cumulative metrics (e.g., total credits earned)  
+        - Measuring trends over time (e.g., GPA changes across terms)
+    - Throughout this process, we collaborate closely with institutional stakeholders to ensure features reflect domain knowledge, policy context, and intervention strategy needs.
 
 - #### Feature Selection
-    - Collinearity Threshold
-        - Threshold Applied: Removed features with VIF greater than {collinearity_threshold} were removed to reduce multicollinearity and improve model stability.
-        - Explanation: [Variance Inflation Factor (VIF)](#glossary-vif) measures multicollinearity between features.
-    - Low Variance Threshold
-        - Threshold Applied: Removed features with variance less than {low_variance_threshold}.
-        - Explanation: Features with very low variance do not vary much across observations, meaning they carry little predictive signal.
-    - Missing Data Threshold
-        - Threshold Applied: Removed features with {incomplete_threshold}% or more missing values.
-        - Explanation: Features with a high percentage of missing values may introduce noise or require extensive imputation.
-    - After our [feature selection](#glossary-feature-selection) process, **{number_of_features} actionable features** were retained for modeling.
+
+    - **Goal: Retain the most informative and stable predictors**
+    - Not all features contribute meaningful predictive value. To improve model stability and interpretability, we apply the following selection criteria:
+        - Collinearity Threshold
+            - Removed features with [Variance Inflation Factor (VIF)](#glossary-vif) greater than {collinearity_threshold}
+            - This reduces [multicollinearity](#glossary-collinearity), where features contain overlapping information.
+        - Low Variance Threshold
+            - Removed features with [variance](#glossary-variance) below {low_variance_threshold}
+            - Features that vary very little across students provide limited predictive signal.
+        - Missing Data Threshold
+            - Removed features with {incomplete_threshold}% or more missing values
+            - Features with excessive missingness may introduce noise into our modeling dataset.
+
+    - After completing the [feature selection](#glossary-feature-selection) process, **{number_of_features} actionable features** were retained for modeling.
 
 - #### Target Population {{#target-population}}
 {target_population_section}
     - This resulted in a dataset of **{training_dataset_size} students** within the target timeframe.
 
-- #### Model Development
+#### Final Modeling Dataset
+
+    - At this stage, we have a clean, streamlined dataset that:
+        - Is consistent and validated
+        - Reflects meaningful student behavior patterns
+        - Includes only the strongest and most reliable predictors  
+
+    - This dataset serves as the foundation for model training.
+
+- #### Model Training
 {sample_weight_section}
 {classification_threshold_section}
 {data_split_table}
+
+We trained models using [H2O AutoML](#glossary-h2o-automl), which automatically compares multiple model types and hyperparameter configurations to identify high-performing and interpretable solutions.
 
 - #### Model Evaluation
     - Evaluated top models across standard classification metrics such as [Accuracy](#glossary-accuracy), [AUC](#glossary-auc), [F1-Score](#glossary-f1), [Log Loss](#glossary-log-loss), [Precision](#glossary-precision), [Recall](#glossary-recall).
@@ -143,7 +183,7 @@ Shows the share of all predictions the model gets right. Typical values range fr
 Shows how well the model separates students who need support from those who do not. Typical values range from 0.6–0.8; higher is better.
 
 ***Calibration Curve*** <a id="glossary-calibration-curve"></a>  
-A plot comparing predicted probabilities to observed outcomes.
+A calibration curve shows Support Scores on the x-axis ("Mean Predicted Probability") compared to the proportion of students who receive that support score that are truly 'In Need of Support' ("Fraction of Positives"). The closer the blue line is to the dotted line, the better the model is calibrated.
 
 ***Classification Threshold*** <a id="glossary-classification-threshold"></a>  
 The probability cutoff used to convert model scores into binary predictions.
