@@ -35,11 +35,6 @@ Before we train any model, we take several careful steps to make sure your data 
 
 {funnel_image}
 
-
-- #### Sample Development
-    - Our first step was our data audit & validation, which included handling null and duplicate values, checking for inconsistencies between files, and ensuring all student IDs are unique.
-    - After validation, we then proceeded with exploratory data analysis (EDA) to develop a deeper understanding of the raw dataset prior to our [feature engineering](#glossary-feature-engineering) & model development, ensuring alignment with stakeholders through an iterative process.
-
 - #### Sample Development
 
     - **Goal: Create a reliable starting dataset**
@@ -49,7 +44,7 @@ Before we train any model, we take several careful steps to make sure your data 
         - Removing [duplicate records](#glossary-duplicate-records)
         - Confirming that each student–term (or student–course) record is unique
         - Checking for inconsistencies across files
-    - After validation, we conduct exploratory data analysis (EDA) to better understand patterns in the data — such as enrollment trends, grade distributions, and outcome rates.  
+    - After validation, we conduct exploratory data analysis (EDA) to better understand patterns in the data,  such as enrollment trends, grade distributions, and outcome rates.  
     - If unusual patterns appear, we pause and review them with stakeholders before moving forward. This iterative process ensures alignment prior to [feature engineering](#glossary-feature-engineering) and model development.
 
 
@@ -72,7 +67,7 @@ Before we train any model, we take several careful steps to make sure your data 
             - Removed features with [Variance Inflation Factor (VIF)](#glossary-vif) greater than {collinearity_threshold}
             - This reduces [multicollinearity](#glossary-collinearity), where features contain overlapping information.
         - Low Variance Threshold
-            - Removed features with [variance](#glossary-variance) below {low_variance_threshold}
+            - Removed features with very low variance (below the [low variance threshold](#glossary-low-variance-threshold) of {low_variance_threshold})
             - Features that vary very little across students provide limited predictive signal.
         - Missing Data Threshold
             - Removed features with {incomplete_threshold}% or more missing values
@@ -81,6 +76,7 @@ Before we train any model, we take several careful steps to make sure your data 
     - After completing the [feature selection](#glossary-feature-selection) process, **{number_of_features} actionable features** were retained for modeling.
 
 - #### Target Population {{#target-population}}
+    - **Goal: Define who the model is designed to support**
 {target_population_section}
     - This resulted in a dataset of **{training_dataset_size} students** within the target timeframe.
 
@@ -96,8 +92,6 @@ Before we train any model, we take several careful steps to make sure your data 
 {sample_weight_section}
 {classification_threshold_section}
 {data_split_table}
-
-We trained models using [H2O AutoML](#glossary-h2o-automl), which automatically compares multiple model types and hyperparameter configurations to identify high-performing and interpretable solutions.
 
 - #### Model Evaluation
     - Evaluated top models across standard classification metrics such as [Accuracy](#glossary-accuracy), [AUC](#glossary-auc), [F1-Score](#glossary-f1), [Log Loss](#glossary-log-loss), [Precision](#glossary-precision), [Recall](#glossary-recall).
@@ -155,6 +149,8 @@ We trained models using [H2O AutoML](#glossary-h2o-automl), which automatically 
 ### Glossary {{#glossary}}
 
 _This section defines technical, statistical, and modeling terms used throughout this model card._
+
+---
 
 #### Education & Domain Terms
 
