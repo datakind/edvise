@@ -146,7 +146,7 @@ Shows how many students who truly need support the model successfully identifies
 ***ROC Curve (Receiver Operating Characteristic Curve)*** <a id="glossary-roc"></a>  
 A plot showing the tradeoff between true positive and false positive rates.
 
-***Threshold*** <a id="glossary-threshold"></a>  
+***Classification Threshold*** <a id="glossary-threshold"></a>  
 The probability cutoff used to convert model scores into binary predictions.
 
 ---
