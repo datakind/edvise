@@ -368,6 +368,7 @@ def log_h2o_experiment(
     sample_weight_col: str = "sample_weight",
     calibrate: bool = False,
     imputer: t.Optional[imputation.SklearnImputerWrapper] = None,
+    classification_threshold: float = 0.5,
 ) -> pd.DataFrame:
     """
     Logs evaluation metrics, plots, and model artifacts for all models in an H2O AutoML leaderboard to MLflow.
@@ -377,13 +378,13 @@ def log_h2o_experiment(
         train: H2OFrame containing the training split.
         valid: H2OFrame containing the validation split.
         test: H2OFrame containing the test split.
-        institution_id: Institution identifier, used to namespace the MLflow experiment.
         target_col: Column name of target (used for plotting and label extraction).
-        target_name: Name of the target of the model from the config.
-        checkpoint_name: Name of the checkpoint of the model from the config.
-        workspace_path: Path prefix for experiment naming within MLflow.
-        experiment_id: ID of experiment set during training call
-        client: Optional MLflowClient instance. If not provided, one will be created.
+        experiment_id: ID of experiment set during training call.
+        pos_label: Positive class label.
+        sample_weight_col: Column name for sample weights.
+        calibrate: Whether to calibrate probabilities.
+        imputer: Optional sklearn imputer wrapper.
+        classification_threshold: Classification threshold for converting probabilities to binary predictions. Default is 0.5.
 
     Returns:
         results_df (pd.DataFrame): DataFrame with metrics and MLflow run IDs for all successfully logged models.
@@ -425,7 +426,6 @@ def log_h2o_experiment(
             calibration.SklearnCalibratorWrapper() if calibrate else None
         )
 
-        # Setting threshold to 0.5 due to binary classification
         metrics = log_h2o_model(
             aml=aml,
             model_id=model_id,
@@ -438,6 +438,7 @@ def log_h2o_experiment(
             primary_metric=aml.sort_metric,
             sample_weight_col=sample_weight_col,
             pos_label=pos_label,
+            classification_threshold=classification_threshold,
         )
 
         if metrics:
@@ -538,7 +539,7 @@ def log_h2o_model(
     valid: h2o.H2OFrame,
     test: h2o.H2OFrame,
     pos_label: PosLabelType,
-    threshold: float = 0.5,
+    classification_threshold: float = 0.5,
     sample_weight_col: str = "sample_weight",
     target_col: str = "target",
     imputer: t.Optional[imputation.SklearnImputerWrapper] = None,
@@ -572,7 +573,7 @@ def log_h2o_model(
             test=test,
             target_col=target_col,
             pos_label=pos_label,
-            threshold=threshold,
+            classification_threshold=classification_threshold,
             sample_weight_col=sample_weight_col,
             calibrator=calibrator,
         )
@@ -594,6 +595,11 @@ def log_h2o_model(
                     mlflow.set_tag("mlflow.primaryMetric", f"validate_{primary_metric}")
             except Exception as e:
                 LOGGER.debug(f"Skipping mlflow.set_tag (no real run / mocked env): {e}")
+
+            # Log classification threshold as a parameter
+            mlflow.log_param(
+                "classification_threshold", float(classification_threshold)
+            )
 
             if calibrator is not None:
                 calibration_applied = bool(
@@ -628,7 +634,7 @@ def log_h2o_model(
                     "y_prob"
                 ]  # calibrated if calibrator is provided
                 w = preds[split_label]["weights"]
-                y_pred = (p_cal >= threshold).astype(int)
+                y_pred = (p_cal >= classification_threshold).astype(int)
 
                 with _suppress_output():
                     evaluation.generate_all_classification_plots(
