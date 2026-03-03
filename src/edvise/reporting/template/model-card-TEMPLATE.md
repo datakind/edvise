@@ -154,145 +154,145 @@ _This section defines technical, statistical, and modeling terms used throughout
 
 #### Education & Domain Terms
 
-***Enrollment Intensity*** <a id="glossary-enrollment-intensity"></a>
+***Enrollment Intensity*** <a id="glossary-enrollment-intensity"></a><br>
 A classification indicating whether a student is enrolled full-time or part-time during a term.
 
-***Peak COVID Term*** <a id="glossary-peak-covid"></a>
+***Peak COVID Term*** <a id="glossary-peak-covid"></a><br>
 Academic terms that occurred during the height of the COVID-19 pandemic, when instructional formats and student outcomes may have differed from typical conditions.
 
-***Pell Grant Recipient*** <a id="glossary-pell"></a>
+***Pell Grant Recipient*** <a id="glossary-pell"></a><br>
 A student who receives a U.S. federal Pell Grant, typically awarded to students with demonstrated financial need.
 
-***Program of Study Area*** <a id="glossary-program-of-study"></a>
+***Program of Study Area*** <a id="glossary-program-of-study"></a><br>  
 A student’s primary academic discipline or field of study.
 
-***Term-over-Term Comparison*** <a id="glossary-term-over-term"></a>
+***Term-over-Term Comparison*** <a id="glossary-term-over-term"></a><br>
 A comparison of metrics across consecutive academic terms (e.g., fall to spring) to examine changes over time.
 
 #### Evaluation & Performance Metrics
 
-***Accuracy*** <a id="glossary-accuracy"></a>  
+***Accuracy*** <a id="glossary-accuracy"></a><br>
 Shows the share of all predictions the model gets right. Typical values range from 0.6–0.8, but accuracy alone can be misleading when groups are imbalanced.
 
-***AUC (Area Under the ROC Curve)*** <a id="glossary-auc"></a>  
+***AUC (Area Under the ROC Curve)*** <a id="glossary-auc"></a><br>  
 Shows how well the model separates students who need support from those who do not. Typical values range from 0.6–0.8; higher is better.
 
-***Calibration Curve*** <a id="glossary-calibration-curve"></a>  
+***Calibration Curve*** <a id="glossary-calibration-curve"></a><br>
 A calibration curve shows Support Scores on the x-axis ("Mean Predicted Probability") compared to the proportion of students who receive that support score that are truly 'In Need of Support' ("Fraction of Positives"). The closer the blue line is to the dotted line, the better the model is calibrated.
 
-***Classification Threshold*** <a id="glossary-classification-threshold"></a>  
+***Classification Threshold*** <a id="glossary-classification-threshold"></a><br>
 The probability cutoff used to convert model scores into binary predictions.
 
-***Confidence Interval (CI)*** <a id="glossary-confidence-interval"></a>
+***Confidence Interval (CI)*** <a id="glossary-confidence-interval"></a><br>
 A range of values used to express uncertainty around a metric estimate. For example, a 95% confidence interval indicates the range within which the true value is likely to fall.
 
-***Confusion Matrix*** <a id="glossary-confusion-matrix"></a>  
+***Confusion Matrix*** <a id="glossary-confusion-matrix"></a><br>
 A table summarizing model predictions versus actual outcomes.
 
-***F1 Score*** <a id="glossary-f1"></a>  
+***F1 Score*** <a id="glossary-f1"></a><br>
 A metric that balances precision and recall, particularly useful when classes are imbalanced. Typical values range from 0.6–0.8; higher is better.
 
-***Log Loss*** <a id="glossary-log-loss"></a>  
-Shows how accurate the model’s probability estimates are. Lower values mean the model assigns more reliable likelihoods. Typical values for this range between 0.4–0.6; lower is better.
+***Log Loss*** <a id="glossary-log-loss"></a><br>
+Shows how accurate the model's probability estimates are. Lower values mean the model assigns more reliable likelihoods. Typical values for this range between 0.4–0.6; lower is better.
 
-***Precision*** <a id="glossary-precision"></a>  
+***Precision*** <a id="glossary-precision"></a><br>
 The proportion of students predicted to need support who actually do need support. Typical values range from 0.6–0.8; higher is better.
 
-***Recall*** <a id="glossary-recall"></a>  
+***Recall*** <a id="glossary-recall"></a><br>
 Shows how many students who truly need support the model successfully identifies. Typical values range from 0.6–0.8; higher is better.
 
-***ROC Curve (Receiver Operating Characteristic Curve)*** <a id="glossary-roc"></a>  
+***ROC Curve (Receiver Operating Characteristic Curve)*** <a id="glossary-roc"></a><br>
 A plot showing the tradeoff between true positive and false positive rates.
 
-***Statistical Significance*** <a id="glossary-statistical-significance"></a>
+***Statistical Significance*** <a id="glossary-statistical-significance"></a><br>
 An assessment of whether observed differences in results are likely due to real effects rather than random variation.
 
 ---
 
 #### Fairness & Bias
 
-***Bias (Model Bias)*** <a id="glossary-bias"></a>  
+***Bias (Model Bias)*** <a id="glossary-bias"></a><br>
 Systematic differences in model performance across student subgroups.
 
-***False Negative Rate (FNR)*** <a id="glossary-fnr"></a>  
+***False Negative Rate (FNR)*** <a id="glossary-fnr"></a><br>
 The proportion of students who need support but are predicted as not needing support.
 
-***FNR Parity*** <a id="glossary-fnr-parity"></a>  
+***FNR Parity*** <a id="glossary-fnr-parity"></a><br>
 A measure assessing whether false negative rates are similar across student groups.
 
-***Subgroup*** <a id="glossary-subgroup"></a>  
+***Subgroup*** <a id="glossary-subgroup"></a><br>
 A defined subset of students used to evaluate model performance and fairness.
 
 ---
 
 #### Features & Modeling
 
-***Actionable Feature*** <a id="glossary-actionable-feature"></a>  
+***Actionable Feature*** <a id="glossary-actionable-feature"></a><br>
 A model input representing outcomes that can plausibly be influenced through intervention.
 
-***AutoML (Automated Machine Learning)*** <a id="glossary-automl"></a>
+***AutoML (Automated Machine Learning)*** <a id="glossary-automl"></a><br>
 Software that automatically trains, tunes, and compares multiple machine learning models to identify high-performing configurations based on predefined metrics.
 
-***Collinearity (Multicollinearity)*** <a id="glossary-collinearity"></a>  
+***Collinearity (Multicollinearity)*** <a id="glossary-collinearity"></a><br>
 A condition where two or more features contain highly overlapping information.
 
-***Feature Engineering*** <a id="glossary-feature-engineering"></a>  
+***Feature Engineering*** <a id="glossary-feature-engineering"></a><br>
 The process of transforming raw data into meaningful variables.
 
-***Feature Importance*** <a id="glossary-feature-importance"></a>
-A measure of how much each feature contributes to the model’s predictions. Feature importance plots visually display which features most strongly influence predictions overall.
+***Feature Importance*** <a id="glossary-feature-importance"></a><br>
+A measure of how much each feature contributes to the model's predictions. Feature importance plots visually display which features most strongly influence predictions overall.
 
-***Feature Selection*** <a id="glossary-feature-selection"></a>  
+***Feature Selection*** <a id="glossary-feature-selection"></a><br>
 The process of retaining a subset of features that provide the strongest predictive signal.
 
-***H2O AutoML*** <a id="glossary-h2o-automl"></a>  
+***H2O AutoML*** <a id="glossary-h2o-automl"></a><br>
 An automated machine learning framework that trains, tunes, and evaluates multiple model types (such as generalized linear models, gradient boosting machines, random forests, and stacked ensembles) to identify high-performing models based on specified evaluation metrics.
 
-***Imputation*** <a id="glossary-imputation"></a>  
+***Imputation*** <a id="glossary-imputation"></a><br>
 The process of filling in missing data values.
 
-***Low Variance Feature*** <a id="glossary-low-variance"></a>  
+***Low Variance Feature*** <a id="glossary-low-variance"></a><br>
 A feature that changes very little across students.
 
-***Model Interpretability*** <a id="glossary-model-interpretability"></a>
+***Model Interpretability*** <a id="glossary-model-interpretability"></a><br>
 The degree to which a person can understand how and why a model makes its predictions.
 
-***Model Pipeline (MLOps)*** <a id="glossary-model-pipeline"></a>
+***Model Pipeline (MLOps)*** <a id="glossary-model-pipeline"></a><br>
 The structured process and supporting infrastructure used to prepare data, train models, evaluate performance, and deploy predictions in a consistent and reproducible way.
 
-***Sample Weighting*** <a id="glossary-sample-weighting"></a>  
+***Sample Weighting*** <a id="glossary-sample-weighting"></a><br>
 A technique that assigns different importance to observations during model training.
 
-***SHAP (Shapley Additive Explanations)*** <a id="glossary-shap"></a>  
+***SHAP (Shapley Additive Explanations)*** <a id="glossary-shap"></a><br>
 A method used to explain model predictions by quantifying how much each feature contributes to a prediction. SHAP values indicate both the **direction** (whether a feature increases or decreases the predicted likelihood of needing support) and the **magnitude** of that contribution. When aggregated across students, SHAP values provide insight into which features are most influential overall.
 
-***Variance Inflation Factor (VIF)*** <a id="glossary-vif"></a>  
+***Variance Inflation Factor (VIF)*** <a id="glossary-vif"></a><br>
 A statistic used to quantify multicollinearity between features.
 
 ---
 
 #### Model & Data Concepts
 
-***Checkpoint*** <a id="glossary-checkpoint"></a>  
+***Checkpoint*** <a id="glossary-checkpoint"></a><br>
 A specific point in time at which a prediction is generated for a student.
 
-***Duplicate Records*** <a id="glossary-duplicate-records"></a>
+***Duplicate Records*** <a id="glossary-duplicate-records"></a><br>
 Repeated entries representing the same observation. Duplicate records can distort model training and evaluation if not identified and handled appropriately.
 
-***Low Variance Threshold*** <a id="glossary-low-variance-threshold"></a>
+***Low Variance Threshold*** <a id="glossary-low-variance-threshold"></a><br>
 A rule used to remove features that vary very little across students and therefore contribute limited predictive value.
 
-***Missing Data Threshold*** <a id="glossary-missing-data-threshold"></a>
+***Missing Data Threshold*** <a id="glossary-missing-data-threshold"></a><br>
 A predefined cutoff used to determine when a feature contains too many missing values to be considered reliable for modeling.
 
-***Null Values*** <a id="glossary-null-values"></a>
+***Null Values*** <a id="glossary-null-values"></a><br>
 Empty or missing data entries in a dataset. These may occur when information was not collected, not recorded, or not applicable.
 
-***Target Population*** <a id="glossary-target-population"></a>  
+***Target Population*** <a id="glossary-target-population"></a><br>
 The group of students for whom the model is designed and validated.
 
-***Training Dataset*** <a id="glossary-training-dataset"></a>  
+***Training Dataset*** <a id="glossary-training-dataset"></a><br>
 The subset of data used to fit the model.
 
-***Variance*** <a id="glossary-variance"></a>
+***Variance*** <a id="glossary-variance"></a><br>
 A statistical measure of how spread out values are from their average. Higher variance indicates greater variability in a feature.
