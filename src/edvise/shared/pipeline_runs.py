@@ -4,7 +4,6 @@ import json
 import logging
 import re
 import typing as t
-import pathlib
 from datetime import datetime, timezone
 
 LOGGER = logging.getLogger(__name__)
@@ -19,54 +18,6 @@ def _get_spark_session():
         # Best-effort: never fail the pipeline because observability couldn't init.
         LOGGER.warning("pipeline_runs: unable to create SparkSession (%s)", e)
         return None
-
-
-def _get_current_catalog(spark) -> t.Optional[str]:
-    try:
-        # Databricks SQL function
-        row = spark.sql("SELECT current_catalog() AS catalog").collect()
-        if row and row[0] and row[0][0]:
-            return str(row[0][0])
-    except Exception:
-        pass
-    return None
-
-
-def infer_catalog_from_volume_path(volume_path: t.Optional[str]) -> t.Optional[str]:
-    """
-    Infer UC catalog from a Unity Catalog Volume path like:
-      /Volumes/<catalog>/<schema>/<volume>/<...>
-    """
-    if not volume_path:
-        return None
-    try:
-        parts = pathlib.PurePosixPath(volume_path).parts
-        for i, seg in enumerate(parts):
-            if seg == "Volumes" and i + 1 < len(parts):
-                return str(parts[i + 1])
-    except Exception:
-        return None
-    return None
-
-
-def infer_databricks_institution_name_from_volume_path(
-    volume_path: t.Optional[str],
-    *,
-    suffix: str,
-) -> t.Optional[str]:
-    """
-    Infer databricks_institution_name from a volume path segment like "<inst>_silver" or "<inst>_bronze".
-    """
-    if not volume_path:
-        return None
-    try:
-        parts = pathlib.PurePosixPath(volume_path).parts
-        for seg in parts:
-            if seg.endswith(suffix):
-                return str(seg[: -len(suffix)])
-    except Exception:
-        return None
-    return None
 
 
 _TS14_RE = re.compile(r"(\d{14})")
@@ -143,10 +94,8 @@ def append_pipeline_run_event(
             return False
 
         if not catalog:
-            catalog = _get_current_catalog(spark)
-        if not catalog:
             LOGGER.warning(
-                "pipeline_runs: skipping event write because catalog is unknown (run_id=%s)",
+                "pipeline_runs: skipping event write because catalog is empty (run_id=%s)",
                 run_id,
             )
             return False

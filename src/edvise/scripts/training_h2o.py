@@ -4,6 +4,7 @@ import argparse
 import pandas as pd
 import mlflow
 import os
+import pathlib
 import sys
 
 # Go up 3 levels from the current file's directory to reach repo root
@@ -36,7 +37,6 @@ from edvise.shared.logger import (
 )
 from edvise.shared.pipeline_runs import (
     append_pipeline_run_event,
-    infer_databricks_institution_name_from_volume_path,
 )
 from edvise.shared.validation import (
     require,
@@ -670,10 +670,16 @@ if __name__ == "__main__":
         logger_name=__name__,
         log_file_name="pdp_training.log",
     )
-    databricks_institution_name = infer_databricks_institution_name_from_volume_path(
-        getattr(args, "silver_volume_path", None),
-        suffix="_silver",
-    )
+    # Best-effort: infer databricks_institution_name from volume path like:
+    # /Volumes/<catalog>/<inst>_silver/silver_volume
+    databricks_institution_name = None
+    try:
+        for seg in pathlib.PurePosixPath(getattr(args, "silver_volume_path", "")).parts:
+            if seg.endswith("_silver"):
+                databricks_institution_name = seg[: -len("_silver")]
+                break
+    except Exception:
+        databricks_institution_name = None
     append_pipeline_run_event(
         catalog=args.DB_workspace,
         run_id=getattr(args, "db_run_id", None),
