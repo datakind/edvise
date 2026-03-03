@@ -1900,8 +1900,7 @@ class EdaSummary:
             .reindex(columns=self.cohort_years(formatted=False))
         )
 
-        series_data = gpa_df.rename(index=lambda value: str(value).replace("-", " "))
-        series_data = self._format_series_data(series_data)
+        series_data = self._format_series_data(gpa_df)
 
         return {
             "cohort_years": self.cohort_years(formatted=True),
@@ -1909,64 +1908,83 @@ class EdaSummary:
             "min_gpa": round(float(gpa_df.replace(0, np.nan).min().min()), 2),
         }
 
-    def _term_counts_by_cohort(self, df: pd.DataFrame) -> dict[str, t.Any]:
+    @cached_property
+    @required_columns(cohort=["cohort_term"])
+    def students_by_cohort_term(self) -> dict[str, t.Any]:
         """
-        Build term counts by cohort for a given DataFrame.
+        Student counts by term across cohort years. Only terms with count > 0 anywhere are included.
         """
+        df = self.df_cohort
         counts_df = (
-            df.groupby(["cohort", "cohort_term"], observed=True)
+            df.assign(cohort_term=df["cohort_term"].astype(str).str.strip().str.title())
+            .groupby(["cohort", "cohort_term"], observed=True)
             .size()
             .unstack(level=1, fill_value=0)
             .reindex(index=self.cohort_years(formatted=False), fill_value=0)
             .astype(int)
         )
-        counts_df.columns = counts_df.columns.str.capitalize()
-
-        ordered_terms = [
-            t for t in ("Fall", "Winter", "Spring", "Summer") if t in counts_df.columns
-        ]
-
-        return {
-            "years": self.cohort_years(formatted=True),
-            "terms": (
-                counts_df.reindex(columns=ordered_terms)
-                .T.rename_axis("key")
-                .reset_index()
-                .assign(
-                    label=lambda d: d["key"].str.title(),
-                    data=lambda d: (
-                        d.drop(columns=["key", "label"]).astype(int).to_numpy().tolist()
-                    ),
+        ordered_terms = ["Fall", "Winter", "Spring", "Summer"]
+        reindexed = counts_df.reindex(columns=ordered_terms, fill_value=0).astype(int)
+        terms_with_data = [term for term in ordered_terms if reindexed[term].sum() > 0]
+        years = self.cohort_years(formatted=True)
+        year_totals = reindexed.sum(axis=1).tolist()
+        by_year = []
+        for i, year in enumerate(years):
+            total = int(year_totals[i])
+            terms_for_year = []
+            for term_name in terms_with_data:
+                count = int(reindexed.iloc[i][term_name])
+                pct = round(100 * count / total, 2) if total else 0
+                terms_for_year.append(
+                    {"count": count, "percentage": pct, "name": term_name}
                 )
-                .loc[:, ["key", "label", "data"]]
-                .to_dict(orient="records")
-            ),
-        }
+            by_year.append({"year": year, "total": total, "terms": terms_for_year})
+        return {"years": years, "by_year": by_year}
 
     @cached_property
-    @required_columns(cohort=["cohort_term"])
-    def students_by_cohort_term(self) -> dict[str, t.Any]:
-        """
-        Compute student counts by term across cohort years.
-
-        Returns:
-            Dictionary keyed by cohort year, with values being
-            dictionaries of term -> count. Only terms with count > 0 are included.
-            Example: {'2020 - 2021': {'fall': 42, 'spring': 40}, '2021 - 2022': {'fall': 50}}
-        """
-        return self._term_counts_by_cohort(self.df_cohort)
-
-    @cached_property
-    @required_columns(course=["cohort_term"])
+    @required_columns(course=["academic_year", "academic_term"])
     def course_enrollments(self) -> dict[str, t.Any]:
         """
-        Compute course enrollment counts by term across cohort years.
-        Returns empty dict when df_course is None (no course file in batch).
+        Course enrollment counts by academic_term across academic_year (when courses were offered).
+        Returns empty dict when df_course is None.
         """
         if self.df_course is None:
             return {}
 
-        return self._term_counts_by_cohort(self.df_course)
+        df = self.df_course
+        years_raw = (
+            df["academic_year"].dropna().astype(str).sort_values().drop_duplicates()
+        )
+        years_formatted = [
+            y.replace("-", " - ", 1) if "-" in y else y for y in years_raw
+        ]
+        years_raw = years_raw.tolist()
+        counts_df = (
+            df.assign(
+                academic_term=df["academic_term"].astype(str).str.strip().str.title()
+            )
+            .groupby(["academic_year", "academic_term"], observed=True)
+            .size()
+            .unstack(level=1, fill_value=0)
+            .reindex(index=years_raw, fill_value=0)
+            .astype(int)
+        )
+        ordered_terms = ["Fall", "Winter", "Spring", "Summer"]
+        reindexed = counts_df.reindex(columns=ordered_terms, fill_value=0).astype(int)
+        terms_with_data = [term for term in ordered_terms if reindexed[term].sum() > 0]
+        year_totals = reindexed.sum(axis=1).tolist()
+        by_year = []
+        for i, year in enumerate(years_formatted):
+            total = int(year_totals[i])
+            terms_for_year = []
+            for term_name in terms_with_data:
+                count = int(reindexed.iloc[i][term_name])
+                pct = round(100 * count / total, 2) if total else 0
+                terms_for_year.append(
+                    {"count": count, "percentage": pct, "name": term_name}
+                )
+            by_year.append({"year": year, "total": total, "terms": terms_for_year})
+        return {"years": years_formatted, "by_year": by_year}
 
     @cached_property
     @required_columns(cohort=["credential_type_sought_year_1"])
@@ -2062,6 +2080,7 @@ class EdaSummary:
                     - data: List of counts per category
         """
         df = self.df_cohort
+        df = df.dropna(subset=["first_gen", "pell_status_first_year"])
         if "first_gen" not in df.columns or "pell_status_first_year" not in df.columns:
             return None
         if (
