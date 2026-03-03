@@ -99,6 +99,8 @@ def download_static_asset(
     description: str,
     static_path: Traversable,
     local_folder: str,
+    fixed_width: str = "40mm",
+    alignment: str = "left",
 ) -> t.Optional[str]:
     """
     Downloads static asset from local folder and returns the path. This method
@@ -111,6 +113,8 @@ def download_static_asset(
         description: Description of the image
         static_path: Path to static asset
         local_folder: Local folder to download artifact to
+        fixed_width: Desired fixed width for images (e.g., "40mm", "100mm")
+        alignment: Horizontal alignment for images ("left", "right", "center")
 
     Returns:
         Local path to artifact OR inline HTML string with path information if image
@@ -131,7 +135,7 @@ def download_static_asset(
     if dst_path.lower().endswith((".png", ".jpg", ".jpeg")):
         if description is None:
             description = os.path.basename(dst_path)
-        return embed_image(description, dst_path, fixed_width="40mm", alignment="left")
+        return embed_image(description, dst_path, fixed_width=fixed_width, alignment=alignment)
     else:
         return dst_path
 

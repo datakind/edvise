@@ -84,8 +84,7 @@ Before we train any model, we take several careful steps to make sure your data 
 {target_population_section}
     - This resulted in a dataset of **{training_dataset_size} students** within the target timeframe.
 
-#### Final Modeling Dataset
-
+- #### Final Modeling Dataset
     - At this stage, we have a clean, streamlined dataset that:
         - Is consistent and validated
         - Reflects meaningful student behavior patterns

@@ -155,12 +155,16 @@ class ModelCard(t.Generic[C], ABC):
                 description="Logo",
                 static_path=self.logo_path,
                 local_folder=self.assets_folder,
+                fixed_width="40mm",
+                alignment="left",
             )
             or "",
             "funnel_image": utils.download_static_asset(
                 description="Data Preparation Flowchart",
                 static_path=self.funnel_image_path,
                 local_folder=self.assets_folder,
+                fixed_width="100mm",
+                alignment="center",
             )
             or "",
             "institution_name": self.cfg.institution_name,
