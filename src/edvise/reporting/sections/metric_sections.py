@@ -112,10 +112,10 @@ def register_metric_sections(card, registry):
             f"{card.format.indent_level(1)}- A classification threshold of {threshold} was used to convert "
             f"predicted probabilities into final binary classifications. The model produces a probability that a student needs support. "
             f"If this probability is greater than or equal to {threshold}, the student is classified as needing support.\n"
-            f"{card.format.indent_level(2)}- Lower thresholds (e.g., 0.4) increase recall and sensitivity, "
-            f"resulting in more students being identified for potential intervention.\n"
-            f"{card.format.indent_level(2)}- Higher thresholds (e.g., 0.6) increase precision and reduce false positives, "
-            f"resulting in fewer students being flagged."
+            f"{card.format.indent_level(2)}- Lower thresholds (e.g., 0.4) increase recall, meaning fewer students who need support are missed, "
+            f"but more students may be flagged unnecessarily.\n"
+            f"{card.format.indent_level(2)}- Higher thresholds (e.g., 0.6) increase precision, meaning flagged students are more likely to truly need support, "
+            f"but some students who could benefit may not be identified."
         )
 
         return threshold_note
