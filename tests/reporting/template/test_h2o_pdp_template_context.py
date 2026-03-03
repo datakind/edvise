@@ -177,6 +177,7 @@ def test_template_placeholders_are_in_context(
         "institution_name": "Test University",
         "sample_weight_section": "Sample weight info",
         "data_split_table": "Data split table",
+        "classification_threshold_section": "Classification threshold: 0.5",
         "bias_groups_section": "Bias groups",
         "selected_features_ranked_by_shap": "Feature list",
         "development_note_section": "Dev note",
