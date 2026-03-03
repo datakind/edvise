@@ -99,7 +99,7 @@ Before we train any model, we take several careful steps to make sure your data 
     - Evaluated initial model output for interpretability and actionability.
     - Prioritized model quality with transparent and interpretable model outputs.
 
-- #### Model Selection Process**
+- #### Model Selection
     - From the evaluated candidates, we selected the final model using a standard multi-metric approach designed to balance predictive performance, generalization to new data, and fairness.
     - Candidate models were compared based on strong performance across [Recall](#glossary-recall), [AUC](#glossary-auc), [Log Loss](#glossary-log-loss), and [F1 Score](#glossary-f1).
     - Final selection also incorporated fairness considerations, prioritizing models with lower disparities in [False Negative Rate (FNR)](#glossary-fnr) across student subgroups.
