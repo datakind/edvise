@@ -37,7 +37,7 @@ Before we train any model, we take several careful steps to make sure your data 
 
 - #### Sample Development
 
-    - **Goal: Create a reliable starting dataset**
+    - _Goal: Create a reliable starting dataset_
     - We begin with a comprehensive data audit and validation process to ensure the dataset is complete, consistent, and trustworthy.
     - This includes:
         - Reviewing and addressing [null values](#glossary-null-values)
@@ -50,7 +50,7 @@ Before we train any model, we take several careful steps to make sure your data 
 
 - #### Feature Development
 
-    - **Goal: Transform raw data into meaningful student signals**
+    - _Goal: Transform raw data into meaningful student signals_
     - Next, we apply [feature engineering](#glossary-feature-engineering) techniques to convert raw institutional data into variables that reflect real student behavior and progress.
     - Examples include:
         - Aggregating academic performance by term, year, or course level  
@@ -61,7 +61,7 @@ Before we train any model, we take several careful steps to make sure your data 
 
 - #### Feature Selection
 
-    - **Goal: Retain the most informative and stable predictors**
+    - _Goal: Retain the most informative and stable predictors_
     - Not all features contribute meaningful predictive value. To improve model stability and interpretability, we apply the following selection criteria:
         - Collinearity Threshold
             - Removed features with [Variance Inflation Factor (VIF)](#glossary-vif) greater than {collinearity_threshold}
@@ -76,7 +76,7 @@ Before we train any model, we take several careful steps to make sure your data 
     - After completing the [feature selection](#glossary-feature-selection) process, **{number_of_features} actionable features** were retained for modeling.
 
 - #### Target Population {{#target-population}}
-    - **Goal: Define who the model is designed to support**
+    - _Goal: Define who the model is designed to support_
 {target_population_section}
     - This resulted in a dataset of **{training_dataset_size} students** within the target timeframe.
 
@@ -98,6 +98,12 @@ Before we train any model, we take several careful steps to make sure your data 
     - Evaluated [SHAP](#glossary-shap) values to assess the relative importance of key features.
     - Evaluated initial model output for interpretability and actionability.
     - Prioritized model quality with transparent and interpretable model outputs.
+
+- #### Model Selection Process**
+    - From the evaluated candidates, we selected the final model using a standard multi-metric approach designed to balance predictive performance, generalization to new data, and fairness.
+    - Candidate models were compared based on strong performance across [Recall](#glossary-recall), [AUC](#glossary-auc), [Log Loss](#glossary-log-loss), and [F1 Score](#glossary-f1).
+    - Final selection also incorporated fairness considerations, prioritizing models with lower disparities in [False Negative Rate (FNR)](#glossary-fnr) across student subgroups.
+    - This approach ensures the selected model is accurate, stable, and equitable in identifying students who may need support.
 
 {model_comparison_plot}
 
