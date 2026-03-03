@@ -1836,23 +1836,25 @@ class EdaSummary:
 
         gpa_df = (
             self.df_cohort.assign(
-                gpa=pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce")
-            )[["cohort", "enrollment_type", "gpa"]]
-            .dropna()
+                gpa=pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce"),
+                enrollment_type=self.df_cohort["enrollment_type"]
+                .astype(str)
+                .str.strip()
+                .str.title(),
+            )
+            .loc[
+                lambda d: d["enrollment_type"].isin(
+                    ["First-Time", "Re-Admit", "Transfer-In"]
+                )
+                & d["gpa"].notna()
+            ][["cohort", "enrollment_type", "gpa"]]
             .groupby(["enrollment_type", "cohort"], observed=True)["gpa"]
             .mean()
             .unstack()
             .reindex(columns=self.cohort_years(formatted=False))
         )
 
-        series_data = gpa_df.rename(
-            index=lambda value: {
-                "FIRST-TIME": "First Time",
-                "RE-ADMIT": "Re-admit",
-                "TRANSFER-IN": "Transfer",
-            }.get(str(value), str(value).replace("-", " ").strip())
-        )
-        series_data = self._format_series_data(series_data)
+        series_data = self._format_series_data(gpa_df)
 
         return {
             "cohort_years": self.cohort_years(formatted=True),
@@ -1876,9 +1878,20 @@ class EdaSummary:
 
         gpa_df = (
             self.df_cohort.assign(
-                gpa=pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce")
-            )[["cohort", "enrollment_intensity_first_term", "gpa"]]
-            .dropna()
+                gpa=pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce"),
+                enrollment_intensity_first_term=self.df_cohort[
+                    "enrollment_intensity_first_term"
+                ]
+                .astype(str)
+                .str.strip()
+                .str.title(),
+            )
+            .loc[
+                lambda d: d["enrollment_intensity_first_term"].isin(
+                    ["Full-Time", "Part-Time"]
+                )
+                & d["gpa"].notna()
+            ][["cohort", "enrollment_intensity_first_term", "gpa"]]
             .groupby(["enrollment_intensity_first_term", "cohort"], observed=True)[
                 "gpa"
             ]
@@ -1966,11 +1979,21 @@ class EdaSummary:
                 - total: Total number of students with a degree type
                 - degrees: List of { count, percentage, name } per degree type
         """
-        total = int(self.df_cohort["credential_type_sought_year_1"].notna().sum())
+        value_counts = (
+            self.df_cohort.assign(
+                name=self.df_cohort["credential_type_sought_year_1"]
+                .astype(str)
+                .str.strip()
+                .str.title()
+                .str.replace("'S", "'s", regex=False)
+            )
+            .loc[lambda d: d["name"] != "Unknown", "name"]
+            .value_counts()
+        )
+        total = int(value_counts.sum())
         if total == 0:
             return {"total": 0, "degrees": []}
 
-        value_counts = self.df_cohort["credential_type_sought_year_1"].value_counts()
         degree_df = value_counts.rename("count").to_frame()
         degree_df["percentage"] = ((degree_df["count"] / total) * 100).round(2)
         degrees = t.cast(
@@ -1995,28 +2018,33 @@ class EdaSummary:
                     - name: Enrollment intensity value (e.g., "Full-Time", "Part-Time")
                     - data: List of counts per category
         """
+        df = self.df_cohort.dropna(
+            subset=["enrollment_type", "enrollment_intensity_first_term"]
+        )
         counts_df = (
-            self.df_cohort[["enrollment_type", "enrollment_intensity_first_term"]]
+            df.assign(
+                enrollment_type=df["enrollment_type"]
+                .astype(str)
+                .str.strip()
+                .str.title(),
+                enrollment_intensity_first_term=self.df_cohort[
+                    "enrollment_intensity_first_term"
+                ]
+                .astype(str)
+                .str.strip()
+                .str.title(),
+            )[["enrollment_type", "enrollment_intensity_first_term"]]
             .dropna()
             .groupby(
-                ["enrollment_intensity_first_term", "enrollment_type"], observed=True
+                ["enrollment_intensity_first_term", "enrollment_type"],
+                observed=True,
             )
             .size()
             .unstack(fill_value=0)
         )
 
         return {
-            "categories": (
-                counts_df.columns.to_series()
-                .map(
-                    lambda value: {
-                        "FIRST-TIME": "First Time",
-                        "RE-ADMIT": "Re-admit",
-                        "TRANSFER-IN": "Transfer",
-                    }.get(str(value), str(value).replace("-", " ").strip())
-                )
-                .tolist()
-            ),
+            "categories": counts_df.columns.tolist(),
             "series": self._format_series_data(counts_df),
         }
 
@@ -2043,8 +2071,17 @@ class EdaSummary:
             return None
 
         pell_df = (
-            df[["pell_status_first_year", "first_gen"]]
-            .assign(first_gen=lambda d: d["first_gen"].fillna("N"))
+            df.assign(
+                pell_status_first_year=df["pell_status_first_year"]
+                .astype(str)
+                .str.strip()
+                .str.title(),
+                first_gen=df["first_gen"]
+                .fillna("N")
+                .astype(str)
+                .str.upper()
+                .map({"Y": "Yes", "N": "No"}),
+            )[["pell_status_first_year", "first_gen"]]
             .dropna(subset=["pell_status_first_year"])
             .value_counts()
             .unstack(fill_value=0)
@@ -2071,7 +2108,13 @@ class EdaSummary:
             return None
 
         data = (
-            self.df_cohort.dropna(subset=["pell_status_first_year"])
+            self.df_cohort.assign(
+                pell_status_first_year=self.df_cohort["pell_status_first_year"]
+                .astype(str)
+                .str.strip()
+                .str.title()
+            )
+            .dropna(subset=["pell_status_first_year"])
             .groupby("pell_status_first_year", observed=True)
             .size()
             .to_dict()
@@ -2095,7 +2138,14 @@ class EdaSummary:
         """
 
         age_group_df = (
-            self.df_cohort[["gender", "student_age"]]
+            self.df_cohort.assign(
+                gender=self.df_cohort["gender"].astype(str).str.strip().str.title(),
+                student_age=self.df_cohort["student_age"]
+                .astype(str)
+                .str.strip()
+                .str.title(),
+            )[["gender", "student_age"]]
+            .loc[lambda d: d["gender"] != "Uk"]
             .dropna()
             .value_counts()
             .unstack(fill_value=0)
@@ -2118,17 +2168,17 @@ class EdaSummary:
                 - series: List of dicts with "name" (Pell status) and "data" (counts per category)
         """
 
-        pell_map = {"Y": "Yes", "N": "No"}
         race_df = (
-            self.df_cohort[["race", "pell_status_first_year"]]
+            self.df_cohort.assign(
+                race=self.df_cohort["race"].astype(str).str.strip().str.title(),
+                pell_status_first_year=self.df_cohort["pell_status_first_year"]
+                .astype(str)
+                .str.upper()
+                .map({"Y": "Yes", "N": "No"}),
+            )[["race", "pell_status_first_year"]]
             .dropna()
-            .assign(
-                pell_status_first_year=lambda d: (
-                    d["pell_status_first_year"].astype(str).replace(pell_map)
-                )
-            )
+            .loc[lambda d: d["pell_status_first_year"].isin(["Yes", "No"])]
         )
-        race_df = race_df[race_df["pell_status_first_year"].isin(["Yes", "No"])]
 
         counts_df = (
             race_df.groupby(["pell_status_first_year", "race"], observed=True)
