@@ -54,7 +54,7 @@ from edvise.shared.logger import (
     local_fs_path,
 )
 from edvise.shared.validation import require
-from edvise.shared.pipeline_runs import append_pipeline_run_event
+from edvise.shared.dashboard_metadata.pipeline_runs import append_pipeline_run_event
 
 logging.basicConfig(
     level=logging.INFO,

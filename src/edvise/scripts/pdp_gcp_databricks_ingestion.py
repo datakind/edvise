@@ -19,7 +19,7 @@ src_path = os.path.join(repo_root, "src")
 if os.path.isdir(src_path) and src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-from edvise.shared.pipeline_runs import (
+from edvise.shared.dashboard_metadata.pipeline_runs import (
     append_pipeline_run_event,
     parse_ts14_from_filename,
 )

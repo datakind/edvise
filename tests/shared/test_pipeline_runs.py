@@ -1,11 +1,11 @@
-"""Unit tests for edvise.shared.pipeline_runs."""
+"""Unit tests for edvise.shared.dashboard_metadata.pipeline_runs."""
 
 import json
 from datetime import datetime, timezone
 
 import pytest
 
-import edvise.shared.pipeline_runs as pipeline_runs
+import edvise.shared.dashboard_metadata.pipeline_runs as pipeline_runs
 
 
 class _FakeWriter:
@@ -134,4 +134,3 @@ def test_append_pipeline_run_event_success_writes_to_uc_table(monkeypatch):
 
     assert isinstance(row["payload_json"], str)
     assert json.loads(row["payload_json"]) == {"a": 1, "b": "x"}
-

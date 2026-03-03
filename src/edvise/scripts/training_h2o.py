@@ -35,7 +35,7 @@ from edvise.shared.logger import (
     local_fs_path,
     init_file_logging,
 )
-from edvise.shared.pipeline_runs import (
+from edvise.shared.dashboard_metadata.pipeline_runs import (
     append_pipeline_run_event,
 )
 from edvise.shared.validation import (
