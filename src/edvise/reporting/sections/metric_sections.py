@@ -60,7 +60,7 @@ def register_metric_sections(card, registry):
         will still print out how many experiments were run but the sample weight details are optional, depending
         on where a column with a substring of "sample_weight" exists in the training data.
         """
-        platform = "H2O AutoML"
+        platform = "[H2O AutoML](#glossary-h2o-automl)"
         used_weights = any(
             col.startswith("sample_weight") for col in card.training_data.columns
         )
@@ -109,12 +109,12 @@ def register_metric_sections(card, registry):
                 threshold = 0.5
 
         threshold_note = (
-            f"{card.format.indent_level(1)}- A classification threshold of {threshold} was used to convert "
+            f"{card.format.indent_level(1)}- A [classification threshold](#glossary-classification-threshold) of {threshold} was used to convert "
             f"predicted probabilities into final binary classifications. The model produces a probability that a student needs support. "
             f"If this probability is greater than or equal to {threshold}, the student is classified as needing support.\n"
-            f"{card.format.indent_level(2)}- Lower thresholds (e.g., 0.4) increase recall, meaning fewer students who need support are missed, "
+            f"{card.format.indent_level(2)}- Lower thresholds (e.g., 0.4) increase [recall](#glossary-recall), meaning fewer students who need support are missed, "
             f"but more students may be flagged unnecessarily.\n"
-            f"{card.format.indent_level(2)}- Higher thresholds (e.g., 0.6) increase precision, meaning flagged students are more likely to truly need support, "
+            f"{card.format.indent_level(2)}- Higher thresholds (e.g., 0.6) increase [precision](#glossary-precision), meaning flagged students are more likely to truly need support, "
             f"but some students who could benefit may not be identified."
         )
 
