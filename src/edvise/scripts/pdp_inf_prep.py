@@ -1,7 +1,8 @@
 import argparse
 import pandas as pd
 import logging
-
+import json
+import typing as t
 import os
 import sys
 
@@ -21,8 +22,9 @@ print("sys.path:", sys.path)
 
 from edvise.model_prep import cleanup_features as cleanup
 from edvise.dataio.read import read_parquet, read_config
+from edvise.student_selection.filter_inference import filter_inference_term
 from edvise.dataio.write import write_parquet
-from edvise.configs.pdp import PDPProjectConfig
+from edvise.configs.pdp import PDPProjectConfig, InferenceConfig
 from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
 from edvise.shared.validation import (
     require,
@@ -33,14 +35,54 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 logging.getLogger("py4j").setLevel(logging.WARNING)
+
+
+def parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
+    """Parse --term_filter job param. Treat None, '', 'null' as not provided; else json.loads.
+    Empty list after parse -> not provided (use config). Invalid JSON -> raise."""
+    if value is None:
+        return None
+    s = value.strip()
+    if s in ("", "null", "None"):
+        return None
+    try:
+        parsed = json.loads(s)
+    except json.JSONDecodeError as e:
+        LOGGER.error("Invalid JSON for term_filter param: %s", value)
+        raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
+    if not isinstance(parsed, list):
+        raise ValueError("--term_filter must be a JSON list of strings")
+    labels = [str(item).strip() for item in parsed if str(item).strip()]
+    if not labels:
+        return None  # empty list -> use config
+    return labels
 
 
 class InferencePrepTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.cfg = read_config(args.config_file_path, schema=PDPProjectConfig)
+
+        # Resolve inference cohort from job param or config (term_filter is generic for cohort/graduation)
+        if getattr(self.args, "job_type", None) == "inference":
+            param_cohort = parse_term_filter_param(
+                getattr(self.args, "term_filter", None)
+            )
+            if param_cohort is not None:
+                if self.cfg.inference is None:
+                    self.cfg.inference = InferenceConfig(cohort=param_cohort)
+                else:
+                    self.cfg.inference.term = param_cohort
+                LOGGER.info(
+                    "Inference cohort source: job param; term_filter=%s", param_cohort
+                )
+            else:
+                LOGGER.info(
+                    "Inference cohort source: config; cohort=%s",
+                    self.cfg.inference.term if self.cfg.inference else None,
+                )
 
     def merge_data(
         self,
@@ -68,7 +110,7 @@ class InferencePrepTask:
             (n_checkpoint_ok / total_selected * 100) if total_selected else 0.0
         )
 
-        logger.info(
+        LOGGER.info(
             "Checkpoint-evaluable subset: %d/%d criteria-selected students (%.2f%%) meet the checkpoint.",
             n_checkpoint_ok,
             total_selected,
@@ -100,7 +142,7 @@ class InferencePrepTask:
             logger_name=__name__,
             log_file_name="pdp_inference_prep.log",
         )
-        logger.info("Per-run log file initialized at %s", log_path)
+        LOGGER.info("Per-run log file initialized at %s", log_path)
 
         # Read inputs (DBFS-safe)
         ckpt_path = os.path.join(current_run_path, "checkpoint.parquet")
@@ -135,8 +177,17 @@ class InferencePrepTask:
             "Merge produced 0 labeled rows (checkpoint ∩ selected ∩ selected_students is empty).",
         )
 
+        LOGGER.info(
+            " Selecting students for inference, i.e. met the checkpoint in term(s) of interest"
+        )
+        if self.cfg.inference is None or self.cfg.inference.term is None:
+            raise ValueError("cfg.inference.term must be configured.")
+
+        inf_terms = self.cfg.inference.term
+        df_selected_terms = filter_inference_term(df_labeled, term_list=inf_terms)
+
         cohort_counts = (
-            df_labeled[["cohort", "cohort_term"]]
+            df_selected_terms[["cohort", "cohort_term"]]
             .value_counts(dropna=False)
             .sort_index()
         )
@@ -144,7 +195,17 @@ class InferencePrepTask:
             "Cohort & Cohort Term breakdowns (counts):\n%s",
             cohort_counts.to_string(),
         )
-        df_preprocessed = self.cleanup_features(df_labeled)
+
+        term_counts = (
+            df_selected_terms[["academic_year", "academic_term"]]
+            .value_counts(dropna=False)
+            .sort_index()
+        )
+        logging.info(
+            "Term breakdowns (counts):\n%s",
+            term_counts.to_string(),
+        )
+        df_preprocessed = self.cleanup_features(df_selected_terms)
 
         # Write output using custom function
         out_path = os.path.join(current_run_path, "preprocessed.parquet")
