@@ -1774,7 +1774,7 @@ class EdaSummary:
             df.reset_index(names="name")
             .assign(
                 data=lambda d: [
-                    [None if pd.isna(x) else float(x) for x in row]
+                    [None if pd.isna(x) else round(float(x), 2) for x in row]
                     for row in d.drop(columns="name").to_numpy()
                 ]
             )
@@ -1812,13 +1812,13 @@ class EdaSummary:
         """
         return {
             "name": "Avg. Year 1 GPA - All Students",
-            "value": float(
-                round(
+            "value": round(
+                float(
                     pd.to_numeric(
                         self.df_cohort["gpa_group_year_1"], errors="coerce"
-                    ).mean(),
-                    2,
-                )
+                    ).mean()
+                ),
+                2,
             ),
         }
 
@@ -1843,7 +1843,6 @@ class EdaSummary:
             .mean()
             .unstack()
             .reindex(columns=self.cohort_years(formatted=False))
-            .round(2)
         )
 
         series_data = gpa_df.rename(
@@ -1858,7 +1857,7 @@ class EdaSummary:
         return {
             "cohort_years": self.cohort_years(formatted=True),
             "series": series_data,
-            "min_gpa": float(round(gpa_df.replace(0, np.nan).min().min(), 2))
+            "min_gpa": round(float(gpa_df.replace(0, np.nan).min().min()), 2)
             if pd.notna(gpa_df.replace(0, np.nan).min().min())
             else None,
         }
@@ -1886,7 +1885,6 @@ class EdaSummary:
             .mean()
             .unstack()
             .reindex(columns=self.cohort_years(formatted=False))
-            .round(2)
         )
 
         series_data = gpa_df.rename(index=lambda value: str(value).replace("-", " "))
@@ -1895,7 +1893,7 @@ class EdaSummary:
         return {
             "cohort_years": self.cohort_years(formatted=True),
             "series": series_data,
-            "min_gpa": float(round(gpa_df.replace(0, np.nan).min().min(), 2)),
+            "min_gpa": round(float(gpa_df.replace(0, np.nan).min().min()), 2),
         }
 
     def _term_counts_by_cohort(self, df: pd.DataFrame) -> dict[str, t.Any]:
