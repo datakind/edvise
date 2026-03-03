@@ -94,16 +94,15 @@ Before we train any model, we take several careful steps to make sure your data 
 {data_split_table}
 
 - #### Model Evaluation
-    - Evaluated top models across standard classification metrics such as [Accuracy](#glossary-accuracy), [AUC](#glossary-auc), [F1-Score](#glossary-f1), [Log Loss](#glossary-log-loss), [Precision](#glossary-precision), [Recall](#glossary-recall).
-    - Evaluated [SHAP](#glossary-shap) values to assess the relative importance of key features.
-    - Evaluated initial model output for interpretability and actionability.
-    - Prioritized model quality with transparent and interpretable model outputs.
+    - Evaluated candidate models across standard classification metrics such as [Accuracy](#glossary-accuracy), [AUC](#glossary-auc), [F1-Score](#glossary-f1), [Log Loss](#glossary-log-loss), [Precision](#glossary-precision), [Recall](#glossary-recall).
+    - Computed an overfit score to identify models that may perform well on training data but struggle when applied to new, unseen data.
 
 - #### Model Selection
     - From the evaluated candidates, we selected the final model using a standard multi-metric approach designed to balance predictive performance, generalization to new data, and fairness.
     - Candidate models were compared based on strong performance across [Recall](#glossary-recall), [AUC](#glossary-auc), [Log Loss](#glossary-log-loss), and [F1 Score](#glossary-f1).
     - Final selection also incorporated fairness considerations, prioritizing models with lower disparities in [False Negative Rate (FNR)](#glossary-fnr) across student subgroups.
     - This approach ensures the selected model is accurate, stable, and equitable in identifying students who may need support.
+    - Analyzed [SHAP](#glossary-shap) values for the selected model to assess the relative importance of key features.
 
 {model_comparison_plot}
 
