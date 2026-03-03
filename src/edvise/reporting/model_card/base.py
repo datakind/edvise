@@ -54,7 +54,8 @@ class ModelCard(t.Generic[C], ABC):
         self.context: dict[str, t.Any] = {}
 
         self.assets_folder = assets_path or self.DEFAULT_ASSETS_FOLDER
-        self.output_path = self._build_output_path()
+        self.run_id = self._resolve_run_id()  # May be None if config is incomplete
+        self.output_path = self._build_output_path() if self.run_id else None
         self.template_path = self._resolve(
             "edvise.reporting.template", self.TEMPLATE_FILENAME
         )
@@ -185,6 +186,9 @@ class ModelCard(t.Generic[C], ABC):
         """
         Renders the model card using the template and context data.
         """
+        # Ensure output_path is set (in case run_id was set after __init__)
+        if not self.output_path:
+            self.output_path = self._build_output_path()
         with open(self.template_path, "r") as file:
             template = file.read()
         filled = template.format(**self.context)
@@ -259,13 +263,21 @@ class ModelCard(t.Generic[C], ABC):
             filename=self.pdf_path,
             catalog=self.catalog,
             institution_id=self.cfg.institution_id,
+            run_id=self.run_id,
         )
 
     def _build_output_path(self) -> str:
         """
         Builds the output path for the model card.
         """
-        out_dir = os.path.join(tempfile.gettempdir(), "model_cards")
+        run_id = getattr(self, "run_id", None)
+
+        if not run_id:
+            raise RuntimeError(
+                "ModelCard.run_id must be set before building output path"
+            )
+
+        out_dir = os.path.join(tempfile.gettempdir(), "model_cards", run_id)
         os.makedirs(out_dir, exist_ok=True)
         filename = f"model-card-{self.model_name}.md"
         return os.path.join(out_dir, filename)
@@ -282,3 +294,12 @@ class ModelCard(t.Generic[C], ABC):
         the file exists within the SST package itself.
         """
         return files(package).joinpath(filename)
+
+    def _resolve_run_id(self) -> t.Optional[str]:
+        """
+        Resolves run_id from config if available.
+        Returns None if config is missing or incomplete (validation deferred to load_model).
+        """
+        model_cfg = getattr(self.cfg, "model", None)
+        run_id = getattr(model_cfg, "run_id", None) if model_cfg is not None else None
+        return str(run_id) if run_id else None
