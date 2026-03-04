@@ -36,14 +36,50 @@ class _FakeDF:
         self.write = writer
 
 
+class _FakeRow:
+    def __init__(self, value: str) -> None:
+        self._value = value
+
+    def asDict(self):
+        return {"institution_id": self._value}
+
+    def __getitem__(self, idx: int) -> str:
+        if idx != 0:
+            raise IndexError(idx)
+        return self._value
+
+
+class _FakeInstitutionsLookupDF:
+    def __init__(self, inst_id: str) -> None:
+        self._inst_id = inst_id
+
+    def where(self, *_args, **_kwargs):
+        return self
+
+    def select(self, *_args, **_kwargs):
+        return self
+
+    def limit(self, *_args, **_kwargs):
+        return self
+
+    def collect(self):
+        return [_FakeRow(self._inst_id)]
+
+
 class _FakeSpark:
     def __init__(self) -> None:
         self.created_rows = None
         self.writer = _FakeWriter()
+        self.table_calls = []
 
     def createDataFrame(self, rows):
         self.created_rows = rows
         return _FakeDF(writer=self.writer)
+
+    def table(self, name: str):
+        self.table_calls.append(name)
+        # Return a DF-like chain for institutions lookup
+        return _FakeInstitutionsLookupDF("017e6440f49c4572985e14c166215f8a")
 
 
 def test_parse_ts14_from_filename_none_returns_none():
@@ -101,8 +137,9 @@ def test_append_pipeline_run_event_success_writes_to_uc_table(monkeypatch):
         run_type="training",
         task_key="training_h2o",
         event="completed",
-        institution_id="inst_123",
-        databricks_institution_name="inst_123",
+        # Callers historically pass config institution_id; we now resolve SST inst_id from UC.
+        institution_id="motlow_state_cc",
+        databricks_institution_name="motlow_state_cc",
         cohort_dataset_name="cohort_20250723040724.csv",
         course_dataset_name="course_20250723040724.csv",
         dataset_ts=datetime(2025, 7, 23, 4, 7, 24),
@@ -123,8 +160,8 @@ def test_append_pipeline_run_event_success_writes_to_uc_table(monkeypatch):
     assert row["run_type"] == "training"
     assert row["task_key"] == "training_h2o"
     assert row["event"] == "completed"
-    assert row["institution_id"] == "inst_123"
-    assert row["databricks_institution_name"] == "inst_123"
+    assert row["institution_id"] == "017e6440f49c4572985e14c166215f8a"
+    assert "databricks_institution_name" not in row
     assert row["cohort_dataset_name"] == "cohort_20250723040724.csv"
     assert row["course_dataset_name"] == "course_20250723040724.csv"
     assert row["dataset_ts"] == datetime(2025, 7, 23, 4, 7, 24)
@@ -133,4 +170,9 @@ def test_append_pipeline_run_event_success_writes_to_uc_table(monkeypatch):
     assert row["event_ts"].tzinfo == timezone.utc
 
     assert isinstance(row["payload_json"], str)
-    assert json.loads(row["payload_json"]) == {"a": 1, "b": "x"}
+    assert json.loads(row["payload_json"]) == {
+        "a": 1,
+        "b": "x",
+        "config_institution_id": "motlow_state_cc",
+        "databricks_institution_name": "motlow_state_cc",
+    }
