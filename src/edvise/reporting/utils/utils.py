@@ -101,6 +101,7 @@ def download_static_asset(
     local_folder: str,
     fixed_width: str = "40mm",
     alignment: str = "left",
+    caption: t.Optional[str] = None,
 ) -> t.Optional[str]:
     """
     Downloads static asset from local folder and returns the path. This method
@@ -115,6 +116,7 @@ def download_static_asset(
         local_folder: Local folder to download artifact to
         fixed_width: Desired fixed width for images (e.g., "40mm", "100mm")
         alignment: Horizontal alignment for images ("left", "right", "center")
+        caption: Optional caption text to display below the image
 
     Returns:
         Local path to artifact OR inline HTML string with path information if image
@@ -136,7 +138,7 @@ def download_static_asset(
         if description is None:
             description = os.path.basename(dst_path)
         return embed_image(
-            description, dst_path, fixed_width=fixed_width, alignment=alignment
+            description, dst_path, fixed_width=fixed_width, alignment=alignment, caption=caption
         )
     else:
         return dst_path
@@ -212,7 +214,9 @@ def embed_image(
 
     style = f"{css_alignment} width: {fixed_width}; height: auto; max-width: 100%;"
 
-    img_html = f'<img src="{rel_path}" alt="{description}" style="{style}">'
+    # Use caption for alt text if provided, otherwise use description
+    alt_text = caption if caption else description
+    img_html = f'<img src="{rel_path}" alt="{alt_text}" style="{style}">'
 
     if not caption:
         return img_html

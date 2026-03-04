@@ -171,7 +171,7 @@ def test_template_placeholders_are_in_context(
             "collinearity_threshold": 10.0,
             "low_variance_threshold": 0.0,
             "incomplete_threshold": 0.5,
-            "funnel_image": "methodology_funnel.png",
+            "funnel_image": "data_funnel.png",
         }
     )
 

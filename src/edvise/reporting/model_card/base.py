@@ -26,7 +26,7 @@ class ModelCard(t.Generic[C], ABC):
     DEFAULT_ASSETS_FOLDER = "card_assets"
     TEMPLATE_FILENAME = "model-card-TEMPLATE.md"
     LOGO_FILENAME = "logo.png"
-    METHODOLOGY_FUNNEL_FILENAME = "methodology_funnel.png"
+    DATA_FUNNEL_FILENAME = "data_funnel.png"
 
     def __init__(
         self,
@@ -64,7 +64,7 @@ class ModelCard(t.Generic[C], ABC):
             "edvise.reporting.template.assets", self.LOGO_FILENAME
         )
         self.funnel_image_path = self._resolve(
-            "edvise.reporting.template.assets", self.METHODOLOGY_FUNNEL_FILENAME
+            "edvise.reporting.template.assets", self.DATA_FUNNEL_FILENAME
         )
 
     def build(self):
@@ -165,6 +165,7 @@ class ModelCard(t.Generic[C], ABC):
                 local_folder=self.assets_folder,
                 fixed_width="120mm",
                 alignment="center",
+                caption="Data Preparation Flowchart",
             )
             or "",
             "institution_name": self.cfg.institution_name,

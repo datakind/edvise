@@ -211,7 +211,7 @@ def test_custom_school_model_card_template_placeholders_filled(
             "collinearity_threshold": 10.0,
             "low_variance_threshold": 0.0,
             "incomplete_threshold": 0.5,
-            "funnel_image": "methodology_funnel.png",
+            "funnel_image": "data_funnel.png",
         }
     )
 
