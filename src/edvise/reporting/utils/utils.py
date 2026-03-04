@@ -138,7 +138,11 @@ def download_static_asset(
         if description is None:
             description = os.path.basename(dst_path)
         return embed_image(
-            description, dst_path, fixed_width=fixed_width, alignment=alignment, caption=caption
+            description,
+            dst_path,
+            fixed_width=fixed_width,
+            alignment=alignment,
+            caption=caption,
         )
     else:
         return dst_path
