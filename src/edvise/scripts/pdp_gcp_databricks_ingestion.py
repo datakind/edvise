@@ -21,7 +21,7 @@ if os.path.isdir(src_path) and src_path not in sys.path:
 
 from edvise.shared.dashboard_metadata.pipeline_runs import (
     append_pipeline_run_event,
-    parse_ts14_from_filename,
+    parse_timestamp_from_filename,
 )
 
 # Model names from get_model_name() are already UC-compatible
@@ -266,7 +266,9 @@ if __name__ == "__main__":
     args = parse_arguments()
 
     # Observability: append-only run events
-    dataset_ts = parse_ts14_from_filename(args.cohort_file_name) or parse_ts14_from_filename(
+    dataset_ts = parse_timestamp_from_filename(
+        args.cohort_file_name
+    ) or parse_timestamp_from_filename(
         args.course_file_name
     )
     append_pipeline_run_event(

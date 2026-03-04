@@ -24,7 +24,7 @@ _TS14_RE = re.compile(r"(\d{14})")
 _SST_INST_ID_RE = re.compile(r"^[0-9a-f]{32}$", flags=re.IGNORECASE)
 
 
-def parse_ts14_from_filename(filename: t.Optional[str]) -> t.Optional[datetime]:
+def parse_timestamp_from_filename(filename: t.Optional[str]) -> t.Optional[datetime]:
     """
     Parse a trailing-ish 14-digit timestamp (YYYYMMDDHHMMSS) embedded in a filename.
     Example: "..._20250723040724.csv" -> 2025-07-23 04:07:24 UTC (naive).
@@ -38,6 +38,11 @@ def parse_ts14_from_filename(filename: t.Optional[str]) -> t.Optional[datetime]:
         return datetime.strptime(m.group(1), "%Y%m%d%H%M%S")
     except Exception:
         return None
+
+
+def parse_ts14_from_filename(filename: t.Optional[str]) -> t.Optional[datetime]:
+    """Backwards-compatible alias for parse_timestamp_from_filename()."""
+    return parse_timestamp_from_filename(filename)
 
 
 def _json_dumps(payload: t.Optional[dict[str, t.Any]]) -> t.Optional[str]:

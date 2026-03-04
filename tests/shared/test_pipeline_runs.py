@@ -83,16 +83,16 @@ class _FakeSpark:
 
 
 def test_parse_ts14_from_filename_none_returns_none():
-    assert pipeline_runs.parse_ts14_from_filename(None) is None
+    assert pipeline_runs.parse_timestamp_from_filename(None) is None
 
 
 def test_parse_ts14_from_filename_no_ts_returns_none():
-    assert pipeline_runs.parse_ts14_from_filename("cohort.csv") is None
-    assert pipeline_runs.parse_ts14_from_filename("cohort_2025.csv") is None
+    assert pipeline_runs.parse_timestamp_from_filename("cohort.csv") is None
+    assert pipeline_runs.parse_timestamp_from_filename("cohort_2025.csv") is None
 
 
 def test_parse_ts14_from_filename_extracts_ts():
-    ts = pipeline_runs.parse_ts14_from_filename("cohort_20250723040724.csv")
+    ts = pipeline_runs.parse_timestamp_from_filename("cohort_20250723040724.csv")
     assert ts == datetime(2025, 7, 23, 4, 7, 24)
 
 
