@@ -190,15 +190,13 @@ def upsert_new_to_manifest(
     """
     target_cols = set(spark.table(MANIFEST_TABLE_PATH).columns)
 
-    df_manifest_insert = (
-        df_listing.select(
-            "file_fingerprint",
-            "source_system",
-            "sftp_path",
-            "file_name",
-            "file_size",
-            "file_modified_time",
-        )
+    df_manifest_insert = df_listing.select(
+        "file_fingerprint",
+        "source_system",
+        "sftp_path",
+        "file_name",
+        "file_size",
+        "file_modified_time",
     )
 
     # Only set optional columns if they exist on the target table. We avoid ALTER TABLE

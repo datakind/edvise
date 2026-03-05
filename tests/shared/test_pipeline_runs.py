@@ -61,7 +61,9 @@ def test_parse_ts14_from_filename_extracts_ts():
 
 def test_append_pipeline_run_event_missing_run_id_returns_false(monkeypatch):
     def _boom():
-        raise AssertionError("_get_spark_session should not be called when run_id is empty")
+        raise AssertionError(
+            "_get_spark_session should not be called when run_id is empty"
+        )
 
     monkeypatch.setattr(pipeline_runs, "_get_spark_session", _boom)
     ok = pipeline_runs.append_pipeline_run_event(
@@ -76,7 +78,9 @@ def test_append_pipeline_run_event_missing_run_id_returns_false(monkeypatch):
 def test_append_pipeline_run_event_missing_catalog_returns_false(monkeypatch):
     class _SparkNoUse:
         def createDataFrame(self, rows):
-            raise AssertionError("createDataFrame should not be called when catalog is empty")
+            raise AssertionError(
+                "createDataFrame should not be called when catalog is empty"
+            )
 
     monkeypatch.setattr(pipeline_runs, "_get_spark_session", lambda: _SparkNoUse())
     ok = pipeline_runs.append_pipeline_run_event(

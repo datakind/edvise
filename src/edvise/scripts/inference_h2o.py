@@ -200,7 +200,10 @@ class ModelInferenceTask:
         )
         current_run_path_local = local_fs_path(current_run_path)
 
-        logging.info("Loading UC model metadata (run_id + experiment_id) from: %s", current_run_path_local)
+        logging.info(
+            "Loading UC model metadata (run_id + experiment_id) from: %s",
+            current_run_path_local,
+        )
         self.load_mlflow_model_metadata()
         assert self.model_run_id and self.model_experiment_id
 
@@ -451,7 +454,9 @@ if __name__ == "__main__":
             run_type="inference",
             event="completed",
             institution_id=getattr(task.cfg, "institution_id", None),
-            databricks_institution_name=getattr(args, "databricks_institution_name", None),
+            databricks_institution_name=getattr(
+                args, "databricks_institution_name", None
+            ),
             term_filter=term_filter,
             model_run_id=getattr(task, "model_run_id", None),
             experiment_id=getattr(task, "model_experiment_id", None),
@@ -463,7 +468,9 @@ if __name__ == "__main__":
             run_type="inference",
             event="failed",
             institution_id=getattr(task.cfg, "institution_id", None),
-            databricks_institution_name=getattr(args, "databricks_institution_name", None),
+            databricks_institution_name=getattr(
+                args, "databricks_institution_name", None
+            ),
             term_filter=term_filter,
             model_run_id=getattr(task, "model_run_id", None),
             experiment_id=getattr(task, "model_experiment_id", None),

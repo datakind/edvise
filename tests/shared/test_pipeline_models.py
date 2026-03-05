@@ -63,8 +63,12 @@ def test_upsert_pipeline_model_writes_row_append_fallback(monkeypatch):
     monkeypatch.setattr(pipeline_models, "_get_spark_session", lambda: fake_spark)
 
     # Avoid MLflow/delta dependencies in unit tests
-    monkeypatch.setattr(pipeline_models, "_best_effort_fetch_mlflow_run_metrics", lambda **_k: None)
-    monkeypatch.setattr(pipeline_models, "_best_effort_resolve_uc_model_version", lambda **_k: None)
+    monkeypatch.setattr(
+        pipeline_models, "_best_effort_fetch_mlflow_run_metrics", lambda **_k: None
+    )
+    monkeypatch.setattr(
+        pipeline_models, "_best_effort_resolve_uc_model_version", lambda **_k: None
+    )
 
     ok = pipeline_models.upsert_pipeline_model(
         catalog="my_catalog",
@@ -103,4 +107,3 @@ def test_upsert_pipeline_model_writes_row_append_fallback(monkeypatch):
     assert row["summary_metrics"] is None
     assert row["bias_summary"] is None
     assert json.loads(row["payload_json"]) == {"x": 1}
-

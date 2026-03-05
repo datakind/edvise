@@ -721,15 +721,22 @@ if __name__ == "__main__":
         try:
             upsert_pipeline_model(
                 catalog=args.DB_workspace,
-                institution_id=databricks_institution_name or getattr(task.cfg, "institution_id", None),
+                institution_id=databricks_institution_name
+                or getattr(task.cfg, "institution_id", None),
                 model_name=model_name,
                 model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
                 training_run_id=getattr(args, "db_run_id", None),
-                training_cohort_dataset_name=getattr(getattr(task.cfg, "datasets", None), "raw_cohort", None),
-                training_course_dataset_name=getattr(getattr(task.cfg, "datasets", None), "raw_course", None),
+                training_cohort_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_cohort", None
+                ),
+                training_course_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_course", None
+                ),
                 model_card_path=model_card_path,
                 payload={
-                    "experiment_id": getattr(getattr(task.cfg, "model", None), "experiment_id", None),
+                    "experiment_id": getattr(
+                        getattr(task.cfg, "model", None), "experiment_id", None
+                    ),
                     "pipeline_version": getattr(args, "pipeline_version", None),
                     "config_file_path": getattr(args, "config_file_path", None),
                 },
@@ -746,7 +753,9 @@ if __name__ == "__main__":
             institution_id=getattr(task.cfg, "institution_id", None),
             databricks_institution_name=databricks_institution_name,
             model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
-            experiment_id=getattr(getattr(task.cfg, "model", None), "experiment_id", None),
+            experiment_id=getattr(
+                getattr(task.cfg, "model", None), "experiment_id", None
+            ),
             pipeline_version=getattr(args, "pipeline_version", None),
         )
     except Exception as e:
@@ -758,7 +767,9 @@ if __name__ == "__main__":
             institution_id=getattr(task.cfg, "institution_id", None),
             databricks_institution_name=databricks_institution_name,
             model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
-            experiment_id=getattr(getattr(task.cfg, "model", None), "experiment_id", None),
+            experiment_id=getattr(
+                getattr(task.cfg, "model", None), "experiment_id", None
+            ),
             pipeline_version=getattr(args, "pipeline_version", None),
             error_message=str(e),
         )

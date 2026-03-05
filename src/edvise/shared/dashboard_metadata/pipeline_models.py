@@ -49,11 +49,15 @@ def _best_effort_fetch_mlflow_run_metrics(*, run_id: str) -> dict[str, float] | 
                 continue
         return out
     except Exception as e:
-        LOGGER.warning("pipeline_models: failed to fetch MLflow metrics for %s: %s", run_id, e)
+        LOGGER.warning(
+            "pipeline_models: failed to fetch MLflow metrics for %s: %s", run_id, e
+        )
         return None
 
 
-def _select_summary_metrics(metrics: dict[str, float] | None) -> dict[str, float] | None:
+def _select_summary_metrics(
+    metrics: dict[str, float] | None,
+) -> dict[str, float] | None:
     """
     Keep a stable, dashboard-friendly subset of model performance metrics.
     """
@@ -154,13 +158,19 @@ def upsert_pipeline_model(
             LOGGER.warning("pipeline_models: skipping write because catalog is empty")
             return False
         if not institution_id:
-            LOGGER.warning("pipeline_models: skipping write because institution_id is empty")
+            LOGGER.warning(
+                "pipeline_models: skipping write because institution_id is empty"
+            )
             return False
         if not model_name:
-            LOGGER.warning("pipeline_models: skipping write because model_name is empty")
+            LOGGER.warning(
+                "pipeline_models: skipping write because model_name is empty"
+            )
             return False
         if not model_run_id:
-            LOGGER.warning("pipeline_models: skipping write because model_run_id is empty")
+            LOGGER.warning(
+                "pipeline_models: skipping write because model_run_id is empty"
+            )
             return False
 
         spark = _get_spark_session()
@@ -171,8 +181,16 @@ def upsert_pipeline_model(
 
         # Best-effort metrics fetch if caller didn't provide any
         metrics_all = _best_effort_fetch_mlflow_run_metrics(run_id=str(model_run_id))
-        summary_metrics2 = summary_metrics if summary_metrics is not None else _select_summary_metrics(metrics_all)
-        bias_summary2 = bias_summary if bias_summary is not None else _select_bias_summary(metrics_all)
+        summary_metrics2 = (
+            summary_metrics
+            if summary_metrics is not None
+            else _select_summary_metrics(metrics_all)
+        )
+        bias_summary2 = (
+            bias_summary
+            if bias_summary is not None
+            else _select_bias_summary(metrics_all)
+        )
 
         model_version = _best_effort_resolve_uc_model_version(
             catalog=str(catalog),
@@ -239,4 +257,3 @@ def upsert_pipeline_model(
             e,
         )
         return False
-

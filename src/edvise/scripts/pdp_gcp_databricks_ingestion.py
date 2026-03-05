@@ -268,9 +268,7 @@ if __name__ == "__main__":
     # Observability: append-only run events
     dataset_ts = parse_timestamp_from_filename(
         args.cohort_file_name
-    ) or parse_timestamp_from_filename(
-        args.course_file_name
-    )
+    ) or parse_timestamp_from_filename(args.course_file_name)
     append_pipeline_run_event(
         catalog=args.DB_workspace,
         run_id=args.db_run_id,
