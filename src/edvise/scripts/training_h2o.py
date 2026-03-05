@@ -38,6 +38,9 @@ from edvise.shared.logger import (
 from edvise.shared.dashboard_metadata.pipeline_runs import (
     append_pipeline_run_event,
 )
+from edvise.shared.dashboard_metadata.pipeline_models import (
+    upsert_pipeline_model,
+)
 from edvise.shared.validation import (
     require,
     require_attr,
@@ -710,8 +713,30 @@ if __name__ == "__main__":
             model_card_path = (
                 f"/Volumes/{args.DB_workspace}/"
                 f"{task.cfg.institution_id}_gold/gold_volume/model_cards/"
+                f"{getattr(getattr(task.cfg, 'model', None), 'run_id', '')}/"
                 f"model-card-{model_name}.pdf"
             )
+
+        # Model registry table (one row per model run id / UC version)
+        try:
+            upsert_pipeline_model(
+                catalog=args.DB_workspace,
+                institution_id=databricks_institution_name or getattr(task.cfg, "institution_id", None),
+                model_name=model_name,
+                model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
+                training_run_id=getattr(args, "db_run_id", None),
+                training_cohort_dataset_name=getattr(getattr(task.cfg, "datasets", None), "raw_cohort", None),
+                training_course_dataset_name=getattr(getattr(task.cfg, "datasets", None), "raw_course", None),
+                model_card_path=model_card_path,
+                payload={
+                    "experiment_id": getattr(getattr(task.cfg, "model", None), "experiment_id", None),
+                    "pipeline_version": getattr(args, "pipeline_version", None),
+                    "config_file_path": getattr(args, "config_file_path", None),
+                },
+            )
+        except Exception:
+            # Best-effort only; never fail training for dashboard metadata.
+            pass
 
         append_pipeline_run_event(
             catalog=args.DB_workspace,
@@ -722,8 +747,6 @@ if __name__ == "__main__":
             databricks_institution_name=databricks_institution_name,
             model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
             experiment_id=getattr(getattr(task.cfg, "model", None), "experiment_id", None),
-            model_name=model_name,
-            model_card_path=model_card_path,
             pipeline_version=getattr(args, "pipeline_version", None),
         )
     except Exception as e:

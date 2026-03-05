@@ -280,7 +280,6 @@ if __name__ == "__main__":
         cohort_dataset_name=args.cohort_file_name,
         course_dataset_name=args.course_file_name,
         dataset_ts=dataset_ts,
-        model_name=args.model_name,
         payload={"gcp_bucket_name": args.gcp_bucket_name},
     )
 
@@ -319,7 +318,6 @@ if __name__ == "__main__":
             cohort_dataset_name=args.cohort_file_name,
             course_dataset_name=args.course_file_name,
             dataset_ts=dataset_ts,
-            model_name=args.model_name,
             model_run_id=task.model_run_id,
             payload={"config_file_path": task.config_file_path},
         )
@@ -333,7 +331,6 @@ if __name__ == "__main__":
             cohort_dataset_name=args.cohort_file_name,
             course_dataset_name=args.course_file_name,
             dataset_ts=dataset_ts,
-            model_name=args.model_name,
             model_run_id=getattr(task, "model_run_id", None),
             error_message=str(e),
         )
