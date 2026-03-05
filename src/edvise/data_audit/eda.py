@@ -1999,17 +1999,13 @@ class EdaSummary:
                 - total: Total number of students with a degree type
                 - degrees: List of { count, percentage, name } per degree type
         """
-        value_counts = (
-            self.df_cohort.assign(
-                name=self.df_cohort["credential_type_sought_year_1"]
-                .astype(str)
-                .str.strip()
-                .str.title()
-                .str.replace("'S", "'s", regex=False)
-            )
-            .loc[lambda d: d["name"] != "Unknown", "name"]
-            .value_counts()
-        )
+        value_counts = self.df_cohort.assign(
+            name=self.df_cohort["credential_type_sought_year_1"]
+            .astype(str)
+            .str.strip()
+            .str.title()
+            .str.replace("'S", "'s", regex=False)
+        ).value_counts()
         total = int(value_counts.sum())
         if total == 0:
             return {"total": 0, "degrees": []}
