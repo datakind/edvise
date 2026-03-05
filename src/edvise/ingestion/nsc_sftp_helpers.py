@@ -597,13 +597,15 @@ def update_manifest(
     if "processed_at" in target_cols:
         set_clauses.append("t.processed_at = s.processed_at")
 
+    # Python 3.10: f-string expressions can't contain backslash escapes like "\n".
+    set_sql = ",\n          ".join(set_clauses)
     spark.sql(
         f"""
         MERGE INTO {manifest_table} AS t
         USING manifest_updates AS s
         ON t.file_fingerprint = s.file_fingerprint
         WHEN MATCHED THEN UPDATE SET
-          {",\n          ".join(set_clauses)}
+          {set_sql}
         """
     )
 

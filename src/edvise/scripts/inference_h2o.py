@@ -200,7 +200,7 @@ class ModelInferenceTask:
         )
         current_run_path_local = local_fs_path(current_run_path)
 
-        logging.info("Loading UC model metadata (run_id + experiment_id)")
+        logging.info("Loading UC model metadata (run_id + experiment_id) from: %s", current_run_path_local)
         self.load_mlflow_model_metadata()
         assert self.model_run_id and self.model_experiment_id
 

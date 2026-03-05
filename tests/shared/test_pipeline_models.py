@@ -3,7 +3,6 @@
 import json
 from datetime import datetime, timezone
 
-import pytest
 
 import edvise.shared.dashboard_metadata.pipeline_models as pipeline_models
 
