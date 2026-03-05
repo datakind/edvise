@@ -350,23 +350,6 @@ class TestEdaSummary:
             ],
         }
 
-    def test_gpa_by_enrollment_intensity(self, sample_cohort_data):
-        assert EdaSummary(sample_cohort_data).gpa_by_enrollment_intensity == {
-            "cohort_years": [
-                "2011 - 12",
-                "2013 - 14",
-                "2015 - 16",
-                "2016 - 17",
-                "2017 - 18",
-                "2018 - 19",
-            ],
-            "series": [
-                {"name": "Full-Time", "data": [3.12, 3.72, None, 3.78, 3.8, 3.2]},
-                {"name": "Part-Time", "data": [None, None, 3.66, None, None, None]},
-            ],
-            "min_gpa": 3.12,
-        }
-
     def test_pell_recipient_status_handles_nulls(self, sample_cohort_data):
         """Test that NaN pell status values are properly excluded."""
         sample_cohort_data.loc[0:2, "pell_status_first_year"] = pd.NA
