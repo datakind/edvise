@@ -171,8 +171,6 @@ def append_pipeline_run_event(
     term_filter: t.Optional[str] = None,
     model_run_id: t.Optional[str] = None,
     experiment_id: t.Optional[str] = None,
-    model_name: t.Optional[str] = None,
-    model_card_path: t.Optional[str] = None,
     pipeline_version: t.Optional[str] = None,
     error_message: t.Optional[str] = None,
     payload: t.Optional[dict[str, t.Any]] = None,
@@ -180,7 +178,7 @@ def append_pipeline_run_event(
     table: str = "pipeline_runs",
 ) -> bool:
     """
-    Append a single observability event row to a UC Delta table.
+    Upsert (MERGE) a run-level row to a UC Delta table.
 
     Table target (default): <catalog>.default.pipeline_runs
 
@@ -224,37 +222,149 @@ def append_pipeline_run_event(
         ):
             payload2["config_institution_id"] = institution_id
 
+        # Infer dataset timestamp from filenames when not provided (helps training runs).
+        if dataset_ts is None:
+            dataset_ts = parse_timestamp_from_filename(cohort_dataset_name) or parse_timestamp_from_filename(
+                course_dataset_name
+            )
+
+        now = datetime.now(timezone.utc)
+        event_norm = str(event or "").strip().lower()
+        status = None
+        started_at = None
+        finished_at = None
+        if event_norm == "started":
+            status = "running"
+            started_at = now
+        elif event_norm == "completed":
+            status = "completed"
+            finished_at = now
+        elif event_norm == "failed":
+            status = "failed"
+            finished_at = now
+
+        # Dict insertion order is used below to enforce a stable column order on first table creation.
         row: dict[str, t.Any] = {
-            "event_ts": datetime.now(timezone.utc),
-            "run_id": str(run_id),
-            "run_url": _best_effort_databricks_run_url(run_id=str(run_id)),
-            "run_type": str(run_type),
-            "event": str(event),
             "institution_id": resolved_institution_id,
+            "run_id": str(run_id),
+            "run_type": str(run_type),
+            "status": status,
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "updated_at": now,
+            "run_url": _best_effort_databricks_run_url(run_id=str(run_id)),
             "cohort_dataset_name": cohort_dataset_name,
             "course_dataset_name": course_dataset_name,
             "dataset_ts": dataset_ts,
             "term_filter": term_filter,
             "model_run_id": model_run_id,
             "experiment_id": experiment_id,
-            "model_name": model_name,
-            "model_card_path": model_card_path,
             "pipeline_version": pipeline_version,
             "error_message": error_message,
             "payload_json": _json_dumps(payload2),
         }
 
         df = spark.createDataFrame([row])
-        (
-            df.write.format("delta")
-            .mode("append")
-            .option("mergeSchema", "true")
-            .saveAsTable(table_path)
-        )
-        return True
+        try:
+            # Reorder columns explicitly (Spark may reorder dict fields when inferring schema).
+            if hasattr(df, "select"):
+                df = df.select(*list(row.keys()))
+        except Exception:
+            pass
+
+        # Prefer an idempotent upsert via Delta merge when available.
+        try:
+            from delta.tables import DeltaTable  # type: ignore
+            from pyspark.sql import functions as F  # type: ignore
+
+            # Allow merge schema evolution on Databricks if enabled.
+            try:
+                spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+            except Exception:
+                pass
+
+            try:
+                dt = DeltaTable.forName(spark, table_path)
+            except Exception:
+                (
+                    df.write.format("delta")
+                    .mode("append")
+                    .option("mergeSchema", "true")
+                    .saveAsTable(table_path)
+                )
+                return True
+
+            # finished_at: keep the latest terminal timestamp
+            finished_at_expr = F.when(
+                F.col("s.finished_at").isNull(),
+                F.col("t.finished_at"),
+            ).when(
+                F.col("t.finished_at").isNull(),
+                F.col("s.finished_at"),
+            ).when(
+                F.col("s.finished_at") > F.col("t.finished_at"),
+                F.col("s.finished_at"),
+            ).otherwise(F.col("t.finished_at"))
+
+            # status precedence: failed > completed > running
+            status_expr = F.expr(
+                """
+                CASE
+                  WHEN t.status = 'failed' OR s.status = 'failed' THEN 'failed'
+                  WHEN t.status = 'completed' OR s.status = 'completed' THEN 'completed'
+                  WHEN t.status = 'running' OR s.status = 'running' THEN 'running'
+                  ELSE COALESCE(s.status, t.status)
+                END
+                """
+            )
+
+            (
+                dt.alias("t")
+                .merge(
+                    df.alias("s"),
+                    "t.run_id = s.run_id AND t.run_type = s.run_type",
+                )
+                .whenMatchedUpdate(
+                    set={
+                        "updated_at": F.col("s.updated_at"),
+                        "run_url": F.coalesce(F.col("s.run_url"), F.col("t.run_url")),
+                        "institution_id": F.coalesce(
+                            F.col("s.institution_id"), F.col("t.institution_id")
+                        ),
+                        "status": status_expr,
+                        "started_at": F.coalesce(F.col("t.started_at"), F.col("s.started_at")),
+                        "finished_at": finished_at_expr,
+                        "cohort_dataset_name": F.coalesce(
+                            F.col("s.cohort_dataset_name"), F.col("t.cohort_dataset_name")
+                        ),
+                        "course_dataset_name": F.coalesce(
+                            F.col("s.course_dataset_name"), F.col("t.course_dataset_name")
+                        ),
+                        "dataset_ts": F.coalesce(F.col("s.dataset_ts"), F.col("t.dataset_ts")),
+                        "term_filter": F.coalesce(F.col("s.term_filter"), F.col("t.term_filter")),
+                        "model_run_id": F.coalesce(F.col("s.model_run_id"), F.col("t.model_run_id")),
+                        "experiment_id": F.coalesce(F.col("s.experiment_id"), F.col("t.experiment_id")),
+                        "pipeline_version": F.coalesce(F.col("s.pipeline_version"), F.col("t.pipeline_version")),
+                        "error_message": F.coalesce(F.col("s.error_message"), F.col("t.error_message")),
+                        "payload_json": F.coalesce(F.col("s.payload_json"), F.col("t.payload_json")),
+                    }
+                )
+                .whenNotMatchedInsertAll()
+                .execute()
+            )
+            return True
+        except Exception:
+            # Fallback: append-only (may create duplicates if Delta merge isn't available).
+            (
+                df.write.format("delta")
+                .mode("append")
+                .option("mergeSchema", "true")
+                .saveAsTable(table_path)
+            )
+            return True
     except Exception as e:
         LOGGER.warning(
-            "pipeline_runs: failed to append event (run_id=%s, run_type=%s, event=%s): %s",
+            "pipeline_runs: failed to write run record (run_id=%s, run_type=%s, event=%s): %s",
             run_id,
             run_type,
             event,

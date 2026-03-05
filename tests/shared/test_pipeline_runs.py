@@ -122,15 +122,18 @@ def test_append_pipeline_run_event_success_writes_to_uc_table(monkeypatch):
     assert row["run_id"] == "r1"
     assert row["run_url"] is None
     assert row["run_type"] == "training"
-    assert row["event"] == "completed"
     assert row["institution_id"] == "motlow_state_cc"
     assert "databricks_institution_name" not in row
+    assert row["status"] == "completed"
+    assert row["started_at"] is None
+    assert isinstance(row["finished_at"], datetime)
+    assert row["finished_at"].tzinfo == timezone.utc
     assert row["cohort_dataset_name"] == "cohort_20250723040724.csv"
     assert row["course_dataset_name"] == "course_20250723040724.csv"
     assert row["dataset_ts"] == datetime(2025, 7, 23, 4, 7, 24)
 
-    assert isinstance(row["event_ts"], datetime)
-    assert row["event_ts"].tzinfo == timezone.utc
+    assert isinstance(row["updated_at"], datetime)
+    assert row["updated_at"].tzinfo == timezone.utc
 
     assert isinstance(row["payload_json"], str)
     assert json.loads(row["payload_json"]) == {"a": 1, "b": "x"}
