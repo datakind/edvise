@@ -131,6 +131,7 @@ def test_append_pipeline_run_event_success_writes_to_uc_table(monkeypatch):
     assert row["cohort_dataset_name"] == "cohort_20250723040724.csv"
     assert row["course_dataset_name"] == "course_20250723040724.csv"
     assert row["dataset_ts"] == datetime(2025, 7, 23, 4, 7, 24)
+    assert row["cohort"] is None
 
     assert isinstance(row["updated_at"], datetime)
     assert row["updated_at"].tzinfo == timezone.utc

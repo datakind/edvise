@@ -168,6 +168,7 @@ def append_pipeline_run_event(
     cohort_dataset_name: t.Optional[str] = None,
     course_dataset_name: t.Optional[str] = None,
     dataset_ts: t.Optional[datetime] = None,
+    cohort: t.Optional[str] = None,
     term_filter: t.Optional[str] = None,
     model_run_id: t.Optional[str] = None,
     experiment_id: t.Optional[str] = None,
@@ -256,6 +257,7 @@ def append_pipeline_run_event(
             "cohort_dataset_name": cohort_dataset_name,
             "course_dataset_name": course_dataset_name,
             "dataset_ts": dataset_ts,
+            "cohort": cohort,
             "term_filter": term_filter,
             "model_run_id": model_run_id,
             "experiment_id": experiment_id,
@@ -341,6 +343,7 @@ def append_pipeline_run_event(
                             F.col("s.course_dataset_name"), F.col("t.course_dataset_name")
                         ),
                         "dataset_ts": F.coalesce(F.col("s.dataset_ts"), F.col("t.dataset_ts")),
+                        "cohort": F.coalesce(F.col("s.cohort"), F.col("t.cohort")),
                         "term_filter": F.coalesce(F.col("s.term_filter"), F.col("t.term_filter")),
                         "model_run_id": F.coalesce(F.col("s.model_run_id"), F.col("t.model_run_id")),
                         "experiment_id": F.coalesce(F.col("s.experiment_id"), F.col("t.experiment_id")),

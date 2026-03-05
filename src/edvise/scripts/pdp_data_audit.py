@@ -1,6 +1,7 @@
 import argparse
 import importlib
 import logging
+import json
 import typing as t
 import sys
 import pandas as pd
@@ -543,6 +544,21 @@ if __name__ == "__main__":
 
     # We only emit run-level events from this task for TRAINING runs.
     if getattr(args, "job_type", None) == "training":
+        cohort = None
+        try:
+            modeling_cfg = getattr(task.cfg, "modeling", None)
+            training_cfg = (
+                getattr(modeling_cfg, "training", None)
+                if modeling_cfg is not None
+                else None
+            )
+            cohorts = (
+                getattr(training_cfg, "cohort", None) if training_cfg is not None else None
+            )
+            if cohorts:
+                cohort = json.dumps(cohorts, default=str)
+        except Exception:
+            cohort = None
         append_pipeline_run_event(
             catalog=args.DB_workspace,
             run_id=args.db_run_id,
@@ -550,6 +566,7 @@ if __name__ == "__main__":
             event="started",
             institution_id=getattr(task.cfg, "institution_id", None),
             databricks_institution_name=databricks_institution_name,
+            cohort=cohort,
             cohort_dataset_name=getattr(
                 getattr(task.cfg, "datasets", None), "raw_cohort", None
             ),
@@ -572,6 +589,7 @@ if __name__ == "__main__":
                 event="completed",
                 institution_id=getattr(task.cfg, "institution_id", None),
                 databricks_institution_name=databricks_institution_name,
+                cohort=cohort,
                 cohort_dataset_name=getattr(
                     getattr(task.cfg, "datasets", None), "raw_cohort", None
                 ),
@@ -587,6 +605,7 @@ if __name__ == "__main__":
                 event="failed",
                 institution_id=getattr(task.cfg, "institution_id", None),
                 databricks_institution_name=databricks_institution_name,
+                cohort=cohort,
                 cohort_dataset_name=getattr(
                     getattr(task.cfg, "datasets", None), "raw_cohort", None
                 ),
