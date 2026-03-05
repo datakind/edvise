@@ -13,6 +13,7 @@ Writes results to Unity Catalog Delta tables and exports CSV.
 
 from __future__ import annotations
 import argparse
+import json
 import logging
 import os
 import sys
@@ -423,14 +424,23 @@ if __name__ == "__main__":
     #     logging.info("Running task with default schema")
 
     task = ModelInferenceTask(args)
+    # Best-effort: log which inference term(s) are configured/used.
+    term_filter = None
+    try:
+        inf = getattr(task.cfg, "inference", None)
+        terms = getattr(inf, "term", None) if inf is not None else None
+        if terms is not None:
+            term_filter = json.dumps(terms, default=str)
+    except Exception:
+        term_filter = None
     append_pipeline_run_event(
         catalog=args.DB_workspace,
         run_id=args.db_run_id,
         run_type="inference",
-        task_key="inference_h2o",
         event="started",
         institution_id=getattr(task.cfg, "institution_id", None),
         databricks_institution_name=getattr(args, "databricks_institution_name", None),
+        term_filter=term_filter,
         payload={"config_file_path": getattr(args, "config_file_path", None)},
     )
     try:
@@ -439,10 +449,10 @@ if __name__ == "__main__":
             catalog=args.DB_workspace,
             run_id=args.db_run_id,
             run_type="inference",
-            task_key="inference_h2o",
             event="completed",
             institution_id=getattr(task.cfg, "institution_id", None),
             databricks_institution_name=getattr(args, "databricks_institution_name", None),
+            term_filter=term_filter,
             model_run_id=getattr(task, "model_run_id", None),
             experiment_id=getattr(task, "model_experiment_id", None),
         )
@@ -451,10 +461,10 @@ if __name__ == "__main__":
             catalog=args.DB_workspace,
             run_id=args.db_run_id,
             run_type="inference",
-            task_key="inference_h2o",
             event="failed",
             institution_id=getattr(task.cfg, "institution_id", None),
             databricks_institution_name=getattr(args, "databricks_institution_name", None),
+            term_filter=term_filter,
             model_run_id=getattr(task, "model_run_id", None),
             experiment_id=getattr(task, "model_experiment_id", None),
             error_message=str(e),

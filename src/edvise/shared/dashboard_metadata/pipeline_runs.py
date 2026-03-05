@@ -21,7 +21,6 @@ def _get_spark_session():
 
 
 _TS14_RE = re.compile(r"(\d{14})")
-_SST_INST_ID_RE = re.compile(r"^[0-9a-f]{32}$", flags=re.IGNORECASE)
 
 
 def parse_timestamp_from_filename(filename: t.Optional[str]) -> t.Optional[datetime]:
@@ -54,55 +53,104 @@ def _json_dumps(payload: t.Optional[dict[str, t.Any]]) -> t.Optional[str]:
         return json.dumps({"_error": f"json_dumps_failed: {e}", "_raw": str(payload)})
 
 
-def _looks_like_sst_inst_id(value: t.Optional[str]) -> bool:
-    if not value:
-        return False
-    return _SST_INST_ID_RE.fullmatch(str(value)) is not None
-
-
-def _resolve_inst_id_from_uc(
+def _coalesce_institution_id(
     *,
-    spark,
-    catalog: str,
+    institution_id: t.Optional[str],
     databricks_institution_name: t.Optional[str],
-    schema: str = "default",
-    table: str = "institutions",
 ) -> t.Optional[str]:
-    """
-    Best-effort lookup of SST WebApp inst_id (institutions.institution_id) by
-    databricks_institution_name.
+    # For the dashboard metadata tables, we key pipeline runs by the Databricks institution
+    # identifier (the one used in UC schemas/volumes), not the SST WebApp inst_id.
+    v = databricks_institution_name or institution_id
+    v = str(v).strip() if v else None
+    return v or None
 
-    This must never fail the pipeline. On any error, return None.
+
+def _opt_get(value: t.Any) -> t.Optional[str]:
     """
-    if not databricks_institution_name:
+    Databricks context returns a mix of Scala Options and plain strings.
+    Best-effort unwrap to a string.
+    """
+    if value is None:
         return None
     try:
-        tbl = f"{catalog}.{schema}.{table}"
-        # Avoid importing pyspark.sql.functions here so unit tests can run without pyspark.
-        escaped = str(databricks_institution_name).replace("'", "''")
-        rows = (
-            spark.table(tbl)
-            .where(f"databricks_institution_name = '{escaped}'")
-            .select("institution_id")
-            .limit(1)
-            .collect()
-        )
-        if rows:
-            # Row access is defensive across spark versions.
-            d = rows[0].asDict() if hasattr(rows[0], "asDict") else None
-            if isinstance(d, dict) and d.get("institution_id"):
-                return str(d["institution_id"])
-            # Fallback: assume first column is institution_id
-            return str(rows[0][0])
-    except Exception as e:
-        LOGGER.warning(
-            "pipeline_runs: failed to resolve inst_id from %s.%s.%s for databricks_institution_name=%r: %s",
-            catalog,
-            schema,
-            table,
-            databricks_institution_name,
-            e,
-        )
+        # Scala Option-like
+        if hasattr(value, "get"):
+            v = value.get()
+            return None if v is None else str(v)
+    except Exception:
+        pass
+    try:
+        return str(value)
+    except Exception:
+        return None
+
+
+def _normalize_dbx_base_url(url: t.Optional[str]) -> t.Optional[str]:
+    if not url:
+        return None
+    u = str(url).strip()
+    if not u:
+        return None
+    # Some contexts return ".../api/2.0"; convert to UI base.
+    if "/api/" in u:
+        u = u.split("/api/")[0]
+    return u.rstrip("/")
+
+
+def _best_effort_databricks_run_url(*, run_id: str) -> t.Optional[str]:
+    """
+    Build a clickable Jobs UI URL for this run.
+
+    Best-effort only: returns None if we can't read Databricks context (e.g. local tests).
+    """
+    try:
+        from databricks.sdk.runtime import dbutils  # type: ignore
+
+        ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+
+        base_url = None
+        try:
+            base_url = _normalize_dbx_base_url(_opt_get(ctx.apiUrl()))
+        except Exception:
+            base_url = None
+        if not base_url:
+            try:
+                host = _opt_get(ctx.browserHostName())
+                if host:
+                    base_url = f"https://{host}".rstrip("/")
+            except Exception:
+                base_url = None
+
+        workspace_id = None
+        try:
+            workspace_id = _opt_get(ctx.workspaceId())
+        except Exception:
+            workspace_id = None
+
+        job_id = None
+        try:
+            tags = ctx.tags()
+            # tags.get(key) returns an Option-like value in many runtimes.
+            job_id = _opt_get(tags.get("jobId"))
+            if not job_id:
+                job_id = _opt_get(tags.get("job_id"))
+            if not job_id:
+                # Some runtimes expose a dict-like apply().
+                try:
+                    job_id = str(tags.apply("jobId"))
+                except Exception:
+                    job_id = None
+        except Exception:
+            job_id = None
+
+        if not base_url or not job_id:
+            return None
+
+        # Common Databricks Jobs UI pattern.
+        if workspace_id:
+            return f"{base_url}/?o={workspace_id}#job/{job_id}/run/{run_id}"
+        return f"{base_url}/#job/{job_id}/run/{run_id}"
+    except Exception:
         return None
 
 
@@ -111,7 +159,6 @@ def append_pipeline_run_event(
     catalog: t.Optional[str],
     run_id: t.Optional[str],
     run_type: str,
-    task_key: str,
     event: str,
     institution_id: t.Optional[str] = None,
     databricks_institution_name: t.Optional[str] = None,
@@ -140,9 +187,8 @@ def append_pipeline_run_event(
         if not run_id:
             # If we can't correlate, don't write garbage.
             LOGGER.warning(
-                "pipeline_runs: skipping event write because run_id is empty (%s/%s/%s)",
+                "pipeline_runs: skipping event write because run_id is empty (%s/%s)",
                 run_type,
-                task_key,
                 event,
             )
             return False
@@ -160,28 +206,17 @@ def append_pipeline_run_event(
 
         table_path = f"{catalog}.{schema}.{table}"
 
-        # Canonicalize institution_id to SST WebApp inst_id.
-        # - If caller already supplied an inst_id, trust it.
-        # - Else, resolve from the synced institutions table by databricks_institution_name.
-        resolved_inst_id: t.Optional[str] = None
-        if _looks_like_sst_inst_id(institution_id):
-            resolved_inst_id = str(institution_id)
-        else:
-            resolved_inst_id = _resolve_inst_id_from_uc(
-                spark=spark,
-                catalog=catalog,
-                databricks_institution_name=databricks_institution_name,
-                schema=schema,
-                table="institutions",
-            )
+        resolved_institution_id = _coalesce_institution_id(
+            institution_id=institution_id,
+            databricks_institution_name=databricks_institution_name,
+        )
 
         # Keep extra institution identifiers in payload_json for debugging/lineage.
         payload2: dict[str, t.Any] = dict(payload) if isinstance(payload, dict) else {}
-        if databricks_institution_name and "databricks_institution_name" not in payload2:
-            payload2["databricks_institution_name"] = databricks_institution_name
         if (
             institution_id
-            and not _looks_like_sst_inst_id(institution_id)
+            and databricks_institution_name
+            and institution_id != databricks_institution_name
             and "config_institution_id" not in payload2
         ):
             payload2["config_institution_id"] = institution_id
@@ -189,10 +224,10 @@ def append_pipeline_run_event(
         row: dict[str, t.Any] = {
             "event_ts": datetime.now(timezone.utc),
             "run_id": str(run_id),
+            "run_url": _best_effort_databricks_run_url(run_id=str(run_id)),
             "run_type": str(run_type),
-            "task_key": str(task_key),
             "event": str(event),
-            "institution_id": resolved_inst_id,
+            "institution_id": resolved_institution_id,
             "cohort_dataset_name": cohort_dataset_name,
             "course_dataset_name": course_dataset_name,
             "dataset_ts": dataset_ts,
@@ -216,9 +251,9 @@ def append_pipeline_run_event(
         return True
     except Exception as e:
         LOGGER.warning(
-            "pipeline_runs: failed to append event (run_id=%s, task=%s, event=%s): %s",
+            "pipeline_runs: failed to append event (run_id=%s, run_type=%s, event=%s): %s",
             run_id,
-            task_key,
+            run_type,
             event,
             e,
         )
