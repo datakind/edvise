@@ -597,7 +597,6 @@ def update_manifest(
     if "processed_at" in target_cols:
         set_clauses.append("t.processed_at = s.processed_at")
 
-    # Python 3.10: f-string expressions can't contain backslash escapes like "\n".
     set_sql = ",\n          ".join(set_clauses)
     spark.sql(
         f"""
