@@ -106,7 +106,10 @@ def _best_effort_databricks_run_url(*, run_id: str) -> t.Optional[str]:
     try:
         from databricks.sdk.runtime import dbutils  # type: ignore
 
-        ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+        # databricks.sdk.runtime.dbutils is a dynamically-typed proxy; mypy stubs don't
+        # expose the full notebook context surface area.
+        dbx = t.cast(t.Any, dbutils)
+        ctx = dbx.notebook.entry_point.getDbutils().notebook().getContext()
 
         base_url = None
         try:
