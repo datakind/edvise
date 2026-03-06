@@ -488,12 +488,6 @@ def parse_arguments() -> argparse.Namespace:
         required=False,
         help="Name of the cohort data file during inference with GCS blobs when connected to webapp",
     )
-    parser.add_argument(
-        "--term_filter",
-        type=str,
-        default=None,
-        help='JSON list of term/cohort labels (e.g. ["fall 2024-25"]). Omit or null for config default. Used for cohort and graduation models.',
-    )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--bronze_volume_path", type=str, required=False)
     parser.add_argument("--config_file_path", type=str, required=True)
