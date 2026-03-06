@@ -1964,7 +1964,9 @@ class EdaSummary:
         counts_df = (
             df.dropna(subset=["academic_term"])
             .assign(
-                academic_term=lambda d: d["academic_term"].astype(str).str.strip().str.title()
+                academic_term=lambda d: (
+                    d["academic_term"].astype(str).str.strip().str.title()
+                )
             )
             .groupby(["academic_year", "academic_term"], observed=True)
             .size()
