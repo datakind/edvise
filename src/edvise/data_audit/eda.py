@@ -2008,6 +2008,13 @@ class EdaSummary:
             .str.title()
             .str.replace("'S", "'s", regex=False)
         ).value_counts()
+            name=self.df_cohort["credential_type_sought_year_1"]
+            .fillna("Unknown")
+            .astype(str)
+            .str.strip()
+            .str.title()
+            .str.replace("'S", "'s", regex=False)
+        ).value_counts()
         total = int(value_counts.sum())
         if total == 0:
             return {"total": 0, "degrees": []}
