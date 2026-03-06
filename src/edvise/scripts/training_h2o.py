@@ -1,6 +1,7 @@
 import typing as t
 import logging
 import argparse
+import json
 import pandas as pd
 import mlflow
 import os
@@ -683,6 +684,20 @@ if __name__ == "__main__":
                 break
     except Exception:
         databricks_institution_name = None
+    # Best-effort: log which training cohort(s) are configured/used.
+    cohort = None
+    try:
+        modeling_cfg = getattr(task.cfg, "modeling", None)
+        training_cfg = (
+            getattr(modeling_cfg, "training", None) if modeling_cfg is not None else None
+        )
+        cohorts = (
+            getattr(training_cfg, "cohort", None) if training_cfg is not None else None
+        )
+        if cohorts:
+            cohort = json.dumps(cohorts, default=str)
+    except Exception:
+        cohort = None
     append_pipeline_run_event(
         catalog=args.DB_workspace,
         run_id=getattr(args, "db_run_id", None),
@@ -690,6 +705,7 @@ if __name__ == "__main__":
         event="started",
         institution_id=getattr(task.cfg, "institution_id", None),
         databricks_institution_name=databricks_institution_name,
+        cohort=cohort,
         model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
         experiment_id=getattr(getattr(task.cfg, "model", None), "experiment_id", None),
         pipeline_version=getattr(args, "pipeline_version", None),
@@ -752,6 +768,7 @@ if __name__ == "__main__":
             event="completed",
             institution_id=getattr(task.cfg, "institution_id", None),
             databricks_institution_name=databricks_institution_name,
+            cohort=cohort,
             model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
             experiment_id=getattr(
                 getattr(task.cfg, "model", None), "experiment_id", None
@@ -766,6 +783,7 @@ if __name__ == "__main__":
             event="failed",
             institution_id=getattr(task.cfg, "institution_id", None),
             databricks_institution_name=databricks_institution_name,
+            cohort=cohort,
             model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
             experiment_id=getattr(
                 getattr(task.cfg, "model", None), "experiment_id", None
