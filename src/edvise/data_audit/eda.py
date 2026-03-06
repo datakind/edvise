@@ -2002,27 +2002,24 @@ class EdaSummary:
                 - total: Total number of students with a degree type
                 - degrees: List of { count, percentage, name } per degree type
         """
-        value_counts = self.df_cohort.assign(
-            name=self.df_cohort["credential_type_sought_year_1"]
+        value_counts = (
+            self.df_cohort["credential_type_sought_year_1"]
             .fillna("Unknown")
             .astype(str)
             .str.strip()
             .str.title()
             .str.replace("'S", "'s", regex=False)
-        ).value_counts()
+            .value_counts()
+        )
         total = int(value_counts.sum())
         if total == 0:
             return {"total": 0, "degrees": []}
 
-        degree_df = value_counts.rename("count").to_frame()
-        degree_df["percentage"] = ((degree_df["count"] / total) * 100).round(2)
-        degrees = t.cast(
-            list[dict[str, int | float | str]],
-            degree_df.reset_index(names="name")
-            .loc[:, ["count", "percentage", "name"]]
-            .assign(count=lambda d: d["count"].astype(int))
-            .to_dict(orient="records"),
-        )
+        degree_df = value_counts.rename("count").to_frame().reset_index(names="name")
+        degree_df["percentage"] = (degree_df["count"] / total * 100).round(2)
+        degree_df["count"] = degree_df["count"].astype(int)
+        degrees = degree_df[["name", "count", "percentage"]].to_dict(orient="records")
+
         return {"total": total, "degrees": degrees}
 
     @cached_property
