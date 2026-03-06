@@ -1,9 +1,9 @@
 # Standard library imports
 import logging
-import re
 import typing as t
-from typing import cast
-from urllib.parse import quote
+from dataclasses import dataclass, field
+from typing import Any, cast
+from urllib.parse import quote, urljoin
 
 # Third-party imports
 import requests
@@ -184,120 +184,6 @@ def validate_custom_model_exist(inst_id: str, model_name: str, api_key: str) -> 
         return resp.text
 
 
-# Compiled regex patterns for reverse transformation (performance optimization)
-_REVERSE_REPLACEMENTS = {
-    "ctc": "community technical college",
-    "cc": "community college",
-    "st": "of science and technology",
-    "uni": "university",
-    "col": "college",
-}
-
-# Pre-compile regex patterns for word boundary matching
-_COMPILED_REVERSE_PATTERNS = {
-    abbrev: re.compile(r"\b" + re.escape(abbrev) + r"\b")
-    for abbrev in _REVERSE_REPLACEMENTS.keys()
-}
-
-
-def _validate_databricks_name_format(databricks_name: str) -> None:
-    """
-    Validate that databricks name matches expected format.
-
-    Args:
-        databricks_name: Name to validate
-
-    Raises:
-        ValueError: If name is empty or contains invalid characters
-    """
-    if not isinstance(databricks_name, str) or not databricks_name.strip():
-        raise ValueError("databricks_name must be a non-empty string")
-
-    pattern = "^[a-z0-9_]*$"
-    if not re.match(pattern, databricks_name):
-        raise ValueError(
-            f"Invalid databricks name format '{databricks_name}'. "
-            "Must contain only lowercase letters, numbers, and underscores."
-        )
-
-
-def _reverse_abbreviation_replacements(name: str) -> str:
-    """
-    Reverse abbreviation replacements in the name.
-
-    Handles the ambiguous "st" abbreviation:
-    - If "st" appears as the first word, it's kept as "st" (abbreviation for Saint)
-      and will be capitalized to "St" by title() case
-    - Otherwise, "st" is treated as "of science and technology"
-
-    Args:
-        name: Name with underscores replaced by spaces
-
-    Returns:
-        Name with abbreviations expanded to full forms
-    """
-    # Split into words to handle "st" at the beginning specially
-    words = name.split()
-
-    # Keep "st" at the beginning as-is (will be capitalized to "St" by title() case)
-    # Don't expand it to "saint" - preserve the abbreviation
-
-    # Replace "st" in remaining positions with "of science and technology"
-    for i in range(len(words)):
-        if words[i] == "st" and i > 0:  # Only replace if not the first word
-            words[i] = "of science and technology"
-
-    # Rejoin and apply other abbreviation replacements
-    name = " ".join(words)
-
-    # Apply other abbreviation replacements (excluding "st" which we handled above)
-    for abbrev, full_form in _REVERSE_REPLACEMENTS.items():
-        if abbrev != "st":  # Skip "st" as we handled it above
-            pattern = _COMPILED_REVERSE_PATTERNS[abbrev]
-            name = pattern.sub(full_form, name)
-
-    return name
-
-
-def reverse_databricksify_inst_name(databricks_name: str) -> str:
-    """
-    Reverse the databricksify transformation to get back the original institution name.
-
-    This function attempts to reverse the transformation done by databricksify_inst_name.
-    Since the transformation is lossy (multiple original names can map to the same
-    databricks name), this function produces the most likely original name.
-
-    Args:
-        databricks_name: The databricks-transformed institution name (e.g., "motlow_state_cc")
-            Case inconsistencies are normalized (input is lowercased before processing).
-
-    Returns:
-        The reversed institution name with proper capitalization (e.g., "Motlow State Community College")
-
-    Raises:
-        ValueError: If the databricks name contains invalid characters
-    """
-    # Normalize to lowercase to handle case inconsistencies
-    # (databricksify_inst_name always produces lowercase output)
-    databricks_name = databricks_name.lower()
-    _validate_databricks_name_format(databricks_name)
-
-    # Step 1: Replace underscores with spaces
-    name = databricks_name.replace("_", " ")
-
-    # Step 2: Reverse the abbreviation replacements
-    # The original replacements were done in this order (most specific first):
-    # 1. "community technical college" → "ctc"
-    # 2. "community college" → "cc"
-    # 3. "of science and technology" → "st"
-    # 4. "university" → "uni"
-    # 5. "college" → "col"
-    name = _reverse_abbreviation_replacements(name)
-
-    # Step 3: Capitalize appropriately (title case)
-    return name.title()
-
-
 def _fetch_institution_by_name(normalized_name: str, access_token: str) -> t.Any:
     """
     Fetch institution data from API by normalized name.
@@ -373,6 +259,8 @@ def _validate_and_transform_institution_name(
     # Validate and transform databricks name if needed
     if is_databricks_name:
         try:
+            from edvise.utils.databricks import reverse_databricksify_inst_name
+
             institution_name = reverse_databricksify_inst_name(institution_name.strip())
         except ValueError as e:
             LOGGER.error(
@@ -515,3 +403,152 @@ def log_custom_job(
         return resp.json()
     except ValueError:
         return resp.text
+
+
+# ---------------------------
+# Edvise API Client (with caching and auto-refresh)
+# ---------------------------
+
+
+@dataclass
+class EdviseAPIClient:
+    """
+    API client for Edvise API with bearer token management.
+
+    Features:
+    - Automatic bearer token fetching and refresh
+    - Token caching within a session
+    - Institution lookup caching
+    - Automatic retry on 401 (unauthorized) errors
+
+    Example:
+        >>> client = EdviseAPIClient(
+        ...     api_key="your-api-key",
+        ...     base_url="https://staging-sst.datakind.org",
+        ...     token_endpoint="/api/v1/token-from-api-key",
+        ...     institution_lookup_path="/api/v1/institutions/pdp-id/{pdp_id}"
+        ... )
+        >>> institution = fetch_institution_by_pdp_id(client, "12345")
+    """
+
+    api_key: str
+    base_url: str
+    token_endpoint: str
+    institution_lookup_path: str
+    session: requests.Session = field(default_factory=requests.Session)
+    bearer_token: str | None = None
+    institution_cache: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Validate and normalize API client configuration."""
+        self.api_key = self.api_key.strip()
+        if not self.api_key:
+            raise ValueError("Empty Edvise API key.")
+
+        self.base_url = self.base_url.rstrip("/")
+        self.token_endpoint = self.token_endpoint.strip()
+        self.institution_lookup_path = self.institution_lookup_path.strip()
+
+        self.session.headers.update({"accept": "application/json"})
+
+
+def _fetch_bearer_token_for_client(client: EdviseAPIClient) -> str:
+    """
+    Fetch bearer token from API key using X-API-KEY header.
+
+    Assumes token endpoint returns JSON containing one of: access_token, token, bearer_token, jwt.
+
+    Args:
+        client: EdviseAPIClient instance
+
+    Returns:
+        Bearer token string
+
+    Raises:
+        PermissionError: If API key is invalid (401 response)
+        ValueError: If token response is missing expected token field
+        requests.HTTPError: For other HTTP errors
+    """
+    token_url = (
+        client.token_endpoint
+        if client.token_endpoint.startswith(("http://", "https://"))
+        else urljoin(f"{client.base_url}/", client.token_endpoint)
+    )
+    resp = client.session.post(
+        token_url,
+        headers={"accept": "application/json", "X-API-KEY": client.api_key},
+        timeout=30,
+    )
+    if resp.status_code == 401:
+        raise PermissionError(
+            "Unauthorized calling token endpoint (check X-API-KEY secret)."
+        )
+    resp.raise_for_status()
+
+    data = resp.json()
+    for k in ["access_token", "token", "bearer_token", "jwt"]:
+        v = data.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
+    raise ValueError(
+        "Token endpoint response missing expected token field. "
+        f"Keys={list(data.keys())}"
+    )
+
+
+def _ensure_auth(client: EdviseAPIClient) -> None:
+    """Ensure client has a valid bearer token, fetching if needed."""
+    if client.bearer_token is None:
+        _refresh_auth(client)
+
+
+def _refresh_auth(client: EdviseAPIClient) -> None:
+    """Refresh bearer token and update session headers."""
+    client.bearer_token = _fetch_bearer_token_for_client(client)
+    client.session.headers.update({"Authorization": f"Bearer {client.bearer_token}"})
+
+
+def fetch_institution_by_pdp_id(client: EdviseAPIClient, pdp_id: str) -> dict[str, Any]:
+    """
+    Resolve institution for PDP id using Edvise API.
+
+    Cached within run. Automatically refreshes token on 401 errors.
+
+    Args:
+        client: EdviseAPIClient instance
+        pdp_id: Institution PDP ID to look up
+
+    Returns:
+        Institution data dictionary from API
+
+    Raises:
+        ValueError: If institution PDP ID not found (404) or other API errors
+        requests.HTTPError: For HTTP errors other than 401/404
+
+    Example:
+        >>> client = EdviseAPIClient(...)
+        >>> inst = fetch_institution_by_pdp_id(client, "12345")
+        >>> print(inst["name"])
+        'Example University'
+    """
+    pid = str(pdp_id).strip()
+    if pid in client.institution_cache:
+        return client.institution_cache[pid]
+
+    _ensure_auth(client)
+
+    url = client.base_url + client.institution_lookup_path.format(pdp_id=pid)
+    resp = client.session.get(url, timeout=30)
+
+    if resp.status_code == 401:
+        _refresh_auth(client)
+        resp = client.session.get(url, timeout=30)
+
+    if resp.status_code == 404:
+        raise ValueError(f"Institution PDP ID not found in SST staging: {pid}")
+
+    resp.raise_for_status()
+    data = cast(dict[str, Any], resp.json())
+    client.institution_cache[pid] = data
+    return data

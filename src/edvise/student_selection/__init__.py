@@ -1,1 +1,1 @@
-from . import select_students_attributes
+from . import filter_inference, select_students_attributes
