@@ -1962,8 +1962,9 @@ class EdaSummary:
         ]
         years_raw = years_raw.tolist()
         counts_df = (
-            df.assign(
-                academic_term=df["academic_term"].astype(str).str.strip().str.title()
+            df.dropna(subset=["academic_term"])
+            .assign(
+                academic_term=lambda d: d["academic_term"].astype(str).str.strip().str.title()
             )
             .groupby(["academic_year", "academic_term"], observed=True)
             .size()
@@ -2001,6 +2002,7 @@ class EdaSummary:
         """
         value_counts = self.df_cohort.assign(
             name=self.df_cohort["credential_type_sought_year_1"]
+            .fillna("Unknown")
             .astype(str)
             .str.strip()
             .str.title()
