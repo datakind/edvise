@@ -19,8 +19,8 @@
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ### NOTE: 
-# MAGIC column names vary across schools. in this notebook are just some examples. You may need to edit the cells to match the respective names. ex. `entry_term` may be `first_enrollment_date`; `entry_type` may be `student_type`; `first_gen` may be `first_generation`; `awarded_pell` may be `awarded_pell_ever`; check the dataframes to know which column names to use. 
+# MAGIC ### NOTE:
+# MAGIC column names vary across schools. in this notebook are just some examples. You may need to edit the cells to match the respective names. ex. `entry_term` may be `first_enrollment_date`; `entry_type` may be `student_type`; `first_gen` may be `first_generation`; `awarded_pell` may be `awarded_pell_ever`; check the dataframes to know which column names to use.
 
 # COMMAND ----------
 
@@ -688,7 +688,7 @@ anomalies["grade"].value_counts(dropna=False)
 
 # COMMAND ----------
 
-# what percent? 
+# what percent?
 # (len(anomalies[anomalies["no_credits_with_passing_grade"] == True])) / len(course_raw_df)*100
 
 # COMMAND ----------
@@ -739,16 +739,16 @@ print(cleaned_course["course_delivery"].value_counts(dropna=False))
 # check credits attempted and credits earned fields
 # change column names as needed
 validate_credit_consistency(
-    course_df=course_raw_df, 
-    semester_df=semester_raw_df, 
-    cohort_df=student_raw_df, 
-    course_credits_attempted_col = "course_credits",
-    course_credits_earned_col = "number_of_credits_earned",
-    semester_credits_attempted_col = "number_of_credits_attempted",
-    semester_credits_earned_col = "number_of_credits_earned",
-    semester_courses_count_col = "number_of_courses_enrolled",
-    cohort_credits_attempted_col = "total_credits_attempted",
-    cohort_credits_earned_col = "total_credits_earned",
+    course_df=course_raw_df,
+    semester_df=semester_raw_df,
+    cohort_df=student_raw_df,
+    course_credits_attempted_col="course_credits",
+    course_credits_earned_col="number_of_credits_earned",
+    semester_credits_attempted_col="number_of_credits_attempted",
+    semester_credits_earned_col="number_of_credits_earned",
+    semester_courses_count_col="number_of_courses_enrolled",
+    cohort_credits_attempted_col="total_credits_attempted",
+    cohort_credits_earned_col="total_credits_earned",
 )
 
 # COMMAND ----------
