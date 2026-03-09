@@ -725,6 +725,11 @@ print(cleaned_course["course_delivery"].value_counts(dropna=False))
 
 # COMMAND ----------
 
+# quick look so we know which columns we need
+# semester_raw_df.head()
+
+# COMMAND ----------
+
 # check credits attempted and credits earned fields
 # change column names as needed
 validate_credit_consistency(
