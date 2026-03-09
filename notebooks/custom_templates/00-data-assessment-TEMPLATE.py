@@ -864,11 +864,6 @@ semester_raw_df["ftpt"].value_counts(normalize=True, dropna=False) * 100
 
 # COMMAND ----------
 
-# NOTE: IF YOU HAVE A SEMESTER FILE, RUN THIS
-# validate_credit_consistency(raw_semester, course_raw_df, student_raw_df)
-
-# COMMAND ----------
-
 # MAGIC %md
 # MAGIC ### Cleaning Semester Data & EDA
 
@@ -939,10 +934,10 @@ student_raw_df.merge(
 
 # NOTE: ONLY RUN IF YOU HAVE A SEMESTER FILE
 # cohort x semester
-# student_raw_df.merge(raw_semester, on=["student_id", "first_reg_date"], indicator=True, how="outer")._merge.value_counts()
+# student_raw_df.merge(semester_raw_df, on=["student_id", "first_reg_date"], indicator=True, how="outer")._merge.value_counts()
 
 # COMMAND ----------
 
 # NOTE: ONLY RUN IF YOU HAVE A SEMESTER FILE
 # semester x course
-# raw_semester.merge(course_raw_df, on=["student_id", "term"], indicator=True, how="outer")._merge.value_counts()
+# semester_raw_df.merge(course_raw_df, on=["student_id", "term"], indicator=True, how="outer")._merge.value_counts()
