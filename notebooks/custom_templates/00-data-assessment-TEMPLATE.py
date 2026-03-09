@@ -18,6 +18,12 @@
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC ### NOTE: 
+# MAGIC column names vary across schools. in this notebook are just some examples. You may need to edit the cells to match the respective names. ex. `entry_term` may be `first_enrollment_date`; `entry_type` may be `student_type`; `first_gen` may be `first_generation`; `awarded_pell` may be `awarded_pell_ever`; check the dataframes to know which column names to use. 
+
+# COMMAND ----------
+
 # MAGIC %sh python --version
 
 # COMMAND ----------
@@ -933,6 +939,7 @@ student_raw_df.merge(
 # COMMAND ----------
 
 # NOTE: ONLY RUN IF YOU HAVE A SEMESTER FILE
+# for some schools, you may be able to omit "first_reg_date"
 # cohort x semester
 # student_raw_df.merge(semester_raw_df, on=["student_id", "first_reg_date"], indicator=True, how="outer")._merge.value_counts()
 
