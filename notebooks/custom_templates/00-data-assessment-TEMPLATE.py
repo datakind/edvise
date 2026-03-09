@@ -783,6 +783,10 @@ semester_raw_df.dtypes
 
 # COMMAND ----------
 
+semester_raw_df.head()
+
+# COMMAND ----------
+
 # MAGIC %md
 # MAGIC **Exploring NA values:**
 # MAGIC
