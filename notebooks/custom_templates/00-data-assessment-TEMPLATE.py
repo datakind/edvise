@@ -55,7 +55,6 @@ from edvise.data_audit.eda import (
 ## Data Cleaning Imports
 
 from edvise.data_audit.custom_cleaning import (
-    convert_numeric_columns,
     assign_numeric_grade,
     keep_earlier_record,
     drop_readmits,
@@ -112,11 +111,6 @@ semester_raw_df = dataio.read.from_csv_file(
     cfg.datasets.bronze["raw_semester"].file_path,
     spark_session=spark,
 )
-
-# OPTIONAL gen ed course list
-# file_path = "{insert file path to gen ed courses csv}"
-# gen_eds = dataio.read.from_csv_file(file_path)
-# gen_eds
 
 # COMMAND ----------
 
@@ -286,6 +280,7 @@ print(
 # re-run find dupes; sanity check, ensure 0
 dupes = find_dupes(cleaned_cohort, key_cols=["student_id", "first_enrollment_date"])
 assert dupes.empty
+
 # COMMAND ----------
 
 # MAGIC %md
