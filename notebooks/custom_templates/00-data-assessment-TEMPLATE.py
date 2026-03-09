@@ -697,6 +697,15 @@ anomalies["grade"].value_counts(dropna=False)
 
 # COMMAND ----------
 
+# more investigation
+# is it for a particular class?
+# print(anomalies[anomalies["no_credits_with_passing_grade"] == True]["course_name"].value_counts(dropna=False, normalize=True)*100)
+
+# is it for a particular semester?
+# print(anomalies[anomalies["no_credits_with_passing_grade"] == True]["semester"].value_counts(dropna=False, normalize=True)*100)
+
+# COMMAND ----------
+
 # inspect course delivery values
 print(cleaned_course["course_delivery"].value_counts(dropna=False))
 
