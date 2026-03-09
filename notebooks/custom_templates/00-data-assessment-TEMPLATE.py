@@ -682,6 +682,11 @@ anomalies["grade"].value_counts(dropna=False)
 
 # COMMAND ----------
 
+# what percent? 
+# (len(anomalies[anomalies["no_credits_with_passing_grade"] == True])) / len(course_raw_df)*100
+
+# COMMAND ----------
+
 # ex. inspect anomalies
 # pass grade but earned 0 credits?
 # print(anomalies[anomalies["pass_fail_flag"] == "P"]["course_credits_earned"].value_counts())
