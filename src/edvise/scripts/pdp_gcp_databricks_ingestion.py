@@ -11,6 +11,8 @@ from google.cloud import storage
 from google.api_core.exceptions import Forbidden, NotFound
 import google.auth
 
+# Model names from get_model_name() are already UC-compatible
+
 
 def local_fs_path(p: str) -> str:
     return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
@@ -149,6 +151,7 @@ class DataIngestionTask:
             run_id: The run ID associated with the latest version of the model.
         """
         client = MlflowClient(registry_uri=registry_uri)
+        # Model name is already UC-compatible (lowercase with underscores)
         full_model_name = f"{workspace}.{institution}_gold.{model_name}"
 
         versions = client.search_model_versions(f"name='{full_model_name}'")

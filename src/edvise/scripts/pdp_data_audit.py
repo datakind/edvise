@@ -43,7 +43,7 @@ from edvise.data_audit.eda import (
     log_terms,
     log_misjoined_records,
 )
-from edvise.data_audit.cohort_selection import select_inference_cohort
+
 from edvise.utils.update_config import update_key_courses_and_cips
 from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
@@ -85,7 +85,7 @@ class PDPDataAuditTask:
         self.course_std = PDPCourseStandardizer()
         # Use default converter to handle duplicates if none provided
         self.course_converter_func: ConverterFunc = (
-            partial(handling_duplicates, school_type="pdp")
+            partial(handling_duplicates, schema_type="pdp")
             if course_converter_func is None
             else course_converter_func
         )
@@ -282,17 +282,6 @@ class PDPDataAuditTask:
             spark_session=self.spark,
         )
 
-        # Select inference cohort if applicable
-        if self.args.job_type == "inference":
-            LOGGER.info(" Selecting inference cohort")
-            if self.cfg.inference is None or self.cfg.inference.cohort is None:
-                raise ValueError("cfg.inference.cohort must be configured.")
-
-            inf_cohort = self.cfg.inference.cohort
-            df_cohort_validated = select_inference_cohort(
-                df_cohort_validated, cohorts_list=inf_cohort
-            )
-
         # Standardize cohort data
         LOGGER.info(" Standardizing cohort data:")
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
@@ -341,17 +330,6 @@ class PDPDataAuditTask:
             )
         else:
             log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
-
-        # Select inference cohort if applicable
-        if self.args.job_type == "inference":
-            LOGGER.info(" Selecting inference cohort")
-            if self.cfg.inference is None or self.cfg.inference.cohort is None:
-                raise ValueError("cfg.inference.cohort must be configured.")
-
-            inf_cohort = self.cfg.inference.cohort
-            df_course_validated = select_inference_cohort(
-                df_course_validated, cohorts_list=inf_cohort
-            )
 
         # Standardize course data
         LOGGER.info(" Standardizing course data:")
@@ -539,14 +517,6 @@ if __name__ == "__main__":
         course_converter_func = None
         LOGGER.info("Running task default course converter func")
         LOGGER.warning(f"Failed to load custom converter functions: {e}")
-
-    # try:
-    #     schemas = importlib.import_module("schemas")
-    #     LOGGER.info("Running task with custom schema")
-    # except Exception as e:
-    #     from data_audit import schemas as schemas
-    #     LOGGER.info("Running task with default schema")
-    #     LOGGER.warning(f"Failed to load custom schema: {e}")
 
     task = PDPDataAuditTask(
         args,

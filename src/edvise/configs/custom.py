@@ -1,5 +1,6 @@
 import re
 import typing as t
+import warnings
 
 import pydantic as pyd
 
@@ -366,6 +367,17 @@ class CheckpointConfig(pyd.BaseModel):
             raise ValueError("Value must be greater than zero.")
         return v
 
+    @pyd.field_validator("name", mode="after")
+    @classmethod
+    def check_name_is_lowercase(cls, value: str) -> str:
+        if value != value.lower():
+            raise ValueError(
+                f"checkpoint.name='{value}' must be lowercase. "
+                "Unity Catalog will lowercase model names automatically. "
+                "To ensure consistency across our codebase, we require lowercase names."
+            )
+        return value
+
 
 class TargetConfig(pyd.BaseModel):
     name: str = pyd.Field(default="target")
@@ -392,6 +404,17 @@ class TargetConfig(pyd.BaseModel):
         if v is not None and v <= 0:
             raise ValueError("Value must be greater than zero.")
         return v
+
+    @pyd.field_validator("name", mode="after")
+    @classmethod
+    def check_name_is_lowercase(cls, value: str) -> str:
+        if value != value.lower():
+            raise ValueError(
+                f"target.name='{value}' must be lowercase. "
+                "Unity Catalog will lowercase model names automatically. "
+                "To ensure consistency across our codebase, we require lowercase names."
+            )
+        return value
 
 
 class SelectionConfig(pyd.BaseModel):
@@ -469,6 +492,37 @@ class TrainingConfig(pyd.BaseModel):
         default=None,
         description="Maximum time to wait for H2O AutoML trials to complete.",
     )
+    cohort: t.Optional[list[str]] = pyd.Field(
+        default=[],
+        description="List of cohorts used in training. e.g. ['Fall 2024-25']",
+    )
+    classification_threshold: float = pyd.Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Classification threshold for converting probabilities to binary predictions. "
+            "Must be a multiple of 0.05 (e.g., 0.40, 0.45, 0.50). "
+            "This constraint ensures easier interpretation for institutional stakeholders and simplifies implementation. "
+            "Lower thresholds (e.g., 0.4) increase recall and sensitivity to the positive class (students needing support), "
+            "resulting in more students identified for intervention. Higher thresholds (e.g., 0.6) increase precision "
+            "and reduce false positives. Default is 0.5."
+        ),
+    )
+
+    @pyd.field_validator("classification_threshold", mode="after")
+    @classmethod
+    def validate_classification_threshold_multiple_of_5(cls, v: float) -> float:
+        """Ensure classification_threshold is a multiple of 0.05 (5%)."""
+        # Check if v is a multiple of 0.05 by checking if (v * 20) is an integer
+        # This avoids floating point precision issues with modulo
+        if abs(v * 20 - round(v * 20)) > 1e-10:
+            raise ValueError(
+                f"classification_threshold must be a multiple of 0.05 (5%) for easier interpretation "
+                f"by institutional stakeholders and simplified implementation. Got {v}. "
+                f"Valid values: 0.00, 0.05, 0.10, ..., 0.95, 1.00"
+            )
+        return v
 
 
 class EvaluationConfig(pyd.BaseModel):
@@ -501,4 +555,48 @@ class InferenceConfig(pyd.BaseModel):
     num_top_features: int = pyd.Field(default=5)
     min_prob_pos_label: t.Optional[float] = 0.5
     background_data_sample: t.Optional[int] = 500
-    cohort: t.Optional[list[str]] = ["fall 2024-25"]
+    term: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="List of terms to use for inference. Students will be selected if they meet the checkpoint in one of these terms. "
+        "Typically most often the most recent term. e.g. ['fall 2024-25', 'spring 2024-25']",
+    )
+
+    cohort: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="DEPRECATED: Use 'term' instead. This field will be removed in a future version.",
+    )
+
+    @pyd.model_validator(mode="after")
+    def migrate_cohort_to_term(self) -> "InferenceConfig":
+        """Migrate deprecated cohort field to term and ensure one is provided."""
+        # Case 1: Both provided - term takes precedence
+        if self.cohort is not None and self.term is not None:
+            warnings.warn(
+                "Both 'cohort' and 'term' are provided. 'cohort' is deprecated and will be ignored. "
+                "Please use only 'term' in your configuration.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            # term already has the right value, cohort will be ignored
+            return self
+
+        # Case 2: Only cohort provided - migrate to term
+        if self.cohort is not None and self.term is None:
+            warnings.warn(
+                "The 'cohort' field is deprecated and will be removed in a future version. "
+                "Please update your configuration to use 'term' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.term = self.cohort
+            return self
+
+        # Case 3: Only term provided - all good, no warning needed
+        if self.term is not None:
+            return self
+
+        # Case 4: Neither provided - error
+        raise ValueError(
+            "Either 'term' or 'cohort' must be provided in the inference configuration. "
+            "Note: 'cohort' is deprecated, please use 'term'."
+        )
