@@ -1,3 +1,6 @@
+## Unreleased
+- fix: CVE-2024-52338 bump pyarrow to >=17.0.0 in deps and PDP training pipeline
+
 ## 0.1.9 (2025-01-20)
 - fix: import error in inference script from validation module 
 - fix: fetching latest commit from develop for health check 
