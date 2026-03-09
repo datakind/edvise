@@ -779,13 +779,7 @@ plt.show()
 
 # COMMAND ----------
 
-# reading raw semester data
-raw_semester = dataio.read.from_csv_file(cfg.datasets.bronze["raw_semester"].file_path)
-raw_semester
-
-# COMMAND ----------
-
-raw_semester.dtypes
+semester_raw_df.dtypes
 
 # COMMAND ----------
 
@@ -797,12 +791,12 @@ raw_semester.dtypes
 # COMMAND ----------
 
 # check for NAs
-raw_semester.isna().sum().sort_values(ascending=False)
+semester_raw_df.isna().sum().sort_values(ascending=False)
 
 # COMMAND ----------
 
 # check for NAs - percents
-na_percent_semester = (raw_semester.isna().mean() * 100).sort_values(ascending=False)
+na_percent_semester = (semester_raw_df.isna().mean() * 100).sort_values(ascending=False)
 print(na_percent_semester)
 
 # Plot
@@ -817,7 +811,7 @@ plt.show()
 # COMMAND ----------
 
 na_percent_by_term = (
-    raw_semester.groupby("term").apply(lambda df: df.isna().mean() * 100).T
+    semester_raw_df.groupby("term").apply(lambda df: df.isna().mean() * 100).T
 )
 
 na_percent_by_term
@@ -825,7 +819,7 @@ na_percent_by_term
 # COMMAND ----------
 
 semester_dupes = find_dupes(
-    raw_semester, key_cols=cfg.datasets.bronze["raw_semester"].primary_keys
+    semester_raw_df, key_cols=cfg.datasets.bronze["raw_semester"].primary_keys
 )
 semester_dupes.head()
 
@@ -837,7 +831,7 @@ semester_dupes.head()
 # COMMAND ----------
 
 # enforce term order
-ordered_semester = order_terms(raw_semester, "term")
+ordered_semester = order_terms(semester_raw_df, "term")
 
 # COMMAND ----------
 
@@ -857,12 +851,12 @@ plt.show()
 
 # COMMAND ----------
 
-print(raw_semester["term"].nunique())
-raw_semester["term"].value_counts(dropna=False).sort_index()
+print(semester_raw_df["term"].nunique())
+semester_raw_df["term"].value_counts(dropna=False).sort_index()
 
 # COMMAND ----------
 
-raw_semester["ftpt"].value_counts(normalize=True, dropna=False) * 100
+semester_raw_df["ftpt"].value_counts(normalize=True, dropna=False) * 100
 
 # COMMAND ----------
 
@@ -876,11 +870,11 @@ raw_semester["ftpt"].value_counts(normalize=True, dropna=False) * 100
 
 # COMMAND ----------
 
-cleaned_semester = raw_semester[raw_semester["student_id"].isin(student_ids)]
+cleaned_semester = semester_raw_df[semester_raw_df["student_id"].isin(student_ids)]
 print(cleaned_semester.shape)
 # how many records were dropped?
 print(
-    f"{raw_semester.shape[0] - cleaned_semester.shape[0]} student-semester records were filtered out"
+    f"{semester_raw_df.shape[0] - cleaned_semester.shape[0]} student-semester records were filtered out"
 )
 cleaned_semester.head()
 
