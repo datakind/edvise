@@ -1,5 +1,3 @@
-## Unreleased
-- fix: CVE-2024-52338 bump pyarrow to >=17.0.0 in deps and PDP training pipeline
 ## 0.1.12 (2026-03-06)
 - feat: adding run_id subfolder in output path (#78)
 - fix: select inference terms for students meeting checkpoint in desired terms instead of cohorts (#105)
