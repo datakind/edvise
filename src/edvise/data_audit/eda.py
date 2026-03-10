@@ -1682,7 +1682,9 @@ def check_bias_variables(
     check_variable_missingness(df, bias_vars)
 
 
-def duplicate_conflict_columns(df: pd.DataFrame, primary_keys: list[str]) -> pd.DataFrame:
+def duplicate_conflict_columns(
+    df: pd.DataFrame, primary_keys: list[str]
+) -> pd.DataFrame:
     dup = df[df.duplicated(subset=primary_keys, keep=False)]
 
     if dup.empty:

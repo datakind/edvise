@@ -266,7 +266,9 @@ print(cohort_dupes["entry_type"].value_counts())
 # COMMAND ----------
 
 # check for duplicates of both stuent ID AND entry term
-cohort_term_dupes = find_dupes(student_raw_df, primary_keys=["student_id", "entry_term"])
+cohort_term_dupes = find_dupes(
+    student_raw_df, primary_keys=["student_id", "entry_term"]
+)
 cohort_term_dupes.head()
 
 # COMMAND ----------
