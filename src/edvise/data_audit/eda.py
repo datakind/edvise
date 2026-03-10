@@ -889,7 +889,7 @@ def validate_ids_terms_consistency(
     }
 
 
-def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
+def find_dupes(df: pd.DataFrame, primary_keys: list[str]) -> pd.DataFrame:
     """
     Find duplicate rows by key columns and print a summary of column-level conflicts
     within duplicate groups.
@@ -899,7 +899,7 @@ def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
     dupes : pd.DataFrame
         All rows involved in duplicate key groups (sorted by student_id)
     """
-    dupes = df[df.duplicated(subset=key_cols, keep=False)].copy()
+    dupes = df[df.duplicated(subset=primary_keys, keep=False)].copy()
 
     # Always sort by student_id (guard in case column missing)
     if "student_id" in dupes.columns:
@@ -910,7 +910,7 @@ def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
     pct_dupes = (dupe_rows / total_rows * 100) if total_rows > 0 else 0.0
 
     print(
-        f"{dupe_rows} duplicate rows based on {key_cols} "
+        f"{dupe_rows} duplicate rows based on {primary_keys} "
         f"({pct_dupes:.2f}% of {total_rows} total rows)"
     )
 
@@ -919,7 +919,7 @@ def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
         print(conflicts)
         return dupes
 
-    grp = dupes.groupby(key_cols, dropna=False)
+    grp = dupes.groupby(primary_keys, dropna=False)
 
     # does each column conflict within each dup group?
     conflict = grp.nunique(dropna=False) > 1
@@ -1646,13 +1646,13 @@ def check_bias_variables(
     check_variable_missingness(df, bias_vars)
 
 
-def duplicate_conflict_columns(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
-    dup = df[df.duplicated(subset=key_cols, keep=False)]
+def duplicate_conflict_columns(df: pd.DataFrame, primary_keys: list[str]) -> pd.DataFrame:
+    dup = df[df.duplicated(subset=primary_keys, keep=False)]
 
     if dup.empty:
         return pd.DataFrame(columns=["column", "pct_conflicting_groups"])
 
-    grp = dup.groupby(key_cols, dropna=False)
+    grp = dup.groupby(primary_keys, dropna=False)
 
     # For each group + column: does this column conflict?
     conflict = grp.nunique(dropna=False) > 1
