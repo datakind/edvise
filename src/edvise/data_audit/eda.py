@@ -1473,12 +1473,14 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
             return True
         return False
 
-    grade_col = validate_optional_column(df_course, grade_col, "grade", logger=LOGGER)
-    if grade_col is None:
+    resolved_grade_col = validate_optional_column(
+        df_course, grade_col, "grade", logger=LOGGER
+    )
+    if resolved_grade_col is None:
         return
 
-    grade_counts = df_course[grade_col].value_counts(dropna=False).sort_index()
-    total_grades = df_course[grade_col].notna().sum()
+    grade_counts = df_course[resolved_grade_col].value_counts(dropna=False).sort_index()
+    total_grades = df_course[resolved_grade_col].notna().sum()
 
     LOGGER.info("Grade value counts:\n%s", grade_counts.to_string())
 
@@ -1498,7 +1500,9 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
         LOGGER.info("'M' grade not found or no valid grade data available.")
 
     if total_grades > 0:
-        grades_series = df_course[grade_col].astype("string").str.strip().str.upper()
+        grades_series = df_course[resolved_grade_col].astype(
+            "string"
+        ).str.strip().str.upper()
         any_numeric = grades_series.apply(grade_is_numeric).any()
         if not any_numeric:
             unique_vals = sorted(grades_series.dropna().unique())
