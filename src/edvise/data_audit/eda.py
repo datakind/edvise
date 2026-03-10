@@ -1439,6 +1439,7 @@ def check_pf_grade_consistency(
 def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") -> None:
     """
     Logs value counts of the 'grade' column and flags if 'M' grades exceed 5%.
+    Also flags when grades contain only status codes (P, F, I, W, A, M, O) and no numeric grades.
 
     Args:
         df (pd.DataFrame): The course or student dataset.
@@ -1448,7 +1449,30 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
         - Value counts for all grades
         - Percentage of 'M' grades
         - Warning if 'M' grades exceed 5% of all non-null grades
+        - Warning if no numeric grades exist (only status-only grades like P, F, I, W, A, M, O)
     """
+    # Status-only grades: P=Pass, F=Fail, I=Incomplete, W=Withdraw, A=Audit, M=Missing, O=Other.
+    status_only_grades = frozenset({"P", "F", "I", "W", "A", "M", "O"})
+    gpa_letter_grades = frozenset(
+        {"A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-"}
+    )
+
+    def grade_is_numeric(val: t.Any) -> bool:
+        """True if grade has a numeric GPA equivalent (float or GPA letter)."""
+        if pd.isna(val):
+            return False
+        s = str(val).strip().upper()
+        if not s:
+            return False
+        if s in status_only_grades:
+            return False
+        coerced = pd.to_numeric(s, errors="coerce")
+        if not pd.isna(coerced):
+            return True
+        if s in gpa_letter_grades:
+            return True
+        return False
+
     grade_col = validate_optional_column(df_course, grade_col, "grade", logger=LOGGER)
     if grade_col is None:
         return
@@ -1472,6 +1496,18 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
             LOGGER.info("'M' grades: %d (%.1f%% of non-null grades).", m_count, m_pct)
     else:
         LOGGER.info("'M' grade not found or no valid grade data available.")
+
+    if total_grades > 0:
+        grades_series = df_course[grade_col].astype("string").str.strip().str.upper()
+        any_numeric = grades_series.apply(grade_is_numeric).any()
+        if not any_numeric:
+            unique_vals = sorted(grades_series.dropna().unique())
+            LOGGER.warning(
+                "No numeric grades detected. Grades are only status codes (e.g. P=Pass, F=Fail, "
+                "I=Incomplete, W=Withdraw, A=Audit, M=Missing, O=Other). Unique values: %s. "
+                "Analytics that depend on numeric course grades (e.g. GPA, mean grade) will be unusable.",
+                unique_vals,
+            )
 
 
 def order_terms(

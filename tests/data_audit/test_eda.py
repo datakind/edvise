@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from edvise import data_audit, dataio
-from edvise.data_audit.eda import EdaSummary
+from edvise.data_audit.eda import EdaSummary, log_grade_distribution
 
 
 @pytest.mark.parametrize(
@@ -380,3 +380,55 @@ class TestEdaSummary:
         # Cached properties return the same object reference
         assert first is second
         assert first == second  # Values should also be equal
+
+
+def test_log_grade_distribution_flags_lack_of_numeric_grades(caplog):
+    """Flag when grades are only status codes (P, F, I, W, A, M, O)."""
+    df = pd.DataFrame({"grade": ["P", "F", "P", "W", "I", "M"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" in caplog.text
+    assert "P=Pass" in caplog.text
+    assert "Unique values" in caplog.text
+
+
+def test_log_grade_distribution_no_flag_when_numeric_grades_present(caplog):
+    """Do not flag when numeric or GPA letter grades exist."""
+    df = pd.DataFrame({"grade": ["4.0", "3.5", "P", "F"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" not in caplog.text
+
+
+def test_log_grade_distribution_no_flag_when_letter_grades_present(caplog):
+    """Do not flag when GPA letter grades (B+, C, etc.) exist."""
+    df = pd.DataFrame({"grade": ["B+", "C", "A-", "P"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" not in caplog.text
+
+
+def test_log_grade_distribution_no_flag_when_empty_or_all_null(caplog):
+    """Do not flag when there are no grades."""
+    df = pd.DataFrame({"grade": [pd.NA, pd.NA]})
+    log_grade_distribution(df)
+    # No grades at all - should not trigger the numeric check (total_grades == 0)
+    assert "No numeric grades detected" not in caplog.text
+
+
+def test_log_grade_distribution_no_flag_when_numeric_gpa_scale(caplog):
+    """Do not flag when numeric grades on GPA scale (1, 2, 3, 4) exist."""
+    df = pd.DataFrame({"grade": ["1", "2", "3", "4", "3.5"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" not in caplog.text
+
+
+def test_log_grade_distribution_flags_only_o_status(caplog):
+    """Flag when only O (Other) status grades present."""
+    df = pd.DataFrame({"grade": ["O", "O"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" in caplog.text
+
+
+def test_log_grade_distribution_mix_status_and_numeric_no_flag(caplog):
+    """Do not flag when mix of status codes and numeric grades."""
+    df = pd.DataFrame({"grade": ["P", "4.0", "F", "3.0", "W"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" not in caplog.text
