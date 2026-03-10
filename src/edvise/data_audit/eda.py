@@ -1500,9 +1500,9 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
         LOGGER.info("'M' grade not found or no valid grade data available.")
 
     if total_grades > 0:
-        grades_series = df_course[resolved_grade_col].astype(
-            "string"
-        ).str.strip().str.upper()
+        grades_series = (
+            df_course[resolved_grade_col].astype("string").str.strip().str.upper()
+        )
         any_numeric = grades_series.apply(grade_is_numeric).any()
         if not any_numeric:
             unique_vals = sorted(grades_series.dropna().unique())
