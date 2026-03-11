@@ -8,7 +8,7 @@ from edvise.utils.drop_columns_safely import drop_columns_safely
 from edvise.utils.data_cleaning import (
     drop_course_rows_missing_identifiers,
     strip_trailing_decimal_strings,
-    replace_na_in_columns,
+    replace_na_firstgen_and_pell,
     handling_duplicates,
 )
 from edvise.data_audit.custom_cleaning import (
@@ -22,7 +22,6 @@ from .eda import (
     print_retention,
     log_grade_distribution,
     check_bias_variables,
-    drop_unpopulated_bias_columns,
     find_dupes,
     log_top_majors,
     check_pf_grade_consistency,
@@ -118,9 +117,7 @@ class PDPCohortStandardizer(BaseStandardizer):
             "first_year_to_certificate_at_other_inst": (None, "Int8"),
         }
         df = drop_columns_safely(df, cols_to_drop)
-        df = replace_na_in_columns(
-            df, {"pell_status_first_year": "N", "first_gen": "N"}
-        )
+        df = replace_na_firstgen_and_pell(df)
         df = self.add_empty_columns_if_missing(df, col_val_dtypes)
         return df
 
@@ -185,9 +182,7 @@ class ESCohortStandardizer(BaseStandardizer):
         log_top_majors(df)
 
         # Replaces NA fields with "N" in pell and first_gen columns (standardizes to Y/N)
-        df = replace_na_in_columns(
-            df, {"pell_status_first_year": "N", "first_gen": "N"}
-        )
+        df = replace_na_firstgen_and_pell(df)
 
         # Finds and logs duplicates on primary keys; runs drop_readmits, then keep_earlier_record if needed
         primary_keys = ["student_id", "cohort_term"]

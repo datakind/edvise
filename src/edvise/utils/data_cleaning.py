@@ -529,10 +529,9 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
         na_first = df_cohort[first_gen_col].isna().sum()
         df_cohort[first_gen_col] = df_cohort[first_gen_col].fillna("N")
         LOGGER.info(
-            ' Filled %s NAs in "%s" with %r.',
-            int(na_count),
-            column_name,
-            replacement_value,
+            ' Filled %s NAs in "%s" with "N".',
+            int(na_first),
+            first_gen_col,
         )
         LOGGER.info(
             " After filling 'first_gen':\n%s",
