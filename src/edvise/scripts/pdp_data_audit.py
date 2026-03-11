@@ -59,6 +59,8 @@ def _pdp_backend() -> DataAuditBackend:
 def _parse_term_filter_param(value: str | None) -> list[str] | None:
     """
     Parse the --term_filter CLI parameter into a list of term labels or None.
+    """
+
 
 class PDPDataAuditTask:
     """Encapsulates the data preprocessing logic for the SST pipeline."""
@@ -465,6 +467,7 @@ class PDPDataAuditTask:
             df_course_standardized,
             os.path.join(current_run_path, "df_course_standardized.parquet"),
         )
+
     result = [item.strip() for item in parsed if item is not None and str(item).strip()]
     return result if result else None
 
