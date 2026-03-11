@@ -1,6 +1,7 @@
 """
 Generalized data audit task. Schema-specific behavior is injected via DataAuditBackend.
 """
+
 import argparse
 import logging
 import os
@@ -157,8 +158,7 @@ class DataAuditTask:
             ("Raw cohort", df_cohort_raw),
             ("Raw course", df_course_raw),
         ]:
-            require(len(df_cohort_raw) > 0, f"{label} dataset is empty (0 rows).")
-            require(len(df_course_raw) > 0, f"{label} dataset is empty (0 rows).")
+            require(len(df) > 0, f"{label} dataset is empty (0 rows).")
 
         LOGGER.info(
             " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
@@ -168,6 +168,8 @@ class DataAuditTask:
             " Listing grouped cohort year and terms and academic year and terms for raw cohort and course data files: "
         )
         log_terms(df_course_raw, df_cohort_raw)
+
+        # TODO: we may want to add checks here for expected columns, rows, etc. that could break the schemas
 
         LOGGER.info(" Reading and schema validating cohort data:")
         df_cohort_validated = read_cohort(
@@ -209,13 +211,14 @@ class DataAuditTask:
         except AttributeError:
             raise AttributeError(
                 "Config error: 'include_pre_cohort_courses' is missing. "
-                "Please set it explicitly in the config file under 'preprocessing'."
+                "Please set it explicitly in the config file under 'preprocessing' "
+                "based on your school's preference (for default models, this should always be false)."
             )
         if not include_pre_cohort:
             df_course_validated = remove_pre_cohort_courses(
                 df_course_validated, self.cfg.student_id_col
             )
-        if include_pre_cohort:
+        else:
             log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
         LOGGER.info(" Standardizing course data:")
@@ -284,7 +287,8 @@ class DataAuditTask:
                     )
                 else:
                     LOGGER.warning(
-                        " Skipping auto-populating of config: upper-level gateways present but no acceptable lower-level set."
+                        " Skipping auto-populating of config: upper-level gateways present but no acceptable lower-level set "
+                        "was identified (or too many) to auto-populate. Please check in with the school and update config manually."
                     )
             elif len(ids) <= 25 and len(cips) <= 25:
                 LOGGER.info(
@@ -313,7 +317,7 @@ class DataAuditTask:
             else:
                 LOGGER.warning(
                     " Skipping auto-populating of config due to too many IDs that were identified. "
-                    "Please check in with school and manually update config."
+                    "Please check in with the school and manually update config."
                 )
 
         log_record_drops(

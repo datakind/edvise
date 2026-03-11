@@ -4,6 +4,7 @@ ES data audit entrypoint. Uses the generalized DataAuditTask with an ES backend.
 Requires: ESProjectConfig, RawESCohortDataSchema, RawESCourseDataSchema,
 ESCohortStandardizer, ESCourseStandardizer, read_raw_es_cohort_data, read_raw_es_course_data.
 """
+
 import argparse
 import importlib
 import logging

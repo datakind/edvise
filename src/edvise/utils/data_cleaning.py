@@ -540,6 +540,7 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
         )
     return df
 
+
 def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
     for col, label in [
         ("course_number", "course_number"),
