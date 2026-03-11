@@ -1,7 +1,12 @@
 import argparse
 import importlib
 import logging
+import typing as t
 import sys
+import pandas as pd
+import pathlib
+import os
+from functools import partial
 
 from edvise.data_audit.data_audit import DataAuditBackend
 from edvise.data_audit.schemas import RawPDPCohortDataSchema, RawPDPCourseDataSchema
@@ -13,6 +18,7 @@ from edvise.utils.data_cleaning import handling_duplicates
 from edvise.dataio.read import (
     read_raw_pdp_cohort_data,
     read_raw_pdp_course_data,
+    read_config,
 )
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.data_audit.eda import (
@@ -32,6 +38,7 @@ from edvise.shared.logger import (
     local_fs_path,
 )
 from edvise.shared.validation import require
+from edvise.utils.databricks import get_spark_session
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +47,9 @@ logging.basicConfig(
 )
 logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
+
+# Create callable type
+ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
 
 
 def _pdp_backend() -> DataAuditBackend:
@@ -467,9 +477,6 @@ class PDPDataAuditTask:
             df_course_standardized,
             os.path.join(current_run_path, "df_course_standardized.parquet"),
         )
-
-    result = [item.strip() for item in parsed if item is not None and str(item).strip()]
-    return result if result else None
 
 
 def parse_arguments() -> argparse.Namespace:
