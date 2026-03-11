@@ -38,7 +38,7 @@
             "required": false,
             "aliases": ["first_generation_college_student", "first_gen", "first_gen_flag", "firstgenflag"],
             "checks": [
-              {"type": "isin", "args": [["Yes","No","Other","Unknown", "Y", "N", "0", "U"]]}
+              {"type": "isin", "args": [["Yes","No","Other","Unknown", "Y", "N", "0", "U", "yes", "no", "y", "n"]]}
             ]
           },
           "age": {
@@ -257,7 +257,7 @@
             "required": false,
             "aliases": ["pell_status_first_year"],
             "checks": [
-              {"type": "isin", "args": [["true", "false", "yes", "no", "Y", "N"]]}
+              {"type": "isin", "args": [["true", "false", "yes", "no", "Y", "N", "Yes", "No", "y", "n"]]}
             ]
           }
         }
@@ -329,7 +329,7 @@
             "aliases": ["pell_status", "pell_recip_flag"],
             "checks": [
               {"type": "str_length", "args": [], "kwargs": {"min_value": 1}},
-              {"type": "isin", "args": [["true", "false", "unknown", "yes", "no", "Y", "N"]]}
+              {"type": "isin", "args": [["true", "false", "unknown", "yes", "no", "Y", "N", "Yes", "No", "y", "n"]]}
             ]
           },
           "major": {
