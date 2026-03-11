@@ -3,7 +3,7 @@ import importlib
 import logging
 import sys
 
-from edvise.data_audit.data_audit import DataAuditBackend, DataAuditTask
+from edvise.data_audit.data_audit import DataAuditBackend
 from edvise.data_audit.schemas import RawPDPCohortDataSchema, RawPDPCourseDataSchema
 from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
