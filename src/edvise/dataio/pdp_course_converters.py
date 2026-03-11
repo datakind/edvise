@@ -63,7 +63,9 @@ def dedupe_by_renumbering_courses(
                 "cumcount"
             ),
             course_number=lambda d: (
-                d["course_number"].astype("string").where(
+                d["course_number"]
+                .astype("string")
+                .where(
                     d["cum_idx"] == 0,
                     d["course_number"]
                     .astype("string")
