@@ -1,9 +1,8 @@
-import logging
 import mlflow
 import typing as t
-from typing import Any
+import logging
 import pydantic as pyd
-import re
+import os
 
 LOGGER = logging.getLogger(__name__)
 
@@ -113,6 +112,10 @@ def mock_pandera():
 
     sys.modules[m1.__name__] = m1
     sys.modules[m2.__name__] = m2
+
+
+def in_databricks() -> bool:
+    return bool(os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER"))
 
 
 # Schema and volume caches for Databricks catalog operations
