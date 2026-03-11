@@ -970,11 +970,24 @@ def check_earned_vs_attempted(
     anomalies["earned_gt_attempted"] = earned_gt_attempted[mask]
     anomalies["earned_when_no_attempt"] = earned_when_no_attempt[mask]
 
+    total_rows = len(df)
+    n_earned_gt = int(earned_gt_attempted.sum())
+    n_earned_no_attempt = int(earned_when_no_attempt.sum())
+    n_total = int(mask.sum())
     summary = pd.DataFrame(
         {
-            "earned_gt_attempted": [int(earned_gt_attempted.sum())],
-            "earned_when_no_attempt": [int(earned_when_no_attempt.sum())],
-            "total_anomalous_rows": [int(mask.sum())],
+            "earned_gt_attempted": [n_earned_gt],
+            "earned_gt_attempted_pct": [
+                round(100 * n_earned_gt / total_rows, 2) if total_rows else 0
+            ],
+            "earned_when_no_attempt": [n_earned_no_attempt],
+            "earned_when_no_attempt_pct": [
+                round(100 * n_earned_no_attempt / total_rows, 2) if total_rows else 0
+            ],
+            "total_anomalous_rows": [n_total],
+            "total_anomalous_rows_pct": [
+                round(100 * n_total / total_rows, 2) if total_rows else 0
+            ],
         }
     )
 
@@ -1140,13 +1153,22 @@ def validate_credit_consistency(
             | cchk["earned_negative"]
         ]
 
+        total_course_rows = len(cchk)
+        n_anomalies = int(len(course_anomalies))
         course_anomalies_summary = {
-            "rows_checked": int(len(cchk)),
-            "rows_with_anomalies": int(len(course_anomalies)),
+            "rows_checked": total_course_rows,
+            "rows_with_anomalies": n_anomalies,
+            "pct_of_data": round(100 * n_anomalies / total_course_rows, 2)
+            if total_course_rows
+            else 0,
         }
 
         if len(course_anomalies) > 0:
-            LOGGER.warning("Detected %d course-level anomalies", len(course_anomalies))
+            LOGGER.warning(
+                "Detected %d course-level anomalies (%.2f%% of course data)",
+                len(course_anomalies),
+                course_anomalies_summary["pct_of_data"],
+            )
         else:
             LOGGER.info("No course-level credit anomalies detected")
 
@@ -1218,9 +1240,12 @@ def validate_credit_consistency(
 
         mismatches = merged.loc[mismatch_mask]
 
+        total_sem = int(len(s))
+        n_mismatched = int(len(mismatches))
         reconciliation_summary = {
-            "total_semester_rows": int(len(s)),
-            "mismatched_rows": int(len(mismatches)),
+            "total_semester_rows": total_sem,
+            "mismatched_rows": n_mismatched,
+            "pct_of_data": round(100 * n_mismatched / total_sem, 2) if total_sem else 0,
         }
 
         # 🔹 Clean summary logging
@@ -1258,7 +1283,23 @@ def validate_credit_consistency(
         cohort_anomalies_summary = cohort_checks.get("summary")
 
         if isinstance(cohort_anomalies, pd.DataFrame) and len(cohort_anomalies) > 0:
-            LOGGER.warning("Detected %d cohort-level anomalies", len(cohort_anomalies))
+            pct = None
+            if (
+                cohort_anomalies_summary is not None
+                and isinstance(cohort_anomalies_summary, pd.DataFrame)
+                and "total_anomalous_rows_pct" in cohort_anomalies_summary.columns
+            ):
+                pct = cohort_anomalies_summary["total_anomalous_rows_pct"].iloc[0]
+            if pct is not None:
+                LOGGER.warning(
+                    "Detected %d cohort-level anomalies (%.2f%% of cohort data)",
+                    len(cohort_anomalies),
+                    pct,
+                )
+            else:
+                LOGGER.warning(
+                    "Detected %d cohort-level anomalies", len(cohort_anomalies)
+                )
         else:
             LOGGER.info("No cohort-level credit anomalies detected")
 
@@ -1413,21 +1454,37 @@ def check_pf_grade_consistency(
     anomalies["grade_pf_disagree"] = rows_with_grade_pf_disagree.loc[anomalies.index]
 
     # Summary
+    total_rows = len(df)
+    n_earned_failing = int(rows_with_earned_with_failing_pf.sum())
+    n_no_credits_passing = int(rows_with_no_credits_with_passing.sum())
+    n_grade_pf_disagree = int(rows_with_grade_pf_disagree.sum())
+    n_total = int(mask.sum())
     summary = pd.DataFrame(
         {
-            "earned_with_failing_grade": [int(rows_with_earned_with_failing_pf.sum())],
-            "no_credits_with_passing_grade": [
-                int(rows_with_no_credits_with_passing.sum())
+            "earned_with_failing_grade": [n_earned_failing],
+            "earned_with_failing_grade_pct": [
+                round(100 * n_earned_failing / total_rows, 2) if total_rows else 0
             ],
-            "grade_pf_disagree": [int(rows_with_grade_pf_disagree.sum())],
-            "total_anomalous_rows": [int(mask.sum())],
+            "no_credits_with_passing_grade": [n_no_credits_passing],
+            "no_credits_with_passing_grade_pct": [
+                round(100 * n_no_credits_passing / total_rows, 2) if total_rows else 0
+            ],
+            "grade_pf_disagree": [n_grade_pf_disagree],
+            "grade_pf_disagree_pct": [
+                round(100 * n_grade_pf_disagree / total_rows, 2) if total_rows else 0
+            ],
+            "total_anomalous_rows": [n_total],
+            "total_anomalous_rows_pct": [
+                round(100 * n_total / total_rows, 2) if total_rows else 0
+            ],
         }
     )
 
     if summary["total_anomalous_rows"].iloc[0] > 0:
         LOGGER.warning(
-            "Detected %d PF/grade consistency anomalies",
+            "Detected %d PF/grade consistency anomalies (%.2f%% of data)",
             summary["total_anomalous_rows"].iloc[0],
+            summary["total_anomalous_rows_pct"].iloc[0],
         )
     else:
         LOGGER.info("No PF/grade consistency anomalies detected")
