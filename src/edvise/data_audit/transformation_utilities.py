@@ -75,6 +75,7 @@ __all__ = [
 # ============================================================================
 # These expose the private _cast_series_to_nullable_dtype as public utilities
 
+
 def cast_nullable_dtype(
     s: pd.Series,
     dtype_str: str,
@@ -82,15 +83,15 @@ def cast_nullable_dtype(
 ) -> pd.Series:
     """
     Cast a Series to one of our supported nullable dtypes.
-    
+
     This is a public wrapper around the existing _cast_series_to_nullable_dtype
     to maintain DRY - we don't duplicate the casting logic.
-    
+
     Args:
         s: Series to cast
         dtype_str: Target dtype ("Int64", "Float64", "boolean", "string", "datetime64[ns]")
         boolean_map: Optional mapping for boolean conversion (defaults to standard map)
-    
+
     Returns:
         Series with the specified nullable dtype
     """
@@ -135,10 +136,11 @@ def cast_datetime(s: pd.Series) -> pd.Series:
 # Coercion Utilities
 # ============================================================================
 
+
 def coerce_numeric(s: pd.Series) -> pd.Series:
     """
     Coerce Series to numeric, returning Int64 if all values are integers, else Float64.
-    
+
     Reuses logic from _cast_series_to_nullable_dtype to maintain consistency.
     """
     num = pd.to_numeric(s, errors="coerce")
@@ -151,7 +153,7 @@ def coerce_numeric(s: pd.Series) -> pd.Series:
 def coerce_datetime(s: pd.Series, fmt: str | None = None) -> pd.Series:
     """
     Coerce Series to datetime.
-    
+
     This is a Series-level wrapper around pandas to_datetime.
     The existing parse_dttm_values works on DataFrame+col, but we need Series-level.
     """
@@ -170,6 +172,7 @@ def coerce_datetime(s: pd.Series, fmt: str | None = None) -> pd.Series:
 # String Operations
 # ============================================================================
 # These are simple pandas operations - no need to duplicate logic
+
 
 def strip_whitespace(s: pd.Series) -> pd.Series:
     """Strip whitespace from string Series. Simple pandas wrapper."""
@@ -190,6 +193,7 @@ def uppercase(s: pd.Series) -> pd.Series:
 # Value Mapping
 # ============================================================================
 
+
 def map_values(s: pd.Series, mapping: dict) -> pd.Series:
     """Map values in Series using provided mapping. Simple pandas wrapper."""
     return s.map(mapping)
@@ -199,6 +203,17 @@ def map_values(s: pd.Series, mapping: dict) -> pd.Series:
 # Domain-Specific Normalization
 # ============================================================================
 # Re-export existing functions with shorter aliases for transformation maps
+#
+# IMPORTANT: These functions transform data to Edvise schema format!
+# The Edvise schemas (RawEdviseStudentDataSchema, RawEdviseCourseDataSchema)
+# use PDP categories as their canonical values:
+#   - Terms: FALL, WINTER, SPRING, SUMMER
+#   - Enrollment: FIRST-TIME, RE-ADMIT, TRANSFER-IN
+#   - Pell: Y, N
+#   - Credentials: Bachelor's, Associate's, Certificate
+#
+# These functions are called automatically by schema.validate(), so using them
+# in transformation maps ensures data matches Edvise schema requirements.
 
 normalize_term_code = term_series_to_pdp
 normalize_grade = grade_series_normalized
@@ -212,6 +227,7 @@ normalize_student_age = student_age_series_to_pdp
 # Null Handling
 # ============================================================================
 
+
 def fill_nulls(s: pd.Series, value: t.Any) -> pd.Series:
     """Fill null values in Series. Simple pandas wrapper."""
     return s.fillna(value)
@@ -220,7 +236,7 @@ def fill_nulls(s: pd.Series, value: t.Any) -> pd.Series:
 def replace_null_tokens(s: pd.Series, null_tokens: list[str]) -> pd.Series:
     """
     Replace null token strings with pd.NA.
-    
+
     Extracts the logic from clean_dataset() to make it reusable.
     This is the only place we extract logic (not duplicate) - it's a simple replace.
     """
@@ -230,7 +246,7 @@ def replace_null_tokens(s: pd.Series, null_tokens: list[str]) -> pd.Series:
 def replace_values_with_null(s: pd.Series, to_replace: str | list[str]) -> pd.Series:
     """
     Replace specified values with None/null.
-    
+
     This is a Series-level wrapper. The existing replace_values_with_null in
     utils/data_cleaning.py works on DataFrame+col, but we need Series-level.
     """
@@ -241,12 +257,13 @@ def replace_values_with_null(s: pd.Series, to_replace: str | list[str]) -> pd.Se
 # Column Operations
 # ============================================================================
 
+
 def combine_columns(
     df: pd.DataFrame, cols: list[str], output_col: str, sep: str = ""
 ) -> pd.DataFrame:
     """
     Combine multiple columns into a single column.
-    
+
     This is a new utility, but uses standard pandas operations (no duplication).
     """
     df = df.copy()
@@ -257,6 +274,7 @@ def combine_columns(
 # ============================================================================
 # Deduplication
 # ============================================================================
+
 
 def deduplicate_rows(
     df: pd.DataFrame, subset: list[str] | None = None, keep: str = "first"
@@ -276,7 +294,7 @@ def deduplicate_rows(
 def strip_trailing_decimal(s: pd.Series) -> pd.Series:
     """
     Strip trailing ".0" from string Series.
-    
+
     This is a Series-level version of strip_trailing_decimal_strings.
     The existing function works on DataFrame with specific columns, but we need Series-level.
     """

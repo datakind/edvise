@@ -196,3 +196,149 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
         add_missing_columns = False
         drop_invalid_rows = False
         unique = ["student_id"]
+
+
+class RawEdviseStudentDataSchemaFlexible(pda.DataFrameModel):
+    """
+    Flexible schema for raw Edvise cohort (student) data.
+
+    Designed for GenAI mapping workflows where exact canonical values may not be
+    achievable. This schema:
+    1. Uses StringDtype instead of CategoricalDtype (no fixed category constraints)
+    2. Removes `isin` value constraints (allows any string values)
+    3. Maintains structure, nullability, and basic type validation
+
+    Use this schema for Agent 2 transformation map validation when strict canonical
+    values are not required. The original RawEdviseStudentDataSchema remains available
+    for strict validation after normalization.
+
+    Required (must be present, non-null): student_id, enrollment_type,
+    credential_type_sought_year_1, program_of_study_term_1, cohort, cohort_term.
+    Optional columns may be missing from the DataFrame or contain nulls.
+    """
+
+    # Required - all changed to StringDtype, no category/isin constraints
+    student_id: pt.Series["string"] = StudentIdField
+    enrollment_type: pt.Series[pd.StringDtype] = pda.Field(
+        nullable=False,
+        # No categories - accepts any string value
+    )
+    credential_type_sought_year_1: pt.Series[pd.StringDtype] = pda.Field(
+        nullable=True,
+        # No isin constraint - accepts any string value
+    )
+    program_of_study_term_1: pt.Series[pd.StringDtype] = pda.Field(
+        nullable=False,
+    )
+    cohort: pt.Series[pd.StringDtype] = pda.Field(
+        nullable=False,
+        str_matches=YEAR_PATTERN,  # Keep pattern validation for year format
+    )
+    cohort_term: pt.Series[pd.StringDtype] = pda.Field(
+        nullable=False,
+        # No categories - accepts any string value
+    )
+
+    # Optional - all changed to StringDtype, no isin constraints
+    first_enrollment_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
+        nullable=True,
+    )
+    student_age: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True,
+        # No isin constraint - accepts any string value
+    )
+    race: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    ethnicity: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    gender: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    first_gen: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    pell_status_first_year: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True,
+        # No categories - accepts any string value
+    )
+    incarcerated_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
+    )
+    military_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    employment_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    disability_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    first_bachelors_grad_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
+        nullable=True
+    )
+    first_associates_grad_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
+        nullable=True
+    )
+    major_grad: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    certificate1_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
+        nullable=True
+    )
+    certificate2_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
+        nullable=True
+    )
+    certificate3_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
+        nullable=True
+    )
+    credits_earned_ap: t.Optional[pt.Series["float64"]] = CreditsEarnedField
+    credits_earned_dual_enrollment: t.Optional[pt.Series["float64"]] = (
+        CreditsEarnedField
+    )
+
+    # Raw columns preserved
+    raw_enrollment_type: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
+    )
+    raw_student_age: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    raw_credential_type_sought_year_1: t.Optional[pt.Series[pd.StringDtype]] = (
+        pda.Field(nullable=True)
+    )
+    degree_grad: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True,
+        # No isin constraint - accepts any string value
+    )
+    raw_degree_grad: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+
+    @classmethod
+    def validate(
+        cls,
+        check_obj: pd.DataFrame,
+        head: t.Optional[int] = None,
+        tail: t.Optional[int] = None,
+        sample: t.Optional[int] = None,
+        random_state: t.Optional[int] = None,
+        lazy: bool = False,
+        inplace: bool = False,
+    ) -> pd.DataFrame:
+        """
+        Validate without PDP transforms - accepts flexible values as-is.
+
+        Note: This skips the PDP normalization transforms since we're accepting
+        flexible values. If canonical values are needed later, apply normalization
+        utilities separately.
+        """
+        # Skip PDP transforms - validate flexible values directly
+        return super().validate(
+            check_obj, head, tail, sample, random_state, lazy, inplace
+        )
+
+    # Keep cardinality checks for data quality
+    @pda.check("gender", name="max_5_values")
+    @classmethod
+    def gender_max_5_values(cls, series: pd.Series) -> bool:
+        return _max_distinct_values(series, MAX_CARDINALITY_GENDER)
+
+    @pda.check("first_gen", name="max_3_values")
+    @classmethod
+    def first_gen_max_3_values(cls, series: pd.Series) -> bool:
+        return _max_distinct_values(series, MAX_CARDINALITY_FIRST_GEN)
+
+    @pda.check("credential_type_sought_year_1", name="max_5_values")
+    @classmethod
+    def credential_type_max_5_values(cls, series: pd.Series) -> bool:
+        return _max_distinct_values(series, MAX_CARDINALITY_CREDENTIAL_TYPE)
+
+    class Config:
+        coerce = True
+        strict = False
+        unique_column_names = True
+        add_missing_columns = False
+        drop_invalid_rows = False
+        unique = ["student_id"]

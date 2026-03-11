@@ -192,3 +192,131 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
             "course_prefix",
             "course_number",
         ]
+
+
+class RawEdviseCourseDataSchemaFlexible(pda.DataFrameModel):
+    """
+    Flexible schema for raw Edvise course data.
+
+    Designed for GenAI mapping workflows where exact canonical values may not be
+    achievable. This schema:
+    1. Uses StringDtype instead of CategoricalDtype (no fixed category constraints)
+    2. Removes `isin` value constraints (allows any string values)
+    3. Maintains structure, nullability, and basic type validation
+
+    Use this schema for Agent 2 transformation map validation when strict canonical
+    values are not required. The original RawEdviseCourseDataSchema remains available
+    for strict validation after normalization.
+
+    Required (must be present, non-null): student_id, academic_year, academic_term,
+    course_prefix, course_number, course_name, grade, course_credits_attempted,
+    course_credits_earned, pass_fail_flag.
+    Optional columns may be missing from the DataFrame or contain nulls.
+    """
+
+    # Required - all changed to StringDtype, no category/isin constraints
+    student_id: pt.Series["string"] = StudentIdField
+    academic_year: pt.Series[pd.StringDtype] = pda.Field(
+        nullable=False,
+        str_matches=YEAR_PATTERN,  # Keep pattern validation for year format
+    )
+    academic_term: pt.Series[pd.StringDtype] = pda.Field(
+        nullable=False,
+        # No categories - accepts any string value
+    )
+    course_prefix: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
+    course_number: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
+    course_name: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
+    grade: pt.Series[pd.StringDtype] = pda.Field(
+        nullable=False,
+        # No isin constraint - accepts any string value
+    )
+    course_credits_attempted: pt.Series["float64"] = CreditsField
+    course_credits_earned: pt.Series["float64"] = CreditsField
+    pass_fail_flag: pt.Series[pd.StringDtype] = pda.Field(
+        nullable=False,
+        # No isin constraint - accepts any string value
+    )
+
+    # Optional - all changed to StringDtype, no isin constraints
+    department: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    course_classification: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
+    )
+    course_type: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    course_begin_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
+        nullable=True
+    )
+    course_end_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(nullable=True)
+    delivery_method: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    core_course: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    prerequisite_course_flag: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
+    )
+    course_instructor_employment_status: t.Optional[pt.Series[pd.StringDtype]] = (
+        pda.Field(nullable=True)
+    )
+    gateway_or_development_flag: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
+    )
+    course_section_size: t.Optional[pt.Series["float64"]] = pda.Field(
+        nullable=True, ge=0.0
+    )
+    term_enrollment_intensity: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True,
+        # Keep pattern for basic validation, but more flexible
+        str_matches=TERM_ENROLLMENT_PATTERN,
+    )
+    term_major: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    intent_to_transfer_flag: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
+    )
+    term_pell_recipient: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True,
+        # No isin constraint - accepts any string value
+    )
+
+    # Raw columns preserved
+    term_degree: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True,
+        # No isin constraint - accepts any string value
+    )
+    raw_term_degree: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    raw_grade: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+
+    @classmethod
+    def validate(
+        cls,
+        check_obj: pd.DataFrame,
+        head: t.Optional[int] = None,
+        tail: t.Optional[int] = None,
+        sample: t.Optional[int] = None,
+        random_state: t.Optional[int] = None,
+        lazy: bool = False,
+        inplace: bool = False,
+    ) -> pd.DataFrame:
+        """
+        Validate without PDP transforms - accepts flexible values as-is.
+
+        Note: This skips the PDP normalization transforms since we're accepting
+        flexible values. If canonical values are needed later, apply normalization
+        utilities separately.
+        """
+        # Skip PDP transforms - validate flexible values directly
+        return super().validate(
+            check_obj, head, tail, sample, random_state, lazy, inplace
+        )
+
+    class Config:
+        coerce = True
+        strict = False
+        unique_column_names = True
+        add_missing_columns = False
+        drop_invalid_rows = False
+        unique = [
+            "student_id",
+            "academic_year",
+            "academic_term",
+            "course_prefix",
+            "course_number",
+        ]
