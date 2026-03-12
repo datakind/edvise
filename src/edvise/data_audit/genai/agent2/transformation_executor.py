@@ -1,5 +1,5 @@
 """
-Transformation map executor for Agent 2b.
+Transformation map executor for Agent 2c.
 
 Executes a TransformationMap deterministically against a pre-joined DataFrame.
 The executor:
