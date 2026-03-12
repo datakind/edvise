@@ -407,6 +407,12 @@ class FillConstantStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
+class NormalizeYearRangeStep(StrictBaseModel):
+    function_name: Literal["normalize_year_range"]
+    column: str = Field(..., description="Column containing year range e.g. '2018-2019' or '2018-19'")
+    rationale: Optional[str] = None
+
+
 class ExtractYearStep(StrictBaseModel):
     function_name: Literal["extract_year"]
     column: str = Field(..., description="Column containing year range string e.g. '2018-2019'")
@@ -422,6 +428,14 @@ class ParseYyyymmStep(StrictBaseModel):
 class BirthyearToAgeBucketStep(StrictBaseModel):
     function_name: Literal["birthyear_to_age_bucket"]
     column: str = Field(..., description="Column containing birth year as integer")
+    reference_year_column: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional column containing reference year in YYYY-YY format "
+            "(e.g. academic_year). If provided, age is calculated relative to "
+            "that year rather than current year."
+        ),
+    )
     rationale: Optional[str] = None
 
 

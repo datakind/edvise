@@ -76,6 +76,7 @@ __all__ = [
     "conditional_credits",
     "stems_lookup",
     "cross_table_lookup",
+    "normalize_year_range",
 ]
 
 
@@ -309,6 +310,41 @@ def strip_trailing_decimal(s: pd.Series) -> pd.Series:
     """
     return s.astype("string").str.replace(r"\.0$", "", regex=True)
 
+
+# =============================================================================
+# normalize_year_range
+# =============================================================================
+
+def normalize_year_range(s: pd.Series) -> pd.Series:
+    """
+    Normalize a year range string to YYYY-YY format matching YEAR_PATTERN.
+
+    Handles:
+      - "2018-2019" -> "2018-19"
+      - "2018-19"   -> "2018-19"  (already correct, passthrough)
+      - "2018"      -> null       (not a valid range format)
+
+    Args:
+        s: String Series containing year range values
+
+    Returns:
+        String Series in YYYY-YY format, null where input cannot be normalized
+    """
+    s = s.astype("string").str.strip()
+
+    # Already in YYYY-YY format — passthrough
+    already_correct = s.str.match(r"^\d{4}-\d{2}$")
+
+    # YYYY-YYYY format — convert to YYYY-YY
+    full_range = s.str.extract(r"^(\d{4})-(\d{4})$")
+    converted = (
+        full_range[0] + "-" + full_range[1].str[-2:]
+    ).where(full_range[0].notna())
+
+    result = pd.Series(pd.NA, index=s.index, dtype="string")
+    result = result.where(~already_correct, s)        # keep already-correct values
+    result = result.where(converted.isna(), converted) # apply converted values
+    return result
 
 
 # =============================================================================

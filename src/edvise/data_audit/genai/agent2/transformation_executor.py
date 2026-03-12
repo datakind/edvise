@@ -54,6 +54,7 @@ from edvise.data_audit.genai.agent2.transformation_utilities import (
     strip_trailing_decimal,
     strip_whitespace,
     uppercase,
+    normalize_year_range,
 )
 from edvise.data_audit.genai.agent2.mapping_schemas import (
     CollapseStrategy,
@@ -257,6 +258,12 @@ def _dispatch_step(
                                        step.lookup_join_keys,
                                        step.lookup_value_col,
                                    ),
+        "normalize_year_range":    lambda: normalize_year_range(s),
+        "birthyear_to_age_bucket": lambda: birthyear_to_age_bucket(
+                                    s,
+                                    reference_year_series=df[step.reference_year_column]
+                                    if step.reference_year_column else None,
+                                ),
     }
 
     if fn not in dispatch:
