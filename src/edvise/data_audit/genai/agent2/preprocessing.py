@@ -105,16 +105,13 @@ def build_schema_contract_from_config(
     spark_session: Optional[Any] = None,
     dataset_name_suffix: str = "",
     sample_size: Optional[int] = None,
+    # --- term order ---
+    term_order_fn: Optional[TermOrderFn] = None,
+    term_col_by_dataset: Optional[dict[str, str]] = None,
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
     Build schema contract from inputs.toml SchoolMappingConfig.
-    
-    This is the Milestone 1 preprocessing step that:
-    1. Loads raw files from config
-    2. Normalizes column names using normalize_columns()
-    3. Generates training dtypes using generate_training_dtypes()
-    4. Builds schema contract with unique keys from config
-    
+
     Args:
         school_config: SchoolMappingConfig from inputs.toml
         dtype_opts: Optional DtypeGenerationOptions for dtype inference
@@ -122,76 +119,91 @@ def build_schema_contract_from_config(
         dataset_name_suffix: Suffix to add to dataset names (default: "" uses config names as-is).
                             Pass "_df" to add suffix (e.g., "student" -> "student_df").
         sample_size: Optional max rows to sample per dataset (None = use all data).
-                    Useful for PoC/testing to speed up processing.
-    
+        term_order_fn: Optional callable (df, term_col) -> df that adds a term_order column.
+                       Typically edvise.feature_generation.term.add_term_order.
+                       Applied after dtype generation for datasets that have a term column.
+        term_col_by_dataset: Optional dict mapping logical_name -> term column name.
+                             e.g. {"student_df": "term_desc", "course_df": "term_descr"}
+                             If term_order_fn is provided but a dataset is not in this dict,
+                             the default term column "term" is tried.
+
     Returns:
-        Tuple of (cleaned_dataframes, schema_contract):
-        - cleaned_dataframes: Dict mapping dataset_name -> cleaned DataFrame
-        - schema_contract: Schema contract dict ready for JoinResolver
+        Tuple of (cleaned_dataframes, schema_contract)
     """
     if dtype_opts is None:
         dtype_opts = DtypeGenerationOptions()
-    
+
+    term_col_by_dataset = term_col_by_dataset or {}
+
     cleaned_map: dict[str, pd.DataFrame] = {}
     specs: dict[str, dict[str, Any]] = {}
-    
+
     logger.info(
         "Building schema contract for %s (%s)",
         school_config.institution_name or school_config.institution_id,
         school_config.institution_id,
     )
-    
+
     for dataset_name, dataset_config in school_config.datasets.items():
-        # Use dataset name from config, optionally with suffix
         logical_name = f"{dataset_name}{dataset_name_suffix}" if dataset_name_suffix else dataset_name
-        
+
         logger.info("Processing dataset: %s (logical name: %s)", dataset_name, logical_name)
-        
-        # Use shared preprocessing function
+
         df_with_dtypes, original_columns, column_mapping, original_row_count = _load_and_preprocess_dataset(
             dataset_config=dataset_config,
             dtype_opts=dtype_opts,
             spark_session=spark_session,
-            sample_size=sample_size,  # Allow sampling for PoC/testing
+            sample_size=sample_size,
         )
-        
+
         logger.info("  Raw shape: %s", df_with_dtypes.shape)
-        
+
         # Check for collisions
         collisions = {norm: origs for norm, origs in column_mapping.items() if len(origs) > 1}
         if collisions:
-            logger.warning(
-                "  Column name collisions after normalization: %s",
-                collisions,
-            )
-        
-        # Store cleaned DataFrame
+            logger.warning("  Column name collisions after normalization: %s", collisions)
+
+        # --- Apply term order if provided ---
+        if term_order_fn is not None:
+            term_col = term_col_by_dataset.get(logical_name, "term")
+            if term_col in df_with_dtypes.columns:
+                try:
+                    df_with_dtypes = term_order_fn(df_with_dtypes, term_col)
+                    logger.info(
+                        "  Applied term_order_fn on column '%s' → added term_order",
+                        term_col,
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "  term_order_fn failed for dataset '%s' on column '%s': %s",
+                        logical_name,
+                        term_col,
+                        e,
+                    )
+            else:
+                logger.debug(
+                    "  term_order_fn skipped for '%s' — term column '%s' not found",
+                    logical_name,
+                    term_col,
+                )
+
         cleaned_map[logical_name] = df_with_dtypes
-        
-        # Build spec for schema contract
-        # Unique keys come from config, but need to be normalized
-        unique_keys = dataset_config.primary_keys or []  # Config still uses primary_keys field name
-        # Normalize unique key names to match normalized columns
-        # column_mapping is {normalized_name: [original_names]}
-        # Create a reverse mapping: original -> normalized
+
+        # Build spec — unique keys normalized
+        unique_keys = dataset_config.primary_keys or []
         orig_to_norm = {}
         for norm_col, orig_list in column_mapping.items():
             for orig_col in orig_list:
                 orig_to_norm[orig_col] = norm_col
-        
-        # Get normalized column names from DataFrame (already normalized)
+
         normalized_columns = set(df_with_dtypes.columns)
-        
         normalized_uks = []
         for uk in unique_keys:
-            # Check if unique key is already normalized (exact match in normalized columns)
             if uk in normalized_columns:
                 normalized_uks.append(uk)
             elif uk in orig_to_norm:
-                # Unique key is an original column name, get its normalized version
                 normalized_uks.append(orig_to_norm[uk])
             else:
-                # Unique key not found - try normalizing it directly
                 from edvise.utils.data_cleaning import convert_to_snake_case
                 normalized_uk = convert_to_snake_case(uk)
                 if normalized_uk in normalized_columns:
@@ -202,40 +214,38 @@ def build_schema_contract_from_config(
                         uk,
                         normalized_uk,
                     )
-        
+
         specs[logical_name] = {
             "unique keys": normalized_uks,
-            "non-null columns": [],  # Can be populated if needed
+            "non-null columns": [],
             "_orig_cols_": original_columns,
         }
-        
+
         logger.info(
             "  ✓ Processed: %d rows, %d columns, unique keys = %s",
             len(df_with_dtypes),
             len(df_with_dtypes.columns),
             normalized_uks,
         )
-    
+
     # Build schema contract
     meta = SchemaContractMeta(
         created_at=datetime.now(timezone.utc).isoformat(),
-        null_tokens=["(Blank)"],  # Default null tokens
+        null_tokens=["(Blank)"],
     )
     freeze_opts = SchemaFreezeOptions(include_column_order_hash=True)
-    
+
     schema_contract = build_schema_contract(
         cleaned_map=cleaned_map,
         specs=specs,
         meta=meta,
         freeze_opts=freeze_opts,
     )
-    
-    # Schema contract uses "unique_keys" consistently
-    
+
     logger.info(
         "Schema contract built with %d datasets: %s",
         len(schema_contract["datasets"]),
         list(schema_contract["datasets"].keys()),
     )
-    
+
     return cleaned_map, schema_contract
