@@ -28,9 +28,75 @@ from edvise.data_audit.custom_cleaning import (
     normalize_columns,
 )
 from edvise.dataio.read import from_csv_file
-from edvise.configs.genai import SchoolMappingConfig
+from edvise.configs.genai import DatasetConfig, SchoolMappingConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _load_and_preprocess_dataset(
+    dataset_config: DatasetConfig,
+    dtype_opts: DtypeGenerationOptions,
+    spark_session: Optional[Any] = None,
+    sample_size: Optional[int] = None,
+) -> tuple[pd.DataFrame, list[str], dict[str, list[str]], int]:
+    """
+    Shared preprocessing logic: load files, normalize columns, generate dtypes.
+    
+    This is the single source of truth for dataset preprocessing used by both:
+    - build_schema_contract_from_config (for schema contract building)
+    - process_school_dataset (for historical example generation)
+    
+    Args:
+        dataset_config: DatasetConfig with file paths
+        dtype_opts: DtypeGenerationOptions for dtype inference
+        spark_session: Optional Spark session for reading files
+        sample_size: Optional max rows to sample (None = use all data)
+                    Used for historical examples to speed up processing
+    
+    Returns:
+        Tuple of (cleaned_df, original_columns, column_mapping, original_row_count):
+        - cleaned_df: DataFrame with normalized columns and inferred dtypes
+        - original_columns: List of original column names (before normalization)
+        - column_mapping: Dict {normalized_name: [original_names]} for collision detection
+        - original_row_count: Row count before sampling (for reporting)
+    """
+    # Load all files for this dataset
+    dfs = []
+    for file_path in dataset_config.files:
+        df = from_csv_file(file_path, spark_session=spark_session)
+        dfs.append(df)
+    
+    # Combine multiple files if needed
+    if len(dfs) > 1:
+        df_raw = pd.concat(dfs, ignore_index=True)
+        logger.debug("  Combined %d files into %d rows", len(dfs), len(df_raw))
+    else:
+        df_raw = dfs[0]
+    
+    # Store original row count before any sampling
+    original_row_count = len(df_raw)
+    
+    # Sample if requested (for historical examples generation)
+    if sample_size is not None and len(df_raw) > sample_size:
+        df_raw = df_raw.sample(n=sample_size, random_state=42).reset_index(drop=True)
+        logger.info(
+            "  Sampled %d rows from %d total rows for faster processing",
+            sample_size,
+            original_row_count,
+        )
+    
+    # Store original columns
+    original_columns = list(df_raw.columns)
+    
+    # Normalize column names
+    normalized_index, column_mapping = normalize_columns(df_raw.columns)
+    df_normalized = df_raw.copy()
+    df_normalized.columns = normalized_index
+    
+    # Generate training dtypes
+    df_with_dtypes = generate_training_dtypes(df_normalized, opts=dtype_opts)
+    
+    return df_with_dtypes, original_columns, column_mapping, original_row_count
 
 
 def build_schema_contract_from_config(
@@ -78,29 +144,15 @@ def build_schema_contract_from_config(
         
         logger.info("Processing dataset: %s (logical name: %s)", dataset_name, logical_name)
         
-        # Load all files for this dataset (combine if multiple)
-        dfs = []
-        for file_path in dataset_config.files:
-            logger.info("  Loading file: %s", file_path)
-            df = from_csv_file(file_path, spark_session=spark_session)
-            dfs.append(df)
+        # Use shared preprocessing function
+        df_with_dtypes, original_columns, column_mapping, original_row_count = _load_and_preprocess_dataset(
+            dataset_config=dataset_config,
+            dtype_opts=dtype_opts,
+            spark_session=spark_session,
+            sample_size=None,  # Use all data for schema contract
+        )
         
-        # Combine multiple files if needed
-        if len(dfs) > 1:
-            df_raw = pd.concat(dfs, ignore_index=True)
-            logger.info("  Combined %d files into %d rows", len(dfs), len(df_raw))
-        else:
-            df_raw = dfs[0]
-        
-        logger.info("  Raw shape: %s", df_raw.shape)
-        
-        # Store original columns for schema contract
-        original_columns = list(df_raw.columns)
-        
-        # Normalize column names
-        normalized_index, column_mapping = normalize_columns(df_raw.columns)
-        df_normalized = df_raw.copy()
-        df_normalized.columns = normalized_index
+        logger.info("  Raw shape: %s", df_with_dtypes.shape)
         
         # Check for collisions
         collisions = {norm: origs for norm, origs in column_mapping.items() if len(origs) > 1}
@@ -109,9 +161,6 @@ def build_schema_contract_from_config(
                 "  Column name collisions after normalization: %s",
                 collisions,
             )
-        
-        # Generate training dtypes
-        df_with_dtypes = generate_training_dtypes(df_normalized, opts=dtype_opts)
         
         # Store cleaned DataFrame
         cleaned_map[logical_name] = df_with_dtypes

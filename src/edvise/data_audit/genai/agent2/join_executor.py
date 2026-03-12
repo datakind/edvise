@@ -214,6 +214,7 @@ class JoinResolver:
         """Return primary keys for a dataset."""
         return self.datasets[table].get("primary_keys", [])
 
+    
     def _identify_base_table(
         self,
         entity_type: str,
@@ -222,31 +223,60 @@ class JoinResolver:
         """
         Identify the base table for the join graph.
 
+        The base table is the most granular table — the one whose primary key
+        is a superset of at least one other referenced table's primary key.
+        Other tables join INTO the base table, not the other way around.
+
         Strategy:
-        1. Find table whose primary key is a subset of target unique keys
-           (exact or closest match after normalization)
-        2. Fallback: table with smallest primary key among referenced tables
+        1. Score each table by how many other referenced tables have PKs that
+        are subsets of this table's PK. Higher score = finer grain = base.
+        2. Fallback: table with largest primary key (finest grain) if no
+        subset relationships exist.
+
+        Example — UCF course:
+            course_df PK: ["student_id", "term_descr", "crse_prefix",
+                        "crse_number", "course_section_number",
+                        "course_section_type", "cf_boe_term_id"]
+            student_df PK: ["student_id", "term_desc"]
+
+            student_df PK is NOT a subset of course_df PK due to term_desc vs
+            term_descr mismatch — fallback fires, course_df wins on largest PK.
+
+            Once column aliases are applied (term_descr → term_desc),
+            student_df PK becomes a subset of course_df PK and score-based
+            selection works correctly.
         """
-        target_keys = set(self.target_unique_keys.get(entity_type, []))
+        if len(referenced) == 1:
+            return next(iter(referenced))
 
         best_table = None
-        best_overlap = -1
+        best_score = -1
 
         for table in referenced:
             pks = set(self._get_primary_keys(table))
-            # Score = overlap between table PK and target unique keys
-            overlap = len(pks & target_keys)
-            # Prefer table where PK is fully contained in target keys
-            # (means no extra grain beyond target)
-            if pks.issubset(target_keys) and overlap > best_overlap:
-                best_overlap = overlap
+            # Count how many other referenced tables have PKs that are
+            # subsets of this table's PK
+            subset_count = sum(
+                1 for other in referenced - {table}
+                if set(self._get_primary_keys(other)).issubset(pks)
+            )
+            if subset_count > best_score:
+                best_score = subset_count
                 best_table = table
 
-        if best_table:
+        if best_table and best_score > 0:
             return best_table
 
-        # Fallback: smallest primary key (coarsest grain)
-        return min(referenced, key=lambda t: len(self._get_primary_keys(t)))
+        # Fallback: largest primary key (finest grain)
+        # Handles cases where column name mismatches prevent subset detection
+        # e.g. term_descr vs term_desc across UCF tables before alias resolution
+        largest = max(referenced, key=lambda t: len(self._get_primary_keys(t)))
+        logger.warning(
+            f"[{entity_type}] No PK subset relationships found among referenced "
+            f"tables {referenced} — falling back to largest PK table '{largest}'. "
+            f"If this is wrong, check column aliases in the manifest."
+        )
+        return largest
 
     def _order_candidates(
         self,
