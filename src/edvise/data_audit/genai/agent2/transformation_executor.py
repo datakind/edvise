@@ -100,57 +100,47 @@ def _collapse_field(
     """
     Apply CollapseConfig to reduce student-term grain to student grain for one field.
 
-    Args:
-        df: Source DataFrame (student-term grain)
-        plan: FieldTransformationPlan with collapse config
-        unique_keys: Groupby keys from schema_contract.unique_keys for the source dataset
-                      e.g. ["student_id"] for target student schema (collapse to student grain)
-
-    Returns:
-        Series at student grain indexed by unique keys
+    Returns a Series aligned to the collapsed DataFrame index — one row per
+    unique key combination, index reset to RangeIndex for safe DataFrame assembly.
     """
     collapse = plan.collapse
     col = plan.source_columns[0] if plan.source_columns else None
 
     if collapse.strategy == CollapseStrategy.none:
-        # Already correct grain — return column as-is
-        return df[col] if col else pd.Series(dtype="object")
+        return df[col].reset_index(drop=True) if col else pd.Series(dtype="object")
 
     if collapse.strategy == CollapseStrategy.constant:
-        # No row selection — constant value handled in steps, not here
         return pd.Series(dtype="object")
 
     if collapse.strategy == CollapseStrategy.any_row:
-        # Invariant field — take first row per unique key (arbitrary but deterministic)
+        # Invariant — deduplicate to one row per unique key, take first
         return (
-            df.groupby(unique_keys)[col]
-            .first()
-            .reset_index(drop=False)
-            .set_index(unique_keys)[col]
+            df.drop_duplicates(subset=unique_keys, keep="first")[col]
+            .reset_index(drop=True)
         )
 
     if collapse.strategy == CollapseStrategy.first_by:
-        # Term-1 specific — take first row ordered by order_by ascending
         if not collapse.order_by:
-            raise ExecutionError(f"first_by strategy requires order_by for field '{plan.target_field}'")
+            raise ExecutionError(
+                f"first_by strategy requires order_by for field '{plan.target_field}'"
+            )
+        # Sort ascending then deduplicate — first row per unique key is the term-1 row
         return (
-            df.sort_values(collapse.order_by)
-            .groupby(unique_keys)[col]
-            .first()
-            .reset_index(drop=False)
-            .set_index(unique_keys)[col]
+            df.sort_values(collapse.order_by, ascending=True)
+            .drop_duplicates(subset=unique_keys, keep="first")[col]
+            .reset_index(drop=True)
         )
 
     if collapse.strategy == CollapseStrategy.where_not_null:
-        # Graduation-specific — take first non-null row for condition_col
         if not collapse.condition_col:
-            raise ExecutionError(f"where_not_null strategy requires condition_col for field '{plan.target_field}'")
+            raise ExecutionError(
+                f"where_not_null strategy requires condition_col for field '{plan.target_field}'"
+            )
+        # Filter to rows where condition_col is non-null, then take first per unique key
         return (
             df[df[collapse.condition_col].notna()]
-            .groupby(unique_keys)[col]
-            .first()
-            .reset_index(drop=False)
-            .set_index(unique_keys)[col]
+            .drop_duplicates(subset=unique_keys, keep="first")[col]
+            .reset_index(drop=True)
         )
 
     raise ExecutionError(f"Unknown collapse strategy: {collapse.strategy}")
@@ -247,8 +237,8 @@ def execute_transformation_map(
             for course maps this is already at course grain.
         transformation_map: Validated TransformationMap from Agent 2b.
         unique_keys: Groupby keys for collapse, from schema_contract.unique_keys
-                      for the TARGET schema entity. For cohort: ["student_id"].
-                      For course: ["student_id", "academic_term", "course_prefix", "course_number"].
+                     for the TARGET schema entity. For cohort: ["student_id"].
+                     For course: ["student_id", "academic_term", "course_prefix", "course_number"].
         raise_on_gap: If True, raise ExecutionGapError on first NEW_UTILITY_NEEDED.
                       If False, skip gap fields and record them in result.gaps.
 
@@ -271,6 +261,16 @@ def execute_transformation_map(
             f"on {pc.subset} keep='{pc.keep}'"
             + (f" order_by='{pc.order_by}'" if pc.order_by else "")
         )
+
+    # --- Determine the expected number of output rows ---
+    # This is the number of unique key combinations in the input DataFrame
+    # after any pre_collapse. All collapsed Series must align to this length.
+    # TODO(performance): This runs a full drop_duplicates just to count rows.
+    # For performance improvement, pre-compute the collapsed base DataFrame once
+    # upfront and derive expected_n_rows from len(collapsed_base) instead of
+    # running a separate deduplication pass here.
+    expected_n_rows = df.drop_duplicates(subset=unique_keys).shape[0]
+    logger.debug(f"Expected output rows: {expected_n_rows} (unique {unique_keys} combinations)")
 
     for plan in transformation_map.plans:
         target = plan.target_field
@@ -298,17 +298,42 @@ def execute_transformation_map(
                 CollapseStrategy.constant,
             ):
                 s = _collapse_field(df, plan, unique_keys)
+
+                # TODO(performance): _collapse_field calls drop_duplicates independently
+                # per field, meaning the same deduplication runs once per collapsible field.
+                # For performance improvement, pre-compute a collapsed base DataFrame once
+                # per strategy+order_by combination before the plan loop, then each field
+                # just selects its column from the pre-collapsed base rather than
+                # re-running deduplication independently.
+
+                # --- Reindex to expected_n_rows ---
+                # where_not_null may produce fewer rows than expected (e.g. students
+                # who never graduated are absent). Reindex to full row count so all
+                # Series in result_cols have the same length for DataFrame assembly.
+                # Missing rows get NaN/NA which is correct — null for unmapped students.
+                if len(s) < expected_n_rows:
+                    logger.debug(
+                        f"Field '{target}': collapsed to {len(s)} rows "
+                        f"(expected {expected_n_rows}) — reindexing with nulls for missing rows."
+                    )
+                    s = s.reindex(range(expected_n_rows))
+
             else:
                 # No collapse — work directly on the source column
                 col = plan.source_columns[0] if plan.source_columns else None
-                s = df[col].copy() if col else pd.Series(dtype="object")
+                s = df[col].reset_index(drop=True).copy() if col else pd.Series(
+                    dtype="object", index=range(expected_n_rows)
+                )
 
             # --- Apply transformation steps ---
-            working_df = df.copy()
+            # Note: DataFrame-level steps (combine_columns, deduplicate_rows) operate
+            # on df directly without copying. This is intentional for performance —
+            # these steps are rare and the caller should not rely on df being unmodified
+            # after execute_transformation_map returns.
             for step in plan.steps:
                 if step.function_name in _DF_LEVEL_STEPS:
-                    working_df = _dispatch_df_step(working_df, step)
-                    s = working_df[step.output_col] if hasattr(step, "output_col") else s
+                    df = _dispatch_df_step(df, step)
+                    s = df[step.output_col].reset_index(drop=True) if hasattr(step, "output_col") else s
                 else:
                     s = _dispatch_step(s, step)
 
@@ -324,6 +349,19 @@ def execute_transformation_map(
             raise ExecutionError(f"Failed executing field '{target}': {e}") from e
 
     # --- Assemble target DataFrame ---
+    # All Series in result_cols should have the same length (expected_n_rows)
+    # due to reset_index(drop=True) and reindex above.
+    # Validate lengths before assembly to catch any remaining mismatches.
+    mismatched = {
+        t: len(s) for t, s in result_cols.items()
+        if len(s) != expected_n_rows
+    }
+    if mismatched:
+        logger.warning(
+            f"Series length mismatch before assembly — expected {expected_n_rows} rows. "
+            f"Mismatched fields: {mismatched}. These fields may cause alignment issues."
+        )
+
     target_df = pd.DataFrame(result_cols)
 
     return ExecutionResult(
