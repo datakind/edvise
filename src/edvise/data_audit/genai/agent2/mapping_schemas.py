@@ -358,46 +358,6 @@ class FillNullsStep(StrictBaseModel):
     value: Any = Field(..., description="Fill value")
     rationale: Optional[str] = None
 
-class FillConstantStep(StrictBaseModel):
-    function_name: Literal["fill_constant"]
-    column: str
-    value: str = Field(..., description="Constant value to fill all rows with")
-    rationale: Optional[str] = None
-
-class ExtractYearStep(StrictBaseModel):
-    function_name: Literal["extract_year"]
-    column: str
-    rationale: Optional[str] = None
-
-class ParseYyyymmStep(StrictBaseModel):
-    function_name: Literal["parse_yyyymm"]
-    column: str
-    rationale: Optional[str] = None
-
-class BirthyearToAgeBucketStep(StrictBaseModel):
-    function_name: Literal["birthyear_to_age_bucket"]
-    column: str
-    rationale: Optional[str] = None
-
-class ConditionalCreditsStep(StrictBaseModel):
-    function_name: Literal["conditional_credits"]
-    grade_column: str
-    credits_column: str
-    rationale: Optional[str] = None
-
-class StemsLookupStep(StrictBaseModel):
-    function_name: Literal["stems_lookup"]
-    column: str
-    stems_table: str = Field(..., description="Key to look up stems DataFrame from context")
-    rationale: Optional[str] = None
-
-class CrossTableLookupStep(StrictBaseModel):
-    function_name: Literal["cross_table_lookup"]
-    base_join_keys: List[str]
-    lookup_table: str = Field(..., description="Key to look up DataFrame from context")
-    lookup_join_keys: List[str]
-    lookup_value_col: str
-    rationale: Optional[str] = None
 
 class ReplaceNullTokensStep(StrictBaseModel):
     function_name: Literal["replace_null_tokens"]
@@ -437,6 +397,72 @@ class StripTrailingDecimalStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
+class FillConstantStep(StrictBaseModel):
+    function_name: Literal["fill_constant"]
+    column: str = Field(
+        ...,
+        description="Target field name — no source column exists for constant fields",
+    )
+    value: str = Field(..., description="Constant string value to fill all rows with")
+    rationale: Optional[str] = None
+
+
+class ExtractYearStep(StrictBaseModel):
+    function_name: Literal["extract_year"]
+    column: str = Field(..., description="Column containing year range string e.g. '2018-2019'")
+    rationale: Optional[str] = None
+
+
+class ParseYyyymmStep(StrictBaseModel):
+    function_name: Literal["parse_yyyymm"]
+    column: str = Field(..., description="Column containing YYYYMM string e.g. '202301'")
+    rationale: Optional[str] = None
+
+
+class BirthyearToAgeBucketStep(StrictBaseModel):
+    function_name: Literal["birthyear_to_age_bucket"]
+    column: str = Field(..., description="Column containing birth year as integer")
+    rationale: Optional[str] = None
+
+
+class ConditionalCreditsStep(StrictBaseModel):
+    function_name: Literal["conditional_credits"]
+    grade_column: str = Field(..., description="Column containing grade values")
+    credits_column: str = Field(..., description="Column containing credits attempted")
+    rationale: Optional[str] = None
+
+
+class StemsLookupStep(StrictBaseModel):
+    function_name: Literal["stems_lookup"]
+    column: str = Field(..., description="Column containing CIP code (may be datetime dtype)")
+    stems_table: str = Field(
+        ...,
+        description="Key to look up stems DataFrame from executor context dict",
+    )
+    rationale: Optional[str] = None
+
+
+class CrossTableLookupStep(StrictBaseModel):
+    function_name: Literal["cross_table_lookup"]
+    base_join_keys: List[str] = Field(
+        ...,
+        description="Join key column names in the base DataFrame (source names)",
+    )
+    lookup_table: str = Field(
+        ...,
+        description="Key to look up DataFrame from executor context dict",
+    )
+    lookup_join_keys: List[str] = Field(
+        ...,
+        description="Join key column names in the lookup DataFrame (may differ from base)",
+    )
+    lookup_value_col: str = Field(
+        ...,
+        description="Column in lookup DataFrame to pull as the output value",
+    )
+    rationale: Optional[str] = None
+
+
 class NewUtilityNeededStep(StrictBaseModel):
     function_name: Literal["NEW_UTILITY_NEEDED"]
     description: str = Field(..., description="Required utility behavior")
@@ -473,6 +499,13 @@ TransformationStep = Union[
     CombineColumnsStep,
     DeduplicateRowsStep,
     StripTrailingDecimalStep,
+    FillConstantStep,
+    ExtractYearStep,
+    ParseYyyymmStep,
+    BirthyearToAgeBucketStep,
+    ConditionalCreditsStep,
+    StemsLookupStep,
+    CrossTableLookupStep,
     NewUtilityNeededStep,
 ]
 

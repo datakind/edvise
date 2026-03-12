@@ -77,22 +77,6 @@ class ExecutionError(Exception):
     """Raised when a transformation step fails."""
     pass
 
-
-def _raise_missing_df() -> None:
-    """Helper to raise error when df is required but not provided."""
-    raise ExecutionError("DataFrame (df) is required for this transformation step")
-
-
-def _raise_missing_context() -> None:
-    """Helper to raise error when context is required but not provided."""
-    raise ExecutionError("Context dictionary is required for this transformation step")
-
-
-def _raise_missing_df_or_context() -> None:
-    """Helper to raise error when df and context are required but not provided."""
-    raise ExecutionError("DataFrame (df) and context dictionary are required for this transformation step")
-
-
 # -----------------------------------------------------------------------------
 # Execution result
 # -----------------------------------------------------------------------------
@@ -172,6 +156,11 @@ def _collapse_field(
 # Step dispatcher
 # -----------------------------------------------------------------------------
 
+
+# -----------------------------------------------------------------------------
+# Fix 1: Replace _dispatch_step with cleaner inline raise pattern
+# -----------------------------------------------------------------------------
+
 def _dispatch_step(
     s: pd.Series,
     step: Any,
@@ -182,10 +171,12 @@ def _dispatch_step(
     Dispatch a single TransformationStep to its utility function.
 
     Args:
-        s: Input Series
+        s: Input Series — for multi-input steps like conditional_credits,
+           s is the LAST transformed Series from prior steps in the chain.
+           This ensures conditional_credits receives the already-cast credits Series.
         step: Typed TransformationStep model
-        df: Optional DataFrame for functions that need it (e.g., conditional_credits, cross_table_lookup)
-        context: Optional context dictionary for lookup tables (e.g., stems_lookup, cross_table_lookup)
+        df: Optional DataFrame for steps needing multiple columns or cross-table access
+        context: Optional context dict for lookup DataFrames
 
     Returns:
         Transformed Series
@@ -193,46 +184,79 @@ def _dispatch_step(
     fn = step.function_name
 
     if fn == "NEW_UTILITY_NEEDED":
-        raise ExecutionGapError(
-            f"NEW_UTILITY_NEEDED: {step.description}"
+        raise ExecutionGapError(f"NEW_UTILITY_NEEDED: {step.description}")
+
+    # --- Validate required dependencies upfront ---
+    _REQUIRES_DF = {"conditional_credits", "cross_table_lookup"}
+    _REQUIRES_CONTEXT = {"stems_lookup", "cross_table_lookup"}
+
+    if fn in _REQUIRES_DF and df is None:
+        raise ExecutionError(
+            f"Step '{fn}' requires a DataFrame (df) but none was provided"
+        )
+    if fn in _REQUIRES_CONTEXT and context is None:
+        raise ExecutionError(
+            f"Step '{fn}' requires a context dict but none was provided"
+        )
+    if fn in _REQUIRES_CONTEXT and hasattr(step, "stems_table") and step.stems_table not in context:
+        raise ExecutionError(
+            f"Step '{fn}' requires '{step.stems_table}' in context but it was not found. "
+            f"Available context keys: {list(context.keys())}"
+        )
+    if fn in _REQUIRES_CONTEXT and hasattr(step, "lookup_table") and step.lookup_table not in context:
+        raise ExecutionError(
+            f"Step '{fn}' requires '{step.lookup_table}' in context but it was not found. "
+            f"Available context keys: {list(context.keys())}"
         )
 
     dispatch = {
-        "cast_nullable_int":    lambda: cast_nullable_int(s),
-        "cast_nullable_float":  lambda: cast_nullable_float(s),
-        "cast_string":          lambda: cast_string(s),
-        "cast_boolean":         lambda: cast_boolean(s, step.boolean_map),
-        "cast_datetime":        lambda: cast_datetime(s),
-        "coerce_numeric":       lambda: coerce_numeric(s),
-        "coerce_datetime":      lambda: coerce_datetime(s, fmt=step.fmt),
-        "strip_whitespace":     lambda: strip_whitespace(s),
-        "lowercase":            lambda: lowercase(s),
-        "uppercase":            lambda: uppercase(s),
-        "map_values":           lambda: map_values(s, step.mapping),
-        "normalize_term_code":  lambda: normalize_term_code(s),
-        "normalize_grade":      lambda: normalize_grade(s),
-        "normalize_enrollment": lambda: normalize_enrollment(s),
-        "normalize_pell":       lambda: normalize_pell(s),
-        "normalize_credential": lambda: normalize_credential(s),
-        "normalize_student_age": lambda: normalize_student_age(s),
-        "fill_nulls":           lambda: fill_nulls(s, step.value),
-        "replace_null_tokens":  lambda: replace_null_tokens(s, step.null_tokens),
+        "cast_nullable_int":       lambda: cast_nullable_int(s),
+        "cast_nullable_float":     lambda: cast_nullable_float(s),
+        "cast_string":             lambda: cast_string(s),
+        "cast_boolean":            lambda: cast_boolean(s, step.boolean_map),
+        "cast_datetime":           lambda: cast_datetime(s),
+        "coerce_numeric":          lambda: coerce_numeric(s),
+        "coerce_datetime":         lambda: coerce_datetime(s, fmt=step.fmt),
+        "strip_whitespace":        lambda: strip_whitespace(s),
+        "lowercase":               lambda: lowercase(s),
+        "uppercase":               lambda: uppercase(s),
+        "map_values":              lambda: map_values(s, step.mapping),
+        "normalize_term_code":     lambda: normalize_term_code(s),
+        "normalize_grade":         lambda: normalize_grade(s),
+        "normalize_enrollment":    lambda: normalize_enrollment(s),
+        "normalize_pell":          lambda: normalize_pell(s),
+        "normalize_credential":    lambda: normalize_credential(s),
+        "normalize_student_age":   lambda: normalize_student_age(s),
+        "fill_nulls":              lambda: fill_nulls(s, step.value),
+        "replace_null_tokens":     lambda: replace_null_tokens(s, step.null_tokens),
         "replace_values_with_null": lambda: replace_values_with_null(s, step.to_replace),
-        "strip_trailing_decimal": lambda: strip_trailing_decimal(s),
+        "strip_trailing_decimal":  lambda: strip_trailing_decimal(s),
         "fill_constant":           lambda: fill_constant(s, step.value),
         "extract_year":            lambda: extract_year(s),
         "parse_yyyymm":            lambda: parse_yyyymm(s),
         "birthyear_to_age_bucket": lambda: birthyear_to_age_bucket(s),
+
+        # Fix 2: conditional_credits uses s (already-cast credits Series from
+        # prior cast_nullable_int step) rather than re-reading raw df column.
+        # grade_column is read from df since it's a separate column not in the
+        # step chain — only credits flows through s.
         "conditional_credits":     lambda: conditional_credits(
-                                    df[step.grade_column], df[step.credits_column]
-                                ) if df is not None else _raise_missing_df(),
-        "stems_lookup":            lambda: stems_lookup(s, context[step.stems_table])
-                                if context is not None else _raise_missing_context(),
+                                       df[step.grade_column],
+                                       s,  # s = already-cast course_credits from prior step
+                                   ),
+
+        "stems_lookup":            lambda: stems_lookup(
+                                       s,
+                                       context[step.stems_table],
+                                   ),
         "cross_table_lookup":      lambda: cross_table_lookup(
-                                    s, step.base_join_keys, df,
-                                    context[step.lookup_table],
-                                    step.lookup_join_keys, step.lookup_value_col
-                                ) if df is not None and context is not None else _raise_missing_df_or_context(),
+                                       s,
+                                       step.base_join_keys,
+                                       df,
+                                       context[step.lookup_table],
+                                       step.lookup_join_keys,
+                                       step.lookup_value_col,
+                                   ),
     }
 
     if fn not in dispatch:
