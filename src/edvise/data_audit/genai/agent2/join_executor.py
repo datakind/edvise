@@ -27,7 +27,7 @@ from typing import Optional
 
 import pandas as pd
 
-from edvise.data_audit.agent2.mapping_schemas import EntityType, FieldMappingManifest
+from edvise.data_audit.genai.agent2.mapping_schemas import EntityType, FieldMappingManifest
 
 logger = logging.getLogger(__name__)
 

@@ -23,7 +23,7 @@ from typing import Any
 
 import pandas as pd
 
-from edvise.data_audit.agent2.transformation_utilities import (
+from edvise.data_audit.genai.agent2.transformation_utilities import (
     cast_boolean,
     cast_datetime,
     cast_nullable_float,
@@ -48,7 +48,7 @@ from edvise.data_audit.agent2.transformation_utilities import (
     strip_whitespace,
     uppercase,
 )
-from edvise.data_audit.agent2.manifest_schemas import (
+from edvise.data_audit.genai.agent2.mapping_schemas import (
     CollapseStrategy,
     FieldTransformationPlan,
     TransformationMap,
