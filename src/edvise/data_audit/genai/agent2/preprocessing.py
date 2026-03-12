@@ -104,6 +104,7 @@ def build_schema_contract_from_config(
     dtype_opts: Optional[DtypeGenerationOptions] = None,
     spark_session: Optional[Any] = None,
     dataset_name_suffix: str = "_df",
+    sample_size: Optional[int] = None,
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
     Build schema contract from inputs.toml SchoolMappingConfig.
@@ -120,6 +121,8 @@ def build_schema_contract_from_config(
         spark_session: Optional Spark session for reading files
         dataset_name_suffix: Suffix to add to dataset names (e.g., "_df" makes "student" -> "student_df")
                             This ensures dataset names match what manifests reference.
+        sample_size: Optional max rows to sample per dataset (None = use all data).
+                    Useful for PoC/testing to speed up processing.
     
     Returns:
         Tuple of (cleaned_dataframes, schema_contract):
@@ -149,7 +152,7 @@ def build_schema_contract_from_config(
             dataset_config=dataset_config,
             dtype_opts=dtype_opts,
             spark_session=spark_session,
-            sample_size=None,  # Use all data for schema contract
+            sample_size=sample_size,  # Allow sampling for PoC/testing
         )
         
         logger.info("  Raw shape: %s", df_with_dtypes.shape)
@@ -176,10 +179,13 @@ def build_schema_contract_from_config(
             for orig_col in orig_list:
                 orig_to_norm[orig_col] = norm_col
         
+        # Get normalized column names from DataFrame (already normalized)
+        normalized_columns = set(df_with_dtypes.columns)
+        
         normalized_pks = []
         for pk in primary_keys:
-            # Check if PK is already normalized (exact match in normalized_index)
-            if pk in normalized_index:
+            # Check if PK is already normalized (exact match in normalized columns)
+            if pk in normalized_columns:
                 normalized_pks.append(pk)
             elif pk in orig_to_norm:
                 # PK is an original column name, get its normalized version
@@ -188,7 +194,7 @@ def build_schema_contract_from_config(
                 # PK not found - try normalizing it directly
                 from edvise.utils.data_cleaning import convert_to_snake_case
                 normalized_pk = convert_to_snake_case(pk)
-                if normalized_pk in normalized_index:
+                if normalized_pk in normalized_columns:
                     normalized_pks.append(normalized_pk)
                 else:
                     logger.warning(
@@ -224,10 +230,7 @@ def build_schema_contract_from_config(
         freeze_opts=freeze_opts,
     )
     
-    # Rename "unique_keys" to "primary_keys" to match JoinResolver expectations
-    for dataset_name, dataset_schema in schema_contract["datasets"].items():
-        if "unique_keys" in dataset_schema:
-            dataset_schema["primary_keys"] = dataset_schema.pop("unique_keys")
+    # Keep "unique_keys" as-is (JoinResolver will need to be updated to use unique_keys)
     
     logger.info(
         "Schema contract built with %d datasets: %s",

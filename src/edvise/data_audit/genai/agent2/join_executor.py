@@ -96,7 +96,7 @@ class JoinResolver:
             {
               "datasets": {
                 "student_df": {
-                  "primary_keys": ["student_id", "term"],
+                  "unique_keys": ["student_id", "term"],
                   "normalized_columns": {"col": "col", ...},
                   "dtypes": {"col": "dtype", ...}
                 },
@@ -212,9 +212,22 @@ class JoinResolver:
 
     def _get_primary_keys(self, table: str) -> list[str]:
         """Return primary keys for a dataset."""
-        return self.datasets[table].get("primary_keys", [])
+        # Support both "primary_keys" and "unique_keys" for backward compatibility
+        return self.datasets[table].get("unique_keys", self.datasets[table].get("primary_keys", []))
 
     
+    def _build_alias_map(
+        self,
+        manifest: "FieldMappingManifest",
+    ) -> dict[str, dict[str, str]]:
+        """
+        Build a table -> {source_column: canonical_column} lookup from manifest aliases.
+        """
+        alias_map: dict[str, dict[str, str]] = {}
+        for alias in manifest.column_aliases:
+            alias_map.setdefault(alias.table, {})[alias.source_column] = alias.canonical_column
+        return alias_map
+
     def _identify_base_table(
         self,
         entity_type: str,
