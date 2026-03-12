@@ -293,23 +293,31 @@ def generate_column_training_dtype(
         frac = float(count) / len(s) if len(s) else 0.0
         return count >= opts.min_non_null and frac >= opts.dtype_confidence_threshold
 
-    # Try declared date formats with coercion
-    for fmt in opts.date_formats:
-        dt = pd.to_datetime(s, format=fmt, errors="coerce")
-        mask = dt.notna()
-        if _enough_non_null(mask):
-            return dt
+    # Skip datetime inference for CIP code columns (they often look like dates but are classification codes)
+    # Check column name if available (Series.name attribute)
+    col_name = getattr(s, "name", None)
+    skip_datetime_inference = (
+        col_name is not None and "cip" in str(col_name).lower()
+    )
 
-    # Try inferred datetime (quietly suppress the "could not infer format" warning)
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message="Could not infer format, so each element will be parsed individually",
-            category=UserWarning,
-        )
-        dt_inf = pd.to_datetime(s, errors="coerce")
-    if _enough_non_null(dt_inf.notna()):
-        return dt_inf
+    # Try declared date formats with coercion (skip for CIP columns)
+    if not skip_datetime_inference:
+        for fmt in opts.date_formats:
+            dt = pd.to_datetime(s, format=fmt, errors="coerce")
+            mask = dt.notna()
+            if _enough_non_null(mask):
+                return dt
+
+        # Try inferred datetime (quietly suppress the "could not infer format" warning)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Could not infer format, so each element will be parsed individually",
+                category=UserWarning,
+            )
+            dt_inf = pd.to_datetime(s, errors="coerce")
+        if _enough_non_null(dt_inf.notna()):
+            return dt_inf
 
     # Try numeric with coercion (nullable pandas dtypes)
     num = pd.to_numeric(s, errors="coerce")
