@@ -1,14 +1,23 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
-# -----------------------------
-# Shared enums
-# -----------------------------
+# =============================================================================
+# Shared base + enums
+# =============================================================================
+
+class StrictBaseModel(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        use_enum_values=True,
+        validate_assignment=True,
+        str_strip_whitespace=True,
+    )
+
 
 class EntityType(str, Enum):
     cohort = "cohort"
@@ -22,71 +31,34 @@ class ReviewStatus(str, Enum):
     rejected = "rejected"
 
 
-# -----------------------------
-# Approved utility names for 2b
-# Expand this as your library grows.
-# -----------------------------
-
-class UtilityName(str, Enum):
-    normalize_columns = "normalize_columns"
-    cast_nullable_dtype = "cast_nullable_dtype"
-    cast_nullable_int = "cast_nullable_int"
-    cast_nullable_float = "cast_nullable_float"
-    cast_string = "cast_string"
-    coerce_numeric = "coerce_numeric"
-    coerce_datetime = "coerce_datetime"
-    combine_columns = "combine_columns"
-    map_values = "map_values"
-    normalize_term_code = "normalize_term_code"
-    normalize_grade = "normalize_grade"
-    strip_whitespace = "strip_whitespace"
-    lowercase = "lowercase"
-    uppercase = "uppercase"
-    fill_nulls = "fill_nulls"
-    replace_null_tokens = "replace_null_tokens"
-    deduplicate_rows = "deduplicate_rows"
-    new_utility_needed = "NEW_UTILITY_NEEDED"
-
-
-# -----------------------------
-# Base config
-# -----------------------------
-
-class StrictBaseModel(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        use_enum_values=True,
-        validate_assignment=True,
-        str_strip_whitespace=True,
-    )
-
-
-# -----------------------------
-# 2a: Field mapping manifest
-# -----------------------------
+# =============================================================================
+# 2a — Field Mapping Manifest
+# =============================================================================
 
 class FieldMappingRecord(StrictBaseModel):
     target_field: str = Field(..., description="Target Edvise schema field")
     source_columns: List[str] = Field(
-        ...,
-        min_length=1,
-        description="One or more source columns proposed for this target field",
+        default_factory=list,
+        description="Source columns proposed for this target field. Empty = unmappable field.",
     )
-    source_table: str = Field(
-        ...,
-        description="Source table name (e.g., 'student_df', 'course_df', 'stems_def_df') to disambiguate columns",
+    source_table: Optional[str] = Field(
+        default=None,
+        description="Source table name (e.g. 'student_df', 'course_df'). None = unmappable field.",
     )
     confidence: float = Field(
         ...,
         ge=0.0,
         le=1.0,
-        description="Model confidence in the proposed mapping",
+        description=(
+            "Agent confidence in the proposed mapping. "
+            "1.0 for human-authored cold-start records and confirmed unmappable fields. "
+            "Drives HITL gate threshold — low confidence triggers mandatory review."
+        ),
     )
     rationale: Optional[str] = Field(
         default=None,
-        description="Short explanation for why the mapping was selected",
+        description="Explanation for why the mapping was selected or why the field is unmappable.",
     )
-
     review_status: ReviewStatus = Field(
         default=ReviewStatus.proposed,
         description="Human review outcome",
@@ -102,14 +74,16 @@ class FieldMappingRecord(StrictBaseModel):
 
     @field_validator("source_columns")
     @classmethod
-    def source_columns_must_not_be_empty_strings(cls, v: List[str]) -> List[str]:
-        if not v or any(not col.strip() for col in v):
-            raise ValueError("source_columns must contain at least one non-empty string")
+    def source_columns_no_empty_strings(cls, v: List[str]) -> List[str]:
+        if any(not col.strip() for col in v):
+            raise ValueError("source_columns cannot contain empty strings")
         return v
 
     @field_validator("corrected_source_columns")
     @classmethod
-    def corrected_source_columns_nonempty(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+    def corrected_source_columns_no_empty_strings(
+        cls, v: Optional[List[str]]
+    ) -> Optional[List[str]]:
         if v is not None and any(not col.strip() for col in v):
             raise ValueError("corrected_source_columns cannot contain empty strings")
         return v
@@ -118,7 +92,7 @@ class FieldMappingRecord(StrictBaseModel):
 class FieldMappingManifest(StrictBaseModel):
     schema_version: str = Field(default="0.1.0")
     institution_id: str = Field(..., description="Institution identifier")
-    entity_type: EntityType = Field(..., description="Entity type being mapped")
+    entity_type: EntityType = Field(..., description="cohort or course")
     target_schema: str = Field(..., description="Target schema name")
     mappings: List[FieldMappingRecord] = Field(
         ...,
@@ -128,96 +102,90 @@ class FieldMappingManifest(StrictBaseModel):
 
     @field_validator("mappings")
     @classmethod
-    def target_fields_must_be_unique(cls, v: List[FieldMappingRecord]) -> List[FieldMappingRecord]:
-        target_fields = [m.target_field for m in v]
-        if len(target_fields) != len(set(target_fields)):
+    def target_fields_must_be_unique(
+        cls, v: List[FieldMappingRecord]
+    ) -> List[FieldMappingRecord]:
+        targets = [m.target_field for m in v]
+        if len(targets) != len(set(targets)):
             raise ValueError("Each target_field must appear only once in the manifest")
         return v
 
 
-# -----------------------------
-# 2b: Transformation map
-# -----------------------------
+# =============================================================================
+# 2b — Transformation Map
+# =============================================================================
 
-from __future__ import annotations
+# -----------------------------------------------------------------------------
+# Pre-collapse config
+# DataFrame-level grain reduction applied BEFORE field-level plans run.
+# Used when the source DataFrame has finer grain than the target schema —
+# e.g. UCF course_df has section-level rows but target requires course-level.
+# Executor runs this once on the full DataFrame before any field plans execute.
+# -----------------------------------------------------------------------------
 
-from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
-
-from pydantic import BaseModel, Field, ConfigDict, field_validator, model_validator
-
-
-# -----------------------------
-# Shared config
-# -----------------------------
-
-class StrictBaseModel(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        use_enum_values=True,
-        validate_assignment=True,
-        str_strip_whitespace=True,
+class PreCollapseConfig(StrictBaseModel):
+    subset: List[str] = Field(
+        ...,
+        description=(
+            "Columns defining the target grain to deduplicate on. "
+            "Should mirror the target schema unique constraint. "
+            "e.g. ['student_id', 'academic_year', 'academic_term', 'course_prefix', 'course_number']"
+        ),
     )
+    keep: Literal["first", "last"] = Field(
+        default="first",
+        description="Which row to keep per unique combination of subset columns.",
+    )
+    order_by: Optional[str] = Field(
+        default=None,
+        description="Sort column ascending before deduplication to make keep deterministic.",
+    )
+    rationale: Optional[str] = None
 
 
-class ReviewStatus(str, Enum):
-    proposed = "proposed"
-    approved = "approved"
-    corrected = "corrected"
-    rejected = "rejected"
-
-
-class EntityType(str, Enum):
-    cohort = "cohort"
-    course = "course"
-
-
-# -----------------------------
+# -----------------------------------------------------------------------------
 # Collapse config
 # Declares how to reduce student-term grain to student grain per field.
-# The executor uses schema_contract.unique_keys as the groupby keys,
-# and CollapseConfig to select the right row within each group.
-# -----------------------------
+# The executor uses schema_contract.unique_keys as the groupby keys;
+# CollapseConfig declares the within-group row selection strategy.
+# Only relevant for cohort maps — course maps use pre_collapse instead.
+# -----------------------------------------------------------------------------
 
 class CollapseStrategy(str, Enum):
     any_row = "any_row"
-    # Invariant fields - value is the same across all term rows per student.
-    # Executor takes first row after groupby (arbitrary but deterministic).
-    # Examples: gender, race, enrollment_type, entry_hs_gpa
+    # Invariant fields — value is identical across all term rows per student.
+    # Executor takes first row per groupby key (arbitrary but deterministic).
+    # Examples: gender, race, enrollment_type
 
     first_by = "first_by"
-    # Term-1 specific fields - take first row ordered by `order_by` column ascending.
+    # Term-1 specific fields — take first row ordered by `order_by` ascending.
     # Requires `order_by` to be set.
     # Examples: program_of_study_term_1, cohort_term, cohort
 
     where_not_null = "where_not_null"
-    # Take first non-null row for `condition_col` per student.
+    # Take first row where `condition_col` is non-null per student.
     # Requires `condition_col` to be set.
-    # Examples: first_bachelors_grad_date (where degree_earned_term is not null),
-    #           major_grad (where degree_earned_term is not null)
+    # Examples: first_bachelors_grad_date, major_grad (condition_col: degree_earned_term)
 
     constant = "constant"
-    # No row selection needed — field is derived as a constant value for all rows.
-    # source_columns should be empty; value is expressed in the transformation steps.
+    # No row selection — field is a constant value for all rows.
+    # source_columns must be empty; value expressed in transformation steps.
     # Examples: credential_type_sought_year_1 at UCF (always "Bachelor's")
 
     none = "none"
     # No collapse needed — source data is already at the correct grain.
-    # Used for all course-level fields and any student fields already at student grain.
+    # Used for all course-level fields after pre_collapse has run.
 
 
 class CollapseConfig(StrictBaseModel):
-    strategy: CollapseStrategy = Field(
-        ...,
-        description="Row selection strategy for grain reduction"
-    )
+    strategy: CollapseStrategy = Field(..., description="Row selection strategy")
     order_by: Optional[str] = Field(
         default=None,
-        description="Column to order by ascending before taking first row. Required for first_by strategy."
+        description="Column to sort ascending before taking first row. Required for first_by.",
     )
     condition_col: Optional[str] = Field(
         default=None,
-        description="Column that must be non-null for row selection. Required for where_not_null strategy."
+        description="Column that must be non-null for row selection. Required for where_not_null.",
     )
 
     @model_validator(mode="after")
@@ -229,80 +197,80 @@ class CollapseConfig(StrictBaseModel):
         return self
 
 
-# -----------------------------
+# -----------------------------------------------------------------------------
 # Typed step models
 # Each maps 1:1 to a callable in transformation_utilities.py.
-# `column` arg is always explicit — executor does not infer target column.
-# -----------------------------
+# `column` is always explicit — the executor never infers the target column.
+# -----------------------------------------------------------------------------
 
 class CastNullableIntStep(StrictBaseModel):
     function_name: Literal["cast_nullable_int"]
-    column: str = Field(..., description="Column to cast")
+    column: str
     rationale: Optional[str] = None
 
 
 class CastNullableFloatStep(StrictBaseModel):
     function_name: Literal["cast_nullable_float"]
-    column: str = Field(..., description="Column to cast")
+    column: str
     rationale: Optional[str] = None
 
 
 class CastStringStep(StrictBaseModel):
     function_name: Literal["cast_string"]
-    column: str = Field(..., description="Column to cast")
+    column: str
     rationale: Optional[str] = None
 
 
 class CastBooleanStep(StrictBaseModel):
     function_name: Literal["cast_boolean"]
-    column: str = Field(..., description="Column to cast")
+    column: str
     boolean_map: Optional[Dict[str, bool]] = None
     rationale: Optional[str] = None
 
 
 class CastDatetimeStep(StrictBaseModel):
     function_name: Literal["cast_datetime"]
-    column: str = Field(..., description="Column to cast")
+    column: str
     rationale: Optional[str] = None
 
 
 class CoerceNumericStep(StrictBaseModel):
     function_name: Literal["coerce_numeric"]
-    column: str = Field(..., description="Column to coerce")
+    column: str
     rationale: Optional[str] = None
 
 
 class CoerceDatetimeStep(StrictBaseModel):
     function_name: Literal["coerce_datetime"]
-    column: str = Field(..., description="Column to coerce")
+    column: str
     fmt: Optional[str] = Field(
         default=None,
-        description="Optional strptime format string. If None, pandas infers."
+        description="strptime format string. None = pandas infers.",
     )
     rationale: Optional[str] = None
 
 
 class StripWhitespaceStep(StrictBaseModel):
     function_name: Literal["strip_whitespace"]
-    column: str = Field(..., description="Column to strip")
+    column: str
     rationale: Optional[str] = None
 
 
 class LowercaseStep(StrictBaseModel):
     function_name: Literal["lowercase"]
-    column: str = Field(..., description="Column to lowercase")
+    column: str
     rationale: Optional[str] = None
 
 
 class UppercaseStep(StrictBaseModel):
     function_name: Literal["uppercase"]
-    column: str = Field(..., description="Column to uppercase")
+    column: str
     rationale: Optional[str] = None
 
 
 class MapValuesStep(StrictBaseModel):
     function_name: Literal["map_values"]
-    column: str = Field(..., description="Column to map")
+    column: str
     mapping: Dict[str, Any] = Field(..., description="Value mapping dict")
     rationale: Optional[str] = None
 
@@ -316,66 +284,66 @@ class MapValuesStep(StrictBaseModel):
 
 class NormalizeTermCodeStep(StrictBaseModel):
     function_name: Literal["normalize_term_code"]
-    column: str = Field(..., description="Column to normalize")
+    column: str
     rationale: Optional[str] = None
 
 
 class NormalizeGradeStep(StrictBaseModel):
     function_name: Literal["normalize_grade"]
-    column: str = Field(..., description="Column to normalize")
+    column: str
     rationale: Optional[str] = None
 
 
 class NormalizeEnrollmentStep(StrictBaseModel):
     function_name: Literal["normalize_enrollment"]
-    column: str = Field(..., description="Column to normalize")
+    column: str
     rationale: Optional[str] = None
 
 
 class NormalizePellStep(StrictBaseModel):
     function_name: Literal["normalize_pell"]
-    column: str = Field(..., description="Column to normalize")
+    column: str
     rationale: Optional[str] = None
 
 
 class NormalizeCredentialStep(StrictBaseModel):
     function_name: Literal["normalize_credential"]
-    column: str = Field(..., description="Column to normalize")
+    column: str
     rationale: Optional[str] = None
 
 
 class NormalizeStudentAgeStep(StrictBaseModel):
     function_name: Literal["normalize_student_age"]
-    column: str = Field(..., description="Column to normalize")
+    column: str
     rationale: Optional[str] = None
 
 
 class FillNullsStep(StrictBaseModel):
     function_name: Literal["fill_nulls"]
-    column: str = Field(..., description="Column to fill")
+    column: str
     value: Any = Field(..., description="Fill value")
     rationale: Optional[str] = None
 
 
 class ReplaceNullTokensStep(StrictBaseModel):
     function_name: Literal["replace_null_tokens"]
-    column: str = Field(..., description="Column to clean")
+    column: str
     null_tokens: List[str] = Field(..., description="Token strings to replace with NA")
     rationale: Optional[str] = None
 
 
 class ReplaceValuesWithNullStep(StrictBaseModel):
     function_name: Literal["replace_values_with_null"]
-    column: str = Field(..., description="Column to clean")
-    to_replace: Union[str, List[str]] = Field(..., description="Values to replace with null")
+    column: str
+    to_replace: Union[str, List[str]]
     rationale: Optional[str] = None
 
 
 class CombineColumnsStep(StrictBaseModel):
     function_name: Literal["combine_columns"]
-    cols: List[str] = Field(..., min_length=2, description="Columns to combine")
-    output_col: str = Field(..., description="Output column name")
-    sep: str = Field(default="", description="Separator string")
+    cols: List[str] = Field(..., min_length=2)
+    output_col: str
+    sep: str = Field(default="")
     rationale: Optional[str] = None
 
 
@@ -383,27 +351,21 @@ class DeduplicateRowsStep(StrictBaseModel):
     function_name: Literal["deduplicate_rows"]
     subset: Optional[List[str]] = Field(
         default=None,
-        description="Columns to consider for deduplication. None = all columns."
+        description="Columns to consider. None = all columns.",
     )
-    keep: Literal["first", "last", "none"] = Field(
-        default="first",
-        description="Which duplicate to keep"
-    )
+    keep: Literal["first", "last", "none"] = Field(default="first")
     rationale: Optional[str] = None
 
 
 class StripTrailingDecimalStep(StrictBaseModel):
     function_name: Literal["strip_trailing_decimal"]
-    column: str = Field(..., description="Column to strip trailing .0 from")
+    column: str
     rationale: Optional[str] = None
 
 
 class NewUtilityNeededStep(StrictBaseModel):
     function_name: Literal["NEW_UTILITY_NEEDED"]
-    description: str = Field(
-        ...,
-        description="Description of the required utility and its expected behavior"
-    )
+    description: str = Field(..., description="Required utility behavior")
     rationale: Optional[str] = None
     notes: Optional[str] = None
 
@@ -412,7 +374,7 @@ class NewUtilityNeededStep(StrictBaseModel):
         return True
 
 
-# Discriminated union — executor dispatches on function_name
+# Discriminated union — executor dispatches on function_name literal
 TransformationStep = Union[
     CastNullableIntStep,
     CastNullableFloatStep,
@@ -441,9 +403,9 @@ TransformationStep = Union[
 ]
 
 
-# -----------------------------
-# Field transformation plan
-# -----------------------------
+# -----------------------------------------------------------------------------
+# Field transformation plan + map
+# -----------------------------------------------------------------------------
 
 class FieldTransformationPlan(StrictBaseModel):
     target_field: str = Field(..., description="Target Edvise schema field")
@@ -457,19 +419,19 @@ class FieldTransformationPlan(StrictBaseModel):
     )
     output_dtype: Optional[str] = Field(
         default=None,
-        description="Expected output dtype after all transformations"
+        description="Expected output dtype after all transformations",
     )
     collapse: Optional[CollapseConfig] = Field(
         default=None,
         description=(
-            "Row collapse strategy for grain reduction from student-term to student. "
-            "None = no collapse needed (course-level fields or already correct grain). "
-            "Executor uses schema_contract.unique_keys as groupby keys."
-        )
+            "Row collapse strategy for grain reduction from student-term to student grain. "
+            "None = no collapse needed (course-level or already correct grain). "
+            "Executor reads groupby keys from schema_contract.unique_keys."
+        ),
     )
     steps: List[TransformationStep] = Field(
         default_factory=list,
-        description="Ordered transformation steps. Empty = unmappable field, no steps to execute.",
+        description="Ordered transformation steps. Empty = unmappable field.",
     )
     review_status: ReviewStatus = Field(
         default=ReviewStatus.proposed,
@@ -477,11 +439,11 @@ class FieldTransformationPlan(StrictBaseModel):
     )
     reviewer_notes: Optional[str] = Field(
         default=None,
-        description="Reviewer comments on the plan",
+        description="Reviewer comments",
     )
 
     @model_validator(mode="after")
-    def validate_constant_collapse_has_no_source(self) -> "FieldTransformationPlan":
+    def validate_constant_has_no_source(self) -> "FieldTransformationPlan":
         if (
             self.collapse
             and self.collapse.strategy == CollapseStrategy.constant
@@ -489,20 +451,26 @@ class FieldTransformationPlan(StrictBaseModel):
         ):
             raise ValueError(
                 "constant collapse strategy implies no source columns — "
-                "source_columns should be empty for constant-derived fields"
+                "source_columns must be empty for constant-derived fields"
             )
         return self
 
 
-# -----------------------------
-# Transformation map
-# -----------------------------
-
 class TransformationMap(StrictBaseModel):
     schema_version: str = Field(default="0.1.0")
     institution_id: str = Field(..., description="Institution identifier")
-    entity_type: EntityType = Field(..., description="Entity type being transformed")
+    entity_type: EntityType = Field(..., description="cohort or course")
     target_schema: str = Field(..., description="Target schema name")
+    pre_collapse: Optional[PreCollapseConfig] = Field(
+        default=None,
+        description=(
+            "DataFrame-level grain reduction applied before any field plans run. "
+            "Required when source grain is finer than target schema grain — "
+            "e.g. section-level course rows needing reduction to course-level. "
+            "Cohort maps typically do not need this; field-level CollapseConfig handles "
+            "student-term to student reduction per field."
+        ),
+    )
     plans: List[FieldTransformationPlan] = Field(
         ...,
         min_length=1,
@@ -511,8 +479,10 @@ class TransformationMap(StrictBaseModel):
 
     @field_validator("plans")
     @classmethod
-    def target_fields_must_be_unique(cls, v: List[FieldTransformationPlan]) -> List[FieldTransformationPlan]:
-        target_fields = [p.target_field for p in v]
-        if len(target_fields) != len(set(target_fields)):
+    def target_fields_must_be_unique(
+        cls, v: List[FieldTransformationPlan]
+    ) -> List[FieldTransformationPlan]:
+        targets = [p.target_field for p in v]
+        if len(targets) != len(set(targets)):
             raise ValueError("Each target_field must appear only once in the transformation map")
         return v

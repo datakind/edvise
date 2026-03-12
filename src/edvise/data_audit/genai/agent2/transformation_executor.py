@@ -23,7 +23,7 @@ from typing import Any
 
 import pandas as pd
 
-from edvise.data_audit.gen_ai.agent_2.transformation_utilities import (
+from edvise.data_audit.agent2.transformation_utilities import (
     cast_boolean,
     cast_datetime,
     cast_nullable_float,
@@ -259,6 +259,18 @@ def execute_transformation_map(
     gaps: list[str] = []
     skipped: list[str] = []
     executed: list[str] = []
+
+    # --- Pre-collapse: DataFrame-level grain reduction before field plans run ---
+    if transformation_map.pre_collapse:
+        pc = transformation_map.pre_collapse
+        if pc.order_by:
+            df = df.sort_values(pc.order_by)
+        df = df.drop_duplicates(subset=pc.subset, keep=pc.keep)
+        logger.debug(
+            f"Pre-collapse applied: deduped to {len(df)} rows "
+            f"on {pc.subset} keep='{pc.keep}'"
+            + (f" order_by='{pc.order_by}'" if pc.order_by else "")
+        )
 
     for plan in transformation_map.plans:
         target = plan.target_field
