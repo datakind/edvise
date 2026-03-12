@@ -460,6 +460,7 @@ def conditional_credits(
     return earned.astype("Float64")
 
 
+
 # =============================================================================
 # stems_lookup
 # =============================================================================
@@ -476,7 +477,7 @@ def stems_lookup(
     """
     Classify courses as STEM or Non-STEM by joining to a STEM definition lookup table.
 
-    Handles the specific issue where course_cip is inferred as datetime64[ns]
+    Handles the UCF-specific issue where course_cip is inferred as datetime64[ns]
     by pandas — recovers the numeric CIP code before joining.
 
     Args:
@@ -519,8 +520,12 @@ def stems_lookup(
     )
 
     # --- Map to output values ---
+    # Use vectorized where/mask instead of lambda map to avoid
+    # "boolean value of NA is ambiguous" with pandas StringDtype NA values
     area = merged[area_col].astype("string")
-    result = area.map(lambda a: stem_output if a == stem_value else (non_stem_output if pd.notna(a) else None))
+    result = pd.Series(pd.NA, index=area.index, dtype="string")
+    result = result.where(area.isna(), non_stem_output)   # default non-STEM where not null
+    result = result.where(area != stem_value, stem_output) # override with STEM where match
     return result.astype("string")
 
 
