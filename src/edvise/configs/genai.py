@@ -13,7 +13,7 @@ class StrictBaseModel(BaseModel):
 
 
 class DatasetConfig(StrictBaseModel):
-    primary_keys: List[str] = Field(
+    primary_keys: Optional[List[str]]= Field(
         ...,
         min_length=1,
         description="Primary keys for this logical dataset",
