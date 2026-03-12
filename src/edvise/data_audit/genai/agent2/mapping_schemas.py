@@ -89,6 +89,29 @@ class FieldMappingRecord(StrictBaseModel):
         return v
 
 
+class ColumnAlias(StrictBaseModel):
+    table: str = Field(
+        ...,
+        description="Source table containing the aliased column",
+    )
+    source_column: str = Field(
+        ...,
+        description="Column name as it appears in the source table",
+    )
+    canonical_column: str = Field(
+        ...,
+        description=(
+            "Canonical column name to use for join key matching. "
+            "Typically the name as it appears in the primary table or "
+            "the normalized form shared across tables."
+        ),
+    )
+    rationale: Optional[str] = Field(
+        default=None,
+        description="Explanation of why these column names refer to the same concept",
+    )
+
+
 class FieldMappingManifest(StrictBaseModel):
     schema_version: str = Field(default="0.1.0")
     institution_id: str = Field(..., description="Institution identifier")
@@ -98,6 +121,15 @@ class FieldMappingManifest(StrictBaseModel):
         ...,
         min_length=1,
         description="Per-target-field mapping proposals",
+    )
+    column_aliases: List[ColumnAlias] = Field(
+        default_factory=list,
+        description=(
+            "Cross-table column name aliases identified during mapping. "
+            "Captures cases where the same concept appears under different "
+            "names across source tables — e.g. term_descr in course_df vs "
+            "term_desc in student_df. Consumed by join resolver for key matching."
+        ),
     )
 
     @field_validator("mappings")
