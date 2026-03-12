@@ -207,7 +207,7 @@ def add_term_order(
     g["is_core_term"] = season_norm.isin(core_norm)
 
     # Composite key
-    g["term_order"] = (g["year"] * 10 + g["season_order"]).astype("Int64")
+    g["term_order"] = (g["year"] * 100 + g["season_order"]).astype("Int64")
 
     return g
 
