@@ -13,6 +13,11 @@ class StrictBaseModel(BaseModel):
 
 
 class DatasetConfig(StrictBaseModel):
+    primary_keys: List[str] = Field(
+        ...,
+        min_length=1,
+        description="Primary keys for this logical dataset",
+    )
     files: List[str] = Field(
         ...,
         min_length=1,
