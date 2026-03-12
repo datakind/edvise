@@ -96,7 +96,7 @@ class JoinResolver:
             {
               "datasets": {
                 "student_df": {
-                  "unique_keys": ["student_id", "term"],
+                  "primary_keys": ["student_id", "term"],
                   "normalized_columns": {"col": "col", ...},
                   "dtypes": {"col": "dtype", ...}
                 },
@@ -212,8 +212,7 @@ class JoinResolver:
 
     def _get_primary_keys(self, table: str) -> list[str]:
         """Return primary keys for a dataset."""
-        # Support both "primary_keys" and "unique_keys" for backward compatibility
-        return self.datasets[table].get("unique_keys", self.datasets[table].get("primary_keys", []))
+        return self.datasets[table].get("primary_keys", [])
 
     
     def _build_alias_map(

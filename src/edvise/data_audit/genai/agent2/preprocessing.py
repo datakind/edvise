@@ -103,7 +103,7 @@ def build_schema_contract_from_config(
     school_config: SchoolMappingConfig,
     dtype_opts: Optional[DtypeGenerationOptions] = None,
     spark_session: Optional[Any] = None,
-    dataset_name_suffix: str = "_df",
+    dataset_name_suffix: str = "",
     sample_size: Optional[int] = None,
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
@@ -119,8 +119,8 @@ def build_schema_contract_from_config(
         school_config: SchoolMappingConfig from inputs.toml
         dtype_opts: Optional DtypeGenerationOptions for dtype inference
         spark_session: Optional Spark session for reading files
-        dataset_name_suffix: Suffix to add to dataset names (e.g., "_df" makes "student" -> "student_df")
-                            This ensures dataset names match what manifests reference.
+        dataset_name_suffix: Suffix to add to dataset names (default: "" uses config names as-is).
+                            Pass "_df" to add suffix (e.g., "student" -> "student_df").
         sample_size: Optional max rows to sample per dataset (None = use all data).
                     Useful for PoC/testing to speed up processing.
     
@@ -142,7 +142,7 @@ def build_schema_contract_from_config(
     )
     
     for dataset_name, dataset_config in school_config.datasets.items():
-        # Add suffix to match manifest expectations (e.g., "student" -> "student_df")
+        # Use dataset name from config, optionally with suffix
         logical_name = f"{dataset_name}{dataset_name_suffix}" if dataset_name_suffix else dataset_name
         
         logger.info("Processing dataset: %s (logical name: %s)", dataset_name, logical_name)
