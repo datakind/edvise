@@ -95,7 +95,7 @@ class ExecutionResult:
 def _collapse_field(
     df: pd.DataFrame,
     plan: FieldTransformationPlan,
-    primary_keys: list[str],
+    unique_keys: list[str],
 ) -> pd.Series:
     """
     Apply CollapseConfig to reduce student-term grain to student grain for one field.
@@ -103,11 +103,11 @@ def _collapse_field(
     Args:
         df: Source DataFrame (student-term grain)
         plan: FieldTransformationPlan with collapse config
-        primary_keys: Groupby keys from schema_contract.unique_keys for the source dataset
+        unique_keys: Groupby keys from schema_contract.unique_keys for the source dataset
                       e.g. ["student_id"] for target student schema (collapse to student grain)
 
     Returns:
-        Series at student grain indexed by primary key
+        Series at student grain indexed by unique keys
     """
     collapse = plan.collapse
     col = plan.source_columns[0] if plan.source_columns else None
@@ -121,12 +121,12 @@ def _collapse_field(
         return pd.Series(dtype="object")
 
     if collapse.strategy == CollapseStrategy.any_row:
-        # Invariant field — take first row per primary key (arbitrary but deterministic)
+        # Invariant field — take first row per unique key (arbitrary but deterministic)
         return (
-            df.groupby(primary_keys)[col]
+            df.groupby(unique_keys)[col]
             .first()
             .reset_index(drop=False)
-            .set_index(primary_keys)[col]
+            .set_index(unique_keys)[col]
         )
 
     if collapse.strategy == CollapseStrategy.first_by:
@@ -135,10 +135,10 @@ def _collapse_field(
             raise ExecutionError(f"first_by strategy requires order_by for field '{plan.target_field}'")
         return (
             df.sort_values(collapse.order_by)
-            .groupby(primary_keys)[col]
+            .groupby(unique_keys)[col]
             .first()
             .reset_index(drop=False)
-            .set_index(primary_keys)[col]
+            .set_index(unique_keys)[col]
         )
 
     if collapse.strategy == CollapseStrategy.where_not_null:
@@ -147,10 +147,10 @@ def _collapse_field(
             raise ExecutionError(f"where_not_null strategy requires condition_col for field '{plan.target_field}'")
         return (
             df[df[collapse.condition_col].notna()]
-            .groupby(primary_keys)[col]
+            .groupby(unique_keys)[col]
             .first()
             .reset_index(drop=False)
-            .set_index(primary_keys)[col]
+            .set_index(unique_keys)[col]
         )
 
     raise ExecutionError(f"Unknown collapse strategy: {collapse.strategy}")
@@ -236,7 +236,7 @@ _DF_LEVEL_STEPS = {"combine_columns", "deduplicate_rows"}
 def execute_transformation_map(
     df: pd.DataFrame,
     transformation_map: TransformationMap,
-    primary_keys: list[str],
+    unique_keys: list[str],
     raise_on_gap: bool = False,
 ) -> ExecutionResult:
     """
@@ -246,7 +246,7 @@ def execute_transformation_map(
         df: Pre-joined source DataFrame. For cohort maps this is student-term grain;
             for course maps this is already at course grain.
         transformation_map: Validated TransformationMap from Agent 2b.
-        primary_keys: Groupby keys for collapse, from schema_contract.unique_keys
+        unique_keys: Groupby keys for collapse, from schema_contract.unique_keys
                       for the TARGET schema entity. For cohort: ["student_id"].
                       For course: ["student_id", "academic_term", "course_prefix", "course_number"].
         raise_on_gap: If True, raise ExecutionGapError on first NEW_UTILITY_NEEDED.
@@ -297,7 +297,7 @@ def execute_transformation_map(
                 CollapseStrategy.none,
                 CollapseStrategy.constant,
             ):
-                s = _collapse_field(df, plan, primary_keys)
+                s = _collapse_field(df, plan, unique_keys)
             else:
                 # No collapse — work directly on the source column
                 col = plan.source_columns[0] if plan.source_columns else None
