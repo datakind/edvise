@@ -24,15 +24,20 @@ from typing import Any
 import pandas as pd
 
 from edvise.data_audit.genai.agent2.transformation_utilities import (
+    birthyear_to_age_bucket,
     cast_boolean,
     cast_datetime,
     cast_nullable_float,
     cast_nullable_int,
     cast_string,
+    conditional_credits,
     coerce_datetime,
     coerce_numeric,
     combine_columns,
+    cross_table_lookup,
     deduplicate_rows,
+    extract_year,
+    fill_constant,
     fill_nulls,
     lowercase,
     map_values,
@@ -42,8 +47,10 @@ from edvise.data_audit.genai.agent2.transformation_utilities import (
     normalize_pell,
     normalize_student_age,
     normalize_term_code,
+    parse_yyyymm,
     replace_null_tokens,
     replace_values_with_null,
+    stems_lookup,
     strip_trailing_decimal,
     strip_whitespace,
     uppercase,
@@ -69,6 +76,21 @@ class ExecutionGapError(Exception):
 class ExecutionError(Exception):
     """Raised when a transformation step fails."""
     pass
+
+
+def _raise_missing_df() -> None:
+    """Helper to raise error when df is required but not provided."""
+    raise ExecutionError("DataFrame (df) is required for this transformation step")
+
+
+def _raise_missing_context() -> None:
+    """Helper to raise error when context is required but not provided."""
+    raise ExecutionError("Context dictionary is required for this transformation step")
+
+
+def _raise_missing_df_or_context() -> None:
+    """Helper to raise error when df and context are required but not provided."""
+    raise ExecutionError("DataFrame (df) and context dictionary are required for this transformation step")
 
 
 # -----------------------------------------------------------------------------
@@ -150,13 +172,20 @@ def _collapse_field(
 # Step dispatcher
 # -----------------------------------------------------------------------------
 
-def _dispatch_step(s: pd.Series, step: Any) -> pd.Series:
+def _dispatch_step(
+    s: pd.Series,
+    step: Any,
+    df: pd.DataFrame | None = None,
+    context: dict[str, pd.DataFrame] | None = None,
+) -> pd.Series:
     """
     Dispatch a single TransformationStep to its utility function.
 
     Args:
         s: Input Series
         step: Typed TransformationStep model
+        df: Optional DataFrame for functions that need it (e.g., conditional_credits, cross_table_lookup)
+        context: Optional context dictionary for lookup tables (e.g., stems_lookup, cross_table_lookup)
 
     Returns:
         Transformed Series
@@ -190,6 +219,20 @@ def _dispatch_step(s: pd.Series, step: Any) -> pd.Series:
         "replace_null_tokens":  lambda: replace_null_tokens(s, step.null_tokens),
         "replace_values_with_null": lambda: replace_values_with_null(s, step.to_replace),
         "strip_trailing_decimal": lambda: strip_trailing_decimal(s),
+        "fill_constant":           lambda: fill_constant(s, step.value),
+        "extract_year":            lambda: extract_year(s),
+        "parse_yyyymm":            lambda: parse_yyyymm(s),
+        "birthyear_to_age_bucket": lambda: birthyear_to_age_bucket(s),
+        "conditional_credits":     lambda: conditional_credits(
+                                    df[step.grade_column], df[step.credits_column]
+                                ) if df is not None else _raise_missing_df(),
+        "stems_lookup":            lambda: stems_lookup(s, context[step.stems_table])
+                                if context is not None else _raise_missing_context(),
+        "cross_table_lookup":      lambda: cross_table_lookup(
+                                    s, step.base_join_keys, df,
+                                    context[step.lookup_table],
+                                    step.lookup_join_keys, step.lookup_value_col
+                                ) if df is not None and context is not None else _raise_missing_df_or_context(),
     }
 
     if fn not in dispatch:
@@ -224,6 +267,7 @@ def execute_transformation_map(
     transformation_map: TransformationMap,
     unique_keys: list[str],
     raise_on_gap: bool = False,
+    context: dict[str, pd.DataFrame] | None = None,
 ) -> ExecutionResult:
     """
     Execute a TransformationMap against a pre-joined DataFrame.
@@ -344,7 +388,7 @@ def execute_transformation_map(
                     df = _dispatch_df_step(df, step)
                     s = df[step.output_col].reset_index(drop=True) if hasattr(step, "output_col") else s
                 else:
-                    s = _dispatch_step(s, step)
+                    s = _dispatch_step(s, step, df=df, context=context)
 
             result_cols[target] = s
             executed.append(target)
