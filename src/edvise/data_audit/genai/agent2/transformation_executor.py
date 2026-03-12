@@ -219,10 +219,6 @@ def _dispatch_df_step(df: pd.DataFrame, step: Any) -> pd.DataFrame:
 _DF_LEVEL_STEPS = {"combine_columns", "deduplicate_rows"}
 
 
-# -----------------------------------------------------------------------------
-# Main executor
-# -----------------------------------------------------------------------------
-
 def execute_transformation_map(
     df: pd.DataFrame,
     transformation_map: TransformationMap,
@@ -265,12 +261,25 @@ def execute_transformation_map(
     # --- Determine the expected number of output rows ---
     # This is the number of unique key combinations in the input DataFrame
     # after any pre_collapse. All collapsed Series must align to this length.
+    #
+    # pre_collapse.subset uses SOURCE column names (pre-transformation).
+    # unique_keys uses TARGET column names (post-transformation).
+    # We must use source names here since transformations haven't run yet.
+    #
     # TODO(performance): This runs a full drop_duplicates just to count rows.
     # For performance improvement, pre-compute the collapsed base DataFrame once
     # upfront and derive expected_n_rows from len(collapsed_base) instead of
     # running a separate deduplication pass here.
-    expected_n_rows = df.drop_duplicates(subset=unique_keys).shape[0]
-    logger.debug(f"Expected output rows: {expected_n_rows} (unique {unique_keys} combinations)")
+    dedup_subset = (
+        transformation_map.pre_collapse.subset
+        if transformation_map.pre_collapse
+        else unique_keys
+    )
+    expected_n_rows = df.drop_duplicates(subset=dedup_subset).shape[0]
+    logger.debug(
+        f"Expected output rows: {expected_n_rows} "
+        f"(dedup on {dedup_subset})"
+    )
 
     for plan in transformation_map.plans:
         target = plan.target_field

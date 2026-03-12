@@ -159,9 +159,11 @@ class PreCollapseConfig(StrictBaseModel):
     subset: List[str] = Field(
         ...,
         description=(
-            "Columns defining the target grain to deduplicate on. "
-            "Should mirror the target schema unique constraint. "
-            "e.g. ['student_id', 'academic_year', 'academic_term', 'course_prefix', 'course_number']"
+            "SOURCE column names defining the target grain to deduplicate on. "
+            "Must use source column names since pre_collapse runs before any "
+            "transformation steps — target column names do not exist yet. "
+            "e.g. ['student_id', 'term_descr', 'crse_prefix', 'crse_number'] for UCF course "
+            "(not ['student_id', 'academic_term', 'course_prefix', 'course_number'])."
         ),
     )
     keep: Literal["first", "last"] = Field(
