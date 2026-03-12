@@ -9,10 +9,8 @@ CheckpointType = t.Union[pd.DataFrame, t.Callable[[pd.DataFrame], pd.DataFrame]]
 CheckpointTypeType = t.Literal[
     "nth",
     "first",
-    "last",
     "first_at_num_credits_earned",
     "first_within_cohort",
-    "last_in_enrollment_year",
 ]
 TargetTypeType = t.Literal["graduation", "retention", "credits_earned"]
 
