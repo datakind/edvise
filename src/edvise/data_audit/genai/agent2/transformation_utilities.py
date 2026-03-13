@@ -423,10 +423,12 @@ def parse_yyyymm(s: pd.Series) -> pd.Series:
 # birthyear_to_age_bucket
 # =============================================================================
 
-def birthyear_to_age_bucket(s: pd.Series) -> pd.Series:
+def birthyear_to_age_bucket(
+    s: pd.Series,
+    reference_year_series: pd.Series | None = None,
+) -> pd.Series:
     """
-    Convert a birthyear Series to PDP age bucket strings using current year
-    as the reference year.
+    Convert a birthyear Series to PDP age bucket strings using a reference year.
 
     PDP age buckets:
       - "20 AND YOUNGER"  : age <= 20
@@ -437,13 +439,40 @@ def birthyear_to_age_bucket(s: pd.Series) -> pd.Series:
 
     Args:
         s: Nullable Int64 Series of birth years (e.g. 1999, 2002)
+        reference_year_series: Optional Series of reference years. Can be:
+            - Integer years (e.g., 2023, 2024)
+            - YYYY-YY format strings (e.g., "2023-24") - first 4 digits extracted
+            If None, uses current year for all rows.
 
     Returns:
         String Series with PDP age bucket values
     """
-    reference_year = datetime.now().year
-    age = pd.to_numeric(s, errors="coerce")
-    age = reference_year - age
+    birthyear = pd.to_numeric(s, errors="coerce")
+    
+    if reference_year_series is not None:
+        # Extract year from reference_year_series
+        # Handle both integer years and YYYY-YY format strings
+        # First try to convert directly to numeric (for integer years)
+        ref_year_numeric = pd.to_numeric(reference_year_series, errors="coerce")
+        
+        # For string values (like "2023-24"), extract first 4 digits
+        ref_year_str = reference_year_series.astype("string").str.extract(r"(\d{4})", expand=False)
+        ref_year_from_str = pd.to_numeric(ref_year_str, errors="coerce")
+        
+        # Use numeric if available, otherwise use extracted from string
+        # This creates a Series aligned with the input
+        reference_year = ref_year_numeric.fillna(ref_year_from_str)
+        
+        # If still null, fall back to current year for those rows
+        current_year = datetime.now().year
+        reference_year = reference_year.fillna(current_year)
+    else:
+        # Use current year as scalar (will broadcast to all rows)
+        reference_year = datetime.now().year
+    
+    # Calculate age: reference_year (Series or scalar) - birthyear (Series)
+    # pandas will handle alignment automatically if both are Series
+    age = reference_year - birthyear
 
     def _bucket(a: float) -> str | None:
         if pd.isna(a):
