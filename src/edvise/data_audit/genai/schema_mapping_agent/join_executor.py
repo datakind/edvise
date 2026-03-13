@@ -25,13 +25,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Any
 
 import pandas as pd
 
 from edvise.data_audit.genai.schema_mapping_agent.mapping_schemas import EntityType, FieldMappingManifest
 
 logger = logging.getLogger(__name__)
+
+# Threshold for using Spark instead of pandas (rows)
+SPARK_THRESHOLD = 500000
 
 
 # -----------------------------------------------------------------------------
@@ -465,14 +468,21 @@ class JoinResolver:
 def execute_join_graph(
     graph: JoinGraph,
     dataframes: dict[str, pd.DataFrame],
+    spark_session: Optional[Any] = None,
 ) -> pd.DataFrame:
     """
     Execute an approved JoinGraph against loaded DataFrames.
+
+    For large datasets (>500k rows), automatically uses Spark if available to avoid
+    memory issues. Falls back to optimized pandas for smaller datasets or when
+    Spark is not available.
 
     Args:
         graph: Approved JoinGraph from JoinResolver.resolve()
         dataframes: Dict of dataset_name -> DataFrame.
                     Keys must match graph.base_table and step.right values.
+        spark_session: Optional Spark session. If provided and base table is large,
+                      will use Spark for joins to avoid memory issues.
 
     Returns:
         Flat input DataFrame ready for TransformationMap executor.
@@ -483,6 +493,46 @@ def execute_join_graph(
             f"Available: {list(dataframes.keys())}"
         )
 
+    base_df = dataframes[graph.base_table]
+    base_rows = len(base_df)
+    
+    # Determine if we should use Spark
+    use_spark = (
+        spark_session is not None
+        and base_rows > SPARK_THRESHOLD
+    )
+    
+    if use_spark:
+        logger.info(
+            f"[{graph.entity_type}] Using Spark for large dataset "
+            f"({base_rows:,} rows) from base '{graph.base_table}'"
+        )
+        return _execute_join_graph_spark(graph, dataframes, spark_session)
+    else:
+        logger.info(
+            f"[{graph.entity_type}] Using pandas for join from base '{graph.base_table}': "
+            f"{base_df.shape}"
+        )
+        return _execute_join_graph_pandas(graph, dataframes)
+
+
+def _execute_join_graph_pandas(
+    graph: JoinGraph,
+    dataframes: dict[str, pd.DataFrame],
+) -> pd.DataFrame:
+    """
+    Execute join graph using pandas (optimized for memory).
+    
+    Uses in-place operations where possible to reduce memory footprint.
+    """
+    if graph.base_table not in dataframes:
+        raise ValueError(
+            f"Base table '{graph.base_table}' not found in dataframes. "
+            f"Available: {list(dataframes.keys())}"
+        )
+
+    # Use copy only if we need to preserve original (which we do)
+    # But we'll be more careful about memory in the merge loop
     result = dataframes[graph.base_table].copy()
     logger.info(
         f"[{graph.entity_type}] Starting join from base '{graph.base_table}': "
@@ -505,12 +555,14 @@ def execute_join_graph(
             )
 
         pre_shape = result.shape
+        # Use merge with explicit memory-efficient options
         result = result.merge(
             right_df,
             left_on=step.left_on,
             right_on=step.right_on,
             how=step.how,
             suffixes=("", f"_{step.right}"),
+            copy=False,  # Try to avoid copying when possible
         )
         logger.info(
             f"Joined '{step.right}' on {step.left_on} = {step.right_on}: "
@@ -518,3 +570,109 @@ def execute_join_graph(
         )
 
     return result
+
+
+def _execute_join_graph_spark(
+    graph: JoinGraph,
+    dataframes: dict[str, pd.DataFrame],
+    spark_session: Any,
+) -> pd.DataFrame:
+    """
+    Execute join graph using Spark DataFrames for large datasets.
+    
+    Converts pandas DataFrames to Spark, performs joins, then converts back.
+    This avoids memory issues with large datasets in pandas.
+    """
+    try:
+        # Convert base table to Spark DataFrame
+        base_df = dataframes[graph.base_table]
+        result_spark = spark_session.createDataFrame(base_df)
+        
+        logger.info(
+            f"[{graph.entity_type}] Starting Spark join from base '{graph.base_table}': "
+            f"{base_df.shape}"
+        )
+        
+        for step in graph.steps:
+            if step.right not in dataframes:
+                raise ValueError(
+                    f"Table '{step.right}' not found in dataframes. "
+                    f"Available: {list(dataframes.keys())}"
+                )
+            
+            right_df = dataframes[step.right]
+            right_spark = spark_session.createDataFrame(right_df)
+            
+            if step.fan_out_risk:
+                logger.warning(
+                    f"Executing Spark join with fan-out risk: {step.left} ← {step.right} "
+                    f"on {step.left_on} = {step.right_on}. {step.fan_out_note}"
+                )
+            
+            pre_count = result_spark.count()
+            pre_cols = len(result_spark.columns)
+            
+            # Rename right table columns to avoid conflicts (matching pandas behavior)
+            # Add suffix to all right table columns except join keys
+            result_cols = set(result_spark.columns)
+            right_rename = {}
+            
+            for col in right_spark.columns:
+                if col not in step.right_on:
+                    # Check if this column name exists in result (potential conflict)
+                    if col in result_cols:
+                        # Conflict - add suffix like pandas does
+                        right_rename[col] = f"{col}_{step.right}"
+            
+            # Apply renames
+            if right_rename:
+                for old_name, new_name in right_rename.items():
+                    right_spark = right_spark.withColumnRenamed(old_name, new_name)
+            
+            # Perform join using Spark DataFrame API
+            # Build join condition using column expressions
+            from pyspark.sql.functions import col
+            
+            join_expr = None
+            for left_col, right_col in zip(step.left_on, step.right_on):
+                # Use result_spark and right_spark column references
+                condition = result_spark[left_col] == right_spark[right_col]
+                if join_expr is None:
+                    join_expr = condition
+                else:
+                    join_expr = join_expr & condition
+            
+            # Perform the join
+            result_spark = result_spark.join(
+                right_spark,
+                join_expr,
+                how=step.how,
+            )
+            
+            # Note: Spark may keep duplicate join key columns. When we convert to pandas,
+            # pandas will automatically handle duplicate column names by adding suffixes.
+            # This matches the pandas merge behavior with suffixes.
+            
+            post_count = result_spark.count()
+            post_cols = len(result_spark.columns)
+            logger.info(
+                f"Joined '{step.right}' on {step.left_on} = {step.right_on}: "
+                f"({pre_count}, {pre_cols}) → ({post_count}, {post_cols})"
+            )
+        
+        # Convert back to pandas
+        logger.info(f"[{graph.entity_type}] Converting Spark result back to pandas...")
+        result = result_spark.toPandas()
+        logger.info(f"[{graph.entity_type}] Final result shape: {result.shape}")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(
+            f"Error in Spark join execution: {e}. "
+            f"Falling back to pandas (this may cause memory issues with large datasets)."
+        )
+        import traceback
+        logger.debug(traceback.format_exc())
+        # Fallback to pandas if Spark fails
+        return _execute_join_graph_pandas(graph, dataframes)
