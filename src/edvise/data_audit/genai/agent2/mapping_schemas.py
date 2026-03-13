@@ -425,6 +425,12 @@ class ParseYyyymmStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
+class ParseTermDescriptionStep(StrictBaseModel):
+    function_name: Literal["parse_term_description"]
+    column: str = Field(..., description="Column containing term description e.g. 'Summer 2018'")
+    rationale: Optional[str] = None
+
+
 class BirthyearToAgeBucketStep(StrictBaseModel):
     function_name: Literal["birthyear_to_age_bucket"]
     column: str = Field(..., description="Column containing birth year as integer")
@@ -517,6 +523,7 @@ TransformationStep = Union[
     NormalizeYearRangeStep,
     ExtractYearStep,
     ParseYyyymmStep,
+    ParseTermDescriptionStep,
     BirthyearToAgeBucketStep,
     ConditionalCreditsStep,
     StemsLookupStep,

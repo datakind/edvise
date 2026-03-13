@@ -8,6 +8,7 @@ maintain DRY principles - most functions are thin wrappers or direct re-exports.
 All utilities operate on pandas Series or DataFrames and return transformed Series/DataFrames.
 """
 
+import re
 import typing as t
 import warnings
 from datetime import datetime
@@ -72,6 +73,7 @@ __all__ = [
     "fill_constant",
     "extract_year",
     "parse_yyyymm",
+    "parse_term_description",
     "birthyear_to_age_bucket",
     "conditional_credits",
     "stems_lookup",
@@ -305,10 +307,20 @@ def strip_trailing_decimal(s: pd.Series) -> pd.Series:
     """
     Strip trailing ".0" from string Series.
 
+    Handles both string and numeric inputs. For numeric inputs, converts
+    to int first to avoid precision issues, then to string.
+
     This is a Series-level version of strip_trailing_decimal_strings.
     The existing function works on DataFrame with specific columns, but we need Series-level.
     """
-    return s.astype("string").str.replace(r"\.0$", "", regex=True)
+    # If input is numeric, convert to int first to avoid precision issues
+    # This prevents float values like 202101.0 from being incorrectly formatted
+    if pd.api.types.is_numeric_dtype(s):
+        s = s.astype("Int64").astype("string")
+    else:
+        s = s.astype("string")
+    
+    return s.str.replace(r"\.0$", "", regex=True)
 
 
 # =============================================================================
@@ -417,6 +429,74 @@ def parse_yyyymm(s: pd.Series) -> pd.Series:
         format="%Y%m",
         errors="coerce",
     )
+
+
+# =============================================================================
+# parse_term_description
+# =============================================================================
+
+def parse_term_description(s: pd.Series) -> pd.Series:
+    """
+    Parse a term description string Series to datetime, using the start of the term.
+
+    Expects values like "Summer 2018", "Fall 2020", "Spring 2021", "Winter 2022".
+    Uses the start date of each term (first day of the term's month range).
+    Nulls and unparseable values become NaT.
+
+    Args:
+        s: String Series in "Season YYYY" format (e.g., "Summer 2018")
+
+    Returns:
+        datetime64[ns] Series, start date of each term
+    """
+    # Term to month mapping (using start month of each term)
+    TERM_MONTHS = {
+        "FALL": 9,
+        "WINTER": 1,
+        "SPRING": 2,
+        "SUMMER": 6,
+    }
+    
+    s_str = s.astype("string").str.strip()
+    
+    # Normalize to uppercase for case-insensitive matching, then extract
+    # Pattern matches: "SEASON YYYY" format
+    pattern = r"^(SPRING|SUMMER|FALL|WINTER|JANUARY)\s+(\d{4})$"
+    s_upper = s_str.str.upper()
+    matches = s_upper.str.extract(pattern, expand=True)
+    
+    # Create result series
+    result = pd.Series(pd.NaT, index=s.index, dtype="datetime64[ns]")
+    
+    # Process valid matches
+    valid_mask = matches[0].notna() & matches[1].notna()
+    if valid_mask.any():
+        seasons = matches[0][valid_mask]  # Already uppercase from normalization
+        # Normalize January -> Winter
+        seasons = seasons.replace("JANUARY", "WINTER")
+        years = pd.to_numeric(matches[1][valid_mask], errors="coerce")
+        
+        # Map seasons to months
+        months = seasons.map(TERM_MONTHS)
+        
+        # Only process rows where we have valid month mapping
+        valid_month_mask = months.notna() & years.notna()
+        if valid_month_mask.any():
+            # Create datetime (first day of the month)
+            valid_dates = pd.to_datetime(
+                pd.DataFrame({
+                    "year": years[valid_month_mask],
+                    "month": months[valid_month_mask],
+                    "day": 1
+                }),
+                errors="coerce"
+            )
+            
+            # Map back to original valid_mask indices
+            valid_indices = valid_mask[valid_mask].index[valid_month_mask]
+            result[valid_indices] = valid_dates
+    
+    return result
 
 
 # =============================================================================

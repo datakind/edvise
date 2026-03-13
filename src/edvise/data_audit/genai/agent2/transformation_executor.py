@@ -48,6 +48,7 @@ from edvise.data_audit.genai.agent2.transformation_utilities import (
     normalize_student_age,
     normalize_term_code,
     parse_yyyymm,
+    parse_term_description,
     replace_null_tokens,
     replace_values_with_null,
     stems_lookup,
@@ -236,6 +237,7 @@ def _dispatch_step(
         "fill_constant":           lambda: fill_constant(s, step.value),
         "extract_year":            lambda: extract_year(s),
         "parse_yyyymm":            lambda: parse_yyyymm(s),
+        "parse_term_description":  lambda: parse_term_description(s),
         # Fix 2: conditional_credits uses s (already-cast credits Series from
         # prior cast_nullable_int step) rather than re-reading raw df column.
         # grade_column is read from df since it's a separate column not in the
