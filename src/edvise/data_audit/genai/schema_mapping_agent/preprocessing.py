@@ -22,6 +22,7 @@ from edvise.data_audit.custom_cleaning import (
     DtypeGenerationOptions,
     SchemaContractMeta,
     SchemaFreezeOptions,
+    TermOrderFn,
     build_schema_contract,
     freeze_schema,
     generate_training_dtypes,
@@ -163,9 +164,11 @@ def build_schema_contract_from_config(
         if collisions:
             logger.warning("  Column name collisions after normalization: %s", collisions)
 
+        # --- Determine term column (for spec and optional term_order_fn) ---
+        term_col = term_col_by_dataset.get(logical_name, "term")
+
         # --- Apply term order if provided ---
         if term_order_fn is not None:
-            term_col = term_col_by_dataset.get(logical_name, "term")
             if term_col in df_with_dtypes.columns:
                 try:
                     df_with_dtypes = term_order_fn(df_with_dtypes, term_col)
@@ -219,6 +222,7 @@ def build_schema_contract_from_config(
             "unique keys": normalized_uks,
             "non-null columns": [],
             "_orig_cols_": original_columns,
+            "term_column": term_col,
         }
 
         logger.info(

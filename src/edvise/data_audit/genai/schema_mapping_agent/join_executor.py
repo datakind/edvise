@@ -564,6 +564,17 @@ def _execute_join_graph_pandas(
             suffixes=("", f"_{step.right}"),
             copy=False,  # Try to avoid copying when possible
         )
+
+        # Drop duplicate columns introduced by the join.
+        # Keep left (base) side columns over right side suffixed duplicates.
+        # This handles cases where both tables share column names like student_id.
+        dupes = result.columns[result.columns.duplicated(keep="first")].tolist()
+        if dupes:
+            logger.debug(
+                f"Dropping duplicate columns after joining '{step.right}': {dupes}"
+            )
+            result = result.loc[:, ~result.columns.duplicated(keep="first")]
+
         logger.info(
             f"Joined '{step.right}' on {step.left_on} = {step.right_on}: "
             f"{pre_shape} → {result.shape}"
