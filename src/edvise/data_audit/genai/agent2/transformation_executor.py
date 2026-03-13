@@ -167,6 +167,7 @@ def _dispatch_step(
     step: Any,
     df: pd.DataFrame | None = None,
     context: dict[str, pd.DataFrame] | None = None,
+    unique_keys: list[str] | None = None,
 ) -> pd.Series:
     """
     Dispatch a single TransformationStep to its utility function.
@@ -178,7 +179,7 @@ def _dispatch_step(
         step: Typed TransformationStep model
         df: Optional DataFrame for steps needing multiple columns or cross-table access
         context: Optional context dict for lookup DataFrames
-
+        
     Returns:
         Transformed Series
     """
@@ -258,10 +259,14 @@ def _dispatch_step(
                                    ),
         "normalize_year_range":    lambda: normalize_year_range(s),
         "birthyear_to_age_bucket": lambda: birthyear_to_age_bucket(
-                                    s,
-                                    reference_year_series=df[step.reference_year_column]
-                                    if step.reference_year_column else None,
-                                ),
+            s,
+            reference_year_series=(
+                df.drop_duplicates(subset=unique_keys, keep="first")
+                [step.reference_year_column]
+                .reset_index(drop=True)
+                if step.reference_year_column and unique_keys else None
+            ),
+        ),
     }
 
     if fn not in dispatch:
