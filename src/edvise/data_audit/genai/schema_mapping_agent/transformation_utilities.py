@@ -647,14 +647,10 @@ def stems_lookup(
     # 40.0801 get parsed as dates. Recover the numeric value by extracting
     # the year component which encodes the original integer CIP code.
     if pd.api.types.is_datetime64_any_dtype(course_cip_series):
-        # CIP codes like "2040-08-01" encode 40 (year=2040, month=08, day=01)
-        # Recover by extracting year - 2000 to get the 2-digit CIP prefix
-        # then reconstruct: year*100 + month gives approximate CIP integer
         dt = pd.to_datetime(course_cip_series, errors="coerce")
-        # Reconstruct as float: year-2000 gives major, month/100 gives minor
-        # e.g. 2040-08-01 -> (2040-2000)*100 + 8 = 4008 -> 40.08 as float
-        cip_numeric = ((dt.dt.year - 2000) * 100 + dt.dt.month) / 100
-        cip_numeric = cip_numeric.astype("Float64")
+        # Recover 6-digit CIP: year=2040, month=08, day=01 -> 400801 -> 40.0801
+        cip_int = (dt.dt.year - 2000) * 10000 + dt.dt.month * 100 + dt.dt.day
+        cip_numeric = (cip_int / 10000).round(4).astype("Float64")
     else:
         cip_numeric = pd.to_numeric(course_cip_series, errors="coerce").astype("Float64")
 
@@ -662,7 +658,7 @@ def stems_lookup(
     print(f"cip_numeric sample: {cip_numeric.dropna().head(10).tolist()}")
     print(f"stems_df cip sample: {stems_df[cip_col].head(10).tolist()}")
     # --- END TEMP DEBUG ---
-    
+
     # --- Join to stems_def_df ---
     lookup = stems_df[[cip_col, area_col]].copy()
     lookup[cip_col] = pd.to_numeric(lookup[cip_col], errors="coerce").astype("Float64")
