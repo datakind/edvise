@@ -514,6 +514,7 @@ TransformationStep = Union[
     DeduplicateRowsStep,
     StripTrailingDecimalStep,
     FillConstantStep,
+    NormalizeYearRangeStep,
     ExtractYearStep,
     ParseYyyymmStep,
     BirthyearToAgeBucketStep,
