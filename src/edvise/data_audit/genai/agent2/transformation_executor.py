@@ -235,8 +235,6 @@ def _dispatch_step(
         "fill_constant":           lambda: fill_constant(s, step.value),
         "extract_year":            lambda: extract_year(s),
         "parse_yyyymm":            lambda: parse_yyyymm(s),
-        "birthyear_to_age_bucket": lambda: birthyear_to_age_bucket(s),
-
         # Fix 2: conditional_credits uses s (already-cast credits Series from
         # prior cast_nullable_int step) rather than re-reading raw df column.
         # grade_column is read from df since it's a separate column not in the
