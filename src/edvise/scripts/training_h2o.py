@@ -1,9 +1,11 @@
 import typing as t
 import logging
 import argparse
+import json
 import pandas as pd
 import mlflow
 import os
+import pathlib
 import sys
 
 # Go up 3 levels from the current file's directory to reach repo root
@@ -33,6 +35,12 @@ from edvise.shared.logger import (
     resolve_run_path,
     local_fs_path,
     init_file_logging,
+)
+from edvise.shared.dashboard_metadata.pipeline_runs import (
+    append_pipeline_run_event,
+)
+from edvise.shared.dashboard_metadata.pipeline_models import (
+    upsert_pipeline_model,
 )
 from edvise.shared.validation import (
     require,
@@ -666,7 +674,126 @@ if __name__ == "__main__":
         logger_name=__name__,
         log_file_name="pdp_training.log",
     )
-    task.run()
+    # Best-effort: infer databricks_institution_name from volume path like:
+    # /Volumes/<catalog>/<inst>_silver/silver_volume
+    databricks_institution_name = None
+    try:
+        for seg in pathlib.PurePosixPath(getattr(args, "silver_volume_path", "")).parts:
+            if seg.endswith("_silver"):
+                databricks_institution_name = seg[: -len("_silver")]
+                break
+    except Exception:
+        databricks_institution_name = None
+    # Best-effort: log which training cohort(s) are configured/used.
+    cohort = None
+    try:
+        modeling_cfg = getattr(task.cfg, "modeling", None)
+        training_cfg = (
+            getattr(modeling_cfg, "training", None)
+            if modeling_cfg is not None
+            else None
+        )
+        cohorts = (
+            getattr(training_cfg, "cohort", None) if training_cfg is not None else None
+        )
+        if cohorts:
+            cohort = json.dumps(cohorts, default=str)
+    except Exception:
+        cohort = None
+    append_pipeline_run_event(
+        catalog=args.DB_workspace,
+        run_id=getattr(args, "db_run_id", None),
+        run_type="training",
+        event="started",
+        institution_id=getattr(task.cfg, "institution_id", None),
+        databricks_institution_name=databricks_institution_name,
+        cohort=cohort,
+        model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
+        experiment_id=getattr(getattr(task.cfg, "model", None), "experiment_id", None),
+        pipeline_version=getattr(args, "pipeline_version", None),
+        payload={"config_file_path": getattr(args, "config_file_path", None)},
+    )
+    try:
+        task.run()
+
+        model_name = None
+        try:
+            if task.cfg.preprocessing is not None:
+                model_name = modeling.registration.get_model_name_from_config(
+                    preprocessing=task.cfg.preprocessing,
+                    institution_id=task.cfg.institution_id,
+                )
+        except Exception:
+            model_name = None
+
+        model_card_path = None
+        if model_name:
+            model_card_path = (
+                f"/Volumes/{args.DB_workspace}/"
+                f"{task.cfg.institution_id}_gold/gold_volume/model_cards/"
+                f"{getattr(getattr(task.cfg, 'model', None), 'run_id', '')}/"
+                f"model-card-{model_name}.pdf"
+            )
+
+        # Model registry table (one row per model run id / UC version)
+        try:
+            upsert_pipeline_model(
+                catalog=args.DB_workspace,
+                institution_id=databricks_institution_name
+                or getattr(task.cfg, "institution_id", None),
+                model_name=model_name,
+                model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
+                training_run_id=getattr(args, "db_run_id", None),
+                training_cohort_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_cohort", None
+                ),
+                training_course_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_course", None
+                ),
+                model_card_path=model_card_path,
+                payload={
+                    "experiment_id": getattr(
+                        getattr(task.cfg, "model", None), "experiment_id", None
+                    ),
+                    "pipeline_version": getattr(args, "pipeline_version", None),
+                    "config_file_path": getattr(args, "config_file_path", None),
+                },
+            )
+        except Exception:
+            # Best-effort only; never fail training for dashboard metadata.
+            pass
+
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=getattr(args, "db_run_id", None),
+            run_type="training",
+            event="completed",
+            institution_id=getattr(task.cfg, "institution_id", None),
+            databricks_institution_name=databricks_institution_name,
+            cohort=cohort,
+            model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
+            experiment_id=getattr(
+                getattr(task.cfg, "model", None), "experiment_id", None
+            ),
+            pipeline_version=getattr(args, "pipeline_version", None),
+        )
+    except Exception as e:
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=getattr(args, "db_run_id", None),
+            run_type="training",
+            event="failed",
+            institution_id=getattr(task.cfg, "institution_id", None),
+            databricks_institution_name=databricks_institution_name,
+            cohort=cohort,
+            model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
+            experiment_id=getattr(
+                getattr(task.cfg, "model", None), "experiment_id", None
+            ),
+            pipeline_version=getattr(args, "pipeline_version", None),
+            error_message=str(e),
+        )
+        raise
     # --- Final flush & shutdown ---
     root_logger = logging.getLogger()
     for h in root_logger.handlers:
