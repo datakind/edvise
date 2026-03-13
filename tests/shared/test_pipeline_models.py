@@ -40,7 +40,7 @@ class _FakeSpark:
         self.created_rows = None
         self.writer = _FakeWriter()
 
-    def createDataFrame(self, rows):
+    def createDataFrame(self, rows, schema=None):
         self.created_rows = rows
         return _FakeDF(writer=self.writer)
 
