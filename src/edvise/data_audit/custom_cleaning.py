@@ -223,7 +223,17 @@ def _cast_series_to_nullable_dtype(
                 return pd.to_datetime(s, errors="coerce")
 
         if dtype_str == "Int64":
-            return pd.to_numeric(s, errors="coerce").astype("Int64")
+            num = pd.to_numeric(s, errors="coerce")
+            # Handle conversion from float64 to Int64 properly
+            # Round non-integer values to nearest integer, then convert to Int64
+            if num.dtype == "float64":
+                num = num.round()
+            # Convert to Int64 using pd.array() which properly handles:
+            # - NaN -> pd.NA conversion
+            # - float64 -> Int64 conversion (after rounding)
+            # This avoids the "cannot safely cast" error
+            # Wrap in Series to preserve index
+            return pd.Series(pd.array(num, dtype="Int64"), index=s.index)
 
         if dtype_str == "Float64":
             return pd.to_numeric(s, errors="coerce").astype("Float64")
