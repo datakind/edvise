@@ -31,11 +31,6 @@ def _get_pipeline_models_schema():
 
         return StructType(
             [
-                StructField("logged_ts", TimestampType(), nullable=False),
-                StructField("institution_id", StringType(), nullable=False),
-                StructField("model_name", StringType(), nullable=False),
-                StructField("model_version", StringType(), nullable=True),
-                StructField("model_run_id", StringType(), nullable=False),
                 StructField("training_run_id", StringType(), nullable=True),
                 StructField(
                     "training_cohort_dataset_name", StringType(), nullable=True
@@ -44,9 +39,14 @@ def _get_pipeline_models_schema():
                     "training_course_dataset_name", StringType(), nullable=True
                 ),
                 StructField("model_card_path", StringType(), nullable=True),
-                StructField("summary_metrics", StringType(), nullable=True),
-                StructField("bias_summary", StringType(), nullable=True),
                 StructField("payload_json", StringType(), nullable=True),
+                StructField("bias_summary", StringType(), nullable=True),
+                StructField("summary_metrics", StringType(), nullable=True),
+                StructField("model_version", StringType(), nullable=True),
+                StructField("model_run_id", StringType(), nullable=False),
+                StructField("model_name", StringType(), nullable=False),
+                StructField("institution_id", StringType(), nullable=False),
+                StructField("logged_ts", TimestampType(), nullable=False),
             ]
         )
     except Exception:
@@ -234,18 +234,18 @@ def upsert_pipeline_model(
         )
 
         row: dict[str, t.Any] = {
-            "logged_ts": datetime.now(timezone.utc),
-            "institution_id": str(institution_id),
-            "model_name": str(model_name),
-            "model_version": model_version,
-            "model_run_id": str(model_run_id),
             "training_run_id": training_run_id,
             "training_cohort_dataset_name": training_cohort_dataset_name,
             "training_course_dataset_name": training_course_dataset_name,
             "model_card_path": model_card_path,
-            "summary_metrics": _json_dumps(summary_metrics2),
-            "bias_summary": _json_dumps(bias_summary2),
             "payload_json": _json_dumps(payload or {}),
+            "bias_summary": _json_dumps(bias_summary2),
+            "summary_metrics": _json_dumps(summary_metrics2),
+            "model_version": model_version,
+            "model_run_id": str(model_run_id),
+            "model_name": str(model_name),
+            "institution_id": str(institution_id),
+            "logged_ts": datetime.now(timezone.utc),
         }
 
         schema = _get_pipeline_models_schema()
