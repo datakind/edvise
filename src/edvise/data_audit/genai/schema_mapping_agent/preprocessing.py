@@ -1,5 +1,5 @@
 """
-Preprocessing step for Agent 2 pipeline (Milestone 1).
+Preprocessing step for SchemaMappingAgent pipeline (Milestone 1).
 
 Builds schema contract from inputs.toml config by:
 1. Loading raw files from config
@@ -7,7 +7,7 @@ Builds schema contract from inputs.toml config by:
 3. Generating training dtypes
 4. Building schema contract with unique keys from config
 
-This produces the normalized DataFrame + schema_contract.json needed as input to Agent 2.
+This produces the normalized DataFrame + schema_contract.json needed as input to SchemaMappingAgent.
 """
 
 from __future__ import annotations

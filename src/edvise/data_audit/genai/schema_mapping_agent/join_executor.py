@@ -1,13 +1,13 @@
 """
-Deterministic join resolver for Agent 2 pipeline.
+Deterministic join resolver for SchemaMappingAgent pipeline.
 
-Runs after 2a (FieldMappingManifest approval) and before 2c (TransformationMap).
+Runs after field mapping approval and before transformation map execution.
 Infers join graph from:
   1. Approved manifest — which source_tables are referenced per entity type
   2. Schema contract   — unique_keys + column inventory per dataset
 
 Produces a JoinGraph per entity type (cohort / course) which is:
-  - Persisted to schema_contract for human review alongside 2c
+  - Persisted to schema_contract for human review alongside transformation maps
   - Executed deterministically by execute_join_graph() to produce flat input DataFrames
 
 Design:
@@ -29,7 +29,7 @@ from typing import Optional
 
 import pandas as pd
 
-from edvise.data_audit.genai.agent2.mapping_schemas import EntityType, FieldMappingManifest
+from edvise.data_audit.genai.schema_mapping_agent.mapping_schemas import EntityType, FieldMappingManifest
 
 logger = logging.getLogger(__name__)
 

@@ -1,5 +1,5 @@
 """
-Basic transformation utilities for Agent 2 transformation maps.
+Basic transformation utilities for SchemaMappingAgent transformation maps.
 
 This module provides atomic, reusable transformation functions that can be chained
 together in transformation maps. It reuses existing utilities from the codebase to

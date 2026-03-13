@@ -1,5 +1,5 @@
 """
-Transformation map executor for Agent 2c.
+Transformation map executor for SchemaMappingAgent.
 
 Executes a TransformationMap deterministically against a pre-joined DataFrame.
 The executor:
@@ -23,7 +23,7 @@ from typing import Any
 
 import pandas as pd
 
-from edvise.data_audit.genai.agent2.transformation_utilities import (
+from edvise.data_audit.genai.schema_mapping_agent.transformation_utilities import (
     birthyear_to_age_bucket,
     cast_boolean,
     cast_datetime,
@@ -57,7 +57,7 @@ from edvise.data_audit.genai.agent2.transformation_utilities import (
     uppercase,
     normalize_year_range,
 )
-from edvise.data_audit.genai.agent2.mapping_schemas import (
+from edvise.data_audit.genai.schema_mapping_agent.mapping_schemas import (
     CollapseStrategy,
     FieldTransformationPlan,
     TransformationMap,
@@ -311,7 +311,7 @@ def execute_transformation_map(
     Args:
         df: Pre-joined source DataFrame. For cohort maps this is student-term grain;
             for course maps this is already at course grain.
-        transformation_map: Validated TransformationMap from Agent 2b.
+        transformation_map: Validated TransformationMap from SchemaMappingAgent.
         unique_keys: Groupby keys for collapse, from schema_contract.unique_keys
                      for the TARGET schema entity. For cohort: ["student_id"].
                      For course: ["student_id", "academic_term", "course_prefix", "course_number"].

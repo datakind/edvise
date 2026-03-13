@@ -208,7 +208,7 @@ class RawEdviseStudentDataSchemaFlexible(pda.DataFrameModel):
     2. Removes `isin` value constraints (allows any string values)
     3. Maintains structure, nullability, and basic type validation
 
-    Use this schema for Agent 2 transformation map validation when strict canonical
+    Use this schema for SchemaMappingAgent transformation map validation when strict canonical
     values are not required. The original RawEdviseStudentDataSchema remains available
     for strict validation after normalization.
 
