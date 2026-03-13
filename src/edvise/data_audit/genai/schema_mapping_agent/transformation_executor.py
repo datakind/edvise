@@ -243,7 +243,7 @@ def _dispatch_step(
         # grade_column is read from df since it's a separate column not in the
         # step chain — only credits flows through s.
         "conditional_credits":     lambda: conditional_credits(
-                                       df[step.grade_column],
+                                       df[step.grade_column].reset_index(drop=True),
                                        s,  # s = already-cast course_credits from prior step
                                    ),
 
@@ -424,8 +424,15 @@ def execute_transformation_map(
                     df = _dispatch_df_step(df, step)
                     s = df[step.output_col].reset_index(drop=True) if hasattr(step, "output_col") else s
                 else:
-                    s = _dispatch_step(s, step, df=df, context=context)
-
+                    # --- TEMP DEBUG ---
+                    if step.function_name == "conditional_credits":
+                        print(f"[DEBUG] target: {target}")
+                        print(f"[DEBUG] df index: {df.index.min()} - {df.index.max()}, len: {len(df)}")
+                        print(f"[DEBUG] s index: {s.index.min()} - {s.index.max()}, len: {len(s)}")
+                        print(f"[DEBUG] df['{step.grade_column}'].isna().sum(): {df[step.grade_column].isna().sum()}")
+                        print(f"[DEBUG] s.isna().sum(): {s.isna().sum()}")
+                    # --- END TEMP DEBUG ---
+                    s = _dispatch_step(s, step, df=df, context=context, unique_keys=unique_keys)
             result_cols[target] = s
             executed.append(target)
             logger.debug(f"Executed field: {target}")
