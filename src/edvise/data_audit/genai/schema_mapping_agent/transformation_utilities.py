@@ -658,6 +658,11 @@ def stems_lookup(
     else:
         cip_numeric = pd.to_numeric(course_cip_series, errors="coerce").astype("Float64")
 
+    # --- TEMP DEBUG ---
+    print(f"cip_numeric sample: {cip_numeric.dropna().head(10).tolist()}")
+    print(f"stems_df cip sample: {stems_df[cip_col].head(10).tolist()}")
+    # --- END TEMP DEBUG ---
+    
     # --- Join to stems_def_df ---
     lookup = stems_df[[cip_col, area_col]].copy()
     lookup[cip_col] = pd.to_numeric(lookup[cip_col], errors="coerce").astype("Float64")
