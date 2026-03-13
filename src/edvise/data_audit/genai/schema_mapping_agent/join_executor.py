@@ -674,6 +674,17 @@ def _execute_join_graph_spark(
         # Convert back to pandas
         logger.info(f"[{graph.entity_type}] Converting Spark result back to pandas...")
         result = result_spark.toPandas()
+        
+        # Drop duplicate columns introduced by Spark joins
+        # Spark keeps both left and right join key columns when they have the same name
+        # This matches the pandas merge behavior where we keep left side columns
+        dupes = result.columns[result.columns.duplicated(keep="first")].tolist()
+        if dupes:
+            logger.debug(
+                f"Dropping duplicate columns after Spark join: {dupes}"
+            )
+            result = result.loc[:, ~result.columns.duplicated(keep="first")]
+        
         logger.info(f"[{graph.entity_type}] Final result shape: {result.shape}")
         
         return result
