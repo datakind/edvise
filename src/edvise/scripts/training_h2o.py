@@ -689,7 +689,9 @@ if __name__ == "__main__":
     try:
         modeling_cfg = getattr(task.cfg, "modeling", None)
         training_cfg = (
-            getattr(modeling_cfg, "training", None) if modeling_cfg is not None else None
+            getattr(modeling_cfg, "training", None)
+            if modeling_cfg is not None
+            else None
         )
         cohorts = (
             getattr(training_cfg, "cohort", None) if training_cfg is not None else None

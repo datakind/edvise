@@ -37,8 +37,12 @@ def _get_pipeline_models_schema():
                 StructField("model_version", StringType(), nullable=True),
                 StructField("model_run_id", StringType(), nullable=False),
                 StructField("training_run_id", StringType(), nullable=True),
-                StructField("training_cohort_dataset_name", StringType(), nullable=True),
-                StructField("training_course_dataset_name", StringType(), nullable=True),
+                StructField(
+                    "training_cohort_dataset_name", StringType(), nullable=True
+                ),
+                StructField(
+                    "training_course_dataset_name", StringType(), nullable=True
+                ),
                 StructField("model_card_path", StringType(), nullable=True),
                 StructField("summary_metrics", StringType(), nullable=True),
                 StructField("bias_summary", StringType(), nullable=True),
@@ -245,7 +249,11 @@ def upsert_pipeline_model(
         }
 
         schema = _get_pipeline_models_schema()
-        df = spark.createDataFrame([row], schema=schema) if schema else spark.createDataFrame([row])
+        df = (
+            spark.createDataFrame([row], schema=schema)
+            if schema
+            else spark.createDataFrame([row])
+        )
 
         # Prefer an idempotent upsert via Delta merge when available.
         try:

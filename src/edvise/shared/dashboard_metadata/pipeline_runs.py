@@ -261,9 +261,9 @@ def append_pipeline_run_event(
 
         # Infer dataset timestamp from filenames when not provided (helps training runs).
         if dataset_ts is None:
-            dataset_ts = parse_timestamp_from_filename(cohort_dataset_name) or parse_timestamp_from_filename(
-                course_dataset_name
-            )
+            dataset_ts = parse_timestamp_from_filename(
+                cohort_dataset_name
+            ) or parse_timestamp_from_filename(course_dataset_name)
 
         now = datetime.now(timezone.utc)
         event_norm = str(event or "").strip().lower()
@@ -303,7 +303,11 @@ def append_pipeline_run_event(
         }
 
         schema = _get_pipeline_runs_schema()
-        df = spark.createDataFrame([row], schema=schema) if schema else spark.createDataFrame([row])
+        df = (
+            spark.createDataFrame([row], schema=schema)
+            if schema
+            else spark.createDataFrame([row])
+        )
         try:
             # Reorder columns explicitly (Spark may reorder dict fields when inferring schema).
             if hasattr(df, "select"):
@@ -318,7 +322,9 @@ def append_pipeline_run_event(
 
             # Allow merge schema evolution on Databricks if enabled.
             try:
-                spark.conf.set("spark.databricks.delta.schema.autoMerge.enabled", "true")
+                spark.conf.set(
+                    "spark.databricks.delta.schema.autoMerge.enabled", "true"
+                )
             except Exception:
                 pass
 
@@ -334,16 +340,21 @@ def append_pipeline_run_event(
                 return True
 
             # finished_at: keep the latest terminal timestamp
-            finished_at_expr = F.when(
-                F.col("s.finished_at").isNull(),
-                F.col("t.finished_at"),
-            ).when(
-                F.col("t.finished_at").isNull(),
-                F.col("s.finished_at"),
-            ).when(
-                F.col("s.finished_at") > F.col("t.finished_at"),
-                F.col("s.finished_at"),
-            ).otherwise(F.col("t.finished_at"))
+            finished_at_expr = (
+                F.when(
+                    F.col("s.finished_at").isNull(),
+                    F.col("t.finished_at"),
+                )
+                .when(
+                    F.col("t.finished_at").isNull(),
+                    F.col("s.finished_at"),
+                )
+                .when(
+                    F.col("s.finished_at") > F.col("t.finished_at"),
+                    F.col("s.finished_at"),
+                )
+                .otherwise(F.col("t.finished_at"))
+            )
 
             # status precedence: failed > completed > running
             status_expr = F.expr(
@@ -371,22 +382,40 @@ def append_pipeline_run_event(
                             F.col("s.institution_id"), F.col("t.institution_id")
                         ),
                         "status": status_expr,
-                        "started_at": F.coalesce(F.col("t.started_at"), F.col("s.started_at")),
+                        "started_at": F.coalesce(
+                            F.col("t.started_at"), F.col("s.started_at")
+                        ),
                         "finished_at": finished_at_expr,
                         "cohort_dataset_name": F.coalesce(
-                            F.col("s.cohort_dataset_name"), F.col("t.cohort_dataset_name")
+                            F.col("s.cohort_dataset_name"),
+                            F.col("t.cohort_dataset_name"),
                         ),
                         "course_dataset_name": F.coalesce(
-                            F.col("s.course_dataset_name"), F.col("t.course_dataset_name")
+                            F.col("s.course_dataset_name"),
+                            F.col("t.course_dataset_name"),
                         ),
-                        "dataset_ts": F.coalesce(F.col("s.dataset_ts"), F.col("t.dataset_ts")),
+                        "dataset_ts": F.coalesce(
+                            F.col("s.dataset_ts"), F.col("t.dataset_ts")
+                        ),
                         "cohort": F.coalesce(F.col("s.cohort"), F.col("t.cohort")),
-                        "term_filter": F.coalesce(F.col("s.term_filter"), F.col("t.term_filter")),
-                        "model_run_id": F.coalesce(F.col("s.model_run_id"), F.col("t.model_run_id")),
-                        "experiment_id": F.coalesce(F.col("s.experiment_id"), F.col("t.experiment_id")),
-                        "pipeline_version": F.coalesce(F.col("s.pipeline_version"), F.col("t.pipeline_version")),
-                        "error_message": F.coalesce(F.col("s.error_message"), F.col("t.error_message")),
-                        "payload_json": F.coalesce(F.col("s.payload_json"), F.col("t.payload_json")),
+                        "term_filter": F.coalesce(
+                            F.col("s.term_filter"), F.col("t.term_filter")
+                        ),
+                        "model_run_id": F.coalesce(
+                            F.col("s.model_run_id"), F.col("t.model_run_id")
+                        ),
+                        "experiment_id": F.coalesce(
+                            F.col("s.experiment_id"), F.col("t.experiment_id")
+                        ),
+                        "pipeline_version": F.coalesce(
+                            F.col("s.pipeline_version"), F.col("t.pipeline_version")
+                        ),
+                        "error_message": F.coalesce(
+                            F.col("s.error_message"), F.col("t.error_message")
+                        ),
+                        "payload_json": F.coalesce(
+                            F.col("s.payload_json"), F.col("t.payload_json")
+                        ),
                     }
                 )
                 .whenNotMatchedInsertAll()

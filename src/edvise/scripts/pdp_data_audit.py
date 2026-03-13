@@ -547,7 +547,9 @@ if __name__ == "__main__":
                 else None
             )
             cohorts = (
-                getattr(training_cfg, "cohort", None) if training_cfg is not None else None
+                getattr(training_cfg, "cohort", None)
+                if training_cfg is not None
+                else None
             )
             if cohorts:
                 cohort = json.dumps(cohorts, default=str)
