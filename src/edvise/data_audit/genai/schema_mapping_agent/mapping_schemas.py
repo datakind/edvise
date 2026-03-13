@@ -305,7 +305,11 @@ class UppercaseStep(StrictBaseModel):
 class MapValuesStep(StrictBaseModel):
     function_name: Literal["map_values"]
     column: str
-    mapping: Dict[str, Any] = Field(..., description="Value mapping dict")
+    mapping: Dict[str, Any]
+    default: Optional[str] = Field(
+        default="passthrough",
+        description="Value for unmapped entries. 'passthrough' keeps original value, null fills with NA."
+    )
     rationale: Optional[str] = None
 
     @field_validator("mapping")

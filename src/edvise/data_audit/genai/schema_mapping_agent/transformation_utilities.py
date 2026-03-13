@@ -206,9 +206,14 @@ def uppercase(s: pd.Series) -> pd.Series:
 # ============================================================================
 
 
-def map_values(s: pd.Series, mapping: dict) -> pd.Series:
-    """Map values in Series using provided mapping. Simple pandas wrapper."""
-    return s.map(mapping)
+def map_values(s: pd.Series, mapping: dict, default: str | None = "passthrough") -> pd.Series:
+    """Map values in Series. If default='passthrough', unmapped values are kept as-is."""
+    result = s.map(mapping)
+    if default == "passthrough":
+        result = result.fillna(s)  # keep original for unmapped values
+    elif default is not None:
+        result = result.fillna(default)
+    return result
 
 
 # ============================================================================

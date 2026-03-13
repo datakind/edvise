@@ -223,7 +223,7 @@ def _dispatch_step(
         "strip_whitespace":        lambda: strip_whitespace(s),
         "lowercase":               lambda: lowercase(s),
         "uppercase":               lambda: uppercase(s),
-        "map_values":              lambda: map_values(s, step.mapping),
+        "map_values":              lambda: map_values(s, step.mapping, default=step.default),
         "normalize_term_code":     lambda: normalize_term_code(s),
         "normalize_grade":         lambda: normalize_grade(s),
         "normalize_enrollment":    lambda: normalize_enrollment(s),
@@ -431,6 +431,9 @@ def execute_transformation_map(
                         print(f"[DEBUG] s index: {s.index.min()} - {s.index.max()}, len: {len(s)}")
                         print(f"[DEBUG] df['{step.grade_column}'].isna().sum(): {df[step.grade_column].isna().sum()}")
                         print(f"[DEBUG] s.isna().sum(): {s.isna().sum()}")
+                        print(df["course_credits"].dtype)
+                        print(df["course_credits"].isna().sum())
+                        print(df["course_credits"].head(10))
                     # --- END TEMP DEBUG ---
                     s = _dispatch_step(s, step, df=df, context=context, unique_keys=unique_keys)
             result_cols[target] = s
