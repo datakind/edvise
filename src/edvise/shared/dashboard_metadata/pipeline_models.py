@@ -19,6 +19,36 @@ def _get_spark_session():
         return None
 
 
+def _get_pipeline_models_schema():
+    """Define explicit schema for pipeline_models table to avoid Spark inference issues."""
+    try:
+        from pyspark.sql.types import (
+            StructType,
+            StructField,
+            StringType,
+            TimestampType,
+        )
+
+        return StructType(
+            [
+                StructField("logged_ts", TimestampType(), nullable=False),
+                StructField("institution_id", StringType(), nullable=False),
+                StructField("model_name", StringType(), nullable=False),
+                StructField("model_version", StringType(), nullable=True),
+                StructField("model_run_id", StringType(), nullable=False),
+                StructField("training_run_id", StringType(), nullable=True),
+                StructField("training_cohort_dataset_name", StringType(), nullable=True),
+                StructField("training_course_dataset_name", StringType(), nullable=True),
+                StructField("model_card_path", StringType(), nullable=True),
+                StructField("summary_metrics", StringType(), nullable=True),
+                StructField("bias_summary", StringType(), nullable=True),
+                StructField("payload_json", StringType(), nullable=True),
+            ]
+        )
+    except Exception:
+        return None
+
+
 def _json_dumps(payload: t.Optional[dict[str, t.Any]]) -> t.Optional[str]:
     if payload is None:
         return None
@@ -214,7 +244,8 @@ def upsert_pipeline_model(
             "payload_json": _json_dumps(payload or {}),
         }
 
-        df = spark.createDataFrame([row])
+        schema = _get_pipeline_models_schema()
+        df = spark.createDataFrame([row], schema=schema) if schema else spark.createDataFrame([row])
 
         # Prefer an idempotent upsert via Delta merge when available.
         try:

@@ -9,6 +9,42 @@ from datetime import datetime, timezone
 LOGGER = logging.getLogger(__name__)
 
 
+def _get_pipeline_runs_schema():
+    """Define explicit schema for pipeline_runs table to avoid Spark inference issues."""
+    try:
+        from pyspark.sql.types import (
+            StructType,
+            StructField,
+            StringType,
+            TimestampType,
+        )
+
+        return StructType(
+            [
+                StructField("institution_id", StringType(), nullable=True),
+                StructField("run_id", StringType(), nullable=False),
+                StructField("run_type", StringType(), nullable=False),
+                StructField("status", StringType(), nullable=True),
+                StructField("started_at", TimestampType(), nullable=True),
+                StructField("finished_at", TimestampType(), nullable=True),
+                StructField("updated_at", TimestampType(), nullable=False),
+                StructField("run_url", StringType(), nullable=True),
+                StructField("cohort_dataset_name", StringType(), nullable=True),
+                StructField("course_dataset_name", StringType(), nullable=True),
+                StructField("dataset_ts", TimestampType(), nullable=True),
+                StructField("cohort", StringType(), nullable=True),
+                StructField("term_filter", StringType(), nullable=True),
+                StructField("model_run_id", StringType(), nullable=True),
+                StructField("experiment_id", StringType(), nullable=True),
+                StructField("pipeline_version", StringType(), nullable=True),
+                StructField("error_message", StringType(), nullable=True),
+                StructField("payload_json", StringType(), nullable=True),
+            ]
+        )
+    except Exception:
+        return None
+
+
 def _get_spark_session():
     try:
         from pyspark.sql import SparkSession  # type: ignore
@@ -266,7 +302,8 @@ def append_pipeline_run_event(
             "payload_json": _json_dumps(payload2),
         }
 
-        df = spark.createDataFrame([row])
+        schema = _get_pipeline_runs_schema()
+        df = spark.createDataFrame([row], schema=schema) if schema else spark.createDataFrame([row])
         try:
             # Reorder columns explicitly (Spark may reorder dict fields when inferring schema).
             if hasattr(df, "select"):
