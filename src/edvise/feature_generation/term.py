@@ -128,9 +128,14 @@ def add_term_order(
     Season extraction is driven by `season_order_map` keys:
 
     - Keys are normalized to lowercase + single spaces.
-    - For each term, we try to match the **longest** key that is a prefix of the
-      normalized term string.
+    - For each term, we try to match the **longest** key that is:
+      1. A prefix of the normalized term string (for formats like "Fall 2014", "Spring 2015")
+      2. A suffix of the normalized term string (for formats like "2014FA", "2015SP", "2015S1")
     - If nothing matches, we fall back to the first word (for default maps).
+    
+    Supports both formats:
+    - "Fall 2014", "Spring 2015" (season first, year second)
+    - "2014FA", "2015SP", "2015S1", "2015S2" (year first, season code suffix)
     """
     if term_col not in df.columns:
         raise KeyError(f"DataFrame must contain column '{term_col}'")
@@ -165,8 +170,15 @@ def add_term_order(
             return None
 
         # Try to match the longest prefix from season_order_map
+        # (for formats like "Fall 2014", "Spring 2015")
         for key in norm_keys:
             if t_norm.startswith(key):
+                return key
+
+        # Try to match the longest suffix from season_order_map
+        # (for formats like "2014FA", "2015SP", "2015S1", "2015S2")
+        for key in norm_keys:
+            if t_norm.endswith(key):
                 return key
 
         # Fallback: first word (useful for default "Spring/Summer/Fall/Winter")
