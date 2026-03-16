@@ -437,25 +437,26 @@ _PASSING_GRADES = frozenset([
 
 
 def conditional_credits(
+    s: pd.Series,
     grade_series: pd.Series,
-    credits_series: pd.Series,
 ) -> pd.Series:
     """
     Calculate credits earned based on whether the grade is passing.
 
-    Passing grade  → earned = credits_series value
+    Passing grade  → earned = s (credits_series value)
     Non-passing    → earned = 0.0
 
     Args:
-        grade_series: String Series of normalized grade values
-        credits_series: Numeric Series of credits attempted (already cast to Int64
-                        by a prior cast_nullable_int step in the transformation chain)
+        s: Numeric Series of credits attempted (already cast to Int64
+           by a prior cast_nullable_int step in the transformation chain)
+        grade_series: String Series of normalized grade values,
+                      resolved from base_df via extra_columns
 
     Returns:
         Float64 Series of credits earned
     """
     grade_upper = grade_series.astype("string").str.strip().str.upper()
-    credits_numeric = pd.to_numeric(credits_series, errors="coerce").astype("Float64")
+    credits_numeric = pd.to_numeric(s, errors="coerce").astype("Float64")
     return credits_numeric.where(
         grade_upper.isin(_PASSING_GRADES),
         other=0.0,
