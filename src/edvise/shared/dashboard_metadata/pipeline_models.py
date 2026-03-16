@@ -212,6 +212,7 @@ def upsert_pipeline_model(
             return False
 
         table_path = f"{catalog}.{schema}.{table}"
+        spark.sql(f"DROP TABLE IF EXISTS {table_path}")
 
         # Best-effort metrics fetch if caller didn't provide any
         metrics_all = _best_effort_fetch_mlflow_run_metrics(run_id=str(model_run_id))
