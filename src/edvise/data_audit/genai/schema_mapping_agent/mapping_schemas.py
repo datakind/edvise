@@ -26,6 +26,7 @@ class EntityType(str, Enum):
 
 class ReviewStatus(str, Enum):
     proposed = "proposed"
+    pending = "pending"
     approved = "approved"
     corrected = "corrected"
     rejected = "rejected"
@@ -35,6 +36,90 @@ class ReviewStatus(str, Enum):
 # 2a — Field Mapping Manifest
 # =============================================================================
 
+class JoinFilter(StrictBaseModel):
+    """
+    Structured filter applied to the lookup table before joining.
+    Replaces prose filter strings — machine-readable and executor-safe.
+
+    Examples:
+        {"column": "awarded_degree", "operator": "contains", "value": "Associate"}
+        {"column": "awarded_degree", "operator": "isin",
+         "value": ["Certification", "Certificate - TSI Liable",
+                   "Occupational Skills Award", "Marketable Skills Award"]}
+    """
+    column: str
+    operator: Literal["contains", "equals", "startswith", "isin"]
+    value: Union[str, List[str]]
+
+    @model_validator(mode="after")
+    def validate_isin_is_list(self) -> "JoinFilter":
+        if self.operator == "isin" and not isinstance(self.value, list):
+            raise ValueError("isin operator requires value to be a list")
+        if self.operator != "isin" and isinstance(self.value, list):
+            raise ValueError("list value only valid for isin operator")
+        return self
+
+
+class JoinConfig(StrictBaseModel):
+    """
+    Explicit cross-table join declaration on a FieldMappingRecord.
+
+    Replaces the old deterministic JoinResolver inference and cross_table_lookup /
+    stems_lookup transformation steps. The executor reads this block to resolve
+    the source Series before running transformation steps.
+
+    keep strategies:
+        "first"  — take first matching row per join key (after optional order_by sort)
+        "any"    — value is invariant per join key, any row is correct (no dedup needed)
+        "nth"    — take nth matching row per join key (requires n, used for certificate2/3)
+
+    order_by:
+        Column name in the lookup table to sort ascending before keep is applied.
+        Typically "term_order" for degree/certificate date fields.
+    """
+    base_table: str = Field(..., description="Driving table (entity base table)")
+    lookup_table: str = Field(..., description="Table to join and pull value from")
+    join_keys: List[str] = Field(
+        ...,
+        description=(
+            "Canonical join key column names. Must exist in both base and lookup "
+            "tables after column_aliases are applied."
+        ),
+    )
+    keep: Literal["first", "any", "nth"] = Field(
+        default="first",
+        description="Row selection strategy after join.",
+    )
+    n: Optional[int] = Field(
+        default=None,
+        description="Row index (1-based) to select when keep='nth'.",
+    )
+    order_by: Optional[str] = Field(
+        default=None,
+        description=(
+            "Lookup table column to sort ascending before applying keep. "
+            "Typically 'term_order' for date fields sourced from degree tables."
+        ),
+    )
+    filter: Optional[JoinFilter] = Field(
+        default=None,
+        description="Optional pre-join filter applied to lookup table rows.",
+    )
+
+    @model_validator(mode="after")
+    def validate_nth_requires_n(self) -> "JoinConfig":
+        if self.keep == "nth" and self.n is None:
+            raise ValueError("n is required when keep is 'nth'")
+        if self.keep != "nth" and self.n is not None:
+            raise ValueError("n should only be set when keep is 'nth'")
+        return self
+
+    @property
+    def fan_out_risk(self) -> bool:
+        """True when the join may produce multiple rows per base table row."""
+        return self.keep in ("first", "nth")
+
+
 class FieldMappingRecord(StrictBaseModel):
     target_field: str = Field(..., description="Target Edvise schema field")
     source_columns: List[str] = Field(
@@ -43,7 +128,20 @@ class FieldMappingRecord(StrictBaseModel):
     )
     source_table: Optional[str] = Field(
         default=None,
-        description="Source table name (e.g. 'student_df', 'course_df'). None = unmappable field.",
+        description=(
+            "Source table name (e.g. 'student_df', 'course_df'). "
+            "None = unmappable field. For cross-table fields, this is the lookup "
+            "table — join.base_table is the driving table."
+        ),
+    )
+    join: Optional[JoinConfig] = Field(
+        default=None,
+        description=(
+            "Cross-table join declaration. Required when source_table differs "
+            "from the entity base table. Executor resolves the source Series "
+            "from this block before running transformation steps. "
+            "None = source_table is the base table, no join needed."
+        ),
     )
     confidence: float = Field(
         ...,
@@ -60,8 +158,11 @@ class FieldMappingRecord(StrictBaseModel):
         description="Explanation for why the mapping was selected or why the field is unmappable.",
     )
     review_status: ReviewStatus = Field(
-        default=ReviewStatus.proposed,
-        description="Human review outcome",
+        default=ReviewStatus.pending,
+        description=(
+            "Human review outcome. Agent always outputs 'pending'. "
+            "'approved' is only set after human review at the HITL gate."
+        ),
     )
     reviewer_notes: Optional[str] = Field(
         default=None,
@@ -87,6 +188,15 @@ class FieldMappingRecord(StrictBaseModel):
         if v is not None and any(not col.strip() for col in v):
             raise ValueError("corrected_source_columns cannot contain empty strings")
         return v
+
+    @model_validator(mode="after")
+    def validate_join_consistency(self) -> "FieldMappingRecord":
+        if self.join is not None and self.source_table is None:
+            raise ValueError(
+                "source_table must be set when join is declared — "
+                "source_table is the lookup table, join.base_table is the driving table"
+            )
+        return self
 
 
 class ColumnAlias(StrictBaseModel):
@@ -128,7 +238,7 @@ class FieldMappingManifest(StrictBaseModel):
             "Cross-table column name aliases identified during mapping. "
             "Captures cases where the same concept appears under different "
             "names across source tables — e.g. term_descr in course_df vs "
-            "term_desc in student_df. Consumed by join resolver for key matching."
+            "term_desc in student_df. Consumed by field executor for join key matching."
         ),
     )
 
@@ -148,41 +258,13 @@ class FieldMappingManifest(StrictBaseModel):
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Pre-collapse config
-# DataFrame-level grain reduction applied BEFORE field-level plans run.
-# Used when the source DataFrame has finer grain than the target schema —
-# e.g. UCF course_df has section-level rows but target requires course-level.
-# Executor runs this once on the full DataFrame before any field plans execute.
-# -----------------------------------------------------------------------------
-
-class PreCollapseConfig(StrictBaseModel):
-    subset: List[str] = Field(
-        ...,
-        description=(
-            "SOURCE column names defining the target grain to deduplicate on. "
-            "Must use source column names since pre_collapse runs before any "
-            "transformation steps — target column names do not exist yet. "
-            "e.g. ['student_id', 'term_descr', 'crse_prefix', 'crse_number'] for UCF course "
-            "(not ['student_id', 'academic_term', 'course_prefix', 'course_number'])."
-        ),
-    )
-    keep: Literal["first", "last"] = Field(
-        default="first",
-        description="Which row to keep per unique combination of subset columns.",
-    )
-    order_by: Optional[str] = Field(
-        default=None,
-        description="Sort column ascending before deduplication to make keep deterministic.",
-    )
-    rationale: Optional[str] = None
-
-
-# -----------------------------------------------------------------------------
 # Collapse config
 # Declares how to reduce student-term grain to student grain per field.
 # The executor uses schema_contract.unique_keys as the groupby keys;
 # CollapseConfig declares the within-group row selection strategy.
-# Only relevant for cohort maps — course maps use pre_collapse instead.
+# Only relevant for cohort maps — course maps operate at course grain already.
+# Note: pre_collapse removed — grain reduction is now handled by JoinConfig.keep
+# on cross-table fields, and course-level fields are already at correct grain.
 # -----------------------------------------------------------------------------
 
 class CollapseStrategy(str, Enum):
@@ -199,7 +281,7 @@ class CollapseStrategy(str, Enum):
     where_not_null = "where_not_null"
     # Take first row where `condition_col` is non-null per student.
     # Requires `condition_col` to be set.
-    # Examples: first_bachelors_grad_date, major_grad (condition_col: degree_earned_term)
+    # Examples: first_bachelors_grad_date, major_grad
 
     constant = "constant"
     # No row selection — field is a constant value for all rows.
@@ -208,7 +290,7 @@ class CollapseStrategy(str, Enum):
 
     none = "none"
     # No collapse needed — source data is already at the correct grain.
-    # Used for all course-level fields after pre_collapse has run.
+    # Used for all course-level fields.
 
 
 class CollapseConfig(StrictBaseModel):
@@ -234,7 +316,9 @@ class CollapseConfig(StrictBaseModel):
 # -----------------------------------------------------------------------------
 # Typed step models
 # Each maps 1:1 to a callable in transformation_utilities.py.
-# `column` is always explicit — the executor never infers the target column.
+# Steps are pure Series → Series transformations.
+# Cross-table join logic is handled by JoinConfig on the manifest record —
+# transformation steps never perform joins or reference other DataFrames.
 # -----------------------------------------------------------------------------
 
 class CastNullableIntStep(StrictBaseModel):
@@ -308,7 +392,10 @@ class MapValuesStep(StrictBaseModel):
     mapping: Dict[str, Any]
     default: Optional[str] = Field(
         default="passthrough",
-        description="Value for unmapped entries. 'passthrough' keeps original value, null fills with NA."
+        description=(
+            "Value for unmapped entries. "
+            "'passthrough' keeps original value, null fills with NA."
+        ),
     )
     rationale: Optional[str] = None
 
@@ -413,25 +500,37 @@ class FillConstantStep(StrictBaseModel):
 
 class NormalizeYearRangeStep(StrictBaseModel):
     function_name: Literal["normalize_year_range"]
-    column: str = Field(..., description="Column containing year range e.g. '2018-2019' or '2018-19'")
+    column: str = Field(
+        ...,
+        description="Column containing year range e.g. '2018-2019' or '2018-19'",
+    )
     rationale: Optional[str] = None
 
 
 class ExtractYearStep(StrictBaseModel):
     function_name: Literal["extract_year"]
-    column: str = Field(..., description="Column containing year range string e.g. '2018-2019'")
+    column: str = Field(
+        ...,
+        description="Column containing year range string e.g. '2018-2019'",
+    )
     rationale: Optional[str] = None
 
 
 class ParseYyyymmStep(StrictBaseModel):
     function_name: Literal["parse_yyyymm"]
-    column: str = Field(..., description="Column containing YYYYMM string e.g. '202301'")
+    column: str = Field(
+        ...,
+        description="Column containing YYYYMM string e.g. '202301'",
+    )
     rationale: Optional[str] = None
 
 
 class ParseTermDescriptionStep(StrictBaseModel):
     function_name: Literal["parse_term_description"]
-    column: str = Field(..., description="Column containing term description e.g. 'Summer 2018'")
+    column: str = Field(
+        ...,
+        description="Column containing term description e.g. 'Summer 2018'",
+    )
     rationale: Optional[str] = None
 
 
@@ -441,9 +540,10 @@ class BirthyearToAgeBucketStep(StrictBaseModel):
     reference_year_column: Optional[str] = Field(
         default=None,
         description=(
-            "Optional column containing reference year in YYYY-YY format "
-            "(e.g. academic_year). If provided, age is calculated relative to "
-            "that year rather than current year."
+            "Optional column in the base DataFrame containing reference year "
+            "in YYYY-YY format (e.g. academic_year). If provided, age is "
+            "calculated relative to that year rather than current year. "
+            "Executor resolves this as a second Series from the base DataFrame."
         ),
     )
     rationale: Optional[str] = None
@@ -453,37 +553,6 @@ class ConditionalCreditsStep(StrictBaseModel):
     function_name: Literal["conditional_credits"]
     grade_column: str = Field(..., description="Column containing grade values")
     credits_column: str = Field(..., description="Column containing credits attempted")
-    rationale: Optional[str] = None
-
-
-class StemsLookupStep(StrictBaseModel):
-    function_name: Literal["stems_lookup"]
-    column: str = Field(..., description="Column containing CIP code (may be datetime dtype)")
-    stems_table: str = Field(
-        ...,
-        description="Key to look up stems DataFrame from executor context dict",
-    )
-    rationale: Optional[str] = None
-
-
-class CrossTableLookupStep(StrictBaseModel):
-    function_name: Literal["cross_table_lookup"]
-    base_join_keys: List[str] = Field(
-        ...,
-        description="Join key column names in the base DataFrame (source names)",
-    )
-    lookup_table: str = Field(
-        ...,
-        description="Key to look up DataFrame from executor context dict",
-    )
-    lookup_join_keys: List[str] = Field(
-        ...,
-        description="Join key column names in the lookup DataFrame (may differ from base)",
-    )
-    lookup_value_col: str = Field(
-        ...,
-        description="Column in lookup DataFrame to pull as the output value",
-    )
     rationale: Optional[str] = None
 
 
@@ -498,7 +567,10 @@ class NewUtilityNeededStep(StrictBaseModel):
         return True
 
 
-# Discriminated union — executor dispatches on function_name literal
+# Discriminated union — executor dispatches on function_name literal.
+# Note: CrossTableLookupStep and StemsLookupStep removed —
+# cross-table join logic is now declared in JoinConfig on FieldMappingRecord
+# and executed by the field executor before transformation steps run.
 TransformationStep = Union[
     CastNullableIntStep,
     CastNullableFloatStep,
@@ -530,8 +602,6 @@ TransformationStep = Union[
     ParseTermDescriptionStep,
     BirthyearToAgeBucketStep,
     ConditionalCreditsStep,
-    StemsLookupStep,
-    CrossTableLookupStep,
     NewUtilityNeededStep,
 ]
 
@@ -542,14 +612,6 @@ TransformationStep = Union[
 
 class FieldTransformationPlan(StrictBaseModel):
     target_field: str = Field(..., description="Target Edvise schema field")
-    source_columns: List[str] = Field(
-        default_factory=list,
-        description="Source columns used to produce the target field. Empty = unmappable or constant.",
-    )
-    source_table: Optional[str] = Field(
-        default=None,
-        description="Source table name. None = unmappable field or constant derivation.",
-    )
     output_dtype: Optional[str] = Field(
         default=None,
         description="Expected output dtype after all transformations",
@@ -564,10 +626,14 @@ class FieldTransformationPlan(StrictBaseModel):
     )
     steps: List[TransformationStep] = Field(
         default_factory=list,
-        description="Ordered transformation steps. Empty = unmappable field.",
+        description=(
+            "Ordered transformation steps applied to the resolved source Series. "
+            "Empty = unmappable field. Steps are pure Series → Series — "
+            "no join logic here; joins are declared in the manifest JoinConfig."
+        ),
     )
     review_status: ReviewStatus = Field(
-        default=ReviewStatus.proposed,
+        default=ReviewStatus.pending,
         description="Human review outcome",
     )
     reviewer_notes: Optional[str] = Field(
@@ -576,15 +642,15 @@ class FieldTransformationPlan(StrictBaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_constant_has_no_source(self) -> "FieldTransformationPlan":
+    def validate_constant_has_steps(self) -> "FieldTransformationPlan":
         if (
             self.collapse
             and self.collapse.strategy == CollapseStrategy.constant
-            and self.source_columns
+            and not self.steps
         ):
             raise ValueError(
-                "constant collapse strategy implies no source columns — "
-                "source_columns must be empty for constant-derived fields"
+                "constant collapse strategy requires at least one step "
+                "(typically fill_constant)"
             )
         return self
 
@@ -594,20 +660,15 @@ class TransformationMap(StrictBaseModel):
     institution_id: str = Field(..., description="Institution identifier")
     entity_type: EntityType = Field(..., description="cohort or course")
     target_schema: str = Field(..., description="Target schema name")
-    pre_collapse: Optional[PreCollapseConfig] = Field(
-        default=None,
-        description=(
-            "DataFrame-level grain reduction applied before any field plans run. "
-            "Required when source grain is finer than target schema grain — "
-            "e.g. section-level course rows needing reduction to course-level. "
-            "Cohort maps typically do not need this; field-level CollapseConfig handles "
-            "student-term to student reduction per field."
-        ),
-    )
     plans: List[FieldTransformationPlan] = Field(
         ...,
         min_length=1,
-        description="Per-target-field transformation plans",
+        description=(
+            "Per-target-field transformation plans. "
+            "Each plan receives a pre-resolved Series from the field executor "
+            "and applies pure Series → Series transformation steps. "
+            "No join logic or source table references here — those live in the manifest."
+        ),
     )
 
     @field_validator("plans")
@@ -617,5 +678,7 @@ class TransformationMap(StrictBaseModel):
     ) -> List[FieldTransformationPlan]:
         targets = [p.target_field for p in v]
         if len(targets) != len(set(targets)):
-            raise ValueError("Each target_field must appear only once in the transformation map")
+            raise ValueError(
+                "Each target_field must appear only once in the transformation map"
+            )
         return v
