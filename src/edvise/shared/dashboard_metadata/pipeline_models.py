@@ -32,20 +32,20 @@ def _get_pipeline_models_schema():
         return StructType(
             [
                 StructField("training_run_id", StringType(), nullable=True),
+                StructField("institution_id", StringType(), nullable=False),
                 StructField(
                     "training_cohort_dataset_name", StringType(), nullable=True
                 ),
                 StructField(
                     "training_course_dataset_name", StringType(), nullable=True
                 ),
+                StructField("model_name", StringType(), nullable=False),
                 StructField("model_card_path", StringType(), nullable=True),
-                StructField("payload_json", StringType(), nullable=True),
-                StructField("bias_summary", StringType(), nullable=True),
-                StructField("summary_metrics", StringType(), nullable=True),
                 StructField("model_version", StringType(), nullable=True),
                 StructField("model_run_id", StringType(), nullable=False),
-                StructField("model_name", StringType(), nullable=False),
-                StructField("institution_id", StringType(), nullable=False),
+                StructField("summary_metrics", StringType(), nullable=True),
+                StructField("payload_json", StringType(), nullable=True),
+                StructField("bias_summary", StringType(), nullable=True),
                 StructField("logged_ts", TimestampType(), nullable=False),
             ]
         )
