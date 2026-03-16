@@ -322,8 +322,29 @@ def execute_transformation_map(
     base_table = _infer_base_table(manifest)
     base_df = dataframes[base_table]
 
-    # Expected output rows — number of unique key combinations in base DataFrame
-    expected_n_rows = base_df.drop_duplicates(subset=unique_keys).shape[0]
+    # Expected output rows after row selection.
+    # For cohort maps: unique_keys are the target grain keys (e.g. ["student_id"])
+    # which must exist in the base DataFrame as source column names — this works
+    # because target grain keys like student_id are invariant between source and target.
+    # For course maps: no row selection runs so expected_n_rows = len(base_df).
+    # We do NOT use unique_keys for course maps because unique_keys are target schema
+    # column names (e.g. "academic_year") which don't exist in source course_df
+    # (where the column is "acad_year"). Using len(base_df) is always safe since
+    # course maps produce exactly one output row per base DataFrame row.
+    needs_row_selection = any(
+        m.row_selection is not None
+        and m.join is None
+        and m.row_selection.strategy not in (
+            RowSelectionStrategy.constant,
+            RowSelectionStrategy.any_row,
+        )
+        for m in manifest.mappings
+        if m.source_column is not None
+    )
+    if needs_row_selection:
+        expected_n_rows = base_df.drop_duplicates(subset=unique_keys).shape[0]
+    else:
+        expected_n_rows = len(base_df)
     logger.debug(
         f"[{transformation_map.entity_type}] Base table: '{base_table}', "
         f"expected output rows: {expected_n_rows}"
