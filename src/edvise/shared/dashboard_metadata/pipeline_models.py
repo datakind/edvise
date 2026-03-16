@@ -265,7 +265,7 @@ def upsert_pipeline_model(
             except Exception:
                 (
                     df.write.format("delta")
-                    .mode("append")
+                    .mode("overwrite")
                     .option("mergeSchema", "true")
                     .saveAsTable(table_path)
                 )
