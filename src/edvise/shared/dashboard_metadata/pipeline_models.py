@@ -236,16 +236,16 @@ def upsert_pipeline_model(
 
         row: dict[str, t.Any] = {
             "training_run_id": training_run_id,
+            "institution_id": str(institution_id),
             "training_cohort_dataset_name": training_cohort_dataset_name,
             "training_course_dataset_name": training_course_dataset_name,
+            "model_name": str(model_name),
             "model_card_path": model_card_path,
-            "payload_json": _json_dumps(payload or {}),
-            "bias_summary": _json_dumps(bias_summary2),
-            "summary_metrics": _json_dumps(summary_metrics2),
             "model_version": model_version,
             "model_run_id": str(model_run_id),
-            "model_name": str(model_name),
-            "institution_id": str(institution_id),
+            "summary_metrics": _json_dumps(summary_metrics2),
+            "payload_json": _json_dumps(payload or {}),
+            "bias_summary": _json_dumps(bias_summary2),
             "logged_ts": datetime.now(timezone.utc),
         }
 
