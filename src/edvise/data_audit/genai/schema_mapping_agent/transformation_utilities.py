@@ -107,12 +107,11 @@ def cast_nullable_int(s: pd.Series) -> pd.Series:
     """
     Cast Series to nullable Int64.
 
-    Handles float64 input (e.g. 3.0 → 3) by coercing to numeric first,
-    which avoids the 'cannot safely cast float64 to int64' error from
-    _cast_series_to_nullable_dtype when the Series is already float dtype.
+    Handles float64 input (e.g. 3.0 → 3) by using pd.to_numeric + Series.astype
+    rather than pd.array which enforces safe casting rules and rejects float64.
     """
     coerced = pd.to_numeric(s, errors="coerce")
-    return pd.array(coerced, dtype="Int64")
+    return coerced.astype("Int64")
 
 
 def cast_nullable_float(s: pd.Series) -> pd.Series:
