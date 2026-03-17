@@ -198,13 +198,44 @@ def _resolve_cross_table_series(
     lookup_cols_needed = list(dict.fromkeys(lookup_join_cols + [value_col] + extra_cols + filter_cols))
     lookup_df = dataframes[join.lookup_table][lookup_cols_needed].copy()
 
+    # Log initial state
+    initial_rows = len(lookup_df)
+    initial_students = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and initial_rows > 0 else 0
+    base_students = base_df[base_join_cols[0]].nunique() if base_join_cols else len(base_df)
+    logger.info(
+        f"[{record.target_field}] Initial lookup_df: {initial_rows} rows, "
+        f"{initial_students} unique students. Base_df: {len(base_df)} rows, "
+        f"{base_students} unique students."
+    )
+
     if rs and rs.filter:
         pre_len = len(lookup_df)
+        pre_students = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and pre_len > 0 else 0
+        
+        # Log filter details before applying
+        filter_col = rs.filter.column
+        if filter_col in lookup_df.columns:
+            sample_values = lookup_df[filter_col].value_counts().head(10).to_dict()
+            logger.debug(
+                f"[{record.target_field}] Filter column '{filter_col}' sample values: {sample_values}"
+            )
+        
         lookup_df = _apply_filter(lookup_df, rs.filter)
-        logger.debug(
-            f"[{record.target_field}] Filter on '{rs.filter.column}': "
-            f"{pre_len} → {len(lookup_df)} rows"
+        
+        post_len = len(lookup_df)
+        post_students = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and post_len > 0 else 0
+        
+        logger.info(
+            f"[{record.target_field}] Filter '{rs.filter.operator}' on '{rs.filter.column}' "
+            f"(value: {rs.filter.value}): {pre_len} → {post_len} rows "
+            f"({pre_students} → {post_students} students)"
         )
+        
+        if post_len == 0:
+            logger.warning(
+                f"[{record.target_field}] Filter removed ALL rows! All students will get NaN. "
+                f"Check filter criteria: {rs.filter.operator}('{rs.filter.column}', {rs.filter.value})"
+            )
 
     if rs and rs.order_by:
         if rs.order_by not in lookup_df.columns:
@@ -212,17 +243,57 @@ def _resolve_cross_table_series(
                 f"[{record.target_field}] order_by column '{rs.order_by}' "
                 f"not found in '{join.lookup_table}'"
             )
+        
+        # Check for nulls in order_by column
+        null_order_count = lookup_df[rs.order_by].isna().sum()
+        if null_order_count > 0:
+            logger.warning(
+                f"[{record.target_field}] order_by column '{rs.order_by}' has {null_order_count} "
+                f"null values. These rows will sort last."
+            )
+        
         lookup_df = lookup_df.sort_values(rs.order_by, ascending=True)
+        logger.debug(
+            f"[{record.target_field}] Sorted by '{rs.order_by}' (ascending). "
+            f"Range: {lookup_df[rs.order_by].min()} to {lookup_df[rs.order_by].max()}"
+        )
 
     if rs and rs.strategy == RowSelectionStrategy.nth and rs.n is not None:
+        # Log row counts per student before nth selection
+        if lookup_join_cols and len(lookup_df) > 0:
+            student_counts = lookup_df.groupby(lookup_join_cols[0]).size()
+            students_with_n_or_more = (student_counts >= rs.n).sum()
+            students_with_fewer = (student_counts < rs.n).sum()
+            logger.info(
+                f"[{record.target_field}] Before nth({rs.n}) selection: "
+                f"{students_with_n_or_more} students have ≥{rs.n} rows, "
+                f"{students_with_fewer} students have <{rs.n} rows "
+                f"(will get NaN). Row count distribution: {student_counts.describe().to_dict()}"
+            )
+        
         lookup_df = (
             lookup_df
             .groupby(lookup_join_cols, sort=False)
             .nth(rs.n - 1)
             .reset_index()
         )
+        
+        post_nth_rows = len(lookup_df)
+        post_nth_students = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and post_nth_rows > 0 else 0
+        logger.info(
+            f"[{record.target_field}] After nth({rs.n}) selection: {post_nth_rows} rows, "
+            f"{post_nth_students} students"
+        )
     else:
+        pre_dedup_rows = len(lookup_df)
+        pre_dedup_students = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and pre_dedup_rows > 0 else 0
         lookup_df = lookup_df.drop_duplicates(subset=lookup_join_cols, keep="first")
+        post_dedup_rows = len(lookup_df)
+        post_dedup_students = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and post_dedup_rows > 0 else 0
+        logger.debug(
+            f"[{record.target_field}] Deduplication: {pre_dedup_rows} → {post_dedup_rows} rows "
+            f"({pre_dedup_students} → {post_dedup_students} students)"
+        )
 
     _validate_columns(base_join_cols, base_df, join.base_table)
     _validate_columns(lookup_join_cols, lookup_df, join.lookup_table)
@@ -248,7 +319,26 @@ def _resolve_cross_table_series(
             f"Available: {list(merged.columns)}"
         )
 
-    return merged[value_col].reset_index(drop=True)
+    # Log final merge results
+    result_series = merged[value_col].reset_index(drop=True)
+    non_null_count = result_series.notna().sum()
+    null_count = result_series.isna().sum()
+    null_pct = (null_count / len(result_series) * 100) if len(result_series) > 0 else 0
+    
+    post_dedup_students_final = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and len(lookup_df) > 0 else 0
+    logger.info(
+        f"[{record.target_field}] Merge complete: {non_null_count} non-null values, "
+        f"{null_count} null values ({null_pct:.1f}% NaN). "
+        f"Lookup had {len(lookup_df)} rows for {post_dedup_students_final} students."
+    )
+    
+    if null_pct > 50:
+        logger.warning(
+            f"[{record.target_field}] High NaN rate ({null_pct:.1f}%)! "
+            f"Check filter criteria and data coverage."
+        )
+
+    return result_series
 
 
 # =============================================================================
