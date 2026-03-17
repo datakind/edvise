@@ -228,11 +228,19 @@ def _cast_series_to_nullable_dtype(
             # Round non-integer values to nearest integer, then convert to Int64
             if num.dtype == "float64":
                 num = num.round()
-            # Convert to Int64 using pd.array() which properly handles:
-            # - NaN -> pd.NA conversion
-            # - float64 -> Int64 conversion (after rounding)
-            # This avoids the "cannot safely cast" error
-            # Wrap in Series to preserve index
+                # Convert via numpy array to avoid "cannot safely cast" error
+                # This approach: float64 -> numpy int64 array -> Int64 Series
+                # NaN values are explicitly handled and restored as pd.NA
+                # Convert to numpy array, handling NaN
+                values = num.values
+                mask = np.isnan(values)
+                # Fill NaN with 0 temporarily for int64 conversion
+                values_filled = np.where(mask, 0, values).astype("int64")
+                # Create Int64 Series, then restore NaN as pd.NA
+                result = pd.Series(pd.array(values_filled, dtype="Int64"), index=s.index)
+                result[mask] = pd.NA
+                return result
+            # If already int64 or other integer type, convert directly
             return pd.Series(pd.array(num, dtype="Int64"), index=s.index)
 
         if dtype_str == "Float64":
