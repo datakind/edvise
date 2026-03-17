@@ -189,7 +189,8 @@ def _resolve_cross_table_series(
     base_join_cols = _resolve_join_keys(join.join_keys, join.base_table, alias_map)
 
     value_col = record.source_column
-    lookup_cols_needed = list(dict.fromkeys(lookup_join_cols + [value_col]))
+    extra_cols = [rs.order_by] if rs and rs.order_by else []
+    lookup_cols_needed = list(dict.fromkeys(lookup_join_cols + [value_col] + extra_cols))
     lookup_df = dataframes[join.lookup_table][lookup_cols_needed].copy()
 
     rs = record.row_selection
