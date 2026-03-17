@@ -194,7 +194,8 @@ def _resolve_cross_table_series(
     value_col = record.source_column
     rs = record.row_selection
     extra_cols = [rs.order_by] if rs and rs.order_by else []
-    lookup_cols_needed = list(dict.fromkeys(lookup_join_cols + [value_col] + extra_cols))
+    filter_cols = [rs.filter.column] if rs and rs.filter else []
+    lookup_cols_needed = list(dict.fromkeys(lookup_join_cols + [value_col] + extra_cols + filter_cols))
     lookup_df = dataframes[join.lookup_table][lookup_cols_needed].copy()
 
     if rs and rs.filter:
