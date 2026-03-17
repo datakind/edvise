@@ -73,6 +73,8 @@ __all__ = [
     "parse_term_description",
     "birthyear_to_age_bucket",
     "conditional_credits",
+    "extract_academic_year_from_term_code",
+    "extract_term_season_from_term_code",
 ]
 
 
@@ -429,6 +431,88 @@ def birthyear_to_age_bucket(
         return "OLDER THAN 24"
 
     return age.map(_bucket).astype("string")
+
+
+def extract_academic_year_from_term_code(s: pd.Series) -> pd.Series:
+    """
+    Extract academic year from YYYYTT format term codes and convert to YYYY-YY format.
+
+    Academic year logic:
+        - FA (Fall) terms start the academic year: '2018FA' -> '2018-19'
+        - SP (Spring) terms end the prior academic year: '2019SP' -> '2018-19'
+        - S1/S2 (Summer) terms are part of the prior academic year: '2018S1'/'2018S2' -> '2017-18'
+
+    Args:
+        s: String Series of term codes in YYYYTT format (e.g., '2018FA', '2019SP', '2018S1', '2018S2')
+
+    Returns:
+        String Series in YYYY-YY format matching YEAR_PATTERN (^\\d{4}-\\d{2}$), or pd.NA for invalid inputs
+    """
+    s = s.astype("string").str.strip().str.upper()
+
+    # Extract year (first 4 digits) and season code (last 2 characters)
+    year_match = s.str.extract(r"^(\d{4})", expand=False)
+    season_match = s.str.extract(r"([A-Z0-9]{2})$", expand=False)
+
+    # Convert year to numeric
+    year_numeric = pd.to_numeric(year_match, errors="coerce")
+
+    # Determine academic year start year based on season
+    # FA (Fall) starts the academic year, so use the year as-is
+    # SP (Spring) ends the prior academic year, so subtract 1
+    # S1/S2 (Summer) are part of the prior academic year, so subtract 1
+    academic_year_start = year_numeric.copy()
+    is_spring_or_summer = season_match.isin(["SP", "S1", "S2"])
+    academic_year_start = academic_year_start.where(
+        ~is_spring_or_summer,
+        academic_year_start - 1
+    )
+
+    # Calculate academic year end (last 2 digits of start year + 1)
+    academic_year_end = (academic_year_start + 1).astype("Int64").astype("string").str[-2:]
+
+    # Format as YYYY-YY
+    result = (
+        academic_year_start.astype("Int64").astype("string") + "-" + academic_year_end
+    )
+
+    # Return NA for invalid inputs (where year or season couldn't be extracted)
+    return result.where(
+        year_match.notna() & season_match.notna() & academic_year_start.notna(),
+        pd.NA
+    ).astype("string")
+
+
+def extract_term_season_from_term_code(s: pd.Series) -> pd.Series:
+    """
+    Extract canonical term season from YYYYTT format term codes.
+
+    Maps season codes to canonical PDP term categories:
+        - 'FA' -> 'FALL'
+        - 'SP' -> 'SPRING'
+        - 'S1'/'S2' -> 'SUMMER'
+
+    Args:
+        s: String Series of term codes in YYYYTT format (e.g., '2018FA', '2019SP', '2018S1', '2018S2')
+
+    Returns:
+        String Series with values in ['FALL', 'SPRING', 'SUMMER'], or pd.NA for unmapped/invalid inputs
+    """
+    s = s.astype("string").str.strip().str.upper()
+
+    # Extract season code (last 2 characters)
+    season_match = s.str.extract(r"([A-Z0-9]{2})$", expand=False)
+
+    # Map season codes to canonical terms
+    season_mapping = {
+        "FA": "FALL",
+        "SP": "SPRING",
+        "S1": "SUMMER",
+        "S2": "SUMMER",
+    }
+
+    result = season_match.map(season_mapping)
+    return result.astype("string")
 
 
 # Passing grades per Edvise schema ALLOWED_GRADES
