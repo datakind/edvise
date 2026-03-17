@@ -215,7 +215,7 @@ def _apply_row_selection(
     s: pd.Series,
     record: FieldMappingRecord,
     base_df: pd.DataFrame,
-    unique_keys: list[str],
+    target_keys: list[str],
     expected_n_rows: int,
 ) -> pd.Series:
     """
@@ -228,7 +228,7 @@ def _apply_row_selection(
         s: Resolved source Series aligned to base_df index
         record: FieldMappingRecord with row_selection config
         base_df: Base DataFrame for order_by and condition_col access
-        unique_keys: Schema contract unique keys — groupby keys
+        target_keys: Keys in the target DataFrame — used as groupby keys
         expected_n_rows: Expected output row count after reduction
     """
     rs = record.row_selection
@@ -238,7 +238,7 @@ def _apply_row_selection(
     if rs.strategy == RowSelectionStrategy.any_row:
         result = (
             base_df.assign(_s=s.values)
-            .drop_duplicates(subset=unique_keys, keep="first")["_s"]
+            .drop_duplicates(subset=target_keys, keep="first")["_s"]
             .reset_index(drop=True)
         )
 
@@ -251,7 +251,7 @@ def _apply_row_selection(
         result = (
             base_df.assign(_s=s.values)
             .sort_values(rs.order_by, ascending=True)
-            .drop_duplicates(subset=unique_keys, keep="first")["_s"]
+            .drop_duplicates(subset=target_keys, keep="first")["_s"]
             .reset_index(drop=True)
         )
 
@@ -264,7 +264,7 @@ def _apply_row_selection(
         result = (
             base_df.assign(_s=s.values)
             .loc[base_df[rs.condition_col].notna()]
-            .drop_duplicates(subset=unique_keys, keep="first")["_s"]
+            .drop_duplicates(subset=target_keys, keep="first")["_s"]
             .reset_index(drop=True)
         )
 
@@ -293,7 +293,7 @@ def execute_transformation_map(
     transformation_map: TransformationMap,
     manifest: FieldMappingManifest,
     dataframes: dict[str, pd.DataFrame],
-    grain_keys: list[str],
+    target_keys: list[str],
     raise_on_gap: bool = False,
     spark_session: Optional[Any] = None,
 ) -> ExecutionResult:
@@ -309,13 +309,14 @@ def execute_transformation_map(
         transformation_map: Approved TransformationMap
         manifest: Approved FieldMappingManifest (same entity type)
         dataframes: Dict of dataset_name -> DataFrame
-        grain_keys: Source column names in the base DataFrame that define the
+        target_keys: Column names in the target DataFrame that define the
                     target output grain. Used as groupby keys in _apply_row_selection.
+                    These are the keys that will appear in the final output DataFrame.
                     Examples:
                       cohort: ["student_id"] — one row per student
                       course: ["student_id", "term_descr", "crse_prefix", "crse_number"]
-                    Must be actual column names in the base DataFrame, not target
-                    schema field names.
+                    Must be actual column names in the base DataFrame that correspond
+                    to the target DataFrame keys.
         raise_on_gap: If True, raise ExecutionGapError on first NEW_UTILITY_NEEDED
         spark_session: Optional Spark session (reserved for future use)
 
@@ -331,6 +332,9 @@ def execute_transformation_map(
         f"[{transformation_map.entity_type}] Base table: '{base_table}', "
         f"base rows: {len(base_df)}"
     )
+
+    # Calculate expected number of rows after grouping by target_keys
+    expected_n_rows = base_df[target_keys].drop_duplicates().shape[0]
 
     result_cols: dict[str, pd.Series] = {}
     gaps: list[str] = []
@@ -380,7 +384,7 @@ def execute_transformation_map(
                 and record.row_selection.strategy != RowSelectionStrategy.constant
             )
             if needs_row_selection:
-                s = _apply_row_selection(s, record, base_df, grain_keys)
+                s = _apply_row_selection(s, record, base_df, target_keys, expected_n_rows)
 
             # --- 3. Run transformation steps ---
             for step in plan.steps:
