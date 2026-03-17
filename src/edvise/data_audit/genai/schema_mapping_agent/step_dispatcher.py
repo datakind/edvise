@@ -33,6 +33,7 @@ from edvise.data_audit.genai.schema_mapping_agent.transformation_utilities impor
     extract_academic_year_from_term_code,
     extract_term_season_from_term_code,
     extract_year,
+    parse_term_code_to_datetime,
     fill_constant,
     fill_nulls,
     lowercase,
@@ -162,6 +163,7 @@ def dispatch_step(
         "parse_term_description":   lambda: parse_term_description(s),
         "extract_academic_year_from_term_code": lambda: extract_academic_year_from_term_code(s),
         "extract_term_season_from_term_code": lambda: extract_term_season_from_term_code(s),
+        "parse_term_code_to_datetime": lambda: parse_term_code_to_datetime(s),
     }
 
     if fn not in dispatch:

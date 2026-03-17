@@ -75,6 +75,7 @@ __all__ = [
     "conditional_credits",
     "extract_academic_year_from_term_code",
     "extract_term_season_from_term_code",
+    "parse_term_code_to_datetime",
 ]
 
 
@@ -513,6 +514,61 @@ def extract_term_season_from_term_code(s: pd.Series) -> pd.Series:
 
     result = season_match.map(season_mapping)
     return result.astype("string")
+
+
+def parse_term_code_to_datetime(s: pd.Series) -> pd.Series:
+    """
+    Parse YYYYTT format term codes to datetime using the first day of the term.
+
+    Maps term codes to start dates:
+        - '2018FA' -> 2018-09-01 (Fall starts in September)
+        - '2019SP' -> 2019-01-01 (Spring starts in January)
+        - '2018S1'/'2018S2' -> 2018-06-01 (Summer starts in June)
+
+    Args:
+        s: String Series of term codes in YYYYTT format (e.g., '2018FA', '2019SP', '2018S1', '2018S2')
+
+    Returns:
+        Datetime Series with first day of term, or pd.NaT for invalid inputs
+    """
+    s = s.astype("string").str.strip().str.upper()
+
+    # Extract year (first 4 digits) and season code (last 2 characters)
+    year_match = s.str.extract(r"^(\d{4})", expand=False)
+    season_match = s.str.extract(r"([A-Z0-9]{2})$", expand=False)
+
+    # Convert year to numeric
+    year_numeric = pd.to_numeric(year_match, errors="coerce")
+
+    # Map season codes to start months
+    # FA (Fall) -> September (9)
+    # SP (Spring) -> January (1)
+    # S1/S2 (Summer) -> June (6)
+    season_to_month = {
+        "FA": 9,
+        "SP": 1,
+        "S1": 6,
+        "S2": 6,
+    }
+
+    month_numeric = season_match.map(season_to_month)
+
+    # Create datetime from year, month, day=1
+    result = pd.Series(pd.NaT, index=s.index, dtype="datetime64[ns]")
+    valid = year_numeric.notna() & month_numeric.notna()
+
+    if valid.any():
+        dates = pd.to_datetime(
+            pd.DataFrame({
+                "year": year_numeric[valid],
+                "month": month_numeric[valid],
+                "day": 1,
+            }),
+            errors="coerce",
+        )
+        result[valid] = dates
+
+    return result
 
 
 # Passing grades per Edvise schema ALLOWED_GRADES

@@ -503,6 +503,24 @@ class ParseTermDescriptionStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
+class ExtractAcademicYearFromTermCodeStep(StrictBaseModel):
+    function_name: Literal["extract_academic_year_from_term_code"]
+    column: str
+    rationale: Optional[str] = None
+
+
+class ExtractTermSeasonFromTermCodeStep(StrictBaseModel):
+    function_name: Literal["extract_term_season_from_term_code"]
+    column: str
+    rationale: Optional[str] = None
+
+
+class ParseTermCodeToDatetimeStep(StrictBaseModel):
+    function_name: Literal["parse_term_code_to_datetime"]
+    column: str
+    rationale: Optional[str] = None
+
+
 class BirthyearToAgeBucketStep(StrictBaseModel):
     function_name: Literal["birthyear_to_age_bucket"]
     column: str
@@ -570,6 +588,9 @@ TransformationStep = Union[
     ExtractYearStep,
     ParseYyyymmStep,
     ParseTermDescriptionStep,
+    ExtractAcademicYearFromTermCodeStep,
+    ExtractTermSeasonFromTermCodeStep,
+    ParseTermCodeToDatetimeStep,
     BirthyearToAgeBucketStep,
     ConditionalCreditsStep,
     NewUtilityNeededStep,
