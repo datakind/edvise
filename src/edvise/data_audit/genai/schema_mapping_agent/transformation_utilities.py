@@ -194,6 +194,18 @@ def uppercase(s: pd.Series) -> pd.Series:
 
 
 # =============================================================================
+# Null Handling (used by map_values)
+# =============================================================================
+
+def replace_values_with_null(
+    s: pd.Series,
+    to_replace: str | list[str],
+) -> pd.Series:
+    """Replace specified values with None/null."""
+    return s.replace(to_replace=to_replace, value=None)
+
+
+# =============================================================================
 # Value Mapping
 # =============================================================================
 
@@ -216,19 +228,39 @@ def map_values(
     Note:
         When a value is explicitly mapped to null (e.g., {"(Blank)": null}),
         that null is preserved even with default="passthrough". Only unmapped
-        values are filled back.
+        values are filled back. Null mappings are handled via replace_values_with_null
+        internally for consistency.
     """
-    result = s.map(mapping)
+    # Split mapping into null and non-null mappings
+    # Check for None, pd.NA, or NaN values
+    null_mappings = [
+        k for k, v in mapping.items()
+        if v is None or v is pd.NA or (isinstance(v, float) and pd.isna(v))
+    ]
+    non_null_mapping = {k: v for k, v in mapping.items() if k not in null_mappings}
     
+    # Apply null replacements first (using replace_values_with_null for consistency)
+    if null_mappings:
+        s = replace_values_with_null(s, null_mappings)
+    
+    # Apply non-null mappings
+    if non_null_mapping:
+        result = s.map(non_null_mapping)
+    else:
+        result = s.copy()
+    
+    # Handle default behavior for unmapped values
     if default == "passthrough":
         # Only fill nulls for values that were NOT in the mapping
         # Values explicitly mapped to null should stay null
-        unmapped_mask = ~s.isin(mapping.keys())
+        all_mapped_keys = set(mapping.keys())
+        unmapped_mask = ~s.isin(all_mapped_keys)
         # Fill nulls only where original value was unmapped
         result = result.mask(unmapped_mask & result.isna(), s)
     elif default is not None:
         # Fill unmapped nulls with default value
-        unmapped_mask = ~s.isin(mapping.keys())
+        all_mapped_keys = set(mapping.keys())
+        unmapped_mask = ~s.isin(all_mapped_keys)
         result = result.mask(unmapped_mask & result.isna(), default)
     
     return result
@@ -259,14 +291,6 @@ def fill_nulls(s: pd.Series, value: t.Any) -> pd.Series:
 def replace_null_tokens(s: pd.Series, null_tokens: list[str]) -> pd.Series:
     """Replace null token strings (e.g. '(Blank)') with pd.NA."""
     return s.replace(null_tokens, pd.NA)
-
-
-def replace_values_with_null(
-    s: pd.Series,
-    to_replace: str | list[str],
-) -> pd.Series:
-    """Replace specified values with None/null."""
-    return s.replace(to_replace=to_replace, value=None)
 
 
 # =============================================================================
