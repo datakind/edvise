@@ -293,7 +293,7 @@ def execute_transformation_map(
     transformation_map: TransformationMap,
     manifest: FieldMappingManifest,
     dataframes: dict[str, pd.DataFrame],
-    unique_keys: list[str],
+    grain_keys: list[str],
     raise_on_gap: bool = False,
     spark_session: Optional[Any] = None,
 ) -> ExecutionResult:
@@ -302,15 +302,20 @@ def execute_transformation_map(
 
     For each field plan:
         1. Resolve source Series from manifest (join + row selection if needed)
-        2. Apply same-table row selection for cohort fields without a join
+        2. Apply same-table row selection for fields without a join
         3. Run transformation steps (pure Series → Series)
 
     Args:
         transformation_map: Approved TransformationMap
         manifest: Approved FieldMappingManifest (same entity type)
         dataframes: Dict of dataset_name -> DataFrame
-        unique_keys: Schema contract unique keys for the entity type.
-                     Used as groupby keys for same-table row selection.
+        grain_keys: Source column names in the base DataFrame that define the
+                    target output grain. Used as groupby keys in _apply_row_selection.
+                    Examples:
+                      cohort: ["student_id"] — one row per student
+                      course: ["student_id", "term_descr", "crse_prefix", "crse_number"]
+                    Must be actual column names in the base DataFrame, not target
+                    schema field names.
         raise_on_gap: If True, raise ExecutionGapError on first NEW_UTILITY_NEEDED
         spark_session: Optional Spark session (reserved for future use)
 
@@ -322,32 +327,9 @@ def execute_transformation_map(
     base_table = _infer_base_table(manifest)
     base_df = dataframes[base_table]
 
-    # Expected output rows after row selection.
-    # For cohort maps: unique_keys are the target grain keys (e.g. ["student_id"])
-    # which must exist in the base DataFrame as source column names — this works
-    # because target grain keys like student_id are invariant between source and target.
-    # For course maps: no row selection runs so expected_n_rows = len(base_df).
-    # We do NOT use unique_keys for course maps because unique_keys are target schema
-    # column names (e.g. "academic_year") which don't exist in source course_df
-    # (where the column is "acad_year"). Using len(base_df) is always safe since
-    # course maps produce exactly one output row per base DataFrame row.
-    needs_row_selection = any(
-        m.row_selection is not None
-        and m.join is None
-        and m.row_selection.strategy not in (
-            RowSelectionStrategy.constant,
-            RowSelectionStrategy.any_row,
-        )
-        for m in manifest.mappings
-        if m.source_column is not None
-    )
-    if needs_row_selection:
-        expected_n_rows = base_df.drop_duplicates(subset=unique_keys).shape[0]
-    else:
-        expected_n_rows = len(base_df)
     logger.debug(
         f"[{transformation_map.entity_type}] Base table: '{base_table}', "
-        f"expected output rows: {expected_n_rows}"
+        f"base rows: {len(base_df)}"
     )
 
     result_cols: dict[str, pd.Series] = {}
@@ -390,7 +372,7 @@ def execute_transformation_map(
                     dtype="object",
                 )
 
-            # --- 2. Apply same-table row selection (cohort, no join) ---
+            # --- 2. Apply same-table row selection (no join) ---
             # Cross-table row selection was already applied in resolve_source_series
             needs_row_selection = (
                 record.row_selection is not None
@@ -398,9 +380,7 @@ def execute_transformation_map(
                 and record.row_selection.strategy != RowSelectionStrategy.constant
             )
             if needs_row_selection:
-                s = _apply_row_selection(
-                    s, record, base_df, unique_keys, expected_n_rows
-                )
+                s = _apply_row_selection(s, record, base_df, grain_keys)
 
             # --- 3. Run transformation steps ---
             for step in plan.steps:
@@ -417,16 +397,24 @@ def execute_transformation_map(
         except Exception as e:
             raise ExecutionError(f"Failed executing '{target}': {e}") from e
 
-    # Validate lengths before assembly
-    mismatched = {
-        t: len(s) for t, s in result_cols.items()
-        if len(s) != expected_n_rows
-    }
-    if mismatched:
-        logger.warning(
-            f"Series length mismatch before assembly — expected {expected_n_rows}. "
-            f"Mismatched: {mismatched}"
-        )
+    # Align all Series to the same length before assembly.
+    # Row selection may produce fewer rows than the base DataFrame for some fields
+    # (e.g. where_not_null on a sparse graduation column). Use the most common
+    # length as the target — this avoids assuming any particular grain upfront.
+    if result_cols:
+        lengths = {t: len(s) for t, s in result_cols.items()}
+        unique_lengths = set(lengths.values())
+        if len(unique_lengths) > 1:
+            target_len = max(unique_lengths, key=list(lengths.values()).count)
+            logger.warning(
+                f"Series length mismatch before assembly — aligning to {target_len} rows. "
+                f"Mismatched fields: "
+                f"{ {t: l for t, l in lengths.items() if l != target_len} }"
+            )
+            result_cols = {
+                t: s.reindex(range(target_len))
+                for t, s in result_cols.items()
+            }
 
     return ExecutionResult(
         df=pd.DataFrame(result_cols),
