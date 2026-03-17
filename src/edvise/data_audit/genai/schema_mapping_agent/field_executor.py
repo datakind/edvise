@@ -16,10 +16,10 @@ Execution model (per field):
 Design principles:
     - Manifest owns all sourcing decisions (table, join, row selection, column)
     - Transformation plan owns all value transformation (steps only)
-    - Steps are pure Series → Series — no DataFrame context except for
-      birthyear_to_age_bucket and conditional_credits (second Series resolved
-      from base DataFrame by executor before step chain runs)
-    - CollapseConfig removed — replaced by RowSelectionConfig on manifest record
+    - Steps are pure Series → Series — no DataFrame context except for steps
+      that declare extra_columns (resolved from base DataFrame generically)
+    - No expected_n_rows computed upfront — Series length alignment happens
+      after all fields execute, using the most common length as target
 """
 
 from __future__ import annotations
@@ -30,13 +30,9 @@ from typing import Any, Optional
 import pandas as pd
 
 from edvise.data_audit.genai.schema_mapping_agent.mapping_schemas import (
-    BirthyearToAgeBucketStep,
-    ConditionalCreditsStep,
-    EntityType,
     FieldMappingManifest,
     FieldMappingRecord,
     JoinFilter,
-    RowSelectionConfig,
     RowSelectionStrategy,
     TransformationMap,
     TransformationStep,
@@ -67,7 +63,7 @@ def resolve_source_series(
 
     Three cases:
         1. Unmappable / constant — source_column is None → return None
-        2. Same-table — no join → direct column access + row selection
+        2. Same-table — no join → direct column access
         3. Cross-table — join declared → merge + row selection
 
     Args:
@@ -91,9 +87,7 @@ def _resolve_same_table_series(
     record: FieldMappingRecord,
     dataframes: dict[str, pd.DataFrame],
 ) -> pd.Series:
-    """
-    Resolve a same-table field — direct column access with row selection applied.
-    """
+    """Direct column access from source table. No row selection — handled upstream."""
     _validate_table(record.source_table, dataframes)
     df = dataframes[record.source_table]
 
@@ -103,14 +97,7 @@ def _resolve_same_table_series(
             f"Available: {list(df.columns)}"
         )
 
-    s = df[record.source_column].copy()
-
-    # Apply pre-selection filter if declared
-    if record.row_selection and record.row_selection.filter:
-        filtered_df = _apply_filter(df, record.row_selection.filter)
-        s = filtered_df[record.source_column].copy()
-
-    return s
+    return df[record.source_column].copy()
 
 
 def _resolve_cross_table_series(
@@ -145,16 +132,16 @@ def _resolve_cross_table_series(
     lookup_df = dataframes[join.lookup_table][lookup_cols_needed].copy()
 
     # Apply pre-selection filter
-    if record.row_selection and record.row_selection.filter:
+    rs = record.row_selection
+    if rs and rs.filter:
         pre_len = len(lookup_df)
-        lookup_df = _apply_filter(lookup_df, record.row_selection.filter)
+        lookup_df = _apply_filter(lookup_df, rs.filter)
         logger.debug(
-            f"[{record.target_field}] Filter on '{record.row_selection.filter.column}': "
+            f"[{record.target_field}] Filter on '{rs.filter.column}': "
             f"{pre_len} → {len(lookup_df)} rows"
         )
 
     # Sort before row selection if order_by declared
-    rs = record.row_selection
     if rs and rs.order_by and rs.strategy in (
         RowSelectionStrategy.first_by,
         RowSelectionStrategy.nth,
@@ -189,8 +176,7 @@ def _resolve_cross_table_series(
                 .nth(rs.n - 1)
                 .reset_index()
             )
-        # any_row / where_not_null — no dedup needed at merge stage
-        # where_not_null filtering already applied above via filter
+        # any_row — no dedup needed, value invariant per join key
 
     if len(merged) != len(base_df):
         logger.warning(
@@ -208,81 +194,69 @@ def _resolve_cross_table_series(
 
 
 # =============================================================================
-# Row selection (same-table cohort grain reduction)
+# Row selection (same-table grain reduction)
 # =============================================================================
 
 def _apply_row_selection(
     s: pd.Series,
     record: FieldMappingRecord,
     base_df: pd.DataFrame,
-    target_keys: list[str],
-    expected_n_rows: int,
+    grain_keys: list[str],
 ) -> pd.Series:
     """
-    Apply RowSelectionConfig to reduce same-table student-term grain to student grain.
+    Apply RowSelectionConfig to reduce same-table multi-row grain to target grain.
 
-    Only called for same-table cohort fields — cross-table fields have their
-    row selection applied during merge in _resolve_cross_table_series().
+    Only called for same-table fields without a join — cross-table fields have
+    their row selection applied during merge in _resolve_cross_table_series().
 
     Args:
         s: Resolved source Series aligned to base_df index
         record: FieldMappingRecord with row_selection config
         base_df: Base DataFrame for order_by and condition_col access
-        target_keys: Keys in the target DataFrame — used as groupby keys
-        expected_n_rows: Expected output row count after reduction
+        grain_keys: Source column names in base_df defining the target output grain.
+                    Used as groupby keys for drop_duplicates.
     """
     rs = record.row_selection
     if not rs or rs.strategy == RowSelectionStrategy.constant:
         return s.reset_index(drop=True)
 
     if rs.strategy == RowSelectionStrategy.any_row:
-        result = (
+        return (
             base_df.assign(_s=s.values)
-            .drop_duplicates(subset=target_keys, keep="first")["_s"]
+            .drop_duplicates(subset=grain_keys, keep="first")["_s"]
             .reset_index(drop=True)
         )
 
-    elif rs.strategy == RowSelectionStrategy.first_by:
+    if rs.strategy == RowSelectionStrategy.first_by:
         if rs.order_by not in base_df.columns:
             raise ExecutionError(
                 f"first_by order_by '{rs.order_by}' not found in base DataFrame "
                 f"for field '{record.target_field}'"
             )
-        result = (
+        return (
             base_df.assign(_s=s.values)
             .sort_values(rs.order_by, ascending=True)
-            .drop_duplicates(subset=target_keys, keep="first")["_s"]
+            .drop_duplicates(subset=grain_keys, keep="first")["_s"]
             .reset_index(drop=True)
         )
 
-    elif rs.strategy == RowSelectionStrategy.where_not_null:
+    if rs.strategy == RowSelectionStrategy.where_not_null:
         if rs.condition_col not in base_df.columns:
             raise ExecutionError(
                 f"where_not_null condition_col '{rs.condition_col}' not found "
                 f"in base DataFrame for field '{record.target_field}'"
             )
-        result = (
+        return (
             base_df.assign(_s=s.values)
             .loc[base_df[rs.condition_col].notna()]
-            .drop_duplicates(subset=target_keys, keep="first")["_s"]
+            .drop_duplicates(subset=grain_keys, keep="first")["_s"]
             .reset_index(drop=True)
         )
 
-    else:
-        raise ExecutionError(
-            f"Unexpected row selection strategy '{rs.strategy}' in "
-            f"_apply_row_selection for '{record.target_field}'"
-        )
-
-    # Reindex to expected_n_rows — where_not_null may produce fewer rows
-    if len(result) < expected_n_rows:
-        logger.debug(
-            f"[{record.target_field}] Row selection produced {len(result)} rows "
-            f"(expected {expected_n_rows}) — reindexing with nulls"
-        )
-        result = result.reindex(range(expected_n_rows))
-
-    return result
+    raise ExecutionError(
+        f"Unexpected row selection strategy '{rs.strategy}' in "
+        f"_apply_row_selection for '{record.target_field}'"
+    )
 
 
 # =============================================================================
@@ -293,7 +267,7 @@ def execute_transformation_map(
     transformation_map: TransformationMap,
     manifest: FieldMappingManifest,
     dataframes: dict[str, pd.DataFrame],
-    target_keys: list[str],
+    grain_keys: list[str],
     raise_on_gap: bool = False,
     spark_session: Optional[Any] = None,
 ) -> ExecutionResult:
@@ -305,18 +279,21 @@ def execute_transformation_map(
         2. Apply same-table row selection for fields without a join
         3. Run transformation steps (pure Series → Series)
 
+    After all fields execute, Series are aligned to the most common length
+    before DataFrame assembly. This handles where_not_null and nth fields
+    that legitimately produce fewer rows (e.g. students who never graduated).
+    Unexpected length mismatches are logged as warnings.
+
     Args:
         transformation_map: Approved TransformationMap
         manifest: Approved FieldMappingManifest (same entity type)
         dataframes: Dict of dataset_name -> DataFrame
-        target_keys: Column names in the target DataFrame that define the
+        grain_keys: Source column names in the base DataFrame defining the
                     target output grain. Used as groupby keys in _apply_row_selection.
-                    These are the keys that will appear in the final output DataFrame.
+                    Must be actual column names in the base DataFrame.
                     Examples:
-                      cohort: ["student_id"] — one row per student
-                      course: ["student_id", "term_descr", "crse_prefix", "crse_number"]
-                    Must be actual column names in the base DataFrame that correspond
-                    to the target DataFrame keys.
+                        cohort: ["student_id"]
+                        course: ["student_id", "term_descr", "crse_prefix", "crse_number"]
         raise_on_gap: If True, raise ExecutionGapError on first NEW_UTILITY_NEEDED
         spark_session: Optional Spark session (reserved for future use)
 
@@ -333,9 +310,6 @@ def execute_transformation_map(
         f"base rows: {len(base_df)}"
     )
 
-    # Calculate expected number of rows after grouping by target_keys
-    expected_n_rows = base_df[target_keys].drop_duplicates().shape[0]
-
     result_cols: dict[str, pd.Series] = {}
     gaps: list[str] = []
     skipped: list[str] = []
@@ -349,7 +323,7 @@ def execute_transformation_map(
             logger.warning(f"No manifest record for '{target}' — skipping")
             continue
 
-        # Unmappable field — no steps
+        # Unmappable field — no steps and no source column
         if not plan.steps and not record.source_column:
             skipped.append(target)
             continue
@@ -376,15 +350,15 @@ def execute_transformation_map(
                     dtype="object",
                 )
 
-            # --- 2. Apply same-table row selection (no join) ---
-            # Cross-table row selection was already applied in resolve_source_series
+            # --- 2. Apply same-table row selection ---
+            # Cross-table row selection already applied in _resolve_cross_table_series
             needs_row_selection = (
                 record.row_selection is not None
                 and record.join is None
                 and record.row_selection.strategy != RowSelectionStrategy.constant
             )
             if needs_row_selection:
-                s = _apply_row_selection(s, record, base_df, target_keys, expected_n_rows)
+                s = _apply_row_selection(s, record, base_df, grain_keys)
 
             # --- 3. Run transformation steps ---
             for step in plan.steps:
@@ -402,19 +376,39 @@ def execute_transformation_map(
             raise ExecutionError(f"Failed executing '{target}': {e}") from e
 
     # Align all Series to the same length before assembly.
-    # Row selection may produce fewer rows than the base DataFrame for some fields
-    # (e.g. where_not_null on a sparse graduation column). Use the most common
-    # length as the target — this avoids assuming any particular grain upfront.
+    # where_not_null and nth fields legitimately produce fewer rows.
+    # Unexpected mismatches (other strategies) are logged as warnings.
     if result_cols:
         lengths = {t: len(s) for t, s in result_cols.items()}
         unique_lengths = set(lengths.values())
+
         if len(unique_lengths) > 1:
             target_len = max(unique_lengths, key=list(lengths.values()).count)
-            logger.warning(
-                f"Series length mismatch before assembly — aligning to {target_len} rows. "
-                f"Mismatched fields: "
-                f"{ {t: l for t, l in lengths.items() if l != target_len} }"
-            )
+
+            expected_short = {
+                RowSelectionStrategy.where_not_null,
+                RowSelectionStrategy.nth,
+            }
+            for t, l in lengths.items():
+                if l == target_len:
+                    continue
+                rec = manifest_index.get(t)
+                strategy = (
+                    rec.row_selection.strategy
+                    if rec and rec.row_selection
+                    else None
+                )
+                if strategy in expected_short:
+                    logger.debug(
+                        f"[{t}] Fewer rows ({l}) due to {strategy} — "
+                        f"reindexing with nulls to {target_len}"
+                    )
+                else:
+                    logger.warning(
+                        f"[{t}] Unexpected length mismatch: {l} != {target_len}. "
+                        f"Strategy: {strategy}. Check join keys and row selection."
+                    )
+
             result_cols = {
                 t: s.reindex(range(target_len))
                 for t, s in result_cols.items()
@@ -436,15 +430,9 @@ def _execute_step(
     """
     Dispatch a single transformation step.
 
-    Most steps are pure Series → Series and delegate directly to dispatch_step().
-
+    Most steps are pure Series → Series and delegate to dispatch_step().
     Steps that declare extra_columns resolve additional Series from base_df
-    and pass them as kwargs to the utility function — no hardcoding per function.
-
-    Args:
-        step: Typed TransformationStep model
-        s: Input Series from prior step in the chain
-        base_df: Base DataFrame for extra_columns resolution
+    generically and pass them as kwargs to the utility function.
     """
     from edvise.data_audit.genai.schema_mapping_agent import transformation_utilities as u
     from edvise.data_audit.genai.schema_mapping_agent.step_dispatcher import dispatch_step
@@ -456,7 +444,7 @@ def _execute_step(
             f"NEW_UTILITY_NEEDED: {getattr(step, 'description', '(no description)')}"
         )
 
-    # Resolve extra_columns from base_df generically — no hardcoding per function
+    # Resolve extra_columns from base_df generically
     extra_kwargs: dict[str, pd.Series] = {}
     if hasattr(step, "extra_columns") and step.extra_columns:
         for param_name, col_name in step.extra_columns.items():
@@ -468,16 +456,13 @@ def _execute_step(
             extra_kwargs[param_name] = base_df[col_name]
 
     if extra_kwargs:
-        # Step needs extra Series — call utility directly with resolved kwargs
         utility_fn = getattr(u, fn, None)
         if utility_fn is None:
             raise ExecutionError(
-                f"No utility function '{fn}' found in transformation_utilities. "
-                f"Add it or check the function name."
+                f"No utility function '{fn}' found in transformation_utilities."
             )
         return utility_fn(s, **extra_kwargs)
 
-    # Pure Series → Series — delegate to step dispatcher
     return dispatch_step(s, step)
 
 
