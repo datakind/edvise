@@ -135,28 +135,29 @@ def resolve_source_series(
     if record.join:
         return _resolve_cross_table_series(record, dataframes, alias_map, base_df)
     else:
-        return _resolve_same_table_series(record, dataframes, base_df)
+        return _resolve_same_table_series(record, base_df)
 
 
 def _resolve_same_table_series(
     record: FieldMappingRecord,
-    dataframes: dict[str, pd.DataFrame],
     base_df: pd.DataFrame,
 ) -> pd.Series:
     """
-    Direct column access from source table.
+    Direct column access from base_df.
+
+    Reads from the already-cleaned base_df rather than re-fetching from
+    dataframes — ensures alignment with the dropna/reset_index applied at
+    the top of execute_transformation_map.
+
     Returns Series aligned to base_df — full base length, no grain reduction.
     """
-    _validate_table(record.source_table, dataframes)
-    df = dataframes[record.source_table]
-
-    if record.source_column not in df.columns:
+    if record.source_column not in base_df.columns:
         raise KeyError(
             f"Column '{record.source_column}' not found in '{record.source_table}'. "
-            f"Available: {list(df.columns)}"
+            f"Available: {list(base_df.columns)}"
         )
 
-    return df[record.source_column].reset_index(drop=True)
+    return base_df[record.source_column].reset_index(drop=True)
 
 
 def _resolve_cross_table_series(
@@ -304,6 +305,15 @@ def _apply_grain_reduction(
         return _merge_back(reduced)
 
     if rs.strategy == RowSelectionStrategy.first_by:
+        if record.join:
+            # Cross-table: ordering already applied during lookup dedup in
+            # _resolve_cross_table_series — just reduce to entity grain
+            reduced = (
+                base_df.assign(_s=s.values)
+                .drop_duplicates(subset=entity_keys, keep="first")[entity_keys + ["_s"]]
+                .reset_index(drop=True)
+            )
+            return _merge_back(reduced)
         if rs.order_by not in base_df.columns:
             raise ExecutionError(
                 f"first_by order_by '{rs.order_by}' not found in base DataFrame "
