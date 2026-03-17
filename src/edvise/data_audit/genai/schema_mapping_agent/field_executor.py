@@ -6,20 +6,19 @@ as the complete sourcing specification.
 
 Execution model (per field):
     1. Read FieldMappingRecord from manifest — complete sourcing spec
-    2. Resolve source Series:
-       a. Same-table: direct column access from source_table DataFrame
-       b. Cross-table: merge base_table ← lookup_table on join_keys
-    3. Apply RowSelectionConfig — unified row selection for both cases
-    4. Pass resolved Series through FieldTransformationPlan steps
+    2. Resolve source Series — always returns len(base_df) rows:
+       a. Same-table: direct column access
+       b. Cross-table: merge base ← lookup, select correct value per base row
+    3. Apply grain reduction uniformly — reduce to target grain if base table
+       has more rows than grain_keys combinations
+    4. Run transformation steps (pure Series → Series)
     5. Store output Series
 
-Design principles:
-    - Manifest owns all sourcing decisions (table, join, row selection, column)
-    - Transformation plan owns all value transformation (steps only)
-    - Steps are pure Series → Series — no DataFrame context except for steps
-      that declare extra_columns (resolved from base DataFrame generically)
-    - No expected_n_rows computed upfront — Series length alignment happens
-      after all fields execute, using the most common length as target
+Key design principle:
+    resolve_source_series always returns a Series aligned to base_df (full length).
+    Grain reduction always happens AFTER resolution, uniformly for all fields.
+    This eliminates the length mismatch problem from having two different code
+    paths with row selection happening at different points.
 """
 
 from __future__ import annotations
@@ -50,44 +49,54 @@ SPARK_THRESHOLD = 500_000
 
 
 # =============================================================================
-# Series resolution
+# Series resolution — always returns len(base_df) rows
 # =============================================================================
 
 def resolve_source_series(
     record: FieldMappingRecord,
     dataframes: dict[str, pd.DataFrame],
     alias_map: dict[str, dict[str, str]],
+    base_df: pd.DataFrame,
 ) -> Optional[pd.Series]:
     """
     Resolve the source Series for a field mapping record.
 
+    Always returns a Series of len(base_df) — aligned to base DataFrame index.
+    Grain reduction happens separately and uniformly after resolution.
+
     Three cases:
         1. Unmappable / constant — source_column is None → return None
-        2. Same-table — no join → direct column access
-        3. Cross-table — join declared → merge + row selection
+        2. Same-table — direct column access, returns len(base_df) rows
+        3. Cross-table — merge base ← lookup, selects correct value per base row,
+                         returns len(base_df) rows
 
     Args:
         record: Approved FieldMappingRecord
         dataframes: Dict of dataset_name -> DataFrame
         alias_map: {table: {source_col: canonical_col}} from manifest column_aliases
+        base_df: Base DataFrame — used for length alignment validation
 
     Returns:
-        Resolved pd.Series or None if unmappable/constant
+        Resolved pd.Series of len(base_df) or None if unmappable/constant
     """
     if not record.source_column or not record.source_table:
         return None
 
     if record.join:
-        return _resolve_cross_table_series(record, dataframes, alias_map)
+        return _resolve_cross_table_series(record, dataframes, alias_map, base_df)
     else:
-        return _resolve_same_table_series(record, dataframes)
+        return _resolve_same_table_series(record, dataframes, base_df)
 
 
 def _resolve_same_table_series(
     record: FieldMappingRecord,
     dataframes: dict[str, pd.DataFrame],
+    base_df: pd.DataFrame,
 ) -> pd.Series:
-    """Direct column access from source table. No row selection — handled upstream."""
+    """
+    Direct column access from source table.
+    Returns Series aligned to base_df — full base length, no grain reduction.
+    """
     _validate_table(record.source_table, dataframes)
     df = dataframes[record.source_table]
 
@@ -97,32 +106,36 @@ def _resolve_same_table_series(
             f"Available: {list(df.columns)}"
         )
 
-    return df[record.source_column].copy()
+    return df[record.source_column].reset_index(drop=True)
 
 
 def _resolve_cross_table_series(
     record: FieldMappingRecord,
     dataframes: dict[str, pd.DataFrame],
     alias_map: dict[str, dict[str, str]],
+    base_df: pd.DataFrame,
 ) -> pd.Series:
     """
-    Resolve a cross-table field — merge base ← lookup, apply row selection.
+    Resolve a cross-table field via merge.
+
+    Selects the correct value per base row (via filter/sort/dedup on the lookup
+    table) then returns a Series of len(base_df) — one value per base row.
+    Grain reduction to target grain happens separately in _apply_grain_reduction.
 
     Steps:
         1. Validate tables exist
         2. Subset lookup to join keys + target column
         3. Apply pre-selection filter if declared
-        4. Sort if order_by declared
-        5. Resolve actual join key names via alias_map
-        6. Merge base ← lookup (left join)
-        7. Apply row selection strategy
-        8. Return target column aligned to base DataFrame index
+        4. Sort lookup if order_by declared
+        5. Deduplicate lookup to one row per join key combination
+        6. Resolve actual join key names via alias_map
+        7. Left merge base ← lookup
+        8. Return target column aligned to base_df
     """
     join = record.join
     _validate_table(join.base_table, dataframes)
     _validate_table(join.lookup_table, dataframes)
 
-    base_df = dataframes[join.base_table]
     lookup_join_cols = _resolve_join_keys(join.join_keys, join.lookup_table, alias_map)
     base_join_cols = _resolve_join_keys(join.join_keys, join.base_table, alias_map)
 
@@ -131,8 +144,9 @@ def _resolve_cross_table_series(
     lookup_cols_needed = list(dict.fromkeys(lookup_join_cols + [value_col]))
     lookup_df = dataframes[join.lookup_table][lookup_cols_needed].copy()
 
-    # Apply pre-selection filter
     rs = record.row_selection
+
+    # Apply pre-selection filter
     if rs and rs.filter:
         pre_len = len(lookup_df)
         lookup_df = _apply_filter(lookup_df, rs.filter)
@@ -141,11 +155,8 @@ def _resolve_cross_table_series(
             f"{pre_len} → {len(lookup_df)} rows"
         )
 
-    # Sort before row selection if order_by declared
-    if rs and rs.order_by and rs.strategy in (
-        RowSelectionStrategy.first_by,
-        RowSelectionStrategy.nth,
-    ):
+    # Sort before dedup if order_by declared
+    if rs and rs.order_by:
         if rs.order_by not in lookup_df.columns:
             raise KeyError(
                 f"[{record.target_field}] order_by column '{rs.order_by}' "
@@ -153,11 +164,24 @@ def _resolve_cross_table_series(
             )
         lookup_df = lookup_df.sort_values(rs.order_by, ascending=True)
 
+    # Deduplicate lookup to one row per join key combination
+    # nth: take the nth row per group (1-based)
+    # first_by / any_row / where_not_null: take first row per group
+    if rs and rs.strategy == RowSelectionStrategy.nth and rs.n is not None:
+        lookup_df = (
+            lookup_df
+            .groupby(lookup_join_cols, sort=False)
+            .nth(rs.n - 1)
+            .reset_index()
+        )
+    else:
+        lookup_df = lookup_df.drop_duplicates(subset=lookup_join_cols, keep="first")
+
     _validate_columns(base_join_cols, base_df, join.base_table)
     _validate_columns(lookup_join_cols, lookup_df, join.lookup_table)
 
-    # Merge
-    merged = base_df.merge(
+    # Left merge — preserves all base_df rows, fills null where no match
+    merged = base_df[base_join_cols].merge(
         lookup_df,
         left_on=base_join_cols,
         right_on=lookup_join_cols,
@@ -165,23 +189,11 @@ def _resolve_cross_table_series(
         suffixes=("", f"_{join.lookup_table}"),
     )
 
-    # Apply row selection strategy
-    if rs:
-        if rs.strategy == RowSelectionStrategy.first_by:
-            merged = merged.drop_duplicates(subset=base_join_cols, keep="first")
-        elif rs.strategy == RowSelectionStrategy.nth:
-            merged = (
-                merged
-                .groupby(base_join_cols, sort=False)
-                .nth(rs.n - 1)
-                .reset_index()
-            )
-        # any_row — no dedup needed, value invariant per join key
-
     if len(merged) != len(base_df):
         logger.warning(
-            f"[{record.target_field}] Merged row count ({len(merged)}) differs from "
-            f"base DataFrame ({len(base_df)}). Check join keys and row selection."
+            f"[{record.target_field}] Merged row count ({len(merged)}) != "
+            f"base_df ({len(base_df)}). Join may have fan-out. "
+            f"Check join keys and row selection."
         )
 
     if value_col not in merged.columns:
@@ -194,33 +206,36 @@ def _resolve_cross_table_series(
 
 
 # =============================================================================
-# Row selection (same-table grain reduction)
+# Grain reduction — uniform for all fields
 # =============================================================================
 
-def _apply_row_selection(
+def _apply_grain_reduction(
     s: pd.Series,
     record: FieldMappingRecord,
     base_df: pd.DataFrame,
     grain_keys: list[str],
 ) -> pd.Series:
     """
-    Apply RowSelectionConfig to reduce same-table multi-row grain to target grain.
+    Reduce Series from base_df grain to target grain.
 
-    Only called for same-table fields without a join — cross-table fields have
-    their row selection applied during merge in _resolve_cross_table_series().
+    Called uniformly for all fields when base_needs_reduction is True.
+    At this point s is always len(base_df) — same-table or cross-table.
 
     Args:
-        s: Resolved source Series aligned to base_df index
+        s: Source Series of len(base_df)
         record: FieldMappingRecord with row_selection config
         base_df: Base DataFrame for order_by and condition_col access
-        grain_keys: Source column names in base_df defining the target output grain.
+        grain_keys: Source column names in base_df defining target grain.
                     Used as groupby keys for drop_duplicates.
     """
     rs = record.row_selection
     if not rs or rs.strategy == RowSelectionStrategy.constant:
         return s.reset_index(drop=True)
 
-    if rs.strategy == RowSelectionStrategy.any_row:
+    if rs.strategy in (RowSelectionStrategy.any_row, RowSelectionStrategy.nth):
+        # any_row: value is invariant per grain key — take first
+        # nth cross-table: lookup already deduplicated to correct row,
+        #                  just reduce base to grain
         return (
             base_df.assign(_s=s.values)
             .drop_duplicates(subset=grain_keys, keep="first")["_s"]
@@ -254,8 +269,7 @@ def _apply_row_selection(
         )
 
     raise ExecutionError(
-        f"Unexpected row selection strategy '{rs.strategy}' in "
-        f"_apply_row_selection for '{record.target_field}'"
+        f"Unexpected row selection strategy '{rs.strategy}' for '{record.target_field}'"
     )
 
 
@@ -275,21 +289,16 @@ def execute_transformation_map(
     Execute a TransformationMap against resolved DataFrames.
 
     For each field plan:
-        1. Resolve source Series from manifest (join + row selection if needed)
-        2. Apply same-table row selection for fields without a join
+        1. Resolve source Series — always len(base_df)
+        2. Apply grain reduction uniformly if base table needs it
         3. Run transformation steps (pure Series → Series)
-
-    After all fields execute, Series are aligned to the most common length
-    before DataFrame assembly. This handles where_not_null and nth fields
-    that legitimately produce fewer rows (e.g. students who never graduated).
-    Unexpected length mismatches are logged as warnings.
 
     Args:
         transformation_map: Approved TransformationMap
         manifest: Approved FieldMappingManifest (same entity type)
         dataframes: Dict of dataset_name -> DataFrame
-        grain_keys: Source column names in the base DataFrame defining the
-                    target output grain. Used as groupby keys in _apply_row_selection.
+        grain_keys: Source column names in base_df defining target output grain.
+                    Used as groupby keys for grain reduction.
                     Must be actual column names in the base DataFrame.
                     Examples:
                         cohort: ["student_id"]
@@ -305,9 +314,16 @@ def execute_transformation_map(
     base_table = _infer_base_table(manifest)
     base_df = dataframes[base_table]
 
+    # Determine whether grain reduction is needed.
+    # If grain_keys produce fewer unique rows than len(base_df), the base table
+    # is multi-row per entity and grain reduction must run for all fields.
+    n_unique = base_df[grain_keys].drop_duplicates().shape[0]
+    base_needs_reduction = n_unique < len(base_df)
+
     logger.debug(
         f"[{transformation_map.entity_type}] Base table: '{base_table}', "
-        f"base rows: {len(base_df)}"
+        f"base rows: {len(base_df)}, grain rows: {n_unique}, "
+        f"needs reduction: {base_needs_reduction}"
     )
 
     result_cols: dict[str, pd.Series] = {}
@@ -339,8 +355,8 @@ def execute_transformation_map(
             continue
 
         try:
-            # --- 1. Resolve source Series ---
-            s = resolve_source_series(record, dataframes, alias_map)
+            # --- 1. Resolve source Series (always len(base_df)) ---
+            s = resolve_source_series(record, dataframes, alias_map, base_df)
 
             if s is None:
                 # Constant field — start with empty Series for fill_constant step
@@ -350,21 +366,13 @@ def execute_transformation_map(
                     dtype="object",
                 )
 
-            # --- 2. Apply same-table row selection ---
-            # Cross-table row selection already applied in _resolve_cross_table_series.
-            # any_row is a no-op when the base table is already at the correct grain
-            # (e.g. course maps) — skip to avoid drop_duplicates on grain_keys that
-            # may not match base DataFrame column names.
-            needs_row_selection = (
-                record.row_selection is not None
-                and record.join is None
-                and record.row_selection.strategy not in (
-                    RowSelectionStrategy.constant,
-                    RowSelectionStrategy.any_row,
-                )
-            )
-            if needs_row_selection:
-                s = _apply_row_selection(s, record, base_df, grain_keys)
+            # --- 2. Grain reduction (uniform for all fields) ---
+            if (
+                base_needs_reduction
+                and record.row_selection is not None
+                and record.row_selection.strategy != RowSelectionStrategy.constant
+            ):
+                s = _apply_grain_reduction(s, record, base_df, grain_keys)
 
             # --- 3. Run transformation steps ---
             for step in plan.steps:
@@ -382,32 +390,28 @@ def execute_transformation_map(
             raise ExecutionError(f"Failed executing '{target}': {e}") from e
 
     # Align all Series to the same length before assembly.
-    # where_not_null and nth fields legitimately produce fewer rows.
-    # Unexpected mismatches (other strategies) are logged as warnings.
+    # where_not_null legitimately produces fewer rows (e.g. students who never
+    # graduated). Unexpected mismatches on other strategies are logged as warnings.
     if result_cols:
         lengths = {t: len(s) for t, s in result_cols.items()}
         unique_lengths = set(lengths.values())
 
         if len(unique_lengths) > 1:
             target_len = max(unique_lengths, key=list(lengths.values()).count)
+            expected_short = {RowSelectionStrategy.where_not_null}
 
-            expected_short = {
-                RowSelectionStrategy.where_not_null,
-                RowSelectionStrategy.nth,
-            }
             for t, l in lengths.items():
                 if l == target_len:
                     continue
                 rec = manifest_index.get(t)
                 strategy = (
                     rec.row_selection.strategy
-                    if rec and rec.row_selection
-                    else None
+                    if rec and rec.row_selection else None
                 )
                 if strategy in expected_short:
                     logger.debug(
                         f"[{t}] Fewer rows ({l}) due to {strategy} — "
-                        f"reindexing with nulls to {target_len}"
+                        f"reindexing to {target_len}"
                     )
                 else:
                     logger.warning(
