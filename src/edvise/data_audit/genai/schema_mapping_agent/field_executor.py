@@ -351,11 +351,17 @@ def execute_transformation_map(
                 )
 
             # --- 2. Apply same-table row selection ---
-            # Cross-table row selection already applied in _resolve_cross_table_series
+            # Cross-table row selection already applied in _resolve_cross_table_series.
+            # any_row is a no-op when the base table is already at the correct grain
+            # (e.g. course maps) — skip to avoid drop_duplicates on grain_keys that
+            # may not match base DataFrame column names.
             needs_row_selection = (
                 record.row_selection is not None
                 and record.join is None
-                and record.row_selection.strategy != RowSelectionStrategy.constant
+                and record.row_selection.strategy not in (
+                    RowSelectionStrategy.constant,
+                    RowSelectionStrategy.any_row,
+                )
             )
             if needs_row_selection:
                 s = _apply_row_selection(s, record, base_df, grain_keys)
