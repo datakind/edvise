@@ -212,12 +212,25 @@ def map_values(
             "passthrough" — keep original value (default)
             None — fill unmapped with NA
             Any other string — fill unmapped with that value
+    
+    Note:
+        When a value is explicitly mapped to null (e.g., {"(Blank)": null}),
+        that null is preserved even with default="passthrough". Only unmapped
+        values are filled back.
     """
     result = s.map(mapping)
+    
     if default == "passthrough":
-        result = result.fillna(s)
+        # Only fill nulls for values that were NOT in the mapping
+        # Values explicitly mapped to null should stay null
+        unmapped_mask = ~s.isin(mapping.keys())
+        # Fill nulls only where original value was unmapped
+        result = result.mask(unmapped_mask & result.isna(), s)
     elif default is not None:
-        result = result.fillna(default)
+        # Fill unmapped nulls with default value
+        unmapped_mask = ~s.isin(mapping.keys())
+        result = result.mask(unmapped_mask & result.isna(), default)
+    
     return result
 
 
