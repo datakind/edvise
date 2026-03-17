@@ -402,28 +402,37 @@ def execute_transformation_map(
     skipped: list[str] = []
     executed: list[str] = []
 
-    for plan in transformation_map.plans:
+    n_plans = len(transformation_map.plans)
+    logger.info(
+        f"[{transformation_map.entity_type}] Starting execution — "
+        f"{n_plans} fields, {len(base_df)} base rows, {len(entity_index)} entities"
+    )
+
+    for i, plan in enumerate(transformation_map.plans, 1):
         target = plan.target_field
         record = manifest_index.get(target)
 
         if not record:
-            logger.warning(f"No manifest record for '{target}' — skipping")
+            logger.warning(f"[{i}/{n_plans}] No manifest record for '{target}' — skipping")
             continue
 
         if not plan.steps and not record.source_column:
+            logger.debug(f"[{i}/{n_plans}] {target} — unmappable, skipping")
             skipped.append(target)
             continue
 
         gap_steps = [s for s in plan.steps if s.function_name == "NEW_UTILITY_NEEDED"]
         if gap_steps:
             msg = f"Field '{target}' has {len(gap_steps)} NEW_UTILITY_NEEDED step(s)"
-            logger.warning(msg)
+            logger.warning(f"[{i}/{n_plans}] {target} — {msg}")
             if raise_on_gap:
                 raise ExecutionGapError(msg)
             gaps.append(target)
             continue
 
         try:
+            logger.debug(f"[{i}/{n_plans}] {target} — resolving source series")
+
             # --- 1. Resolve source Series (always len(base_df)) ---
             s = resolve_source_series(record, dataframes, alias_map, base_df)
 
@@ -435,16 +444,24 @@ def execute_transformation_map(
                 )
 
             # --- 2. Run transformation steps (pure Series → Series) ---
-            for step in plan.steps:
+            for j, step in enumerate(plan.steps, 1):
+                logger.debug(
+                    f"[{i}/{n_plans}] {target} — step {j}/{len(plan.steps)}: "
+                    f"{step.function_name}"
+                )
                 s = _execute_step(step, s, base_df)
 
             # --- 3. Reduce to one value per entity ---
             if record.row_selection is not None:
+                strategy = record.row_selection.strategy
+                logger.debug(
+                    f"[{i}/{n_plans}] {target} — reducing via {strategy}"
+                )
                 s = _apply_grain_reduction(s, record, base_df, entity_keys, entity_index)
 
             result_cols[target] = s
             executed.append(target)
-            logger.debug(f"Executed: {target}")
+            logger.info(f"[{i}/{n_plans}] ✓ {target} — {len(s)} rows")
 
         except ExecutionGapError:
             gaps.append(target)
@@ -452,6 +469,11 @@ def execute_transformation_map(
                 raise
         except Exception as e:
             raise ExecutionError(f"Failed executing '{target}': {e}") from e
+
+    logger.info(
+        f"[{transformation_map.entity_type}] Execution complete — "
+        f"{len(executed)} executed, {len(skipped)} skipped, {len(gaps)} gaps"
+    )
 
     return ExecutionResult(
         df=pd.DataFrame(result_cols),
