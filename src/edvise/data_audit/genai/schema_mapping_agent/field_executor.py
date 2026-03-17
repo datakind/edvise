@@ -9,22 +9,25 @@ Execution model (per field):
     2. Resolve source Series — always returns len(base_df) rows:
        a. Same-table: direct column access
        b. Cross-table: merge base ← lookup, select correct value per base row
-    3. Apply grain reduction uniformly — reduce to target grain if base table
-       has more rows than grain_keys combinations
-    4. Run transformation steps (pure Series → Series)
-    5. Store output Series
+    3. Run transformation steps (pure Series → Series)
+    4. Reduce to one value per entity using row_selection + entity_keys
+    5. Assemble output DataFrame — all Series guaranteed same length
 
-Key design principle:
-    resolve_source_series always returns a Series aligned to base_df (full length).
-    Grain reduction always happens AFTER resolution, uniformly for all fields.
-    This eliminates the length mismatch problem from having two different code
-    paths with row selection happening at different points.
+Key design principles:
+    - resolve_source_series always returns a Series aligned to base_df (full length)
+    - entity_keys are derived from schema.Config.unique + manifest mappings —
+      source column names in base_df that correspond to the target grain
+    - Grain reduction is per-field, operating on base_df with entity_keys as
+      the groupby key — strategies are applied before assembly
+    - where_not_null preserves all entities, producing NA for non-matching rows
+    - All Series are guaranteed the same length after reduction — no post-assembly
+      alignment needed
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, Type
 
 import pandas as pd
 
@@ -49,6 +52,53 @@ SPARK_THRESHOLD = 500_000
 
 
 # =============================================================================
+# Entity key derivation
+# =============================================================================
+
+def _derive_entity_keys(
+    manifest: FieldMappingManifest,
+    schema: Type,
+) -> list[str]:
+    """
+    Derive source-space entity keys from schema.Config.unique + manifest mappings.
+
+    For each target field in the schema's uniqueness constraint, resolves the
+    corresponding source column name via the manifest. The resulting list of
+    source column names is used as the groupby key for all row_selection
+    grain reduction strategies.
+
+    Args:
+        manifest: FieldMappingManifest for this entity type
+        schema: Pandera schema class — schema.Config.unique defines target grain
+
+    Returns:
+        Source column names in base_df corresponding to schema.Config.unique
+
+    Raises:
+        ValueError: If any field in schema.Config.unique has no source column
+                    mapping in the manifest
+    """
+    target_to_source = {
+        m.target_field: m.source_column
+        for m in manifest.mappings
+        if m.source_column is not None
+    }
+
+    entity_keys = []
+    for target_field in schema.Config.unique:
+        source_col = target_to_source.get(target_field)
+        if source_col is None:
+            raise ValueError(
+                f"Target unique key '{target_field}' has no source column mapping "
+                f"in the manifest. All fields in schema.Config.unique must be "
+                f"mapped to a source column in the base table."
+            )
+        entity_keys.append(source_col)
+
+    return entity_keys
+
+
+# =============================================================================
 # Series resolution — always returns len(base_df) rows
 # =============================================================================
 
@@ -62,7 +112,7 @@ def resolve_source_series(
     Resolve the source Series for a field mapping record.
 
     Always returns a Series of len(base_df) — aligned to base DataFrame index.
-    Grain reduction happens separately and uniformly after resolution.
+    Grain reduction happens separately after transformation steps have run.
 
     Three cases:
         1. Unmappable / constant — source_column is None → return None
@@ -118,9 +168,8 @@ def _resolve_cross_table_series(
     """
     Resolve a cross-table field via merge.
 
-    Selects the correct value per base row (via filter/sort/dedup on the lookup
-    table) then returns a Series of len(base_df) — one value per base row.
-    Grain reduction to target grain happens separately in _apply_grain_reduction.
+    Returns a Series of len(base_df) — one value per base row.
+    Grain reduction happens separately after transformation steps have run.
 
     Steps:
         1. Validate tables exist
@@ -139,14 +188,12 @@ def _resolve_cross_table_series(
     lookup_join_cols = _resolve_join_keys(join.join_keys, join.lookup_table, alias_map)
     base_join_cols = _resolve_join_keys(join.join_keys, join.base_table, alias_map)
 
-    # Subset lookup to join keys + target column only
     value_col = record.source_column
     lookup_cols_needed = list(dict.fromkeys(lookup_join_cols + [value_col]))
     lookup_df = dataframes[join.lookup_table][lookup_cols_needed].copy()
 
     rs = record.row_selection
 
-    # Apply pre-selection filter
     if rs and rs.filter:
         pre_len = len(lookup_df)
         lookup_df = _apply_filter(lookup_df, rs.filter)
@@ -155,7 +202,6 @@ def _resolve_cross_table_series(
             f"{pre_len} → {len(lookup_df)} rows"
         )
 
-    # Sort before dedup if order_by declared
     if rs and rs.order_by:
         if rs.order_by not in lookup_df.columns:
             raise KeyError(
@@ -164,9 +210,6 @@ def _resolve_cross_table_series(
             )
         lookup_df = lookup_df.sort_values(rs.order_by, ascending=True)
 
-    # Deduplicate lookup to one row per join key combination
-    # nth: take the nth row per group (1-based)
-    # first_by / any_row / where_not_null: take first row per group
     if rs and rs.strategy == RowSelectionStrategy.nth and rs.n is not None:
         lookup_df = (
             lookup_df
@@ -180,7 +223,6 @@ def _resolve_cross_table_series(
     _validate_columns(base_join_cols, base_df, join.base_table)
     _validate_columns(lookup_join_cols, lookup_df, join.lookup_table)
 
-    # Left merge — preserves all base_df rows, fills null where no match
     merged = base_df[base_join_cols].merge(
         lookup_df,
         left_on=base_join_cols,
@@ -206,34 +248,52 @@ def _resolve_cross_table_series(
 
 
 # =============================================================================
-# Grain reduction — uniform for all fields
+# Per-field grain reduction — operates on base_df in source space
 # =============================================================================
 
 def _apply_grain_reduction(
     s: pd.Series,
     record: FieldMappingRecord,
     base_df: pd.DataFrame,
+    entity_keys: list[str],
 ) -> pd.Series:
     """
-    Reduce Series to target grain via row_selection strategy.
+    Reduce a transformed Series to one value per entity.
 
-    Always called when row_selection is set — strategies are idempotent if
-    the base table is already at the target grain (dedup on an already-unique
-    table is a no-op). At this point s is always len(base_df).
+    Operates on base_df in source space — order_by and condition_col are source
+    column names that exist in base_df. entity_keys are the source column names
+    corresponding to schema.Config.unique, derived via _derive_entity_keys.
+
+    Always produces exactly len(unique entity_key combinations) rows, guaranteeing
+    all fields assemble to the same length.
+
+    For where_not_null: entities with no non-null row produce NA rather than
+    being dropped — all entities are preserved in the output.
 
     Args:
-        s: Source Series of len(base_df)
+        s: Transformed Series of len(base_df) — values in target space
         record: FieldMappingRecord with row_selection config
-        base_df: Base DataFrame for order_by and condition_col access
+        base_df: Base DataFrame — source space, used for order_by / condition_col
+        entity_keys: Source column names in base_df identifying one target entity.
+                     Derived from schema.Config.unique via manifest mappings.
     """
     rs = record.row_selection
     if not rs or rs.strategy == RowSelectionStrategy.constant:
         return s.reset_index(drop=True)
 
-    if rs.strategy in (RowSelectionStrategy.any_row, RowSelectionStrategy.nth):
+    if rs.strategy == RowSelectionStrategy.any_row:
         return (
             base_df.assign(_s=s.values)
-            .drop_duplicates(keep="first")["_s"]
+            .drop_duplicates(subset=entity_keys, keep="first")["_s"]
+            .reset_index(drop=True)
+        )
+
+    if rs.strategy == RowSelectionStrategy.nth:
+        # Cross-table nth: lookup already deduplicated to correct row.
+        # Just reduce base to entity grain.
+        return (
+            base_df.assign(_s=s.values)
+            .drop_duplicates(subset=entity_keys, keep="first")["_s"]
             .reset_index(drop=True)
         )
 
@@ -246,7 +306,7 @@ def _apply_grain_reduction(
         return (
             base_df.assign(_s=s.values)
             .sort_values(rs.order_by, ascending=True)
-            .drop_duplicates(keep="first")["_s"]
+            .drop_duplicates(subset=entity_keys, keep="first")["_s"]
             .reset_index(drop=True)
         )
 
@@ -256,69 +316,25 @@ def _apply_grain_reduction(
                 f"where_not_null condition_col '{rs.condition_col}' not found "
                 f"in base DataFrame for field '{record.target_field}'"
             )
-        return (
-            base_df.assign(_s=s.values)
-            .loc[base_df[rs.condition_col].notna()]
-            .drop_duplicates(keep="first")["_s"]
+        # All entities — so entities with no non-null row produce NA
+        all_entities = (
+            base_df
+            .drop_duplicates(subset=entity_keys, keep="first")[entity_keys]
             .reset_index(drop=True)
         )
+        non_null_rows = (
+            base_df.assign(_s=s.values)
+            .loc[base_df[rs.condition_col].notna()]
+            .drop_duplicates(subset=entity_keys, keep="first")
+            [entity_keys + ["_s"]]
+            .reset_index(drop=True)
+        )
+        merged = all_entities.merge(non_null_rows, on=entity_keys, how="left")
+        return merged["_s"].reset_index(drop=True)
 
     raise ExecutionError(
         f"Unexpected row selection strategy '{rs.strategy}' for '{record.target_field}'"
     )
-
-
-# =============================================================================
-# Grain key resolution
-# =============================================================================
-
-def _resolve_grain_keys(
-    target_grain_keys: list[str],
-    manifest: FieldMappingManifest,
-    base_table: str,
-) -> list[str]:
-    """
-    Map target schema unique field names to source column names in base_df.
-
-    Target grain keys come from the Pandera schema's Config.unique — they are
-    target field names, not source column names. This function resolves them
-    to the actual column names present in base_df via the manifest mappings.
-
-    Only base-table fields are valid grain keys — cross-table join fields
-    cannot be grain keys since they don't exist in base_df before execution.
-
-    Args:
-        target_grain_keys: Target field names from schema.Config.unique
-        manifest: FieldMappingManifest for this entity type
-        base_table: Inferred base table name
-
-    Returns:
-        Source column names in base_df corresponding to target_grain_keys
-
-    Raises:
-        ValueError: If a grain key has no base-table source mapping in the manifest
-    """
-    target_to_source = {
-        m.target_field: m.source_column
-        for m in manifest.mappings
-        if m.source_table == base_table
-        and m.join is None
-        and m.source_column is not None
-    }
-
-    resolved = []
-    for key in target_grain_keys:
-        source_col = target_to_source.get(key)
-        if source_col is None:
-            raise ValueError(
-                f"grain_key '{key}' could not be resolved to a source column in "
-                f"base table '{base_table}'. Ensure this target field is mapped "
-                f"directly from the base table (not via a cross-table join) in "
-                f"the manifest."
-            )
-        resolved.append(source_col)
-
-    return resolved
 
 
 # =============================================================================
@@ -329,6 +345,7 @@ def execute_transformation_map(
     transformation_map: TransformationMap,
     manifest: FieldMappingManifest,
     dataframes: dict[str, pd.DataFrame],
+    schema: Type,
     raise_on_gap: bool = False,
     spark_session: Optional[Any] = None,
 ) -> ExecutionResult:
@@ -337,18 +354,20 @@ def execute_transformation_map(
 
     For each field plan:
         1. Resolve source Series — always len(base_df)
-        2. Apply grain reduction if row_selection is set — strategies are
-           idempotent if the base table is already at the target grain
-        3. Run transformation steps (pure Series → Series)
+        2. Run transformation steps (pure Series → Series)
+        3. Reduce to one value per entity using row_selection + entity_keys
 
-    Grain reduction is driven entirely by the row_selection strategy declared
-    on each FieldMappingRecord — no upfront grain key resolution or row count
-    checks are needed. Deduplicating an already-unique table is a no-op.
+    entity_keys are derived from schema.Config.unique resolved to source column
+    names via the manifest. This guarantees all Series are the same length after
+    reduction — assembly into a DataFrame is always clean.
 
     Args:
         transformation_map: Approved TransformationMap
         manifest: Approved FieldMappingManifest (same entity type)
         dataframes: Dict of dataset_name -> DataFrame
+        schema: Pandera schema class for the target entity type
+                (e.g. RawEdviseCourseDataSchemaFlexible).
+                schema.Config.unique defines the target grain.
         raise_on_gap: If True, raise ExecutionGapError on first NEW_UTILITY_NEEDED
         spark_session: Optional Spark session (reserved for future use)
 
@@ -359,10 +378,11 @@ def execute_transformation_map(
     manifest_index = {m.target_field: m for m in manifest.mappings}
     base_table = _infer_base_table(manifest)
     base_df = dataframes[base_table]
+    entity_keys = _derive_entity_keys(manifest, schema)
 
     logger.debug(
         f"[{transformation_map.entity_type}] Base table: '{base_table}', "
-        f"base rows: {len(base_df)}"
+        f"base rows: {len(base_df)}, entity_keys: {entity_keys}"
     )
 
     result_cols: dict[str, pd.Series] = {}
@@ -378,12 +398,10 @@ def execute_transformation_map(
             logger.warning(f"No manifest record for '{target}' — skipping")
             continue
 
-        # Unmappable field — no steps and no source column
         if not plan.steps and not record.source_column:
             skipped.append(target)
             continue
 
-        # Check for gaps before executing
         gap_steps = [s for s in plan.steps if s.function_name == "NEW_UTILITY_NEEDED"]
         if gap_steps:
             msg = f"Field '{target}' has {len(gap_steps)} NEW_UTILITY_NEEDED step(s)"
@@ -398,25 +416,19 @@ def execute_transformation_map(
             s = resolve_source_series(record, dataframes, alias_map, base_df)
 
             if s is None:
-                # Constant field — start with empty Series for fill_constant step
                 s = pd.Series(
                     [pd.NA] * len(base_df),
                     index=base_df.index,
                     dtype="object",
                 )
 
-            # --- 2. Grain reduction ---
-            # Always run when row_selection is set — strategies are idempotent
-            # if the base table is already at the target grain.
-            if (
-                record.row_selection is not None
-                and record.row_selection.strategy != RowSelectionStrategy.constant
-            ):
-                s = _apply_grain_reduction(s, record, base_df)
-
-            # --- 3. Run transformation steps ---
+            # --- 2. Run transformation steps (pure Series → Series) ---
             for step in plan.steps:
                 s = _execute_step(step, s, base_df)
+
+            # --- 3. Reduce to one value per entity ---
+            if record.row_selection is not None:
+                s = _apply_grain_reduction(s, record, base_df, entity_keys)
 
             result_cols[target] = s
             executed.append(target)
@@ -428,41 +440,6 @@ def execute_transformation_map(
                 raise
         except Exception as e:
             raise ExecutionError(f"Failed executing '{target}': {e}") from e
-
-    # Align all Series to the same length before assembly.
-    # where_not_null legitimately produces fewer rows (e.g. students who never
-    # graduated). Unexpected mismatches on other strategies are logged as warnings.
-    if result_cols:
-        lengths = {t: len(s) for t, s in result_cols.items()}
-        unique_lengths = set(lengths.values())
-
-        if len(unique_lengths) > 1:
-            target_len = max(unique_lengths, key=list(lengths.values()).count)
-            expected_short = {RowSelectionStrategy.where_not_null}
-
-            for t, l in lengths.items():
-                if l == target_len:
-                    continue
-                rec = manifest_index.get(t)
-                strategy = (
-                    rec.row_selection.strategy
-                    if rec and rec.row_selection else None
-                )
-                if strategy in expected_short:
-                    logger.debug(
-                        f"[{t}] Fewer rows ({l}) due to {strategy} — "
-                        f"reindexing to {target_len}"
-                    )
-                else:
-                    logger.warning(
-                        f"[{t}] Unexpected length mismatch: {l} != {target_len}. "
-                        f"Strategy: {strategy}. Check join keys and row selection."
-                    )
-
-            result_cols = {
-                t: s.reindex(range(target_len))
-                for t, s in result_cols.items()
-            }
 
     return ExecutionResult(
         df=pd.DataFrame(result_cols),
@@ -494,7 +471,6 @@ def _execute_step(
             f"NEW_UTILITY_NEEDED: {getattr(step, 'description', '(no description)')}"
         )
 
-    # Resolve extra_columns from base_df generically
     extra_kwargs: dict[str, pd.Series] = {}
     if hasattr(step, "extra_columns") and step.extra_columns:
         for param_name, col_name in step.extra_columns.items():
