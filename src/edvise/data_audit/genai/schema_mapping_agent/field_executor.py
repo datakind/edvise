@@ -95,7 +95,9 @@ def _derive_entity_keys(
             )
         entity_keys.append(source_col)
 
-    return entity_keys
+    # Deduplicate while preserving order — multiple target fields may map to
+    # the same source column (e.g. academic_year and academic_term both from "term")
+    return list(dict.fromkeys(entity_keys))
 
 
 # =============================================================================
