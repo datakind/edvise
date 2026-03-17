@@ -256,6 +256,7 @@ def _apply_grain_reduction(
     record: FieldMappingRecord,
     base_df: pd.DataFrame,
     entity_keys: list[str],
+    entity_index: pd.DataFrame,
 ) -> pd.Series:
     """
     Reduce a transformed Series to one value per entity.
@@ -264,8 +265,8 @@ def _apply_grain_reduction(
     column names that exist in base_df. entity_keys are the source column names
     corresponding to schema.Config.unique, derived via _derive_entity_keys.
 
-    Always produces exactly len(unique entity_key combinations) rows, guaranteeing
-    all fields assemble to the same length.
+    Every strategy merges back against entity_index at the end, guaranteeing
+    all fields produce Series with identical length and row ordering.
 
     For where_not_null: entities with no non-null row produce NA rather than
     being dropped — all entities are preserved in the output.
@@ -276,26 +277,29 @@ def _apply_grain_reduction(
         base_df: Base DataFrame — source space, used for order_by / condition_col
         entity_keys: Source column names in base_df identifying one target entity.
                      Derived from schema.Config.unique via manifest mappings.
+        entity_index: Canonical entity order — one row per unique entity_keys
+                      combination in base_df order. All strategies merge back
+                      to this index to guarantee consistent row ordering.
     """
     rs = record.row_selection
     if not rs or rs.strategy == RowSelectionStrategy.constant:
         return s.reset_index(drop=True)
 
-    if rs.strategy == RowSelectionStrategy.any_row:
+    def _merge_back(reduced: pd.DataFrame) -> pd.Series:
+        """Left merge reduced rows back to canonical entity_index order."""
         return (
-            base_df.assign(_s=s.values)
-            .drop_duplicates(subset=entity_keys, keep="first")["_s"]
+            entity_index
+            .merge(reduced, on=entity_keys, how="left")["_s"]
             .reset_index(drop=True)
         )
 
-    if rs.strategy == RowSelectionStrategy.nth:
-        # Cross-table nth: lookup already deduplicated to correct row.
-        # Just reduce base to entity grain.
-        return (
+    if rs.strategy in (RowSelectionStrategy.any_row, RowSelectionStrategy.nth):
+        reduced = (
             base_df.assign(_s=s.values)
-            .drop_duplicates(subset=entity_keys, keep="first")["_s"]
+            .drop_duplicates(subset=entity_keys, keep="first")[entity_keys + ["_s"]]
             .reset_index(drop=True)
         )
+        return _merge_back(reduced)
 
     if rs.strategy == RowSelectionStrategy.first_by:
         if rs.order_by not in base_df.columns:
@@ -303,12 +307,13 @@ def _apply_grain_reduction(
                 f"first_by order_by '{rs.order_by}' not found in base DataFrame "
                 f"for field '{record.target_field}'"
             )
-        return (
+        reduced = (
             base_df.assign(_s=s.values)
             .sort_values(rs.order_by, ascending=True)
-            .drop_duplicates(subset=entity_keys, keep="first")["_s"]
+            .drop_duplicates(subset=entity_keys, keep="first")[entity_keys + ["_s"]]
             .reset_index(drop=True)
         )
+        return _merge_back(reduced)
 
     if rs.strategy == RowSelectionStrategy.where_not_null:
         if rs.condition_col not in base_df.columns:
@@ -316,21 +321,13 @@ def _apply_grain_reduction(
                 f"where_not_null condition_col '{rs.condition_col}' not found "
                 f"in base DataFrame for field '{record.target_field}'"
             )
-        # All entities — so entities with no non-null row produce NA
-        all_entities = (
-            base_df
-            .drop_duplicates(subset=entity_keys, keep="first")[entity_keys]
-            .reset_index(drop=True)
-        )
-        non_null_rows = (
+        reduced = (
             base_df.assign(_s=s.values)
             .loc[base_df[rs.condition_col].notna()]
-            .drop_duplicates(subset=entity_keys, keep="first")
-            [entity_keys + ["_s"]]
+            .drop_duplicates(subset=entity_keys, keep="first")[entity_keys + ["_s"]]
             .reset_index(drop=True)
         )
-        merged = all_entities.merge(non_null_rows, on=entity_keys, how="left")
-        return merged["_s"].reset_index(drop=True)
+        return _merge_back(reduced)
 
     raise ExecutionError(
         f"Unexpected row selection strategy '{rs.strategy}' for '{record.target_field}'"
@@ -380,9 +377,22 @@ def execute_transformation_map(
     base_df = dataframes[base_table]
     entity_keys = _derive_entity_keys(manifest, schema)
 
+    # Drop rows with null entity keys and reset index — clean RangeIndex is
+    # required since we use .values to align Series during grain reduction.
+    base_df = base_df.dropna(subset=entity_keys).reset_index(drop=True)
+
+    # Canonical entity order — all strategies merge back to this index so
+    # every field's reduced Series has the same row ordering.
+    entity_index = (
+        base_df
+        .drop_duplicates(subset=entity_keys, keep="first")[entity_keys]
+        .reset_index(drop=True)
+    )
+
     logger.debug(
         f"[{transformation_map.entity_type}] Base table: '{base_table}', "
-        f"base rows: {len(base_df)}, entity_keys: {entity_keys}"
+        f"base rows: {len(base_df)}, entity_keys: {entity_keys}, "
+        f"unique entities: {len(entity_index)}"
     )
 
     result_cols: dict[str, pd.Series] = {}
@@ -428,7 +438,7 @@ def execute_transformation_map(
 
             # --- 3. Reduce to one value per entity ---
             if record.row_selection is not None:
-                s = _apply_grain_reduction(s, record, base_df, entity_keys)
+                s = _apply_grain_reduction(s, record, base_df, entity_keys, entity_index)
 
             result_cols[target] = s
             executed.append(target)
