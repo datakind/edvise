@@ -283,7 +283,9 @@ def _apply_grain_reduction(
     """
     rs = record.row_selection
     if not rs or rs.strategy == RowSelectionStrategy.constant:
-        return s.reset_index(drop=True)
+        # Constant fields produce identical values for all rows — slice to
+        # entity grain length so all Series assemble to the same length.
+        return s.iloc[:len(entity_index)].reset_index(drop=True)
 
     def _merge_back(reduced: pd.DataFrame) -> pd.Series:
         """Left merge reduced rows back to canonical entity_index order."""
