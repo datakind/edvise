@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -666,7 +667,8 @@ def get_manifest_schema_context() -> str:
     Returns a focused schema reference for Agent 2a prompt context.
     Covers only the models relevant to manifest generation —
     RowSelectionStrategy, RowSelectionConfig, JoinFilter, JoinConfig,
-    and FieldMappingRecord. Excludes transformation map models.
+    FieldMappingRecord, ColumnAlias, and FieldMappingManifest.
+    Excludes transformation map models.
     """
     import inspect
     models = [
@@ -675,6 +677,8 @@ def get_manifest_schema_context() -> str:
         RowSelectionStrategy,
         RowSelectionConfig,
         FieldMappingRecord,
+        ColumnAlias,
+        FieldMappingManifest,
     ]
     sections = []
     for model in models:

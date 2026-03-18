@@ -76,6 +76,29 @@ PELL_YES_NO = ["Y", "Yes", "N", "No"]
 CreditsField = pda.Field(nullable=False, ge=0.0)
 
 
+def _check_course_uniqueness(df: pd.DataFrame) -> pd.Series:
+    """
+    Check course uniqueness conditionally: include section_id only if present and has non-null values.
+    
+    Args:
+        df: DataFrame to check for uniqueness
+        
+    Returns:
+        Boolean Series indicating which rows pass the uniqueness check
+    """
+    base_cols = [
+        "student_id",
+        "academic_year",
+        "academic_term",
+        "course_prefix",
+        "course_number",
+    ]
+    unique_cols = base_cols.copy()
+    if "section_id" in df.columns and df["section_id"].notna().any():
+        unique_cols.append("section_id")
+    return ~df.duplicated(subset=unique_cols, keep=False)
+
+
 class RawEdviseCourseDataSchema(pda.DataFrameModel):
     """
     Schema for raw Edvise course data.
@@ -89,7 +112,8 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     grade, course_credits_attempted, course_credits_earned, pass_fail_flag.
     Optional columns may be missing from the DataFrame or contain nulls; when
     present they are validated. Rows must be unique on (student_id,
-    academic_year, academic_term, course_prefix, course_number).
+    academic_year, academic_term, course_prefix, course_number) and optionally
+    section_id if present.
     """
 
     # Required
@@ -141,6 +165,7 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     course_section_size: t.Optional[pt.Series["float64"]] = pda.Field(
         nullable=True, ge=0.0
     )
+    section_id: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     term_enrollment_intensity: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True,
         str_matches=TERM_ENROLLMENT_PATTERN,
@@ -161,6 +186,11 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     )
     raw_term_degree: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     raw_grade: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+
+    @pda.dataframe_check
+    def check_uniqueness(cls, df: pd.DataFrame) -> pd.Series:
+        """Check uniqueness conditionally: include section_id only if present."""
+        return _check_course_uniqueness(df)
 
     @classmethod
     def validate(
@@ -185,6 +215,7 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         unique_column_names = True
         add_missing_columns = False
         drop_invalid_rows = False
+        # Remove section_id from static unique list - handled by check_uniqueness
         unique = [
             "student_id",
             "academic_year",
@@ -262,6 +293,7 @@ class RawEdviseCourseDataSchemaFlexible(pda.DataFrameModel):
     course_section_size: t.Optional[pt.Series["float64"]] = pda.Field(
         nullable=True, ge=0.0
     )
+    section_id: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     term_enrollment_intensity: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True,
         # Keep pattern for basic validation, but more flexible
@@ -283,6 +315,11 @@ class RawEdviseCourseDataSchemaFlexible(pda.DataFrameModel):
     )
     raw_term_degree: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     raw_grade: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+
+    @pda.dataframe_check
+    def check_uniqueness(cls, df: pd.DataFrame) -> pd.Series:
+        """Check uniqueness conditionally: include section_id only if present."""
+        return _check_course_uniqueness(df)
 
     @classmethod
     def validate(
@@ -313,6 +350,7 @@ class RawEdviseCourseDataSchemaFlexible(pda.DataFrameModel):
         unique_column_names = True
         add_missing_columns = False
         drop_invalid_rows = False
+        # Remove section_id from static unique list - handled by check_uniqueness
         unique = [
             "student_id",
             "academic_year",

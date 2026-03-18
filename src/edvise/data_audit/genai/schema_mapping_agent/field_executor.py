@@ -67,6 +67,9 @@ def _derive_entity_keys(
     source column names is used as the groupby key for all row_selection
     grain reduction strategies.
 
+    For course schemas, section_id is conditionally included if it's mapped in
+    the manifest (mirroring the conditional uniqueness check in the schema).
+
     Args:
         manifest: FieldMappingManifest for this entity type
         schema: Pandera schema class — schema.Config.unique defines target grain
@@ -94,6 +97,19 @@ def _derive_entity_keys(
                 f"mapped to a source column in the base table."
             )
         entity_keys.append(source_col)
+
+    # Conditionally include section_id if mapped (for course schemas with optional section_id)
+    # This mirrors the conditional uniqueness check in the schema validation
+    section_id_record = next(
+        (
+            m
+            for m in manifest.mappings
+            if m.target_field == "section_id" and m.source_column is not None
+        ),
+        None,
+    )
+    if section_id_record:
+        entity_keys.append(section_id_record.source_column)
 
     # Deduplicate while preserving order — multiple target fields may map to
     # the same source column (e.g. academic_year and academic_term both from "term")
