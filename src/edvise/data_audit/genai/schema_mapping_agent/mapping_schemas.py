@@ -659,3 +659,25 @@ class TransformationMap(StrictBaseModel):
                 "Each target_field must appear only once in the transformation map"
             )
         return v
+
+
+def get_manifest_schema_context() -> str:
+    """
+    Returns a focused schema reference for Agent 2a prompt context.
+    Covers only the models relevant to manifest generation —
+    RowSelectionStrategy, RowSelectionConfig, JoinFilter, JoinConfig,
+    and FieldMappingRecord. Excludes transformation map models.
+    """
+    import inspect
+    models = [
+        JoinFilter,
+        JoinConfig,
+        RowSelectionStrategy,
+        RowSelectionConfig,
+        FieldMappingRecord,
+    ]
+    sections = []
+    for model in models:
+        source = inspect.getsource(model)
+        sections.append(source)
+    return "\n\n".join(sections)
