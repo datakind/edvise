@@ -215,14 +215,6 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         unique_column_names = True
         add_missing_columns = False
         drop_invalid_rows = False
-        # Remove section_id from static unique list - handled by check_uniqueness
-        unique = [
-            "student_id",
-            "academic_year",
-            "academic_term",
-            "course_prefix",
-            "course_number",
-        ]
 
 
 class RawEdviseCourseDataSchemaFlexible(pda.DataFrameModel):
