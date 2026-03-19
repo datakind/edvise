@@ -87,13 +87,13 @@ def _derive_entity_keys(
         if m.source_column is not None
     }
 
-    target_entity_keys = getattr(getattr(schema, "Config", object), "entity_keys", None)
+    target_entity_keys = getattr(schema, "ENTITY_KEYS", None)
     if target_entity_keys is None:
         target_entity_keys = getattr(getattr(schema, "Config", object), "unique", None)
 
     if not target_entity_keys:
         raise ValueError(
-            f"Schema '{schema.__name__}' must define Config.entity_keys or Config.unique."
+            f"Schema '{schema.__name__}' must define ENTITY_KEYS or Config.unique."
         )
 
     entity_keys = []
