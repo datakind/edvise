@@ -632,6 +632,10 @@ class FieldTransformationPlan(StrictBaseModel):
         default=None,
         description="Reviewer comments",
     )
+    validation_notes: Optional[str] = Field(
+        default=None,
+        description="Notes about validation concerns or issues with the transformation plan",
+    )
 
 
 class TransformationMap(StrictBaseModel):
