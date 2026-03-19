@@ -345,8 +345,4 @@ class RawEdviseStudentDataSchemaFlexible(pda.DataFrameModel):
         unique_column_names = True
         add_missing_columns = False
         drop_invalid_rows = False
-
-
-RawEdviseStudentDataSchemaFlexible.ENTITY_KEYS = [
-    "student_id",
-]
+        unique = ["student_id"]

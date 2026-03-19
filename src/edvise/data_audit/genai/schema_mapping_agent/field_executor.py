@@ -60,26 +60,23 @@ def _derive_entity_keys(
     schema: Type,
 ) -> list[str]:
     """
-    Derive source-space entity keys from schema grain metadata + manifest mappings.
+    Derive source-space entity keys from schema.Config.unique + manifest mappings.
 
-    For each target field in the schema's entity grain, resolve the corresponding
-    source column name via the manifest. The resulting list of source column
-    names is used as the groupby key for row_selection grain reduction.
-
-    For course schemas, section_id is conditionally included if it's mapped in
-    the manifest, so section-level data stays distinct when provided.
+    For each target field in the schema's uniqueness constraint, resolves the
+    corresponding source column name via the manifest. The resulting list of
+    source column names is used as the groupby key for all row_selection
+    grain reduction strategies.
 
     Args:
-        manifest: FieldMappingManifest for this entity type.
-        schema: Pandera schema class. Expected to define schema.Config.entity_keys.
-                Falls back to schema.Config.unique for backward compatibility.
+        manifest: FieldMappingManifest for this entity type
+        schema: Pandera schema class — schema.Config.unique defines target grain
 
     Returns:
-        Source column names in base_df corresponding to the schema grain.
+        Source column names in base_df corresponding to schema.Config.unique
 
     Raises:
-        ValueError: If the schema does not define entity grain metadata, or if
-                    any target entity key has no source column mapping in the manifest.
+        ValueError: If any field in schema.Config.unique has no source column
+                    mapping in the manifest
     """
     target_to_source = {
         m.target_field: m.source_column
@@ -87,13 +84,10 @@ def _derive_entity_keys(
         if m.source_column is not None
     }
 
-    target_entity_keys = getattr(schema, "ENTITY_KEYS", None)
-    if target_entity_keys is None:
-        target_entity_keys = getattr(getattr(schema, "Config", object), "unique", None)
-
+    target_entity_keys = getattr(getattr(schema, "Config", object), "unique", None)
     if not target_entity_keys:
         raise ValueError(
-            f"Schema '{schema.__name__}' must define ENTITY_KEYS or Config.unique."
+            f"Schema '{schema.__name__}' must define Config.unique."
         )
 
     entity_keys = []
@@ -104,10 +98,6 @@ def _derive_entity_keys(
                 f"Target entity key '{target_field}' has no source column mapping in the manifest."
             )
         entity_keys.append(source_col)
-
-    section_source = target_to_source.get("section_id")
-    if section_source is not None and section_source not in entity_keys:
-        entity_keys.append(section_source)
 
     return list(dict.fromkeys(entity_keys))
 
