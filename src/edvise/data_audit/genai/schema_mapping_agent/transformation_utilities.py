@@ -33,52 +33,6 @@ from edvise.data_audit.schemas._edvise_shared import (
     term_series_to_pdp,
 )
 
-__all__ = [
-    # Column normalization
-    "normalize_columns",
-    # Type casting
-    "cast_nullable_dtype",
-    "cast_nullable_int",
-    "cast_nullable_float",
-    "cast_string",
-    "cast_boolean",
-    "cast_datetime",
-    # Coercion
-    "coerce_numeric",
-    "coerce_datetime",
-    # String operations
-    "strip_whitespace",
-    "lowercase",
-    "uppercase",
-    # Value mapping
-    "map_values",
-    # Domain-specific normalization
-    "normalize_term_code",
-    "normalize_grade",
-    "normalize_enrollment",
-    "normalize_pell",
-    "normalize_credential",
-    "normalize_student_age",
-    # Null handling
-    "fill_nulls",
-    "replace_null_tokens",
-    "replace_values_with_null",
-    # Specialized
-    "assign_numeric_grade",
-    "strip_trailing_decimal",
-    "fill_constant",
-    "normalize_year_range",
-    "extract_year",
-    "parse_yyyymm",
-    "parse_term_description",
-    "birthyear_to_age_bucket",
-    "conditional_credits",
-    "extract_academic_year_from_term_code",
-    "extract_term_season_from_term_code",
-    "parse_term_code_to_datetime",
-]
-
-
 # =============================================================================
 # Type Casting
 # =============================================================================
@@ -127,11 +81,13 @@ def cast_string(s: pd.Series) -> pd.Series:
     return cast_nullable_dtype(s, "string", {})
 
 
-def cast_boolean(
-    s: pd.Series,
-    boolean_map: dict[str, bool] | None = None,
-) -> pd.Series:
-    """Cast Series to nullable boolean."""
+def cast_boolean(s: pd.Series, boolean_map: dict[str, bool] | None = None) -> pd.Series:
+    """
+    Cast Series to nullable boolean.
+
+    Default map: "true"/"false", "yes"/"no", "1"/"0" → True/False (case-insensitive).
+    Pass boolean_map to override. Values not in the map → pd.NA.
+    """
     return cast_nullable_dtype(s, "boolean", boolean_map)
 
 
@@ -146,7 +102,13 @@ def cast_datetime(s: pd.Series) -> pd.Series:
 
 def coerce_numeric(s: pd.Series) -> pd.Series:
     """
-    Coerce Series to numeric. Returns Int64 if all values are integers, else Float64.
+    Coerce Series to numeric, inferring Int64 or Float64.
+
+    Returns Int64 if all non-null values are whole numbers, else Float64.
+    Non-numeric values → pd.NA.
+
+    Prefer cast_nullable_int or cast_nullable_float when the target dtype is known.
+    Use this only when dtype should be inferred from the data.
     """
     num = pd.to_numeric(s, errors="coerce")
     non_na = num.dropna()
@@ -271,12 +233,111 @@ def map_values(
 # Re-exports from _edvise_shared with short aliases for use in transformation maps
 # =============================================================================
 
-normalize_term_code = term_series_to_pdp
-normalize_grade = grade_series_normalized
-normalize_enrollment = enrollment_series_to_pdp
-normalize_pell = pell_series_to_pdp
-normalize_credential = credential_degree_series_to_canonical
-normalize_student_age = student_age_series_to_pdp
+# =============================================================================
+# Domain-Specific Normalization
+# Re-exports from _edvise_shared with short aliases for use in transformation maps
+# =============================================================================
+
+def normalize_term_code(s: pd.Series) -> pd.Series:
+    """
+    Normalize "Season YYYY" term description strings to canonical PDP term codes.
+
+    Input:  "Spring 2020", "Fall 2019", "Summer 2021", "SP", "FA"
+    Output: "SPRING",      "FALL",      "SUMMER",      "SPRING", "FALL"
+
+    Unmapped values → pd.NA.
+
+    Use this for institutions whose term columns contain natural-language season
+    descriptions or short season codes (e.g. UCF's term_desc / term_descr columns).
+
+    Do NOT use for YYYYTT format term codes (e.g. "2019SP", "2018FA") —
+    use extract_term_season_from_term_code for those instead.
+    """
+    return term_series_to_pdp(s)
+
+
+def normalize_grade(s: pd.Series) -> pd.Series:
+    """
+    Normalize raw grade strings for EDA: strip whitespace and uppercase.
+
+    Input:  "a+", " B- ", "pass"
+    Output: "A+", "B-",   "PASS"
+
+    Does not map to canonical values or categorize pass/fail — use map_values
+    for that. Use this as a cleaning step before map_values or conditional_credits.
+    """
+    return grade_series_normalized(s)
+
+
+def normalize_enrollment(s: pd.Series) -> pd.Series:
+    """
+    Normalize enrollment_type strings to PDP categories.
+
+    Input:  "First-time student", "Transfer",   "Re-Admit"
+    Output: "FIRST-TIME",         "TRANSFER-IN", "RE-ADMIT"
+
+    Matching is substring-based and case-insensitive:
+        "First" / "Freshman" / "Time" → "FIRST-TIME"
+        "Transfer"                    → "TRANSFER-IN"
+        "Re-Admit" / "Readmit"        → "RE-ADMIT"
+
+    Unmapped values → pd.NA.
+
+    Use this when the source enrollment_type values already approximate PDP
+    language. For institutions with bespoke codes (e.g. UCF's "Beginner - FTIC"),
+    use map_values instead.
+    """
+    return enrollment_series_to_pdp(s)
+
+
+def normalize_pell(s: pd.Series) -> pd.Series:
+    """
+    Normalize Pell status to PDP Y/N.
+
+    Input:  "Yes", "No", "Y", "N", "yes"
+    Output: "Y",   "N",  "Y", "N", "Y"
+
+    Unmapped values → pd.NA.
+    """
+    return pell_series_to_pdp(s)
+
+
+def normalize_credential(s: pd.Series) -> pd.Series:
+    """
+    Normalize credential/degree free text to canonical PDP-style values.
+
+    Input:  "Bachelor's Degree", "BA",          "Associate of Arts", "Certification"
+    Output: "Bachelor's",        "Bachelor's",  "Associate's",       "Certificate"
+
+    Matching is substring-based and case-insensitive:
+        "bachelor" / "ba" / "bs" → "Bachelor's"
+        "associate" / "aa" / "as" / "aas" → "Associate's"
+        "certificate" / "certification"   → "Certificate"
+
+    Unmapped values → pd.NA.
+
+    Use this when source values are free-text degree labels that loosely match
+    canonical names. For institutions with exact known values, map_values gives
+    more precise control.
+    """
+    return credential_degree_series_to_canonical(s)
+
+
+def normalize_student_age(s: pd.Series) -> pd.Series:
+    """
+    Normalize student age to PDP-style buckets.
+
+    Input:  18,                  22,        30,               "20 AND YOUNGER"
+    Output: "20 AND YOUNGER",    ">20 - 24", "OLDER THAN 24", "20 AND YOUNGER"
+
+    Accepts both numeric ages (13–100) and existing bucket phrase strings
+    (case-insensitive passthrough). Unmapped values → pd.NA.
+
+    Note: prefer birthyear_to_age_bucket when the source column is a birth year
+    rather than a current age — it handles reference year extraction from
+    YYYY-YY cohort strings internally.
+    """
+    return student_age_series_to_pdp(s)
 
 
 # =============================================================================
@@ -284,12 +345,25 @@ normalize_student_age = student_age_series_to_pdp
 # =============================================================================
 
 def fill_nulls(s: pd.Series, value: t.Any) -> pd.Series:
-    """Fill null values in Series with a scalar value."""
+    """
+    Fill existing null (pd.NA / NaN) values with a scalar.
+
+    Use when you want a fallback value for missing data.
+    To convert null-token strings (e.g. "(Blank)") to null first,
+    use replace_null_tokens or replace_values_with_null before this step.
+    """
     return s.fillna(value)
 
 
 def replace_null_tokens(s: pd.Series, null_tokens: list[str]) -> pd.Series:
-    """Replace null token strings (e.g. '(Blank)') with pd.NA."""
+    """
+    Replace null-token strings (e.g. "(Blank)", "N/A") with pd.NA.
+
+    Use when the source data encodes missing values as a sentinel string
+    rather than a true null. Accepts a list of tokens to replace.
+
+    For a single token, replace_values_with_null is also available.
+    """
     return s.replace(null_tokens, pd.NA)
 
 
