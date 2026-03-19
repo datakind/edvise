@@ -217,8 +217,6 @@ class RawEdviseStudentDataSchemaFlexible(pda.DataFrameModel):
     Optional columns may be missing from the DataFrame or contain nulls.
     """
 
-    ENTITY_KEYS: t.ClassVar[list[str]] = ["student_id"]
-
     # Required - all changed to StringDtype, no category/isin constraints
     student_id: pt.Series["string"] = StudentIdField
     enrollment_type: pt.Series[pd.StringDtype] = pda.Field(
@@ -347,3 +345,8 @@ class RawEdviseStudentDataSchemaFlexible(pda.DataFrameModel):
         unique_column_names = True
         add_missing_columns = False
         drop_invalid_rows = False
+
+
+RawEdviseStudentDataSchemaFlexible.ENTITY_KEYS = [
+    "student_id",
+]
