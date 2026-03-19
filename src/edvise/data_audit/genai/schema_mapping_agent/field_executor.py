@@ -87,32 +87,28 @@ def _derive_entity_keys(
         if m.source_column is not None
     }
 
+    target_entity_keys = getattr(schema, "ENTITY_KEYS", None)
+    if target_entity_keys is None:
+        target_entity_keys = getattr(getattr(schema, "Config", object), "unique", None)
+
+    if not target_entity_keys:
+        raise ValueError(
+            f"Schema '{schema.__name__}' must define ENTITY_KEYS or Config.unique."
+        )
+
     entity_keys = []
-    for target_field in schema.Config.unique:
+    for target_field in target_entity_keys:
         source_col = target_to_source.get(target_field)
         if source_col is None:
             raise ValueError(
-                f"Target unique key '{target_field}' has no source column mapping "
-                f"in the manifest. All fields in schema.Config.unique must be "
-                f"mapped to a source column in the base table."
+                f"Target entity key '{target_field}' has no source column mapping in the manifest."
             )
         entity_keys.append(source_col)
 
-    # Conditionally include section_id if mapped (for course schemas with optional section_id)
-    # This mirrors the conditional uniqueness check in the schema validation
-    section_id_record = next(
-        (
-            m
-            for m in manifest.mappings
-            if m.target_field == "section_id" and m.source_column is not None
-        ),
-        None,
-    )
-    if section_id_record:
-        entity_keys.append(section_id_record.source_column)
+    section_source = target_to_source.get("section_id")
+    if section_source is not None and section_source not in entity_keys:
+        entity_keys.append(section_source)
 
-    # Deduplicate while preserving order — multiple target fields may map to
-    # the same source column (e.g. academic_year and academic_term both from "term")
     return list(dict.fromkeys(entity_keys))
 
 
