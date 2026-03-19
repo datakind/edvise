@@ -244,13 +244,7 @@ class RawEdviseCourseDataSchemaFlexible(pda.DataFrameModel):
     course_credits_earned, pass_fail_flag.
     Optional columns may be missing from the DataFrame or contain nulls.
     """
-    ENTITY_KEYS = [
-        "student_id",
-        "academic_year",
-        "academic_term",
-        "course_prefix",
-        "course_number",
-    ]
+    
     # Required - all changed to StringDtype, no category/isin constraints
     student_id: pt.Series["string"] = StudentIdField
     academic_year: pt.Series[pd.StringDtype] = pda.Field(
@@ -356,3 +350,10 @@ class RawEdviseCourseDataSchemaFlexible(pda.DataFrameModel):
         unique_column_names = True
         add_missing_columns = False
         drop_invalid_rows = False
+        entity_keys = [
+            "student_id",
+            "academic_year",
+            "academic_term",
+            "course_prefix",
+            "course_number",
+        ]

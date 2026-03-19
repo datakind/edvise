@@ -335,10 +335,14 @@ class RawEdviseStudentDataSchemaFlexible(pda.DataFrameModel):
     def credential_type_max_5_values(cls, series: pd.Series) -> bool:
         return _max_distinct_values(series, MAX_CARDINALITY_CREDENTIAL_TYPE)
 
+    @pda.dataframe_check
+    def check_uniqueness(cls, df: pd.DataFrame) -> pd.Series:
+        return ~df.duplicated(subset=["student_id"], keep=False)
+
     class Config:
         coerce = True
         strict = False
         unique_column_names = True
         add_missing_columns = False
         drop_invalid_rows = False
-        unique = ["student_id"]
+        entity_keys = ["student_id"]
