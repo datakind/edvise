@@ -80,7 +80,6 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
         dtype_kwargs={"categories": ENROLLMENT_CATEGORIES},
         coerce=True,
     )
-    # After transform: PDP-style canonical (Bachelor's/Associate's/Certificate); original in raw_*
     credential_type_sought_year_1: pt.Series[pd.StringDtype] = pda.Field(
         nullable=True,
         isin=["Bachelor's", "Associate's", "Certificate"],
@@ -102,7 +101,6 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
     first_enrollment_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
         nullable=True,
     )
-    # PDP-style age buckets (after transform); original preserved in raw_student_age
     student_age: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True,
         isin=["20 AND YOUNGER", ">20 - 24", "OLDER THAN 24"],
@@ -142,20 +140,10 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
     credits_earned_dual_enrollment: t.Optional[pt.Series["float64"]] = (
         CreditsEarnedField
     )
-
-    # PDP-compat: originals preserved in raw_*; main column holds extracted/PDP value
-    raw_enrollment_type: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
-        nullable=True
-    )
-    raw_student_age: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
-    raw_credential_type_sought_year_1: t.Optional[pt.Series[pd.StringDtype]] = (
-        pda.Field(nullable=True)
-    )
     degree_grad: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True,
         isin=["Bachelor's", "Associate's", "Certificate"],
     )
-    raw_degree_grad: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
 
     @classmethod
     def validate(
@@ -282,19 +270,9 @@ class RawEdviseStudentDataSchemaFlexible(pda.DataFrameModel):
         CreditsEarnedField
     )
 
-    # Raw columns preserved
-    raw_enrollment_type: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
-        nullable=True
-    )
-    raw_student_age: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
-    raw_credential_type_sought_year_1: t.Optional[pt.Series[pd.StringDtype]] = (
-        pda.Field(nullable=True)
-    )
     degree_grad: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True,
-        # No isin constraint - accepts any string value
     )
-    raw_degree_grad: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
 
     @classmethod
     def validate(

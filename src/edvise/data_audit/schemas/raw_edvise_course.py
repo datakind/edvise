@@ -184,8 +184,6 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         nullable=True,
         isin=["Bachelor's", "Associate's", "Certificate"],
     )
-    raw_term_degree: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
-    raw_grade: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
 
     @pda.dataframe_check
     def check_uniqueness(cls, df: pd.DataFrame) -> pd.Series:
@@ -313,8 +311,6 @@ class RawEdviseCourseDataSchemaFlexible(pda.DataFrameModel):
         nullable=True,
         # No isin constraint - accepts any string value
     )
-    raw_term_degree: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
-    raw_grade: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
 
     @pda.dataframe_check
     def check_uniqueness(cls, df: pd.DataFrame) -> pd.Series:

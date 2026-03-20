@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -323,10 +323,6 @@ class FieldMappingManifest(StrictBaseModel):
 # and passes it to the transformation steps.
 # -----------------------------------------------------------------------------
 
-class TransformationStep(StrictBaseModel):
-    pass  # base — concrete step models below
-
-
 class CastNullableIntStep(StrictBaseModel):
     function_name: Literal["cast_nullable_int"]
     column: str
@@ -401,13 +397,6 @@ class MapValuesStep(StrictBaseModel):
         ),
     )
     rationale: Optional[str] = None
-
-    @field_validator("mapping")
-    @classmethod
-    def mapping_must_not_be_empty(cls, v: Dict[str, Any]) -> Dict[str, Any]:
-        if not v:
-            raise ValueError("mapping must not be empty")
-        return v
 
 
 class NormalizeTermCodeStep(StrictBaseModel):
@@ -561,40 +550,45 @@ class NewUtilityNeededStep(StrictBaseModel):
         return True
 
 
-# Discriminated union — executor dispatches on function_name literal
-TransformationStep = Union[
-    CastNullableIntStep,
-    CastNullableFloatStep,
-    CastStringStep,
-    CastBooleanStep,
-    CastDatetimeStep,
-    CoerceNumericStep,
-    CoerceDatetimeStep,
-    StripWhitespaceStep,
-    LowercaseStep,
-    UppercaseStep,
-    MapValuesStep,
-    NormalizeTermCodeStep,
-    NormalizeGradeStep,
-    NormalizeEnrollmentStep,
-    NormalizePellStep,
-    NormalizeCredentialStep,
-    NormalizeStudentAgeStep,
-    FillNullsStep,
-    ReplaceNullTokensStep,
-    ReplaceValuesWithNullStep,
-    StripTrailingDecimalStep,
-    FillConstantStep,
-    NormalizeYearRangeStep,
-    ExtractYearStep,
-    ParseYyyymmStep,
-    ParseTermDescriptionStep,
-    ExtractAcademicYearFromTermCodeStep,
-    ExtractTermSeasonFromTermCodeStep,
-    ParseTermCodeToDatetimeStep,
-    BirthyearToAgeBucketStep,
-    ConditionalCreditsStep,
-    NewUtilityNeededStep,
+# Discriminated union — executor dispatches on function_name literal.
+# Without discriminator, Pydantic v2 tries every variant and surfaces one error
+# per member (hundreds of lines for a single bad step).
+TransformationStep = Annotated[
+    Union[
+        CastNullableIntStep,
+        CastNullableFloatStep,
+        CastStringStep,
+        CastBooleanStep,
+        CastDatetimeStep,
+        CoerceNumericStep,
+        CoerceDatetimeStep,
+        StripWhitespaceStep,
+        LowercaseStep,
+        UppercaseStep,
+        MapValuesStep,
+        NormalizeTermCodeStep,
+        NormalizeGradeStep,
+        NormalizeEnrollmentStep,
+        NormalizePellStep,
+        NormalizeCredentialStep,
+        NormalizeStudentAgeStep,
+        FillNullsStep,
+        ReplaceNullTokensStep,
+        ReplaceValuesWithNullStep,
+        StripTrailingDecimalStep,
+        FillConstantStep,
+        NormalizeYearRangeStep,
+        ExtractYearStep,
+        ParseYyyymmStep,
+        ParseTermDescriptionStep,
+        ExtractAcademicYearFromTermCodeStep,
+        ExtractTermSeasonFromTermCodeStep,
+        ParseTermCodeToDatetimeStep,
+        BirthyearToAgeBucketStep,
+        ConditionalCreditsStep,
+        NewUtilityNeededStep,
+    ],
+    Field(discriminator="function_name"),
 ]
 
 
