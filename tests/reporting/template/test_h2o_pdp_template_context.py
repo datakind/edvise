@@ -1,6 +1,7 @@
 import pytest
 import pandas as pd
 import re
+from types import SimpleNamespace
 from unittest.mock import patch
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise.configs.pdp import PDPProjectConfig
@@ -63,13 +64,20 @@ class DummyPreprocessingConfig:
         self.features = DummyFeaturesConfig()
 
 
-# Dummy config for base ModelCard
 class DummyConfig:
     def __init__(self):
-        self.institution_id = "test_uni"
-        self.institution_name = "Test University"
-        self.modeling = DummyModelingConfig()
-        self.preprocessing = DummyPreprocessingConfig()
+        self.institution_id = "test_inst"
+        self.institution_name = "Test Institution"
+        self.split_col = None
+
+        self.model = SimpleNamespace(
+            run_id="dummy_run_id",
+            experiment_id="dummy_experiment_id",
+            mlflow_model_uri="models:/dummy/Production",
+            framework="sklearn",
+        )
+
+        self.modeling = None
 
 
 # Valid PDPProjectConfig
@@ -163,6 +171,7 @@ def test_template_placeholders_are_in_context(
             "collinearity_threshold": 10.0,
             "low_variance_threshold": 0.0,
             "incomplete_threshold": 0.5,
+            "funnel_image": "data_funnel.png",
         }
     )
 
@@ -177,6 +186,7 @@ def test_template_placeholders_are_in_context(
         "institution_name": "Test University",
         "sample_weight_section": "Sample weight info",
         "data_split_table": "Data split table",
+        "classification_threshold_section": "Classification threshold: 0.5",
         "bias_groups_section": "Bias groups",
         "selected_features_ranked_by_shap": "Feature list",
         "development_note_section": "Dev note",

@@ -1,6 +1,6 @@
 [project]
 name = "edvise"
-version = "0.1.11"
+version = "0.1.12"
 description = "School-agnostic lib for implementing Student Success Tool workflows."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
@@ -16,7 +16,7 @@ dependencies = [
     "numpy==1.26.4",
     "pandas==2.2.3",
     "pandera~=0.23.0",
-    "pyarrow~=16.0",
+    "pyarrow>=17.0.0",  # CVE-2024-52338
     "pydantic~=2.10",
     "pyyaml~=6.0",
     "types-PyYAML~=6.0",
