@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from typing import Dict, List, Optional
+
 from pydantic import BaseModel, ConfigDict, Field
+
+from edvise.configs.custom import CleaningConfig
 
 
 class StrictBaseModel(BaseModel):
@@ -30,6 +33,13 @@ class SchoolMappingConfig(StrictBaseModel):
     institution_name: Optional[str] = None
     target_cohort_schema: str = "RawEdviseCohortDataSchema"
     target_course_schema: str = "RawEdviseCourseDataSchema"
+    cleaning: Optional[CleaningConfig] = Field(
+        default=None,
+        description=(
+            "Optional CleaningConfig (e.g. student_id_alias). Same semantics as custom "
+            "pipeline cleaning in edvise.data_audit.custom_cleaning."
+        ),
+    )
     datasets: Dict[str, DatasetConfig] = Field(
         ...,
         description="Logical dataset configs keyed by dataset name",
@@ -38,6 +48,14 @@ class SchoolMappingConfig(StrictBaseModel):
 
 
 class MappingProjectConfig(StrictBaseModel):
+    """
+    Root model for ``pipelines/gen_ai_cleaning/inputs.toml``.
+
+    Load with :func:`edvise.dataio.read.read_config` and ``schema=MappingProjectConfig``.
+    Nested tables map naturally, e.g. ``[schools.<id>.cleaning]`` → ``schools.<id>.cleaning``
+    as :class:`CleaningConfig` (``student_id_alias``, etc.).
+    """
+
     schools: Dict[str, SchoolMappingConfig]
 
     @classmethod

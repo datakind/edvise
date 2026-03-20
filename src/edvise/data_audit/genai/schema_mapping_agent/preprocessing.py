@@ -5,7 +5,10 @@ Builds schema contract from inputs.toml config by:
 1. Loading raw files from config
 2. Normalizing column names
 3. Generating training dtypes
-4. Building schema contract with unique keys from config
+4. Optionally renaming via ``CleaningConfig.student_id_alias`` using
+   ``rename_student_id_alias_column`` (same helper as ``clean_dataset``)
+5. Asserting configured primary keys are unique on each dataset (when all keys resolve)
+6. Building schema contract with unique keys from config
 
 This produces the normalized DataFrame + schema_contract.json needed as input to SchemaMappingAgent.
 """
@@ -23,15 +26,27 @@ from edvise.data_audit.custom_cleaning import (
     SchemaContractMeta,
     SchemaFreezeOptions,
     TermOrderFn,
+    assert_dataframe_unique_keys,
     build_schema_contract,
-    freeze_schema,
     generate_training_dtypes,
     normalize_columns,
+    rename_student_id_alias_column,
 )
 from edvise.dataio.read import from_csv_file
+from edvise.configs.custom import CleaningConfig
 from edvise.configs.genai import DatasetConfig, SchoolMappingConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _merged_cleaning_cfg(
+    school_config: SchoolMappingConfig,
+    cleaning_cfg: Optional[CleaningConfig],
+) -> Optional[CleaningConfig]:
+    """Explicit ``cleaning_cfg`` wins; else ``school_config.cleaning``."""
+    if cleaning_cfg is not None:
+        return cleaning_cfg
+    return school_config.cleaning
 
 
 def _load_and_preprocess_dataset(
@@ -106,6 +121,7 @@ def build_schema_contract_from_config(
     spark_session: Optional[Any] = None,
     dataset_name_suffix: str = "",
     sample_size: Optional[int] = None,
+    cleaning_cfg: Optional[CleaningConfig] = None,
     # --- term order ---
     term_order_fn: Optional[TermOrderFn] = None,
     term_col_by_dataset: Optional[dict[str, str]] = None,
@@ -127,6 +143,8 @@ def build_schema_contract_from_config(
                              e.g. {"student_df": "term_desc", "course_df": "term_descr"}
                              If term_order_fn is provided but a dataset is not in this dict,
                              the default term column "term" is tried.
+        cleaning_cfg: When set, ``student_id_alias`` is taken from this object only.
+                      When omitted, uses ``school_config.cleaning.student_id_alias`` if present.
 
     Returns:
         Tuple of (cleaned_dataframes, schema_contract)
@@ -135,6 +153,7 @@ def build_schema_contract_from_config(
         dtype_opts = DtypeGenerationOptions()
 
     term_col_by_dataset = term_col_by_dataset or {}
+    merged_cleaning = _merged_cleaning_cfg(school_config, cleaning_cfg)
 
     cleaned_map: dict[str, pd.DataFrame] = {}
     specs: dict[str, dict[str, Any]] = {}
@@ -190,10 +209,23 @@ def build_schema_contract_from_config(
                     term_col,
                 )
 
+        if merged_cleaning and merged_cleaning.student_id_alias:
+            df_with_dtypes, _ = rename_student_id_alias_column(
+                df_with_dtypes,
+                merged_cleaning.student_id_alias,
+                dataset_label=logical_name,
+            )
+
         cleaned_map[logical_name] = df_with_dtypes
 
-        # Build spec — unique keys normalized
-        unique_keys = dataset_config.primary_keys or []
+        # Build spec — unique keys normalized (sync with student_id rename when alias used in PK list)
+        pk_list = list(dataset_config.primary_keys or [])
+        if merged_cleaning and merged_cleaning.student_id_alias:
+            pk_list = [
+                "student_id" if k == merged_cleaning.student_id_alias else k
+                for k in pk_list
+            ]
+        unique_keys = pk_list
         orig_to_norm = {}
         for norm_col, orig_list in column_mapping.items():
             for orig_col in orig_list:
@@ -232,10 +264,27 @@ def build_schema_contract_from_config(
             normalized_uks,
         )
 
+        if len(normalized_uks) != len(unique_keys):
+            logger.warning(
+                "  Skipping unique-key check for %s: resolved %s from configured keys %s",
+                logical_name,
+                normalized_uks,
+                unique_keys,
+            )
+        else:
+            assert_dataframe_unique_keys(
+                df_with_dtypes,
+                normalized_uks,
+                dataset_name=logical_name,
+            )
+
     # Build schema contract
     meta = SchemaContractMeta(
         created_at=datetime.now(timezone.utc).isoformat(),
         null_tokens=["(Blank)"],
+        student_id_alias=(
+            merged_cleaning.student_id_alias if merged_cleaning else None
+        ),
     )
     freeze_opts = SchemaFreezeOptions(include_column_order_hash=True)
 

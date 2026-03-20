@@ -408,6 +408,36 @@ def generate_training_dtypes(
 # ---------------------------
 # Cleaning
 # ---------------------------
+def rename_student_id_alias_column(
+    df: pd.DataFrame,
+    alias: str,
+    *,
+    dataset_label: str = "",
+) -> tuple[pd.DataFrame, bool]:
+    """
+    If ``alias`` names a column and is not ``student_id``, rename it to ``student_id``
+    when ``student_id`` is not already present. Matches ``clean_dataset`` semantics.
+    """
+    label = dataset_label or "dataset"
+    if not alias or alias == "student_id":
+        return df, False
+    if alias not in df.columns:
+        return df, False
+    if "student_id" not in df.columns:
+        LOGGER.info(
+            "%s - Renaming student ID alias '%s' -> 'student_id'",
+            label,
+            alias,
+        )
+        return df.rename(columns={alias: "student_id"}), True
+    LOGGER.warning(
+        "%s - Found both 'student_id' and alias '%s'; leaving both unchanged.",
+        label,
+        alias,
+    )
+    return df, False
+
+
 @dataclass
 class CleanSpec:
     drop_columns: list[str] | None = None
@@ -482,30 +512,9 @@ def clean_dataset(
 
     # 2) canonical student_id rename
     alias = spec.student_id_alias or "student_id_randomized_datakind"
-
-    if alias in g.columns:
-        # If alias exists and student_id does NOT already exist
-        if alias != "student_id" and "student_id" not in g.columns:
-            LOGGER.info(
-                "%s - Renaming student ID alias '%s' -> 'student_id'",
-                dataset_name,
-                alias,
-            )
-            g = g.rename(columns={alias: "student_id"})
-
-            # Keep primary-key spec in sync
-            if spec.unique_keys:
-                spec.unique_keys = [
-                    "student_id" if k == alias else k for k in spec.unique_keys
-                ]
-
-        # If both alias and student_id exist → ambiguous
-        elif alias != "student_id" and "student_id" in g.columns:
-            LOGGER.warning(
-                "%s - Found both 'student_id' and alias '%s'; leaving both unchanged.",
-                dataset_name,
-                alias,
-            )
+    g, renamed = rename_student_id_alias_column(g, alias, dataset_label=dataset_name)
+    if renamed and spec.unique_keys:
+        spec.unique_keys = ["student_id" if k == alias else k for k in spec.unique_keys]
 
     # 3) normalize null tokens & whitespace
     null_tokens = cleaning_cfg.null_tokens if cleaning_cfg else ["(Blank)"]
@@ -772,6 +781,28 @@ def enforce_schema(df: pd.DataFrame, schema: dict) -> pd.DataFrame:
     return g
 
 
+def assert_dataframe_unique_keys(
+    df: pd.DataFrame,
+    keys: list[str],
+    *,
+    dataset_name: str,
+) -> None:
+    """Raise if ``keys`` are non-empty, all present in ``df``, and not unique row-wise."""
+    if not keys:
+        return
+    missing = [k for k in keys if k not in df.columns]
+    if missing:
+        raise ValueError(
+            f"{dataset_name}: unique key columns missing from dataframe: {missing}"
+        )
+    dups = df.duplicated(subset=keys)
+    if dups.any():
+        raise ValueError(
+            f"{dataset_name}: duplicate rows on unique keys {keys} "
+            f"(count={int(dups.sum())})"
+        )
+
+
 # ---------------------------
 # Multi-dataset preprocess schema
 # ---------------------------
@@ -781,6 +812,7 @@ class SchemaContractMeta:
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     null_tokens: list[str] = field(default_factory=lambda: ["(Blank)"])
+    student_id_alias: str | None = None
 
 
 def build_schema_contract(
@@ -812,11 +844,14 @@ def build_schema_contract(
 
         datasets[name] = freeze_schema(df, spec_dict, opts=freeze_opts)
 
-    return {
+    out: dict[str, t.Any] = {
         "created_at": meta.created_at,
         "null_tokens": meta.null_tokens,
         "datasets": datasets,
     }
+    if meta.student_id_alias:
+        out["student_id_alias"] = meta.student_id_alias
+    return out
 
 
 def enforce_schema_contract(
@@ -1160,11 +1195,13 @@ __all__ = [
     "DtypeGenerationOptions",
     "generate_column_training_dtype",
     "generate_training_dtypes",
+    "rename_student_id_alias_column",
     "CleanSpec",
     "clean_dataset",
     "SchemaFreezeOptions",
     "freeze_schema",
     "enforce_schema",
+    "assert_dataframe_unique_keys",
     "SchemaContractMeta",
     "build_schema_contract",
     "enforce_schema_contract",
