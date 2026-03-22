@@ -540,9 +540,7 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
     return df_cohort
 
 
-def strip_trailing_decimal_strings(
-    df: pd.DataFrame, cols: list[str]
-) -> pd.DataFrame:
+def strip_trailing_decimal_strings(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
     """Strip a trailing ``.0`` from stringified values in the given columns (in place)."""
     for col in cols:
         if col in df.columns:
