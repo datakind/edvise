@@ -188,6 +188,7 @@ class DataAuditTask:
         LOGGER.info(
             " Reading and schema validating course data, handling any duplicates:"
         )
+        df_course_validated: pd.DataFrame | None = None
         for fmt in dttm_formats:
             try:
                 df_course_validated = read_course(
@@ -204,6 +205,7 @@ class DataAuditTask:
             raise ValueError(
                 " Failed to parse course data with all known datetime formats."
             )
+        assert df_course_validated is not None
         LOGGER.info(" Course data read and schema validated, duplicates handled.")
 
         try:

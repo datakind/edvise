@@ -202,7 +202,7 @@ def find_bronze_volume_name(spark: SparkSession, catalog: str, schema: str) -> s
         raise ValueError(f"No volumes found in {catalog}.{schema}")
 
     # Usually "volume_name", but be defensive
-    def _get_vol_name(row: Any) -> str:
+    def _get_vol_name(row: t.Any) -> str:
         d = row.asDict()
         for k in ["volume_name", "volumeName", "name"]:
             if k in d:

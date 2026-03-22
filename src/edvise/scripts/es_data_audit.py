@@ -27,10 +27,16 @@ print("sys.path:", sys.path)
 
 from edvise.data_audit.data_audit import DataAuditBackend, DataAuditTask
 
-# ES-specific imports: add these modules/attributes when you implement ES support
-from edvise.data_audit.schemas import RawESCohortDataSchema, RawESCourseDataSchema
+# ES-specific imports (WIP): symbols not yet exported from schemas/read — see mypy.
+from edvise.data_audit.schemas import (  # type: ignore[attr-defined]
+    RawESCohortDataSchema,
+    RawESCourseDataSchema,
+)
 from edvise.data_audit.standardizer import ESCohortStandardizer, ESCourseStandardizer
-from edvise.dataio.read import read_raw_es_cohort_data, read_raw_es_course_data
+from edvise.dataio.read import (  # type: ignore[attr-defined]
+    read_raw_es_cohort_data,
+    read_raw_es_course_data,
+)
 from edvise.configs.es import ESProjectConfig
 
 logging.basicConfig(

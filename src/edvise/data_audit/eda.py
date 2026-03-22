@@ -1646,6 +1646,24 @@ def check_bias_variables(
     check_variable_missingness(df, bias_vars)
 
 
+def drop_unpopulated_bias_columns(
+    df: pd.DataFrame,
+    bias_vars: list[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Drop bias-related columns that exist in ``df`` and are entirely null
+    (no non-missing values).
+    """
+    if bias_vars is None:
+        bias_vars = DEFAULT_BIAS_VARS
+    out = df.copy()
+    to_drop = [c for c in bias_vars if c in out.columns and out[c].isna().all()]
+    if to_drop:
+        LOGGER.info("Dropping unpopulated bias columns (all null): %s", to_drop)
+        out = out.drop(columns=to_drop)
+    return out
+
+
 def duplicate_conflict_columns(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
     dup = df[df.duplicated(subset=key_cols, keep=False)]
 

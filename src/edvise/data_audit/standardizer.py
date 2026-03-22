@@ -22,6 +22,7 @@ from .eda import (
     print_retention,
     log_grade_distribution,
     check_bias_variables,
+    drop_unpopulated_bias_columns,
     find_dupes,
     log_top_majors,
     check_pf_grade_consistency,
