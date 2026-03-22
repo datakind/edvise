@@ -16,7 +16,7 @@ from edvise.data_audit.data_audit import DataAuditBackend, DataAuditTask
 from edvise.data_audit.schemas import RawESCohortDataSchema, RawESCourseDataSchema
 from edvise.data_audit.standardizer import ESCohortStandardizer, ESCourseStandardizer
 from edvise.dataio.read import read_raw_es_cohort_data, read_raw_es_course_data
-from edvise.configs.es import ESProjectConfig, InferenceConfig
+from edvise.configs.es import ESProjectConfig
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,7 +38,6 @@ def _es_backend() -> DataAuditBackend:
         raw_course_schema=RawESCourseDataSchema,
         log_basename="es_data_audit.log",
         default_course_converter=None,  # set if ES has a default duplicate handler
-        inference_config_factory=lambda cohort: InferenceConfig(cohort=cohort),
     )
 
 
