@@ -537,7 +537,7 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
             " After filling 'first_gen':\n%s",
             df_cohort[first_gen_col].value_counts(dropna=False),
         )
-    return df
+    return df_cohort
 
 
 def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
