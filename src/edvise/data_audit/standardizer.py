@@ -130,7 +130,9 @@ class PDPCourseStandardizer(BaseStandardizer):
         Args:
             df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
         """
-        df = strip_trailing_decimal_strings(df, cols=["course_number", "course_cip"])
+        df = strip_trailing_decimal_strings(
+            df, cols=["course_number", "course_cip"]
+        )
         df = drop_course_rows_missing_identifiers(df)
         log_high_null_columns(df)
         log_grade_distribution(df)
@@ -224,7 +226,9 @@ class ESCourseStandardizer(BaseStandardizer):
         Args:
             df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
         """
-        df = strip_trailing_decimal_strings(df, cols=["course_number"])
+        df = strip_trailing_decimal_strings(
+            df, cols=["course_number", "course_num", "course_cip"]
+        )
         # Log high values of NAs
         log_high_null_columns(df)
         log_grade_distribution(df)
