@@ -11,6 +11,7 @@ from google.cloud import storage
 from google.api_core.exceptions import Forbidden, NotFound
 import google.auth
 import sys
+
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
 repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
