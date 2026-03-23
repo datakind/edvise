@@ -145,7 +145,7 @@ class ModelConfig(pyd.BaseModel):
 class PreprocessingConfig(pyd.BaseModel):
     features: "FeaturesConfig"
     selection: "SelectionConfig"
-    checkpoint: "CheckpointNthConfig | CheckpointFirstConfig | CheckpointLastConfig | CheckpointFirstAtNumCreditsEarnedConfig | CheckpointFirstWithinCohortConfig | CheckpointLastInEnrollmentYearConfig"
+    checkpoint: "CheckpointNthConfig | CheckpointFirstConfig | CheckpointFirstAtNumCreditsEarnedConfig | CheckpointFirstWithinCohortConfig"
     target: "TargetGraduationConfig | TargetRetentionConfig | TargetCreditsEarnedConfig"
     splits: dict[t.Literal["train", "test", "validate"], float] = pyd.Field(
         default={"train": 0.6, "test": 0.2, "validate": 0.2},
@@ -307,10 +307,6 @@ class CheckpointFirstConfig(CheckpointBaseConfig):
     type_: types.CheckpointTypeType = "first"
 
 
-class CheckpointLastConfig(CheckpointBaseConfig):
-    type_: types.CheckpointTypeType = "last"
-
-
 class CheckpointFirstAtNumCreditsEarnedConfig(CheckpointBaseConfig):
     type_: types.CheckpointTypeType = "first_at_num_credits_earned"
     min_num_credits: float = pyd.Field(default=...)
@@ -320,12 +316,6 @@ class CheckpointFirstAtNumCreditsEarnedConfig(CheckpointBaseConfig):
 class CheckpointFirstWithinCohortConfig(CheckpointBaseConfig):
     type_: types.CheckpointTypeType = "first_within_cohort"
     term_is_pre_cohort_col: str = pyd.Field(default="term_is_pre_cohort")
-
-
-class CheckpointLastInEnrollmentYearConfig(CheckpointBaseConfig):
-    type_: types.CheckpointTypeType = "last_in_enrollment_year"
-    enrollment_year: float = pyd.Field(default=...)
-    enrollment_year_col: str = pyd.Field(default="year_of_enrollment_at_cohort_inst")
 
 
 class TargetBaseConfig(pyd.BaseModel):

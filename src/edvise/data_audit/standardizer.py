@@ -59,8 +59,10 @@ class PDPCohortStandardizer(BaseStandardizer):
             "employment_status",
             "disability_status",
             "naspa_first_generation",
-            # redundant
+            # redundant; we have course dataset fields/features for these i.e "program_of_study"
             "attendance_status_term_1",
+            "program_of_study_year_1",
+            "program_of_study_term_1",
             # covered indirectly by course dataset fields/features
             "gateway_math_status",
             "gateway_english_status",

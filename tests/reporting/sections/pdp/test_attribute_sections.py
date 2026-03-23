@@ -152,28 +152,12 @@ def test_target_population_section(mock_card):
             "The model makes this prediction when the student has completed their first term.",
         ),
         (
-            "last",
-            -1,
-            False,
-            False,
-            None,
-            "The model makes this prediction when the student has completed their last term.",
-        ),
-        (
             "first_at_num_credits_earned",
             None,
             None,
             None,
             None,
             "The model makes this prediction when the student has earned 30 credits.",
-        ),
-        (
-            "last_in_enrollment_year",
-            None,
-            None,
-            None,
-            None,
-            "The model makes this prediction when the student has completed their 2nd year of enrollment.",
         ),
         (
             "first_within_cohort",
@@ -203,8 +187,6 @@ def test_checkpoint_variants(
         mock_card.cfg.preprocessing.checkpoint.valid_enrollment_year = valid_year
     elif checkpoint_type == "first_at_num_credits_earned":
         mock_card.cfg.preprocessing.checkpoint.min_num_credits = 30
-    elif checkpoint_type == "last_in_enrollment_year":
-        mock_card.cfg.preprocessing.checkpoint.enrollment_year = 2
 
     registry = SectionRegistry()
     pdp_attribute_sections.register_attribute_sections(mock_card, registry)
