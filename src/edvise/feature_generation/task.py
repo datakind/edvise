@@ -194,6 +194,7 @@ class FeatureGenerationTask:
             .pipe(
                 feature_generation.student_term.add_features,
                 min_num_credits_full_time=min_num_credits_full_time,
+                columns=pc.student_term_features,
             )
         )
 

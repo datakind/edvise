@@ -49,6 +49,57 @@ class StudentTermAggregationColumns:
 
 
 @dataclass(frozen=True, slots=True)
+class StudentTermFeatureColumns:
+    """
+    Column names on the **post-merge** student-term frame read by
+    :func:`~edvise.feature_generation.student_term.add_features`.
+
+    These are mostly aggregated / derived feature names (e.g. ``num_credits_attempted``),
+    not raw standardized course field names—see :class:`StudentTermAggregationColumns`
+    for the latter.
+    """
+
+    cohort_start_dt_col: str = "cohort_start_dt"
+    term_start_dt_col: str = "term_start_dt"
+    term_program_of_study_col: str = "term_program_of_study"
+    #: List-of-subject-areas column produced by course→student-term aggregation
+    course_subject_areas_col: str = "course_subject_areas"
+    #: Course count from aggregation (denominator for ``frac_courses_*`` features)
+    num_courses_col: str = "num_courses"
+    num_credits_earned_col: str = "num_credits_earned"
+    num_credits_attempted_col: str = "num_credits_attempted"
+    #: Dummy sum column for other-institution enrollment (from val-equals aggregation)
+    other_institution_enrollment_num_course_col: str = (
+        "num_courses_enrolled_at_other_institution_s_Y"
+    )
+    sections_num_students_enrolled_col: str = "sections_num_students_enrolled"
+    sections_num_students_passed_col: str = "sections_num_students_passed"
+    sections_num_students_completed_col: str = "sections_num_students_completed"
+    #: Output of ``year_of_enrollment_at_cohort_inst`` in the same ``assign`` batch
+    enrollment_year_at_cohort_col: str = "year_of_enrollment_at_cohort_inst"
+    first_year_to_certificate_at_cohort_inst_col: str = (
+        "first_year_to_certificate_at_cohort_inst"
+    )
+    years_to_latest_certificate_at_cohort_inst_col: str = (
+        "years_to_latest_certificate_at_cohort_inst"
+    )
+    first_year_to_certificate_at_other_inst_col: str = (
+        "first_year_to_certificate_at_other_inst"
+    )
+    years_to_latest_certificate_at_other_inst_col: str = (
+        "years_to_latest_certificate_at_other_inst"
+    )
+    student_program_of_study_area_term_1_col: str = "student_program_of_study_area_term_1"
+    student_program_of_study_area_year_1_col: str = "student_program_of_study_area_year_1"
+    #: Target column for ``num_courses_in_term_program_of_study_area`` (same-batch assign)
+    term_program_of_study_area_col: str = "term_program_of_study_area"
+    frac_courses_passed_col: str = "frac_courses_passed"
+    frac_courses_completed_col: str = "frac_courses_completed"
+    frac_sections_students_passed_col: str = "frac_sections_students_passed"
+    frac_sections_students_completed_col: str = "frac_sections_students_completed"
+
+
+@dataclass(frozen=True, slots=True)
 class CumulativePipelineColumns:
     """Grouping and chronological sort for ``cumulative.add_features``."""
 
@@ -63,6 +114,7 @@ class FeaturePipelineColumns:
     term: TermStandardizedColumns
     section: SectionPipelineColumns
     student_term_agg: StudentTermAggregationColumns
+    student_term_features: StudentTermFeatureColumns
     cumulative: CumulativePipelineColumns
 
 
@@ -124,6 +176,7 @@ def build_backend_pipeline_columns(
     term: TermStandardizedColumns,
     section: SectionPipelineColumns,
     student_term_agg: StudentTermAggregationColumns | None = None,
+    student_term_features: StudentTermFeatureColumns | None = None,
     cumulative: CumulativePipelineColumns | None = None,
 ) -> FeaturePipelineColumns:
     """Merge term column names into student-term passthrough and cumulative sort."""
@@ -135,6 +188,7 @@ def build_backend_pipeline_columns(
         term=term,
         section=section,
         student_term_agg=sta,
+        student_term_features=student_term_features or StudentTermFeatureColumns(),
         cumulative=cum,
     )
 

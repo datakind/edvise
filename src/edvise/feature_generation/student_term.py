@@ -8,11 +8,15 @@ import pandas as pd
 
 from edvise.utils.data_cleaning import convert_to_snake_case
 from . import constants, term, shared
-from .pipeline_columns import StudentTermAggregationColumns
+from .pipeline_columns import (
+    StudentTermAggregationColumns,
+    StudentTermFeatureColumns,
+)
 
 LOGGER = logging.getLogger(__name__)
 
 _DEFAULT_STUDENT_TERM_AGG_COLS = StudentTermAggregationColumns()
+_DEFAULT_STUDENT_TERM_FEATURE_COLS = StudentTermFeatureColumns()
 
 
 def aggregate_from_course_level_features(
@@ -149,6 +153,7 @@ def add_features(
     df: pd.DataFrame,
     *,
     min_num_credits_full_time: float = constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
+    columns: StudentTermFeatureColumns = _DEFAULT_STUDENT_TERM_FEATURE_COLS,
 ) -> pd.DataFrame:
     """
     Compute various student-term-level features from aggregated course-level features
@@ -159,11 +164,13 @@ def add_features(
         min_num_credits_full_time: Minimum number of credits *attempted* per term
             for a student's enrollment intensity to be considered "full-time".
             Default value is 12.0.
+        columns: Physical column names on this frame (post-merge, post-aggregation).
 
     See Also:
         - :func:`aggregate_from_course_level_features()`
     """
     LOGGER.info("adding student-term features ...")
+    c = columns
     nc_prefix = constants.NUM_COURSE_FEATURE_COL_PREFIX
     fc_prefix = constants.FRAC_COURSE_FEATURE_COL_PREFIX
     _num_course_cols = (
@@ -181,58 +188,92 @@ def add_features(
     ]
     feature_name_funcs = (
         {
-            "year_of_enrollment_at_cohort_inst": year_of_enrollment_at_cohort_inst,
+            "year_of_enrollment_at_cohort_inst": ft.partial(
+                year_of_enrollment_at_cohort_inst,
+                cohort_start_dt_col=c.cohort_start_dt_col,
+                term_start_dt_col=c.term_start_dt_col,
+            ),
             "student_has_earned_certificate_at_cohort_inst": ft.partial(
-                student_earned_certificate, inst="cohort"
+                student_earned_certificate,
+                enrollment_year_col=c.enrollment_year_at_cohort_col,
+                first_year_certificate_col=c.first_year_to_certificate_at_cohort_inst_col,
+                years_latest_certificate_col=c.years_to_latest_certificate_at_cohort_inst_col,
             ),
             "student_has_earned_certificate_at_other_inst": ft.partial(
-                student_earned_certificate, inst="other"
+                student_earned_certificate,
+                enrollment_year_col=c.enrollment_year_at_cohort_col,
+                first_year_certificate_col=c.first_year_to_certificate_at_other_inst_col,
+                years_latest_certificate_col=c.years_to_latest_certificate_at_other_inst_col,
             ),
-            "term_is_pre_cohort": term_is_pre_cohort,
-            "term_is_while_student_enrolled_at_other_inst": term_is_while_student_enrolled_at_other_inst,
-            "term_program_of_study_area": term_program_of_study_area,
-            "frac_credits_earned": shared.frac_credits_earned,
+            "term_is_pre_cohort": ft.partial(
+                term_is_pre_cohort,
+                cohort_start_dt_col=c.cohort_start_dt_col,
+                term_start_dt_col=c.term_start_dt_col,
+            ),
+            "term_is_while_student_enrolled_at_other_inst": ft.partial(
+                term_is_while_student_enrolled_at_other_inst,
+                col=c.other_institution_enrollment_num_course_col,
+            ),
+            "term_program_of_study_area": ft.partial(
+                term_program_of_study_area,
+                col=c.term_program_of_study_col,
+            ),
+            "frac_credits_earned": ft.partial(
+                shared.frac_credits_earned,
+                earned_col=c.num_credits_earned_col,
+                attempted_col=c.num_credits_attempted_col,
+            ),
             "student_term_enrollment_intensity": ft.partial(
                 student_term_enrollment_intensity,
                 min_num_credits_full_time=min_num_credits_full_time,
+                num_credits_col=c.num_credits_attempted_col,
             ),
             "num_courses_in_program_of_study_area_term_1": ft.partial(
                 num_courses_in_study_area,
-                study_area_col="student_program_of_study_area_term_1",
+                study_area_col=c.student_program_of_study_area_term_1_col,
+                course_subject_areas_col=c.course_subject_areas_col,
             ),
             "num_courses_in_program_of_study_area_year_1": ft.partial(
                 num_courses_in_study_area,
-                study_area_col="student_program_of_study_area_year_1",
+                study_area_col=c.student_program_of_study_area_year_1_col,
+                course_subject_areas_col=c.course_subject_areas_col,
             ),
             "num_courses_in_term_program_of_study_area": ft.partial(
                 num_courses_in_study_area,
-                study_area_col="term_program_of_study_area",
+                study_area_col=c.term_program_of_study_area_col,
+                course_subject_areas_col=c.course_subject_areas_col,
             ),
         }
         | {
-            fc_col: ft.partial(compute_frac_courses, numer_col=nc_col)
+            fc_col: ft.partial(
+                compute_frac_courses,
+                numer_col=nc_col,
+                denom_col=c.num_courses_col,
+            )
             for nc_col, fc_col in num_frac_courses_cols
         }
         | {
             "frac_sections_students_passed": ft.partial(
                 compute_frac_sections_students,
-                numer_col="sections_num_students_passed",
+                numer_col=c.sections_num_students_passed_col,
+                denom_col=c.sections_num_students_enrolled_col,
             ),
             "frac_sections_students_completed": ft.partial(
                 compute_frac_sections_students,
-                numer_col="sections_num_students_completed",
+                numer_col=c.sections_num_students_completed_col,
+                denom_col=c.sections_num_students_enrolled_col,
             ),
         }
         | {
             "student_pass_rate_above_sections_avg": ft.partial(
                 student_rate_above_sections_avg,
-                student_col="frac_courses_passed",
-                sections_col="frac_sections_students_passed",
+                student_col=c.frac_courses_passed_col,
+                sections_col=c.frac_sections_students_passed_col,
             ),
             "student_completion_rate_above_sections_avg": ft.partial(
                 student_rate_above_sections_avg,
-                student_col="frac_courses_completed",
-                sections_col="frac_sections_students_completed",
+                student_col=c.frac_courses_completed_col,
+                sections_col=c.frac_sections_students_completed_col,
             ),
         }
     )
@@ -252,13 +293,11 @@ def year_of_enrollment_at_cohort_inst(
 def student_earned_certificate(
     df: pd.DataFrame,
     *,
-    inst: t.Literal["cohort", "other"],
     enrollment_year_col: str = "year_of_enrollment_at_cohort_inst",
+    first_year_certificate_col: str = "first_year_to_certificate_at_cohort_inst",
+    years_latest_certificate_col: str = "years_to_latest_certificate_at_cohort_inst",
 ) -> pd.Series:
-    degree_year_cols = [
-        f"first_year_to_certificate_at_{inst}_inst",
-        f"years_to_latest_certificate_at_{inst}_inst",
-    ]
+    degree_year_cols = [first_year_certificate_col, years_latest_certificate_col]
     return df.loc[:, degree_year_cols].lt(df[enrollment_year_col], axis=0).any(axis=1)
 
 
