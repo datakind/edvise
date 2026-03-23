@@ -248,6 +248,12 @@ def upsert_pipeline_model(
             "logged_ts": datetime.now(),
         }
 
+        LOGGER.info(
+            "pipeline_models write starting: model_run_id=%s model_name=%s",
+            model_run_id,
+            model_name,
+        )
+
         schema = _get_pipeline_models_schema()
         df = (
             spark.createDataFrame([row], schema=schema)
@@ -268,6 +274,11 @@ def upsert_pipeline_model(
                     .option("mergeSchema", "true")
                     .saveAsTable(table_path)
                 )
+                LOGGER.info(
+                    "pipeline_models write succeeded: model_run_id=%s model_name=%s",
+                    model_run_id,
+                    model_name,
+                )
                 return True
 
             (
@@ -277,6 +288,11 @@ def upsert_pipeline_model(
                 .whenNotMatchedInsertAll()
                 .execute()
             )
+            LOGGER.info(
+                "pipeline_models write succeeded: model_run_id=%s model_name=%s",
+                model_run_id,
+                model_name,
+            )
             return True
         except Exception:
             # Fallback: append-only (may create duplicates if called repeatedly).
@@ -285,6 +301,11 @@ def upsert_pipeline_model(
                 .mode("append")
                 .option("mergeSchema", "true")
                 .saveAsTable(table_path)
+            )
+            LOGGER.info(
+                "pipeline_models write succeeded: model_run_id=%s model_name=%s",
+                model_run_id,
+                model_name,
             )
             return True
     except Exception as e:

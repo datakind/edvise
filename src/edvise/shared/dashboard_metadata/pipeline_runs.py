@@ -302,6 +302,13 @@ def append_pipeline_run_event(
             "payload_json": _json_dumps(payload2),
         }
 
+        LOGGER.info(
+            "pipeline_runs write starting: run_id=%s run_type=%s event=%s",
+            run_id,
+            run_type,
+            event_norm,
+        )
+
         schema = _get_pipeline_runs_schema()
         df = (
             spark.createDataFrame([row], schema=schema)
@@ -336,6 +343,12 @@ def append_pipeline_run_event(
                     .mode("append")
                     .option("mergeSchema", "true")
                     .saveAsTable(table_path)
+                )
+                LOGGER.info(
+                    "pipeline_runs write succeeded: run_id=%s run_type=%s status=%s",
+                    run_id,
+                    run_type,
+                    status,
                 )
                 return True
 
@@ -421,6 +434,12 @@ def append_pipeline_run_event(
                 .whenNotMatchedInsertAll()
                 .execute()
             )
+            LOGGER.info(
+                "pipeline_runs write succeeded: run_id=%s run_type=%s status=%s",
+                run_id,
+                run_type,
+                status,
+            )
             return True
         except Exception:
             # Fallback: append-only (may create duplicates if Delta merge isn't available).
@@ -429,6 +448,12 @@ def append_pipeline_run_event(
                 .mode("append")
                 .option("mergeSchema", "true")
                 .saveAsTable(table_path)
+            )
+            LOGGER.info(
+                "pipeline_runs write succeeded: run_id=%s run_type=%s status=%s",
+                run_id,
+                run_type,
+                status,
             )
             return True
     except Exception as e:
