@@ -1,7 +1,7 @@
 """Unit tests for edvise.shared.dashboard_metadata.pipeline_models."""
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 
 
 import edvise.shared.dashboard_metadata.pipeline_models as pipeline_models
@@ -93,7 +93,6 @@ def test_upsert_pipeline_model_writes_row_append_fallback(monkeypatch):
     row = fake_spark.created_rows[0]
 
     assert isinstance(row["logged_ts"], datetime)
-    assert row["logged_ts"].tzinfo == timezone.utc
 
     assert row["institution_id"] == "motlow_state_cc"
     assert row["model_name"] == "retention_into_year_2_associates"

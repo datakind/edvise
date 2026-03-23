@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import typing as t
-from datetime import datetime, timezone
+from datetime import datetime
 
 LOGGER = logging.getLogger(__name__)
 
@@ -245,7 +245,7 @@ def upsert_pipeline_model(
             "summary_metrics": _json_dumps(summary_metrics2),
             "payload_json": _json_dumps(payload or {}),
             "bias_summary": _json_dumps(bias_summary2),
-            "logged_ts": datetime.now(timezone.utc),
+            "logged_ts": datetime.now(),
         }
 
         schema = _get_pipeline_models_schema()

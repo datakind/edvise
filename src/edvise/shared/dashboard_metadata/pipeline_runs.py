@@ -4,7 +4,7 @@ import json
 import logging
 import re
 import typing as t
-from datetime import datetime, timezone
+from datetime import datetime
 
 LOGGER = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ _TS14_RE = re.compile(r"(\d{14})")
 def parse_timestamp_from_filename(filename: t.Optional[str]) -> t.Optional[datetime]:
     """
     Parse a trailing-ish 14-digit timestamp (YYYYMMDDHHMMSS) embedded in a filename.
-    Example: "..._20250723040724.csv" -> 2025-07-23 04:07:24 UTC (naive).
+    Example: "..._20250723040724.csv" -> 2025-07-23 04:07:24 (naive).
     """
     if not filename:
         return None
@@ -265,7 +265,7 @@ def append_pipeline_run_event(
                 cohort_dataset_name
             ) or parse_timestamp_from_filename(course_dataset_name)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now()
         event_norm = str(event or "").strip().lower()
         status = None
         started_at = None
