@@ -8,14 +8,17 @@ import pandas as pd
 
 from edvise.utils.data_cleaning import convert_to_snake_case
 from . import constants, term, shared
+from .pipeline_columns import StudentTermAggregationColumns
 
 LOGGER = logging.getLogger(__name__)
+
+_DEFAULT_STUDENT_TERM_AGG_COLS = StudentTermAggregationColumns()
 
 
 def aggregate_from_course_level_features(
     df: pd.DataFrame,
     *,
-    student_term_id_cols: list[str],
+    columns: StudentTermAggregationColumns = _DEFAULT_STUDENT_TERM_AGG_COLS,
     min_passing_grade: float = constants.DEFAULT_MIN_PASSING_GRADE,
     key_course_subject_areas: t.Optional[list[str]] = None,
     key_course_ids: t.Optional[list[str]] = None,
@@ -27,8 +30,7 @@ def aggregate_from_course_level_features(
 
     Args:
         df
-        student_term_id_cols: Columns that uniquely identify student-terms,
-            used to group rows in ``df`` and merge features back in.
+        columns: Student-term group keys and physical source columns for aggregations.
         min_passing_grade: Minimum numeric grade considered by institution as "passing".
             Default value is 1.0, i.e. a "D" grade or better.
         key_course_subject_areas: List of course subject areas that are particularly
@@ -41,18 +43,20 @@ def aggregate_from_course_level_features(
         - https://pandas.pydata.org/pandas-docs/stable/user_guide/groupby.html#built-in-aggregation-methods
 
     Notes:
-        Rows for which any value in ``student_term_id_cols`` is null are dropped
+        Rows for which any value in ``columns.student_term_id_cols`` is null are dropped
         and features aren't computed! This is because such a group is "undefined",
         so we can't know if the resulting features are correct.
     """
     LOGGER.info("aggregating course-level data to student-term-level features ...")
+    student_term_id_cols = list(columns.student_term_id_cols)
+    c = columns
     df_grped = df.groupby(by=student_term_id_cols, observed=True, as_index=False)
     # pass through useful metadata and term features as-is
     # assumed to have the same values for every row per group
     df_passthrough = df_grped.agg(
-        institution_id=("institution_id", "first"),
-        academic_year=("academic_year", "first"),
-        academic_term=("academic_term", "first"),
+        institution_id=(c.institution_id_col, "first"),
+        academic_year=(c.academic_year_col, "first"),
+        academic_term=(c.academic_term_col, "first"),
         term_start_dt=("term_start_dt", "first"),
         term_rank=("term_rank", "first"),
         term_rank_core=("term_rank_core", "first"),
@@ -67,18 +71,20 @@ def aggregate_from_course_level_features(
         num_courses=num_courses_col_agg(),
         num_courses_passed=num_courses_passed_col_agg(),
         num_courses_completed=num_courses_completed_col_agg(),
-        num_credits_attempted=num_credits_attempted_col_agg(),
-        num_credits_earned=num_credits_earned_col_agg(),
+        num_credits_attempted=num_credits_attempted_col_agg(c.num_credits_attempted_col),
+        num_credits_earned=num_credits_earned_col_agg(c.num_credits_earned_col),
         course_ids=course_ids_col_agg(),
-        course_subjects=course_subjects_col_agg(),
+        course_subjects=course_subjects_col_agg(c.course_list_for_subjects_col),
         course_subject_areas=course_subject_areas_col_agg(),
         course_id_nunique=course_id_nunique_col_agg(),
-        course_subject_nunique=course_subject_nunique_col_agg(),
+        course_subject_nunique=course_subject_nunique_col_agg(
+            c.course_list_for_subjects_col
+        ),
         course_subject_area_nunique=course_subject_area_nunique_col_agg(),
         course_level_mean=course_level_mean_col_agg(),
         course_level_std=course_level_std_col_agg(),
-        course_grade_numeric_mean=course_grade_numeric_mean_col_agg(),
-        course_grade_numeric_std=course_grade_numeric_std_col_agg(),
+        course_grade_numeric_mean=course_grade_numeric_mean_col_agg(c.grade_numeric_col),
+        course_grade_numeric_std=course_grade_numeric_std_col_agg(c.grade_numeric_col),
         section_num_students_enrolled_mean=section_num_students_enrolled_mean_col_agg(),
         section_num_students_enrolled_std=section_num_students_enrolled_std_col_agg(),
         sections_num_students_enrolled=sections_num_students_enrolled_col_agg(),
@@ -119,7 +125,12 @@ def aggregate_from_course_level_features(
         df=df_val_equals, grp_cols=student_term_id_cols
     )
     df_grade_aggs = multicol_grade_aggs_by_group(
-        df, min_passing_grade=min_passing_grade, grp_cols=student_term_id_cols
+        df,
+        min_passing_grade=min_passing_grade,
+        grp_cols=student_term_id_cols,
+        grade_col=c.grade_col,
+        grade_numeric_col=c.grade_numeric_col,
+        section_grade_numeric_col=c.section_grade_numeric_mean_col,
     )
     return shared.merge_many_dataframes(
         [

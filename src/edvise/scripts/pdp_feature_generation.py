@@ -16,6 +16,8 @@ if os.path.isdir(src_path) and src_path not in sys.path:
 
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.feature_generation.cohort_columns import PDP_STUDENT_COHORT_COLUMNS
+from edvise.feature_generation.course_columns import PDP_COURSE_STANDARDIZED_COLUMNS
+from edvise.feature_generation.pipeline_columns import PDP_FEATURE_PIPELINE_COLUMNS
 from edvise.feature_generation.task import FeatureGenerationBackend, FeatureGenerationTask
 from edvise.shared.logger import init_file_logging
 
@@ -33,6 +35,8 @@ def _pdp_backend() -> FeatureGenerationBackend:
         config_schema=PDPProjectConfig,
         log_file_name="pdp_feature_generation.log",
         student_cohort_columns=PDP_STUDENT_COHORT_COLUMNS,
+        course_standardized_columns=PDP_COURSE_STANDARDIZED_COLUMNS,
+        feature_pipeline_columns=PDP_FEATURE_PIPELINE_COLUMNS,
     )
 
 

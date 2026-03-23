@@ -15,6 +15,8 @@ import pandas as pd
 from edvise import feature_generation, utils
 from edvise.dataio.read import read_config
 from edvise.feature_generation.cohort_columns import StudentCohortColumns
+from edvise.feature_generation.course_columns import CourseStandardizedColumns
+from edvise.feature_generation.pipeline_columns import FeaturePipelineColumns
 from edvise.shared.logger import local_fs_path, resolve_run_path
 from edvise.shared.validation import require, require_cols, require_no_nulls, warn_if
 
@@ -22,11 +24,13 @@ LOGGER = logging.getLogger(__name__)
 
 
 class FeatureGenerationBackend(t.NamedTuple):
-    """Inject config schema, log file name, and cohort column mapping for student features."""
+    """Inject config schema, log file name, and schema-specific column maps."""
 
     config_schema: type
     log_file_name: str
     student_cohort_columns: StudentCohortColumns
+    course_standardized_columns: CourseStandardizedColumns
+    feature_pipeline_columns: FeaturePipelineColumns
 
 
 class FeatureGenerationTask:
@@ -74,13 +78,14 @@ class FeatureGenerationTask:
         df_course = pd.read_parquet(course_path_local)
         df_cohort = pd.read_parquet(cohort_path_local)
 
+        pc = self._backend.feature_pipeline_columns
         require_cols(
             df_course,
             [
                 "institution_id",
                 "student_id",
-                "academic_year",
-                "academic_term",
+                pc.term.academic_year_col,
+                pc.term.academic_term_col,
             ],
             "Course standardized",
         )
@@ -142,8 +147,9 @@ class FeatureGenerationTask:
         key_course_ids: t.Optional[list[str]] = None,
     ) -> pd.DataFrame:
         """Main feature generation pipeline (PDP column layout)."""
+        pc = self._backend.feature_pipeline_columns
         first_term = utils.infer_data_terms.infer_first_term_of_year(
-            df_course["academic_term"]
+            df_course[pc.term.academic_term_col]
         )
 
         df_students = df_cohort.pipe(
@@ -157,28 +163,34 @@ class FeatureGenerationTask:
                 feature_generation.course.add_features,
                 min_passing_grade=min_passing_grade,
                 course_level_pattern=course_level_pattern,
+                columns=self._backend.course_standardized_columns,
             )
             .pipe(
                 feature_generation.term.add_features,
                 first_term_of_year=first_term,
                 core_terms=core_terms,
                 peak_covid_terms=peak_covid_terms,
+                columns=pc.term,
             )
             .pipe(
                 feature_generation.section.add_features,
-                section_id_cols=["term_id", "course_id", "section_id"],
+                columns=pc.section,
             )
         )
 
         df_student_terms = (
             feature_generation.student_term.aggregate_from_course_level_features(
                 df_courses_plus,
-                student_term_id_cols=["student_id", "term_id"],
+                columns=pc.student_term_agg,
                 min_passing_grade=min_passing_grade,
                 key_course_subject_areas=key_course_subject_areas,
                 key_course_ids=key_course_ids,
             )
-            .merge(df_students, how="inner", on=["institution_id", "student_id"])
+            .merge(
+                df_students,
+                how="inner",
+                on=list(pc.student_term_agg.merge_student_on),
+            )
             .pipe(
                 feature_generation.student_term.add_features,
                 min_num_credits_full_time=min_num_credits_full_time,
@@ -187,8 +199,7 @@ class FeatureGenerationTask:
 
         df_student_terms_plus = feature_generation.cumulative.add_features(
             df_student_terms,
-            student_id_cols=["institution_id", "student_id"],
-            sort_cols=["academic_year", "academic_term"],
+            columns=pc.cumulative,
         ).rename(columns=utils.data_cleaning.convert_to_snake_case)
 
         return df_student_terms_plus
