@@ -3,8 +3,6 @@ import mlflow
 import pandas as pd
 import typing as t
 import pydantic as pyd
-import pandera as pda
-from pandera.errors import SchemaErrors
 import pyspark.sql
 import pathlib
 
@@ -12,6 +10,14 @@ try:
     import tomllib  # type: ignore
 except ImportError:
     import tomli as tomllib  # noqa
+try:
+    import pandera as pda
+    import pandera.typing as pt
+except ModuleNotFoundError:
+    utils.databricks.mock_pandera()
+    import pandera as pda
+    import pandera.typing as pt
+
 
 import edvise.utils as utils
 
@@ -330,6 +336,6 @@ def _maybe_convert_maybe_validate_data(
             df_validated = schema.validate(df, lazy=True)
             assert isinstance(df_validated, pd.DataFrame)
             return df_validated
-        except SchemaErrors:
+        except pda.SchemaErrors:
             LOGGER.error("unable to parse/validate raw data")
             raise
