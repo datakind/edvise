@@ -5,6 +5,7 @@ import typing as t
 import pydantic as pyd
 import pyspark.sql
 import pathlib
+import edvise.utils as utils
 
 try:
     import tomllib  # type: ignore
@@ -19,7 +20,7 @@ except ModuleNotFoundError:
     import pandera.typing as pt
 
 
-import edvise.utils as utils
+
 
 LOGGER = logging.getLogger(__name__)
 
