@@ -7,8 +7,10 @@ Builds schema contract from inputs.toml config by:
 3. Generating training dtypes
 4. Optionally renaming via ``CleaningConfig.student_id_alias`` using
    ``rename_student_id_alias_column`` (same helper as ``clean_dataset``)
-5. Asserting configured primary keys are unique on each dataset (when all keys resolve)
-6. Building schema contract with unique keys from config
+5. Optional per-dataset ``dedupe_fn_by_dataset`` (same stage as ``CleanSpec.dedupe_fn``)
+6. Dropping full-row duplicates (``drop_duplicates()``), matching ``clean_dataset`` in custom_cleaning
+7. Asserting configured primary keys are unique on each dataset (when all keys resolve)
+8. Building schema contract with unique keys from config
 
 This produces the normalized DataFrame + schema_contract.json needed as input to SchemaMappingAgent.
 """
@@ -147,7 +149,8 @@ def build_schema_contract_from_config(
                              the default term column "term" is tried.
         dedupe_fn_by_dataset: Optional mapping logical dataset name (e.g. ``course_df``) to
             ``(DataFrame) -> DataFrame``. Applied after term order and student-id alias rename,
-            before unique-key checks — same stage as ``CleanSpec.dedupe_fn`` in custom cleaning.
+            then full-row ``drop_duplicates()`` runs (same order as ``clean_dataset`` in
+            custom_cleaning: dedupe_fn first, then full-row dedupe), then unique-key checks.
         cleaning_cfg: When set, ``student_id_alias`` is taken from this object only.
                       When omitted, uses ``school_config.cleaning.student_id_alias`` if present.
 
@@ -230,6 +233,16 @@ def build_schema_contract_from_config(
                 logical_name,
                 df_with_dtypes.shape,
             )
+
+        # Match clean_dataset: full-row dedupe after optional dedupe_fn, before unique-key check
+        before_full_row = len(df_with_dtypes)
+        df_with_dtypes = df_with_dtypes.drop_duplicates().reset_index(drop=True)
+        logger.info(
+            "  %s - Removed full row duplicates: %d removed | shape=%s",
+            logical_name,
+            before_full_row - len(df_with_dtypes),
+            df_with_dtypes.shape,
+        )
 
         cleaned_map[logical_name] = df_with_dtypes
 
