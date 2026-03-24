@@ -21,6 +21,9 @@ from typing import Any, Optional
 
 import pandas as pd
 
+from edvise.data_audit.identity_agent.deduplication import (
+    apply_key_collision_dedupe_from_spec,
+)
 from edvise.data_audit.custom_cleaning import (
     DtypeGenerationOptions,
     SchemaContractMeta,
@@ -214,6 +217,17 @@ def build_schema_contract_from_config(
                 df_with_dtypes,
                 merged_cleaning.student_id_alias,
                 dataset_label=logical_name,
+            )
+
+        if dataset_config.dedupe is not None:
+            df_with_dtypes = apply_key_collision_dedupe_from_spec(
+                df_with_dtypes,
+                dataset_config.dedupe.model_dump(exclude_none=True),
+            )
+            logger.info(
+                "  Applied datasets['%s'].dedupe (key collision) → shape=%s",
+                dataset_name,
+                df_with_dtypes.shape,
             )
 
         cleaned_map[logical_name] = df_with_dtypes
