@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from edvise import data_audit, dataio
-from edvise.data_audit.eda import EdaSummary
+from edvise.data_audit.eda import EdaSummary, log_grade_distribution
 
 
 @pytest.mark.parametrize(
@@ -380,3 +380,268 @@ class TestEdaSummary:
         # Cached properties return the same object reference
         assert first is second
         assert first == second  # Values should also be equal
+
+
+def test_log_grade_distribution_flags_lack_of_numeric_grades(caplog):
+    """Flag when grades are only status codes (P, F, I, W, A, M, O)."""
+    df = pd.DataFrame({"grade": ["P", "F", "P", "W", "I", "M"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" in caplog.text
+    assert "P=Pass" in caplog.text
+    assert "Unique values" in caplog.text
+
+
+def test_log_grade_distribution_no_flag_when_numeric_grades_present(caplog):
+    """Do not flag when numeric or GPA letter grades exist."""
+    df = pd.DataFrame({"grade": ["4.0", "3.5", "P", "F"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" not in caplog.text
+
+
+def test_log_grade_distribution_no_flag_when_letter_grades_present(caplog):
+    """Do not flag when GPA letter grades (B+, C, etc.) exist."""
+    df = pd.DataFrame({"grade": ["B+", "C", "A-", "P"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" not in caplog.text
+
+
+def test_log_grade_distribution_no_flag_when_empty_or_all_null(caplog):
+    """Do not flag when there are no grades."""
+    df = pd.DataFrame({"grade": [pd.NA, pd.NA]})
+    log_grade_distribution(df)
+    # No grades at all - should not trigger the numeric check (total_grades == 0)
+    assert "No numeric grades detected" not in caplog.text
+
+
+def test_log_grade_distribution_no_flag_when_numeric_gpa_scale(caplog):
+    """Do not flag when numeric grades on GPA scale (1, 2, 3, 4) exist."""
+    df = pd.DataFrame({"grade": ["1", "2", "3", "4", "3.5"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" not in caplog.text
+
+
+def test_log_grade_distribution_flags_only_o_status(caplog):
+    """Flag when only O (Other) status grades present."""
+    df = pd.DataFrame({"grade": ["O", "O"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" in caplog.text
+
+
+def test_log_grade_distribution_mix_status_and_numeric_no_flag(caplog):
+    """Do not flag when mix of status codes and numeric grades."""
+    df = pd.DataFrame({"grade": ["P", "4.0", "F", "3.0", "W"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" not in caplog.text
+
+
+# -----------------------------------------------------------------------------
+# Anomaly percent logging tests
+# -----------------------------------------------------------------------------
+
+
+class TestCheckEarnedVsAttemptedPercent:
+    """Tests that check_earned_vs_attempted includes percent of data in summary."""
+
+    def test_summary_includes_pct_columns(self):
+        """Summary DataFrame has *_pct columns for each anomaly type."""
+        df = pd.DataFrame(
+            {
+                "student_id": [f"s{i}" for i in range(100)],
+                "credits_attempted": [3] * 95
+                + [
+                    2,
+                    2,
+                    2,
+                    0,
+                    0,
+                ],  # 3 anomalies: earned>attempted, 2: earned when 0 attempt
+                "credits_earned": [3] * 95
+                + [4, 4, 4, 1, 1],  # last 2 have earned when attempted=0
+            }
+        )
+        result = data_audit.eda.check_earned_vs_attempted(
+            df, earned_col="credits_earned", attempted_col="credits_attempted"
+        )
+        summary = result["summary"]
+
+        assert "earned_gt_attempted_pct" in summary.columns
+        assert "earned_when_no_attempt_pct" in summary.columns
+        assert "total_anomalous_rows_pct" in summary.columns
+
+        # 3 earned>attempted (indices 95,96,97) + 2 earned when no attempt (98,99) = 5 total
+        assert summary["total_anomalous_rows"].iloc[0] == 5
+        assert summary["total_anomalous_rows_pct"].iloc[0] == 5.0  # 5/100
+
+    def test_percent_correct_for_earned_gt_attempted(self):
+        """earned_gt_attempted_pct = 100 * count / total_rows."""
+        df = pd.DataFrame(
+            {
+                "x": range(1000),
+                "credits_attempted": [3] * 1000,
+                "credits_earned": [3] * 985 + [4] * 15,  # 15 anomalies
+            }
+        )
+        result = data_audit.eda.check_earned_vs_attempted(
+            df, earned_col="credits_earned", attempted_col="credits_attempted"
+        )
+        assert result["summary"]["earned_gt_attempted_pct"].iloc[0] == 1.5
+        assert result["summary"]["total_anomalous_rows_pct"].iloc[0] == 1.5
+
+    def test_zero_percent_when_no_anomalies(self):
+        """All pct columns are 0 when no anomalies."""
+        df = pd.DataFrame(
+            {
+                "x": range(50),
+                "credits_attempted": [3] * 50,
+                "credits_earned": [3] * 50,
+            }
+        )
+        result = data_audit.eda.check_earned_vs_attempted(
+            df, earned_col="credits_earned", attempted_col="credits_attempted"
+        )
+        assert result["summary"]["total_anomalous_rows"].iloc[0] == 0
+        assert result["summary"]["total_anomalous_rows_pct"].iloc[0] == 0
+        assert result["summary"]["earned_gt_attempted_pct"].iloc[0] == 0
+
+    def test_zero_division_empty_dataframe(self):
+        """Handles empty DataFrame without error; pct should be 0."""
+        df = pd.DataFrame(columns=["credits_attempted", "credits_earned"])
+        result = data_audit.eda.check_earned_vs_attempted(
+            df, earned_col="credits_earned", attempted_col="credits_attempted"
+        )
+        assert result["summary"]["total_anomalous_rows_pct"].iloc[0] == 0
+
+
+class TestCheckPfGradeConsistencyPercent:
+    """Tests that check_pf_grade_consistency includes percent of data in summary."""
+
+    def test_summary_includes_pct_columns(self):
+        """Summary DataFrame has *_pct columns for each anomaly type."""
+        df = pd.DataFrame(
+            {
+                "grade": ["A", "B", "F", "F", "P", "P"] * 100,
+                "pass_fail_flag": ["P", "P", "F", "F", "P", "P"] * 100,
+                "credits_earned": [3, 3, 0, 1, 3, 0]
+                * 100,  # 1 F with credits, 1 P with 0 credits per 6 rows
+            }
+        )
+        anomalies, summary = data_audit.eda.check_pf_grade_consistency(
+            df, credits_col="credits_earned"
+        )
+
+        assert "earned_with_failing_grade_pct" in summary.columns
+        assert "no_credits_with_passing_grade_pct" in summary.columns
+        assert "grade_pf_disagree_pct" in summary.columns
+        assert "total_anomalous_rows_pct" in summary.columns
+
+    def test_percent_logged_in_warning(self, caplog):
+        """LOGGER.warning includes percent when anomalies found."""
+        df = pd.DataFrame(
+            {
+                "grade": ["F"] * 10,
+                "pass_fail_flag": ["F"] * 10,
+                "credits_earned": [1] * 10,  # 10 anomalies: F with credits
+            }
+        )
+        data_audit.eda.check_pf_grade_consistency(df, credits_col="credits_earned")
+        assert "Detected 10 PF/grade consistency anomalies" in caplog.text
+        assert "% of data" in caplog.text
+
+    def test_zero_percent_when_no_anomalies(self):
+        """All pct columns are 0 when no anomalies."""
+        df = pd.DataFrame(
+            {
+                "grade": ["A", "B", "F"],
+                "pass_fail_flag": ["P", "P", "F"],
+                "credits_earned": [3, 3, 0],
+            }
+        )
+        _, summary = data_audit.eda.check_pf_grade_consistency(
+            df, credits_col="credits_earned"
+        )
+        assert summary["total_anomalous_rows"].iloc[0] == 0
+        assert summary["total_anomalous_rows_pct"].iloc[0] == 0
+
+
+class TestValidateCreditConsistencyPercent:
+    """Tests that validate_credit_consistency includes pct_of_data in summaries."""
+
+    def test_course_anomalies_summary_has_pct_of_data(self):
+        """course_anomalies_summary includes pct_of_data when anomalies exist."""
+        course_df = pd.DataFrame(
+            {
+                "student_id": [f"s{i}" for i in range(100)],
+                "semester": ["S1"] * 100,
+                "course_credits_attempted": [3] * 95 + [2] * 5,
+                "course_credits_earned": [3] * 95 + [4] * 5,  # 5 anomalies
+            }
+        )
+        result = data_audit.eda.validate_credit_consistency(course_df=course_df)
+
+        assert result["course_anomalies_summary"] is not None
+        assert "pct_of_data" in result["course_anomalies_summary"]
+        assert result["course_anomalies_summary"]["pct_of_data"] == 5.0  # 5/100
+
+    def test_course_anomalies_percent_in_log(self, caplog):
+        """Course anomaly log includes percent of data."""
+        course_df = pd.DataFrame(
+            {
+                "student_id": ["s1", "s2"],
+                "semester": ["S1", "S1"],
+                "course_credits_attempted": [2, 3],
+                "course_credits_earned": [3, 3],  # 1 anomaly
+            }
+        )
+        data_audit.eda.validate_credit_consistency(course_df=course_df)
+        assert "Detected 1 course-level anomalies" in caplog.text
+        assert "50.00% of course data" in caplog.text
+
+    def test_cohort_anomalies_percent_in_log(self, caplog):
+        """Cohort anomaly log includes percent when anomalies found."""
+        course_df = pd.DataFrame(
+            {
+                "student_id": ["s1"],
+                "semester": ["S1"],
+                "course_credits_attempted": [3],
+                "course_credits_earned": [3],
+            }
+        )
+        cohort_df = pd.DataFrame(
+            {
+                "student_id": ["c1", "c2", "c3", "c4", "c5"],
+                "inst_tot_credits_attempted": [30, 30, 30, 20, 30],
+                "inst_tot_credits_earned": [30, 30, 30, 25, 30],  # 1 anomaly
+            }
+        )
+        data_audit.eda.validate_credit_consistency(
+            course_df=course_df, cohort_df=cohort_df
+        )
+        assert "Detected 1 cohort-level anomalies" in caplog.text
+        assert "20.00% of cohort data" in caplog.text
+
+    def test_reconciliation_summary_has_pct_of_data(self):
+        """reconciliation_summary includes pct_of_data when semester_df provided."""
+        course_df = pd.DataFrame(
+            {
+                "student_id": ["s1", "s1", "s2"],
+                "semester": ["S1", "S2", "S1"],
+                "course_credits_attempted": [3, 3, 3],
+                "course_credits_earned": [3, 3, 3],
+            }
+        )
+        semester_df = pd.DataFrame(
+            {
+                "student_id": ["s1", "s1", "s2"],
+                "semester": ["S1", "S2", "S1"],
+                "number_of_semester_credits_attempted": [3, 3, 99],  # 1 mismatch
+                "number_of_semester_credits_earned": [3, 3, 3],
+            }
+        )
+        result = data_audit.eda.validate_credit_consistency(
+            course_df=course_df, semester_df=semester_df
+        )
+
+        assert result["reconciliation_summary"] is not None
+        assert "pct_of_data" in result["reconciliation_summary"]
+        assert result["reconciliation_summary"]["mismatched_rows"] == 1
+        assert result["reconciliation_summary"]["pct_of_data"] == round(100 * 1 / 3, 2)

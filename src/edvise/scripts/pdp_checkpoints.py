@@ -32,10 +32,8 @@ from edvise.shared.validation import require
 from edvise.configs.pdp import (
     CheckpointNthConfig,
     CheckpointFirstConfig,
-    CheckpointLastConfig,
     CheckpointFirstAtNumCreditsEarnedConfig,
     CheckpointFirstWithinCohortConfig,
-    CheckpointLastInEnrollmentYearConfig,
 )
 
 
@@ -106,14 +104,6 @@ class PDPCheckpointsTask:
                 student_id_cols=student_id_col,
             )
 
-        if isinstance(cp, CheckpointLastConfig):
-            return checkpoints.nth_student_terms.last_student_terms(
-                df_student_terms,
-                sort_cols=sort_cols,
-                include_cols=include_cols,
-                student_id_cols=student_id_col,
-            )
-
         if isinstance(cp, CheckpointFirstAtNumCreditsEarnedConfig):
             return (
                 checkpoints.nth_student_terms.first_student_terms_at_num_credits_earned(
@@ -130,17 +120,6 @@ class PDPCheckpointsTask:
             return checkpoints.nth_student_terms.first_student_terms_within_cohort(
                 df_student_terms,
                 term_is_pre_cohort_col=cp.term_is_pre_cohort_col,
-                sort_cols=sort_cols,
-                include_cols=include_cols,
-                student_id_cols=student_id_col,
-            )
-
-        if isinstance(cp, CheckpointLastInEnrollmentYearConfig):
-            # enrollment_year is float in schema; function expects int → coerce
-            return checkpoints.nth_student_terms.last_student_terms_in_enrollment_year(
-                df_student_terms,
-                enrollment_year=int(cp.enrollment_year),
-                enrollment_year_col=cp.enrollment_year_col,  # str in schema
                 sort_cols=sort_cols,
                 include_cols=include_cols,
                 student_id_cols=student_id_col,

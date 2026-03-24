@@ -74,7 +74,7 @@ def test_prepare_glm_enum_alignment_baseline_falls_back_to_df_mode_when_bg_has_n
     If background has no in-domain values, baseline should be mode(in-domain) from df.
     """
     model = _FakeModel(
-        names=["program_of_study_year_1", "y"],
+        names=["term_program_of_study", "y"],
         column_types=["Enum", "Numeric"],
         domains=[["A", "B", "C"], None],
         response_column="y",
@@ -82,13 +82,13 @@ def test_prepare_glm_enum_alignment_baseline_falls_back_to_df_mode_when_bg_has_n
 
     df = pd.DataFrame(
         {
-            "program_of_study_year_1": ["A", "A", "Z"],  # Z unseen
+            "term_program_of_study": ["A", "A", "Z"],  # Z unseen
             "y": [0, 1, 0],
         }
     )
     bg = pd.DataFrame(
         {
-            "program_of_study_year_1": ["Z", "Z", "Z"],  # all unseen
+            "term_program_of_study": ["Z", "Z", "Z"],  # all unseen
             "y": [0, 0, 0],
         }
     )
@@ -98,10 +98,10 @@ def test_prepare_glm_enum_alignment_baseline_falls_back_to_df_mode_when_bg_has_n
     )
 
     # baseline should be df mode among in-domain => "A"
-    assert df_proc["program_of_study_year_1"].tolist() == ["A", "A", "A"]
+    assert df_proc["term_program_of_study"].tolist() == ["A", "A", "A"]
 
     # background recoded to its own baseline: no in-domain => train_dom[0] => "A"
-    assert bg_proc["program_of_study_year_1"].tolist() == ["A", "A", "A"]
+    assert bg_proc["term_program_of_study"].tolist() == ["A", "A", "A"]
 
 
 def test_prepare_glm_enum_alignment_final_fallback_to_train_dom_0():
