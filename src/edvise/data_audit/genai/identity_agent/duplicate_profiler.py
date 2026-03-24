@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 # Constants / thresholds
 # ---------------------------------------------------------------------------
 
-MIN_UNIQUENESS_PCT = 0.10
+MIN_UNIQUENESS_PCT = 0.10        # Tier 1: high-cardinality ID-like columns
+MIN_DISCRIMINATOR_UNIQUENESS = 0.01  # Tier 2: low-cardinality but structurally meaningful columns
 MAX_NULL_RATE = 0.05
 EARLY_STOP_UNIQUENESS = 0.995
 MAX_CANDIDATE_POOL = 8
@@ -82,44 +83,78 @@ class DuplicateProfile(BaseModel):
 # Candidate key detection
 # ---------------------------------------------------------------------------
 
-def _score_column(col: pd.Series, n_rows: int) -> Optional[float]:
+def _score_column(col: pd.Series, n_rows: int) -> Optional[tuple[str, float]]:
+    """
+    Returns (tier, score) or None if ineligible.
+    Tier 1 — high-cardinality ID-like columns (anchor candidates).
+    Tier 2 — low-cardinality discriminator columns (compound key components only).
+    """
     null_rate = col.isnull().mean()
     if null_rate > MAX_NULL_RATE:
         return None
     uniqueness = col.nunique() / n_rows
-    if uniqueness < MIN_UNIQUENESS_PCT:
-        return None
+    if uniqueness < MIN_DISCRIMINATOR_UNIQUENESS:
+        return None  # constant or near-constant — useless in any key
     dtype_boost = 0.1 if pd.api.types.is_string_dtype(col) or pd.api.types.is_integer_dtype(col) else 0.0
-    return uniqueness + dtype_boost
+    if uniqueness >= MIN_UNIQUENESS_PCT:
+        return ("tier1", uniqueness + dtype_boost)
+    return ("tier2", uniqueness + dtype_boost)
 
 
 def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     n_rows = len(df)
     logger.info("Detecting candidate keys across %d columns, %d rows", len(df.columns), n_rows)
 
-    scored = []
+    tier1, tier2 = [], []
     for col in df.columns:
-        score = _score_column(df[col], n_rows)
-        if score is not None:
-            scored.append((col, score))
-            logger.debug("  Column eligible: %s (score=%.4f)", col, score)
-        else:
+        result = _score_column(df[col], n_rows)
+        if result is None:
             logger.debug("  Column ineligible: %s", col)
+            continue
+        tier, score = result
+        if tier == "tier1":
+            tier1.append((col, score))
+            logger.debug("  Tier 1 (ID): %s (score=%.4f)", col, score)
+        else:
+            tier2.append((col, score))
+            logger.debug("  Tier 2 (discriminator): %s (score=%.4f)", col, score)
 
-    scored.sort(key=lambda x: x[1], reverse=True)
-    pool = [col for col, _ in scored[:MAX_CANDIDATE_POOL]]
-    logger.info("Candidate pool (top %d): %s", MAX_CANDIDATE_POOL, pool)
+    tier1.sort(key=lambda x: x[1], reverse=True)
+    tier2.sort(key=lambda x: x[1], reverse=True)
+    tier1_cols = [c for c, _ in tier1[:MAX_CANDIDATE_POOL]]
+    tier2_cols = [c for c, _ in tier2[:MAX_CANDIDATE_POOL]]
+
+    logger.info("Tier 1 pool: %s", tier1_cols)
+    logger.info("Tier 2 pool: %s", tier2_cols)
+
+    if not tier1_cols:
+        logger.warning("No Tier 1 columns found — cannot generate compound key candidates")
+        return []
 
     candidates = []
-    total_combos = sum(
-        len(list(combinations(pool, size)))
-        for size in range(1, min(MAX_KEY_SIZE, len(pool)) + 1)
-    )
-    logger.info("Evaluating up to %d key combinations (sizes 1-%d)", total_combos, min(MAX_KEY_SIZE, len(pool)))
 
-    for size in range(1, min(MAX_KEY_SIZE, len(pool)) + 1):
+    # Single-column candidates from Tier 1 only
+    for col in tier1_cols:
+        uniqueness = df[col].nunique() / n_rows
+        null_rate = df[col].isnull().mean()
+        candidates.append(CandidateKey(
+            columns=[col],
+            uniqueness_score=round(uniqueness, 4),
+            null_rate=round(null_rate, 4),
+            rank=0,
+        ))
+        if uniqueness >= EARLY_STOP_UNIQUENESS:
+            logger.info("  Early stop: single column %s achieves %.4f uniqueness", col, uniqueness)
+            break
+
+    # Compound candidates: at least one Tier 1 + any mix of Tier 1 and Tier 2
+    all_pool = tier1_cols + tier2_cols
+    for size in range(2, min(MAX_KEY_SIZE, len(all_pool)) + 1):
         logger.info("  Evaluating size-%d combinations...", size)
-        for combo in combinations(pool, size):
+        for combo in combinations(all_pool, size):
+            # Must include at least one Tier 1 column
+            if not any(c in tier1_cols for c in combo):
+                continue
             uniqueness = df.drop_duplicates(subset=list(combo)).shape[0] / n_rows
             null_rate = max(df[col].isnull().mean() for col in combo)
             candidates.append(CandidateKey(
@@ -128,9 +163,6 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
                 null_rate=round(null_rate, 4),
                 rank=0,
             ))
-            if size == 1 and uniqueness >= EARLY_STOP_UNIQUENESS:
-                logger.info("  Early stop: single column %s achieves %.4f uniqueness", combo, uniqueness)
-                break
 
     candidates.sort(key=lambda c: c.uniqueness_score, reverse=True)
     top = candidates[:TOP_K_CANDIDATES]
