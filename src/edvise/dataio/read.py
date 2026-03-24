@@ -13,12 +13,10 @@ except ImportError:
     import tomli as tomllib  # noqa
 try:
     import pandera as pda
-    import pandera.typing as pt
     from pandera.errors import SchemaErrors
 except ModuleNotFoundError:
     utils.databricks.mock_pandera()
     import pandera as pda
-    import pandera.typing as pt
     from pandera.errors import SchemaErrors
 
 

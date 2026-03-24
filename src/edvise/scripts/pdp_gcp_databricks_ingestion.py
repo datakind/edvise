@@ -11,7 +11,6 @@ from mlflow.tracking import MlflowClient
 from google.cloud import storage
 from google.api_core.exceptions import Forbidden, NotFound
 import google.auth
-import sys
 
 # Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
 script_dir = os.path.dirname(os.path.abspath(__file__))
