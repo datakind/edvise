@@ -22,6 +22,10 @@ MAX_CANDIDATE_POOL = 8
 MAX_KEY_SIZE = 6
 TOP_K_CANDIDATES = 5
 
+HIGH_DUPLICATE_RATE_THRESHOLD = 0.50  # sample-based profiling above this
+SAMPLE_GROUP_SIZE = 500               # number of duplicate groups to sample for conflict profiling
+MAX_NULL_RATE_TIER2 = 0.30            # discriminator columns can be noisier than ID columns
+
 STRUCTURAL_THRESHOLD = 0.70
 NOISE_THRESHOLD = 0.30
 
@@ -90,7 +94,8 @@ def _score_column(col: pd.Series, n_rows: int) -> Optional[tuple[str, float]]:
     Tier 2 — low-cardinality discriminator columns (compound key components only).
     """
     null_rate = col.isnull().mean()
-    if null_rate > MAX_NULL_RATE:
+    tier2_null_rate = MAX_NULL_RATE_TIER2 if tier == "tier2" else MAX_NULL_RATE
+    if null_rate > tier2_null_rate:
         return None
     uniqueness = col.nunique() / n_rows
     if uniqueness < MIN_DISCRIMINATOR_UNIQUENESS:
