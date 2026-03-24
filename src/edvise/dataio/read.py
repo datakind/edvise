@@ -14,10 +14,12 @@ except ImportError:
 try:
     import pandera as pda
     import pandera.typing as pt
+    from pandera.errors import SchemaErrors
 except ModuleNotFoundError:
     utils.databricks.mock_pandera()
     import pandera as pda
     import pandera.typing as pt
+    from pandera.errors import SchemaErrors
 
 
 
@@ -337,6 +339,6 @@ def _maybe_convert_maybe_validate_data(
             df_validated = schema.validate(df, lazy=True)
             assert isinstance(df_validated, pd.DataFrame)
             return df_validated
-        except pda.SchemaErrors:
+        except SchemaErrors:
             LOGGER.error("unable to parse/validate raw data")
             raise

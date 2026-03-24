@@ -6,7 +6,6 @@ from abc import ABC, abstractmethod
 from mlflow.tracking import MlflowClient
 
 import markdown
-from weasyprint import HTML
 import tempfile
 
 from importlib.abc import Traversable
@@ -262,6 +261,14 @@ class ModelCard(t.Generic[C], ABC):
         """
         Exports markdown to weasyprint with CSS styling.
         """
+        try:
+            from weasyprint import HTML
+        except OSError as e:
+            raise RuntimeError(
+                "WeasyPrint requires native libraries (Pango, GDK-Pixbuf, etc.). "
+                "See https://doc.courtbouillon.org/weasyprint/stable/first_steps.html#installation"
+            ) from e
+
         self.style_card()
 
         # Images are relative to the generated markdown/html location
