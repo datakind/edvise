@@ -22,8 +22,6 @@ except ModuleNotFoundError:
     from pandera.errors import SchemaErrors
 
 
-
-
 LOGGER = logging.getLogger(__name__)
 
 S = t.TypeVar("S", bound=pyd.BaseModel)
