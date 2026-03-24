@@ -140,20 +140,18 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
         logger.warning("No Tier 1 columns found — cannot generate compound key candidates")
         return []
 
-    # Precompute row hash once — reused for all combination uniqueness checks
-    row_hashes = pd.util.hash_pandas_object(df, index=False)
-    logger.info("  Row hashes precomputed")
-
     candidates = []
     best_uniqueness = 0.0
 
     def _uniqueness(cols: list[str]) -> float:
         if len(cols) == 1:
             return df[cols[0]].nunique() / n_rows
-        # Group by combo, count distinct row hashes per group — unique groups = unique rows
-        return df.groupby(cols, sort=False).apply(
-            lambda g: row_hashes.iloc[g.index].nunique(), include_groups=False
-        ).gt(0).sum() / n_rows
+        # Concatenate per-column hashes into a single compound hash — fully vectorized
+        compound = sum(
+            pd.util.hash_pandas_object(df[c], index=False) * (31 ** i)
+            for i, c in enumerate(cols)
+        )
+        return compound.nunique() / n_rows
 
     def _is_dominated(combo: tuple[str, ...], best_by_subset: set[frozenset]) -> bool:
         """True if any strict subset of this combo already achieved best_uniqueness."""
