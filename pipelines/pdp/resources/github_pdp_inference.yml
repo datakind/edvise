@@ -155,7 +155,9 @@ resources:
               - --job_type
               - "{{job.parameters.job_type}}"
               - --config_file_path
-              - "{{tasks.data_ingestion.values.config_file_path}}"              
+              - "{{tasks.data_ingestion.values.config_file_path}}"
+              - --inst_schema
+              - "{{job.parameters.inst_schema}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -340,6 +342,8 @@ resources:
           default: inference
         - name: model_name
           default: miles_cc_retention_end_of_first_term
+        - name: inst_schema
+          default: ${var.inst_schema}
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE

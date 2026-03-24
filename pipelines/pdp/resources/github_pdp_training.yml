@@ -135,6 +135,8 @@ resources:
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
+              - --inst_schema
+              - "{{job.parameters.inst_schema}}"
           job_cluster_key: edvise-pdp-training-pipeline-cluster
           libraries:
             - pypi:
@@ -332,6 +334,8 @@ resources:
           default: ${var.service_account_executer}
         - name: job_type
           default: training
+        - name: inst_schema
+          default: ${var.inst_schema}
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
