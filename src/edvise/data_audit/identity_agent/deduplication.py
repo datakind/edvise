@@ -89,6 +89,10 @@ def suffix_disambiguate_within_keys(
     if only_rows_in_duplicate_key_groups and not dup_mask.any():
         return out.reset_index(drop=True) if reset_index else out
 
+    # Suffixes are string-concatenated (e.g. "37559-1"). Nullable Int64 and other
+    # narrow dtypes reject that assignment; normalize before writing.
+    out[target_col] = out[target_col].astype("string")
+
     if only_rows_in_duplicate_key_groups:
         work_idx = out.index[dup_mask]
         work = out.loc[work_idx]
@@ -177,6 +181,7 @@ def resolve_key_collisions(
 
     if conflict_row.any():
         conflict_idx = out.index[conflict_row]
+        out[disambiguate_column] = out[disambiguate_column].astype("string")
         work = out.loc[conflict_idx].copy()
         if disambiguate_sort_by:
             miss = [c for c in disambiguate_sort_by if c not in work.columns]

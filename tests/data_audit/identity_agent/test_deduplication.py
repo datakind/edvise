@@ -40,6 +40,20 @@ def test_suffix_disambiguate_only_duplicate_groups():
     assert out["cn"].tolist() == ["X100-1", "X100-2", "Y200"]
 
 
+def test_suffix_disambiguate_int64_target_column():
+    """Training dtypes often cast class_number to Int64 before dedupe; suffix must still work."""
+    df = pd.DataFrame(
+        {
+            "sid": [1, 1],
+            "term": ["FA", "FA"],
+            "class_number": pd.Series([37559, 37559], dtype="Int64"),
+        }
+    )
+    out = d.suffix_disambiguate_within_keys(df, ["sid", "term"], "class_number")
+    assert str(out["class_number"].dtype) == "string"
+    assert set(out["class_number"].astype(str)) == {"37559-1", "37559-2"}
+
+
 def test_suffix_disambiguate_sort_within_group():
     df = pd.DataFrame(
         {
@@ -61,6 +75,27 @@ def test_suffix_disambiguate_sort_within_group():
     lo = out.loc[out["credits"] == 3.0, "cn"].iloc[0]
     assert hi.endswith("-1")
     assert lo.endswith("-2")
+
+
+def test_resolve_key_collisions_int64_disambiguate_column():
+    df = pd.DataFrame(
+        {
+            "student_id": ["u1", "u1"],
+            "course_name": ["CHEM-207-1", "CHEM-207-1"],
+            "term": ["2019FA", "2019FA"],
+            "class_number": pd.Series([37559, 37559], dtype="Int64"),
+            "course_classification": ["Lab", "Lecture"],
+        }
+    )
+    key = ["student_id", "course_name", "term", "class_number"]
+    out = d.resolve_key_collisions(
+        df,
+        key_cols=key,
+        conflict_columns=["course_classification"],
+        disambiguate_column="class_number",
+    )
+    assert len(out) == 2
+    assert str(out["class_number"].dtype) == "string"
 
 
 def test_resolve_key_collisions_disambig_when_classification_differs():
