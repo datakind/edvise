@@ -69,6 +69,7 @@ class DuplicateClassification(BaseModel):
     temporal_signal: bool = False
     top_conflicting_columns: list[ColumnConflictProfile] = []
     business_rule_hint: Optional[str] = None
+    sampled: bool = Field(False, description="True if classification is based on sampled groups due to high duplicate rate")
 
 
 class CandidateKeyProfile(BaseModel):
@@ -94,9 +95,6 @@ def _score_column(col: pd.Series, n_rows: int) -> Optional[tuple[str, float]]:
     Tier 2 — low-cardinality discriminator columns (compound key components only).
     """
     null_rate = col.isnull().mean()
-    tier2_null_rate = MAX_NULL_RATE_TIER2 if tier == "tier2" else MAX_NULL_RATE
-    if null_rate > tier2_null_rate:
-        return None
     uniqueness = col.nunique() / n_rows
     if uniqueness < MIN_DISCRIMINATOR_UNIQUENESS:
         return None  # constant or near-constant — useless in any key
@@ -283,7 +281,62 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
 
     dupes_mask = df.duplicated(subset=key_cols, keep=False)
     dup_groups_df = df[dupes_mask]
-    logger.info("  Duplicate rows: %d / %d (%.1f%%)", len(dup_groups_df), len(df), 100 * len(dup_groups_df) / len(df))
+    duplicate_rate = len(dup_groups_df) / len(df)
+    logger.info("  Duplicate rows: %d / %d (%.1f%%)", len(dup_groups_df), len(df), 100 * duplicate_rate)
+
+    # High duplicate rate — sample-based profiling to avoid O(n) group iteration
+    if duplicate_rate >= HIGH_DUPLICATE_RATE_THRESHOLD:
+        logger.warning(
+            "  High duplicate rate (%.1f%%) — switching to sample-based profiling (n=%d groups)",
+            100 * duplicate_rate, SAMPLE_GROUP_SIZE,
+        )
+        all_keys = dup_groups_df[list(key_cols)].drop_duplicates()
+        sampled_keys = all_keys.sample(min(SAMPLE_GROUP_SIZE, len(all_keys)), random_state=42)
+        sample_df = dup_groups_df.merge(sampled_keys, on=list(key_cols))
+        non_key_cols_sample = [c for c in sample_df.columns if c not in key_cols]
+
+        competing_groups = []
+        null_shadow_count = 0
+        true_dup_count = 0
+        for _, group in sample_df.groupby(list(key_cols), sort=False):
+            g = group[non_key_cols_sample]
+            label = _classify_group(g)
+            if label == "null_shadow":
+                null_shadow_count += 1
+            elif label == "true_duplicate":
+                true_dup_count += 1
+            else:
+                competing_groups.append(g)
+
+        competing_count = len(competing_groups)
+        logger.info(
+            "  Sample classification — null_shadow: %d, true_duplicate: %d, competing_values: %d (of %d sampled)",
+            null_shadow_count, true_dup_count, competing_count, len(sampled_keys),
+        )
+
+        affected_entities = len(all_keys)
+        size_dist = {int(k): int(v) for k, v in dup_groups_df.groupby(list(key_cols)).size().value_counts().items()}
+        group_stats = DuplicateGroupStats(
+            total_rows=len(df),
+            duplicate_rows=len(dup_groups_df),
+            affected_entities=affected_entities,
+            group_size_distribution=size_dist,
+            null_shadow_count=null_shadow_count,
+            true_duplicate_count=true_dup_count,
+            competing_values_count=competing_count,
+        )
+        conflict_profiles = _build_conflict_profiles(competing_groups, competing_count) if competing_groups else []
+        classification = _classify_competing(conflict_profiles, competing_count) if competing_groups else DuplicateClassification(
+            subtype="null_shadow" if null_shadow_count > true_dup_count else "true_duplicate",
+            temporal_signal=False,
+        )
+        classification.sampled = True  # annotate that this was sample-based
+        logger.info("  Classification (sampled): %s", classification.subtype)
+        return CandidateKeyProfile(
+            candidate_key=candidate,
+            group_stats=group_stats,
+            classification=classification,
+        )
 
     null_shadow_ids, true_dup_ids, competing = [], [], []
     competing_groups = []
