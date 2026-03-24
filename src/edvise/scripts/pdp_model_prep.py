@@ -22,7 +22,7 @@ print("sys.path:", sys.path)
 from edvise.model_prep import cleanup_features as cleanup, training_params
 from edvise.dataio.read import read_parquet, read_config
 from edvise.dataio.write import write_parquet
-from edvise.configs.pdp import PDPProjectConfig
+from edvise.shared.inst_schema import add_inst_schema_argument, project_config_schema
 from edvise.shared.logger import (
     local_fs_path,
     resolve_run_path,
@@ -43,7 +43,8 @@ LOGGER = logging.getLogger(__name__)
 class ModelPrepTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(args.config_file_path, schema=PDPProjectConfig)
+        schema_cls = project_config_schema(args.inst_schema)
+        self.cfg = read_config(args.config_file_path, schema=schema_cls)
 
     def merge_data(
         self,
@@ -381,6 +382,7 @@ def parse_arguments() -> argparse.Namespace:
         "--job_type", type=str, choices=["training", "inference"], required=False
     )
     parser.add_argument("--config_file_name", type=str, required=True)
+    add_inst_schema_argument(parser)
 
     return parser.parse_args()
 
@@ -396,7 +398,7 @@ if __name__ == "__main__":
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_model_prep.log",
+        log_file_name=f"{args.inst_schema}_model_prep.log",
     )
     task.run()
     for h in logging.getLogger().handlers:

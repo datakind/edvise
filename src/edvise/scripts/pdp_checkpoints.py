@@ -21,6 +21,7 @@ print("sys.path:", sys.path)
 from edvise import checkpoints
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.dataio.read import read_config
+from edvise.shared.inst_schema import add_inst_schema_argument, project_config_schema
 from edvise.shared.logger import (
     local_fs_path,
     resolve_run_path,
@@ -53,8 +54,9 @@ class PDPCheckpointsTask:
             args: The parsed command-line arguments.
         """
         self.args = args
+        schema_cls = project_config_schema(args.inst_schema)
         self.cfg: PDPProjectConfig = read_config(
-            self.args.config_file_path, schema=PDPProjectConfig
+            self.args.config_file_path, schema=schema_cls
         )
 
     def checkpoint_generation(self, df_student_terms: pd.DataFrame) -> pd.DataFrame:
@@ -207,6 +209,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--job_type", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
+    add_inst_schema_argument(parser)
     return parser.parse_args()
 
 
@@ -228,7 +231,7 @@ if __name__ == "__main__":
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_checkpoint.log",
+        log_file_name=f"{args.inst_schema}_checkpoint.log",
     )
     logging.info("Logs will be written to %s", log_path)
     task.run()

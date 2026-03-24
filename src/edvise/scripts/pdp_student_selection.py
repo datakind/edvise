@@ -21,8 +21,10 @@ print("sys.path:", sys.path)
 
 from edvise import student_selection
 from edvise.dataio.read import read_config
-from edvise.configs.es import ESProjectConfig
-from edvise.configs.pdp import PDPProjectConfig
+from edvise.shared.inst_schema import (
+    add_inst_schema_argument,
+    project_config_schema,
+)
 from edvise.shared.logger import (
     resolve_run_path,
     local_fs_path,
@@ -34,21 +36,6 @@ from edvise.shared.validation import (
 )
 
 logging.getLogger("py4j").setLevel(logging.WARNING)
-
-_CONFIG_SCHEMA_BY_KEY: dict[str, type] = {
-    "pdp": PDPProjectConfig,
-    "es": ESProjectConfig,
-}
-
-
-def project_config_schema(inst_schema: str) -> type:
-    key = inst_schema.strip().lower()
-    if key not in _CONFIG_SCHEMA_BY_KEY:
-        raise ValueError(
-            f"Unknown inst_schema {inst_schema!r}; "
-            f"expected one of {sorted(_CONFIG_SCHEMA_BY_KEY)}"
-        )
-    return _CONFIG_SCHEMA_BY_KEY[key]
 
 
 class StudentSelectionTask:
@@ -169,13 +156,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--job_type", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
-    parser.add_argument(
-        "--inst_schema",
-        type=str,
-        choices=sorted(_CONFIG_SCHEMA_BY_KEY),
-        default="pdp",
-        help="Which project config class to use when parsing config.toml (pdp or es).",
-    )
+    add_inst_schema_argument(parser)
     return parser.parse_args()
 
 

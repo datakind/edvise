@@ -20,7 +20,7 @@ print("sys.path:", sys.path)
 
 from edvise import targets as _targets
 from edvise.dataio.read import read_config
-from edvise.configs.pdp import PDPProjectConfig
+from edvise.shared.inst_schema import add_inst_schema_argument, project_config_schema
 from edvise.shared.logger import (
     local_fs_path,
     resolve_run_path,
@@ -41,7 +41,8 @@ class PDPTargetsTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(self.args.config_file_path, schema=PDPProjectConfig)
+        schema_cls = project_config_schema(args.inst_schema)
+        self.cfg = read_config(self.args.config_file_path, schema=schema_cls)
 
     def target_generation(
         self, df_student_terms: pd.DataFrame, df_ckpt: pd.DataFrame
@@ -147,6 +148,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--job_type", type=str, choices=["training", "inference"], required=False
     )
+    add_inst_schema_argument(parser)
     return parser.parse_args()
 
 
@@ -169,7 +171,7 @@ if __name__ == "__main__":
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_targets.log",  # optional; omit to use default
+        log_file_name=f"{args.inst_schema}_targets.log",
     )
     logging.info("Logs will be written to %s", log_path)
     task.run()
