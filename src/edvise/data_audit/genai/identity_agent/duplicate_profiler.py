@@ -140,9 +140,31 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
         logger.warning("No Tier 1 columns found — cannot generate compound key candidates")
         return []
 
+    # Precompute row hash once — reused for all combination uniqueness checks
+    row_hashes = pd.util.hash_pandas_object(df, index=False)
+    logger.info("  Row hashes precomputed")
+
     candidates = []
+    best_uniqueness = 0.0
+
+    def _uniqueness(cols: list[str]) -> float:
+        if len(cols) == 1:
+            return df[cols[0]].nunique() / n_rows
+        # Group by combo, count distinct row hashes per group — unique groups = unique rows
+        return df.groupby(cols, sort=False).apply(
+            lambda g: row_hashes.iloc[g.index].nunique(), include_groups=False
+        ).gt(0).sum() / n_rows
+
+    def _is_dominated(combo: tuple[str, ...], best_by_subset: set[frozenset]) -> bool:
+        """True if any strict subset of this combo already achieved best_uniqueness."""
+        for size in range(1, len(combo)):
+            for sub in combinations(combo, size):
+                if frozenset(sub) in best_by_subset:
+                    return True
+        return False
 
     # Single-column candidates from Tier 1 only
+    best_by_subset: set[frozenset] = set()
     for col in tier1_cols:
         uniqueness = df[col].nunique() / n_rows
         null_rate = df[col].isnull().mean()
@@ -152,18 +174,28 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
             null_rate=round(null_rate, 4),
             rank=0,
         ))
+        if uniqueness > best_uniqueness:
+            best_uniqueness = uniqueness
         if uniqueness >= EARLY_STOP_UNIQUENESS:
+            best_by_subset.add(frozenset([col]))
             logger.info("  Early stop: %s achieves %.4f uniqueness", col, uniqueness)
             break
 
     # Compound candidates: must include at least one Tier 1 column
     all_pool = tier1_cols + tier2_cols
+    early_stopped = False
     for size in range(2, min(MAX_KEY_SIZE, len(all_pool)) + 1):
+        if early_stopped:
+            break
         logger.info("  Evaluating size-%d combinations...", size)
         for combo in combinations(all_pool, size):
             if not any(c in tier1_cols for c in combo):
                 continue
-            uniqueness = df.drop_duplicates(subset=list(combo)).shape[0] / n_rows
+            # Skip if a strict subset already achieved best possible uniqueness
+            if _is_dominated(combo, best_by_subset):
+                logger.debug("  Skipping dominated combo: %s", combo)
+                continue
+            uniqueness = _uniqueness(list(combo))
             null_rate = max(df[col].isnull().mean() for col in combo)
             candidates.append(CandidateKey(
                 columns=list(combo),
@@ -171,8 +203,15 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
                 null_rate=round(null_rate, 4),
                 rank=0,
             ))
+            if uniqueness >= EARLY_STOP_UNIQUENESS:
+                best_by_subset.add(frozenset(combo))
+                best_uniqueness = uniqueness
+                logger.info("  Early stop on compound key %s (%.4f) — pruning larger sizes", combo, uniqueness)
+                early_stopped = True
+                break
 
-    candidates.sort(key=lambda c: c.uniqueness_score, reverse=True)
+    # Rank by uniqueness descending, tiebreak by key length ascending (simpler = better)
+    candidates.sort(key=lambda c: (c.uniqueness_score, -len(c.columns)), reverse=True)
     top = candidates[:TOP_K_CANDIDATES]
     for i, c in enumerate(top):
         c.rank = i + 1
