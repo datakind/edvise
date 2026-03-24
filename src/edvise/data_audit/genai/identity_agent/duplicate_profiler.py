@@ -190,11 +190,15 @@ def _classify_group(group: pd.DataFrame) -> str:
 
 
 def _is_temporal(col: str, dtype) -> bool:
-    """Temporal requires BOTH datetime dtype AND a matching name pattern."""
-    return (
-        pd.api.types.is_datetime64_any_dtype(dtype)
-        and bool(TEMPORAL_NAME_PATTERNS.search(col))
-    )
+    """
+    Temporal detection:
+    - datetime dtype AND name pattern match (strict — avoids false positives on numeric columns)
+    - OR name pattern match alone for object/string columns (term codes are rarely parsed as datetime)
+    """
+    name_match = bool(TEMPORAL_NAME_PATTERNS.search(col))
+    is_datetime = pd.api.types.is_datetime64_any_dtype(dtype)
+    is_string = pd.api.types.is_string_dtype(dtype) or pd.api.types.is_object_dtype(dtype)
+    return (is_datetime and name_match) or (is_string and name_match)
 
 
 def _build_conflict_profiles(
