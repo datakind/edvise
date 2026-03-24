@@ -17,13 +17,11 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
+from collections.abc import Callable
 from typing import Any, Optional
 
 import pandas as pd
 
-from edvise.data_audit.identity_agent.deduplication import (
-    apply_key_collision_dedupe_from_spec,
-)
 from edvise.data_audit.custom_cleaning import (
     DtypeGenerationOptions,
     SchemaContractMeta,
@@ -128,6 +126,7 @@ def build_schema_contract_from_config(
     # --- term order ---
     term_order_fn: Optional[TermOrderFn] = None,
     term_col_by_dataset: Optional[dict[str, str]] = None,
+    dedupe_fn_by_dataset: Optional[dict[str, Callable[[pd.DataFrame], pd.DataFrame]]] = None,
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
     Build schema contract from inputs.toml SchoolMappingConfig.
@@ -146,6 +145,9 @@ def build_schema_contract_from_config(
                              e.g. {"student_df": "term_desc", "course_df": "term_descr"}
                              If term_order_fn is provided but a dataset is not in this dict,
                              the default term column "term" is tried.
+        dedupe_fn_by_dataset: Optional mapping logical dataset name (e.g. ``course_df``) to
+            ``(DataFrame) -> DataFrame``. Applied after term order and student-id alias rename,
+            before unique-key checks — same stage as ``CleanSpec.dedupe_fn`` in custom cleaning.
         cleaning_cfg: When set, ``student_id_alias`` is taken from this object only.
                       When omitted, uses ``school_config.cleaning.student_id_alias`` if present.
 
@@ -156,6 +158,7 @@ def build_schema_contract_from_config(
         dtype_opts = DtypeGenerationOptions()
 
     term_col_by_dataset = term_col_by_dataset or {}
+    dedupe_fn_by_dataset = dedupe_fn_by_dataset or {}
     merged_cleaning = _merged_cleaning_cfg(school_config, cleaning_cfg)
 
     cleaned_map: dict[str, pd.DataFrame] = {}
@@ -219,14 +222,12 @@ def build_schema_contract_from_config(
                 dataset_label=logical_name,
             )
 
-        if dataset_config.dedupe is not None:
-            df_with_dtypes = apply_key_collision_dedupe_from_spec(
-                df_with_dtypes,
-                dataset_config.dedupe.model_dump(exclude_none=True),
-            )
+        if logical_name in dedupe_fn_by_dataset:
+            fn = dedupe_fn_by_dataset[logical_name]
+            df_with_dtypes = fn(df_with_dtypes)
             logger.info(
-                "  Applied datasets['%s'].dedupe (key collision) → shape=%s",
-                dataset_name,
+                "  Applied dedupe_fn_by_dataset['%s'] → shape=%s",
+                logical_name,
                 df_with_dtypes.shape,
             )
 

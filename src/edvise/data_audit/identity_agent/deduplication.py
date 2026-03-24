@@ -7,29 +7,11 @@ in pipelines or pass a thin wrapper as ``custom_cleaning.CleanSpec.dedupe_fn``.
 
 from __future__ import annotations
 
-import logging
 import typing as t
 
 import pandas as pd
 
 KeepArg = t.Literal["first", "last"]
-
-logger = logging.getLogger(__name__)
-
-_KEY_COLLISION_SPEC_KEYS = frozenset(
-    {
-        "key_cols",
-        "conflict_columns",
-        "disambiguate_column",
-        "disambiguate_sep",
-        "drop_full_row_duplicates_first",
-        "disambiguate_sort_by",
-        "disambiguate_sort_ascending",
-        "when_no_conflict_keep",
-        "no_conflict_sort_by",
-        "no_conflict_sort_ascending",
-    }
-)
 
 
 def drop_exact_row_duplicates(
@@ -132,53 +114,6 @@ def suffix_disambiguate_within_keys(
         out[target_col] = new_vals
 
     return out.reset_index(drop=True) if reset_index else out
-
-
-def apply_key_collision_dedupe_from_spec(
-    df: pd.DataFrame,
-    spec: dict[str, t.Any],
-) -> pd.DataFrame:
-    """
-    Run :func:`resolve_key_collisions` from a plain dict (e.g. ``KeyCollisionDedupeConfig.model_dump()``).
-
-    No-op when ``key_cols`` or ``disambiguate_column`` are absent from ``df``. Only
-    ``conflict_columns`` that exist in ``df`` are used.
-    """
-    kwargs = {
-        k: v
-        for k, v in spec.items()
-        if k in _KEY_COLLISION_SPEC_KEYS and v is not None
-    }
-    key_cols = list(kwargs.get("key_cols") or [])
-    disambiguate_column = kwargs.get("disambiguate_column")
-    if not key_cols or not disambiguate_column:
-        return df
-    miss_k = [c for c in key_cols if c not in df.columns]
-    if miss_k:
-        logger.info(
-            "key_collision dedupe skipped — missing key_cols %s (dataset columns unchanged)",
-            miss_k,
-        )
-        return df
-    if disambiguate_column not in df.columns:
-        logger.info(
-            "key_collision dedupe skipped — disambiguate_column %r not in DataFrame",
-            disambiguate_column,
-        )
-        return df
-    raw_conflicts = list(kwargs.get("conflict_columns") or [])
-    present_conflicts = [c for c in raw_conflicts if c in df.columns]
-    if raw_conflicts and not present_conflicts:
-        logger.info(
-            "key_collision dedupe: none of conflict_columns %s found; using empty list",
-            raw_conflicts,
-        )
-    kwargs["key_cols"] = key_cols
-    kwargs["conflict_columns"] = present_conflicts
-    kwargs["disambiguate_column"] = disambiguate_column
-    out = resolve_key_collisions(df, **kwargs)
-    logger.debug("key_collision dedupe applied → shape=%s", out.shape)
-    return out
 
 
 def resolve_key_collisions(

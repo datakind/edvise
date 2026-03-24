@@ -1,8 +1,6 @@
 import pandas as pd
 import pytest
 
-from edvise.configs.genai import KeyCollisionDedupeConfig
-
 from edvise.data_audit.identity_agent import deduplication as d
 
 
@@ -87,36 +85,6 @@ def test_resolve_key_collisions_disambig_when_classification_differs():
     nums = set(out["class_number"].astype(str))
     assert len(nums) == 2
     assert all("37559" in x for x in nums)
-
-
-def test_apply_key_collision_dedupe_from_spec_skips_when_key_cols_missing():
-    df = pd.DataFrame({"a": [1]})
-    spec = KeyCollisionDedupeConfig(
-        key_cols=["missing"],
-        conflict_columns=["x"],
-        disambiguate_column="a",
-    ).model_dump(exclude_none=True)
-    out = d.apply_key_collision_dedupe_from_spec(df, spec)
-    pd.testing.assert_frame_equal(out, df)
-
-
-def test_apply_key_collision_dedupe_from_spec_model_dump():
-    df = pd.DataFrame(
-        {
-            "student_id": ["u1", "u1"],
-            "term": ["FA", "FA"],
-            "class_number": ["1", "1"],
-            "course_classification": ["Lab", "Lecture"],
-        }
-    )
-    spec = KeyCollisionDedupeConfig(
-        key_cols=["student_id", "term", "class_number"],
-        conflict_columns=["course_classification"],
-        disambiguate_column="class_number",
-    ).model_dump(exclude_none=True)
-    out = d.apply_key_collision_dedupe_from_spec(df, spec)
-    assert len(out) == 2
-    assert out["class_number"].astype(str).nunique() == 2
 
 
 def test_resolve_key_collisions_drops_identical_key_copies():
