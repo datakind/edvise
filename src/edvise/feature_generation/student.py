@@ -37,22 +37,6 @@ def add_features(
             bound="start",
             first_term_of_year=first_term_of_year,
         ),
-        student_program_of_study_area_term_1=ft.partial(
-            student_program_of_study_area, col="program_of_study_term_1"
-        ),
-        student_program_of_study_area_year_1=ft.partial(
-            student_program_of_study_area, col="program_of_study_year_1"
-        ),
-        student_program_of_study_changed_term_1_to_year_1=ft.partial(
-            student_program_of_study_changed_term_1_to_year_1,
-            term_col="program_of_study_term_1",
-            year_col="program_of_study_year_1",
-        ),
-        student_program_of_study_area_changed_term_1_to_year_1=ft.partial(
-            student_program_of_study_changed_term_1_to_year_1,
-            term_col="student_program_of_study_area_term_1",
-            year_col="student_program_of_study_area_year_1",
-        ),
         student_is_pell_recipient_first_year=student_is_pell_recipient_first_year,
         diff_gpa_term_1_to_year_1=diff_gpa_term_1_to_year_1,
         **{
@@ -64,16 +48,6 @@ def add_features(
             for yr in credits_years
         },
     )
-
-
-def student_program_of_study_area(df: pd.DataFrame, *, col: str) -> pd.Series:
-    return shared.extract_short_cip_code(df[col])
-
-
-def student_program_of_study_changed_term_1_to_year_1(
-    df: pd.DataFrame, *, term_col: str, year_col: str
-) -> pd.Series:
-    return df[term_col].ne(df[year_col]).astype("boolean")
 
 
 def student_is_pell_recipient_first_year(
