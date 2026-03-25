@@ -30,7 +30,7 @@ STRUCTURAL_THRESHOLD = 0.70      # concentration_score >= this → structural
 NOISE_THRESHOLD = 0.30           # concentration_score <= this → noise (round to nearest between)
 
 TEMPORAL_NAME_PATTERNS = re.compile(
-    r"(date|term|year|semester|quarter|cohort|period|session|admit|enroll)",
+    r"(^date|_date$|^term$|_term$|^year$|_year$|semester|quarter|cohort|period|session|admit_date|enrollment_date)",
     re.IGNORECASE,
 )
 
