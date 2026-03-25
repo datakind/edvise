@@ -22,7 +22,7 @@ MAX_NULL_RATE_TIER2 = 0.30       # Tier 2: discriminators can be noisier; also T
 EARLY_STOP_UNIQUENESS = 0.995    # stop search if a key is essentially unique
 MAX_CANDIDATE_POOL = 8           # top N columns per tier fed into combination search
 MAX_KEY_SIZE = 6                 # maximum compound key width
-TOP_K_CANDIDATES = 5             # number of ranked candidate keys to return
+TOP_K_CANDIDATES = 15            # ranked candidate keys returned & profiled (agent context)
 
 HIGH_DUPLICATE_RATE_THRESHOLD = 0.50  # duplicate row fraction (for logging / heuristics)
 SAMPLE_GROUP_SIZE = 500               # max duplicate groups used for classification (always capped)
@@ -220,11 +220,15 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
             logger.info("  Early stop: %s achieves %.4f uniqueness", col, uniqueness)
             break
 
-    # Compound candidates: must include at least one Tier 1 column
+    # Compound candidates: must include at least one Tier 1 column.
+    # We do not add compound keys to best_by_subset: a near-unique pair like
+    # (student_id, class_number) must not suppress (student_id, class_number, term)
+    # for agents reasoning about grain. best_by_subset is only for single-column
+    # near-unique anchors from the loop above.
     all_pool = tier1_cols + tier2_cols
-    early_stopped = False
+    stop_enumeration = False
     for size in range(2, min(MAX_KEY_SIZE, len(all_pool)) + 1):
-        if early_stopped:
+        if stop_enumeration:
             break
         logger.info("  Evaluating size-%d combinations...", size)
         for combo in combinations(all_pool, size):
@@ -242,16 +246,18 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
                 rank=0,
             ))
             if uniqueness >= EARLY_STOP_UNIQUENESS:
-                best_by_subset.add(frozenset(combo))
-                logger.info("  Early stop on compound key %s (%.4f) — pruning larger sizes", combo, uniqueness)
-                early_stopped = True
-                break
-            # Stop if we already have enough candidates at the current best uniqueness
+                logger.info(
+                    "  Near-unique compound key %s (%.4f) — continuing search for wider keys",
+                    combo,
+                    uniqueness,
+                )
+            # Prune enumeration only when we already have many top-tier keys and
+            # this combo is strictly worse (does not block size-3 after a strong size-2).
             best_so_far = max((c.uniqueness_score for c in candidates), default=0.0)
             at_best = sum(1 for c in candidates if c.uniqueness_score >= best_so_far)
             if at_best >= TOP_K_CANDIDATES and uniqueness < best_so_far:
                 logger.info("  Have %d candidates at best uniqueness %.4f — stopping", at_best, best_so_far)
-                early_stopped = True
+                stop_enumeration = True
                 break
 
     # Rank by uniqueness descending, tiebreak by key length ascending (simpler = better)
