@@ -25,6 +25,9 @@ MAX_KEY_SIZE = 6                 # maximum compound key width
 TOP_K_CANDIDATES = 10            # ranked candidate keys returned & profiled (agent context)
 LARGE_TABLE_ROW_THRESHOLD = 500_000
 MAX_KEY_SIZE_LARGE_TABLE = 4     # cap width on large tables to avoid combinatorial blowups
+MAX_COMBINATION_EVALS = 3_000    # hard cap of combo uniqueness evaluations
+MAX_COMBINATION_EVALS_LARGE_TABLE = 900
+NEAR_BEST_STOP_DELTA = 0.003     # treat near-best uniqueness as "good enough" plateau
 
 HIGH_DUPLICATE_RATE_THRESHOLD = 0.50  # duplicate row fraction (for logging / heuristics)
 SAMPLE_GROUP_SIZE = 500               # max duplicate groups used for classification (always capped)
@@ -247,14 +250,18 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     # near-unique anchors from the loop above.
     all_pool = tier1_cols + tier2_cols
     effective_max_key_size = MAX_KEY_SIZE
+    max_combination_evals = MAX_COMBINATION_EVALS
     if n_rows >= LARGE_TABLE_ROW_THRESHOLD:
         effective_max_key_size = min(MAX_KEY_SIZE, MAX_KEY_SIZE_LARGE_TABLE)
+        max_combination_evals = MAX_COMBINATION_EVALS_LARGE_TABLE
         logger.info(
-            "Large table detected (%d rows) — limiting max key width to %d",
+            "Large table detected (%d rows) — limiting max key width to %d and combo evals to %d",
             n_rows,
             effective_max_key_size,
+            max_combination_evals,
         )
     stop_enumeration = False
+    evaluated_combos = 0
     for size in range(2, min(effective_max_key_size, len(all_pool)) + 1):
         if stop_enumeration:
             break
@@ -266,6 +273,7 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
                 logger.debug("  Skipping dominated combo: %s", combo)
                 continue
             uniqueness = _uniqueness(list(combo))
+            evaluated_combos += 1
             null_rate = max(df[col].isnull().mean() for col in combo)
             candidates.append(CandidateKey(
                 columns=list(combo),
@@ -279,6 +287,13 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
                     combo,
                     uniqueness,
                 )
+            if evaluated_combos >= max_combination_evals:
+                logger.info(
+                    "  Reached combo evaluation budget (%d) — stopping candidate search",
+                    max_combination_evals,
+                )
+                stop_enumeration = True
+                break
             # Prune enumeration only when we already have many top-tier keys and
             # this combo is strictly worse (does not block size-3 after a strong size-2).
             best_so_far = max((c.uniqueness_score for c in candidates), default=0.0)
@@ -287,6 +302,20 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
                 logger.info(
                     "  Have %d near-unique candidates at %.4f — stopping",
                     at_best,
+                    best_so_far,
+                )
+                stop_enumeration = True
+                break
+            near_best = sum(
+                1
+                for c in candidates
+                if c.uniqueness_score >= max(0.0, best_so_far - NEAR_BEST_STOP_DELTA)
+            )
+            if best_so_far >= EARLY_STOP_UNIQUENESS and near_best >= TOP_K_CANDIDATES * 2:
+                logger.info(
+                    "  Have %d near-best candidates within %.4f of best %.4f — stopping",
+                    near_best,
+                    NEAR_BEST_STOP_DELTA,
                     best_so_far,
                 )
                 stop_enumeration = True
