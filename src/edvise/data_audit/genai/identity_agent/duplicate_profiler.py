@@ -41,6 +41,17 @@ TEMPORAL_NAME_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
+# Columns that typically anchor person-level identity in SIS-style files.
+STUDENT_ANCHOR_NAME_PATTERN = re.compile(
+    r"(?:student[_\s]?id|learner[_\s]?id|person[_\s]?id|enrollment[_\s]?id|sis[_\s]?id|"
+    r"member[_\s]?id|participant[_\s]?id)",
+    re.IGNORECASE,
+)
+
+
+def _student_anchor_column_names(columns: pd.Index) -> frozenset[str]:
+    return frozenset(c for c in columns if STUDENT_ANCHOR_NAME_PATTERN.search(str(c)))
+
 
 def _include_column_for_key_detection(series: pd.Series) -> bool:
     """
@@ -80,7 +91,13 @@ class DuplicateGroupStats(BaseModel):
 
 
 class DuplicateClassification(BaseModel):
-    subtype: str = Field(..., description="null_shadow | true_duplicate | structural | noise | temporal")
+    subtype: str = Field(
+        ...,
+        description=(
+            "null_shadow | true_duplicate | structural | noise | temporal | "
+            "grain_under_specified | competing_values"
+        ),
+    )
     concentration_score: Optional[float] = None
     temporal_signal: bool = False
     top_conflicting_columns: list[ColumnConflictProfile] = []
@@ -260,8 +277,29 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
                 stop_enumeration = True
                 break
 
-    # Rank by uniqueness descending, tiebreak by key length ascending (simpler = better)
-    candidates.sort(key=lambda c: (c.uniqueness_score, -len(c.columns)), reverse=True)
+    anchor_cols = _student_anchor_column_names(df.columns)
+    if anchor_cols:
+        before = len(candidates)
+        candidates = [
+            c
+            for c in candidates
+            if len(c.columns) == 1 or any(col in anchor_cols for col in c.columns)
+        ]
+        dropped = before - len(candidates)
+        if dropped:
+            logger.info(
+                "  Dropped %d multi-column keys with no student-anchor column (identity context)",
+                dropped,
+            )
+
+    # Uniqueness desc; prefer keys that include a student anchor when ties; shorter keys last tiebreak
+    def _rank_key(c: CandidateKey) -> tuple[float, int, int]:
+        has_anchor = 1 if (anchor_cols and any(col in anchor_cols for col in c.columns)) else 0
+        if not anchor_cols:
+            has_anchor = 1
+        return (c.uniqueness_score, has_anchor, -len(c.columns))
+
+    candidates.sort(key=_rank_key, reverse=True)
     top = candidates[:TOP_K_CANDIDATES]
     for i, c in enumerate(top):
         c.rank = i + 1
@@ -321,13 +359,15 @@ def _classify_competing(
     concentration_score = top.conflict_fraction
     # Temporal requires the TOP conflicting column to be temporal
     temporal_signal = top.is_temporal
-
+    # Competing profiles use non-key columns only; a temporal top column means the key
+    # omits a natural term/time dimension (e.g. course grain = student + class + term).
     if temporal_signal and concentration_score >= NOISE_THRESHOLD:
-        subtype = "temporal"
+        subtype = "grain_under_specified"
         hint = (
-            f"Conflicts concentrated in temporal column `{top.column}`. "
-            f"Rows likely represent the same entity across different time periods. "
-            f"Consider elevating a time dimension to the grain."
+            f"Duplicate groups differ on `{top.column}`, a time- or term-related field that is "
+            f"not in this candidate key. If the business grain expects one row per student–course "
+            f"offering **per term** (or similar), include `{top.column}` in the key — these rows are "
+            f"often legitimate distinct enrollments, not erroneous duplicates."
         )
     elif concentration_score >= STRUCTURAL_THRESHOLD:
         subtype = "structural"
@@ -533,15 +573,7 @@ def profile_duplicates(df: pd.DataFrame, *, lightweight: bool = False) -> Duplic
     logger.info("Top %d candidate keys identified", len(candidate_keys))
 
     profiles = []
-    profiled_uniqueness: set[float] = set()
     for candidate in candidate_keys:
-        if candidate.uniqueness_score in profiled_uniqueness:
-            logger.info(
-                "  Skipping profile for %s — uniqueness %.4f already profiled",
-                candidate.columns, candidate.uniqueness_score,
-            )
-            continue
-        profiled_uniqueness.add(candidate.uniqueness_score)
         profiles.append(_profile_against_key(df, candidate, lightweight=lightweight))
 
     logger.info("=== DuplicateProfiler complete ===")
