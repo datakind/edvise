@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 # Constants / thresholds
 # ---------------------------------------------------------------------------
 
-MIN_UNIQUENESS_PCT = 0.10        # Tier 1: high-cardinality ID-like columns (anchor candidates)
-MIN_DISCRIMINATOR_NUNIQUE = 2    # Tier 2: must have at least 2 distinct non-null values (not constant)
+# Tier 1 — anchors: top columns by n_unique within this table (not % of row count).
+TIER1_MIN_NUNIQUE_ABS = 50       # absolute floor for large tables; capped by n_rows below
+MIN_DISCRIMINATOR_NUNIQUE = 2    # Tier 2: must have at least 2 distinct values (not constant)
 MAX_NULL_RATE_TIER1 = 0.05       # Tier 1: strict null rate
-MAX_NULL_RATE_TIER2 = 0.30       # Tier 2: discriminators can be noisier
+MAX_NULL_RATE_TIER2 = 0.30       # Tier 2: discriminators can be noisier; also Tier 1 fallback null cap
 EARLY_STOP_UNIQUENESS = 0.995    # stop search if a key is essentially unique
 MAX_CANDIDATE_POOL = 8           # top N columns per tier fed into combination search
 MAX_KEY_SIZE = 6                 # maximum compound key width
@@ -93,49 +94,74 @@ class DuplicateProfile(BaseModel):
 # Candidate key detection
 # ---------------------------------------------------------------------------
 
-def _score_column(col: pd.Series, n_rows: int) -> Optional[tuple[str, float]]:
-    """
-    Returns (tier, score) or None if ineligible.
-    Tier 1 — high cardinality, low nulls: anchor candidates for any key.
-    Tier 2 — low cardinality but non-constant, moderate nulls ok: discriminator components only.
-    """
-    null_rate = col.isnull().mean()
-    n_unique = col.nunique()
-    uniqueness = n_unique / n_rows
-    dtype_boost = 0.1 if pd.api.types.is_string_dtype(col) or pd.api.types.is_integer_dtype(col) else 0.0
+def _effective_tier1_nunique_floor(n_rows: int) -> int:
+    """At least MIN_DISCRIMINATOR_NUNIQUE; at most min(TIER1_MIN_NUNIQUE_ABS, n_rows)."""
+    if n_rows <= 0:
+        return MIN_DISCRIMINATOR_NUNIQUE
+    return max(MIN_DISCRIMINATOR_NUNIQUE, min(TIER1_MIN_NUNIQUE_ABS, n_rows))
 
-    if null_rate <= MAX_NULL_RATE_TIER1 and uniqueness >= MIN_UNIQUENESS_PCT:
-        return ("tier1", uniqueness + dtype_boost)
-    if null_rate <= MAX_NULL_RATE_TIER2 and n_unique >= MIN_DISCRIMINATOR_NUNIQUE:
-        return ("tier2", uniqueness + dtype_boost)
-    return None
+
+def _column_stats(df: pd.DataFrame) -> list[tuple[str, int, float]]:
+    """(column_name, n_unique, null_rate) per column, in frame column order."""
+    rows = []
+    for col in df.columns:
+        series = df[col]
+        null_rate = float(series.isnull().mean())
+        n_unique = int(series.nunique())
+        rows.append((col, n_unique, null_rate))
+    return rows
+
+
+def _rank_tier1_pool(
+    stats: list[tuple[str, int, float]],
+    n_rows: int,
+    max_null_rate: float,
+) -> list[str]:
+    floor = _effective_tier1_nunique_floor(n_rows)
+    eligible = [(c, u, nr) for c, u, nr in stats if nr <= max_null_rate and u >= floor]
+    eligible.sort(key=lambda t: (-t[1], t[0]))
+    return [c for c, _, _ in eligible[:MAX_CANDIDATE_POOL]]
+
+
+def _rank_tier2_pool(
+    stats: list[tuple[str, int, float]],
+    tier1_cols: list[str],
+    n_rows: int,
+) -> list[str]:
+    tier1_set = set(tier1_cols)
+    eligible = [
+        (c, u, nr)
+        for c, u, nr in stats
+        if c not in tier1_set and nr <= MAX_NULL_RATE_TIER2 and u >= MIN_DISCRIMINATOR_NUNIQUE
+    ]
+    eligible.sort(key=lambda t: (-t[1], t[0]))
+    return [c for c, _, _ in eligible[:MAX_CANDIDATE_POOL]]
 
 
 def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     n_rows = len(df)
     logger.info("Detecting candidate keys across %d columns, %d rows", len(df.columns), n_rows)
 
-    tier1, tier2 = [], []
-    for col in df.columns:
-        result = _score_column(df[col], n_rows)
-        if result is None:
-            logger.debug("  Ineligible: %s", col)
-            continue
-        tier, score = result
-        if tier == "tier1":
-            tier1.append((col, score))
-            logger.debug("  Tier 1 (ID): %s (score=%.4f)", col, score)
-        else:
-            tier2.append((col, score))
-            logger.debug("  Tier 2 (discriminator): %s (score=%.4f)", col, score)
+    stats = _column_stats(df)
+    tier1_cols = _rank_tier1_pool(stats, n_rows, MAX_NULL_RATE_TIER1)
+    if not tier1_cols:
+        tier1_cols = _rank_tier1_pool(stats, n_rows, MAX_NULL_RATE_TIER2)
+        if tier1_cols:
+            logger.warning(
+                "No Tier 1 columns under strict null rate (%.0f%%) — using looser cap (%.0f%%)",
+                100 * MAX_NULL_RATE_TIER1,
+                100 * MAX_NULL_RATE_TIER2,
+            )
+    tier2_cols = _rank_tier2_pool(stats, tier1_cols, n_rows)
 
-    tier1.sort(key=lambda x: x[1], reverse=True)
-    tier2.sort(key=lambda x: x[1], reverse=True)
-    tier1_cols = [c for c, _ in tier1[:MAX_CANDIDATE_POOL]]
-    tier2_cols = [c for c, _ in tier2[:MAX_CANDIDATE_POOL]]
+    for c, u, nr in stats:
+        if c in tier1_cols:
+            logger.debug("  Tier 1 (anchor): %s n_unique=%d null_rate=%.4f", c, u, nr)
+        elif c in tier2_cols:
+            logger.debug("  Tier 2 (discriminator): %s n_unique=%d null_rate=%.4f", c, u, nr)
 
-    logger.info("Tier 1 pool: %s", tier1_cols)
-    logger.info("Tier 2 pool: %s", tier2_cols)
+    logger.info("Tier 1 pool (within-table rank by n_unique): %s", tier1_cols)
+    logger.info("Tier 2 pool (within-table rank by n_unique): %s", tier2_cols)
 
     if not tier1_cols:
         logger.warning("No Tier 1 columns found — cannot generate compound key candidates")
