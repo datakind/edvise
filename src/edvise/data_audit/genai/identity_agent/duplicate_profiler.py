@@ -29,7 +29,11 @@ SAMPLE_GROUP_SIZE = 500               # number of duplicate groups to sample
 STRUCTURAL_THRESHOLD = 0.70      # concentration_score >= this → structural
 NOISE_THRESHOLD = 0.30           # concentration_score <= this → noise (round to nearest between)
 
-TEMPORAL_NAME_PATTERNS = re.compile(
+# Patterns for synthetic index columns that should be stripped before profiling
+INDEX_COLUMN_PATTERNS = re.compile(
+    r"^(unnamed:\s*\d+|index|row_number|row_num|rownum|row_id|__index_level_\d+__)$",
+    re.IGNORECASE,
+)
     r"(^date|_date$|^term$|_term$|^year$|_year$|semester|quarter|cohort|period|session|admit_date|enrollment_date)",
     re.IGNORECASE,
 )
@@ -451,6 +455,12 @@ def profile_duplicates(df: pd.DataFrame) -> DuplicateProfile:
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
     logger.info("=== DuplicateProfiler start — %d rows, %d columns ===", len(df), len(df.columns))
+
+    # Strip synthetic index columns before profiling
+    index_cols = [c for c in df.columns if INDEX_COLUMN_PATTERNS.match(c)]
+    if index_cols:
+        logger.warning("Stripping synthetic index columns: %s", index_cols)
+        df = df.drop(columns=index_cols)
 
     candidate_keys = _detect_candidate_keys(df)
     logger.info("Top %d candidate keys identified", len(candidate_keys))
