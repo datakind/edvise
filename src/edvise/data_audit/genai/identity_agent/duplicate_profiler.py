@@ -24,8 +24,9 @@ MAX_CANDIDATE_POOL = 8           # top N columns per tier fed into combination s
 MAX_KEY_SIZE = 6                 # maximum compound key width
 TOP_K_CANDIDATES = 5             # number of ranked candidate keys to return
 
-HIGH_DUPLICATE_RATE_THRESHOLD = 0.50  # switch to sample-based profiling above this
-SAMPLE_GROUP_SIZE = 500               # number of duplicate groups to sample
+HIGH_DUPLICATE_RATE_THRESHOLD = 0.50  # duplicate row fraction (for logging / heuristics)
+SAMPLE_GROUP_SIZE = 500               # max duplicate groups used for classification (always capped)
+PROFILE_MAX_WORK_ROWS = 150_000     # cap rows merged for hashing / groupby classification
 
 STRUCTURAL_THRESHOLD = 0.70      # concentration_score >= this → structural
 NOISE_THRESHOLD = 0.30           # concentration_score <= this → noise
@@ -39,6 +40,15 @@ TEMPORAL_NAME_PATTERNS = re.compile(
     r"(?:^date$|_date$|^term$|_term$|^year$|_year$|semester|quarter|cohort|period|session|admit_date|enrollment_date)",
     re.IGNORECASE,
 )
+
+
+def _include_column_for_key_detection(series: pd.Series) -> bool:
+    """
+    Exclude dtypes that are almost never row-grain identifiers.
+    Floats are usually measures (GPA, rates, imputations); int/string/object
+    stay eligible so int64 IDs and coded keys remain in the pools.
+    """
+    return not pd.api.types.is_float_dtype(series)
 
 
 # ---------------------------------------------------------------------------
@@ -101,38 +111,45 @@ def _effective_tier1_nunique_floor(n_rows: int) -> int:
     return max(MIN_DISCRIMINATOR_NUNIQUE, min(TIER1_MIN_NUNIQUE_ABS, n_rows))
 
 
-def _column_stats(df: pd.DataFrame) -> list[tuple[str, int, float]]:
-    """(column_name, n_unique, null_rate) per column, in frame column order."""
+def _column_stats(df: pd.DataFrame) -> list[tuple[str, int, float, bool]]:
+    """(column_name, n_unique, null_rate, include_in_key_pools) per column, frame order."""
     rows = []
     for col in df.columns:
         series = df[col]
         null_rate = float(series.isnull().mean())
         n_unique = int(series.nunique())
-        rows.append((col, n_unique, null_rate))
+        key_ok = _include_column_for_key_detection(series)
+        if not key_ok:
+            logger.debug("  Excluding from key pools (float dtype): %s", col)
+        rows.append((col, n_unique, null_rate, key_ok))
     return rows
 
 
 def _rank_tier1_pool(
-    stats: list[tuple[str, int, float]],
+    stats: list[tuple[str, int, float, bool]],
     n_rows: int,
     max_null_rate: float,
 ) -> list[str]:
     floor = _effective_tier1_nunique_floor(n_rows)
-    eligible = [(c, u, nr) for c, u, nr in stats if nr <= max_null_rate and u >= floor]
+    eligible = [
+        (c, u, nr)
+        for c, u, nr, key_ok in stats
+        if key_ok and nr <= max_null_rate and u >= floor
+    ]
     eligible.sort(key=lambda t: (-t[1], t[0]))
     return [c for c, _, _ in eligible[:MAX_CANDIDATE_POOL]]
 
 
 def _rank_tier2_pool(
-    stats: list[tuple[str, int, float]],
+    stats: list[tuple[str, int, float, bool]],
     tier1_cols: list[str],
     n_rows: int,
 ) -> list[str]:
     tier1_set = set(tier1_cols)
     eligible = [
         (c, u, nr)
-        for c, u, nr in stats
-        if c not in tier1_set and nr <= MAX_NULL_RATE_TIER2 and u >= MIN_DISCRIMINATOR_NUNIQUE
+        for c, u, nr, key_ok in stats
+        if key_ok and c not in tier1_set and nr <= MAX_NULL_RATE_TIER2 and u >= MIN_DISCRIMINATOR_NUNIQUE
     ]
     eligible.sort(key=lambda t: (-t[1], t[0]))
     return [c for c, _, _ in eligible[:MAX_CANDIDATE_POOL]]
@@ -154,7 +171,9 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
             )
     tier2_cols = _rank_tier2_pool(stats, tier1_cols, n_rows)
 
-    for c, u, nr in stats:
+    for c, u, nr, key_ok in stats:
+        if not key_ok:
+            continue
         if c in tier1_cols:
             logger.debug("  Tier 1 (anchor): %s n_unique=%d null_rate=%.4f", c, u, nr)
         elif c in tier2_cols:
@@ -339,17 +358,21 @@ def _classify_competing(
 # Per-candidate profiling
 # ---------------------------------------------------------------------------
 
-def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> CandidateKeyProfile:
-    key_cols = candidate.columns
+def _profile_against_key(
+    df: pd.DataFrame,
+    candidate: CandidateKey,
+    *,
+    lightweight: bool = False,
+) -> CandidateKeyProfile:
+    key_cols = list(candidate.columns)
     non_key_cols = [c for c in df.columns if c not in key_cols]
     logger.info("Profiling duplicates against candidate key: %s", key_cols)
 
-    dupes_mask = df.duplicated(subset=key_cols, keep=False)
-    dup_groups_df = df[dupes_mask].copy()
-    duplicate_rate = len(dup_groups_df) / len(df)
-    logger.info("  Duplicate rows: %d / %d (%.1f%%)", len(dup_groups_df), len(df), 100 * duplicate_rate)
+    # One groupby for global duplicate structure (no full duplicate-row materialization).
+    sizes = df.groupby(key_cols, sort=False).size()
+    dup_sizes = sizes[sizes > 1]
 
-    if len(dup_groups_df) == 0:
+    if len(dup_sizes) == 0:
         group_stats = DuplicateGroupStats(
             total_rows=len(df), duplicate_rows=0, affected_entities=0,
             group_size_distribution={}, null_shadow_count=0,
@@ -360,46 +383,75 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
             classification=DuplicateClassification(subtype="null_shadow", temporal_signal=False),
         )
 
-    size_dist = {
-        int(k): int(v)
-        for k, v in dup_groups_df.groupby(list(key_cols)).size().value_counts().items()
-    }
-    affected_entities = dup_groups_df[list(key_cols)].drop_duplicates().shape[0]
-
-    # High duplicate rate — sample before vectorized classification
-    sampled = False
+    duplicate_rows = int(dup_sizes.sum())
+    duplicate_rate = duplicate_rows / len(df)
+    affected_entities = len(dup_sizes)
+    size_dist = {int(k): int(v) for k, v in dup_sizes.value_counts().items()}
+    logger.info("  Duplicate rows: %d / %d (%.1f%%)", duplicate_rows, len(df), 100 * duplicate_rate)
     if duplicate_rate >= HIGH_DUPLICATE_RATE_THRESHOLD:
-        logger.warning(
-            "  High duplicate rate (%.1f%%) — sampling %d groups",
-            100 * duplicate_rate, SAMPLE_GROUP_SIZE,
+        logger.info(
+            "  High duplicate row fraction (≥%.0f%%) — classification uses sampled groups/rows",
+            100 * HIGH_DUPLICATE_RATE_THRESHOLD,
         )
-        all_keys = dup_groups_df[list(key_cols)].drop_duplicates()
-        sampled_keys = all_keys.sample(min(SAMPLE_GROUP_SIZE, len(all_keys)), random_state=42)
-        dup_groups_df = dup_groups_df.merge(sampled_keys, on=list(key_cols))
-        non_key_cols = [c for c in dup_groups_df.columns if c not in key_cols]
+
+    # Downsample duplicate keys / rows before hashing and per-group work.
+    sampled = False
+    keys_df = dup_sizes.index.to_frame(index=False)
+    n_dup_groups = len(keys_df)
+    if n_dup_groups > SAMPLE_GROUP_SIZE:
+        keys_df = keys_df.sample(SAMPLE_GROUP_SIZE, random_state=42)
         sampled = True
+        logger.info(
+            "  Sampling %d duplicate groups (of %d) for classification",
+            SAMPLE_GROUP_SIZE,
+            n_dup_groups,
+        )
 
-    # --- Vectorized group classification ---
+    work = df.merge(keys_df, on=key_cols, how="inner")
+    if len(work) > PROFILE_MAX_WORK_ROWS:
+        work = work.sample(PROFILE_MAX_WORK_ROWS, random_state=43)
+        sampled = True
+        logger.info(
+            "  Capped duplicate working rows at %d for classification",
+            PROFILE_MAX_WORK_ROWS,
+        )
 
-    # True duplicate: all rows in group are identical (hash nunique == 1)
-    dup_groups_df["_hash"] = pd.util.hash_pandas_object(dup_groups_df[non_key_cols], index=False)
-    hash_nunique = dup_groups_df.groupby(list(key_cols))["_hash"].nunique()
+    if not non_key_cols:
+        group_stats = DuplicateGroupStats(
+            total_rows=len(df),
+            duplicate_rows=duplicate_rows,
+            affected_entities=affected_entities,
+            group_size_distribution=size_dist,
+            null_shadow_count=0,
+            true_duplicate_count=len(work.groupby(key_cols)),
+            competing_values_count=0,
+        )
+        return CandidateKeyProfile(
+            candidate_key=candidate,
+            group_stats=group_stats,
+            classification=DuplicateClassification(
+                subtype="true_duplicate", temporal_signal=False, sampled=sampled,
+            ),
+        )
+
+    # True duplicate: all rows in group are identical on non-key columns (hash nunique == 1)
+    work["_hash"] = pd.util.hash_pandas_object(work[non_key_cols], index=False)
+    hash_nunique = work.groupby(key_cols, sort=False)["_hash"].nunique()
     true_dup_keys = set(hash_nunique[hash_nunique == 1].index.tolist())
 
-    # Among non-true-duplicates: null_shadow if max nunique across non-key cols <= 1
-    remaining_mask = ~dup_groups_df.set_index(list(key_cols)).index.isin(true_dup_keys)
-    remaining = dup_groups_df[remaining_mask]
+    remaining = work.loc[~work.set_index(key_cols).index.isin(true_dup_keys)].drop(
+        columns=["_hash"], errors="ignore"
+    )
 
     if len(remaining) > 0:
-        nunique_per_col = (
-            remaining.groupby(list(key_cols))[non_key_cols]
-            .apply(lambda g: g.apply(lambda c: c.dropna().nunique()))
-            .max(axis=1)
-        )
+        nu_frames = [remaining.groupby(key_cols, sort=False)[c].nunique() for c in non_key_cols]
+        nunique_per_col = pd.concat(nu_frames, axis=1).max(axis=1)
         null_shadow_keys = set(nunique_per_col[nunique_per_col <= 1].index.tolist())
         competing_keys = set(nunique_per_col[nunique_per_col > 1].index.tolist())
     else:
         null_shadow_keys, competing_keys = set(), set()
+
+    work = work.drop(columns=["_hash"], errors="ignore")
 
     null_shadow_count = len(null_shadow_keys)
     true_dup_count = len(true_dup_keys)
@@ -412,7 +464,7 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
 
     group_stats = DuplicateGroupStats(
         total_rows=len(df),
-        duplicate_rows=int(dupes_mask.sum()),
+        duplicate_rows=duplicate_rows,
         affected_entities=affected_entities,
         group_size_distribution=size_dist,
         null_shadow_count=null_shadow_count,
@@ -423,13 +475,15 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
     if not competing_keys:
         subtype = "true_duplicate" if true_dup_count and not null_shadow_count else "null_shadow"
         classification = DuplicateClassification(subtype=subtype, temporal_signal=False, sampled=sampled)
+    elif lightweight:
+        classification = _classify_competing([], competing_count)
+        classification.sampled = sampled
+        logger.info("  Classification (lightweight): %s", classification.subtype)
     else:
-        competing_df = dup_groups_df[
-            dup_groups_df.set_index(list(key_cols)).index.isin(competing_keys)
-        ]
+        competing_df = work.loc[work.set_index(key_cols).index.isin(competing_keys)]
         competing_groups = [
-            group[non_key_cols]
-            for _, group in competing_df.groupby(list(key_cols), sort=False)
+            group[list(non_key_cols)]
+            for _, group in competing_df.groupby(key_cols, sort=False)
         ]
         conflict_profiles = _build_conflict_profiles(competing_groups, competing_count)
         classification = _classify_competing(conflict_profiles, competing_count)
@@ -446,7 +500,7 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def profile_duplicates(df: pd.DataFrame) -> DuplicateProfile:
+def profile_duplicates(df: pd.DataFrame, *, lightweight: bool = False) -> DuplicateProfile:
     """
     Self-contained duplicate profiler. Detects candidate keys and profiles
     duplicate patterns against each, returning a ranked DuplicateProfile
@@ -454,6 +508,8 @@ def profile_duplicates(df: pd.DataFrame) -> DuplicateProfile:
 
     Args:
         df: Raw institution DataFrame
+        lightweight: If True, skip per-column conflict profiling when rows compete on
+            non-key fields (faster; subtype ``competing_values`` without hints).
 
     Returns:
         DuplicateProfile with per-candidate-key analysis
@@ -480,7 +536,7 @@ def profile_duplicates(df: pd.DataFrame) -> DuplicateProfile:
             )
             continue
         profiled_uniqueness.add(candidate.uniqueness_score)
-        profiles.append(_profile_against_key(df, candidate))
+        profiles.append(_profile_against_key(df, candidate, lightweight=lightweight))
 
     logger.info("=== DuplicateProfiler complete ===")
     return DuplicateProfile(candidate_key_profiles=profiles)
