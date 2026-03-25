@@ -23,6 +23,8 @@ EARLY_STOP_UNIQUENESS = 0.995    # stop search if a key is essentially unique
 MAX_CANDIDATE_POOL = 8           # top N columns per tier fed into combination search
 MAX_KEY_SIZE = 6                 # maximum compound key width
 TOP_K_CANDIDATES = 10            # ranked candidate keys returned & profiled (agent context)
+LARGE_TABLE_ROW_THRESHOLD = 500_000
+MAX_KEY_SIZE_LARGE_TABLE = 4     # cap width on large tables to avoid combinatorial blowups
 
 HIGH_DUPLICATE_RATE_THRESHOLD = 0.50  # duplicate row fraction (for logging / heuristics)
 SAMPLE_GROUP_SIZE = 500               # max duplicate groups used for classification (always capped)
@@ -244,8 +246,16 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     # for agents reasoning about grain. best_by_subset is only for single-column
     # near-unique anchors from the loop above.
     all_pool = tier1_cols + tier2_cols
+    effective_max_key_size = MAX_KEY_SIZE
+    if n_rows >= LARGE_TABLE_ROW_THRESHOLD:
+        effective_max_key_size = min(MAX_KEY_SIZE, MAX_KEY_SIZE_LARGE_TABLE)
+        logger.info(
+            "Large table detected (%d rows) — limiting max key width to %d",
+            n_rows,
+            effective_max_key_size,
+        )
     stop_enumeration = False
-    for size in range(2, min(MAX_KEY_SIZE, len(all_pool)) + 1):
+    for size in range(2, min(effective_max_key_size, len(all_pool)) + 1):
         if stop_enumeration:
             break
         logger.info("  Evaluating size-%d combinations...", size)
@@ -273,6 +283,14 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
             # this combo is strictly worse (does not block size-3 after a strong size-2).
             best_so_far = max((c.uniqueness_score for c in candidates), default=0.0)
             at_best = sum(1 for c in candidates if c.uniqueness_score >= best_so_far)
+            if best_so_far >= EARLY_STOP_UNIQUENESS and at_best >= TOP_K_CANDIDATES:
+                logger.info(
+                    "  Have %d near-unique candidates at %.4f — stopping",
+                    at_best,
+                    best_so_far,
+                )
+                stop_enumeration = True
+                break
             if at_best >= TOP_K_CANDIDATES and uniqueness < best_so_far:
                 logger.info("  Have %d candidates at best uniqueness %.4f — stopping", at_best, best_so_far)
                 stop_enumeration = True
