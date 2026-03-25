@@ -18,6 +18,7 @@ This produces the normalized DataFrame + schema_contract.json needed as input to
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from datetime import datetime, timezone
 from collections.abc import Callable
 from typing import Any, Optional
@@ -31,6 +32,7 @@ from edvise.data_audit.custom_cleaning import (
     TermOrderFn,
     assert_dataframe_unique_keys,
     build_schema_contract,
+    dtype_opts_from_cleaning_config,
     generate_training_dtypes,
     normalize_columns,
     rename_student_id_alias_column,
@@ -151,8 +153,9 @@ def build_schema_contract_from_config(
             ``(DataFrame) -> DataFrame``. Applied after term order and student-id alias rename,
             then full-row ``drop_duplicates()`` runs (same order as ``clean_dataset`` in
             custom_cleaning: dedupe_fn first, then full-row dedupe), then unique-key checks.
-        cleaning_cfg: When set, ``student_id_alias`` is taken from this object only.
-                      When omitted, uses ``school_config.cleaning.student_id_alias`` if present.
+        cleaning_cfg: When set, ``student_id_alias`` and ``forced_dtypes`` merge into dtype
+                      options (explicit ``dtype_opts.forced_dtypes`` wins per column).
+                      When omitted, uses ``school_config.cleaning`` if present.
 
     Returns:
         Tuple of (cleaned_dataframes, schema_contract)
@@ -163,6 +166,11 @@ def build_schema_contract_from_config(
     term_col_by_dataset = term_col_by_dataset or {}
     dedupe_fn_by_dataset = dedupe_fn_by_dataset or {}
     merged_cleaning = _merged_cleaning_cfg(school_config, cleaning_cfg)
+    cfg_dtype_opts = dtype_opts_from_cleaning_config(merged_cleaning)
+    dtype_opts = replace(
+        dtype_opts,
+        forced_dtypes={**cfg_dtype_opts.forced_dtypes, **dtype_opts.forced_dtypes},
+    )
 
     cleaned_map: dict[str, pd.DataFrame] = {}
     specs: dict[str, dict[str, Any]] = {}
