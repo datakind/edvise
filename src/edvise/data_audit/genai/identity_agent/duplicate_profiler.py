@@ -179,7 +179,6 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
             logger.info("  Early stop: %s achieves %.4f uniqueness", col, uniqueness)
             break
 
-    # Compound candidates: must include at least one Tier 1 column
     all_pool = tier1_cols + tier2_cols
     early_stopped = False
     for size in range(2, min(MAX_KEY_SIZE, len(all_pool)) + 1):
@@ -189,7 +188,6 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
         for combo in combinations(all_pool, size):
             if not any(c in tier1_cols for c in combo):
                 continue
-            # Skip if a strict subset already achieved best possible uniqueness
             if _is_dominated(combo, best_by_subset):
                 logger.debug("  Skipping dominated combo: %s", combo)
                 continue
@@ -205,6 +203,13 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
                 best_by_subset.add(frozenset(combo))
                 best_uniqueness = uniqueness
                 logger.info("  Early stop on compound key %s (%.4f) — pruning larger sizes", combo, uniqueness)
+                early_stopped = True
+                break
+            # If we already have enough candidates at the current best uniqueness, stop
+            best_so_far = max((c.uniqueness_score for c in candidates), default=0.0)
+            at_best = sum(1 for c in candidates if c.uniqueness_score >= best_so_far)
+            if at_best >= TOP_K_CANDIDATES and uniqueness < best_so_far:
+                logger.info("  Have %d candidates at best uniqueness %.4f — stopping combination search", at_best, best_so_far)
                 early_stopped = True
                 break
 
@@ -279,7 +284,8 @@ def _classify_competing(
 
     top = conflict_profiles[0]
     concentration_score = top.conflict_fraction
-    temporal_signal = any(p.is_temporal for p in conflict_profiles[:3])
+    # Temporal requires the TOP conflicting column to be temporal — not just any in top 3
+    temporal_signal = top.is_temporal
 
     if temporal_signal and concentration_score >= NOISE_THRESHOLD:
         subtype = "temporal"
@@ -330,100 +336,99 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
     logger.info("Profiling duplicates against candidate key: %s", key_cols)
 
     dupes_mask = df.duplicated(subset=key_cols, keep=False)
-    dup_groups_df = df[dupes_mask]
+    dup_groups_df = df[dupes_mask].copy()
     duplicate_rate = len(dup_groups_df) / len(df)
     logger.info("  Duplicate rows: %d / %d (%.1f%%)", len(dup_groups_df), len(df), 100 * duplicate_rate)
 
-    # High duplicate rate — sample-based profiling to avoid O(n) group iteration
+    if len(dup_groups_df) == 0:
+        group_stats = DuplicateGroupStats(
+            total_rows=len(df), duplicate_rows=0, affected_entities=0,
+            group_size_distribution={}, null_shadow_count=0,
+            true_duplicate_count=0, competing_values_count=0,
+        )
+        return CandidateKeyProfile(
+            candidate_key=candidate, group_stats=group_stats,
+            classification=DuplicateClassification(subtype="null_shadow", temporal_signal=False),
+        )
+
+    size_dist = {
+        int(k): int(v)
+        for k, v in dup_groups_df.groupby(list(key_cols)).size().value_counts().items()
+    }
+    affected_entities = dup_groups_df[list(key_cols)].drop_duplicates().shape[0]
+
+    # High duplicate rate — sample before vectorized classification
     if duplicate_rate >= HIGH_DUPLICATE_RATE_THRESHOLD:
         logger.warning(
-            "  High duplicate rate (%.1f%%) — switching to sample-based profiling (n=%d groups)",
+            "  High duplicate rate (%.1f%%) — sampling %d groups",
             100 * duplicate_rate, SAMPLE_GROUP_SIZE,
         )
         all_keys = dup_groups_df[list(key_cols)].drop_duplicates()
         sampled_keys = all_keys.sample(min(SAMPLE_GROUP_SIZE, len(all_keys)), random_state=42)
-        sample_df = dup_groups_df.merge(sampled_keys, on=list(key_cols))
-        non_key_cols_sample = [c for c in sample_df.columns if c not in key_cols]
+        dup_groups_df = dup_groups_df.merge(sampled_keys, on=list(key_cols))
+        non_key_cols = [c for c in dup_groups_df.columns if c not in key_cols]
+        sampled = True
+    else:
+        sampled = False
 
-        null_shadow_count, true_dup_count = 0, 0
-        competing_groups = []
-        for _, group in sample_df.groupby(list(key_cols), sort=False):
-            label = _classify_group(group[non_key_cols_sample])
-            if label == "null_shadow":
-                null_shadow_count += 1
-            elif label == "true_duplicate":
-                true_dup_count += 1
-            else:
-                competing_groups.append(group[non_key_cols_sample])
+    # --- Vectorized group classification ---
 
-        competing_count = len(competing_groups)
-        logger.info(
-            "  Sample classification — null_shadow: %d, true_duplicate: %d, competing_values: %d (of %d sampled)",
-            null_shadow_count, true_dup_count, competing_count, len(sampled_keys),
+    # True duplicate: all rows in group are identical (hash nunique == 1)
+    dup_groups_df["_hash"] = pd.util.hash_pandas_object(dup_groups_df[non_key_cols], index=False)
+    hash_nunique = dup_groups_df.groupby(list(key_cols))["_hash"].nunique()
+    true_dup_keys = set(hash_nunique[hash_nunique == 1].index.tolist())
+
+    # Among non-true-duplicates: null_shadow if max nunique across non-key cols <= 1
+    remaining = dup_groups_df[~dup_groups_df.set_index(list(key_cols)).index.isin(true_dup_keys)]
+    if len(remaining) > 0:
+        nunique_per_col = (
+            remaining.groupby(list(key_cols))[non_key_cols]
+            .apply(lambda g: g.apply(lambda c: c.dropna().nunique()))
+            .max(axis=1)
         )
+        null_shadow_keys = set(nunique_per_col[nunique_per_col <= 1].index.tolist())
+        competing_keys = set(nunique_per_col[nunique_per_col > 1].index.tolist())
+    else:
+        null_shadow_keys, competing_keys = set(), set()
 
-        size_dist = {int(k): int(v) for k, v in dup_groups_df.groupby(list(key_cols)).size().value_counts().items()}
-        group_stats = DuplicateGroupStats(
-            total_rows=len(df),
-            duplicate_rows=len(dup_groups_df),
-            affected_entities=len(all_keys),
-            group_size_distribution=size_dist,
-            null_shadow_count=null_shadow_count,
-            true_duplicate_count=true_dup_count,
-            competing_values_count=competing_count,
-        )
-
-        if competing_groups:
-            conflict_profiles = _build_conflict_profiles(competing_groups, competing_count)
-            classification = _classify_competing(conflict_profiles, competing_count)
-        else:
-            subtype = "null_shadow" if null_shadow_count >= true_dup_count else "true_duplicate"
-            classification = DuplicateClassification(subtype=subtype, temporal_signal=False)
-
-        classification.sampled = True
-        logger.info("  Classification (sampled): %s", classification.subtype)
-        return CandidateKeyProfile(candidate_key=candidate, group_stats=group_stats, classification=classification)
-
-    # Full scan
-    null_shadow_ids, true_dup_ids, competing, competing_groups = [], [], [], []
-    for key_val, group in dup_groups_df.groupby(key_cols, sort=False):
-        label = _classify_group(group[non_key_cols])
-        if label == "null_shadow":
-            null_shadow_ids.append(key_val)
-        elif label == "true_duplicate":
-            true_dup_ids.append(key_val)
-        else:
-            competing.append(group)
-            competing_groups.append(group[non_key_cols])
+    null_shadow_count = len(null_shadow_keys)
+    true_dup_count = len(true_dup_keys)
+    competing_count = len(competing_keys)
 
     logger.info(
         "  Group classification — null_shadow: %d, true_duplicate: %d, competing_values: %d",
-        len(null_shadow_ids), len(true_dup_ids), len(competing),
+        null_shadow_count, true_dup_count, competing_count,
     )
 
-    size_dist = (
-        {int(k): int(v) for k, v in dup_groups_df.groupby(key_cols).size().value_counts().items()}
-        if len(dup_groups_df) > 0 else {}
-    )
     group_stats = DuplicateGroupStats(
         total_rows=len(df),
-        duplicate_rows=len(dup_groups_df),
-        affected_entities=dup_groups_df[list(key_cols)].drop_duplicates().shape[0],
+        duplicate_rows=len(df[df.duplicated(subset=key_cols, keep=False)]),
+        affected_entities=affected_entities,
         group_size_distribution=size_dist,
-        null_shadow_count=len(null_shadow_ids),
-        true_duplicate_count=len(true_dup_ids),
-        competing_values_count=len(competing),
+        null_shadow_count=null_shadow_count,
+        true_duplicate_count=true_dup_count,
+        competing_values_count=competing_count,
     )
 
-    if len(dup_groups_df) == 0:
-        classification = DuplicateClassification(subtype="null_shadow", temporal_signal=False)
-    elif not competing:
-        subtype = "true_duplicate" if true_dup_ids and not null_shadow_ids else "null_shadow"
-        classification = DuplicateClassification(subtype=subtype, temporal_signal=False)
+    if not competing_keys:
+        subtype = "true_duplicate" if true_dup_count and not null_shadow_count else "null_shadow"
+        classification = DuplicateClassification(subtype=subtype, temporal_signal=False, sampled=sampled)
     else:
-        conflict_profiles = _build_conflict_profiles(competing_groups, len(competing))
-        classification = _classify_competing(conflict_profiles, len(competing))
-        logger.info("  Classification: %s (concentration=%.4f)", classification.subtype, classification.concentration_score or 0)
+        # Build conflict profiles from competing groups only
+        competing_df = dup_groups_df[
+            dup_groups_df.set_index(list(key_cols)).index.isin(competing_keys)
+        ]
+        competing_groups = [
+            group[non_key_cols]
+            for _, group in competing_df.groupby(list(key_cols), sort=False)
+        ]
+        conflict_profiles = _build_conflict_profiles(competing_groups, competing_count)
+        classification = _classify_competing(conflict_profiles, competing_count)
+        classification.sampled = sampled
+        logger.info(
+            "  Classification: %s (concentration=%.4f)",
+            classification.subtype, classification.concentration_score or 0,
+        )
 
     return CandidateKeyProfile(candidate_key=candidate, group_stats=group_stats, classification=classification)
 
@@ -451,7 +456,15 @@ def profile_duplicates(df: pd.DataFrame) -> DuplicateProfile:
     logger.info("Top %d candidate keys identified", len(candidate_keys))
 
     profiles = []
+    profiled_uniqueness: set[float] = set()
     for candidate in candidate_keys:
+        if candidate.uniqueness_score in profiled_uniqueness:
+            logger.info(
+                "  Skipping profile for %s — uniqueness %.4f already profiled",
+                candidate.columns, candidate.uniqueness_score,
+            )
+            continue
+        profiled_uniqueness.add(candidate.uniqueness_score)
         profiles.append(_profile_against_key(df, candidate))
 
     logger.info("=== DuplicateProfiler complete ===")
