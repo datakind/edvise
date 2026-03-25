@@ -362,7 +362,7 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
 
     # Among non-true-duplicates: null_shadow if max nunique across non-key cols <= 1
     remaining_mask = ~dup_groups_df.set_index(list(key_cols)).index.isin(true_dup_keys)
-    remaining = dup_groups_df[remaining_mask.values]
+    remaining = dup_groups_df[remaining_mask]
 
     if len(remaining) > 0:
         nunique_per_col = (
