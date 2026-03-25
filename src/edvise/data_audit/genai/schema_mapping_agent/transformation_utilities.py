@@ -442,6 +442,82 @@ def extract_year(s: pd.Series) -> pd.Series:
     )
 
 
+def format_academic_year_from_calendar_year(s: pd.Series) -> pd.Series:
+    """
+    Convert a single calendar start year to PDP academic year label YYYY-YY.
+
+    Use after ``extract_year`` when the cohort is defined by the fall year that
+    begins the academic year (e.g. first enrollment in Fall 2018 → ``2018-19``).
+
+    Accepts:
+        - Int / float / numeric string (e.g. 2018, 2018.0, ``"2018"``)
+        - Datetime (calendar year component is used)
+
+    Output examples: ``2018`` → ``2018-19``, ``2020`` → ``2020-21``.
+
+    Unparseable or out-of-range years → ``pd.NA``.
+    """
+    if pd.api.types.is_datetime64_any_dtype(s.dtype):
+        year_num = pd.to_numeric(s.dt.year, errors="coerce")
+    else:
+        year_num = pd.to_numeric(s, errors="coerce")
+        from_str = s.astype("string").str.extract(r"(\d{4})", expand=False)
+        year_num = year_num.fillna(pd.to_numeric(from_str, errors="coerce"))
+
+    yi = year_num.round().astype("Int64")
+    valid = yi.notna() & (yi >= 1000) & (yi <= 9999)
+    y_str = yi.astype("Int64").astype("string")
+    end_two = (yi + 1).astype("Int64").astype("string").str[-2:]
+    out = y_str + "-" + end_two
+    return out.where(valid, pd.NA).astype("string")
+
+
+def term_season_from_datetime(s: pd.Series) -> pd.Series:
+    """
+    Map each datetime to a canonical term season label.
+
+    Month bands (inclusive):
+        - August–December → ``FALL``
+        - January–May → ``SPRING``
+        - June–July → ``SUMMER``
+
+    NaT / unparseable inputs → ``pd.NA``.
+    """
+    dt = pd.to_datetime(s, errors="coerce")
+    m = dt.dt.month
+    conds = [
+        m.isin(range(8, 13)),
+        m.isin(range(1, 6)),
+        m.isin([6, 7]),
+    ]
+    labels = ["FALL", "SPRING", "SUMMER"]
+    picked = np.select(conds, labels, default=None)
+    return pd.Series(picked, index=s.index, dtype="string")
+
+
+def substring_after_first_delimiter(s: pd.Series, delimiter: str = "-") -> pd.Series:
+    """
+    Return the substring after the first occurrence of ``delimiter``.
+
+    Examples with default ``"-"``:
+        ``ENGLISH-101`` → ``101``
+        ``BIOLOGY-121`` → ``121``
+        ``SPEECH-101-1`` → ``101-1``
+
+    Rows with no delimiter, empty suffix, or null input → ``pd.NA``.
+    """
+    if not delimiter:
+        raise ValueError("delimiter must be a non-empty string")
+    str_s = s.astype("string")
+    expanded = str_s.str.split(delimiter, n=1, expand=True)
+    if expanded.shape[1] < 2:
+        return pd.Series(pd.NA, index=s.index, dtype="string")
+    tail = expanded[1].replace("", pd.NA).astype("string")
+    tail.index = s.index
+    tail.name = None
+    return tail
+
+
 def parse_yyyymm(s: pd.Series) -> pd.Series:
     """
     Parse YYYYMM string Series to datetime using the first day of the month.

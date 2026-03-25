@@ -22,7 +22,7 @@ MAX_NULL_RATE_TIER2 = 0.30       # Tier 2: discriminators can be noisier; also T
 EARLY_STOP_UNIQUENESS = 0.995    # stop search if a key is essentially unique
 MAX_CANDIDATE_POOL = 8           # top N columns per tier fed into combination search
 MAX_KEY_SIZE = 6                 # maximum compound key width
-TOP_K_CANDIDATES = 15            # ranked candidate keys returned & profiled (agent context)
+TOP_K_CANDIDATES = 10            # ranked candidate keys returned & profiled (agent context)
 
 HIGH_DUPLICATE_RATE_THRESHOLD = 0.50  # duplicate row fraction (for logging / heuristics)
 SAMPLE_GROUP_SIZE = 500               # max duplicate groups used for classification (always capped)
@@ -31,8 +31,9 @@ PROFILE_MAX_WORK_ROWS = 150_000     # cap rows merged for hashing / groupby clas
 STRUCTURAL_THRESHOLD = 0.70      # concentration_score >= this → structural
 NOISE_THRESHOLD = 0.30           # concentration_score <= this → noise
 
+# Pandas often emits Unnamed: 0, Unnamed: 0.1, etc. when reading CSV with odd indices.
 INDEX_COLUMN_PATTERNS = re.compile(
-    r"^(unnamed:\s*\d+|index|row_number|row_num|rownum|row_id|__index_level_\d+__)$",
+    r"^(unnamed:\s*[\d.]+|index|row_number|row_num|rownum|row_id|__index_level_\d+__)$",
     re.IGNORECASE,
 )
 
@@ -222,7 +223,8 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     candidates = []
     best_by_subset: set[frozenset] = set()
 
-    # Single-column candidates from Tier 1 only
+    # Single-column candidates from Tier 1 only (emit all; do not break after the first
+    # near-unique column — otherwise a synthetic index or date column can skip student_id).
     for col in tier1_cols:
         uniqueness = df[col].nunique() / n_rows
         null_rate = df[col].isnull().mean()
@@ -234,8 +236,7 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
         ))
         if uniqueness >= EARLY_STOP_UNIQUENESS:
             best_by_subset.add(frozenset([col]))
-            logger.info("  Early stop: %s achieves %.4f uniqueness", col, uniqueness)
-            break
+            logger.info("  Near-unique single column: %s (%.4f)", col, uniqueness)
 
     # Compound candidates: must include at least one Tier 1 column.
     # We do not add compound keys to best_by_subset: a near-unique pair like

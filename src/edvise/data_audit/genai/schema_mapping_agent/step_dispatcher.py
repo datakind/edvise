@@ -33,6 +33,7 @@ from edvise.data_audit.genai.schema_mapping_agent.transformation_utilities impor
     extract_academic_year_from_term_code,
     extract_term_season_from_term_code,
     extract_year,
+    format_academic_year_from_calendar_year,
     parse_term_code_to_datetime,
     fill_constant,
     fill_nulls,
@@ -51,6 +52,8 @@ from edvise.data_audit.genai.schema_mapping_agent.transformation_utilities impor
     replace_values_with_null,
     strip_trailing_decimal,
     strip_whitespace,
+    substring_after_first_delimiter,
+    term_season_from_datetime,
     uppercase,
 )
 
@@ -159,6 +162,12 @@ def dispatch_step(
         "fill_constant":            lambda: fill_constant(s, step.value),
         "normalize_year_range":     lambda: normalize_year_range(s),
         "extract_year":             lambda: extract_year(s),
+        "format_academic_year_from_calendar_year": lambda: format_academic_year_from_calendar_year(s),
+        "term_season_from_datetime": lambda: term_season_from_datetime(s),
+        "substring_after_first_delimiter": lambda: substring_after_first_delimiter(
+            s,
+            delimiter=step.delimiter,
+        ),
         "parse_yyyymm":             lambda: parse_yyyymm(s),
         "parse_term_description":   lambda: parse_term_description(s),
         "extract_academic_year_from_term_code": lambda: extract_academic_year_from_term_code(s),

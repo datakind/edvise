@@ -481,6 +481,25 @@ class ExtractYearStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
+class FormatAcademicYearFromCalendarYearStep(StrictBaseModel):
+    function_name: Literal["format_academic_year_from_calendar_year"]
+    column: str
+    rationale: Optional[str] = None
+
+
+class TermSeasonFromDatetimeStep(StrictBaseModel):
+    function_name: Literal["term_season_from_datetime"]
+    column: str
+    rationale: Optional[str] = None
+
+
+class SubstringAfterFirstDelimiterStep(StrictBaseModel):
+    function_name: Literal["substring_after_first_delimiter"]
+    column: str
+    delimiter: str = "-"
+    rationale: Optional[str] = None
+
+
 class ParseYyyymmStep(StrictBaseModel):
     function_name: Literal["parse_yyyymm"]
     column: str
@@ -579,6 +598,9 @@ TransformationStep = Annotated[
         FillConstantStep,
         NormalizeYearRangeStep,
         ExtractYearStep,
+        FormatAcademicYearFromCalendarYearStep,
+        TermSeasonFromDatetimeStep,
+        SubstringAfterFirstDelimiterStep,
         ParseYyyymmStep,
         ParseTermDescriptionStep,
         ExtractAcademicYearFromTermCodeStep,
