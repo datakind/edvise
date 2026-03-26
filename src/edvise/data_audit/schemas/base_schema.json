@@ -206,7 +206,7 @@
             "coerce": true,
             "nullable": false,
             "required": false,
-            "aliases": ["program_of_study_term_1", "program_of_study_year_1"],
+            "aliases": [],
             "checks": []
           },
           "major_at_first_enrollment": {

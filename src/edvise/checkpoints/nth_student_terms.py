@@ -109,47 +109,6 @@ def first_student_terms(
     )
 
 
-def last_student_terms(
-    df: pd.DataFrame,
-    *,
-    student_id_cols: str | list[str] = "student_id",
-    sort_cols: str | list[str] = "term_rank",
-    include_cols: t.Optional[list[str]] = None,
-    term_is_pre_cohort_col: str = "term_is_pre_cohort",
-    exclude_pre_cohort_terms: bool = False,
-    term_is_core_col: str = "term_is_core",
-    exclude_non_core_terms: bool = False,
-) -> pd.DataFrame:
-    """
-    For each student, get the last (-1th) row in ``df`` in ascending order of ``sort_cols`` ,
-    and a configurable subset of columns. Default includes non-core terms (summers and winters).
-
-    Args:
-        df: Student-term dataset.
-        student_id_cols: Column(s) that uniquely identify students in ``df`` .
-        sort_cols: Column(s) used to sort students' terms, typically chronologically.
-        include_cols: Column(s) included in output
-        term_is_pre_cohort_col: Column identifying if a term is pre-cohort
-        exclude_pre_cohort_terms: Boolean identifying whether or not to exclude pre-cohort terms; True means exclude, False means don't exclude
-        term_is_core_col: Column identifying if a term is a core term, where core terms are by default FALL and SPRING
-        exclude_non_core_terms: Boolean identifying whether or not to exclude pre-cohort terms; True means exclude, False means don't exclude
-
-    See Also:
-        - :func:`nth_student_terms()`
-    """
-    return nth_student_terms(
-        df,
-        n=-1,
-        student_id_cols=student_id_cols,
-        sort_cols=sort_cols,
-        include_cols=include_cols,
-        term_is_pre_cohort_col=term_is_pre_cohort_col,
-        exclude_pre_cohort_terms=exclude_pre_cohort_terms,
-        term_is_core_col=term_is_core_col,
-        exclude_non_core_terms=exclude_non_core_terms,
-    )
-
-
 def first_student_terms_at_num_credits_earned(
     df: pd.DataFrame,
     *,
@@ -226,43 +185,6 @@ def first_student_terms_within_cohort(
         exclude_pre_cohort_terms=exclude_pre_cohort_terms,
         term_is_core_col=term_is_core_col,
         exclude_non_core_terms=exclude_non_core_terms,
-    )
-
-
-def last_student_terms_in_enrollment_year(
-    df: pd.DataFrame,
-    *,
-    enrollment_year: int,
-    enrollment_year_col: str = "year_of_enrollment_at_cohort_inst",
-    student_id_cols: str | list[str] = "student_id",
-    sort_cols: str | list[str] = "term_rank",
-    include_cols: t.Optional[list[str]] = None,
-) -> pd.DataFrame:
-    """
-    For each student, get the last row in ``df`` in ascending order of ``sort_cols``
-    for which the term occurred during a particular year of students' enrollment;
-    for example, ``enrollment_year=1`` => last terms in students' first year of enrollment.
-
-    Args:
-        df: Student-term dataset.
-        enrollment_year
-        enrollment_year_col
-        student_id_cols
-        sort_cols
-        include_cols
-
-    See Also:
-        - :func:`last_student_terms()`
-
-    Warning:
-        Students that aren't enrolled for at least ``enrollment_year`` years are dropped.
-    """
-    return last_student_terms(
-        # exclude rows that aren't in specified enrollment year
-        df.loc[df[enrollment_year_col].eq(enrollment_year), :],
-        student_id_cols=student_id_cols,
-        sort_cols=sort_cols,
-        include_cols=include_cols,
     )
 
 

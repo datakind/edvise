@@ -42,11 +42,7 @@ def prepare_glm_enum_alignment_inputs(
       (df_proc, bg_proc)
     """
     if cip_like_cols is None:
-        cip_like_cols = (
-            "term_program_of_study",
-            "program_of_study_year_1",
-            "program_of_study_term_1",
-        )
+        cip_like_cols = ("term_program_of_study",)
 
     out = model._model_json["output"]
     names = list(out["names"])
