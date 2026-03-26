@@ -217,6 +217,7 @@ def credential_degree_series_to_canonical(series: pd.Series) -> pd.Series:
 # Grade
 # ---------------------------------------------------------------------------
 
+
 def grade_series_normalized(series: pd.Series) -> pd.Series:
     """
     Normalize grade for EDA: strip whitespace and uppercase.
@@ -233,6 +234,7 @@ def grade_series_normalized(series: pd.Series) -> pd.Series:
 # ---------------------------------------------------------------------------
 # Student schema transforms (entry_term, learner_age, pell_recipient_year1)
 # ---------------------------------------------------------------------------
+
 
 def _apply_student_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -259,6 +261,7 @@ def _apply_student_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Course schema transforms (academic_term, term_pell_recipient)
 # ---------------------------------------------------------------------------
+
 
 def _apply_course_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
     """

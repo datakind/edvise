@@ -33,9 +33,34 @@ from edvise.data_audit.schemas._edvise_shared import (
 
 # Letter grades and non-GPA status codes per product spec
 ALLOWED_LETTER_GRADES = {
-    "A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-", "F",
-    "P", "PASS", "S", "SAT", "U", "UNSAT", "W", "WD", "I", "IP",
-    "AU", "NG", "NR", "M", "O",
+    "A+",
+    "A",
+    "A-",
+    "B+",
+    "B",
+    "B-",
+    "C+",
+    "C",
+    "C-",
+    "D+",
+    "D",
+    "D-",
+    "F",
+    "P",
+    "PASS",
+    "S",
+    "SAT",
+    "U",
+    "UNSAT",
+    "W",
+    "WD",
+    "I",
+    "IP",
+    "AU",
+    "NG",
+    "NR",
+    "M",
+    "O",
 }
 
 CreditsField = pda.Field(nullable=False, ge=0.0)
@@ -101,9 +126,7 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     gateway_or_developmental_flag: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True
     )
-    section_size: t.Optional[pt.Series["float64"]] = pda.Field(
-        nullable=True, ge=0.0
-    )
+    section_size: t.Optional[pt.Series["float64"]] = pda.Field(nullable=True, ge=0.0)
     term_degree: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     term_declared_major: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True
@@ -127,6 +150,7 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         Accept letter/status grades from ALLOWED_LETTER_GRADES or any numeric
         float in [0.0, 4.0] (e.g. "3.5", "2.0", "0").
         """
+
         def _is_valid(val: str) -> bool:
             if pd.isna(val):
                 return True

@@ -101,12 +101,12 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
     military_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     employment_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     disability_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
-    bachelors_degree_conferral_date: t.Optional[
-        pt.Series["datetime64[ns]"]
-    ] = pda.Field(nullable=True)
-    associates_degree_conferral_date: t.Optional[
-        pt.Series["datetime64[ns]"]
-    ] = pda.Field(nullable=True)
+    bachelors_degree_conferral_date: t.Optional[pt.Series["datetime64[ns]"]] = (
+        pda.Field(nullable=True)
+    )
+    associates_degree_conferral_date: t.Optional[pt.Series["datetime64[ns]"]] = (
+        pda.Field(nullable=True)
+    )
     conferred_credential_type: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True
     )
@@ -126,7 +126,6 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
     credits_earned_dual_enrollment: t.Optional[pt.Series["float64"]] = (
         CreditsEarnedField
     )
-
 
     @classmethod
     def validate(
