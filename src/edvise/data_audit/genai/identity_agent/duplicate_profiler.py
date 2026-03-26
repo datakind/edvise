@@ -24,10 +24,12 @@ MAX_CANDIDATE_POOL = 8           # top N columns per tier fed into combination s
 MAX_KEY_SIZE = 6                 # maximum compound key width
 TOP_K_CANDIDATES = 10            # ranked candidate keys returned & profiled (agent context)
 LARGE_TABLE_ROW_THRESHOLD = 500_000
-MAX_KEY_SIZE_LARGE_TABLE = 4     # cap width on large tables to avoid combinatorial blowups
+MAX_KEY_SIZE_LARGE_TABLE = 3     # cap width on large tables to avoid combinatorial blowups
 MAX_COMBINATION_EVALS = 3_000    # hard cap of combo uniqueness evaluations
-MAX_COMBINATION_EVALS_LARGE_TABLE = 900
+MAX_COMBINATION_EVALS_LARGE_TABLE = 40
 NEAR_BEST_STOP_DELTA = 0.003     # treat near-best uniqueness as "good enough" plateau
+LARGE_TABLE_KEY_SEARCH_SAMPLE_ROWS = 100_000
+TOP_K_CANDIDATES_LARGE_TABLE = 5
 
 HIGH_DUPLICATE_RATE_THRESHOLD = 0.50  # duplicate row fraction (for logging / heuristics)
 SAMPLE_GROUP_SIZE = 500               # max duplicate groups used for classification (always capped)
@@ -181,6 +183,9 @@ def _rank_tier2_pool(
 def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     n_rows = len(df)
     logger.info("Detecting candidate keys across %d columns, %d rows", len(df.columns), n_rows)
+    top_k_limit = TOP_K_CANDIDATES
+    if n_rows >= LARGE_TABLE_ROW_THRESHOLD:
+        top_k_limit = TOP_K_CANDIDATES_LARGE_TABLE
 
     stats = _column_stats(df)
     tier1_cols = _rank_tier1_pool(stats, n_rows, MAX_NULL_RATE_TIER1)
@@ -209,14 +214,25 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
         logger.warning("No Tier 1 columns found — cannot generate compound key candidates")
         return []
 
-    def _uniqueness(cols: list[str]) -> float:
+    eval_df = df
+    use_sampled_key_search = False
+    if n_rows >= LARGE_TABLE_ROW_THRESHOLD and len(df) > LARGE_TABLE_KEY_SEARCH_SAMPLE_ROWS:
+        eval_df = df.sample(LARGE_TABLE_KEY_SEARCH_SAMPLE_ROWS, random_state=44)
+        use_sampled_key_search = True
+        logger.info(
+            "Using %d-row sample for combo key search; finalists rescored on full data",
+            len(eval_df),
+        )
+
+    def _uniqueness(cols: list[str], source_df: pd.DataFrame) -> float:
+        source_n_rows = len(source_df)
         if len(cols) == 1:
-            return df[cols[0]].nunique() / n_rows
+            return source_df[cols[0]].nunique() / source_n_rows
         compound = sum(
-            pd.util.hash_pandas_object(df[c], index=False) * (31 ** i)
+            pd.util.hash_pandas_object(source_df[c], index=False) * (31 ** i)
             for i, c in enumerate(cols)
         )
-        return compound.nunique() / n_rows
+        return compound.nunique() / source_n_rows
 
     def _is_dominated(combo: tuple[str, ...], best_by_subset: set[frozenset]) -> bool:
         for size in range(1, len(combo)):
@@ -231,7 +247,7 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     # Single-column candidates from Tier 1 only (emit all; do not break after the first
     # near-unique column — otherwise a synthetic index or date column can skip student_id).
     for col in tier1_cols:
-        uniqueness = df[col].nunique() / n_rows
+        uniqueness = _uniqueness([col], eval_df)
         null_rate = df[col].isnull().mean()
         candidates.append(CandidateKey(
             columns=[col],
@@ -272,7 +288,7 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
             if _is_dominated(combo, best_by_subset):
                 logger.debug("  Skipping dominated combo: %s", combo)
                 continue
-            uniqueness = _uniqueness(list(combo))
+            uniqueness = _uniqueness(list(combo), eval_df)
             evaluated_combos += 1
             null_rate = max(df[col].isnull().mean() for col in combo)
             candidates.append(CandidateKey(
@@ -298,7 +314,7 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
             # this combo is strictly worse (does not block size-3 after a strong size-2).
             best_so_far = max((c.uniqueness_score for c in candidates), default=0.0)
             at_best = sum(1 for c in candidates if c.uniqueness_score >= best_so_far)
-            if best_so_far >= EARLY_STOP_UNIQUENESS and at_best >= TOP_K_CANDIDATES:
+            if best_so_far >= EARLY_STOP_UNIQUENESS and at_best >= top_k_limit:
                 logger.info(
                     "  Have %d near-unique candidates at %.4f — stopping",
                     at_best,
@@ -311,7 +327,7 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
                 for c in candidates
                 if c.uniqueness_score >= max(0.0, best_so_far - NEAR_BEST_STOP_DELTA)
             )
-            if best_so_far >= EARLY_STOP_UNIQUENESS and near_best >= TOP_K_CANDIDATES * 2:
+            if best_so_far >= EARLY_STOP_UNIQUENESS and near_best >= top_k_limit * 2:
                 logger.info(
                     "  Have %d near-best candidates within %.4f of best %.4f — stopping",
                     near_best,
@@ -320,7 +336,7 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
                 )
                 stop_enumeration = True
                 break
-            if at_best >= TOP_K_CANDIDATES and uniqueness < best_so_far:
+            if at_best >= top_k_limit and uniqueness < best_so_far:
                 logger.info("  Have %d candidates at best uniqueness %.4f — stopping", at_best, best_so_far)
                 stop_enumeration = True
                 break
@@ -347,8 +363,16 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
             has_anchor = 1
         return (c.uniqueness_score, has_anchor, -len(c.columns))
 
+    if use_sampled_key_search and candidates:
+        # Recompute exact uniqueness on full data for finalists only.
+        prelim_sorted = sorted(candidates, key=_rank_key, reverse=True)
+        finalists = prelim_sorted[: max(2 * TOP_K_CANDIDATES, TOP_K_CANDIDATES)]
+        for c in finalists:
+            c.uniqueness_score = round(_uniqueness(c.columns, df), 4)
+        candidates = finalists
+
     candidates.sort(key=_rank_key, reverse=True)
-    top = candidates[:TOP_K_CANDIDATES]
+    top = candidates[:top_k_limit]
     for i, c in enumerate(top):
         c.rank = i + 1
         logger.info("  Candidate #%d: %s (uniqueness=%.4f)", i + 1, c.columns, c.uniqueness_score)
@@ -617,12 +641,46 @@ def profile_duplicates(df: pd.DataFrame, *, lightweight: bool = False) -> Duplic
         logger.warning("Stripping synthetic index columns: %s", index_cols)
         df = df.drop(columns=index_cols)
 
+    if len(df) >= LARGE_TABLE_ROW_THRESHOLD and not lightweight:
+        lightweight = True
+        logger.info(
+            "Large table detected — enabling lightweight classification for faster profiling"
+        )
+
     candidate_keys = _detect_candidate_keys(df)
     logger.info("Top %d candidate keys identified", len(candidate_keys))
 
     profiles = []
+    duplicate_free_keys: list[frozenset[str]] = []
     for candidate in candidate_keys:
-        profiles.append(_profile_against_key(df, candidate, lightweight=lightweight))
+        candidate_set = frozenset(candidate.columns)
+        if any(base.issubset(candidate_set) for base in duplicate_free_keys):
+            logger.info(
+                "  Skipping profile for %s — superset of duplicate-free key",
+                candidate.columns,
+            )
+            group_stats = DuplicateGroupStats(
+                total_rows=len(df),
+                duplicate_rows=0,
+                affected_entities=0,
+                group_size_distribution={},
+                null_shadow_count=0,
+                true_duplicate_count=0,
+                competing_values_count=0,
+            )
+            profiles.append(
+                CandidateKeyProfile(
+                    candidate_key=candidate,
+                    group_stats=group_stats,
+                    classification=DuplicateClassification(subtype="null_shadow", temporal_signal=False),
+                )
+            )
+            continue
+
+        profile = _profile_against_key(df, candidate, lightweight=lightweight)
+        if profile.group_stats.duplicate_rows == 0:
+            duplicate_free_keys.append(candidate_set)
+        profiles.append(profile)
 
     logger.info("=== DuplicateProfiler complete ===")
     return DuplicateProfile(candidate_key_profiles=profiles)
