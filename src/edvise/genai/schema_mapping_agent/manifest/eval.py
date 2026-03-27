@@ -722,13 +722,59 @@ def validate_manifest(manifest_dict: dict) -> tuple[bool, str | None]:
     except ValidationError as e:
         return False, str(e)
 
+
+def _find_eval_project_root() -> Path:
+    """
+    Resolve the repo root that contains pipelines/gen_ai_cleaning/.
+
+    When edvise is installed as a package, __file__ lives under site-packages, so
+    walking upward from there never reaches the data repo. We therefore search from
+    cwd (and optional EDVISE_EVAL_PROJECT_ROOT).
+    """
+    env = os.environ.get("EDVISE_EVAL_PROJECT_ROOT")
+    if env:
+        p = Path(env).expanduser().resolve()
+        marker = p / "pipelines" / "gen_ai_cleaning"
+        if not marker.is_dir():
+            raise FileNotFoundError(
+                f"EDVISE_EVAL_PROJECT_ROOT={env!r} does not contain pipelines/gen_ai_cleaning"
+            )
+        return p
+
+    cwd = Path.cwd().resolve()
+    for candidate in [cwd, *cwd.parents]:
+        if (candidate / "pipelines" / "gen_ai_cleaning").is_dir():
+            return candidate
+
+    raise FileNotFoundError(
+        "Could not find project root: no directory from cwd upward contains "
+        "pipelines/gen_ai_cleaning. cd to your repo root (e.g. student-success-intervention) "
+        "before calling eval.run(), or set EDVISE_EVAL_PROJECT_ROOT to that root."
+    )
+
+
+def _resolve_mapping_manifest(institution_id: str) -> Path:
+    """Prefer final_hitl gold manifest, then v1."""
+    base = Path(f"pipelines/gen_ai_cleaning/historical_examples/{institution_id}")
+    candidates = [
+        base / "final_hitl" / f"{institution_id}_mapping_manifest.json",
+        base / "v1" / f"{institution_id}_mapping_manifest.json",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    raise FileNotFoundError(
+        "Mapping manifest not found for institution "
+        f"{institution_id!r}. Tried:\n  "
+        + "\n  ".join(str(p) for p in candidates)
+    )
+
+
 # ── main execution ───────────────────────────────────────────────────────────
 def run():
     """Run evaluation on all models."""
-    # Get script directory to resolve paths relative to project root
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent.parent  # Go up from pipelines/gen_ai_cleaning to project root
-    
+    project_root = _find_eval_project_root()
+
     # Change to project root for consistent path resolution
     original_cwd = os.getcwd()
     os.chdir(project_root)
@@ -746,6 +792,7 @@ def run():
         logger.info("="*80)
         logger.info(f"Target Institution: {target_name} ({target_id})")
         logger.info(f"Reference Institution: {reference_name} ({reference_id})")
+        logger.info(f"Project root (eval cwd): {project_root}")
         logger.info("="*80)
         
         HISTORICAL_BASE = Path(f"pipelines/gen_ai_cleaning/historical_examples/{target_id}")
@@ -753,10 +800,7 @@ def run():
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         
         # ── gold manifest ─────────────────────────────────────────────────────
-        GOLD_MANIFEST_PATH = Path(f"pipelines/gen_ai_cleaning/historical_examples/{target_id}/final_hitl/{target_id}_mapping_manifest.json")
-        if not GOLD_MANIFEST_PATH.exists():
-            # Fallback to v1 if final_hitl doesn't exist
-            GOLD_MANIFEST_PATH = Path(f"pipelines/gen_ai_cleaning/historical_examples/{target_id}/v1/{target_id}_mapping_manifest.json")
+        GOLD_MANIFEST_PATH = _resolve_mapping_manifest(target_id)
         GOLD_MANIFEST = load_json(str(GOLD_MANIFEST_PATH))
         logger.info(f"Loaded gold manifest from {GOLD_MANIFEST_PATH}")
         
@@ -765,8 +809,9 @@ def run():
         target_contract = load_json(target_contract_path)
         logger.info(f"Loaded target schema contract from {target_contract_path}")
         
-        reference_manifest_path = f"pipelines/gen_ai_cleaning/historical_examples/{reference_id}/final_hitl/{reference_id}_mapping_manifest.json"
-        reference_manifest = load_json(reference_manifest_path)
+        REFERENCE_MANIFEST_PATH = _resolve_mapping_manifest(reference_id)
+        reference_manifest = load_json(str(REFERENCE_MANIFEST_PATH))
+        reference_manifest_path = str(REFERENCE_MANIFEST_PATH)
         
         # Validate that the reference manifest has the correct institution_id
         manifest_institution_id = reference_manifest.get("institution_id")
