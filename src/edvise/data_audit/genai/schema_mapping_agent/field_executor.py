@@ -469,7 +469,7 @@ def execute_transformation_map(
         manifest: Approved FieldMappingManifest (same entity type)
         dataframes: Dict of dataset_name -> DataFrame
         schema: Pandera schema class for the target entity type
-                (e.g. RawEdviseCourseDataSchemaFlexible).
+                (e.g. RawEdviseCourseDataSchema).
                 schema.Config.unique defines the target grain.
         raise_on_gap: If True, raise ExecutionGapError on first NEW_UTILITY_NEEDED
         spark_session: Optional Spark session (reserved for future use)

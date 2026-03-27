@@ -31,7 +31,7 @@ class DatasetConfig(StrictBaseModel):
 class SchoolMappingConfig(StrictBaseModel):
     institution_id: str
     institution_name: Optional[str] = None
-    target_cohort_schema: str = "RawEdviseCohortDataSchema"
+    target_cohort_schema: str = "RawEdviseStudentDataSchema"
     target_course_schema: str = "RawEdviseCourseDataSchema"
     cleaning: Optional[CleaningConfig] = Field(
         default=None,

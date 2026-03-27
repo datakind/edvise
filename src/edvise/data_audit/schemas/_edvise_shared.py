@@ -23,18 +23,13 @@ TERM_PATTERN = re.compile(
     r"(?i)^(\d{4})?\s?(Fall|Winter|Spring|Summer|FA|WI|SP|SU|SM)\s?(\d{4})?$"
 )
 
-# Credential/degree type (student + course optional fields)
-CREDENTIAL_DEGREE_PATTERN = re.compile(
-    r"(?i).*(bachelor|ba|bs|associate|aa|as|aas|certificate|certification).*"
-)
-
 StudentIdField = pda.Field(nullable=False, str_length={"min_value": 1})
 
 # ---------------------------------------------------------------------------
-# PDP-compat transformation helpers (for EDA / pipeline compatibility)
+# Term
 # ---------------------------------------------------------------------------
 
-# Term: PDP uses categorical FALL, WINTER, SPRING, SUMMER
+TERM_CATEGORIES = ["FALL", "WINTER", "SPRING", "SUMMER"]
 
 
 def _term_to_pdp_val(s: str) -> Optional[str]:
@@ -52,10 +47,6 @@ def _term_to_pdp_val(s: str) -> Optional[str]:
     return None
 
 
-# PDP term categories (ordered: FALL, WINTER, SPRING, SUMMER)
-TERM_CATEGORIES = ["FALL", "WINTER", "SPRING", "SUMMER"]
-
-
 def term_series_to_pdp(series: pd.Series) -> pd.Series:
     """
     Map term strings to PDP categories: FALL, WINTER, SPRING, SUMMER.
@@ -69,7 +60,11 @@ def term_series_to_pdp(series: pd.Series) -> pd.Series:
     return series.astype(str).apply(_term_to_pdp_val).astype("string")
 
 
-# Enrollment: PDP uses FIRST-TIME, RE-ADMIT, TRANSFER-IN
+# ---------------------------------------------------------------------------
+# Enrollment (kept for other consumers; not used in student schema validation)
+# ---------------------------------------------------------------------------
+
+ENROLLMENT_CATEGORIES = ["FIRST-TIME", "RE-ADMIT", "TRANSFER-IN"]
 
 
 def _enrollment_to_pdp_val(s: str) -> Optional[str]:
@@ -85,10 +80,6 @@ def _enrollment_to_pdp_val(s: str) -> Optional[str]:
     return None
 
 
-# PDP enrollment categories
-ENROLLMENT_CATEGORIES = ["FIRST-TIME", "RE-ADMIT", "TRANSFER-IN"]
-
-
 def enrollment_series_to_pdp(series: pd.Series) -> pd.Series:
     """
     Map enrollment_type strings to PDP categories: FIRST-TIME, RE-ADMIT, TRANSFER-IN.
@@ -102,7 +93,10 @@ def enrollment_series_to_pdp(series: pd.Series) -> pd.Series:
     return series.astype(str).apply(_enrollment_to_pdp_val).astype("string")
 
 
-# Student age: PDP-style buckets (synth uses these exact strings)
+# ---------------------------------------------------------------------------
+# Student age
+# ---------------------------------------------------------------------------
+
 STUDENT_AGE_20_AND_YOUNGER = "20 AND YOUNGER"
 STUDENT_AGE_20_24 = ">20 - 24"
 STUDENT_AGE_OLDER_THAN_24 = "OLDER THAN 24"
@@ -114,7 +108,6 @@ def _student_age_to_pdp_val(s: str) -> Optional[str]:
     s = s.strip()
     if not s:
         return None
-    # Already one of the three phrases (case-insensitive)
     lower = s.lower()
     if "20" in lower and ("younger" in lower or "and" in lower):
         return STUDENT_AGE_20_AND_YOUNGER
@@ -122,7 +115,6 @@ def _student_age_to_pdp_val(s: str) -> Optional[str]:
         return STUDENT_AGE_OLDER_THAN_24
     if ">20" in s or "20 - 24" in lower or "20-24" in lower:
         return STUDENT_AGE_20_24
-    # Numeric 13–100: map to bucket
     try:
         n = int(s)
         if 13 <= n <= 20:
@@ -138,7 +130,7 @@ def _student_age_to_pdp_val(s: str) -> Optional[str]:
 
 def student_age_series_to_pdp(series: pd.Series) -> pd.Series:
     """
-    Map student_age to PDP-style buckets (20 AND YOUNGER, >20 - 24, OLDER THAN 24).
+    Map learner_age to PDP-style buckets (20 AND YOUNGER, >20 - 24, OLDER THAN 24).
 
     Args:
         series: Raw age values (numeric 13-100 or phrase strings).
@@ -149,7 +141,11 @@ def student_age_series_to_pdp(series: pd.Series) -> pd.Series:
     return series.astype(str).apply(_student_age_to_pdp_val).astype("string")
 
 
-# Pell: PDP uses Y, N
+# ---------------------------------------------------------------------------
+# Pell
+# ---------------------------------------------------------------------------
+
+PELL_CATEGORIES = ["Y", "N"]
 
 
 def _pell_to_pdp_val(s: str) -> Optional[str]:
@@ -161,10 +157,6 @@ def _pell_to_pdp_val(s: str) -> Optional[str]:
     if s in ("N", "NO"):
         return "N"
     return None
-
-
-# PDP pell categories
-PELL_CATEGORIES = ["Y", "N"]
 
 
 def pell_series_to_pdp(series: pd.Series) -> pd.Series:
@@ -180,7 +172,10 @@ def pell_series_to_pdp(series: pd.Series) -> pd.Series:
     return series.astype(str).apply(_pell_to_pdp_val).astype("string")
 
 
-# Credential/degree: canonical values for PDP compatibility (Bachelor's, Associate's, Certificate)
+# ---------------------------------------------------------------------------
+# Credential/degree (kept for other consumers; not used in raw schema validation)
+# ---------------------------------------------------------------------------
+
 CREDENTIAL_CANONICAL_BACHELORS = "Bachelor's"
 CREDENTIAL_CANONICAL_ASSOCIATES = "Associate's"
 CREDENTIAL_CANONICAL_CERTIFICATE = "Certificate"
@@ -190,7 +185,6 @@ def _credential_degree_to_canonical(s: str) -> Optional[str]:
     if pd.isna(s) or not isinstance(s, str) or not s.strip():
         return None
     lower = s.strip().lower()
-    # Bachelor's: full word or BA/BS (with or without trailing space to avoid false positives like "base")
     if "bachelor" in lower or lower in ("ba", "bs") or "ba " in lower or "bs " in lower:
         return CREDENTIAL_CANONICAL_BACHELORS
     if (
@@ -219,7 +213,9 @@ def credential_degree_series_to_canonical(series: pd.Series) -> pd.Series:
     return series.astype(str).apply(_credential_degree_to_canonical).astype("string")
 
 
-# Grade: EDA uses strip/upper for consistency checks
+# ---------------------------------------------------------------------------
+# Grade
+# ---------------------------------------------------------------------------
 
 
 def grade_series_normalized(series: pd.Series) -> pd.Series:
@@ -235,50 +231,52 @@ def grade_series_normalized(series: pd.Series) -> pd.Series:
     return series.astype(str).str.strip().str.upper().astype("string")
 
 
-def _apply_edvise_pdp_transforms_student(df: pd.DataFrame) -> pd.DataFrame:
+# ---------------------------------------------------------------------------
+# Student schema transforms (entry_term, learner_age, pell_recipient_year1)
+# ---------------------------------------------------------------------------
+
+
+def _apply_student_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Internal: PDP-compat transforms for cohort data (raw_* copies + normalized values).
-    Used by RawEdviseStudentDataSchema.validate() so coercion sees FALL, FIRST-TIME, etc.
-    Accepts "cohort_year" as alias for "cohort".
+    Pre-validation transforms for RawEdviseStudentDataSchema.
+
+    Normalizes only the fields that require it for Pandera coercion:
+    - entry_term: mapped to FALL/WINTER/SPRING/SUMMER for categorical coercion
+    - learner_age: bucketed into PDP-style age ranges
+    - pell_recipient_year1: normalized to Y/N
+
+    Does not touch enrollment_type, intended_program_type, or
+    conferred_credential_type — those are free-form strings in the raw schema.
     """
     df = df.copy()
-    # Schema expects "cohort"; allow uploads that use "cohort_year" (e.g. from API/JSON alias).
-    if "cohort" not in df.columns and "cohort_year" in df.columns:
-        df["cohort"] = df["cohort_year"].astype("string")
-    if "enrollment_type" in df.columns:
-        df["raw_enrollment_type"] = df["enrollment_type"].astype("string")
-        df["enrollment_type"] = enrollment_series_to_pdp(df["enrollment_type"])
-    if "student_age" in df.columns:
-        df["raw_student_age"] = df["student_age"].astype("string")
-        df["student_age"] = student_age_series_to_pdp(df["student_age"])
-    if "credential_type_sought_year_1" in df.columns:
-        df["raw_credential_type_sought_year_1"] = df[
-            "credential_type_sought_year_1"
-        ].astype("string")
-        df["credential_type_sought_year_1"] = credential_degree_series_to_canonical(
-            df["credential_type_sought_year_1"]
-        )
-    if "degree_grad" in df.columns:
-        df["raw_degree_grad"] = df["degree_grad"].astype("string")
-        df["degree_grad"] = credential_degree_series_to_canonical(df["degree_grad"])
-    if "cohort_term" in df.columns:
-        df["cohort_term"] = term_series_to_pdp(df["cohort_term"])
-    if "pell_status_first_year" in df.columns:
-        df["pell_status_first_year"] = pell_series_to_pdp(df["pell_status_first_year"])
+    if "entry_term" in df.columns:
+        df["entry_term"] = term_series_to_pdp(df["entry_term"])
+    if "learner_age" in df.columns:
+        df["learner_age"] = student_age_series_to_pdp(df["learner_age"])
+    if "pell_recipient_year1" in df.columns:
+        df["pell_recipient_year1"] = pell_series_to_pdp(df["pell_recipient_year1"])
     return df
 
 
-def _apply_edvise_pdp_transforms_course(df: pd.DataFrame) -> pd.DataFrame:
+# ---------------------------------------------------------------------------
+# Course schema transforms (academic_term, term_pell_recipient)
+# ---------------------------------------------------------------------------
+
+
+def _apply_course_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Internal: PDP-compat transforms for course data. Used by RawEdviseCourseDataSchema.validate().
+    Pre-validation transforms for RawEdviseCourseDataSchema.
+
+    Normalizes only the fields that require it for Pandera coercion:
+    - academic_term: mapped to FALL/WINTER/SPRING/SUMMER for categorical coercion
+    - term_pell_recipient: normalized to Y/N
+
+    Does not touch term_degree or grade — those are free-form/custom-checked
+    in the raw schema.
     """
     df = df.copy()
     if "academic_term" in df.columns:
         df["academic_term"] = term_series_to_pdp(df["academic_term"])
-    if "term_degree" in df.columns:
-        df["raw_term_degree"] = df["term_degree"].astype("string")
-        df["term_degree"] = credential_degree_series_to_canonical(df["term_degree"])
-    if "grade" in df.columns:
-        df["raw_grade"] = df["grade"].astype("string")
-        df["grade"] = grade_series_normalized(df["grade"])
+    if "term_pell_recipient" in df.columns:
+        df["term_pell_recipient"] = pell_series_to_pdp(df["term_pell_recipient"])
     return df
