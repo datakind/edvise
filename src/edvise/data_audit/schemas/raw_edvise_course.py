@@ -97,7 +97,6 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     )
     course_prefix: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
     course_number: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
-    course_title: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
     course_section_id: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
     grade: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
     course_credits_attempted: pt.Series["float64"] = CreditsField
@@ -106,6 +105,7 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     # ------------------------------------------------------------------ #
     # Optional (column may be missing; when present, validated)
     # ------------------------------------------------------------------ #
+    course_title: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     department: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     instructional_format: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True
