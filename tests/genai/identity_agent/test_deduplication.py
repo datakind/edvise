@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from edvise.data_audit.identity_agent import deduplication as d
+from edvise.genai.identity_agent import deduplication as d
 
 
 def test_drop_exact_row_duplicates():
