@@ -229,10 +229,8 @@ SOURCE COLUMN FORMAT AWARENESS
 - Do not assume a column's format from its name alone — verify against sample_values in the schema contract
 
 OUTPUT DTYPES
-- Specify output_dtype based on the target schema field type:
-  "string", "Int64", "Float64", "boolean", "datetime64[ns]"
-- Use nullable dtypes (Int64, Float64) for numeric fields that may contain nulls
-- Match the target schema field type exactly
+- Set output_dtype to the RawEdvise / pandas name: "string", "Int64", "Float64" (extension dtypes — not numpy int64/float64), "category" (Pandera categoricals: entry_term, academic_term, pell_recipient_year1, term_pell_recipient), "boolean", "datetime64[ns]".
+- Steps produce actual dtypes; output_dtype is the declared target for review and eval only.
 
 STEP ORDERING
 - Apply type casting steps (cast_string, cast_nullable_int, etc.) early in the chain if needed
