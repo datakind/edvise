@@ -96,7 +96,7 @@ def _minimal_valid_course_row() -> dict[str, Any]:
         "prerequisite_flag": None,
         "instructor_appointment_status": None,
         "gateway_or_developmental_flag": None,
-        "section_size": np.nan,
+        "course_section_size": np.nan,
         "term_degree": None,
         "term_declared_major": None,
         "intent_to_transfer_flag": None,
@@ -545,10 +545,10 @@ def test_raw_edvise_course_schema_duplicate_composite_key_fails() -> None:
         RawEdviseCourseDataSchema.validate(df, lazy=True)
 
 
-def test_raw_edvise_course_schema_section_size_negative_fails() -> None:
-    """Negative section_size fails validation."""
+def test_raw_edvise_course_schema_course_section_size_negative_fails() -> None:
+    """Negative course_section_size fails validation."""
     row = _minimal_valid_course_row()
-    row["section_size"] = -1.0
+    row["course_section_size"] = -1.0
     df = pd.DataFrame([row]).reindex(columns=COURSE_COLUMNS)
     with pytest.raises((SchemaError, SchemaErrors)):
         RawEdviseCourseDataSchema.validate(df, lazy=True)

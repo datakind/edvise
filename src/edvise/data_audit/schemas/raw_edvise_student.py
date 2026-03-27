@@ -60,7 +60,7 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
     # ------------------------------------------------------------------ #
     # Required
     # ------------------------------------------------------------------ #
-    learner_id: pt.Series["string"] = StudentIdField
+    learner_id: pt.Series[pd.StringDtype] = StudentIdField
     entry_year: pt.Series[pd.StringDtype] = pda.Field(
         nullable=False,
         str_matches=YEAR_PATTERN,
@@ -77,7 +77,7 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
     # ------------------------------------------------------------------ #
     # Optional (column may be missing; when present, validated)
     # ------------------------------------------------------------------ #
-    matriculation_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
+    matriculation_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(
         nullable=True,
     )
     learner_age: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
@@ -101,10 +101,10 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
     military_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     employment_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     disability_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
-    bachelors_degree_conferral_date: t.Optional[pt.Series["datetime64[ns]"]] = (
+    bachelors_degree_conferral_date: t.Optional[pt.Series[pt.DateTime]] = (
         pda.Field(nullable=True)
     )
-    associates_degree_conferral_date: t.Optional[pt.Series["datetime64[ns]"]] = (
+    associates_degree_conferral_date: t.Optional[pt.Series[pt.DateTime]] = (
         pda.Field(nullable=True)
     )
     conferred_credential_type: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
@@ -113,17 +113,11 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
     major_at_completion: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True
     )
-    certificate1_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
-        nullable=True
-    )
-    certificate2_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
-        nullable=True
-    )
-    certificate3_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
-        nullable=True
-    )
-    credits_earned_ap: t.Optional[pt.Series["float64"]] = CreditsEarnedField
-    credits_earned_dual_enrollment: t.Optional[pt.Series["float64"]] = (
+    certificate1_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(nullable=True)
+    certificate2_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(nullable=True)
+    certificate3_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(nullable=True)
+    credits_earned_ap: t.Optional[pt.Series[pd.Float64Dtype]] = CreditsEarnedField
+    credits_earned_dual_enrollment: t.Optional[pt.Series[pd.Float64Dtype]] = (
         CreditsEarnedField
     )
 

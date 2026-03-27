@@ -57,7 +57,7 @@ def term_series_to_pdp(series: pd.Series) -> pd.Series:
     Returns:
         String series with values in TERM_CATEGORIES, or pd.NA where unmapped.
     """
-    return series.astype(str).apply(_term_to_pdp_val).astype("string")
+    return series.astype(str).apply(_term_to_pdp_val).astype(pd.StringDtype())
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +90,7 @@ def enrollment_series_to_pdp(series: pd.Series) -> pd.Series:
     Returns:
         String series with values in ENROLLMENT_CATEGORIES, or pd.NA where unmapped.
     """
-    return series.astype(str).apply(_enrollment_to_pdp_val).astype("string")
+    return series.astype(str).apply(_enrollment_to_pdp_val).astype(pd.StringDtype())
 
 
 # ---------------------------------------------------------------------------
@@ -138,7 +138,7 @@ def student_age_series_to_pdp(series: pd.Series) -> pd.Series:
     Returns:
         String series with bucket labels, or pd.NA where unmapped.
     """
-    return series.astype(str).apply(_student_age_to_pdp_val).astype("string")
+    return series.astype(str).apply(_student_age_to_pdp_val).astype(pd.StringDtype())
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ def pell_series_to_pdp(series: pd.Series) -> pd.Series:
     Returns:
         String series with "Y" or "N", or pd.NA where unmapped.
     """
-    return series.astype(str).apply(_pell_to_pdp_val).astype("string")
+    return series.astype(str).apply(_pell_to_pdp_val).astype(pd.StringDtype())
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +210,7 @@ def credential_degree_series_to_canonical(series: pd.Series) -> pd.Series:
     Returns:
         String series with "Bachelor's", "Associate's", or "Certificate"; pd.NA where unmapped.
     """
-    return series.astype(str).apply(_credential_degree_to_canonical).astype("string")
+    return series.astype(str).apply(_credential_degree_to_canonical).astype(pd.StringDtype())
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +228,7 @@ def grade_series_normalized(series: pd.Series) -> pd.Series:
     Returns:
         String series with stripped, uppercased grades.
     """
-    return series.astype(str).str.strip().str.upper().astype("string")
+    return series.astype(str).str.strip().str.upper().astype(pd.StringDtype())
 
 
 # ---------------------------------------------------------------------------

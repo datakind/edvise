@@ -85,7 +85,7 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     # ------------------------------------------------------------------ #
     # Required
     # ------------------------------------------------------------------ #
-    learner_id: pt.Series["string"] = StudentIdField
+    learner_id: pt.Series[pd.StringDtype] = StudentIdField
     academic_year: pt.Series[pd.StringDtype] = pda.Field(
         nullable=False,
         str_matches=YEAR_PATTERN,
@@ -99,8 +99,8 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     course_number: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
     course_section_id: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
     grade: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
-    course_credits_attempted: pt.Series["float64"] = CreditsField
-    course_credits_earned: pt.Series["float64"] = CreditsField
+    course_credits_attempted: pt.Series[pd.Float64Dtype] = CreditsField
+    course_credits_earned: pt.Series[pd.Float64Dtype] = CreditsField
 
     # ------------------------------------------------------------------ #
     # Optional (column may be missing; when present, validated)
@@ -111,10 +111,8 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         nullable=True
     )
     academic_level: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
-    course_begin_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(
-        nullable=True
-    )
-    course_end_date: t.Optional[pt.Series["datetime64[ns]"]] = pda.Field(nullable=True)
+    course_begin_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(nullable=True)
+    course_end_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(nullable=True)
     instructional_modality: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True
     )
@@ -126,7 +124,9 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     gateway_or_developmental_flag: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True
     )
-    section_size: t.Optional[pt.Series["float64"]] = pda.Field(nullable=True, ge=0.0)
+    course_section_size: t.Optional[pt.Series[pd.Float64Dtype]] = pda.Field(
+        nullable=True, ge=0.0
+    )
     term_degree: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     term_declared_major: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True
