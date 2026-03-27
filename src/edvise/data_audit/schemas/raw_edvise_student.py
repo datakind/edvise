@@ -101,11 +101,11 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
     military_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     employment_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     disability_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
-    bachelors_degree_conferral_date: t.Optional[pt.Series[pt.DateTime]] = (
-        pda.Field(nullable=True)
+    bachelors_degree_conferral_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(
+        nullable=True
     )
-    associates_degree_conferral_date: t.Optional[pt.Series[pt.DateTime]] = (
-        pda.Field(nullable=True)
+    associates_degree_conferral_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(
+        nullable=True
     )
     conferred_credential_type: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True

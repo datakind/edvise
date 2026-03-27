@@ -210,7 +210,11 @@ def credential_degree_series_to_canonical(series: pd.Series) -> pd.Series:
     Returns:
         String series with "Bachelor's", "Associate's", or "Certificate"; pd.NA where unmapped.
     """
-    return series.astype(str).apply(_credential_degree_to_canonical).astype(pd.StringDtype())
+    return (
+        series.astype(str)
+        .apply(_credential_degree_to_canonical)
+        .astype(pd.StringDtype())
+    )
 
 
 # ---------------------------------------------------------------------------
