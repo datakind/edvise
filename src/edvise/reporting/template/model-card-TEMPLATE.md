@@ -169,10 +169,10 @@ Academic terms that occurred during the height of the COVID-19 pandemic, when in
 A student who receives a U.S. federal Pell Grant, typically awarded to students with demonstrated financial need.
 
 ***Program of Study Area*** <a id="glossary-program-of-study-area"></a><br>
-The broader academic family in the [Classification of Instructional Programs (CIP)](https://nces.ed.gov/ipeds/cipcode/browse.aspx?y=55), usually reflected in the first two digits of the code. For example, **27** is *Mathematics and Statistics*. Use this term when you mean the high-level category that groups many related majors or concentrations—not a single specific program.
+The broader academic family in the [Classification of Instructional Programs (CIP)](https://nces.ed.gov/), usually reflected in the first two digits of the code. For example, **27** is *Mathematics and Statistics*. Use this term when you mean the high-level category that groups many related majors or concentrations—not a single specific program.
 
 ***Program of Study*** <a id="glossary-program-of-study"></a><br>
-The more specific discipline or declared program, identified by a full CIP code (typically six digits, e.g. **27.0102** *Algebra and Number Theory*). A program of study is narrower than a [program of study area](#glossary-program-of-study-area): many distinct programs of study map to the same area (many specialties under *Mathematics and Statistics*, for instance). Official CIP titles are listed in the [NCES CIP code directory](https://nces.ed.gov/ipeds/cipcode/browse.aspx?y=55).
+The more specific discipline or declared program, identified by a full CIP code (typically six digits, e.g. **27.0102** *Algebra and Number Theory*). A program of study is narrower than a [program of study area](#glossary-program-of-study-area): many distinct programs of study map to the same area (many specialties under *Mathematics and Statistics*, for instance). Official CIP titles and related resources are available from [NCES](https://nces.ed.gov/).
 
 ***Term-over-Term Comparison*** <a id="glossary-term-over-term"></a><br>
 A comparison of metrics across consecutive academic terms (e.g., fall to spring) to examine changes over time.
