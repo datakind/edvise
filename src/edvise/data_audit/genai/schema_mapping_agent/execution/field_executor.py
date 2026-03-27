@@ -31,15 +31,17 @@ from typing import Any, Optional, Type
 
 import pandas as pd
 
-from edvise.data_audit.genai.schema_mapping_agent.mapping_schemas import (
+from edvise.data_audit.genai.schema_mapping_agent.manifest.schemas import (
     FieldMappingManifest,
     FieldMappingRecord,
     JoinFilter,
     RowSelectionStrategy,
+)
+from edvise.data_audit.genai.schema_mapping_agent.transformation.schemas import (
     TransformationMap,
     TransformationStep,
 )
-from edvise.data_audit.genai.schema_mapping_agent.step_dispatcher import (
+from .step_dispatcher import (
     ExecutionGapError,
     ExecutionError,
     ExecutionResult,
@@ -599,8 +601,7 @@ def _execute_step(
     Steps that declare extra_columns resolve additional Series from base_df
     generically and pass them as kwargs to the utility function.
     """
-    from edvise.data_audit.genai.schema_mapping_agent import transformation_utilities as u
-    from edvise.data_audit.genai.schema_mapping_agent.step_dispatcher import dispatch_step
+    from edvise.data_audit.genai.schema_mapping_agent.transformation import utilities as u
 
     fn = step.function_name
 

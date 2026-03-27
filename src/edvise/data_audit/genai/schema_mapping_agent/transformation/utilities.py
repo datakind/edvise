@@ -11,7 +11,6 @@ Removed from previous version:
   - deduplicate_rows: DataFrame-level operation, not compatible with Series-only model
 """
 
-import re
 import typing as t
 import warnings
 from datetime import datetime
@@ -19,11 +18,7 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-from edvise.data_audit.custom_cleaning import (
-    _cast_series_to_nullable_dtype,
-    assign_numeric_grade,
-    normalize_columns,
-)
+from edvise.data_audit.custom_cleaning import _cast_series_to_nullable_dtype
 from edvise.data_audit.schemas._edvise_shared import (
     credential_degree_series_to_canonical,
     enrollment_series_to_pdp,

@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from edvise.data_audit.genai.schema_mapping_agent import transformation_utilities as u
+from edvise.data_audit.genai.schema_mapping_agent.transformation import utilities as u
 
 
 def test_format_academic_year_from_calendar_year_strings_and_ints():

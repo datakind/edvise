@@ -5,11 +5,11 @@ Pure step dispatch — receives a pre-resolved Series and applies a single
 TransformationStep to it. No sourcing, no joining, no row selection.
 
 All of those concerns live in:
-    - mapping_schemas.FieldMappingRecord (sourcing spec)
-    - field_executor.execute_transformation_map (orchestration)
+    - manifest.schemas.FieldMappingRecord (sourcing spec)
+    - execution.field_executor.execute_transformation_map (orchestration)
 
 The two steps that need a second Series (birthyear_to_age_bucket,
-conditional_credits) are handled in field_executor._execute_step()
+conditional_credits) are handled in execution.field_executor._execute_step()
 before reaching this dispatcher.
 """
 
@@ -21,8 +21,7 @@ from typing import Any
 
 import pandas as pd
 
-from edvise.data_audit.genai.schema_mapping_agent.transformation_utilities import (
-    birthyear_to_age_bucket,
+from ..transformation.utilities import (
     cast_boolean,
     cast_datetime,
     cast_nullable_float,
@@ -105,7 +104,7 @@ def dispatch_step(
     All steps here are pure Series → Series.
     birthyear_to_age_bucket and conditional_credits are NOT in this dispatch
     table — they require a second Series and are handled upstream in
-    field_executor._execute_step().
+    execution.field_executor._execute_step().
 
     Args:
         s: Input Series from prior step in the chain
@@ -124,7 +123,7 @@ def dispatch_step(
     if fn in ("birthyear_to_age_bucket", "conditional_credits"):
         raise ExecutionError(
             f"Step '{fn}' requires a second Series and must be handled by "
-            f"field_executor._execute_step() before reaching dispatch_step()."
+            f"execution.field_executor._execute_step() before reaching dispatch_step()."
         )
 
     dispatch = {
@@ -178,7 +177,7 @@ def dispatch_step(
     if fn not in dispatch:
         raise ExecutionError(
             f"Unknown function_name: '{fn}'. "
-            f"Add it to the dispatch table in step_dispatcher.dispatch_step()."
+            f"Add it to the dispatch table in execution.step_dispatcher.dispatch_step()."
         )
 
     return dispatch[fn]()
