@@ -22,10 +22,10 @@ from edvise.genai.schema_mapping_agent.manifest.prompt_builder import (
 
 from edvise.genai.schema_mapping_agent.manifest.schemas import FieldMappingManifest
 from edvise.data_audit.schemas.raw_edvise_student import (
-    RawEdviseStudentDataSchemaFlexible,
+    RawEdviseStudentDataSchema,
 )
 from edvise.data_audit.schemas.raw_edvise_course import (
-    RawEdviseCourseDataSchemaFlexible,
+    RawEdviseCourseDataSchema,
 )
 
 load_dotenv()
@@ -793,7 +793,7 @@ def run():
                 institution_schema_contract=target_contract,
                 reference_manifests=[reference_manifest],
                 reference_institution_names=[reference_name],
-                cohort_schema_class=RawEdviseStudentDataSchemaFlexible,
+                cohort_schema_class=RawEdviseStudentDataSchema,
             )
             PROMPT_COURSE = build_step2a_prompt_course_pass(
                 institution_id=target_id,
@@ -802,7 +802,7 @@ def run():
                 institution_schema_contract=target_contract,
                 reference_manifests=[reference_manifest],
                 reference_institution_names=[reference_name],
-                course_schema_class=RawEdviseCourseDataSchemaFlexible,
+                course_schema_class=RawEdviseCourseDataSchema,
             )
         else:
             PROMPT_SINGLE = build_step2a_prompt(
@@ -812,8 +812,8 @@ def run():
                 institution_schema_contract=target_contract,
                 reference_manifests=[reference_manifest],
                 reference_institution_names=[reference_name],
-                cohort_schema_class=RawEdviseStudentDataSchemaFlexible,
-                course_schema_class=RawEdviseCourseDataSchemaFlexible,
+                cohort_schema_class=RawEdviseStudentDataSchema,
+                course_schema_class=RawEdviseCourseDataSchema,
             )
         
         # ── OpenAI client ─────────────────────────────────────────────────────

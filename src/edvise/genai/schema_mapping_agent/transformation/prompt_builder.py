@@ -132,8 +132,8 @@ def build_step2b_prompt(
         output_path:                    Destination path for the transformation map
         institution_mapping_manifest:   Parsed mapping manifest JSON for the target institution
         institution_schema_contract:    Parsed schema contract JSON for the target institution
-        cohort_schema_class:            RawEdviseStudentDataSchemaFlexible (Pandera class)
-        course_schema_class:            RawEdviseCourseDataSchemaFlexible (Pandera class)
+        cohort_schema_class:            RawEdviseStudentDataSchema (Pandera class)
+        course_schema_class:            RawEdviseCourseDataSchema (Pandera class)
         reference_transformation_maps:  List of parsed transformation map JSONs for reference
                                         institutions (e.g. [ucf_map, lc_map])
         reference_institution_names:    Display names for reference institutions, parallel
@@ -177,11 +177,11 @@ never resolve sources or perform joins.
 {json.dumps(contract_summary, indent=2)}
 </schema_contract>
 
-<target_schema name="RawEdviseStudentDataSchemaFlexible" entity="cohort">
+<target_schema name="RawEdviseStudentDataSchema" entity="cohort">
 {json.dumps(cohort_descriptor, indent=2)}
 </target_schema>
 
-<target_schema name="RawEdviseCourseDataSchemaFlexible" entity="course">
+<target_schema name="RawEdviseCourseDataSchema" entity="course">
 {json.dumps(course_descriptor, indent=2)}
 </target_schema>
 

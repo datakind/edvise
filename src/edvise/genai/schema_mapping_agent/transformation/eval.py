@@ -25,8 +25,8 @@ from openai import OpenAI
 from pydantic import ValidationError
 
 from .schemas import TransformationMap
-from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchemaFlexible
-from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchemaFlexible
+from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
+from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
 
 from ..manifest.eval import MODELS, folder_slug_2b, run_once
 from .prompt_builder import build_step2b_prompt, load_json
@@ -564,8 +564,8 @@ def run():
             output_path=f"pipelines/gen_ai_cleaning/historical_examples/{target_id}/v0/{target_id}_transformation_map.json",
             institution_mapping_manifest=institution_mapping_manifest,
             institution_schema_contract=target_contract,
-            cohort_schema_class=RawEdviseStudentDataSchemaFlexible,
-            course_schema_class=RawEdviseCourseDataSchemaFlexible,
+            cohort_schema_class=RawEdviseStudentDataSchema,
+            course_schema_class=RawEdviseCourseDataSchema,
             reference_transformation_maps=[reference_transformation_map],
             reference_institution_names=[reference_name],
         )

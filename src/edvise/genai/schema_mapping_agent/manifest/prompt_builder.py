@@ -304,8 +304,8 @@ def build_step2a_prompt(
         institution_schema_contract:  Parsed schema contract JSON for the target institution
         reference_manifests:          List of parsed mapping manifest JSONs for reference
                                       institutions (e.g. [ucf_manifest, lc_manifest])
-        cohort_schema_class:          RawEdviseStudentDataSchemaFlexible (Pandera class)
-        course_schema_class:          RawEdviseCourseDataSchemaFlexible (Pandera class)
+        cohort_schema_class:          RawEdviseStudentDataSchema (Pandera class)
+        course_schema_class:          RawEdviseCourseDataSchema (Pandera class)
         reference_institution_names:  Display names for reference institutions, parallel
                                       to reference_manifests. Defaults to manifest
                                       institution_id values if not provided.
@@ -331,11 +331,11 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 {json.dumps(contract_summary, indent=2)}
 </schema_contract>
 
-<target_schema name="RawEdviseStudentDataSchemaFlexible" entity="cohort">
+<target_schema name="RawEdviseStudentDataSchema" entity="cohort">
 {json.dumps(cohort_descriptor, indent=2)}
 </target_schema>
 
-<target_schema name="RawEdviseCourseDataSchemaFlexible" entity="course">
+<target_schema name="RawEdviseCourseDataSchema" entity="course">
 {json.dumps(course_descriptor, indent=2)}
 </target_schema>
 
@@ -399,7 +399,7 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 {json.dumps(contract_summary, indent=2)}
 </schema_contract>
 
-<target_schema name="RawEdviseStudentDataSchemaFlexible" entity="cohort">
+<target_schema name="RawEdviseStudentDataSchema" entity="cohort">
 {json.dumps(cohort_descriptor, indent=2)}
 </target_schema>
 
@@ -465,7 +465,7 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 {json.dumps(contract_summary, indent=2)}
 </schema_contract>
 
-<target_schema name="RawEdviseCourseDataSchemaFlexible" entity="course">
+<target_schema name="RawEdviseCourseDataSchema" entity="course">
 {json.dumps(course_descriptor, indent=2)}
 </target_schema>
 
