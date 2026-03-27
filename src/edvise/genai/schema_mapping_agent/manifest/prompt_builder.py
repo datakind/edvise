@@ -39,12 +39,11 @@ def summarize_schema_contract(contract: dict) -> dict:
     Slim down the schema contract for prompt injection.
     Keeps: column names, dtypes (from each dataset's frozen ``dtypes`` map), null %,
     unique values (if present), sample values from ``training.column_details``.
-    Drops: column_order_hash, normalization maps, file paths, boolean_map.
+    Drops: column_order_hash, normalization maps, file paths, boolean_map, null_tokens.
     """
     summary = {
         "school_id": contract["school_id"],
         "school_name": contract["school_name"],
-        "null_tokens": contract.get("null_tokens", []),
         "datasets": {},
     }
     if contract.get("student_id_alias"):
@@ -182,12 +181,14 @@ UNMAPPABLE FIELDS
   lower confidence to reflect the ambiguity and flag for HITL review
 - Document what was found and why it is insufficient in the rationale
 
-NULL TOKENS
+MISSING SOURCE VALUES
+- The schema contract already reflects missing data as null (null_pct, and no sentinel strings in
+  sample_values / unique_values). Do not assume raw CSV tokens like (Blank) appear as distinct values.
 - For student group fields (gender, race, ethnicity, first_gen, pell_status_first_year, military_status,
-  disability_status, incarcerated_status, employment_status):
-  null tokens must be replaced with 'Unknown / Not Specified' using map_values — note this in the rationale
-- For all other fields, null tokens must be mapped to JSON null in the rationale.
-  The field executor will convert JSON null to pd.NA at runtime using pandas nullable types
+  disability_status, incarcerated_status, employment_status): when the chosen source is missing,
+  map to 'Unknown / Not Specified' via map_values where required by the target schema — note this in the rationale
+- For other fields: represent missing source as JSON null in the rationale where appropriate;
+  the field executor maps JSON null to pd.NA using pandas nullable types
 
 CONFIDENCE SCORING
 - 1.0 — direct column match, no transformation ambiguity, single table, no join required

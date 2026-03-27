@@ -41,7 +41,7 @@ def _build_column_details(
         df: DataFrame with normalized columns (used for null stats and samples)
         original_columns: List of original column names (before normalization)
         column_mapping: Dict {normalized_name: [original_names]}
-        
+
     Returns:
         List of column detail dictionaries with training metadata
     """
@@ -84,18 +84,15 @@ def _build_column_details(
         # More efficient sample collection - get most frequent sample values
         non_null_mask = series.notna()
         if non_null_mask.any():
-            # Get up to 5 most frequent values (more representative than first unique)
             col_detail["sample_values"] = [
-                str(v) for v in series[non_null_mask].value_counts().head(5).index.tolist()
+                str(v)
+                for v in series[non_null_mask].value_counts().head(5).index.tolist()
             ]
-            
+
             # Capture all unique values for low cardinality columns
             # This is critical for SchemaMappingAgent to see all possible values (e.g., all grades at UCF)
             if unique_count <= UNIQUE_VALUES_MAX_CARDINALITY:
-                unique_values = sorted(
-                    df[norm_col].dropna().unique().tolist()
-                )
-                # Convert to strings for JSON serialization
+                unique_values = sorted(df[norm_col].dropna().unique().tolist())
                 col_detail["unique_values"] = [str(v) for v in unique_values]
         
         column_details.append(col_detail)
@@ -147,7 +144,7 @@ def build_training_example_from_schema_contract(
     
     dataset_schema = schema_contract["datasets"][logical_name]
     df = cleaned_dataframes[logical_name]
-    
+
     # Build column details with training metadata
     column_details = _build_column_details(
         df=df,
