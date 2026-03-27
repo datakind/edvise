@@ -247,13 +247,12 @@ def process_school_dataset(
             _load_and_preprocess_dataset,
             build_schema_contract_from_config,
         )
-        
-        # Get original row count and column info (without sampling)
+
+        # Original row count and column metadata (no sampling); cleaning runs in build_schema_contract_from_config
         _, original_columns, column_mapping, original_row_count = _load_and_preprocess_dataset(
             dataset_config=dataset_config,
-            dtype_opts=dtype_opts,
             spark_session=spark_session,
-            sample_size=None,  # Get full count
+            sample_size=None,
         )
         
         # Now build schema contract with sampling for performance

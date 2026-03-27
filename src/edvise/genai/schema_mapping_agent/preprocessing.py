@@ -1,18 +1,12 @@
 """
 Preprocessing step for SchemaMappingAgent pipeline (Milestone 1).
 
-Builds schema contract from inputs.toml config by:
-1. Loading raw files from config
-2. Normalizing column names
-3. Generating training dtypes
-4. Optionally renaming via ``CleaningConfig.student_id_alias`` using
-   ``rename_student_id_alias_column`` (same helper as ``clean_dataset``)
-5. Optional per-dataset ``dedupe_fn_by_dataset`` (same stage as ``CleanSpec.dedupe_fn``)
-6. Dropping full-row duplicates (``drop_duplicates()``), matching ``clean_dataset`` in custom_cleaning
-7. Asserting configured primary keys are unique on each dataset (when all keys resolve)
-8. Building schema contract with unique keys from config
-
-This produces the normalized DataFrame + schema_contract.json needed as input to SchemaMappingAgent.
+After loading (and optional row sampling) from config paths, each dataset is cleaned with
+:class:`edvise.data_audit.custom_cleaning.clean_dataset` — same steps as the custom audit
+pipeline: normalize headers, student-id alias rename, null tokens, optional column drops /
+non-null row drops, training dtypes, dedupe hook, full-row dedupe, primary-key dedupe and
+uniqueness check, then term order. This keeps GenAI schema contracts and training examples
+aligned with ``clean_dataset``.
 """
 
 from __future__ import annotations
@@ -30,14 +24,13 @@ from edvise.data_audit.custom_cleaning import (
     SchemaContractMeta,
     SchemaFreezeOptions,
     TermOrderFn,
-    assert_dataframe_unique_keys,
     build_schema_contract,
+    clean_dataset,
     dtype_opts_from_cleaning_config,
-    generate_training_dtypes,
     normalize_columns,
-    rename_student_id_alias_column,
 )
 from edvise.dataio.read import from_csv_file
+from edvise.utils.data_cleaning import convert_to_snake_case
 from edvise.configs.custom import CleaningConfig
 from edvise.configs.genai import DatasetConfig, SchoolMappingConfig
 
@@ -56,48 +49,35 @@ def _merged_cleaning_cfg(
 
 def _load_and_preprocess_dataset(
     dataset_config: DatasetConfig,
-    dtype_opts: DtypeGenerationOptions,
     spark_session: Optional[Any] = None,
     sample_size: Optional[int] = None,
 ) -> tuple[pd.DataFrame, list[str], dict[str, list[str]], int]:
     """
-    Shared preprocessing logic: load files, normalize columns, generate dtypes.
-    
-    This is the single source of truth for dataset preprocessing used by both:
-    - build_schema_contract_from_config (for schema contract building)
-    - process_school_dataset (for historical example generation)
-    
-    Args:
-        dataset_config: DatasetConfig with file paths
-        dtype_opts: DtypeGenerationOptions for dtype inference
-        spark_session: Optional Spark session for reading files
-        sample_size: Optional max rows to sample (None = use all data)
-                    Used for historical examples to speed up processing
-    
+    Load CSV(s), optionally sample rows, return raw frame plus column metadata.
+
+    Cleaning is performed separately via :func:`clean_dataset` so it matches the
+    custom-school pipeline.
+
     Returns:
-        Tuple of (cleaned_df, original_columns, column_mapping, original_row_count):
-        - cleaned_df: DataFrame with normalized columns and inferred dtypes
-        - original_columns: List of original column names (before normalization)
-        - column_mapping: Dict {normalized_name: [original_names]} for collision detection
-        - original_row_count: Row count before sampling (for reporting)
+        Tuple of (df_raw, original_columns, column_mapping, original_row_count):
+        - df_raw: Loaded data (original column names, before ``clean_dataset``)
+        - original_columns: Names as in the file(s)
+        - column_mapping: ``normalize_columns`` mapping for metadata / examples
+        - original_row_count: Rows before sampling (for reporting)
     """
-    # Load all files for this dataset
     dfs = []
     for file_path in dataset_config.files:
         df = from_csv_file(file_path, spark_session=spark_session)
         dfs.append(df)
-    
-    # Combine multiple files if needed
+
     if len(dfs) > 1:
         df_raw = pd.concat(dfs, ignore_index=True)
         logger.debug("  Combined %d files into %d rows", len(dfs), len(df_raw))
     else:
         df_raw = dfs[0]
-    
-    # Store original row count before any sampling
+
     original_row_count = len(df_raw)
-    
-    # Sample if requested (for historical examples generation)
+
     if sample_size is not None and len(df_raw) > sample_size:
         df_raw = df_raw.sample(n=sample_size, random_state=42).reset_index(drop=True)
         logger.info(
@@ -105,19 +85,44 @@ def _load_and_preprocess_dataset(
             sample_size,
             original_row_count,
         )
-    
-    # Store original columns
+
     original_columns = list(df_raw.columns)
-    
-    # Normalize column names
-    normalized_index, column_mapping = normalize_columns(df_raw.columns)
-    df_normalized = df_raw.copy()
-    df_normalized.columns = normalized_index
-    
-    # Generate training dtypes
-    df_with_dtypes = generate_training_dtypes(df_normalized, opts=dtype_opts)
-    
-    return df_with_dtypes, original_columns, column_mapping, original_row_count
+    _, column_mapping = normalize_columns(df_raw.columns)
+
+    return df_raw, original_columns, column_mapping, original_row_count
+
+
+def _resolve_primary_keys_to_normalized(
+    column_mapping: dict[str, list[str]],
+    unique_keys: list[str],
+    logical_name: str,
+) -> list[str]:
+    """Map configured primary key names to normalized column names (pre-``clean_dataset``)."""
+    normalized_columns = set(column_mapping.keys())
+    orig_to_norm: dict[str, str] = {}
+    for norm_col, orig_list in column_mapping.items():
+        for orig_col in orig_list:
+            orig_to_norm[orig_col] = norm_col
+
+    normalized_uks: list[str] = []
+    for uk in unique_keys:
+        if uk in normalized_columns:
+            normalized_uks.append(uk)
+        elif uk in orig_to_norm:
+            normalized_uks.append(orig_to_norm[uk])
+        else:
+            normalized_uk = convert_to_snake_case(uk)
+            if normalized_uk in normalized_columns:
+                normalized_uks.append(normalized_uk)
+            else:
+                logger.warning(
+                    "  Unique key '%s' (normalized: '%s') not found in normalized "
+                    "columns for %s, skipping",
+                    uk,
+                    normalized_uk,
+                    logical_name,
+                )
+    return normalized_uks
 
 
 def build_schema_contract_from_config(
@@ -127,7 +132,6 @@ def build_schema_contract_from_config(
     dataset_name_suffix: str = "",
     sample_size: Optional[int] = None,
     cleaning_cfg: Optional[CleaningConfig] = None,
-    # --- term order ---
     term_order_fn: Optional[TermOrderFn] = None,
     term_col_by_dataset: Optional[dict[str, str]] = None,
     dedupe_fn_by_dataset: Optional[dict[str, Callable[[pd.DataFrame], pd.DataFrame]]] = None,
@@ -135,27 +139,18 @@ def build_schema_contract_from_config(
     """
     Build schema contract from inputs.toml SchoolMappingConfig.
 
+    Each dataset is cleaned with :func:`clean_dataset` (same order as custom audit).
+
     Args:
         school_config: SchoolMappingConfig from inputs.toml
-        dtype_opts: Optional DtypeGenerationOptions for dtype inference
+        dtype_opts: Optional DtypeGenerationOptions; merged with cleaning-based dtype options
         spark_session: Optional Spark session for reading files
-        dataset_name_suffix: Suffix to add to dataset names (default: "" uses config names as-is).
-                            Pass "_df" to add suffix (e.g., "student" -> "student_df").
-        sample_size: Optional max rows to sample per dataset (None = use all data).
-        term_order_fn: Optional callable (df, term_col) -> df that adds a term_order column.
-                       Typically edvise.feature_generation.term.add_term_order.
-                       Applied after dtype generation for datasets that have a term column.
-        term_col_by_dataset: Optional dict mapping logical_name -> term column name.
-                             e.g. {"student_df": "term_desc", "course_df": "term_descr"}
-                             If term_order_fn is provided but a dataset is not in this dict,
-                             the default term column "term" is tried.
-        dedupe_fn_by_dataset: Optional mapping logical dataset name (e.g. ``course_df``) to
-            ``(DataFrame) -> DataFrame``. Applied after term order and student-id alias rename,
-            then full-row ``drop_duplicates()`` runs (same order as ``clean_dataset`` in
-            custom_cleaning: dedupe_fn first, then full-row dedupe), then unique-key checks.
-        cleaning_cfg: When set, ``student_id_alias`` and ``forced_dtypes`` merge into dtype
-                      options (explicit ``dtype_opts.forced_dtypes`` wins per column).
-                      When omitted, uses ``school_config.cleaning`` if present.
+        dataset_name_suffix: Suffix for logical dataset names (e.g. ``"_df"``).
+        sample_size: Optional max rows per dataset after load (``None`` = all rows).
+        term_order_fn: Passed through ``CleanSpec.term_order_fn`` (runs last in ``clean_dataset``).
+        term_col_by_dataset: Logical name -> term column name (default ``"term"``).
+        dedupe_fn_by_dataset: Logical name -> dedupe hook (``CleanSpec.dedupe_fn``, after dtypes).
+        cleaning_cfg: Overrides / supplements ``school_config.cleaning`` for ``clean_dataset``.
 
     Returns:
         Tuple of (cleaned_dataframes, schema_contract)
@@ -186,75 +181,14 @@ def build_schema_contract_from_config(
 
         logger.info("Processing dataset: %s (logical name: %s)", dataset_name, logical_name)
 
-        df_with_dtypes, original_columns, column_mapping, original_row_count = _load_and_preprocess_dataset(
+        df_raw, original_columns, column_mapping, original_row_count = _load_and_preprocess_dataset(
             dataset_config=dataset_config,
-            dtype_opts=dtype_opts,
             spark_session=spark_session,
             sample_size=sample_size,
         )
 
-        logger.info("  Raw shape: %s", df_with_dtypes.shape)
-
-        # Check for collisions
-        collisions = {norm: origs for norm, origs in column_mapping.items() if len(origs) > 1}
-        if collisions:
-            logger.warning("  Column name collisions after normalization: %s", collisions)
-
-        # --- Determine term column (for spec and optional term_order_fn) ---
         term_col = term_col_by_dataset.get(logical_name, "term")
 
-        # --- Apply term order if provided ---
-        if term_order_fn is not None:
-            if term_col in df_with_dtypes.columns:
-                try:
-                    df_with_dtypes = term_order_fn(df_with_dtypes, term_col)
-                    logger.info(
-                        "  Applied term_order_fn on column '%s' → added term_order",
-                        term_col,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "  term_order_fn failed for dataset '%s' on column '%s': %s",
-                        logical_name,
-                        term_col,
-                        e,
-                    )
-            else:
-                logger.debug(
-                    "  term_order_fn skipped for '%s' — term column '%s' not found",
-                    logical_name,
-                    term_col,
-                )
-
-        if merged_cleaning and merged_cleaning.student_id_alias:
-            df_with_dtypes, _ = rename_student_id_alias_column(
-                df_with_dtypes,
-                merged_cleaning.student_id_alias,
-                dataset_label=logical_name,
-            )
-
-        if logical_name in dedupe_fn_by_dataset:
-            fn = dedupe_fn_by_dataset[logical_name]
-            df_with_dtypes = fn(df_with_dtypes)
-            logger.info(
-                "  Applied dedupe_fn_by_dataset['%s'] → shape=%s",
-                logical_name,
-                df_with_dtypes.shape,
-            )
-
-        # Match clean_dataset: full-row dedupe after optional dedupe_fn, before unique-key check
-        before_full_row = len(df_with_dtypes)
-        df_with_dtypes = df_with_dtypes.drop_duplicates().reset_index(drop=True)
-        logger.info(
-            "  %s - Removed full row duplicates: %d removed | shape=%s",
-            logical_name,
-            before_full_row - len(df_with_dtypes),
-            df_with_dtypes.shape,
-        )
-
-        cleaned_map[logical_name] = df_with_dtypes
-
-        # Build spec — unique keys normalized (sync with student_id rename when alias used in PK list)
         pk_list = list(dataset_config.primary_keys or [])
         if merged_cleaning and merged_cleaning.student_id_alias:
             pk_list = [
@@ -262,30 +196,39 @@ def build_schema_contract_from_config(
                 for k in pk_list
             ]
         unique_keys = pk_list
-        orig_to_norm = {}
-        for norm_col, orig_list in column_mapping.items():
-            for orig_col in orig_list:
-                orig_to_norm[orig_col] = norm_col
+        normalized_uks = _resolve_primary_keys_to_normalized(
+            column_mapping, unique_keys, logical_name
+        )
 
-        normalized_columns = set(df_with_dtypes.columns)
-        normalized_uks = []
-        for uk in unique_keys:
-            if uk in normalized_columns:
-                normalized_uks.append(uk)
-            elif uk in orig_to_norm:
-                normalized_uks.append(orig_to_norm[uk])
-            else:
-                from edvise.utils.data_cleaning import convert_to_snake_case
-                normalized_uk = convert_to_snake_case(uk)
-                if normalized_uk in normalized_columns:
-                    normalized_uks.append(normalized_uk)
-                else:
-                    logger.warning(
-                        "  Unique key '%s' (normalized: '%s') not found in normalized columns, skipping",
-                        uk,
-                        normalized_uk,
-                    )
+        clean_spec: dict[str, Any] = {
+            "unique keys": normalized_uks,
+            "non-null columns": [],
+            "drop columns": None,
+            "_orig_cols_": original_columns,
+            "term_column": term_col,
+            "dedupe_fn": dedupe_fn_by_dataset.get(logical_name),
+            "term_order_fn": term_order_fn,
+        }
 
+        df_clean = clean_dataset(
+            df_raw,
+            clean_spec,
+            dataset_name=logical_name,
+            inference_opts=dtype_opts,
+            enforce_uniqueness=True,
+            generate_dtypes=True,
+            cleaning_cfg=merged_cleaning,
+        )
+
+        logger.info(
+            "  ✓ After clean_dataset: %d rows, %d columns, unique keys = %s (raw rows before sample=%d)",
+            len(df_clean),
+            len(df_clean.columns),
+            normalized_uks,
+            original_row_count,
+        )
+
+        cleaned_map[logical_name] = df_clean
         specs[logical_name] = {
             "unique keys": normalized_uks,
             "non-null columns": [],
@@ -293,31 +236,12 @@ def build_schema_contract_from_config(
             "term_column": term_col,
         }
 
-        logger.info(
-            "  ✓ Processed: %d rows, %d columns, unique keys = %s",
-            len(df_with_dtypes),
-            len(df_with_dtypes.columns),
-            normalized_uks,
-        )
-
-        if len(normalized_uks) != len(unique_keys):
-            logger.warning(
-                "  Skipping unique-key check for %s: resolved %s from configured keys %s",
-                logical_name,
-                normalized_uks,
-                unique_keys,
-            )
-        else:
-            assert_dataframe_unique_keys(
-                df_with_dtypes,
-                normalized_uks,
-                dataset_name=logical_name,
-            )
-
-    # Build schema contract
+    contract_null_tokens = (
+        list(merged_cleaning.null_tokens) if merged_cleaning else ["(Blank)"]
+    )
     meta = SchemaContractMeta(
         created_at=datetime.now(timezone.utc).isoformat(),
-        null_tokens=["(Blank)"],
+        null_tokens=contract_null_tokens,
         student_id_alias=(
             merged_cleaning.student_id_alias if merged_cleaning else None
         ),

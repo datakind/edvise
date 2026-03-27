@@ -25,7 +25,7 @@ import logging
 import warnings
 import json
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 
 import numpy as np
@@ -478,7 +478,14 @@ def clean_dataset(
     the final dtypes.
     """
     if cleaning_cfg is not None:
-        inference_opts = dtype_opts_from_cleaning_config(cleaning_cfg)
+        cfg_opts = dtype_opts_from_cleaning_config(cleaning_cfg)
+        if inference_opts is not None:
+            inference_opts = replace(
+                cfg_opts,
+                forced_dtypes={**cfg_opts.forced_dtypes, **inference_opts.forced_dtypes},
+            )
+        else:
+            inference_opts = cfg_opts
     else:
         inference_opts = inference_opts or DtypeGenerationOptions()
 
