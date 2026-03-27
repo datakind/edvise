@@ -614,6 +614,31 @@ def _profile_against_key(
     return CandidateKeyProfile(candidate_key=candidate, group_stats=group_stats, classification=classification)
 
 
+def _enrich_first_competing_conflict_profiles(
+    df: pd.DataFrame,
+    profiles: list[CandidateKeyProfile],
+) -> None:
+    """
+    Re-run profiling with full conflict analysis for the first key that was classified
+    under lightweight mode (competing rows but no ``top_conflicting_columns``).
+
+    Mutates ``profiles`` in place for that index only.
+    """
+    for i, p in enumerate(profiles):
+        if p.group_stats.competing_values_count <= 0:
+            continue
+        if p.classification.subtype != "competing_values":
+            continue
+        if p.classification.top_conflicting_columns:
+            continue
+        logger.info(
+            "Enriching conflict profiles for first competing candidate key: %s",
+            list(p.candidate_key.columns),
+        )
+        profiles[i] = _profile_against_key(df, p.candidate_key, lightweight=False)
+        return
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -628,6 +653,9 @@ def profile_duplicates(df: pd.DataFrame, *, lightweight: bool = False) -> Duplic
         df: Raw institution DataFrame
         lightweight: If True, skip per-column conflict profiling when rows compete on
             non-key fields (faster; subtype ``competing_values`` without hints).
+            When lightweight is in effect (including auto-enable on large tables),
+            the first candidate key with competing duplicate groups is profiled
+            again with full conflict columns and hints.
 
     Returns:
         DuplicateProfile with per-candidate-key analysis
@@ -681,6 +709,9 @@ def profile_duplicates(df: pd.DataFrame, *, lightweight: bool = False) -> Duplic
         if profile.group_stats.duplicate_rows == 0:
             duplicate_free_keys.append(candidate_set)
         profiles.append(profile)
+
+    if lightweight:
+        _enrich_first_competing_conflict_profiles(df, profiles)
 
     logger.info("=== DuplicateProfiler complete ===")
     return DuplicateProfile(candidate_key_profiles=profiles)
