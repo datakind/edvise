@@ -9,7 +9,6 @@ validation rules. Column names and checks align with the JSON spec and the
 DataKind cohort file requirements.
 """
 
-import re
 import typing as t
 
 import pandas as pd
@@ -25,16 +24,12 @@ except ModuleNotFoundError:
     import pandera.typing as pt
 
 from edvise.data_audit.schemas._edvise_shared import (
+    LEARNER_AGE_BUCKETS,
     PELL_CATEGORIES,
     TERM_CATEGORIES,
     _apply_student_schema_transforms,
     StudentIdField,
     YEAR_PATTERN,
-)
-
-# Student-specific patterns (edvise_schema_extension.json student model)
-STUDENT_AGE_PATTERN = re.compile(
-    r"(?i)^((1[3-9]|[2-9][0-9]|100)|20\s+and\s+younger|older\s+than\s+24|>20\s*-\s*24)$"
 )
 
 PellYesNoField = pda.Field(nullable=True, isin=["Y", "Yes", "N", "No"])
@@ -55,6 +50,10 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
     entry_year, entry_term.
     Optional columns may be missing from the DataFrame or contain nulls; when
     present they are validated.
+
+    learner_age is optional and non-blocking: free-text or numeric ages are
+    coerced to fixed PDP buckets when possible (for bias analysis); unmappable
+    values become null rather than failing the row.
     """
 
     # ------------------------------------------------------------------ #
@@ -82,7 +81,7 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
     )
     learner_age: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True,
-        isin=["20 AND YOUNGER", ">20 - 24", "OLDER THAN 24"],
+        isin=list(LEARNER_AGE_BUCKETS),
     )
     race: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     ethnicity: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
