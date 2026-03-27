@@ -2,9 +2,12 @@
 # mypy: ignore-errors
 """Shared regex patterns, Field definitions, and PDP-compat transforms for Edvise raw schemas."""
 
+import math
 import re
-from typing import Optional
+from decimal import ROUND_FLOOR, Decimal, InvalidOperation
+from typing import Any, Optional
 
+import numpy as np
 import pandas as pd
 
 try:
@@ -57,7 +60,7 @@ def term_series_to_pdp(series: pd.Series) -> pd.Series:
     Returns:
         String series with values in TERM_CATEGORIES, or pd.NA where unmapped.
     """
-    return series.astype(str).apply(_term_to_pdp_val).astype("string")
+    return series.astype(str).apply(_term_to_pdp_val).astype(pd.StringDtype())
 
 
 # ---------------------------------------------------------------------------
@@ -90,7 +93,7 @@ def enrollment_series_to_pdp(series: pd.Series) -> pd.Series:
     Returns:
         String series with values in ENROLLMENT_CATEGORIES, or pd.NA where unmapped.
     """
-    return series.astype(str).apply(_enrollment_to_pdp_val).astype("string")
+    return series.astype(str).apply(_enrollment_to_pdp_val).astype(pd.StringDtype())
 
 
 # ---------------------------------------------------------------------------
@@ -101,44 +104,96 @@ STUDENT_AGE_20_AND_YOUNGER = "20 AND YOUNGER"
 STUDENT_AGE_20_24 = ">20 - 24"
 STUDENT_AGE_OLDER_THAN_24 = "OLDER THAN 24"
 
+# Canonical labels for bias / fair-lending style analysis (use with schema isin).
+LEARNER_AGE_BUCKETS: tuple[str, str, str] = (
+    STUDENT_AGE_20_AND_YOUNGER,
+    STUDENT_AGE_20_24,
+    STUDENT_AGE_OLDER_THAN_24,
+)
 
-def _student_age_to_pdp_val(s: str) -> Optional[str]:
-    if pd.isna(s) or not isinstance(s, str):
-        return None
-    s = s.strip()
-    if not s:
-        return None
+
+def _numeric_age_to_bucket(n: int) -> Optional[str]:
+    if 13 <= n <= 20:
+        return STUDENT_AGE_20_AND_YOUNGER
+    if 21 <= n <= 24:
+        return STUDENT_AGE_20_24
+    if 25 <= n <= 100:
+        return STUDENT_AGE_OLDER_THAN_24
+    return None
+
+
+def _learner_age_phrase_to_bucket(s: str) -> Optional[str]:
+    """Map free-text age phrases to PDP buckets; s is non-empty stripped string."""
     lower = s.lower()
-    if "20" in lower and ("younger" in lower or "and" in lower):
+    if "younger" in lower or "20 and" in lower or lower in ("<=20", "under 21", "under21"):
         return STUDENT_AGE_20_AND_YOUNGER
     if "older" in lower and "24" in lower:
         return STUDENT_AGE_OLDER_THAN_24
-    if ">20" in s or "20 - 24" in lower or "20-24" in lower:
+    if ">20" in s or "20 - 24" in lower or "20-24" in lower or "21-24" in lower:
         return STUDENT_AGE_20_24
-    try:
-        n = int(s)
-        if 13 <= n <= 20:
-            return STUDENT_AGE_20_AND_YOUNGER
-        if 21 <= n <= 24:
-            return STUDENT_AGE_20_24
-        if 25 <= n <= 100:
-            return STUDENT_AGE_OLDER_THAN_24
-    except (ValueError, TypeError):
-        pass
     return None
+
+
+def _learner_age_raw_to_bucket(val: Any) -> Optional[str]:
+    """
+    Map a single raw learner_age cell to a PDP bucket, or None if unmappable.
+
+    Accepts ints, floats (e.g. 21.0), numeric strings (including \"21.0\"),
+    common phrases, and case variants of the canonical bucket labels.
+    Unmapped values become null downstream so validation stays permissive.
+    """
+    if pd.isna(val):
+        return None
+    if isinstance(val, (bool, np.bool_)):
+        return None
+    if isinstance(val, (int, np.integer)):
+        return _numeric_age_to_bucket(int(val))
+    if isinstance(val, (float, np.floating)):
+        if np.isnan(val):
+            return None
+        return _numeric_age_to_bucket(int(math.floor(float(val))))
+    if isinstance(val, Decimal):
+        try:
+            i = int(val.to_integral_value(rounding=ROUND_FLOOR))
+        except (InvalidOperation, ValueError, OverflowError):
+            return None
+        return _numeric_age_to_bucket(i)
+    if not isinstance(val, str):
+        val = str(val).strip()
+    else:
+        val = val.strip()
+    if not val or val.lower() == "nan":
+        return None
+    collapsed = " ".join(val.split())
+    for label in LEARNER_AGE_BUCKETS:
+        if collapsed.casefold() == label.casefold():
+            return label
+    phrase = _learner_age_phrase_to_bucket(collapsed)
+    if phrase is not None:
+        return phrase
+    try:
+        x = float(collapsed)
+        if not math.isfinite(x):
+            return None
+        return _numeric_age_to_bucket(int(math.floor(x)))
+    except (ValueError, TypeError, OverflowError):
+        return None
 
 
 def student_age_series_to_pdp(series: pd.Series) -> pd.Series:
     """
     Map learner_age to PDP-style buckets (20 AND YOUNGER, >20 - 24, OLDER THAN 24).
 
+    Optional field: values that cannot be interpreted are set to pd.NA so rows still
+    validate; use buckets where possible for bias analysis.
+
     Args:
-        series: Raw age values (numeric 13-100 or phrase strings).
+        series: Raw age values (numeric 13-100, floats, numeric strings, phrases).
 
     Returns:
         String series with bucket labels, or pd.NA where unmapped.
     """
-    return series.astype(str).apply(_student_age_to_pdp_val).astype("string")
+    return series.apply(_learner_age_raw_to_bucket).astype(pd.StringDtype())
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +224,7 @@ def pell_series_to_pdp(series: pd.Series) -> pd.Series:
     Returns:
         String series with "Y" or "N", or pd.NA where unmapped.
     """
-    return series.astype(str).apply(_pell_to_pdp_val).astype("string")
+    return series.astype(str).apply(_pell_to_pdp_val).astype(pd.StringDtype())
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +265,11 @@ def credential_degree_series_to_canonical(series: pd.Series) -> pd.Series:
     Returns:
         String series with "Bachelor's", "Associate's", or "Certificate"; pd.NA where unmapped.
     """
-    return series.astype(str).apply(_credential_degree_to_canonical).astype("string")
+    return (
+        series.astype(str)
+        .apply(_credential_degree_to_canonical)
+        .astype(pd.StringDtype())
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -228,7 +287,7 @@ def grade_series_normalized(series: pd.Series) -> pd.Series:
     Returns:
         String series with stripped, uppercased grades.
     """
-    return series.astype(str).str.strip().str.upper().astype("string")
+    return series.astype(str).str.strip().str.upper().astype(pd.StringDtype())
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +301,7 @@ def _apply_student_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
 
     Normalizes only the fields that require it for Pandera coercion:
     - entry_term: mapped to FALL/WINTER/SPRING/SUMMER for categorical coercion
-    - learner_age: bucketed into PDP-style age ranges
+    - learner_age: bucketed into PDP-style age ranges when parseable; else null
     - pell_recipient_year1: normalized to Y/N
 
     Does not touch enrollment_type, intended_program_type, or

@@ -114,6 +114,23 @@ def test_student_age_series_to_pdp_out_of_range_returns_null() -> None:
     assert pd.isna(result.iloc[2])
 
 
+def test_student_age_series_to_pdp_float_and_numeric_string() -> None:
+    """Float ages and numeric strings (e.g. 21.0) bucket like integer ages."""
+    series = pd.Series([21.0, "21.0", "24.9"])
+    result = student_age_series_to_pdp(series)
+    assert result.iloc[0] == ">20 - 24"
+    assert result.iloc[1] == ">20 - 24"
+    assert result.iloc[2] == ">20 - 24"
+
+
+def test_student_age_series_to_pdp_canonical_label_whitespace() -> None:
+    """Already-canonical bucket labels with odd spacing still normalize."""
+    series = pd.Series(["  older than 24  ", "OLDER THAN 24"])
+    result = student_age_series_to_pdp(series)
+    assert result.iloc[0] == "OLDER THAN 24"
+    assert result.iloc[1] == "OLDER THAN 24"
+
+
 # ---- pell_series_to_pdp ----
 
 
