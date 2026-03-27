@@ -75,10 +75,10 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     present; optional columns may be missing or null.
 
     Required (must be present, non-null, format-checked): learner_id,
-    academic_year, academic_term, course_prefix, course_number, course_title,
+    academic_year, academic_term, course_prefix, course_number,
     course_section_id, grade, course_credits_attempted, course_credits_earned.
-    Optional columns may be missing from the DataFrame or contain nulls; when
-    present they are validated. Rows must be unique on (learner_id,
+    Optional columns (e.g. course_title) may be missing from the DataFrame or
+    contain nulls; when present they are validated. Rows must be unique on (learner_id,
     academic_year, academic_term, course_prefix, course_number, section_id).
     """
 
@@ -126,7 +126,7 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     gateway_or_developmental_flag: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True
     )
-    section_size: t.Optional[pt.Series["float64"]] = pda.Field(nullable=True, ge=0.0)
+    section_size: t.Optional[pt.Series["Int64"]] = pda.Field(nullable=True, ge=0)
     term_degree: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     term_declared_major: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
         nullable=True
