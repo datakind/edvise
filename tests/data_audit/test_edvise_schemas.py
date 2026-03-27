@@ -27,13 +27,13 @@ STUDENT_REQUIRED_COLUMNS = [
     "intended_program_type",
     "declared_major_at_entry",
 ]
+# course_title is optional (may be omitted from the DataFrame or null when present).
 COURSE_REQUIRED_COLUMNS = [
     "learner_id",
     "academic_year",
     "academic_term",
     "course_prefix",
     "course_number",
-    "course_title",
     "course_section_id",
     "grade",
     "course_credits_attempted",
@@ -451,14 +451,13 @@ def test_raw_edvise_course_schema_valid_minimal() -> None:
 
 
 def test_raw_edvise_course_schema_required_columns_only_passes() -> None:
-    """DataFrame with only required columns (no optional columns) passes."""
+    """DataFrame with only required columns (no optional columns, including no course_title) passes."""
     row = {
         "learner_id": "s1",
         "academic_year": "2024-25",
         "academic_term": "Fall",
         "course_prefix": "MATH",
         "course_number": "101",
-        "course_title": "Calculus I",
         "course_section_id": "001",
         "grade": "B",
         "course_credits_attempted": 3.0,
@@ -470,8 +469,19 @@ def test_raw_edvise_course_schema_required_columns_only_passes() -> None:
     assert len(validated_df) == 1
     for col in COURSE_REQUIRED_COLUMNS:
         assert col in validated_df.columns
+    assert "course_title" not in validated_df.columns
     assert validated_df["academic_term"].iloc[0] == "FALL"
     assert validated_df["grade"].iloc[0] == "B"
+
+
+def test_raw_edvise_course_schema_course_title_null_passes() -> None:
+    """course_title may be present and null when other fields are valid."""
+    row = _minimal_valid_course_row()
+    row["course_title"] = pd.NA
+    df = pd.DataFrame([row]).reindex(columns=COURSE_COLUMNS)
+    validated_df = RawEdviseCourseDataSchema.validate(df, lazy=True)
+    assert len(validated_df) == 1
+    assert pd.isna(validated_df["course_title"].iloc[0])
 
 
 def test_raw_edvise_course_schema_valid_with_optionals() -> None:
