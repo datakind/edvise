@@ -24,7 +24,7 @@ targets:
   branch:
     mode: development
     variables:
-      app_name: edvise-metadata-dashboard-${var.branch_name}
+      app_name: edvise_${var.branch_name}
       DB_workspace: dev_sst_02
 
   prod:
