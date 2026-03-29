@@ -407,24 +407,38 @@ def render_overview_tab(
                     link_url=latest_model["model_card_path"],
                 )
 
-    st.markdown("### Institutions needing attention")
-    attention_table = build_attention_table(institution_summary)
-    if attention_table.empty:
-        st.success(
-            "No institutions are currently flagged as stale or recently failing in the selected range."
-        )
-    else:
-        render_data_table(
-            attention_table,
-            attention_table.columns.tolist(),
-            rows_per_table=min(rows_per_table, 20),
-            height=320,
-        )
-
     st.markdown("### Activity")
     c1, c2 = st.columns(2)
 
     with c1:
+        st.markdown("**Runs by institution**")
+        if filtered_runs.empty:
+            st.info("No runs to show.")
+        else:
+            runs_by_inst = (
+                filtered_runs.groupby("institution_id")
+                .size()
+                .sort_values(ascending=False)
+                .head(15)
+            )
+            st.bar_chart(runs_by_inst, height=300)
+
+    with c2:
+        st.markdown("**Training vs inference**")
+        split_df = pd.DataFrame(
+            {
+                "count": [
+                    overview_metrics["training_runs"],
+                    overview_metrics["inference_runs"],
+                ]
+            },
+            index=["training", "inference"],
+        )
+        st.bar_chart(split_df, height=300)
+
+    c3, c4 = st.columns(2)
+
+    with c3:
         st.markdown("**Runs over time**")
         if filtered_runs.empty:
             st.info("No run data in the selected range.")
@@ -438,7 +452,7 @@ def render_overview_tab(
             )
             st.line_chart(runs_over_time, height=300)
 
-    with c2:
+    with c4:
         st.markdown("**Failures by institution**")
         if failures_df.empty:
             st.info("No failures in the selected range.")
@@ -451,33 +465,19 @@ def render_overview_tab(
             )
             st.bar_chart(failures_by_inst, height=300)
 
-    c3, c4 = st.columns(2)
-
-    with c3:
-        st.markdown("**Runs by institution**")
-        if filtered_runs.empty:
-            st.info("No runs to show.")
-        else:
-            runs_by_inst = (
-                filtered_runs.groupby("institution_id")
-                .size()
-                .sort_values(ascending=False)
-                .head(15)
-            )
-            st.bar_chart(runs_by_inst, height=300)
-
-    with c4:
-        st.markdown("**Training vs inference**")
-        split_df = pd.DataFrame(
-            {
-                "count": [
-                    overview_metrics["training_runs"],
-                    overview_metrics["inference_runs"],
-                ]
-            },
-            index=["training", "inference"],
+    st.markdown("### Institutions needing attention")
+    attention_table = build_attention_table(institution_summary)
+    if attention_table.empty:
+        st.success(
+            "No institutions are currently flagged as stale or recently failing in the selected range."
         )
-        st.bar_chart(split_df, height=300)
+    else:
+        render_data_table(
+            attention_table,
+            attention_table.columns.tolist(),
+            rows_per_table=min(rows_per_table, 20),
+            height=320,
+        )
 
     st.markdown("### Recent activity")
     recent_runs = sort_dataframe(filtered_runs.copy(), "run_ts", True)
@@ -798,10 +798,6 @@ def main() -> None:
     selected_pipeline_versions = st.sidebar.multiselect(
         "Pipeline version", pipeline_version_options
     )
-    global_search = st.sidebar.text_input(
-        "Keyword filter",
-        placeholder="institution, run id, model id, version, error text...",
-    )
     rows_per_table = st.sidebar.slider(
         "Rows shown per table", min_value=25, max_value=500, value=200, step=25
     )
@@ -812,12 +808,10 @@ def main() -> None:
         run_types=selected_run_types,
         statuses=selected_statuses,
         pipeline_versions=selected_pipeline_versions,
-        global_search=global_search,
     )
     filtered_models = apply_model_filters(
         raw_models,
         institutions=selected_institutions,
-        global_search=global_search,
     )
 
     institution_summary = build_institution_summary(filtered_runs, filtered_models)

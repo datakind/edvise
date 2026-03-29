@@ -309,7 +309,6 @@ def apply_run_filters(
     run_types: list[str],
     statuses: list[str],
     pipeline_versions: list[str],
-    global_search: str,
 ) -> pd.DataFrame:
     out = df.copy()
 
@@ -327,18 +326,16 @@ def apply_run_filters(
             out["pipeline_version"].fillna("").astype(str).isin(pipeline_versions)
         ]
 
-    return search_dataframe(out, global_search, RUN_SEARCH_COLUMNS)
+    return out
 
 
-def apply_model_filters(
-    df: pd.DataFrame, institutions: list[str], global_search: str
-) -> pd.DataFrame:
+def apply_model_filters(df: pd.DataFrame, institutions: list[str]) -> pd.DataFrame:
     out = df.copy()
 
     if institutions:
         out = out[out["institution_id"].astype(str).isin(institutions)]
 
-    return search_dataframe(out, global_search, MODEL_SEARCH_COLUMNS)
+    return out
 
 
 def build_institution_summary(
