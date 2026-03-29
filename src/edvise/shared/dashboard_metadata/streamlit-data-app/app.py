@@ -179,6 +179,111 @@ def render_jsonish(raw_value: object | None) -> None:
         st.code(text, language="json")
 
 
+def parse_json_object(raw_value: object | None) -> dict[str, object]:
+    if not has_value(raw_value):
+        return {}
+
+    if isinstance(raw_value, dict):
+        return {str(key): value for key, value in raw_value.items()}
+
+    try:
+        parsed = json.loads(str(raw_value))
+    except Exception:
+        return {}
+
+    if not isinstance(parsed, dict):
+        return {}
+
+    return {str(key): value for key, value in parsed.items()}
+
+
+MODEL_METRICS_BASE_LABELS = {
+    "institution_id": "Institution",
+    "model_name": "Model name",
+    "model_version": "Model version",
+    "model_run_id": "Model run ID",
+    "training_run_id": "Training run ID",
+    "logged_ts": "Logged at",
+}
+
+MODEL_METRIC_LABELS = {
+    "test_accuracy": "Test accuracy",
+    "test_f1": "Test F1",
+    "test_log_loss": "Test log loss",
+    "test_precision": "Test precision",
+    "test_recall": "Test recall",
+    "test_roc_auc": "Test ROC AUC",
+    "test_bias_score_max": "Test bias score max",
+    "test_bias_score_mean": "Test bias score mean",
+    "test_bias_score_sum": "Test bias score sum",
+    "test_num_bias_flags": "Test bias flags",
+    "test_num_valid_comparisons": "Test valid comparisons",
+}
+
+
+def format_model_metric_label(metric_name: str) -> str:
+    if metric_name in MODEL_METRIC_LABELS:
+        return MODEL_METRIC_LABELS[metric_name]
+
+    parts = metric_name.replace("_", " ").split()
+    normalized_parts: list[str] = []
+    for part in parts:
+        part_lower = part.lower()
+        if part_lower == "f1":
+            normalized_parts.append("F1")
+        elif part_lower == "roc":
+            normalized_parts.append("ROC")
+        elif part_lower == "auc":
+            normalized_parts.append("AUC")
+        else:
+            normalized_parts.append(part.capitalize())
+    return " ".join(normalized_parts)
+
+
+def build_model_metrics_table(
+    model_table: pd.DataFrame, json_column: str
+) -> pd.DataFrame:
+    base_columns = [
+        "institution_id",
+        "model_name",
+        "model_version",
+        "model_run_id",
+        "training_run_id",
+        "logged_ts",
+    ]
+
+    if model_table.empty or json_column not in model_table.columns:
+        return pd.DataFrame(columns=base_columns)
+
+    records: list[dict[str, object]] = []
+    metric_columns: set[str] = set()
+
+    for _, row in model_table.iterrows():
+        metrics = parse_json_object(row.get(json_column))
+        if not metrics:
+            continue
+
+        record = {column: row.get(column) for column in base_columns}
+        for metric_name, metric_value in metrics.items():
+            record[metric_name] = metric_value
+            metric_columns.add(metric_name)
+        records.append(record)
+
+    if not records:
+        return pd.DataFrame(columns=base_columns)
+
+    ordered_columns = [*base_columns, *sorted(metric_columns)]
+    metrics_table = pd.DataFrame(records).reindex(columns=ordered_columns)
+    renamed_columns = {
+        **MODEL_METRICS_BASE_LABELS,
+        **{
+            metric_name: format_model_metric_label(metric_name)
+            for metric_name in metric_columns
+        },
+    }
+    return metrics_table.rename(columns=renamed_columns)
+
+
 def render_data_table(
     df: pd.DataFrame, columns: list[str], rows_per_table: int, height: int
 ) -> None:
@@ -653,6 +758,26 @@ def render_models_tab(filtered_models: pd.DataFrame, rows_per_table: int) -> Non
 
     model_table = sort_dataframe(model_table, models_sort_by, True)
     render_data_table(model_table, MODEL_DISPLAY_COLUMNS, rows_per_table, height=520)
+
+    summary_metrics_table = build_model_metrics_table(model_table, "summary_metrics")
+    if not summary_metrics_table.empty:
+        st.markdown("**Summary metrics**")
+        render_data_table(
+            summary_metrics_table,
+            summary_metrics_table.columns.tolist(),
+            rows_per_table,
+            height=320,
+        )
+
+    bias_metrics_table = build_model_metrics_table(model_table, "bias_summary")
+    if not bias_metrics_table.empty:
+        st.markdown("**Bias metrics**")
+        render_data_table(
+            bias_metrics_table,
+            bias_metrics_table.columns.tolist(),
+            rows_per_table,
+            height=320,
+        )
 
     inspection_labels = build_inspection_labels(
         model_table,
