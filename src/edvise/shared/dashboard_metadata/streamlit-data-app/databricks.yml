@@ -2,8 +2,12 @@ bundle:
   name: edvise_metadata_dashboard
 
 variables:
+  app_name:
+    description: Databricks app name for the metadata dashboard deployment
+  branch_name:
+    description: Branch suffix used to build the Databricks app name for branch deployments
   sql_warehouse_id:
-    description: SQL warehouse ID used by the metadata dashboard app and grant job
+    description: SQL warehouse ID used by the metadata dashboard app
   datakind_group_to_manage_workflow:
     description: Group with permissions to manage the metadata dashboard app
   DB_workspace:
@@ -14,11 +18,19 @@ targets:
     mode: development
     default: true
     variables:
+      app_name: edvise-metadata-dashboard
+      DB_workspace: dev_sst_02
+
+  branch:
+    mode: development
+    variables:
+      app_name: edvise-metadata-dashboard-${var.branch_name}
       DB_workspace: dev_sst_02
 
   prod:
     mode: production
     variables:
+      app_name: edvise-metadata-dashboard
       DB_workspace: staging_sst_01
     workspace:
       root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
@@ -26,7 +38,7 @@ targets:
 resources:
   apps:
     metadata_dashboard:
-      name: edvise-metadata-dashboard
+      name: ${var.app_name}
       source_code_path: .
       description: Streamlit app for Edvise pipeline metadata observability
       resources:
@@ -51,25 +63,3 @@ resources:
           level: CAN_MANAGE
         - group_name: users
           level: CAN_USE
-
-  jobs:
-    grant_metadata_dashboard_access:
-      name: grant_metadata_dashboard_access
-      tasks:
-        - task_key: grant_uc_permissions
-          sql_task:
-            file:
-              path: ${workspace.file_path}/grant_app_permissions.sql
-              source: WORKSPACE
-            warehouse_id: ${var.sql_warehouse_id}
-            parameters:
-              DB_workspace: "{{job.parameters.DB_workspace}}"
-              app_service_principal: "{{job.parameters.app_service_principal}}"
-      parameters:
-        - name: DB_workspace
-          default: ${var.DB_workspace}
-        - name: app_service_principal
-          default: ${resources.apps.metadata_dashboard.service_principal_client_id}
-      permissions:
-        - group_name: ${var.datakind_group_to_manage_workflow}
-          level: CAN_MANAGE
