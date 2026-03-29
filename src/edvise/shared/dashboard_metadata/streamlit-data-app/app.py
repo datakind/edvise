@@ -1,8 +1,9 @@
 import json
 import os
 from datetime import date, timedelta
+from typing import Any, cast
 
-from databricks import sql
+from databricks import sql as databricks_sql  # type: ignore[attr-defined]
 from databricks.sdk.core import Config
 import pandas as pd
 import streamlit as st
@@ -120,7 +121,7 @@ def get_warehouse_id() -> str:
 def run_query(query: str) -> pd.DataFrame:
     cfg = Config()
 
-    with sql.connect(
+    with databricks_sql.connect(
         server_hostname=cfg.host,
         http_path=f"/sql/1.0/warehouses/{get_warehouse_id()}",
         credentials_provider=lambda: cfg.authenticate,
@@ -144,7 +145,7 @@ def get_models_data(start_date_str: str, end_date_exclusive_str: str) -> pd.Data
     return prepare_models_dataframe(run_query(query))
 
 
-def render_jsonish(raw_value) -> None:
+def render_jsonish(raw_value: object | None) -> None:
     if not has_value(raw_value):
         st.caption("No data")
         return
@@ -167,52 +168,57 @@ def render_data_table(
     )
 
 
-def render_inspection_selectbox(label: str, options: pd.Series, key: str):
+def render_inspection_selectbox(
+    label: str, options: pd.Series, key: str
+) -> object | None:
     option_values = [None, *options.index.tolist()]
 
-    return st.selectbox(
+    selected_option = st.selectbox(
         label,
         options=option_values,
         format_func=lambda idx: "Select an item" if idx is None else options.loc[idx],
         key=key,
     )
+    return cast(object | None, selected_option)
 
 
-def format_count_delta(delta) -> str | None:
+def format_count_delta(delta: Any | None) -> str | None:
     if delta is None:
         return None
-    return f"{delta:+d}"
+    return f"{int(delta):+d}"
 
 
-def format_rate_delta(delta) -> str | None:
+def format_rate_delta(delta: Any | None) -> str | None:
     if delta is None:
         return None
-    return f"{delta:+.1f} pts"
+    return f"{float(delta):+.1f} pts"
 
 
-def format_day_reference(value) -> str:
+def format_day_reference(value: object | None) -> str:
     if pd.isna(value):
         return "No activity"
-    return pd.to_datetime(value).strftime("%Y-%m-%d")
+    return str(pd.to_datetime(value).strftime("%Y-%m-%d"))
 
 
-def format_delta_reference(label: str, current_day, previous_day) -> str:
+def format_delta_reference(
+    label: str, current_day: object | None, previous_day: object | None
+) -> str:
     if pd.isna(current_day):
         return f"{label}: no activity in selected range"
     return f"{label}: {format_day_reference(current_day)} vs {format_day_reference(previous_day)}"
 
 
-def display_text(value) -> str:
+def display_text(value: object | None) -> str:
     return str(value) if has_value(value) else "—"
 
 
 def render_latest_update(
     title: str,
     timestamp_label: str,
-    timestamp_value,
+    timestamp_value: object | None,
     details: list[str],
     link_label: str | None = None,
-    link_url=None,
+    link_url: object | None = None,
 ) -> None:
     with st.container(border=True):
         st.markdown(f"**{title}**")
@@ -224,7 +230,11 @@ def render_latest_update(
 
 
 def render_metric_card(
-    column, label: str, value, delta=None, delta_color: str = "normal"
+    column: Any,
+    label: str,
+    value: object,
+    delta: object | None = None,
+    delta_color: str = "normal",
 ) -> None:
     with column:
         with st.container(border=True):

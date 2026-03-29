@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TypeAlias
+
 import pandas as pd
 
 
@@ -49,6 +51,8 @@ FAILURE_SEARCH_COLUMNS = [
     "error_category",
     "error_message",
 ]
+
+LatestActivityRecord: TypeAlias = dict[str, object]
 
 
 def build_runs_query(
@@ -143,7 +147,7 @@ def build_models_query(
     """
 
 
-def has_value(value) -> bool:
+def has_value(value: object | None) -> bool:
     if value is None:
         return False
     try:
@@ -237,20 +241,20 @@ def sort_dataframe(df: pd.DataFrame, sort_by: str, descending: bool) -> pd.DataF
     return df.sort_values(by=sort_by, ascending=not descending, na_position="last")
 
 
-def truncate_text(value, length: int = 140) -> str:
+def truncate_text(value: object | None, length: int = 140) -> str:
     if not has_value(value):
         return ""
     text = str(value)
     return text if len(text) <= length else text[:length] + "..."
 
 
-def format_dt(value) -> str:
+def format_dt(value: object | None) -> str:
     if not has_value(value):
         return "—"
-    return pd.to_datetime(value).strftime("%Y-%m-%d %H:%M:%S")
+    return str(pd.to_datetime(value).strftime("%Y-%m-%d %H:%M:%S"))
 
 
-def categorize_error(message) -> str:
+def categorize_error(message: object | None) -> str:
     if not has_value(message):
         return "Unknown"
 
@@ -289,8 +293,8 @@ def categorize_error(message) -> str:
     return "Other"
 
 
-def get_freshness_status(days_since_last_run):
-    if pd.isna(days_since_last_run):
+def get_freshness_status(days_since_last_run: int | float | None) -> str:
+    if days_since_last_run is None or pd.isna(days_since_last_run):
         return "No activity"
     if days_since_last_run <= 1:
         return "Healthy"
@@ -647,8 +651,11 @@ def build_day_over_day_metrics(
 
 def build_latest_activity_summary(
     filtered_runs: pd.DataFrame, filtered_models: pd.DataFrame
-) -> dict[str, dict[str, object] | None]:
-    summary = {"latest_run": None, "latest_model": None}
+) -> dict[str, LatestActivityRecord | None]:
+    summary: dict[str, LatestActivityRecord | None] = {
+        "latest_run": None,
+        "latest_model": None,
+    }
 
     if not filtered_runs.empty:
         valid_runs = filtered_runs.dropna(subset=["run_ts"]).sort_values("run_ts")
