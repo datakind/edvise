@@ -51,7 +51,9 @@ FAILURE_SEARCH_COLUMNS = [
 ]
 
 
-def build_runs_query(runs_table: str, models_table: str, start_date_str: str, end_date_exclusive_str: str) -> str:
+def build_runs_query(
+    runs_table: str, models_table: str, start_date_str: str, end_date_exclusive_str: str
+) -> str:
     return f"""
     WITH latest_model_per_run AS (
         SELECT *
@@ -118,7 +120,9 @@ def build_runs_query(runs_table: str, models_table: str, start_date_str: str, en
     """
 
 
-def build_models_query(models_table: str, start_date_str: str, end_date_exclusive_str: str) -> str:
+def build_models_query(
+    models_table: str, start_date_str: str, end_date_exclusive_str: str
+) -> str:
     return f"""
     SELECT
         institution_id,
@@ -154,18 +158,29 @@ def to_datetime_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     out = df.copy()
     for col in columns:
         if col in out.columns:
-            out[col] = pd.to_datetime(out[col], errors="coerce", utc=True).dt.tz_convert(None)
+            out[col] = pd.to_datetime(
+                out[col], errors="coerce", utc=True
+            ).dt.tz_convert(None)
     return out
 
 
 def prepare_runs_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     out = to_datetime_columns(
         df,
-        ["run_ts", "started_at", "finished_at", "updated_at", "dataset_ts", "model_logged_ts"],
+        [
+            "run_ts",
+            "started_at",
+            "finished_at",
+            "updated_at",
+            "dataset_ts",
+            "model_logged_ts",
+        ],
     )
 
     if "duration_seconds" in out.columns:
-        out["duration_seconds"] = pd.to_numeric(out["duration_seconds"], errors="coerce")
+        out["duration_seconds"] = pd.to_numeric(
+            out["duration_seconds"], errors="coerce"
+        )
 
     for col in ["is_failed", "is_training_run", "is_inference_run"]:
         if col in out.columns:
@@ -181,7 +196,13 @@ def prepare_runs_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 def prepare_models_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     out = to_datetime_columns(df, ["logged_ts"])
 
-    for col in ["institution_id", "training_run_id", "model_run_id", "model_name", "model_version"]:
+    for col in [
+        "institution_id",
+        "training_run_id",
+        "model_run_id",
+        "model_name",
+        "model_version",
+    ]:
         if col in out.columns:
             out[col] = out[col].fillna("").astype(str)
 
@@ -203,7 +224,9 @@ def search_dataframe(df: pd.DataFrame, term: str, columns: list[str]) -> pd.Data
 
     for col in columns:
         if col in df.columns:
-            mask = mask | df[col].fillna("").astype(str).str.lower().str.contains(search_term, na=False, regex=False)
+            mask = mask | df[col].fillna("").astype(str).str.lower().str.contains(
+                search_term, na=False, regex=False
+            )
 
     return df[mask]
 
@@ -235,9 +258,22 @@ def categorize_error(message) -> str:
 
     if any(k in text for k in ["schema", "pandera", "validation", "column", "dtype"]):
         return "Schema / validation"
-    if any(k in text for k in ["missing", "not found", "no such file", "does not exist", "path", "volume"]):
+    if any(
+        k in text
+        for k in [
+            "missing",
+            "not found",
+            "no such file",
+            "does not exist",
+            "path",
+            "volume",
+        ]
+    ):
         return "Missing input / path"
-    if any(k in text for k in ["permission", "denied", "unauthorized", "forbidden", "credential"]):
+    if any(
+        k in text
+        for k in ["permission", "denied", "unauthorized", "forbidden", "credential"]
+    ):
         return "Permissions / auth"
     if any(k in text for k in ["timeout", "timed out", "connection", "socket"]):
         return "Timeout / connectivity"
@@ -283,12 +319,16 @@ def apply_run_filters(
         out = out[out["status"].astype(str).isin(statuses)]
 
     if pipeline_versions:
-        out = out[out["pipeline_version"].fillna("").astype(str).isin(pipeline_versions)]
+        out = out[
+            out["pipeline_version"].fillna("").astype(str).isin(pipeline_versions)
+        ]
 
     return search_dataframe(out, global_search, RUN_SEARCH_COLUMNS)
 
 
-def apply_model_filters(df: pd.DataFrame, institutions: list[str], global_search: str) -> pd.DataFrame:
+def apply_model_filters(
+    df: pd.DataFrame, institutions: list[str], global_search: str
+) -> pd.DataFrame:
     out = df.copy()
 
     if institutions:
@@ -297,7 +337,9 @@ def apply_model_filters(df: pd.DataFrame, institutions: list[str], global_search
     return search_dataframe(out, global_search, MODEL_SEARCH_COLUMNS)
 
 
-def build_institution_summary(runs_df: pd.DataFrame, models_df: pd.DataFrame) -> pd.DataFrame:
+def build_institution_summary(
+    runs_df: pd.DataFrame, models_df: pd.DataFrame
+) -> pd.DataFrame:
     columns = [
         "institution_id",
         "total_runs",
@@ -398,7 +440,9 @@ def build_institution_summary(runs_df: pd.DataFrame, models_df: pd.DataFrame) ->
 
     now = pd.Timestamp.now(tz="UTC").tz_convert(None)
     summary["days_since_last_run"] = (now - summary["latest_run_at"]).dt.days
-    summary["freshness_status"] = summary["days_since_last_run"].apply(get_freshness_status)
+    summary["freshness_status"] = summary["days_since_last_run"].apply(
+        get_freshness_status
+    )
 
     return summary[columns].sort_values("institution_id")
 
@@ -428,28 +472,52 @@ def build_overview_metrics(
     institution_summary: pd.DataFrame,
 ) -> dict[str, object]:
     total_runs = len(filtered_runs)
-    failed_runs = int(filtered_runs["is_failed"].sum()) if not filtered_runs.empty else 0
-    training_runs = int(filtered_runs["is_training_run"].sum()) if not filtered_runs.empty else 0
-    inference_runs = int(filtered_runs["is_inference_run"].sum()) if not filtered_runs.empty else 0
+    failed_runs = (
+        int(filtered_runs["is_failed"].sum()) if not filtered_runs.empty else 0
+    )
+    training_runs = (
+        int(filtered_runs["is_training_run"].sum()) if not filtered_runs.empty else 0
+    )
+    inference_runs = (
+        int(filtered_runs["is_inference_run"].sum()) if not filtered_runs.empty else 0
+    )
 
     return {
-        "monitored_institutions": int(institution_summary["institution_id"].nunique()) if not institution_summary.empty else 0,
+        "monitored_institutions": int(institution_summary["institution_id"].nunique())
+        if not institution_summary.empty
+        else 0,
         "needs_attention": int(
-            institution_summary["freshness_status"].isin(["Warning", "Stale", "No activity"]).sum()
-        ) if not institution_summary.empty else 0,
-        "healthy_institutions": int((institution_summary["freshness_status"] == "Healthy").sum()) if not institution_summary.empty else 0,
+            institution_summary["freshness_status"]
+            .isin(["Warning", "Stale", "No activity"])
+            .sum()
+        )
+        if not institution_summary.empty
+        else 0,
+        "healthy_institutions": int(
+            (institution_summary["freshness_status"] == "Healthy").sum()
+        )
+        if not institution_summary.empty
+        else 0,
         "total_runs": total_runs,
         "failed_runs": failed_runs,
         "training_runs": training_runs,
         "inference_runs": inference_runs,
-        "success_rate": round(((total_runs - failed_runs) / total_runs) * 100, 1) if total_runs else 0.0,
+        "success_rate": round(((total_runs - failed_runs) / total_runs) * 100, 1)
+        if total_runs
+        else 0.0,
         "models_logged": len(filtered_models),
-        "latest_run_at": filtered_runs["run_ts"].max() if not filtered_runs.empty else pd.NaT,
-        "latest_model_at": filtered_models["logged_ts"].max() if not filtered_models.empty else pd.NaT,
+        "latest_run_at": filtered_runs["run_ts"].max()
+        if not filtered_runs.empty
+        else pd.NaT,
+        "latest_model_at": filtered_models["logged_ts"].max()
+        if not filtered_models.empty
+        else pd.NaT,
     }
 
 
-def build_day_over_day_metrics(filtered_runs: pd.DataFrame, filtered_models: pd.DataFrame) -> dict[str, object]:
+def build_day_over_day_metrics(
+    filtered_runs: pd.DataFrame, filtered_models: pd.DataFrame
+) -> dict[str, object]:
     metrics = {
         "run_reference_day": pd.NaT,
         "previous_run_day": pd.NaT,
@@ -476,12 +544,22 @@ def build_day_over_day_metrics(filtered_runs: pd.DataFrame, filtered_models: pd.
                 .agg(
                     runs_on_latest_day=("run_id", "count"),
                     failures_on_latest_day=("is_failed", "sum"),
-                    active_institutions_on_latest_day=("institution_id", pd.Series.nunique),
+                    active_institutions_on_latest_day=(
+                        "institution_id",
+                        pd.Series.nunique,
+                    ),
                 )
                 .sort_index()
             )
             daily_runs["success_rate_on_latest_day"] = (
-                ((daily_runs["runs_on_latest_day"] - daily_runs["failures_on_latest_day"]) / daily_runs["runs_on_latest_day"]) * 100
+                (
+                    (
+                        daily_runs["runs_on_latest_day"]
+                        - daily_runs["failures_on_latest_day"]
+                    )
+                    / daily_runs["runs_on_latest_day"]
+                )
+                * 100
             ).round(1)
 
             latest_day = daily_runs.index.max()
@@ -505,16 +583,30 @@ def build_day_over_day_metrics(filtered_runs: pd.DataFrame, filtered_models: pd.
                     "run_reference_day": latest_day,
                     "previous_run_day": previous_day,
                     "runs_on_latest_day": int(latest_row["runs_on_latest_day"]),
-                    "runs_delta": int(latest_row["runs_on_latest_day"] - previous_row["runs_on_latest_day"]),
-                    "failures_on_latest_day": int(latest_row["failures_on_latest_day"]),
-                    "failures_delta": int(latest_row["failures_on_latest_day"] - previous_row["failures_on_latest_day"]),
-                    "active_institutions_on_latest_day": int(latest_row["active_institutions_on_latest_day"]),
-                    "active_institutions_delta": int(
-                        latest_row["active_institutions_on_latest_day"] - previous_row["active_institutions_on_latest_day"]
+                    "runs_delta": int(
+                        latest_row["runs_on_latest_day"]
+                        - previous_row["runs_on_latest_day"]
                     ),
-                    "success_rate_on_latest_day": float(latest_row["success_rate_on_latest_day"]),
+                    "failures_on_latest_day": int(latest_row["failures_on_latest_day"]),
+                    "failures_delta": int(
+                        latest_row["failures_on_latest_day"]
+                        - previous_row["failures_on_latest_day"]
+                    ),
+                    "active_institutions_on_latest_day": int(
+                        latest_row["active_institutions_on_latest_day"]
+                    ),
+                    "active_institutions_delta": int(
+                        latest_row["active_institutions_on_latest_day"]
+                        - previous_row["active_institutions_on_latest_day"]
+                    ),
+                    "success_rate_on_latest_day": float(
+                        latest_row["success_rate_on_latest_day"]
+                    ),
                     "success_rate_delta": round(
-                        float(latest_row["success_rate_on_latest_day"] - previous_row["success_rate_on_latest_day"]),
+                        float(
+                            latest_row["success_rate_on_latest_day"]
+                            - previous_row["success_rate_on_latest_day"]
+                        ),
                         1,
                     ),
                 }
@@ -524,7 +616,9 @@ def build_day_over_day_metrics(filtered_runs: pd.DataFrame, filtered_models: pd.
         valid_models = filtered_models.dropna(subset=["logged_ts"]).copy()
         if not valid_models.empty:
             daily_models = (
-                valid_models.assign(activity_day=valid_models["logged_ts"].dt.floor("D"))
+                valid_models.assign(
+                    activity_day=valid_models["logged_ts"].dt.floor("D")
+                )
                 .groupby("activity_day")
                 .size()
                 .rename("models_on_latest_day")
@@ -533,7 +627,11 @@ def build_day_over_day_metrics(filtered_runs: pd.DataFrame, filtered_models: pd.
 
             latest_day = daily_models.index.max()
             previous_day = latest_day - pd.Timedelta(days=1)
-            previous_count = int(daily_models.loc[previous_day]) if previous_day in daily_models.index else 0
+            previous_count = (
+                int(daily_models.loc[previous_day])
+                if previous_day in daily_models.index
+                else 0
+            )
 
             metrics.update(
                 {
@@ -547,7 +645,9 @@ def build_day_over_day_metrics(filtered_runs: pd.DataFrame, filtered_models: pd.
     return metrics
 
 
-def build_latest_activity_summary(filtered_runs: pd.DataFrame, filtered_models: pd.DataFrame) -> dict[str, dict[str, object] | None]:
+def build_latest_activity_summary(
+    filtered_runs: pd.DataFrame, filtered_models: pd.DataFrame
+) -> dict[str, dict[str, object] | None]:
     summary = {"latest_run": None, "latest_model": None}
 
     if not filtered_runs.empty:
@@ -565,7 +665,9 @@ def build_latest_activity_summary(filtered_runs: pd.DataFrame, filtered_models: 
             }
 
     if not filtered_models.empty:
-        valid_models = filtered_models.dropna(subset=["logged_ts"]).sort_values("logged_ts")
+        valid_models = filtered_models.dropna(subset=["logged_ts"]).sort_values(
+            "logged_ts"
+        )
         if not valid_models.empty:
             latest_model = valid_models.iloc[-1]
             summary["latest_model"] = {
@@ -594,10 +696,12 @@ def build_attention_table(institution_summary: pd.DataFrame) -> pd.DataFrame:
     if institution_summary.empty:
         return pd.DataFrame(columns=columns)
 
-    latest_status = institution_summary["latest_run_status"].fillna("").astype(str).str.lower()
-    attention_mask = institution_summary["freshness_status"].isin(["Warning", "Stale", "No activity"]) | latest_status.isin(
-        ["failed", "error"]
+    latest_status = (
+        institution_summary["latest_run_status"].fillna("").astype(str).str.lower()
     )
+    attention_mask = institution_summary["freshness_status"].isin(
+        ["Warning", "Stale", "No activity"]
+    ) | latest_status.isin(["failed", "error"])
 
     if not attention_mask.any():
         return pd.DataFrame(columns=columns)

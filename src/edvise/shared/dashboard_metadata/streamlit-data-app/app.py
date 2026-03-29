@@ -111,7 +111,9 @@ st.set_page_config(
 def get_warehouse_id() -> str:
     warehouse_id = os.getenv("DATABRICKS_WAREHOUSE_ID")
     if not warehouse_id:
-        raise RuntimeError("DATABRICKS_WAREHOUSE_ID must be set in the app configuration.")
+        raise RuntimeError(
+            "DATABRICKS_WAREHOUSE_ID must be set in the app configuration."
+        )
     return warehouse_id
 
 
@@ -130,7 +132,9 @@ def run_query(query: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=30)
 def get_runs_data(start_date_str: str, end_date_exclusive_str: str) -> pd.DataFrame:
-    query = build_runs_query(RUNS_TABLE, MODELS_TABLE, start_date_str, end_date_exclusive_str)
+    query = build_runs_query(
+        RUNS_TABLE, MODELS_TABLE, start_date_str, end_date_exclusive_str
+    )
     return prepare_runs_dataframe(run_query(query))
 
 
@@ -152,7 +156,9 @@ def render_jsonish(raw_value) -> None:
         st.code(text, language="json")
 
 
-def render_data_table(df: pd.DataFrame, columns: list[str], rows_per_table: int, height: int) -> None:
+def render_data_table(
+    df: pd.DataFrame, columns: list[str], rows_per_table: int, height: int
+) -> None:
     st.dataframe(
         df.reindex(columns=columns).head(rows_per_table),
         use_container_width=True,
@@ -200,7 +206,14 @@ def display_text(value) -> str:
     return str(value) if has_value(value) else "—"
 
 
-def render_latest_update(title: str, timestamp_label: str, timestamp_value, details: list[str], link_label: str | None = None, link_url=None) -> None:
+def render_latest_update(
+    title: str,
+    timestamp_label: str,
+    timestamp_value,
+    details: list[str],
+    link_label: str | None = None,
+    link_url=None,
+) -> None:
     with st.container(border=True):
         st.markdown(f"**{title}**")
         st.caption(f"{timestamp_label}: {format_dt(timestamp_value)}")
@@ -210,7 +223,9 @@ def render_latest_update(title: str, timestamp_label: str, timestamp_value, deta
             st.markdown(f"[{link_label}]({link_url})")
 
 
-def render_metric_card(column, label: str, value, delta=None, delta_color: str = "normal") -> None:
+def render_metric_card(
+    column, label: str, value, delta=None, delta_color: str = "normal"
+) -> None:
     with column:
         with st.container(border=True):
             st.metric(label, value, delta=delta, delta_color=delta_color)
@@ -225,7 +240,9 @@ def render_run_details(row: pd.Series) -> None:
     c3.metric("Run type", row.get("run_type", "—"))
     c4.metric(
         "Duration (s)",
-        "—" if pd.isna(row.get("duration_seconds")) else f"{row.get('duration_seconds'):.0f}",
+        "—"
+        if pd.isna(row.get("duration_seconds"))
+        else f"{row.get('duration_seconds'):.0f}",
     )
 
     c5, c6, c7 = st.columns(3)
@@ -270,8 +287,12 @@ def render_model_details(row: pd.Series) -> None:
 
     st.write(f"**Training run ID:** `{row.get('training_run_id', '')}`")
     st.write(f"**Model run ID:** `{row.get('model_run_id', '')}`")
-    st.write(f"**Training cohort dataset:** {row.get('training_cohort_dataset_name', '—')}")
-    st.write(f"**Training course dataset:** {row.get('training_course_dataset_name', '—')}")
+    st.write(
+        f"**Training cohort dataset:** {row.get('training_cohort_dataset_name', '—')}"
+    )
+    st.write(
+        f"**Training course dataset:** {row.get('training_course_dataset_name', '—')}"
+    )
 
     if has_value(row.get("model_card_path")):
         st.markdown(f"[Open model card]({row.get('model_card_path')})")
@@ -307,7 +328,9 @@ def render_overview_tab(
     render_metric_card(
         pulse_top[1],
         "Success rate",
-        "—" if day_over_day_metrics["success_rate_on_latest_day"] is None else f"{day_over_day_metrics['success_rate_on_latest_day']}%",
+        "—"
+        if day_over_day_metrics["success_rate_on_latest_day"] is None
+        else f"{day_over_day_metrics['success_rate_on_latest_day']}%",
         delta=format_rate_delta(day_over_day_metrics["success_rate_delta"]),
     )
     render_metric_card(
@@ -377,7 +400,9 @@ def render_overview_tab(
     st.markdown("### Institutions needing attention")
     attention_table = build_attention_table(institution_summary)
     if attention_table.empty:
-        st.success("No institutions are currently flagged as stale or recently failing in the selected range.")
+        st.success(
+            "No institutions are currently flagged as stale or recently failing in the selected range."
+        )
     else:
         render_data_table(
             attention_table,
@@ -408,7 +433,12 @@ def render_overview_tab(
         if failures_df.empty:
             st.info("No failures in the selected range.")
         else:
-            failures_by_inst = failures_df.groupby("institution_id").size().sort_values(ascending=False).head(15)
+            failures_by_inst = (
+                failures_df.groupby("institution_id")
+                .size()
+                .sort_values(ascending=False)
+                .head(15)
+            )
             st.bar_chart(failures_by_inst, height=300)
 
     c3, c4 = st.columns(2)
@@ -418,13 +448,23 @@ def render_overview_tab(
         if filtered_runs.empty:
             st.info("No runs to show.")
         else:
-            runs_by_inst = filtered_runs.groupby("institution_id").size().sort_values(ascending=False).head(15)
+            runs_by_inst = (
+                filtered_runs.groupby("institution_id")
+                .size()
+                .sort_values(ascending=False)
+                .head(15)
+            )
             st.bar_chart(runs_by_inst, height=300)
 
     with c4:
         st.markdown("**Training vs inference**")
         split_df = pd.DataFrame(
-            {"count": [overview_metrics["training_runs"], overview_metrics["inference_runs"]]},
+            {
+                "count": [
+                    overview_metrics["training_runs"],
+                    overview_metrics["inference_runs"],
+                ]
+            },
             index=["training", "inference"],
         )
         st.bar_chart(split_df, height=300)
@@ -449,8 +489,12 @@ def render_overview_tab(
     )
 
 
-def render_institutions_tab(institution_summary: pd.DataFrame, rows_per_table: int) -> None:
-    st.caption("Best starting point for users who want to see which institutions are healthy, need help, or require follow-up.")
+def render_institutions_tab(
+    institution_summary: pd.DataFrame, rows_per_table: int
+) -> None:
+    st.caption(
+        "Best starting point for users who want to see which institutions are healthy, need help, or require follow-up."
+    )
 
     inst_search = st.text_input(
         "Search institutions",
@@ -458,28 +502,40 @@ def render_institutions_tab(institution_summary: pd.DataFrame, rows_per_table: i
         key="inst_search",
     )
 
-    inst_table = search_dataframe(institution_summary.copy(), inst_search, INSTITUTION_SEARCH_COLUMNS)
+    inst_table = search_dataframe(
+        institution_summary.copy(), inst_search, INSTITUTION_SEARCH_COLUMNS
+    )
 
     ic1, ic2 = st.columns(2)
     with ic1:
         freshness_options = get_unique_options(inst_table, "freshness_status")
-        selected_freshness = st.multiselect("Freshness status", freshness_options, key="selected_freshness")
+        selected_freshness = st.multiselect(
+            "Freshness status", freshness_options, key="selected_freshness"
+        )
     with ic2:
         latest_status_options = get_unique_options(inst_table, "latest_run_status")
-        selected_latest_status = st.multiselect("Latest run status", latest_status_options, key="selected_latest_status")
+        selected_latest_status = st.multiselect(
+            "Latest run status", latest_status_options, key="selected_latest_status"
+        )
 
     if selected_freshness:
-        inst_table = inst_table[inst_table["freshness_status"].astype(str).isin(selected_freshness)]
+        inst_table = inst_table[
+            inst_table["freshness_status"].astype(str).isin(selected_freshness)
+        ]
 
     if selected_latest_status:
-        inst_table = inst_table[inst_table["latest_run_status"].astype(str).isin(selected_latest_status)]
+        inst_table = inst_table[
+            inst_table["latest_run_status"].astype(str).isin(selected_latest_status)
+        ]
 
     inst_table = inst_table.sort_values(
         by=["failed_runs", "days_since_last_run", "institution_id"],
         ascending=[False, False, True],
         na_position="last",
     )
-    render_data_table(inst_table, inst_table.columns.tolist(), rows_per_table, height=520)
+    render_data_table(
+        inst_table, inst_table.columns.tolist(), rows_per_table, height=520
+    )
 
 
 def render_runs_tab(filtered_runs: pd.DataFrame, rows_per_table: int) -> None:
@@ -514,21 +570,29 @@ def render_runs_tab(filtered_runs: pd.DataFrame, rows_per_table: int) -> None:
     render_data_table(run_table, RUN_DISPLAY_COLUMNS, rows_per_table, height=520)
 
     inspection_labels = build_inspection_labels(run_table, ["institution_id", "run_id"])
-    selected_run_index = render_inspection_selectbox("Inspect a run", inspection_labels, "selected_run_index")
+    selected_run_index = render_inspection_selectbox(
+        "Inspect a run", inspection_labels, "selected_run_index"
+    )
     if selected_run_index is not None:
         render_run_details(run_table.loc[selected_run_index])
 
 
 def render_models_tab(filtered_models: pd.DataFrame, rows_per_table: int) -> None:
-    st.caption("Use this view to trace model versions, training sources, and model artifacts.")
+    st.caption(
+        "Use this view to trace model versions, training sources, and model artifacts."
+    )
 
     mc1, mc2 = st.columns(2)
     with mc1:
         model_name_options = get_unique_options(filtered_models, "model_name")
-        selected_model_names = st.multiselect("Model name", model_name_options, key="selected_model_names")
+        selected_model_names = st.multiselect(
+            "Model name", model_name_options, key="selected_model_names"
+        )
     with mc2:
         model_version_options = get_unique_options(filtered_models, "model_version")
-        selected_model_versions = st.multiselect("Model version", model_version_options, key="selected_model_versions")
+        selected_model_versions = st.multiselect(
+            "Model version", model_version_options, key="selected_model_versions"
+        )
 
     models_search = st.text_input(
         "Search models",
@@ -539,10 +603,14 @@ def render_models_tab(filtered_models: pd.DataFrame, rows_per_table: int) -> Non
     model_table = filtered_models.copy()
 
     if selected_model_names:
-        model_table = model_table[model_table["model_name"].astype(str).isin(selected_model_names)]
+        model_table = model_table[
+            model_table["model_name"].astype(str).isin(selected_model_names)
+        ]
 
     if selected_model_versions:
-        model_table = model_table[model_table["model_version"].astype(str).isin(selected_model_versions)]
+        model_table = model_table[
+            model_table["model_version"].astype(str).isin(selected_model_versions)
+        ]
 
     model_table = search_dataframe(model_table, models_search, MODEL_SEARCH_COLUMNS)
 
@@ -575,13 +643,17 @@ def render_models_tab(filtered_models: pd.DataFrame, rows_per_table: int) -> Non
         model_table,
         ["institution_id", "model_name", "model_version", "model_run_id"],
     )
-    selected_model_index = render_inspection_selectbox("Inspect a model", inspection_labels, "selected_model_index")
+    selected_model_index = render_inspection_selectbox(
+        "Inspect a model", inspection_labels, "selected_model_index"
+    )
     if selected_model_index is not None:
         render_model_details(model_table.loc[selected_model_index])
 
 
 def render_failures_tab(failures_df: pd.DataFrame, rows_per_table: int) -> None:
-    st.caption("Use this review failures, identify repeated issues, and inspect the raw errors.")
+    st.caption(
+        "Use this review failures, identify repeated issues, and inspect the raw errors."
+    )
 
     failure_search = st.text_input(
         "Search failures",
@@ -598,22 +670,34 @@ def render_failures_tab(failures_df: pd.DataFrame, rows_per_table: int) -> None:
     )
 
     if selected_error_categories:
-        failure_table = failure_table[failure_table["error_category"].astype(str).isin(selected_error_categories)]
+        failure_table = failure_table[
+            failure_table["error_category"].astype(str).isin(selected_error_categories)
+        ]
 
-    failure_table = search_dataframe(failure_table, failure_search, FAILURE_SEARCH_COLUMNS)
+    failure_table = search_dataframe(
+        failure_table, failure_search, FAILURE_SEARCH_COLUMNS
+    )
 
     fc1, fc2 = st.columns([3, 1])
     with fc1:
         failure_sort_by = st.selectbox(
             "Sort failures by",
-            ["run_ts", "institution_id", "pipeline_version", "error_category", "duration_seconds"],
+            [
+                "run_ts",
+                "institution_id",
+                "pipeline_version",
+                "error_category",
+                "duration_seconds",
+            ],
             index=0,
         )
     with fc2:
         failure_desc = st.toggle("Descending", value=True, key="failure_desc")
 
     failure_table = sort_dataframe(failure_table, failure_sort_by, failure_desc)
-    render_data_table(failure_table, FAILURE_DISPLAY_COLUMNS, rows_per_table, height=520)
+    render_data_table(
+        failure_table, FAILURE_DISPLAY_COLUMNS, rows_per_table, height=520
+    )
 
     if failure_table.empty:
         return
@@ -622,14 +706,23 @@ def render_failures_tab(failures_df: pd.DataFrame, rows_per_table: int) -> None:
     ff1, ff2 = st.columns(2)
 
     with ff1:
-        failure_counts = failure_table.groupby("error_category").size().sort_values(ascending=False)
+        failure_counts = (
+            failure_table.groupby("error_category").size().sort_values(ascending=False)
+        )
         st.bar_chart(failure_counts, height=280)
 
     with ff2:
-        failure_by_inst = failure_table.groupby("institution_id").size().sort_values(ascending=False).head(15)
+        failure_by_inst = (
+            failure_table.groupby("institution_id")
+            .size()
+            .sort_values(ascending=False)
+            .head(15)
+        )
         st.bar_chart(failure_by_inst, height=280)
 
-    inspection_labels = build_inspection_labels(failure_table, ["institution_id", "run_id"])
+    inspection_labels = build_inspection_labels(
+        failure_table, ["institution_id", "run_id"]
+    )
     selected_failure_index = render_inspection_selectbox(
         "Inspect a failed run",
         inspection_labels,
@@ -654,7 +747,9 @@ def main() -> None:
         )
 
     st.sidebar.header("Global filters")
-    st.sidebar.caption("Filters update every view. Tables are view-only and data export is disabled.")
+    st.sidebar.caption(
+        "Filters update every view. Tables are view-only and data export is disabled."
+    )
     st.sidebar.caption(f"Runs table: `{RUNS_TABLE}`")
     st.sidebar.caption(f"Models table: `{MODELS_TABLE}`")
 
@@ -671,13 +766,17 @@ def main() -> None:
 
     try:
         raw_runs = get_runs_data(start_date.isoformat(), end_date_exclusive.isoformat())
-        raw_models = get_models_data(start_date.isoformat(), end_date_exclusive.isoformat())
+        raw_models = get_models_data(
+            start_date.isoformat(), end_date_exclusive.isoformat()
+        )
     except Exception as exc:
         st.error(f"Could not load the metadata tables: {exc}")
         st.stop()
 
     institution_options = sorted(
-        set(get_unique_options(raw_runs, "institution_id")).union(get_unique_options(raw_models, "institution_id"))
+        set(get_unique_options(raw_runs, "institution_id")).union(
+            get_unique_options(raw_models, "institution_id")
+        )
     )
     run_type_options = get_unique_options(raw_runs, "run_type")
     status_options = get_unique_options(raw_runs, "status")
@@ -686,12 +785,16 @@ def main() -> None:
     selected_institutions = st.sidebar.multiselect("Institution", institution_options)
     selected_run_types = st.sidebar.multiselect("Run type", run_type_options)
     selected_statuses = st.sidebar.multiselect("Status", status_options)
-    selected_pipeline_versions = st.sidebar.multiselect("Pipeline version", pipeline_version_options)
+    selected_pipeline_versions = st.sidebar.multiselect(
+        "Pipeline version", pipeline_version_options
+    )
     global_search = st.sidebar.text_input(
         "Keyword filter",
         placeholder="institution, run id, model id, version, error text...",
     )
-    rows_per_table = st.sidebar.slider("Rows shown per table", min_value=25, max_value=500, value=200, step=25)
+    rows_per_table = st.sidebar.slider(
+        "Rows shown per table", min_value=25, max_value=500, value=200, step=25
+    )
 
     filtered_runs = apply_run_filters(
         raw_runs,
@@ -709,12 +812,22 @@ def main() -> None:
 
     institution_summary = build_institution_summary(filtered_runs, filtered_models)
     failures_df = build_failures_dataframe(filtered_runs)
-    overview_metrics = build_overview_metrics(filtered_runs, filtered_models, institution_summary)
+    overview_metrics = build_overview_metrics(
+        filtered_runs, filtered_models, institution_summary
+    )
     day_over_day_metrics = build_day_over_day_metrics(filtered_runs, filtered_models)
-    latest_activity_summary = build_latest_activity_summary(filtered_runs, filtered_models)
+    latest_activity_summary = build_latest_activity_summary(
+        filtered_runs, filtered_models
+    )
 
     tab_overview, tab_institutions, tab_runs, tab_models, tab_failures = st.tabs(
-        ["Overview", "Institution Overview", "Run diagnostics", "Model registry", "Failures"]
+        [
+            "Overview",
+            "Institution Overview",
+            "Run diagnostics",
+            "Model registry",
+            "Failures",
+        ]
     )
 
     with tab_overview:
