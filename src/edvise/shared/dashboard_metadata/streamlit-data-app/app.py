@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from typing import Any, cast
 
 from databricks import sql as databricks_sql  # type: ignore[attr-defined]
+from databricks.sdk import WorkspaceClient
 from databricks.sdk.core import Config
 import pandas as pd
 import streamlit as st
@@ -15,7 +16,6 @@ from helpers import (
     RUN_SEARCH_COLUMNS,
     apply_model_filters,
     apply_run_filters,
-    build_attention_table,
     build_day_over_day_metrics,
     build_failures_dataframe,
     build_inspection_labels,
@@ -145,6 +145,28 @@ def get_models_data(start_date_str: str, end_date_exclusive_str: str) -> pd.Data
     return prepare_models_dataframe(run_query(query))
 
 
+@st.cache_data(ttl=300)
+def resolve_run_link_url(run_id: object | None, fallback_url: object | None) -> str | None:
+    fallback = str(fallback_url).strip() if has_value(fallback_url) else None
+    if not has_value(run_id):
+        return fallback
+
+    try:
+        run_id_int = int(str(run_id).strip())
+    except (TypeError, ValueError):
+        return fallback
+
+    try:
+        run = WorkspaceClient(config=Config()).jobs.get_run(run_id=run_id_int)
+        run_page_url = getattr(run, "run_page_url", None)
+        if has_value(run_page_url):
+            return str(run_page_url).strip()
+    except Exception:
+        return fallback
+
+    return fallback
+
+
 def render_jsonish(raw_value: object | None) -> None:
     if not has_value(raw_value):
         st.caption("No data")
@@ -267,8 +289,9 @@ def render_run_details(row: pd.Series) -> None:
     st.write(f"**Course dataset:** {row.get('course_dataset_name', '—')}")
     st.write(f"**Term filter:** {row.get('term_filter', '—')}")
 
-    if has_value(row.get("run_url")):
-        st.markdown(f"[Open Databricks run]({row.get('run_url')})")
+    run_link_url = resolve_run_link_url(row.get("run_id"), row.get("run_url"))
+    if has_value(run_link_url):
+        st.markdown(f"[Open Databricks run]({run_link_url})")
 
     if has_value(row.get("model_card_path")):
         st.markdown(f"[Open model card]({row.get('model_card_path')})")
@@ -326,43 +349,23 @@ def render_overview_tab(
     latest_activity_summary: dict[str, dict[str, object] | None],
     rows_per_table: int,
 ) -> None:
-    st.markdown("### Latest day activity")
-    st.caption(
-        " • ".join(
-            [
-                format_delta_reference(
-                    "Runs",
-                    day_over_day_metrics["run_reference_day"],
-                    day_over_day_metrics["previous_run_day"],
-                ),
-                format_delta_reference(
-                    "Models",
-                    day_over_day_metrics["model_reference_day"],
-                    day_over_day_metrics["previous_model_day"],
-                ),
-            ]
-        )
-    )
-
     pulse_top = st.columns(3, gap="large")
     render_metric_card(
         pulse_top[0],
         "Runs",
-        day_over_day_metrics["runs_on_latest_day"],
+        overview_metrics["total_runs"],
         delta=format_count_delta(day_over_day_metrics["runs_delta"]),
     )
     render_metric_card(
         pulse_top[1],
         "Success rate",
-        "—"
-        if day_over_day_metrics["success_rate_on_latest_day"] is None
-        else f"{day_over_day_metrics['success_rate_on_latest_day']}%",
+        f"{overview_metrics['success_rate']}%",
         delta=format_rate_delta(day_over_day_metrics["success_rate_delta"]),
     )
     render_metric_card(
         pulse_top[2],
         "Models logged",
-        day_over_day_metrics["models_on_latest_day"],
+        overview_metrics["models_logged"],
         delta=format_count_delta(day_over_day_metrics["models_delta"]),
     )
 
@@ -370,14 +373,14 @@ def render_overview_tab(
     render_metric_card(
         pulse_bottom[0],
         "Failures",
-        day_over_day_metrics["failures_on_latest_day"],
+        overview_metrics["failed_runs"],
         delta=format_count_delta(day_over_day_metrics["failures_delta"]),
         delta_color="inverse",
     )
     render_metric_card(
         pulse_bottom[1],
         "Active institutions",
-        day_over_day_metrics["active_institutions_on_latest_day"],
+        overview_metrics["monitored_institutions"],
         delta=format_count_delta(day_over_day_metrics["active_institutions_delta"]),
     )
 
@@ -391,6 +394,9 @@ def render_overview_tab(
             if latest_run is None:
                 st.info("No recent run activity in the selected range.")
             else:
+                latest_run_link_url = resolve_run_link_url(
+                    latest_run["run_id"], latest_run["run_url"]
+                )
                 render_latest_update(
                     "Latest run",
                     "Timestamp",
@@ -402,7 +408,7 @@ def render_overview_tab(
                         f"Run ID: {display_text(latest_run['run_id'])}",
                     ],
                     link_label="Open Databricks run",
-                    link_url=latest_run["run_url"],
+                    link_url=latest_run_link_url,
                 )
 
         with update2:
@@ -423,7 +429,6 @@ def render_overview_tab(
                     link_url=latest_model["model_card_path"],
                 )
 
-    st.markdown("### Activity")
     c1, c2 = st.columns(2)
 
     with c1:
@@ -481,21 +486,6 @@ def render_overview_tab(
             )
             st.bar_chart(failures_by_inst, height=300)
 
-    st.markdown("### Institutions needing attention")
-    attention_table = build_attention_table(institution_summary)
-    if attention_table.empty:
-        st.success(
-            "No institutions are currently flagged as stale or recently failing in the selected range."
-        )
-    else:
-        render_data_table(
-            attention_table,
-            attention_table.columns.tolist(),
-            rows_per_table=min(rows_per_table, 20),
-            height=320,
-        )
-
-    st.markdown("### Recent activity")
     recent_runs = sort_dataframe(filtered_runs.copy(), "run_ts", True)
     render_data_table(
         recent_runs,
@@ -514,7 +504,6 @@ def render_overview_tab(
         height=320,
     )
 
-
 def render_institutions_tab(
     institution_summary: pd.DataFrame, rows_per_table: int
 ) -> None:
@@ -524,7 +513,7 @@ def render_institutions_tab(
 
     inst_search = st.text_input(
         "Search institutions",
-        placeholder="institution id, model version, freshness status...",
+        placeholder="institution id, latest run status, model version...",
         key="inst_search",
     )
 
@@ -532,22 +521,10 @@ def render_institutions_tab(
         institution_summary.copy(), inst_search, INSTITUTION_SEARCH_COLUMNS
     )
 
-    ic1, ic2 = st.columns(2)
-    with ic1:
-        freshness_options = get_unique_options(inst_table, "freshness_status")
-        selected_freshness = st.multiselect(
-            "Freshness status", freshness_options, key="selected_freshness"
-        )
-    with ic2:
-        latest_status_options = get_unique_options(inst_table, "latest_run_status")
-        selected_latest_status = st.multiselect(
-            "Latest run status", latest_status_options, key="selected_latest_status"
-        )
-
-    if selected_freshness:
-        inst_table = inst_table[
-            inst_table["freshness_status"].astype(str).isin(selected_freshness)
-        ]
+    latest_status_options = get_unique_options(inst_table, "latest_run_status")
+    selected_latest_status = st.multiselect(
+        "Latest run status", latest_status_options, key="selected_latest_status"
+    )
 
     if selected_latest_status:
         inst_table = inst_table[
@@ -555,7 +532,7 @@ def render_institutions_tab(
         ]
 
     inst_table = inst_table.sort_values(
-        by=["failed_runs", "days_since_last_run", "institution_id"],
+        by=["failed_runs", "date_last_run", "institution_id"],
         ascending=[False, False, True],
         na_position="last",
     )
@@ -574,25 +551,6 @@ def render_runs_tab(filtered_runs: pd.DataFrame, rows_per_table: int) -> None:
     )
 
     run_table = search_dataframe(filtered_runs.copy(), runs_search, RUN_SEARCH_COLUMNS)
-
-    sort_col_options = [
-        "run_ts",
-        "started_at",
-        "finished_at",
-        "institution_id",
-        "status",
-        "run_type",
-        "duration_seconds",
-        "pipeline_version",
-        "dataset_ts",
-    ]
-    rc1, rc2 = st.columns([3, 1])
-    with rc1:
-        runs_sort_by = st.selectbox("Sort runs by", sort_col_options, index=0)
-    with rc2:
-        runs_desc = st.toggle("Descending", value=True, key="runs_desc")
-
-    run_table = sort_dataframe(run_table, runs_sort_by, runs_desc)
     render_data_table(run_table, RUN_DISPLAY_COLUMNS, rows_per_table, height=520)
 
     inspection_labels = build_inspection_labels(run_table, ["institution_id", "run_id"])
@@ -649,7 +607,7 @@ def render_models_tab(filtered_models: pd.DataFrame, rows_per_table: int) -> Non
         "model_run_id",
     ]
     st.markdown("**Sort models**")
-    mc3, mc4, mc5 = st.columns([3.4, 1.2, 4.4], gap="small")
+    mc3, mc4 = st.columns([3.4, 5.6], gap="small")
     with mc3:
         models_sort_by = st.selectbox(
             "Sort models by",
@@ -658,11 +616,9 @@ def render_models_tab(filtered_models: pd.DataFrame, rows_per_table: int) -> Non
             label_visibility="collapsed",
         )
     with mc4:
-        models_desc = st.toggle("Descending", value=True, key="models_desc")
-    with mc5:
         st.empty()
 
-    model_table = sort_dataframe(model_table, models_sort_by, models_desc)
+    model_table = sort_dataframe(model_table, models_sort_by, True)
     render_data_table(model_table, MODEL_DISPLAY_COLUMNS, rows_per_table, height=520)
 
     inspection_labels = build_inspection_labels(
@@ -718,9 +674,9 @@ def render_failures_tab(failures_df: pd.DataFrame, rows_per_table: int) -> None:
             index=0,
         )
     with fc2:
-        failure_desc = st.toggle("Descending", value=True, key="failure_desc")
+        st.empty()
 
-    failure_table = sort_dataframe(failure_table, failure_sort_by, failure_desc)
+    failure_table = sort_dataframe(failure_table, failure_sort_by, True)
     render_data_table(
         failure_table, FAILURE_DISPLAY_COLUMNS, rows_per_table, height=520
     )
@@ -840,13 +796,13 @@ def main() -> None:
         filtered_runs, filtered_models
     )
 
-    tab_overview, tab_institutions, tab_runs, tab_models, tab_failures = st.tabs(
+    tab_overview, tab_institutions, tab_models, tab_failures, tab_runs = st.tabs(
         [
             "Overview",
             "Institution Overview",
-            "Run diagnostics",
             "Model registry",
             "Failures",
+            "Run diagnostics",
         ]
     )
 
@@ -864,14 +820,14 @@ def main() -> None:
     with tab_institutions:
         render_institutions_tab(institution_summary, rows_per_table)
 
-    with tab_runs:
-        render_runs_tab(filtered_runs, rows_per_table)
-
     with tab_models:
         render_models_tab(filtered_models, rows_per_table)
 
     with tab_failures:
         render_failures_tab(failures_df, rows_per_table)
+
+    with tab_runs:
+        render_runs_tab(filtered_runs, rows_per_table)
 
 
 main()

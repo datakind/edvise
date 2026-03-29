@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from typing import TypeAlias
 
 import pandas as pd
@@ -38,9 +37,9 @@ MODEL_SEARCH_COLUMNS = [
 INSTITUTION_SEARCH_COLUMNS = [
     "institution_id",
     "latest_run_status",
+    "date_last_run",
     "latest_model_name",
     "latest_model_version",
-    "freshness_status",
 ]
 
 FAILURE_SEARCH_COLUMNS = [
@@ -293,16 +292,6 @@ def categorize_error(message: object | None) -> str:
     return "Other"
 
 
-def get_freshness_status(days_since_last_run: int | float | None) -> str:
-    if days_since_last_run is None or pd.isna(days_since_last_run):
-        return "No activity"
-    if days_since_last_run <= 1:
-        return "Healthy"
-    if days_since_last_run <= 7:
-        return "Warning"
-    return "Stale"
-
-
 def apply_run_filters(
     df: pd.DataFrame,
     institutions: list[str],
@@ -349,7 +338,8 @@ def build_institution_summary(
         "failed_runs",
         "success_rate",
         "median_duration_seconds",
-        "latest_run_at",
+        "date_last_run",
+        "days_since_last_run",
         "latest_run_status",
         "latest_successful_run_at",
         "latest_training_run_at",
@@ -358,8 +348,6 @@ def build_institution_summary(
         "latest_model_name",
         "latest_model_version",
         "latest_model_logged_at",
-        "days_since_last_run",
-        "freshness_status",
     ]
 
     if runs_df.empty:
@@ -440,10 +428,8 @@ def build_institution_summary(
         summary["latest_model_logged_at"] = pd.NaT
 
     now = pd.Timestamp.now(tz="UTC").tz_convert(None)
+    summary["date_last_run"] = summary["latest_run_at"].dt.date
     summary["days_since_last_run"] = (now - summary["latest_run_at"]).dt.days
-    summary["freshness_status"] = summary["days_since_last_run"].apply(
-        get_freshness_status
-    )
 
     return summary[columns].sort_values("institution_id")
 
@@ -485,18 +471,6 @@ def build_overview_metrics(
 
     return {
         "monitored_institutions": int(institution_summary["institution_id"].nunique())
-        if not institution_summary.empty
-        else 0,
-        "needs_attention": int(
-            institution_summary["freshness_status"]
-            .isin(["Warning", "Stale", "No activity"])
-            .sum()
-        )
-        if not institution_summary.empty
-        else 0,
-        "healthy_institutions": int(
-            (institution_summary["freshness_status"] == "Healthy").sum()
-        )
         if not institution_summary.empty
         else 0,
         "total_runs": total_runs,
@@ -689,34 +663,3 @@ def build_latest_activity_summary(
             }
 
     return summary
-
-
-def build_attention_table(institution_summary: pd.DataFrame) -> pd.DataFrame:
-    columns = [
-        "institution_id",
-        "freshness_status",
-        "latest_run_status",
-        "days_since_last_run",
-        "failed_runs",
-        "latest_model_name",
-        "latest_model_version",
-    ]
-
-    if institution_summary.empty:
-        return pd.DataFrame(columns=columns)
-
-    latest_status = (
-        institution_summary["latest_run_status"].fillna("").astype(str).str.lower()
-    )
-    attention_mask = institution_summary["freshness_status"].isin(
-        ["Warning", "Stale", "No activity"]
-    ) | latest_status.isin(["failed", "error"])
-
-    if not attention_mask.any():
-        return pd.DataFrame(columns=columns)
-
-    return institution_summary.loc[attention_mask, columns].sort_values(
-        by=["failed_runs", "days_since_last_run"],
-        ascending=[False, False],
-        na_position="last",
-    )
