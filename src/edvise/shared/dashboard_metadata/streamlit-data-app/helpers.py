@@ -333,6 +333,7 @@ def build_institution_summary(
     columns = [
         "institution_id",
         "total_runs",
+        "dataset_count",
         "training_runs",
         "inference_runs",
         "failed_runs",
@@ -365,6 +366,34 @@ def build_institution_summary(
             latest_dataset_ts=("dataset_ts", "max"),
         )
         .reset_index()
+    )
+
+    dataset_keys = runs_df[["institution_id", "dataset_ts"]].copy()
+    dataset_keys["dataset_key"] = dataset_keys["dataset_ts"].apply(
+        lambda value: value.isoformat() if pd.notna(value) else None
+    )
+
+    if {"cohort_dataset_name", "course_dataset_name"}.issubset(runs_df.columns):
+        fallback_keys = (
+            runs_df["cohort_dataset_name"].fillna("").astype(str).str.strip()
+            + "|"
+            + runs_df["course_dataset_name"].fillna("").astype(str).str.strip()
+        )
+        fallback_keys = fallback_keys.mask(fallback_keys == "|", None)
+        dataset_keys["dataset_key"] = dataset_keys["dataset_key"].fillna(fallback_keys)
+
+    dataset_counts = (
+        dataset_keys.dropna(subset=["dataset_key"])
+        .groupby("institution_id", dropna=False)["dataset_key"]
+        .nunique()
+        .rename("dataset_count")
+        .reset_index()
+    )
+    summary = summary.merge(dataset_counts, on="institution_id", how="left")
+    summary["dataset_count"] = (
+        summary["dataset_count"].fillna(0).astype(int)
+        if "dataset_count" in summary.columns
+        else 0
     )
 
     summary["success_rate"] = (

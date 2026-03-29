@@ -439,23 +439,26 @@ def render_overview_tab(
             runs_by_inst = (
                 filtered_runs.groupby("institution_id")
                 .size()
+                .rename("Runs")
                 .sort_values(ascending=False)
                 .head(15)
+                .rename_axis("Institution")
+                .reset_index()
             )
-            st.bar_chart(runs_by_inst, height=300)
+            st.bar_chart(runs_by_inst, x="Institution", y="Runs", height=300)
 
     with c2:
         st.markdown("**Training vs inference**")
         split_df = pd.DataFrame(
             {
-                "count": [
+                "Run type": ["training", "inference"],
+                "Runs": [
                     overview_metrics["training_runs"],
                     overview_metrics["inference_runs"],
-                ]
+                ],
             },
-            index=["training", "inference"],
         )
-        st.bar_chart(split_df, height=300)
+        st.bar_chart(split_df, x="Run type", y="Runs", height=300)
 
     c3, c4 = st.columns(2)
 
@@ -469,9 +472,11 @@ def render_overview_tab(
                 .assign(run_day=lambda d: d["run_ts"].dt.date)
                 .groupby("run_day")
                 .size()
-                .rename("runs")
+                .rename("Runs")
+                .rename_axis("Date")
+                .reset_index()
             )
-            st.line_chart(runs_over_time, height=300)
+            st.line_chart(runs_over_time, x="Date", y="Runs", height=300)
 
     with c4:
         st.markdown("**Failures by institution**")
@@ -481,10 +486,15 @@ def render_overview_tab(
             failures_by_inst = (
                 failures_df.groupby("institution_id")
                 .size()
+                .rename("Failures")
                 .sort_values(ascending=False)
                 .head(15)
+                .rename_axis("Institution")
+                .reset_index()
             )
-            st.bar_chart(failures_by_inst, height=300)
+            st.bar_chart(
+                failures_by_inst, x="Institution", y="Failures", height=300
+            )
 
     recent_runs = sort_dataframe(filtered_runs.copy(), "run_ts", True)
     render_data_table(
@@ -553,12 +563,35 @@ def render_runs_tab(filtered_runs: pd.DataFrame, rows_per_table: int) -> None:
     run_table = search_dataframe(filtered_runs.copy(), runs_search, RUN_SEARCH_COLUMNS)
     render_data_table(run_table, RUN_DISPLAY_COLUMNS, rows_per_table, height=520)
 
-    inspection_labels = build_inspection_labels(run_table, ["institution_id", "run_id"])
+    inspect_run_table = sort_dataframe(run_table.copy(), "run_ts", True)
+    available_run_dates = sorted(
+        inspect_run_table["run_ts"].dropna().dt.date.unique().tolist()
+    )
+
+    selected_run_date: object | None = None
+    if available_run_dates:
+        selected_run_date = st.date_input(
+            "Run date (optional)",
+            value=None,
+            min_value=available_run_dates[0],
+            max_value=available_run_dates[-1],
+            key="selected_run_date",
+        )
+        if selected_run_date is not None:
+            inspect_run_table = inspect_run_table[
+                inspect_run_table["run_ts"].dt.date == selected_run_date
+            ]
+            if inspect_run_table.empty:
+                st.info("No runs found for the selected date.")
+
+    inspection_labels = build_inspection_labels(
+        inspect_run_table, ["institution_id", "run_id"]
+    )
     selected_run_index = render_inspection_selectbox(
         "Inspect a run", inspection_labels, "selected_run_index"
     )
     if selected_run_index is not None:
-        render_run_details(run_table.loc[selected_run_index])
+        render_run_details(inspect_run_table.loc[selected_run_index])
 
 
 def render_models_tab(filtered_models: pd.DataFrame, rows_per_table: int) -> None:
@@ -689,21 +722,50 @@ def render_failures_tab(failures_df: pd.DataFrame, rows_per_table: int) -> None:
 
     with ff1:
         failure_counts = (
-            failure_table.groupby("error_category").size().sort_values(ascending=False)
+            failure_table.groupby("error_category")
+            .size()
+            .rename("Failures")
+            .sort_values(ascending=False)
+            .rename_axis("Error category")
+            .reset_index()
         )
-        st.bar_chart(failure_counts, height=280)
+        st.bar_chart(failure_counts, x="Error category", y="Failures", height=280)
 
     with ff2:
         failure_by_inst = (
             failure_table.groupby("institution_id")
             .size()
+            .rename("Failures")
             .sort_values(ascending=False)
             .head(15)
+            .rename_axis("Institution")
+            .reset_index()
         )
-        st.bar_chart(failure_by_inst, height=280)
+        st.bar_chart(failure_by_inst, x="Institution", y="Failures", height=280)
+
+    inspect_failure_table = sort_dataframe(failure_table.copy(), "run_ts", True)
+    available_failure_dates = sorted(
+        inspect_failure_table["run_ts"].dropna().dt.date.unique().tolist()
+    )
+
+    selected_failure_date: object | None = None
+    if available_failure_dates:
+        selected_failure_date = st.date_input(
+            "Failure date (optional)",
+            value=None,
+            min_value=available_failure_dates[0],
+            max_value=available_failure_dates[-1],
+            key="selected_failure_date",
+        )
+        if selected_failure_date is not None:
+            inspect_failure_table = inspect_failure_table[
+                inspect_failure_table["run_ts"].dt.date == selected_failure_date
+            ]
+            if inspect_failure_table.empty:
+                st.info("No failed runs found for the selected date.")
 
     inspection_labels = build_inspection_labels(
-        failure_table, ["institution_id", "run_id"]
+        inspect_failure_table, ["institution_id", "run_id"]
     )
     selected_failure_index = render_inspection_selectbox(
         "Inspect a failed run",
@@ -711,7 +773,7 @@ def render_failures_tab(failures_df: pd.DataFrame, rows_per_table: int) -> None:
         "selected_failure_index",
     )
     if selected_failure_index is not None:
-        render_run_details(failure_table.loc[selected_failure_index])
+        render_run_details(inspect_failure_table.loc[selected_failure_index])
 
 
 def main() -> None:
