@@ -563,52 +563,57 @@ def build_day_over_day_metrics(
                 * 100
             ).round(1)
 
-            latest_day = daily_runs.index.max()
-            previous_day = latest_day - pd.Timedelta(days=1)
-            latest_row = daily_runs.loc[latest_day]
-            previous_row = (
-                daily_runs.loc[previous_day]
-                if previous_day in daily_runs.index
-                else pd.Series(
-                    {
-                        "runs_on_latest_day": 0,
-                        "failures_on_latest_day": 0,
-                        "active_institutions_on_latest_day": 0,
-                        "success_rate_on_latest_day": 0.0,
-                    }
-                )
-            )
+            latest_day = daily_runs.index[-1]
+            previous_day = daily_runs.index[-2] if len(daily_runs) > 1 else pd.NaT
+            latest_row = daily_runs.iloc[-1]
+            previous_row = daily_runs.iloc[-2] if len(daily_runs) > 1 else None
 
             metrics.update(
                 {
                     "run_reference_day": latest_day,
                     "previous_run_day": previous_day,
                     "runs_on_latest_day": int(latest_row["runs_on_latest_day"]),
-                    "runs_delta": int(
-                        latest_row["runs_on_latest_day"]
-                        - previous_row["runs_on_latest_day"]
+                    "runs_delta": (
+                        int(
+                            latest_row["runs_on_latest_day"]
+                            - previous_row["runs_on_latest_day"]
+                        )
+                        if previous_row is not None
+                        else None
                     ),
                     "failures_on_latest_day": int(latest_row["failures_on_latest_day"]),
-                    "failures_delta": int(
-                        latest_row["failures_on_latest_day"]
-                        - previous_row["failures_on_latest_day"]
+                    "failures_delta": (
+                        int(
+                            latest_row["failures_on_latest_day"]
+                            - previous_row["failures_on_latest_day"]
+                        )
+                        if previous_row is not None
+                        else None
                     ),
                     "active_institutions_on_latest_day": int(
                         latest_row["active_institutions_on_latest_day"]
                     ),
-                    "active_institutions_delta": int(
-                        latest_row["active_institutions_on_latest_day"]
-                        - previous_row["active_institutions_on_latest_day"]
+                    "active_institutions_delta": (
+                        int(
+                            latest_row["active_institutions_on_latest_day"]
+                            - previous_row["active_institutions_on_latest_day"]
+                        )
+                        if previous_row is not None
+                        else None
                     ),
                     "success_rate_on_latest_day": float(
                         latest_row["success_rate_on_latest_day"]
                     ),
-                    "success_rate_delta": round(
-                        float(
-                            latest_row["success_rate_on_latest_day"]
-                            - previous_row["success_rate_on_latest_day"]
-                        ),
-                        1,
+                    "success_rate_delta": (
+                        round(
+                            float(
+                                latest_row["success_rate_on_latest_day"]
+                                - previous_row["success_rate_on_latest_day"]
+                            ),
+                            1,
+                        )
+                        if previous_row is not None
+                        else None
                     ),
                 }
             )
@@ -626,20 +631,20 @@ def build_day_over_day_metrics(
                 .sort_index()
             )
 
-            latest_day = daily_models.index.max()
-            previous_day = latest_day - pd.Timedelta(days=1)
-            previous_count = (
-                int(daily_models.loc[previous_day])
-                if previous_day in daily_models.index
-                else 0
-            )
+            latest_day = daily_models.index[-1]
+            previous_day = daily_models.index[-2] if len(daily_models) > 1 else pd.NaT
+            previous_count = int(daily_models.iloc[-2]) if len(daily_models) > 1 else None
 
             metrics.update(
                 {
                     "model_reference_day": latest_day,
                     "previous_model_day": previous_day,
                     "models_on_latest_day": int(daily_models.loc[latest_day]),
-                    "models_delta": int(daily_models.loc[latest_day] - previous_count),
+                    "models_delta": (
+                        int(daily_models.loc[latest_day] - previous_count)
+                        if previous_count is not None
+                        else None
+                    ),
                 }
             )
 

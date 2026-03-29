@@ -327,6 +327,22 @@ def render_overview_tab(
     rows_per_table: int,
 ) -> None:
     st.markdown("### Latest day activity")
+    st.caption(
+        " • ".join(
+            [
+                format_delta_reference(
+                    "Runs",
+                    day_over_day_metrics["run_reference_day"],
+                    day_over_day_metrics["previous_run_day"],
+                ),
+                format_delta_reference(
+                    "Models",
+                    day_over_day_metrics["model_reference_day"],
+                    day_over_day_metrics["previous_model_day"],
+                ),
+            ]
+        )
+    )
 
     pulse_top = st.columns(3, gap="large")
     render_metric_card(
