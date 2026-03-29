@@ -33,8 +33,17 @@ from helpers import (
 )
 
 
-RUNS_TABLE = "dev_sst_02.default.pipeline_runs"
-MODELS_TABLE = "dev_sst_02.default.pipeline_models"
+DEFAULT_DB_WORKSPACE = "dev_sst_02"
+DEFAULT_METADATA_SCHEMA = "default"
+
+
+def get_db_workspace() -> str:
+    db_workspace = os.getenv("DB_workspace", DEFAULT_DB_WORKSPACE).strip()
+    return db_workspace or DEFAULT_DB_WORKSPACE
+
+
+RUNS_TABLE = f"{get_db_workspace()}.{DEFAULT_METADATA_SCHEMA}.pipeline_runs"
+MODELS_TABLE = f"{get_db_workspace()}.{DEFAULT_METADATA_SCHEMA}.pipeline_models"
 
 HIDE_EXPORT_CSS = """
 <style>
@@ -102,7 +111,7 @@ st.set_page_config(
 def get_warehouse_id() -> str:
     warehouse_id = os.getenv("DATABRICKS_WAREHOUSE_ID")
     if not warehouse_id:
-        raise RuntimeError("DATABRICKS_WAREHOUSE_ID must be set in app.yaml.")
+        raise RuntimeError("DATABRICKS_WAREHOUSE_ID must be set in the app configuration.")
     return warehouse_id
 
 
