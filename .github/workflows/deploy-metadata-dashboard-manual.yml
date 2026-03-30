@@ -63,6 +63,23 @@ jobs:
           uv venv
           uv pip install .
 
+      - name: Generate metadata dashboard requirements.txt
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import tomllib
+
+          repo_root = Path.cwd()
+          pyproject = tomllib.loads((repo_root / "pyproject.toml").read_text())
+          requirements = pyproject["dependency-groups"]["streamlit-data-app"]
+          requirements_path = (
+              repo_root
+              / "src/edvise/shared/dashboard_metadata/streamlit-data-app/requirements.txt"
+          )
+          requirements_path.write_text("\n".join(requirements) + "\n")
+          print(requirements_path.read_text())
+          PY
+
       - name: Configure Databricks env (Staging)
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_STAGING_HOST }}
@@ -140,6 +157,23 @@ jobs:
         run: |
           uv venv
           uv pip install .
+
+      - name: Generate metadata dashboard requirements.txt
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import tomllib
+
+          repo_root = Path.cwd()
+          pyproject = tomllib.loads((repo_root / "pyproject.toml").read_text())
+          requirements = pyproject["dependency-groups"]["streamlit-data-app"]
+          requirements_path = (
+              repo_root
+              / "src/edvise/shared/dashboard_metadata/streamlit-data-app/requirements.txt"
+          )
+          requirements_path.write_text("\n".join(requirements) + "\n")
+          print(requirements_path.read_text())
+          PY
 
       - name: Configure Databricks env (Dev)
         env:
