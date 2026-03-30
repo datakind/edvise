@@ -320,18 +320,38 @@ def _canonicalize_column(table: str | None, column: str | None, alias_map: dict)
     return alias_map.get((table, column), column)
 
 
+def _lookup_table_unique_keys(schema_contract: dict | None, lookup_table: str | None) -> list[str] | None:
+    """Return declared unique_keys for a dataset table from a schema contract, if any."""
+    if not schema_contract or not lookup_table:
+        return None
+    ds = (schema_contract.get("datasets") or {}).get(lookup_table) or {}
+    uks = ds.get("unique_keys")
+    if not uks:
+        return None
+    return list(uks)
+
+
 def _is_null_mapping(mapping: dict | None) -> bool:
     mapping = mapping or {}
     return mapping.get("source_column") is None and mapping.get("source_table") is None
 
 
-def _normalize_join(join: dict | None) -> dict | None:
+def _normalize_join(join: dict | None, schema_contract: dict | None = None) -> dict | None:
     if not join:
         return None
+    keys = list(join.get("join_keys", []))
+    lookup = join.get("lookup_table")
+    uks = _lookup_table_unique_keys(schema_contract, lookup)
+    if uks:
+        uk_set = set(uks)
+        # Drop keys not in the lookup table's declared PK (e.g. spurious section_number
+        # or section_id when the contract unique_keys are a shorter list such as term +
+        # course_reference_number only).
+        keys = [k for k in keys if k in uk_set]
     return {
         "base_table": join.get("base_table"),
         "lookup_table": join.get("lookup_table"),
-        "join_keys": sorted(join.get("join_keys", [])),
+        "join_keys": sorted(keys),
     }
 
 
@@ -362,6 +382,13 @@ def _has_degree_filter(mapping: dict | None) -> bool:
 
 
 def _needs_row_selection_check(gold_mapping: dict) -> bool:
+    """True when gold specifies any row_selection strategy (including any_row)."""
+    rs = (gold_mapping or {}).get("row_selection") or {}
+    return rs.get("strategy") is not None
+
+
+def _needs_row_selection_check_non_anyrow(gold_mapping: dict) -> bool:
+    """True when gold row_selection is a non-trivial strategy (excludes any_row)."""
     rs = (gold_mapping or {}).get("row_selection") or {}
     return rs.get("strategy") not in (None, "any_row")
 
@@ -370,7 +397,11 @@ def _is_degree_like_field(field: str) -> bool:
     return any(x in field for x in ("grad_date", "certificate", "degree_grad", "major_grad"))
 
 
-def _normalize_mapping(mapping: dict | None, alias_map: dict) -> dict:
+def _normalize_mapping(
+    mapping: dict | None,
+    alias_map: dict,
+    schema_contract: dict | None = None,
+) -> dict:
     """
     Canonical representation for strict equality checks.
     Ignores rationale/confidence/review metadata.
@@ -386,12 +417,16 @@ def _normalize_mapping(mapping: dict | None, alias_map: dict) -> dict:
     )
 
     if "join" in m:
-        m["join"] = _normalize_join(m.get("join"))
+        m["join"] = _normalize_join(m.get("join"), schema_contract)
 
     return m
 
 
-def _prepare_mapping(mapping: dict | None, alias_map: dict) -> dict:
+def _prepare_mapping(
+    mapping: dict | None,
+    alias_map: dict,
+    schema_contract: dict | None = None,
+) -> dict:
     """
     Compact normalized view used for all comparisons.
     """
@@ -404,9 +439,9 @@ def _prepare_mapping(mapping: dict | None, alias_map: dict) -> dict:
         "is_null": _is_null_mapping(mapping),
         "source_table": source_table,
         "source_column": _canonicalize_column(source_table, source_column, alias_map),
-        "join": _normalize_join(mapping.get("join")),
+        "join": _normalize_join(mapping.get("join"), schema_contract),
         "row_selection": _normalize_row_selection(mapping),
-        "normalized": _normalize_mapping(mapping, alias_map),
+        "normalized": _normalize_mapping(mapping, alias_map, schema_contract),
     }
 
 
@@ -416,12 +451,13 @@ def _compare_field(
     pred_mapping: dict,
     gold_alias_map: dict,
     pred_alias_map: dict,
+    schema_contract: dict | None = None,
 ) -> dict:
     """
     Compare one field and return all field-level booleans/flags.
     """
-    g = _prepare_mapping(gold_mapping, gold_alias_map)
-    p = _prepare_mapping(pred_mapping, pred_alias_map)
+    g = _prepare_mapping(gold_mapping, gold_alias_map, schema_contract)
+    p = _prepare_mapping(pred_mapping, pred_alias_map, schema_contract)
 
     g_mappable = not g["is_null"]
     p_mappable = not p["is_null"]
@@ -454,6 +490,10 @@ def _compare_field(
     row_selection_correct = None
     if _needs_row_selection_check(gold_mapping):
         row_selection_correct = int(p["row_selection"] == g["row_selection"])
+
+    row_selection_correct_non_anyrow = None
+    if _needs_row_selection_check_non_anyrow(gold_mapping):
+        row_selection_correct_non_anyrow = int(p["row_selection"] == g["row_selection"])
 
     degree_filter_correct = None
     if _is_degree_like_field(field) and g_mappable:
@@ -492,6 +532,10 @@ def _compare_field(
         "join_keys_correct": join_keys_correct,
         "row_selection_checked": _needs_row_selection_check(gold_mapping),
         "row_selection_correct": row_selection_correct,
+        "row_selection_checked_non_anyrow": _needs_row_selection_check_non_anyrow(
+            gold_mapping
+        ),
+        "row_selection_correct_non_anyrow": row_selection_correct_non_anyrow,
         "degree_filter_checked": _is_degree_like_field(field) and g_mappable,
         "degree_filter_correct": degree_filter_correct,
         "exact_field_match": exact_field_match,
@@ -553,6 +597,11 @@ def _update_counts(counts: Counter, cmp: dict) -> None:
         if cmp["row_selection_correct"] == 1:
             counts["row_selection_correct"] += 1
 
+    if cmp["row_selection_checked_non_anyrow"]:
+        counts["row_selection_non_anyrow_needed"] += 1
+        if cmp["row_selection_correct_non_anyrow"] == 1:
+            counts["row_selection_non_anyrow_correct"] += 1
+
     if cmp["degree_filter_checked"]:
         counts["degree_filter_needed"] += 1
         if cmp["degree_filter_correct"] == 1:
@@ -606,6 +655,10 @@ def _finalize_counts(entity: str, counts: Counter, field_scores: list[dict]) -> 
             counts["row_selection_correct"],
             counts["row_selection_needed"],
         ),
+        "row_selection_accuracy_non_anyrow": _safe_div(
+            counts["row_selection_non_anyrow_correct"],
+            counts["row_selection_non_anyrow_needed"],
+        ),
         "join_precision": join_precision,
         "join_recall": join_recall,
         "join_f1": _f1(join_precision, join_recall),
@@ -637,7 +690,12 @@ def _finalize_counts(entity: str, counts: Counter, field_scores: list[dict]) -> 
     }
 
 
-def score_manifest_v2(pred: dict, gold: dict, entity: str) -> dict:
+def score_manifest_v2(
+    pred: dict,
+    gold: dict,
+    entity: str,
+    schema_contract: dict | None = None,
+) -> dict:
     pred_mappings = _get_mappings(pred, entity)
     gold_mappings = _get_mappings(gold, entity)
 
@@ -655,6 +713,7 @@ def score_manifest_v2(pred: dict, gold: dict, entity: str) -> dict:
             pred_mapping=pred_mapping,
             gold_alias_map=gold_alias_map,
             pred_alias_map=pred_alias_map,
+            schema_contract=schema_contract,
         )
         cmp["entity"] = entity
         field_scores.append(cmp)
@@ -663,7 +722,11 @@ def score_manifest_v2(pred: dict, gold: dict, entity: str) -> dict:
     return _finalize_counts(entity, counts, field_scores)
 
 
-def score_result(result: dict, gold_manifest: dict) -> dict | None:
+def score_result(
+    result: dict,
+    gold_manifest: dict,
+    schema_contract: dict | None = None,
+) -> dict | None:
     """Parse response JSON and score against gold. Returns None on parse failure."""
     if not result["success"]:
         return None
@@ -677,8 +740,8 @@ def score_result(result: dict, gold_manifest: dict) -> dict | None:
     if not is_valid:
         logger.warning(f"Pydantic validation failed for {result['model']}: {validation_error}")
 
-    cohort_scores = score_manifest_v2(pred, gold_manifest, "cohort")
-    course_scores = score_manifest_v2(pred, gold_manifest, "course")
+    cohort_scores = score_manifest_v2(pred, gold_manifest, "cohort", schema_contract)
+    course_scores = score_manifest_v2(pred, gold_manifest, "course", schema_contract)
 
     def _avg(*vals):
         vals = [v for v in vals if v is not None]
@@ -698,6 +761,10 @@ def score_result(result: dict, gold_manifest: dict) -> dict | None:
                 course_scores["source_exact_accuracy_gold_mappable"],
             ),
             "row_selection_accuracy": _avg(cohort_scores["row_selection_accuracy"], course_scores["row_selection_accuracy"]),
+            "row_selection_accuracy_non_anyrow": _avg(
+                cohort_scores["row_selection_accuracy_non_anyrow"],
+                course_scores["row_selection_accuracy_non_anyrow"],
+            ),
             "join_f1": _avg(cohort_scores["join_f1"], course_scores["join_f1"]),
             "join_table_accuracy": _avg(cohort_scores["join_table_accuracy"], course_scores["join_table_accuracy"]),
             "join_key_accuracy": _avg(cohort_scores["join_key_accuracy"], course_scores["join_key_accuracy"]),
@@ -912,7 +979,7 @@ def run():
                 logger.warning(f"→ manifest not saved (inference error)")
             
             # score
-            scores = score_result(result, GOLD_MANIFEST)
+            scores = score_result(result, GOLD_MANIFEST, schema_contract=target_contract)
             if scores:
                 validation_status = "✓" if scores.get("validation_passed") else "✗"
                 logger.info(
@@ -923,6 +990,7 @@ def run():
                     f"map_rec_strict={scores['overall']['mappable_recall_strict']} | "
                     f"source_exact={scores['overall']['source_exact_accuracy_gold_mappable']} | "
                     f"row_sel={scores['overall']['row_selection_accuracy']} | "
+                    f"row_sel_non_anyrow={scores['overall']['row_selection_accuracy_non_anyrow']} | "
                     f"join_f1={scores['overall']['join_f1']} | "
                     f"degree_filter={scores['overall']['degree_filter_accuracy']} | "
                     f"exec_ready={scores['overall']['execution_ready_rate']}"
@@ -1008,6 +1076,7 @@ def run():
                 "overall_mappable_recall_strict",
                 "overall_source_exact_accuracy_gold_mappable",
                 "overall_row_selection_accuracy",
+                "overall_row_selection_accuracy_non_anyrow",
                 "overall_join_f1",
                 "overall_join_table_accuracy",
                 "overall_join_key_accuracy",

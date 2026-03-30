@@ -130,12 +130,11 @@ JOINS AND ALIASES
   for cohort), join.lookup_table to the table containing the source column, and
   join.join_keys to the columns that uniquely identify the join relationship.
 - join_keys must be sufficient to uniquely identify rows in the lookup table given the
-  base table grain. For example, if the course entity is at student-term-course-section
-  grain and the lookup table is a section-level table, join_keys must include all of:
-  student_id, term, course identifier, and section identifier — not just term and course
-  identifier, which would fan out across sections. Verify sufficiency against the lookup
-  table's unique_keys in the schema contract — derive join_keys from there, not from
-  reference manifests.
+  base table grain. Use the lookup table's unique_keys from the schema contract as the
+  join key list (only include columns that exist on both base_table and lookup_table with
+  the same canonical name, or use aliases when names differ). 
+- Verify join_keys sufficiency against the lookup table's unique_keys derive join_keys from
+  there, not from reference manifests.
 - Before writing join_keys, check whether each key column has the same name in both
   tables. If names match, use the column name directly in join_keys with no alias. If
   names differ, declare an alias first (see below), then use the canonical_column value
