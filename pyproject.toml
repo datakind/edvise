@@ -47,6 +47,10 @@ dev = [
     "ruff~=0.9",
     "types-requests==2.32.4.20250913",
 ]
+streamlit-data-app = [
+    "databricks-sql-connector~=3.4.0",
+    "streamlit~=1.38.0",
+]
 
 [build-system]
 requires = ["hatchling"]
