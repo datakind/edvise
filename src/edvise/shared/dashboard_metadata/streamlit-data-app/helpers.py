@@ -636,7 +636,9 @@ def build_day_over_day_metrics(
 
             latest_day = daily_models.index[-1]
             previous_day = daily_models.index[-2] if len(daily_models) > 1 else pd.NaT
-            previous_count = int(daily_models.iloc[-2]) if len(daily_models) > 1 else None
+            previous_count = (
+                int(daily_models.iloc[-2]) if len(daily_models) > 1 else None
+            )
 
             metrics.update(
                 {

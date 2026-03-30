@@ -146,7 +146,9 @@ def get_models_data(start_date_str: str, end_date_exclusive_str: str) -> pd.Data
 
 
 @st.cache_data(ttl=300)
-def resolve_run_link_url(run_id: object | None, fallback_url: object | None) -> str | None:
+def resolve_run_link_url(
+    run_id: object | None, fallback_url: object | None
+) -> str | None:
     fallback = str(fallback_url).strip() if has_value(fallback_url) else None
     if not has_value(run_id):
         return fallback
@@ -597,9 +599,7 @@ def render_overview_tab(
                 .rename_axis("Institution")
                 .reset_index()
             )
-            st.bar_chart(
-                failures_by_inst, x="Institution", y="Failures", height=300
-            )
+            st.bar_chart(failures_by_inst, x="Institution", y="Failures", height=300)
 
     recent_runs = sort_dataframe(filtered_runs.copy(), "run_ts", True)
     render_data_table(
@@ -618,6 +618,7 @@ def render_overview_tab(
         rows_per_table=min(rows_per_table, 20),
         height=320,
     )
+
 
 def render_institutions_tab(
     institution_summary: pd.DataFrame, rows_per_table: int
