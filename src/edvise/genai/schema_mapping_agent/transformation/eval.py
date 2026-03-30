@@ -28,7 +28,7 @@ from .schemas import TransformationMap
 from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
 from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
 
-from ..manifest.eval import MODELS, folder_slug_2b, run_once
+from ..manifest.eval import MODELS, _find_eval_project_root, folder_slug_2b, run_once
 from .prompt_builder import build_step2b_prompt, load_json
 
 load_dotenv()
@@ -505,8 +505,7 @@ def score_t2b_result(result: dict, gold_tm: dict) -> dict | None:
 
 def run():
     """Run 2b evaluation on all models."""
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent.parent
+    project_root = _find_eval_project_root()
     original_cwd = os.getcwd()
     os.chdir(project_root)
 
@@ -522,6 +521,7 @@ def run():
         logger.info("=" * 80)
         logger.info(f"Target: {target_name} ({target_id})")
         logger.info(f"Reference: {reference_name} ({reference_id})")
+        logger.info(f"Project root (eval cwd): {project_root}")
 
         HISTORICAL_BASE = Path(f"pipelines/gen_ai_cleaning/historical_examples/{target_id}")
         OUTPUT_DIR = HISTORICAL_BASE / "eval_outputs_2b"
