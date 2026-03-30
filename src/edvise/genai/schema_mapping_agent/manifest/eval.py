@@ -62,6 +62,7 @@ REFERENCE_INSTITUTION = {
 MODELS = [
     "claude-opus-test-genai-ai-data-cleaning",
     "claude-sonnet-test-genai-ai-data-cleaning",
+    "claude-haiku-test-genai-data-cleaning",
     "gpt52-test-genai-ai-datacleaning",
     "gemini-test-genai-ai-datacleaning",
 ]
@@ -70,6 +71,7 @@ MODELS = [
 MODEL_BASE_SLUG = {
     "claude-opus-test-genai-ai-data-cleaning": "opus",
     "claude-sonnet-test-genai-ai-data-cleaning": "sonnet",
+    "claude-haiku-test-genai-data-cleaning": "haiku",
     "gpt52-test-genai-ai-datacleaning": "gpt52",
     "gemini-test-genai-ai-datacleaning": "gemini",
 }
@@ -96,6 +98,7 @@ def folder_slug_2b(model: str) -> str:
 # Models that support assistant message prefill (for JSON output formatting)
 MODELS_WITH_PREFILL = {
     "claude-sonnet-test-genai-ai-data-cleaning",
+    "claude-haiku-test-genai-data-cleaning",
     "gpt52-test-genai-ai-datacleaning",
     "gemini-test-genai-ai-datacleaning",
 }
