@@ -19,10 +19,14 @@ def find_repo_root(start_path: Path) -> Path:
 
 def load_dependency_group(pyproject_path: Path, group_name: str) -> list[str]:
     pyproject = tomllib.loads(pyproject_path.read_text())
-    dependency_groups = pyproject.get("dependency-groups", {})
-    dependencies = dependency_groups.get(group_name)
+    tool_config = pyproject.get("tool", {})
+    edvise_config = tool_config.get("edvise", {})
+    requirements = edvise_config.get("requirements", {})
+    dependencies = requirements.get(group_name)
     if not isinstance(dependencies, list):
-        raise KeyError(f"Dependency group '{group_name}' is missing from pyproject.toml.")
+        raise KeyError(
+            f"Requirements list '{group_name}' is missing from pyproject.toml."
+        )
     return [str(dependency) for dependency in dependencies]
 
 
