@@ -241,7 +241,6 @@ STEP ORDERING
 - Apply type casting steps (cast_string, cast_nullable_int, etc.) after value transformations
   unless an earlier step requires a specific type as input
 - Apply domain-specific normalization (normalize_term_code, normalize_grade, etc.) as needed
-- Apply null handling (fill_nulls, replace_null_tokens) at appropriate points in the chain
 
 EXTRA COLUMNS
 - Some utilities require extra_columns
@@ -250,23 +249,27 @@ EXTRA COLUMNS
 - These columns are resolved from the base DataFrame before the step runs
 
 NULL HANDLING
-- For student group fields (gender, race, ethnicity, first_gen, pell_status_first_year, military_status,
-  disability_status, incarcerated_status, employment_status):
-  use map_values to replace null tokens with 'Unknown / Not Specified'
-- For other fields, use replace_null_tokens or replace_values_with_null to convert null token strings to pd.NA
-- Use fill_nulls only when you need to fill nulls with a specific default value
+- Missing values are already pd.NA upstream. Do not fill nulls with invented labels
+- Target fields marked non-nullable in the target schema: never use fill_nulls, map_values defaults, or other utilities
+  to manufacture a value when the source is missing — that masks bad or incomplete source data.
+- Demographics / bias fields (gender, race, ethnicity, first_gen,
+  pell_status_first_year, military_status, disability_status, incarcerated_status, employment_status): never use
+  placeholder strings like 'Unknown / Not Specified' here — bucket unknowns downstream if needed
 
 CONSTANT FIELDS
 - For fields that are derivable as institutional constants (e.g., all students are Bachelor's seekers), use fill_constant
 - The column parameter in fill_constant is used only for length — the value parameter is the constant string
 
 MAP VALUES USAGE
-- Use map_values only when the source column contains institution-specific codes or tokens
-  that must be translated to schema-valid values (e.g. W1/W2/W3/W4 -> W, NC/NCR -> F)
-- Do NOT use map_values on free-text schema fields (fields where the target schema places
-  no constraint on allowed values). Pass the source values through after cleaning only.
-  Adding map_values to a free-text field is always wrong — the schema has no vocabulary to
-  map toward, and doing so invents a normalization that was not specified.
+- map_values is appropriate only for fields whose target schema enforces a constrained
+  allowed-value set: category fields (academic_term, entry_term, pell_recipient_year1,
+  term_pell_recipient), learner_age (isin LEARNER_AGE_BUCKETS), and grade
+  (ALLOWED_LETTER_GRADES or numeric 0.0–4.0). These are the only fields where source
+  values can violate a schema constraint that map_values can fix.
+- Every other field in RawEdviseStudentDataSchema and RawEdviseCourseDataSchema is either
+  free text (StringDtype, nullable=True, no value constraint) or a dtype-only field
+  (Float64, datetime64[ns]) where casting handles conformance. Do NOT add map_values
+  to any of these fields — there is no allowed-value set to map toward.
 - map_values default="passthrough" keeps original values for unmapped entries
 - map_values default=null fills unmapped entries with NA
 - Explicit null mappings (e.g., {{"(Blank)": null}}) are preserved even with default="passthrough"
