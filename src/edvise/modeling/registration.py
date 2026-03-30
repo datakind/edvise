@@ -15,8 +15,6 @@ if t.TYPE_CHECKING:
         CheckpointFirstAtNumCreditsEarnedConfig,
         CheckpointFirstConfig,
         CheckpointFirstWithinCohortConfig,
-        CheckpointLastConfig,
-        CheckpointLastInEnrollmentYearConfig,
         CheckpointNthConfig,
         TargetCreditsEarnedConfig,
         TargetGraduationConfig,
@@ -30,8 +28,6 @@ if t.TYPE_CHECKING:
         CheckpointFirstAtNumCreditsEarnedConfig
         | CheckpointFirstConfig
         | CheckpointFirstWithinCohortConfig
-        | CheckpointLastConfig
-        | CheckpointLastInEnrollmentYearConfig
         | CheckpointNthConfig
     )
 

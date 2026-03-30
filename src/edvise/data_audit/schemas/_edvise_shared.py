@@ -125,7 +125,11 @@ def _numeric_age_to_bucket(n: int) -> Optional[str]:
 def _learner_age_phrase_to_bucket(s: str) -> Optional[str]:
     """Map free-text age phrases to PDP buckets; s is non-empty stripped string."""
     lower = s.lower()
-    if "younger" in lower or "20 and" in lower or lower in ("<=20", "under 21", "under21"):
+    if (
+        "younger" in lower
+        or "20 and" in lower
+        or lower in ("<=20", "under 21", "under21")
+    ):
         return STUDENT_AGE_20_AND_YOUNGER
     if "older" in lower and "24" in lower:
         return STUDENT_AGE_OLDER_THAN_24
