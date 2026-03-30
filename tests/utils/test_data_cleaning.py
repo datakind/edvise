@@ -450,8 +450,8 @@ class TestHandlingDuplicates:
             }
         )
 
-    def test_raises_error_for_invalid_school_type(self, pdp_sample_df):
-        with pytest.raises(ValueError, match="school_type must be either"):
+    def test_raises_error_for_invalid_schema_type(self, pdp_sample_df):
+        with pytest.raises(ValueError, match="schema_type must be either"):
             data_cleaning.handling_duplicates(pdp_sample_df, "invalid")
 
     @patch("edvise.utils.data_cleaning.LOGGER")
@@ -461,11 +461,11 @@ class TestHandlingDuplicates:
 
     @patch("edvise.utils.data_cleaning.LOGGER")
     def test_calls_schema_handler_for_schema_mode(self, mock_logger, schema_sample_df):
-        result = data_cleaning.handling_duplicates(schema_sample_df, "schema")
+        result = data_cleaning.handling_duplicates(schema_sample_df, "es")
         assert isinstance(result, pd.DataFrame)
         assert "course_id" in result.columns
 
-    def test_handles_whitespace_in_school_type(self, pdp_sample_df):
+    def test_handles_whitespace_in_schema_type(self, pdp_sample_df):
         with patch("edvise.utils.data_cleaning.LOGGER"):
             result1 = data_cleaning.handling_duplicates(pdp_sample_df, "  pdp  ")
             result2 = data_cleaning.handling_duplicates(pdp_sample_df, "PDP")

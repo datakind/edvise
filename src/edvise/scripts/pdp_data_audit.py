@@ -1,7 +1,7 @@
 import argparse
 import importlib
-import json
 import logging
+import json
 import typing as t
 import sys
 import pandas as pd
@@ -44,7 +44,7 @@ from edvise.data_audit.eda import (
     log_terms,
     log_misjoined_records,
 )
-from edvise.data_audit.cohort_selection import select_inference_cohort
+
 from edvise.utils.update_config import update_key_courses_and_cips
 from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
@@ -55,6 +55,7 @@ from edvise.shared.logger import (
     local_fs_path,
 )
 from edvise.shared.validation import require
+from edvise.shared.dashboard_metadata.pipeline_runs import append_pipeline_run_event
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,27 +67,6 @@ LOGGER = logging.getLogger(__name__)
 
 # Create callable type
 ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
-
-
-def _parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
-    """Parse --term_filter job param. Treat None, '', 'null' as not provided; else json.loads.
-    Empty list after parse -> not provided (use config). Invalid JSON -> raise."""
-    if value is None:
-        return None
-    s = value.strip()
-    if s in ("", "null", "None"):
-        return None
-    try:
-        parsed = json.loads(s)
-    except json.JSONDecodeError as e:
-        LOGGER.error("Invalid JSON for term_filter param: %s", value)
-        raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
-    if not isinstance(parsed, list):
-        raise ValueError("--term_filter must be a JSON list of strings")
-    labels = [str(item).strip() for item in parsed if str(item).strip()]
-    if not labels:
-        return None  # empty list -> use config
-    return labels
 
 
 class PDPDataAuditTask:
@@ -102,32 +82,12 @@ class PDPDataAuditTask:
         self.cfg = read_config(
             file_path=self.args.config_file_path, schema=PDPProjectConfig
         )
-        # Resolve inference cohort from job param or config (term_filter is generic for cohort/graduation)
-        if getattr(self.args, "job_type", None) == "inference":
-            param_cohort = _parse_term_filter_param(
-                getattr(self.args, "term_filter", None)
-            )
-            if param_cohort is not None:
-                if self.cfg.inference is None:
-                    from edvise.configs.pdp import InferenceConfig
-
-                    self.cfg.inference = InferenceConfig(cohort=param_cohort)
-                else:
-                    self.cfg.inference.cohort = param_cohort
-                LOGGER.info(
-                    "Inference cohort source: job param; term_filter=%s", param_cohort
-                )
-            else:
-                LOGGER.info(
-                    "Inference cohort source: config; cohort=%s",
-                    self.cfg.inference.cohort if self.cfg.inference else None,
-                )
         self.spark = get_spark_session()
         self.cohort_std = PDPCohortStandardizer()
         self.course_std = PDPCourseStandardizer()
         # Use default converter to handle duplicates if none provided
         self.course_converter_func: ConverterFunc = (
-            partial(handling_duplicates, school_type="pdp")
+            partial(handling_duplicates, schema_type="pdp")
             if course_converter_func is None
             else course_converter_func
         )
@@ -324,17 +284,6 @@ class PDPDataAuditTask:
             spark_session=self.spark,
         )
 
-        # Select inference cohort if applicable
-        if self.args.job_type == "inference":
-            LOGGER.info(" Selecting inference cohort")
-            if self.cfg.inference is None or self.cfg.inference.cohort is None:
-                raise ValueError("cfg.inference.cohort must be configured.")
-
-            inf_cohort = self.cfg.inference.cohort
-            df_cohort_validated = select_inference_cohort(
-                df_cohort_validated, cohorts_list=inf_cohort
-            )
-
         # Standardize cohort data
         LOGGER.info(" Standardizing cohort data:")
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
@@ -383,17 +332,6 @@ class PDPDataAuditTask:
             )
         else:
             log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
-
-        # Select inference cohort if applicable
-        if self.args.job_type == "inference":
-            LOGGER.info(" Selecting inference cohort")
-            if self.cfg.inference is None or self.cfg.inference.cohort is None:
-                raise ValueError("cfg.inference.cohort must be configured.")
-
-            inf_cohort = self.cfg.inference.cohort
-            df_course_validated = select_inference_cohort(
-                df_course_validated, cohorts_list=inf_cohort
-            )
 
         # Standardize course data
         LOGGER.info(" Standardizing course data:")
@@ -552,12 +490,6 @@ def parse_arguments() -> argparse.Namespace:
         required=False,
         help="Name of the cohort data file during inference with GCS blobs when connected to webapp",
     )
-    parser.add_argument(
-        "--term_filter",
-        type=str,
-        default=None,
-        help='JSON list of term/cohort labels (e.g. ["fall 2024-25"]). Omit or null for config default. Used for cohort and graduation models.',
-    )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--bronze_volume_path", type=str, required=False)
     parser.add_argument("--config_file_path", type=str, required=True)
@@ -588,20 +520,99 @@ if __name__ == "__main__":
         LOGGER.info("Running task default course converter func")
         LOGGER.warning(f"Failed to load custom converter functions: {e}")
 
-    # try:
-    #     schemas = importlib.import_module("schemas")
-    #     LOGGER.info("Running task with custom schema")
-    # except Exception as e:
-    #     from data_audit import schemas as schemas
-    #     LOGGER.info("Running task with default schema")
-    #     LOGGER.warning(f"Failed to load custom schema: {e}")
-
     task = PDPDataAuditTask(
         args,
         cohort_converter_func=cohort_converter_func,
         course_converter_func=course_converter_func,
     )
-    task.run()
+    # Best-effort: infer databricks_institution_name from volume path like:
+    # /Volumes/<catalog>/<inst>_silver/silver_volume
+    databricks_institution_name = None
+    try:
+        for seg in pathlib.PurePosixPath(args.silver_volume_path).parts:
+            if seg.endswith("_silver"):
+                databricks_institution_name = seg[: -len("_silver")]
+                break
+    except Exception:
+        databricks_institution_name = None
+
+    # We only emit run-level events from this task for TRAINING runs.
+    if getattr(args, "job_type", None) == "training":
+        cohort = None
+        try:
+            modeling_cfg = getattr(task.cfg, "modeling", None)
+            training_cfg = (
+                getattr(modeling_cfg, "training", None)
+                if modeling_cfg is not None
+                else None
+            )
+            cohorts = (
+                getattr(training_cfg, "cohort", None)
+                if training_cfg is not None
+                else None
+            )
+            if cohorts:
+                cohort = json.dumps(cohorts, default=str)
+        except Exception:
+            cohort = None
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=args.db_run_id,
+            run_type=args.job_type,
+            event="started",
+            institution_id=getattr(task.cfg, "institution_id", None),
+            databricks_institution_name=databricks_institution_name,
+            cohort=cohort,
+            cohort_dataset_name=getattr(
+                getattr(task.cfg, "datasets", None), "raw_cohort", None
+            ),
+            course_dataset_name=getattr(
+                getattr(task.cfg, "datasets", None), "raw_course", None
+            ),
+            payload={
+                "bronze_volume_path": getattr(args, "bronze_volume_path", None),
+                "silver_volume_path": getattr(args, "silver_volume_path", None),
+                "config_file_path": getattr(args, "config_file_path", None),
+            },
+        )
+
+        try:
+            task.run()
+            append_pipeline_run_event(
+                catalog=args.DB_workspace,
+                run_id=args.db_run_id,
+                run_type=args.job_type,
+                event="completed",
+                institution_id=getattr(task.cfg, "institution_id", None),
+                databricks_institution_name=databricks_institution_name,
+                cohort=cohort,
+                cohort_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_cohort", None
+                ),
+                course_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_course", None
+                ),
+            )
+        except Exception as e:
+            append_pipeline_run_event(
+                catalog=args.DB_workspace,
+                run_id=args.db_run_id,
+                run_type=args.job_type,
+                event="failed",
+                institution_id=getattr(task.cfg, "institution_id", None),
+                databricks_institution_name=databricks_institution_name,
+                cohort=cohort,
+                cohort_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_cohort", None
+                ),
+                course_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_course", None
+                ),
+                error_message=str(e),
+            )
+            raise
+    else:
+        task.run()
     # Ensure all logs are flushed to disk
     for h in logging.getLogger().handlers:
         try:

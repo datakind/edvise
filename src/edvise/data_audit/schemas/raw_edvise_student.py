@@ -9,8 +9,7 @@ validation rules. Column names and checks align with the JSON spec and the
 DataKind cohort file requirements.
 """
 
-import logging
-import re
+import typing as t
 
 import pandas as pd
 
@@ -25,35 +24,17 @@ except ModuleNotFoundError:
     import pandera.typing as pt
 
 from edvise.data_audit.schemas._edvise_shared import (
-    CREDENTIAL_DEGREE_PATTERN,
+    LEARNER_AGE_BUCKETS,
+    PELL_CATEGORIES,
+    TERM_CATEGORIES,
+    _apply_student_schema_transforms,
     StudentIdField,
-    TERM_PATTERN,
     YEAR_PATTERN,
-)
-
-LOGGER = logging.getLogger(__name__)
-
-# Student-specific patterns (edvise_schema_extension.json student model)
-STUDENT_AGE_PATTERN = re.compile(
-    r"(?i)^((1[3-9]|[2-9][0-9]|100)|20\s+and\s+younger|older\s+than\s+24|>20\s*-\s*24)$"
-)
-ENROLLMENT_TYPE_PATTERN = re.compile(
-    r"(?i).*(first[-\s]?time|freshman|transfer|re[-\s]?admit|readmit).*"
 )
 
 PellYesNoField = pda.Field(nullable=True, isin=["Y", "Yes", "N", "No"])
 # When present, values should be >= 0 (ge=0.0). Enforced where supported by Pandera.
 CreditsEarnedField = pda.Field(nullable=True, ge=0.0)
-
-# Max distinct values per column (cardinality limits per product spec)
-MAX_CARDINALITY_GENDER = 5
-MAX_CARDINALITY_CREDENTIAL_TYPE = 5
-MAX_CARDINALITY_FIRST_GEN = 3
-
-
-def _max_distinct_values(series: pd.Series, max_n: int) -> bool:
-    """Return True if series has at most max_n distinct non-null values."""
-    return series.dropna().nunique() <= max_n
 
 
 class RawEdviseStudentDataSchema(pda.DataFrameModel):
@@ -61,85 +42,100 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
     Schema for raw Edvise cohort (student) data.
 
     Validates column presence, dtypes, and value rules per the Edvise extension
-    and DataKind cohort file requirements. The DataFrame must contain all
-    columns defined below; columns marked optional may contain nulls.
+    and DataKind cohort file requirements. Only required columns must be
+    present; optional columns may be missing or null.
 
-    Required (non-null, format-checked): student_id, enrollment_type,
-    credential_type_sought_year_1, program_of_study_term_1. Optional columns
-    may be null. Cardinality limits: gender and credential_type_sought_year_1
-    at most 5 distinct values each; first_gen at most 3.
+    Required (must be present, non-null, format-checked): learner_id,
+    enrollment_type, intended_program_type, declared_major_at_entry,
+    entry_year, entry_term.
+    Optional columns may be missing from the DataFrame or contain nulls; when
+    present they are validated.
+
+    learner_age is optional and non-blocking: free-text or numeric ages are
+    coerced to fixed PDP buckets when possible (for bias analysis); unmappable
+    values become null rather than failing the row.
     """
 
+    # ------------------------------------------------------------------ #
     # Required
-    student_id: pt.Series["string"] = StudentIdField
-    enrollment_type: pt.Series[pd.StringDtype] = pda.Field(
+    # ------------------------------------------------------------------ #
+    learner_id: pt.Series[pd.StringDtype] = StudentIdField
+    entry_year: pt.Series[pd.StringDtype] = pda.Field(
         nullable=False,
-        str_matches=ENROLLMENT_TYPE_PATTERN,
-    )
-    credential_type_sought_year_1: pt.Series[pd.StringDtype] = pda.Field(
-        nullable=False,
-        str_matches=CREDENTIAL_DEGREE_PATTERN,
-    )
-    program_of_study_term_1: pt.Series[pd.StringDtype] = pda.Field(
-        nullable=False,
-    )
-
-    # Optional
-    cohort_year: pt.Series[pd.StringDtype] = pda.Field(
-        nullable=True,
         str_matches=YEAR_PATTERN,
     )
-    cohort_term: pt.Series[pd.StringDtype] = pda.Field(
-        nullable=True,
-        str_matches=TERM_PATTERN,
+    entry_term: pt.Series[pd.CategoricalDtype] = pda.Field(
+        nullable=False,
+        dtype_kwargs={"categories": TERM_CATEGORIES, "ordered": True},
+        coerce=True,
     )
-    first_enrollment_date: pt.Series["datetime64[ns]"] = pda.Field(
-        nullable=True,
-    )
-    student_age: pt.Series[pd.StringDtype] = pda.Field(
-        nullable=True,
-        str_matches=STUDENT_AGE_PATTERN,
-    )
-    race: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    ethnicity: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    gender: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    first_gen: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    pell_status_first_year: pt.Series[pd.StringDtype] = PellYesNoField
-    incarcerated_status: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    military_status: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    employment_status: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    disability_status: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    first_bachelors_grad_date: pt.Series["datetime64[ns]"] = pda.Field(
-        nullable=True,
-    )
-    first_associates_grad_date: pt.Series["datetime64[ns]"] = pda.Field(
-        nullable=True,
-    )
-    degree_grad: pt.Series[pd.StringDtype] = pda.Field(
-        nullable=True,
-        str_matches=CREDENTIAL_DEGREE_PATTERN,
-    )
-    major_grad: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
-    certificate1_date: pt.Series["datetime64[ns]"] = pda.Field(nullable=True)
-    certificate2_date: pt.Series["datetime64[ns]"] = pda.Field(nullable=True)
-    certificate3_date: pt.Series["datetime64[ns]"] = pda.Field(nullable=True)
-    credits_earned_ap: pt.Series["float64"] = CreditsEarnedField
-    credits_earned_dual_enrollment: pt.Series["float64"] = CreditsEarnedField
+    enrollment_type: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
+    intended_program_type: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
+    declared_major_at_entry: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
 
-    @pda.check("gender", name="max_5_values")
-    @classmethod
-    def gender_max_5_values(cls, series: pd.Series) -> bool:
-        return _max_distinct_values(series, MAX_CARDINALITY_GENDER)
+    # ------------------------------------------------------------------ #
+    # Optional (column may be missing; when present, validated)
+    # ------------------------------------------------------------------ #
+    matriculation_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(
+        nullable=True,
+    )
+    learner_age: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True,
+        isin=list(LEARNER_AGE_BUCKETS),
+    )
+    race: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    ethnicity: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    gender: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    first_generation_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
+    )
+    pell_recipient_year1: t.Optional[pt.Series[pd.CategoricalDtype]] = pda.Field(
+        nullable=True,
+        dtype_kwargs={"categories": PELL_CATEGORIES},
+        coerce=True,
+    )
+    incarcerated_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
+    )
+    military_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    employment_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    disability_status: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
+    bachelors_degree_conferral_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(
+        nullable=True
+    )
+    associates_degree_conferral_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(
+        nullable=True
+    )
+    conferred_credential_type: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
+    )
+    major_at_completion: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True
+    )
+    certificate1_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(nullable=True)
+    certificate2_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(nullable=True)
+    certificate3_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(nullable=True)
+    credits_earned_ap: t.Optional[pt.Series[pd.Float64Dtype]] = CreditsEarnedField
+    credits_earned_dual_enrollment: t.Optional[pt.Series[pd.Float64Dtype]] = (
+        CreditsEarnedField
+    )
 
-    @pda.check("first_gen", name="max_3_values")
     @classmethod
-    def first_gen_max_3_values(cls, series: pd.Series) -> bool:
-        return _max_distinct_values(series, MAX_CARDINALITY_FIRST_GEN)
-
-    @pda.check("credential_type_sought_year_1", name="max_5_values")
-    @classmethod
-    def credential_type_max_5_values(cls, series: pd.Series) -> bool:
-        return _max_distinct_values(series, MAX_CARDINALITY_CREDENTIAL_TYPE)
+    def validate(
+        cls,
+        check_obj: pd.DataFrame,
+        head: t.Optional[int] = None,
+        tail: t.Optional[int] = None,
+        sample: t.Optional[int] = None,
+        random_state: t.Optional[int] = None,
+        lazy: bool = False,
+        inplace: bool = False,
+    ) -> pd.DataFrame:
+        """Normalize entry_term, learner_age, and pell_recipient_year1 before validation."""
+        check_obj = _apply_student_schema_transforms(check_obj)
+        return super().validate(
+            check_obj, head, tail, sample, random_state, lazy, inplace
+        )
 
     class Config:
         coerce = True
@@ -147,4 +143,4 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
         unique_column_names = True
         add_missing_columns = False
         drop_invalid_rows = False
-        unique = ["student_id"]
+        unique = ["learner_id"]

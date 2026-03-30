@@ -59,11 +59,18 @@ def dedupe_by_renumbering_courses(
             ignore_index=False,
         )
         .assign(
-            grp_num=lambda d: (
-                d.groupby(unique_cols)["course_number"].transform("cumcount") + 1
+            cum_idx=lambda d: d.groupby(unique_cols)["course_number"].transform(
+                "cumcount"
             ),
-            course_number=lambda d: d["course_number"].str.cat(
-                d["grp_num"].astype("string"), sep="-"
+            course_number=lambda d: (
+                d["course_number"]
+                .astype("string")
+                .where(
+                    d["cum_idx"] == 0,
+                    d["course_number"]
+                    .astype("string")
+                    .str.cat(d["cum_idx"].astype("string"), sep="-"),
+                )
             ),
         )
         .loc[:, ["course_number"]]
@@ -75,5 +82,7 @@ def dedupe_by_renumbering_courses(
         (len(deduped_course_numbers) / len(df)) * 100,
     )
 
+    # Convert to string so we can assign renumbered values like "380-1" (numeric dtypes fail)
+    df["course_number"] = df["course_number"].astype("string")
     df.update(deduped_course_numbers, overwrite=True)
     return df

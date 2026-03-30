@@ -1,11 +1,10 @@
-import numbers
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
 from edvise import data_audit, dataio
-from edvise.data_audit.eda import EdaSummary
+from edvise.data_audit.eda import EdaSummary, log_grade_distribution
 
 
 @pytest.mark.parametrize(
@@ -103,27 +102,33 @@ class TestEdaSummary:
             file_path=str(file_path), schema=RawPDPCourseDataSchema
         )
 
-    def test_cohort_years_returns_sorted_list(self, sample_cohort_data):
+    def test_cohort_years(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data)
-        expected = [
-            str(y).replace("-", " - ")
-            for y in sorted(sample_cohort_data["cohort"].dropna().unique().tolist())
+        assert eda.cohort_years(formatted=True) == [
+            "2011 - 12",
+            "2013 - 14",
+            "2015 - 16",
+            "2016 - 17",
+            "2017 - 18",
+            "2018 - 19",
         ]
-        assert eda.cohort_years(formatted=True) == expected
+        assert eda.cohort_years(formatted=False) == [
+            "2011-12",
+            "2013-14",
+            "2015-16",
+            "2016-17",
+            "2017-18",
+            "2018-19",
+        ]
 
-    def test_summary_metrics_calculate_correctly(self, sample_cohort_data):
+    def test_summary_metrics(self, sample_cohort_data):
         eda = EdaSummary(sample_cohort_data)
-        assert eda.total_students["value"] == len(sample_cohort_data)
-        assert eda.total_students["name"] == "Total Students"
-        expected_transfer = int(
-            (sample_cohort_data["enrollment_type"] == "TRANSFER-IN").sum()
-        )
-        assert eda.transfer_students["value"] == expected_transfer
-        assert eda.transfer_students["name"] == "Transfer Students"
-        assert isinstance(eda.avg_year1_gpa_all_students["value"], float)
-        assert (
-            eda.avg_year1_gpa_all_students["name"] == "Avg. Year 1 GPA - All Students"
-        )
+        assert eda.total_students == {"name": "Total Students", "value": 9}
+        assert eda.transfer_students == {"name": "Transfer Students", "value": 6}
+        assert eda.avg_year1_gpa_all_students == {
+            "name": "Avg. Year 1 GPA - All Students",
+            "value": 3.49,
+        }
 
     def test_avg_year1_gpa_all_students_returns_zero_for_invalid_gpa(self):
         df = pd.DataFrame(
@@ -137,341 +142,213 @@ class TestEdaSummary:
         val = eda.avg_year1_gpa_all_students["value"]
         assert val == 0.0 or pd.isna(val)
 
-    def test_gpa_by_enrollment_type_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.gpa_by_enrollment_type
-        assert "cohort_years" in result
-        assert "series" in result
-        expected_types = (
-            sample_cohort_data["enrollment_type"].dropna().unique().tolist()
-        )
-        assert len(result["series"]) == len(expected_types)
-
-    def test_gpa_by_enrollment_intensity_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.gpa_by_enrollment_intensity
-        assert "cohort_years" in result
-        assert "series" in result
-        # Check series names match the enrollment intensity values from the data
-        series_names = [s["name"] for s in result["series"]]
-        # Note: EdaSummary now uses .notna() filter instead of hardcoded "unknown" filter
-        expected_intensities = [
-            str(s).replace("-", " ")
-            for s in sorted(
-                sample_cohort_data["enrollment_intensity_first_term"]
-                .dropna()
-                .unique()
-                .tolist()
-            )
-        ]
-        assert len(result["series"]) == len(expected_intensities)
-        assert set(series_names) == set(expected_intensities)
-        # Check that data arrays match cohort_years length
-        for series in result["series"]:
-            assert len(series["data"]) == len(result["cohort_years"])
-
-    def test_students_by_cohort_term_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.students_by_cohort_term
-        assert "years" in result
-        assert "terms" in result
-        assert isinstance(result["years"], list)
-        assert isinstance(result["terms"], list)
-        expected_years = eda.cohort_years(formatted=True)
-        assert result["years"] == expected_years
-        for t in result["terms"]:
-            assert "key" in t and "label" in t and "data" in t
-            assert isinstance(t["key"], str)
-            assert isinstance(t["label"], str)
-            assert isinstance(t["data"], list)
-            assert len(t["data"]) == len(result["years"])
-            assert all(isinstance(c, int) for c in t["data"])
-
-    def test_course_enrollments_structure(self, sample_cohort_data, sample_course_data):
-        eda = EdaSummary(sample_cohort_data, sample_course_data)
-        result = eda.course_enrollments
-        assert "years" in result
-        assert "terms" in result
-        assert result["years"] == eda.cohort_years(formatted=True)
-        for t in result["terms"]:
-            assert "key" in t and "label" in t and "data" in t
-            assert len(t["data"]) == len(result["years"])
-            assert all(isinstance(c, int) for c in t["data"])
-
-    def test_course_enrollments_empty_when_no_course_data(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data, df_course=None)
-        assert eda.course_enrollments is None
-
-    def test_degree_types_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.degree_types
-        assert isinstance(result, dict)
-        assert "total" in result
-        assert "degrees" in result
-        assert isinstance(result["total"], int)
-        assert isinstance(result["degrees"], list)
-        assert len(result["degrees"]) > 0
-        for item in result["degrees"]:
-            assert "count" in item
-            assert "percentage" in item
-            assert "name" in item
-            assert isinstance(item["count"], int)
-            assert isinstance(item["percentage"], float)
-            assert isinstance(item["name"], str)
-
-    def test_degree_types_calculates_correctly(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.degree_types
-        degrees = result["degrees"]
-        expected_counts = sample_cohort_data[
-            "credential_type_sought_year_1"
-        ].value_counts()
-        assert len(degrees) == len(expected_counts)
-        assert result["total"] == int(expected_counts.sum())
-        total_percentage = sum(item["percentage"] for item in degrees)
-        assert abs(total_percentage - 100.0) < 0.1
-        degree_counts = {item["name"]: item["count"] for item in degrees}
-        for degree_type, count in expected_counts.items():
-            assert degree_counts[degree_type] == int(count)
-
-    def test_enrollment_type_by_intensity_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.enrollment_type_by_intensity
-        assert "categories" in result
-        assert "series" in result
-        assert isinstance(result["categories"], list)
-        assert isinstance(result["series"], list)
-        # Check series structure
-        for series in result["series"]:
-            assert "name" in series
-            assert "data" in series
-            assert isinstance(series["data"], list)
-            # Data length should match categories length
-            assert len(series["data"]) == len(result["categories"])
-
-    def test_enrollment_type_by_intensity_calculates_correctly(
-        self, sample_cohort_data
-    ):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.enrollment_type_by_intensity
-        raw_categories = sorted(
-            sample_cohort_data["enrollment_type"].dropna().unique().tolist()
-        )
-        normalized_names = {
-            "FIRST-TIME": "First Time",
-            "RE-ADMIT": "Re-admit",
-            "TRANSFER-IN": "Transfer",
+    def test_gpa_by_enrollment_type(self, sample_cohort_data):
+        assert EdaSummary(sample_cohort_data).gpa_by_enrollment_type == {
+            "cohort_years": [
+                "2011 - 12",
+                "2013 - 14",
+                "2015 - 16",
+                "2016 - 17",
+                "2017 - 18",
+                "2018 - 19",
+            ],
+            "series": [
+                {"name": "First-Time", "data": [None, None, None, 3.65, 3.8, 2.85]},
+                {"name": "Transfer-In", "data": [3.12, 3.72, 3.66, 3.9, None, 3.55]},
+            ],
+            "min_gpa": 2.85,
         }
-        expected_categories = [
-            normalized_names.get(str(c), str(c).replace("-", " ").strip())
-            for c in raw_categories
-        ]
-        assert result["categories"] == expected_categories
-        # Check series names match the enrollment intensity values from the data
-        series_names = [s["name"] for s in result["series"]]
-        expected_intensities = sorted(
-            sample_cohort_data["enrollment_intensity_first_term"]
-            .dropna()
-            .unique()
-            .tolist()
-        )
-        assert set(series_names) == set(expected_intensities)
-        # Check data values are numeric counts (int, float, or None from _format_series_data)
-        for series in result["series"]:
-            assert all(
-                c is None or isinstance(c, (int, float, numbers.Integral))
-                for c in series["data"]
-            )
-        # Check that data matches expected counts
-        for intensity in expected_intensities:
-            expected_counts = (
-                sample_cohort_data[
-                    sample_cohort_data["enrollment_intensity_first_term"] == intensity
-                ]
-                .groupby("enrollment_type", observed=True)
-                .size()
-                .reindex(raw_categories, fill_value=0)
-                .tolist()
-            )
-            series = next(s for s in result["series"] if s["name"] == intensity)
-            assert series["data"] == expected_counts
 
-    def test_pell_recipient_by_first_gen_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.pell_recipient_by_first_gen
-        if result == {}:
-            return
-        assert "categories" in result
-        assert "series" in result
-        assert isinstance(result["categories"], list)
-        assert isinstance(result["series"], list)
-        assert len(result["series"]) > 0
-        for series in result["series"]:
-            assert "name" in series
-            assert "data" in series
-            assert isinstance(series["data"], list)
-            assert len(series["data"]) == len(result["categories"])
+    def test_gpa_by_enrollment_intensity(self, sample_cohort_data):
+        assert EdaSummary(sample_cohort_data).gpa_by_enrollment_intensity == {
+            "cohort_years": [
+                "2011 - 12",
+                "2013 - 14",
+                "2015 - 16",
+                "2016 - 17",
+                "2017 - 18",
+                "2018 - 19",
+            ],
+            "series": [
+                {"name": "Full-Time", "data": [3.12, 3.72, None, 3.78, 3.8, 3.2]},
+                {"name": "Part-Time", "data": [None, None, 3.66, None, None, None]},
+            ],
+            "min_gpa": 3.12,
+        }
 
-    def test_pell_recipient_by_first_gen_calculates_correctly(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.pell_recipient_by_first_gen
-        if result == {}:
-            return
-        df = sample_cohort_data.copy()
-        # Note: EdaSummary now uses .dropna() instead of filtering "UK"
-        pell_categories = sorted(
-            df.dropna(subset=["pell_status_first_year"])["pell_status_first_year"]
-            .unique()
-            .tolist()
-        )
-        assert result["categories"] == pell_categories
-        for series in result["series"]:
-            expected_counts = (
-                df.dropna(subset=["pell_status_first_year"])
-                .assign(first_gen=lambda d: d["first_gen"].fillna("N"))
-                .loc[lambda d: d["first_gen"] == series["name"]]
-                .groupby("pell_status_first_year")
-                .size()
-                .reindex(pell_categories, fill_value=0)
-                .tolist()
-            )
-            assert series["data"] == expected_counts
+    def test_students_by_cohort_term(self, sample_cohort_data):
+        assert EdaSummary(sample_cohort_data).students_by_cohort_term == {
+            "years": [
+                "2011 - 12",
+                "2013 - 14",
+                "2015 - 16",
+                "2016 - 17",
+                "2017 - 18",
+                "2018 - 19",
+            ],
+            "by_year": [
+                {
+                    "year": "2011 - 12",
+                    "total": 2,
+                    "terms": [
+                        {"count": 2, "percentage": 100.0, "name": "Fall"},
+                        {"count": 0, "percentage": 0.0, "name": "Spring"},
+                    ],
+                },
+                {
+                    "year": "2013 - 14",
+                    "total": 1,
+                    "terms": [
+                        {"count": 1, "percentage": 100.0, "name": "Fall"},
+                        {"count": 0, "percentage": 0.0, "name": "Spring"},
+                    ],
+                },
+                {
+                    "year": "2015 - 16",
+                    "total": 1,
+                    "terms": [
+                        {"count": 0, "percentage": 0.0, "name": "Fall"},
+                        {"count": 1, "percentage": 100.0, "name": "Spring"},
+                    ],
+                },
+                {
+                    "year": "2016 - 17",
+                    "total": 2,
+                    "terms": [
+                        {"count": 2, "percentage": 100.0, "name": "Fall"},
+                        {"count": 0, "percentage": 0.0, "name": "Spring"},
+                    ],
+                },
+                {
+                    "year": "2017 - 18",
+                    "total": 1,
+                    "terms": [
+                        {"count": 0, "percentage": 0.0, "name": "Fall"},
+                        {"count": 1, "percentage": 100.0, "name": "Spring"},
+                    ],
+                },
+                {
+                    "year": "2018 - 19",
+                    "total": 2,
+                    "terms": [
+                        {"count": 2, "percentage": 100.0, "name": "Fall"},
+                        {"count": 0, "percentage": 0.0, "name": "Spring"},
+                    ],
+                },
+            ],
+        }
 
-    def test_pell_recipient_by_first_gen_fills_missing(self, sample_cohort_data):
-        sample_cohort_data["first_gen"] = None
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.pell_recipient_by_first_gen
-        assert result == {}
+    def test_course_enrollments(self, sample_cohort_data, sample_course_data):
+        assert EdaSummary(
+            sample_cohort_data, sample_course_data
+        ).course_enrollments == {
+            "years": [
+                "2015 - 16",
+                "2016 - 17",
+                "2017 - 18",
+                "2018 - 19",
+                "2020 - 21",
+                "2022 - 23",
+            ],
+            "by_year": [
+                {
+                    "year": "2015 - 16",
+                    "total": 1,
+                    "terms": [
+                        {"count": 0, "percentage": 0, "name": "Fall"},
+                        {"count": 1, "percentage": 100.0, "name": "Spring"},
+                        {"count": 0, "percentage": 0, "name": "Summer"},
+                    ],
+                },
+                {
+                    "year": "2016 - 17",
+                    "total": 1,
+                    "terms": [
+                        {"count": 0, "percentage": 0, "name": "Fall"},
+                        {"count": 1, "percentage": 100.0, "name": "Spring"},
+                        {"count": 0, "percentage": 0, "name": "Summer"},
+                    ],
+                },
+                {
+                    "year": "2017 - 18",
+                    "total": 1,
+                    "terms": [
+                        {"count": 0, "percentage": 0, "name": "Fall"},
+                        {"count": 1, "percentage": 100.0, "name": "Spring"},
+                        {"count": 0, "percentage": 0, "name": "Summer"},
+                    ],
+                },
+                {
+                    "year": "2018 - 19",
+                    "total": 3,
+                    "terms": [
+                        {"count": 0, "percentage": 0, "name": "Fall"},
+                        {"count": 2, "percentage": 66.67, "name": "Spring"},
+                        {"count": 1, "percentage": 33.33, "name": "Summer"},
+                    ],
+                },
+                {
+                    "year": "2020 - 21",
+                    "total": 2,
+                    "terms": [
+                        {"count": 2, "percentage": 100.0, "name": "Fall"},
+                        {"count": 0, "percentage": 0, "name": "Spring"},
+                        {"count": 0, "percentage": 0, "name": "Summer"},
+                    ],
+                },
+                {
+                    "year": "2022 - 23",
+                    "total": 1,
+                    "terms": [
+                        {"count": 0, "percentage": 0, "name": "Fall"},
+                        {"count": 1, "percentage": 100.0, "name": "Spring"},
+                        {"count": 0, "percentage": 0, "name": "Summer"},
+                    ],
+                },
+            ],
+        }
 
-    def test_pell_recipient_status_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.pell_recipient_status
-        assert "series" in result
-        assert isinstance(result["series"], list)
-        assert len(result["series"]) == 1
-        assert result["series"][0]["name"] == "All Students"
-        assert isinstance(result["series"][0]["data"], dict)
+    def test_degree_types(self, sample_cohort_data):
+        assert EdaSummary(sample_cohort_data).degree_types == {
+            "total": 9,
+            "degrees": [{"count": 9, "percentage": 100.0, "name": "Bachelor's Degree"}],
+        }
 
-    def test_pell_recipient_status_calculates_correctly(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.pell_recipient_status
-        expected_counts = (
-            sample_cohort_data.dropna(subset=["pell_status_first_year"])
-            .groupby("pell_status_first_year", observed=True)
-            .size()
-            .to_dict()
-        )
-        assert result["series"][0]["data"] == expected_counts
+    def test_enrollment_type_by_intensity(self, sample_cohort_data):
+        assert EdaSummary(sample_cohort_data).enrollment_type_by_intensity == {
+            "categories": ["First-Time", "Transfer-In"],
+            "series": [
+                {"name": "Full-Time", "data": [3.0, 5.0]},
+                {"name": "Part-Time", "data": [0.0, 1.0]},
+            ],
+        }
 
-    def test_student_age_by_gender_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.student_age_by_gender
-        assert "categories" in result
-        assert "series" in result
-        assert isinstance(result["categories"], list)
-        assert isinstance(result["series"], list)
-        assert len(result["series"]) > 0
-        # Check series structure
-        for series in result["series"]:
-            assert "name" in series
-            assert "data" in series
-            assert isinstance(series["data"], list)
-            # Data length should match categories length
-            assert len(series["data"]) == len(result["categories"])
+    def test_pell_recipient_by_first_gen(self, sample_cohort_data):
+        assert EdaSummary(sample_cohort_data).pell_recipient_by_first_gen == None
 
-    def test_student_age_by_gender_calculates_correctly(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.student_age_by_gender
-        # Check categories are sorted
-        assert result["categories"] == sorted(result["categories"])
-        # Check data values are numeric counts (int, float, or None from _format_series_data)
-        for series in result["series"]:
-            assert all(
-                c is None or isinstance(c, (int, float, numbers.Integral))
-                for c in series["data"]
-            )
-        # Note: EdaSummary now uses .dropna() instead of filtering "UK"
-        # If schema validation hasn't been applied, "UK" values will remain
-        gender_categories = sorted(
-            sample_cohort_data["gender"].dropna().unique().tolist()
-        )
-        age_df = (
-            sample_cohort_data[["gender", "student_age"]]
-            .dropna()
-            .value_counts()
-            .unstack(fill_value=0)
-        )
-        assert result["categories"] == sorted(gender_categories)
-        for series in result["series"]:
-            expected_counts = (
-                age_df.loc[:, series["name"]]
-                .reindex(sorted(gender_categories), fill_value=0)
-                .tolist()
-            )
-            assert series["data"] == expected_counts
+    def test_pell_recipient_status(self, sample_cohort_data):
+        assert EdaSummary(sample_cohort_data).pell_recipient_status == {
+            "series": [{"name": "All Students", "data": {"N": 1, "Nan": 6, "Y": 2}}]
+        }
 
-    def test_race_by_pell_status_structure(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.race_by_pell_status
-        assert "categories" in result
-        assert "series" in result
-        assert isinstance(result["categories"], list)
-        assert isinstance(result["series"], list)
-        assert len(result["series"]) > 0
-        # Check series structure
-        for series in result["series"]:
-            assert "name" in series
-            assert "data" in series
-            assert isinstance(series["data"], list)
-            # Data length should match categories length
-            assert len(series["data"]) == len(result["categories"])
-        # Check Pell status names are normalized
-        series_names = [s["name"] for s in result["series"]]
-        assert all(name in ["Yes", "No"] for name in series_names)
+    def test_student_age_by_gender(self, sample_cohort_data):
+        assert EdaSummary(sample_cohort_data).student_age_by_gender == {
+            "categories": ["F", "M"],
+            "series": [
+                {"name": "20 And Younger", "data": [2.0, 0.0]},
+                {"name": ">20 - 24", "data": [3.0, 0.0]},
+                {"name": "Older Than 24", "data": [1.0, 2.0]},
+            ],
+        }
 
-    def test_race_by_pell_status_calculates_correctly(self, sample_cohort_data):
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.race_by_pell_status
-        pell_map = {"Y": "Yes", "N": "No"}
-        race_df = (
-            sample_cohort_data[["race", "pell_status_first_year"]]
-            .dropna()
-            .assign(
-                pell_status_first_year=lambda d: (
-                    d["pell_status_first_year"].astype(str).replace(pell_map)
-                )
-            )
-        )
-        race_df = race_df[race_df["pell_status_first_year"].isin(["Yes", "No"])]
-        counts_df = (
-            race_df.groupby(["pell_status_first_year", "race"], observed=True)
-            .size()
-            .unstack(fill_value=0)
-        )
-        expected_order = counts_df.columns.tolist()
-        assert result["categories"] == expected_order
-        # Check data values are numeric counts (int, float, or None from _format_series_data)
-        for series in result["series"]:
-            assert all(
-                c is None or isinstance(c, (int, float, numbers.Integral))
-                for c in series["data"]
-            )
-        for series in result["series"]:
-            expected_counts = (
-                counts_df.loc[series["name"]]
-                .reindex(expected_order, fill_value=0)
-                .tolist()
-            )
-            assert series["data"] == expected_counts
-
-    def test_gpa_by_enrollment_intensity_handles_nulls(self, sample_cohort_data):
-        """Test that NaN enrollment_intensity values are properly excluded."""
-        sample_cohort_data.loc[0:5, "enrollment_intensity_first_term"] = pd.NA
-        eda = EdaSummary(sample_cohort_data)
-        result = eda.gpa_by_enrollment_intensity
-        assert "series" in result
-        series_names = [s["name"] for s in result["series"]]
-        assert all(pd.notna(name) for name in series_names)
+    def test_race_by_pell_status(self, sample_cohort_data):
+        assert EdaSummary(sample_cohort_data).race_by_pell_status == {
+            "categories": ["Hispanic", "Nonresident Alien", "White"],
+            "series": [
+                {"name": "No", "data": [0.0, 1.0, 0.0]},
+                {"name": "Yes", "data": [1.0, 0.0, 1.0]},
+            ],
+        }
 
     def test_pell_recipient_status_handles_nulls(self, sample_cohort_data):
         """Test that NaN pell status values are properly excluded."""
@@ -503,3 +380,268 @@ class TestEdaSummary:
         # Cached properties return the same object reference
         assert first is second
         assert first == second  # Values should also be equal
+
+
+def test_log_grade_distribution_flags_lack_of_numeric_grades(caplog):
+    """Flag when grades are only status codes (P, F, I, W, A, M, O)."""
+    df = pd.DataFrame({"grade": ["P", "F", "P", "W", "I", "M"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" in caplog.text
+    assert "P=Pass" in caplog.text
+    assert "Unique values" in caplog.text
+
+
+def test_log_grade_distribution_no_flag_when_numeric_grades_present(caplog):
+    """Do not flag when numeric or GPA letter grades exist."""
+    df = pd.DataFrame({"grade": ["4.0", "3.5", "P", "F"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" not in caplog.text
+
+
+def test_log_grade_distribution_no_flag_when_letter_grades_present(caplog):
+    """Do not flag when GPA letter grades (B+, C, etc.) exist."""
+    df = pd.DataFrame({"grade": ["B+", "C", "A-", "P"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" not in caplog.text
+
+
+def test_log_grade_distribution_no_flag_when_empty_or_all_null(caplog):
+    """Do not flag when there are no grades."""
+    df = pd.DataFrame({"grade": [pd.NA, pd.NA]})
+    log_grade_distribution(df)
+    # No grades at all - should not trigger the numeric check (total_grades == 0)
+    assert "No numeric grades detected" not in caplog.text
+
+
+def test_log_grade_distribution_no_flag_when_numeric_gpa_scale(caplog):
+    """Do not flag when numeric grades on GPA scale (1, 2, 3, 4) exist."""
+    df = pd.DataFrame({"grade": ["1", "2", "3", "4", "3.5"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" not in caplog.text
+
+
+def test_log_grade_distribution_flags_only_o_status(caplog):
+    """Flag when only O (Other) status grades present."""
+    df = pd.DataFrame({"grade": ["O", "O"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" in caplog.text
+
+
+def test_log_grade_distribution_mix_status_and_numeric_no_flag(caplog):
+    """Do not flag when mix of status codes and numeric grades."""
+    df = pd.DataFrame({"grade": ["P", "4.0", "F", "3.0", "W"]})
+    log_grade_distribution(df)
+    assert "No numeric grades detected" not in caplog.text
+
+
+# -----------------------------------------------------------------------------
+# Anomaly percent logging tests
+# -----------------------------------------------------------------------------
+
+
+class TestCheckEarnedVsAttemptedPercent:
+    """Tests that check_earned_vs_attempted includes percent of data in summary."""
+
+    def test_summary_includes_pct_columns(self):
+        """Summary DataFrame has *_pct columns for each anomaly type."""
+        df = pd.DataFrame(
+            {
+                "student_id": [f"s{i}" for i in range(100)],
+                "credits_attempted": [3] * 95
+                + [
+                    2,
+                    2,
+                    2,
+                    0,
+                    0,
+                ],  # 3 anomalies: earned>attempted, 2: earned when 0 attempt
+                "credits_earned": [3] * 95
+                + [4, 4, 4, 1, 1],  # last 2 have earned when attempted=0
+            }
+        )
+        result = data_audit.eda.check_earned_vs_attempted(
+            df, earned_col="credits_earned", attempted_col="credits_attempted"
+        )
+        summary = result["summary"]
+
+        assert "earned_gt_attempted_pct" in summary.columns
+        assert "earned_when_no_attempt_pct" in summary.columns
+        assert "total_anomalous_rows_pct" in summary.columns
+
+        # 3 earned>attempted (indices 95,96,97) + 2 earned when no attempt (98,99) = 5 total
+        assert summary["total_anomalous_rows"].iloc[0] == 5
+        assert summary["total_anomalous_rows_pct"].iloc[0] == 5.0  # 5/100
+
+    def test_percent_correct_for_earned_gt_attempted(self):
+        """earned_gt_attempted_pct = 100 * count / total_rows."""
+        df = pd.DataFrame(
+            {
+                "x": range(1000),
+                "credits_attempted": [3] * 1000,
+                "credits_earned": [3] * 985 + [4] * 15,  # 15 anomalies
+            }
+        )
+        result = data_audit.eda.check_earned_vs_attempted(
+            df, earned_col="credits_earned", attempted_col="credits_attempted"
+        )
+        assert result["summary"]["earned_gt_attempted_pct"].iloc[0] == 1.5
+        assert result["summary"]["total_anomalous_rows_pct"].iloc[0] == 1.5
+
+    def test_zero_percent_when_no_anomalies(self):
+        """All pct columns are 0 when no anomalies."""
+        df = pd.DataFrame(
+            {
+                "x": range(50),
+                "credits_attempted": [3] * 50,
+                "credits_earned": [3] * 50,
+            }
+        )
+        result = data_audit.eda.check_earned_vs_attempted(
+            df, earned_col="credits_earned", attempted_col="credits_attempted"
+        )
+        assert result["summary"]["total_anomalous_rows"].iloc[0] == 0
+        assert result["summary"]["total_anomalous_rows_pct"].iloc[0] == 0
+        assert result["summary"]["earned_gt_attempted_pct"].iloc[0] == 0
+
+    def test_zero_division_empty_dataframe(self):
+        """Handles empty DataFrame without error; pct should be 0."""
+        df = pd.DataFrame(columns=["credits_attempted", "credits_earned"])
+        result = data_audit.eda.check_earned_vs_attempted(
+            df, earned_col="credits_earned", attempted_col="credits_attempted"
+        )
+        assert result["summary"]["total_anomalous_rows_pct"].iloc[0] == 0
+
+
+class TestCheckPfGradeConsistencyPercent:
+    """Tests that check_pf_grade_consistency includes percent of data in summary."""
+
+    def test_summary_includes_pct_columns(self):
+        """Summary DataFrame has *_pct columns for each anomaly type."""
+        df = pd.DataFrame(
+            {
+                "grade": ["A", "B", "F", "F", "P", "P"] * 100,
+                "pass_fail_flag": ["P", "P", "F", "F", "P", "P"] * 100,
+                "credits_earned": [3, 3, 0, 1, 3, 0]
+                * 100,  # 1 F with credits, 1 P with 0 credits per 6 rows
+            }
+        )
+        anomalies, summary = data_audit.eda.check_pf_grade_consistency(
+            df, credits_col="credits_earned"
+        )
+
+        assert "earned_with_failing_grade_pct" in summary.columns
+        assert "no_credits_with_passing_grade_pct" in summary.columns
+        assert "grade_pf_disagree_pct" in summary.columns
+        assert "total_anomalous_rows_pct" in summary.columns
+
+    def test_percent_logged_in_warning(self, caplog):
+        """LOGGER.warning includes percent when anomalies found."""
+        df = pd.DataFrame(
+            {
+                "grade": ["F"] * 10,
+                "pass_fail_flag": ["F"] * 10,
+                "credits_earned": [1] * 10,  # 10 anomalies: F with credits
+            }
+        )
+        data_audit.eda.check_pf_grade_consistency(df, credits_col="credits_earned")
+        assert "Detected 10 PF/grade consistency anomalies" in caplog.text
+        assert "% of data" in caplog.text
+
+    def test_zero_percent_when_no_anomalies(self):
+        """All pct columns are 0 when no anomalies."""
+        df = pd.DataFrame(
+            {
+                "grade": ["A", "B", "F"],
+                "pass_fail_flag": ["P", "P", "F"],
+                "credits_earned": [3, 3, 0],
+            }
+        )
+        _, summary = data_audit.eda.check_pf_grade_consistency(
+            df, credits_col="credits_earned"
+        )
+        assert summary["total_anomalous_rows"].iloc[0] == 0
+        assert summary["total_anomalous_rows_pct"].iloc[0] == 0
+
+
+class TestValidateCreditConsistencyPercent:
+    """Tests that validate_credit_consistency includes pct_of_data in summaries."""
+
+    def test_course_anomalies_summary_has_pct_of_data(self):
+        """course_anomalies_summary includes pct_of_data when anomalies exist."""
+        course_df = pd.DataFrame(
+            {
+                "student_id": [f"s{i}" for i in range(100)],
+                "semester": ["S1"] * 100,
+                "course_credits_attempted": [3] * 95 + [2] * 5,
+                "course_credits_earned": [3] * 95 + [4] * 5,  # 5 anomalies
+            }
+        )
+        result = data_audit.eda.validate_credit_consistency(course_df=course_df)
+
+        assert result["course_anomalies_summary"] is not None
+        assert "pct_of_data" in result["course_anomalies_summary"]
+        assert result["course_anomalies_summary"]["pct_of_data"] == 5.0  # 5/100
+
+    def test_course_anomalies_percent_in_log(self, caplog):
+        """Course anomaly log includes percent of data."""
+        course_df = pd.DataFrame(
+            {
+                "student_id": ["s1", "s2"],
+                "semester": ["S1", "S1"],
+                "course_credits_attempted": [2, 3],
+                "course_credits_earned": [3, 3],  # 1 anomaly
+            }
+        )
+        data_audit.eda.validate_credit_consistency(course_df=course_df)
+        assert "Detected 1 course-level anomalies" in caplog.text
+        assert "50.00% of course data" in caplog.text
+
+    def test_cohort_anomalies_percent_in_log(self, caplog):
+        """Cohort anomaly log includes percent when anomalies found."""
+        course_df = pd.DataFrame(
+            {
+                "student_id": ["s1"],
+                "semester": ["S1"],
+                "course_credits_attempted": [3],
+                "course_credits_earned": [3],
+            }
+        )
+        cohort_df = pd.DataFrame(
+            {
+                "student_id": ["c1", "c2", "c3", "c4", "c5"],
+                "inst_tot_credits_attempted": [30, 30, 30, 20, 30],
+                "inst_tot_credits_earned": [30, 30, 30, 25, 30],  # 1 anomaly
+            }
+        )
+        data_audit.eda.validate_credit_consistency(
+            course_df=course_df, cohort_df=cohort_df
+        )
+        assert "Detected 1 cohort-level anomalies" in caplog.text
+        assert "20.00% of cohort data" in caplog.text
+
+    def test_reconciliation_summary_has_pct_of_data(self):
+        """reconciliation_summary includes pct_of_data when semester_df provided."""
+        course_df = pd.DataFrame(
+            {
+                "student_id": ["s1", "s1", "s2"],
+                "semester": ["S1", "S2", "S1"],
+                "course_credits_attempted": [3, 3, 3],
+                "course_credits_earned": [3, 3, 3],
+            }
+        )
+        semester_df = pd.DataFrame(
+            {
+                "student_id": ["s1", "s1", "s2"],
+                "semester": ["S1", "S2", "S1"],
+                "number_of_semester_credits_attempted": [3, 3, 99],  # 1 mismatch
+                "number_of_semester_credits_earned": [3, 3, 3],
+            }
+        )
+        result = data_audit.eda.validate_credit_consistency(
+            course_df=course_df, semester_df=semester_df
+        )
+
+        assert result["reconciliation_summary"] is not None
+        assert "pct_of_data" in result["reconciliation_summary"]
+        assert result["reconciliation_summary"]["mismatched_rows"] == 1
+        assert result["reconciliation_summary"]["pct_of_data"] == round(100 * 1 / 3, 2)

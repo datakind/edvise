@@ -115,6 +115,7 @@ collinear_threshold = 10.0
 [modeling.training]
 primary_metric = "logloss"
 timeout_minutes = 10
+classification_threshold = 0.5
 # exclude_frameworks = ["XGBoost", "GBM"]
 # exclude_cols = []
 
@@ -125,3 +126,4 @@ topn_runs_included = 5
 num_top_features = 5
 min_prob_pos_label = 0.5
 background_data_sample = 500
+term = ['fall 2024-25']

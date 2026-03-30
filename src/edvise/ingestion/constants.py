@@ -1,0 +1,91 @@
+"""
+Constants for NSC SFTP ingestion pipeline.
+
+These values are fixed and don't vary between runs or environments.
+For environment-specific values (like secret scope names), see gcp_config.yaml.
+"""
+
+from typing import Any
+from unittest.mock import MagicMock
+
+dbutils: Any
+
+# Databricks catalog and schema
+try:
+    from databricks.sdk.runtime import dbutils as _dbutils
+except Exception:
+    # Local/offline context: allow imports/tests to run without Databricks.
+    dbutils = MagicMock()
+    CATALOG = "dev_sst_02"
+else:
+    dbutils = _dbutils
+    try:
+        workspace_id = str(
+            dbutils.notebook.entry_point.getDbutils()
+            .notebook()
+            .getContext()
+            .workspaceId()
+            .get()
+        )
+    except Exception:
+        # Databricks SDK is importable, but we're not running in a notebook/runtime
+        # context where workspace ID is available.
+        dbutils = MagicMock()
+        CATALOG = "dev_sst_02"
+    else:
+        if workspace_id == "4437281602191762":
+            CATALOG = "dev_sst_02"
+        elif workspace_id == "2052166062819251":
+            CATALOG = "staging_sst_01"
+        else:
+            raise RuntimeError(
+                f"Unsupported Databricks workspace_id={workspace_id!r} for NSC ingestion. "
+                "Add a mapping in src/edvise/ingestion/constants.py."
+            )
+DEFAULT_SCHEMA = "default"
+
+# Table names (without catalog.schema prefix)
+MANIFEST_TABLE = "ingestion_manifest"
+QUEUE_TABLE = "pending_ingest_queue"
+PLAN_TABLE = "institution_ingest_plan"
+
+# Full table paths
+MANIFEST_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{MANIFEST_TABLE}"
+QUEUE_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{QUEUE_TABLE}"
+PLAN_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{PLAN_TABLE}"
+
+# SFTP settings
+SFTP_REMOTE_FOLDER = "./receive"
+SFTP_SOURCE_SYSTEM = "NSC"
+SFTP_PORT = 22
+SFTP_TMP_VOLUME_NAME = "tmp"
+SFTP_TMP_VOLUME_FQN = f"{CATALOG}.{DEFAULT_SCHEMA}.{SFTP_TMP_VOLUME_NAME}"
+SFTP_TMP_DIR = f"/Volumes/{CATALOG}/{DEFAULT_SCHEMA}/{SFTP_TMP_VOLUME_NAME}"
+SFTP_DOWNLOAD_CHUNK_MB = 150
+SFTP_VERIFY_DOWNLOAD = "size"  # Options: "size", "sha256", "md5", "none"
+
+# Edvise API settings
+SST_BASE_URL = "https://staging-sst.datakind.org"
+SST_TOKEN_ENDPOINT = f"{SST_BASE_URL}/api/v1/token-from-api-key"
+INSTITUTION_LOOKUP_PATH = "/api/v1/institutions/pdp-id/{pdp_id}"
+SST_API_KEY_SECRET_KEY = "sst_staging_api_key"  # Key name in Databricks secrets
+
+# File processing settings
+INSTITUTION_COLUMN_PATTERN = r"(?=.*institution)(?=.*id)"
+
+# Column name mappings (mangled -> normalized)
+# Applied after snake_case conversion
+COLUMN_RENAMES = {
+    # NOTE: convert_to_snake_case splits trailing digit groups with an underscore,
+    # e.g. "attemptedgatewaymathyear1" -> "attemptedgatewaymathyear_1".
+    "attemptedgatewaymathyear_1": "attempted_gateway_math_year_1",
+    "attemptedgatewayenglishyear_1": "attempted_gateway_english_year_1",
+    "completedgatewaymathyear_1": "completed_gateway_math_year_1",
+    "completedgatewayenglishyear_1": "completed_gateway_english_year_1",
+    "gatewaymathgradey_1": "gateway_math_grade_y_1",
+    "gatewayenglishgradey_1": "gateway_english_grade_y_1",
+    "attempteddevmathy_1": "attempted_dev_math_y_1",
+    "attempteddevenglishy_1": "attempted_dev_english_y_1",
+    "completeddevmathy_1": "completed_dev_math_y_1",
+    "completeddevenglishy_1": "completed_dev_english_y_1",
+}

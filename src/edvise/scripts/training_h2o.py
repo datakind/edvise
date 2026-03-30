@@ -1,9 +1,11 @@
 import typing as t
 import logging
 import argparse
+import json
 import pandas as pd
 import mlflow
 import os
+import pathlib
 import sys
 
 # Go up 3 levels from the current file's directory to reach repo root
@@ -33,6 +35,12 @@ from edvise.shared.logger import (
     resolve_run_path,
     local_fs_path,
     init_file_logging,
+)
+from edvise.shared.dashboard_metadata.pipeline_runs import (
+    append_pipeline_run_event,
+)
+from edvise.shared.dashboard_metadata.pipeline_models import (
+    upsert_pipeline_model,
 )
 from edvise.shared.validation import (
     require,
@@ -66,6 +74,7 @@ class TrainingParams(t.TypedDict, total=False):
     checkpoint_name: str
     workspace_path: str
     seed: int
+    classification_threshold: float
 
 
 class TrainingTask:
@@ -188,6 +197,8 @@ class TrainingTask:
             else False
         )
 
+        classification_threshold = training_cfg.classification_threshold
+
         training_params: TrainingParams = {
             "db_run_id": db_run_id,
             "institution_id": self.cfg.institution_id,
@@ -204,6 +215,7 @@ class TrainingTask:
             "checkpoint_name": preprocessing_cfg.checkpoint.name,
             "workspace_path": workspace_path,
             "seed": self.cfg.random_state or 42,  # fallback to ensure it's an int
+            "classification_threshold": classification_threshold,
         }
 
         experiment_id, *_ = modeling.h2o_ml.training.run_h2o_automl_classification(
@@ -261,11 +273,18 @@ class TrainingTask:
                 calibrator = modeling.h2o_ml.calibration.SklearnCalibratorWrapper.load(
                     run_id=run_id
                 )
+                # Get threshold from config for predictions and bias evaluation
+                classification_threshold = (
+                    self.cfg.modeling.training.classification_threshold
+                    if self.cfg.modeling and self.cfg.modeling.training
+                    else 0.5
+                )
                 labels, probs = modeling.h2o_ml.inference.predict_h2o(
                     features=df_features_imp,
                     model=model,
                     pos_label=pos_label,
                     calibrator=calibrator,
+                    classification_threshold=classification_threshold,
                 )
                 df_pred = df_modeling.assign(
                     **{
@@ -283,6 +302,7 @@ class TrainingTask:
                     student_group_cols=student_group_cols,
                     target_col=self.cfg.target_col,
                     pos_label=pos_label,
+                    classification_threshold=classification_threshold,
                 )
                 logging.info("Run %s: Completed", run_id)
 
@@ -319,6 +339,12 @@ class TrainingTask:
         )
 
     def make_predictions(self, current_run_path):
+        # Get threshold from config
+        classification_threshold = (
+            self.cfg.modeling.training.classification_threshold
+            if self.cfg.modeling and self.cfg.modeling.training
+            else 0.5
+        )
         cfg = PredConfig(
             model_run_id=self.cfg.model.run_id,
             experiment_id=self.cfg.model.experiment_id,
@@ -329,6 +355,7 @@ class TrainingTask:
             background_data_sample=self.cfg.inference.background_data_sample,
             cfg_inference_params=self.cfg.inference.dict(),
             random_state=self.cfg.random_state,
+            classification_threshold=classification_threshold,
         )
         paths = PredPaths(
             features_table_path="shared/assets/pdp_features_table.toml",
@@ -647,7 +674,126 @@ if __name__ == "__main__":
         logger_name=__name__,
         log_file_name="pdp_training.log",
     )
-    task.run()
+    # Best-effort: infer databricks_institution_name from volume path like:
+    # /Volumes/<catalog>/<inst>_silver/silver_volume
+    databricks_institution_name = None
+    try:
+        for seg in pathlib.PurePosixPath(getattr(args, "silver_volume_path", "")).parts:
+            if seg.endswith("_silver"):
+                databricks_institution_name = seg[: -len("_silver")]
+                break
+    except Exception:
+        databricks_institution_name = None
+    # Best-effort: log which training cohort(s) are configured/used.
+    cohort = None
+    try:
+        modeling_cfg = getattr(task.cfg, "modeling", None)
+        training_cfg = (
+            getattr(modeling_cfg, "training", None)
+            if modeling_cfg is not None
+            else None
+        )
+        cohorts = (
+            getattr(training_cfg, "cohort", None) if training_cfg is not None else None
+        )
+        if cohorts:
+            cohort = json.dumps(cohorts, default=str)
+    except Exception:
+        cohort = None
+    append_pipeline_run_event(
+        catalog=args.DB_workspace,
+        run_id=getattr(args, "db_run_id", None),
+        run_type="training",
+        event="started",
+        institution_id=getattr(task.cfg, "institution_id", None),
+        databricks_institution_name=databricks_institution_name,
+        cohort=cohort,
+        model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
+        experiment_id=getattr(getattr(task.cfg, "model", None), "experiment_id", None),
+        pipeline_version=getattr(args, "pipeline_version", None),
+        payload={"config_file_path": getattr(args, "config_file_path", None)},
+    )
+    try:
+        task.run()
+
+        model_name = None
+        try:
+            if task.cfg.preprocessing is not None:
+                model_name = modeling.registration.get_model_name_from_config(
+                    preprocessing=task.cfg.preprocessing,
+                    institution_id=task.cfg.institution_id,
+                )
+        except Exception:
+            model_name = None
+
+        model_card_path = None
+        if model_name:
+            model_card_path = (
+                f"/Volumes/{args.DB_workspace}/"
+                f"{task.cfg.institution_id}_gold/gold_volume/model_cards/"
+                f"{getattr(getattr(task.cfg, 'model', None), 'run_id', '')}/"
+                f"model-card-{model_name}.pdf"
+            )
+
+        # Model registry table (one row per model run id / UC version)
+        try:
+            upsert_pipeline_model(
+                catalog=args.DB_workspace,
+                institution_id=databricks_institution_name
+                or getattr(task.cfg, "institution_id", None),
+                model_name=model_name,
+                model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
+                training_run_id=getattr(args, "db_run_id", None),
+                training_cohort_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_cohort", None
+                ),
+                training_course_dataset_name=getattr(
+                    getattr(task.cfg, "datasets", None), "raw_course", None
+                ),
+                model_card_path=model_card_path,
+                payload={
+                    "experiment_id": getattr(
+                        getattr(task.cfg, "model", None), "experiment_id", None
+                    ),
+                    "pipeline_version": getattr(args, "pipeline_version", None),
+                    "config_file_path": getattr(args, "config_file_path", None),
+                },
+            )
+        except Exception:
+            # Best-effort only; never fail training for dashboard metadata.
+            pass
+
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=getattr(args, "db_run_id", None),
+            run_type="training",
+            event="completed",
+            institution_id=getattr(task.cfg, "institution_id", None),
+            databricks_institution_name=databricks_institution_name,
+            cohort=cohort,
+            model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
+            experiment_id=getattr(
+                getattr(task.cfg, "model", None), "experiment_id", None
+            ),
+            pipeline_version=getattr(args, "pipeline_version", None),
+        )
+    except Exception as e:
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=getattr(args, "db_run_id", None),
+            run_type="training",
+            event="failed",
+            institution_id=getattr(task.cfg, "institution_id", None),
+            databricks_institution_name=databricks_institution_name,
+            cohort=cohort,
+            model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", None),
+            experiment_id=getattr(
+                getattr(task.cfg, "model", None), "experiment_id", None
+            ),
+            pipeline_version=getattr(args, "pipeline_version", None),
+            error_message=str(e),
+        )
+        raise
     # --- Final flush & shutdown ---
     root_logger = logging.getLogger()
     for h in root_logger.handlers:
