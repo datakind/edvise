@@ -16,7 +16,6 @@ from helpers import (
     RUN_SEARCH_COLUMNS,
     apply_model_filters,
     apply_run_filters,
-    build_day_over_day_metrics,
     build_failures_dataframe,
     build_inspection_labels,
     build_institution_summary,
@@ -311,32 +310,6 @@ def render_inspection_selectbox(
     return cast(object | None, selected_option)
 
 
-def format_count_delta(delta: Any | None) -> str | None:
-    if delta is None:
-        return None
-    return f"{int(delta):+d}"
-
-
-def format_rate_delta(delta: Any | None) -> str | None:
-    if delta is None:
-        return None
-    return f"{float(delta):+.1f} pts"
-
-
-def format_day_reference(value: object | None) -> str:
-    if pd.isna(value):
-        return "No activity"
-    return str(pd.to_datetime(value).strftime("%Y-%m-%d"))
-
-
-def format_delta_reference(
-    label: str, current_day: object | None, previous_day: object | None
-) -> str:
-    if pd.isna(current_day):
-        return f"{label}: no activity in selected range"
-    return f"{label}: {format_day_reference(current_day)} vs {format_day_reference(previous_day)}"
-
-
 def display_text(value: object | None) -> str:
     return str(value) if has_value(value) else "—"
 
@@ -452,7 +425,6 @@ def render_overview_tab(
     institution_summary: pd.DataFrame,
     failures_df: pd.DataFrame,
     overview_metrics: dict[str, object],
-    day_over_day_metrics: dict[str, object],
     latest_activity_summary: dict[str, dict[str, object] | None],
     rows_per_table: int,
 ) -> None:
@@ -461,19 +433,16 @@ def render_overview_tab(
         pulse_top[0],
         "Runs",
         overview_metrics["total_runs"],
-        delta=format_count_delta(day_over_day_metrics["runs_delta"]),
     )
     render_metric_card(
         pulse_top[1],
         "Success rate",
         f"{overview_metrics['success_rate']}%",
-        delta=format_rate_delta(day_over_day_metrics["success_rate_delta"]),
     )
     render_metric_card(
         pulse_top[2],
         "Models logged",
         overview_metrics["models_logged"],
-        delta=format_count_delta(day_over_day_metrics["models_delta"]),
     )
 
     pulse_bottom = st.columns(2, gap="large")
@@ -481,14 +450,11 @@ def render_overview_tab(
         pulse_bottom[0],
         "Failures",
         overview_metrics["failed_runs"],
-        delta=format_count_delta(day_over_day_metrics["failures_delta"]),
-        delta_color="inverse",
     )
     render_metric_card(
         pulse_bottom[1],
         "Active institutions",
         overview_metrics["monitored_institutions"],
-        delta=format_count_delta(day_over_day_metrics["active_institutions_delta"]),
     )
 
     latest_run = latest_activity_summary["latest_run"]
@@ -979,7 +945,6 @@ def main() -> None:
     overview_metrics = build_overview_metrics(
         filtered_runs, filtered_models, institution_summary
     )
-    day_over_day_metrics = build_day_over_day_metrics(filtered_runs, filtered_models)
     latest_activity_summary = build_latest_activity_summary(
         filtered_runs, filtered_models
     )
@@ -1000,7 +965,6 @@ def main() -> None:
             institution_summary,
             failures_df,
             overview_metrics,
-            day_over_day_metrics,
             latest_activity_summary,
             rows_per_table,
         )
