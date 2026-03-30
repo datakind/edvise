@@ -218,15 +218,16 @@ def run_step2a_two_pass(
     prompt_cohort: str,
     prompt_course: str,
     *,
-    institution_id: str,
+    institution_id: str | None = None,
 ) -> dict:
     """
     Step 2a only: two gateway calls (cohort JSON, then course JSON), then merge into one manifest.
 
     ``prompt_cohort`` and ``prompt_course`` are independent (build with
     ``build_step2a_prompt_cohort_pass`` / ``build_step2a_prompt_course_pass``); the course
-    pass does not include cohort output. Merge uses ``merge_step2a_entity_manifests``
-    with ``institution_id`` to build the full envelope.
+    pass does not include cohort output. Merge uses ``merge_step2a_entity_manifests``.
+    Pass ``institution_id`` when model output is partial (no envelope fields); if omitted,
+    merge falls back to ``institution_id`` on cohort/course JSON when present (legacy passes).
 
     Return shape matches ``run_once`` (same keys) for scoring and CSV export; ``latency_s``
     is the sum of both calls.
