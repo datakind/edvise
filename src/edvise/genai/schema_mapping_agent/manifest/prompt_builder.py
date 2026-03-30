@@ -123,39 +123,61 @@ def _step2a_rules_after_structure(
 
 
 JOINS AND ALIASES
-- CRITICAL: If source_column is in a different table than the entity base table, the
-  mapping record MUST include a join object. A mapping record with a cross-table
-  source_column and no join is invalid and will cause a runtime error.
-- Set join.base_table to the entity base table (e.g. course_df for course, student_df
-  for cohort), join.lookup_table to the table containing the source column, and
-  join.join_keys to the columns that uniquely identify the join relationship.
-- join_keys must be sufficient to uniquely identify rows in the lookup table given the
-  base table grain. Use the lookup table's unique_keys from the schema contract as the
-  join key list (only include columns that exist on both base_table and lookup_table with
-  the same canonical name, or use aliases when names differ). 
-- Verify join_keys sufficiency against the lookup table's unique_keys derive join_keys from
-  there, not from reference manifests.
+Step 1 — Decide if a join is needed
+- If source_column lives in a different table than the entity base table, you MUST
+  declare a join object on that mapping record. A cross-table mapping with no join
+  is invalid and will cause a runtime error.
+- If source_column is in the entity base table, omit the join object entirely.
+
+Step 2 — Determine join_keys from grain reasoning
+- join_keys are not a property of the lookup table alone — they depend on the
+  relationship between the base table grain and the lookup table grain.
+- Determine the grain of each table from its unique_keys in the schema contract:
+    - unique_keys: ["student_id"] → student grain (one row per student)
+    - unique_keys: ["student_id", "term"] → student-term grain (one row per student per term)
+    - unique_keys: ["term", "course_reference_number"] or ["term", "course_number", "section_number"] → course-section grain
+    - unique_keys: ["student_id", "term", "course_number"] → student-term-course grain
+- Set join_keys to the minimal shared columns that connect the base table grain to
+  the lookup table grain:
+    - student grain base → student grain lookup: ["student_id"]
+    - student grain base → student-term grain lookup: ["student_id"] only — the term
+      key is not shared with a student-grain base table, so it cannot be a join key
+    - student-course grain base → student grain lookup: ["student_id"]
+    - student-course grain base → student-term grain lookup: ["student_id", "term"]
+    - student-course grain base → section grain lookup: ["term", "course_reference_number"]
+- CRITICAL: If the join produces multiple rows per base row, that is intentional and
+  correct. Do not add columns to join_keys to reduce that multiplicity — that is
+  row_selection's job (Step 4).
+- CRITICAL: Never add filter columns (e.g. awarded_degree) or ordering columns
+  (e.g. term_order) to join_keys. Those belong in row_selection.filter and
+  row_selection.order_by respectively.
+- Only include a column in join_keys if it exists on both the base table and the
+  lookup table with the same canonical name (or aliased — see Step 3).
+
+Step 3 — Declare a column_alias only for mismatched key names
 - Before writing join_keys, check whether each key column has the same name in both
-  tables. If names match, use the column name directly in join_keys with no alias. If
-  names differ, declare an alias first (see below), then use the canonical_column value
-  in join_keys.
-- If no reliable join key can be identified, set source_column: null and flag for HITL
-  review with rationale. Joins apply to all cross-table sourcing including
-  lookup/reference tables.
+  tables. If names match across all tables involved, no alias is needed — do not
+  declare one.
+- If a join key column has different names in the base table vs the lookup table,
+  declare one alias entry for the lookup table:
+    table: <lookup_table>
+    source_column: <name in lookup table>
+    canonical_column: <name in base table>
+  Then use the canonical_column value in join_keys.
+- One alias per mismatched key per table. Do not alias non-key columns.
+- A join with a mismatched key name and no alias is always an error.
+- If a section has no cross-table joins, set column_aliases to [].
 
 {alias_bullet}
-- If a section has no cross-table joins, set column_aliases to [].
-- Declare an alias only when a join key has different column names across tables. If the
-  key column has the same name in all tables involved in the join, no alias is needed
-  and none should be declared. One alias entry per table per mismatched key. Do not
-  alias non-join-key columns.
-- canonical_column: use the actual column name from join.base_table — do not invent a
-  new name. Fall back to the name in the schema contract unique_keys if ambiguous.
-- A join with mismatched key names and no alias is always an error.
 - In the output JSON, column_aliases is nested inside each entity manifest object
   (alongside entity_type, target_schema, mappings) — not at the top level.
 - The ColumnAlias and FieldMappingManifest definitions in manifest_schema_reference
   are authoritative for field names and types.
+
+Step 4 — row_selection resolves multiplicity after the join
+- After joining, row_selection picks which row(s) to use. This is where ordering,
+  filtering, and nth selection belong — not in join_keys.
+- See the ROW SELECTION section below for allowed strategies and when to use each.
 
 ROW SELECTION
 - row_selection.strategy: "any_row", "first_by", "where_not_null", "constant", or "nth"

@@ -232,10 +232,14 @@ OUTPUT DTYPES
 - Set output_dtype to the RawEdvise / pandas name: "string", "Int64", "Float64" (extension dtypes — not numpy int64/float64), "category" (Pandera categoricals: entry_term, academic_term, pell_recipient_year1, term_pell_recipient), "boolean", "datetime64[ns]".
 - Steps produce actual dtypes; output_dtype is the declared target for review and eval only.
 
+
 STEP ORDERING
-- Apply type casting steps (cast_string, cast_nullable_int, etc.) early in the chain if needed
 - Apply string cleaning (strip_whitespace, lowercase, uppercase) before value mapping
-- Apply value mapping (map_values) after cleaning but before domain normalization
+- If map_values key matching depends on a normalized form (e.g. uppercase grade tokens),
+  apply the normalizing step (normalize_grade, uppercase, etc.) BEFORE map_values —
+  not after. The map keys must match the values that actually arrive at that step.
+- Apply type casting steps (cast_string, cast_nullable_int, etc.) after value transformations
+  unless an earlier step requires a specific type as input
 - Apply domain-specific normalization (normalize_term_code, normalize_grade, etc.) as needed
 - Apply null handling (fill_nulls, replace_null_tokens) at appropriate points in the chain
 
@@ -256,7 +260,13 @@ CONSTANT FIELDS
 - For fields that are derivable as institutional constants (e.g., all students are Bachelor's seekers), use fill_constant
 - The column parameter in fill_constant is used only for length — the value parameter is the constant string
 
-MAP VALUES BEHAVIOR
+MAP VALUES USAGE
+- Use map_values only when the source column contains institution-specific codes or tokens
+  that must be translated to schema-valid values (e.g. W1/W2/W3/W4 -> W, NC/NCR -> F)
+- Do NOT use map_values on free-text schema fields (fields where the target schema places
+  no constraint on allowed values). Pass the source values through after cleaning only.
+  Adding map_values to a free-text field is always wrong — the schema has no vocabulary to
+  map toward, and doing so invents a normalization that was not specified.
 - map_values default="passthrough" keeps original values for unmapped entries
 - map_values default=null fills unmapped entries with NA
 - Explicit null mappings (e.g., {{"(Blank)": null}}) are preserved even with default="passthrough"
