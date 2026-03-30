@@ -54,6 +54,16 @@ resources:
           sql_warehouse:
             id: ${var.sql_warehouse_id}
             permission: CAN_USE
+        - name: pipeline-runs-table
+          uc_securable:
+            securable_type: TABLE
+            securable_full_name: ${var.DB_workspace}.default.pipeline_runs
+            permission: SELECT
+        - name: pipeline-models-table
+          uc_securable:
+            securable_type: TABLE
+            securable_full_name: ${var.DB_workspace}.default.pipeline_models
+            permission: SELECT
       config:
         command:
           - streamlit
