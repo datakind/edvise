@@ -152,19 +152,58 @@ Step 2 — Determine join_keys from grain reasoning
   (e.g. term_order) to join_keys. Those belong in row_selection.filter and
   row_selection.order_by respectively.
 - Only include a column in join_keys if it exists on both the base table and the
-  lookup table with the same canonical name (or aliased — see Step 3).
+  lookup table with the same canonical name (OR aliased — see Step 3).
 
-Step 3 — Declare a column_alias only for mismatched key names
-- Before writing join_keys, check whether each key column has the same name in both
-  tables. If names match across all tables involved, no alias is needed — do not
-  declare one.
-- If a join key column has different names in the base table vs the lookup table,
-  declare one alias entry for the lookup table:
-    table: <lookup_table>
-    source_column: <name in lookup table>
-    canonical_column: <name in base table>
-  Then use the canonical_column value in join_keys.
-- One alias per mismatched key per table. Do not alias non-key columns.
+Step 3 — Declare a column_alias only for mismatched join key names
+- column_aliases exist for exactly one purpose: resolving a join key column that has
+  different names in the base table vs the lookup table. Nothing else.
+- Before declaring any alias, ask: is this column listed in join_keys?
+    - If NO  → do NOT declare an alias. It does not matter that the source column
+               you are fetching has a different name, a semantically meaningful label,
+               or shares a name with a target field. Source column name differences
+               are irrelevant to column_aliases.
+    - If YES → check whether it has the same name in both tables.
+               Same name → no alias needed.
+               Different name → declare one alias entry for the lookup table:
+                   table: <lookup_table>
+                   source_column: <name of the key in the lookup table>
+                   canonical_column: <name of the key in the base table>
+               Then use the canonical_column value in join_keys.
+
+Concrete examples:
+
+  CORRECT — alias needed (join key has different names across tables):
+    base_table has key column named "term_code"
+    lookup_table has the same conceptual key named "term_id"
+    join_keys: ["student_id", "term_code"]
+    → Declare alias: table: <lookup_table>, source_column: "term_id",
+                     canonical_column: "term_code"
+    Reason: "term_code" is in join_keys and its name differs in the lookup table.
+
+  CORRECT — alias needed (lookup table uses a different key column name):
+    base_table has key column named "course_code"
+    lookup_table has the same conceptual key named "cip_code"
+    join_keys: ["course_code"]
+    → Declare alias: table: <lookup_table>, source_column: "cip_code",
+                     canonical_column: "course_code"
+    Reason: "course_code" is in join_keys and has a different name in the lookup table.
+
+  WRONG — alias not needed (join key names match in both tables):
+    base_table key columns: "student_id", "term"
+    lookup_table key columns: "student_id", "term"
+    join_keys: ["student_id", "term"]
+    → Do NOT declare any alias.
+    Reason: all join key columns have identical names in both tables.
+
+  WRONG — alias on a non-key source column:
+    join_keys: ["student_id", "term"]
+    source_column being fetched from lookup_table: "major"
+    target_field this maps to: "term_declared_major"
+    → Do NOT alias "major". It is not a join key.
+    Reason: "major" is the column being retrieved, not a column used to perform
+    the join. The fact that it resembles or maps to a target field name is irrelevant.
+
+- One alias per mismatched key per lookup table. Never more.
 - A join with a mismatched key name and no alias is always an error.
 - If a section has no cross-table joins, set column_aliases to [].
 
@@ -224,11 +263,21 @@ CONFIDENCE SCORING
   Confidence reflects how certain you are that this mapping produces the correct semantic output
   for every student/course record, not just that it produces valid output
 
+RATIONALE
+- Focus on mapping evidence: which source column(s) plausibly carry the target semantics, grain and table choice,
+  when joins or row_selection are required and why, and what drives confidence or ambiguity
+- Do not use rationale to call out unconstrained or free-text typing — avoid phrases whose main point is that the
+  target field accepts any string, has no controlled vocabulary, is passthrough, or is "strip/cast only because
+  the schema does not enumerate values". The Pandera field descriptor already states dtype; repeating it is noise
+- Do not center the rationale on schema typing; center it on why this source column is the right one for this institution's contract
+- Unmappable entries: keep rationale aligned with UNMAPPABLE FIELDS (what was considered, why nothing suffices)
+
 VALIDATION NOTES
 - Add validation_notes to any field where the mapping or transformation could produce values that fail Pandera validation:
   regex pattern mismatches, out-of-range values, nulls on non-nullable fields, categorical values not in allowed set
 - Use the target schema definitions as the authoritative source for allowed values, nullability, and regex patterns
 - Leave validation_notes: null if no validation risk identified
+- Do not use validation_notes only to remark that a string field is unconstrained or free-text — that is not a validation risk by itself
 
 MANIFEST COMPACTNESS
 - Include all required top-level keys and all required mapping records
@@ -241,7 +290,9 @@ MANIFEST COMPACTNESS
 
 TARGET SCHEMA AUTHORITY
 - Use the Pandera schemas as the authoritative definition of target fields
-- Allowed values, nullability, and regex patterns from the schema should directly inform confidence scoring and rationale"""
+- Allowed values, nullability, and regex patterns from the schema should directly inform confidence scoring,
+  validation_notes, and when lower confidence is warranted — but follow RATIONALE: do not restate unconstrained-string
+  or free-text facts about the target field in prose"""
 
 
 def _step2a_json_output_rules() -> str:
@@ -375,7 +426,7 @@ STRUCTURE
 - Do not copy row_selection strategies, filters, or join configurations from the reference manifests —
   these are institution-specific and must be derived from the {institution_name} schema contract.
   The reference manifests are structural reference only: use them to understand the expected shape
-  of the output and the reasoning style in rationale fields, not as a source of mapping decisions
+  of the output and concise rationale (structural mapping reasoning per RATIONALE rules), not as a source of mapping decisions
 
 {_step2a_rules_after_structure(institution_name, column_aliases_scope="single_pass")}
 {_step2a_json_output_rules()}
