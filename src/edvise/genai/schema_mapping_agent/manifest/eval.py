@@ -20,7 +20,7 @@ from edvise.genai.schema_mapping_agent.manifest.prompt_builder import (
     strip_json_fences,
 )
 
-from edvise.genai.schema_mapping_agent.manifest.schemas import FieldMappingManifest
+from edvise.genai.schema_mapping_agent.manifest.schemas import MappingManifestEnvelope
 from edvise.data_audit.schemas.raw_edvise_student import (
     RawEdviseStudentDataSchema,
 )
@@ -217,14 +217,16 @@ def run_step2a_two_pass(
     client: OpenAI,
     prompt_cohort: str,
     prompt_course: str,
+    *,
+    institution_id: str,
 ) -> dict:
     """
     Step 2a only: two gateway calls (cohort JSON, then course JSON), then merge into one manifest.
 
     ``prompt_cohort`` and ``prompt_course`` are independent (build with
     ``build_step2a_prompt_cohort_pass`` / ``build_step2a_prompt_course_pass``); the course
-    pass does not include cohort output. Merge uses ``merge_step2a_entity_manifests``;
-    top-level ``schema_version`` and ``institution_id`` follow the cohort pass.
+    pass does not include cohort output. Merge uses ``merge_step2a_entity_manifests``
+    with ``institution_id`` to build the full envelope.
 
     Return shape matches ``run_once`` (same keys) for scoring and CSV export; ``latency_s``
     is the sum of both calls.
@@ -266,7 +268,9 @@ def run_step2a_two_pass(
 
     try:
         course_parsed = json.loads(r2["response"])
-        merged = merge_step2a_entity_manifests(cohort_parsed, course_parsed)
+        merged = merge_step2a_entity_manifests(
+            cohort_parsed, course_parsed, institution_id=institution_id
+        )
         merged_str = json.dumps(merged)
     except (json.JSONDecodeError, ValueError) as e:
         return {
@@ -779,15 +783,11 @@ def score_result(
 
 def validate_manifest(manifest_dict: dict) -> tuple[bool, str | None]:
     """
-    Attempt to parse a raw manifest dict against FieldMappingManifest.
+    Attempt to parse a raw manifest dict against MappingManifestEnvelope.
     Returns (is_valid, error_message).
     """
     try:
-        # validate each entity manifest separately
-        for entity_type, entity_manifest in manifest_dict.get("manifests", {}).items():
-            entity_manifest["institution_id"] = manifest_dict["institution_id"]
-            entity_manifest["schema_version"] = manifest_dict.get("schema_version", "0.1.0")
-            FieldMappingManifest.model_validate(entity_manifest)
+        MappingManifestEnvelope.model_validate(manifest_dict)
         return True, None
     except ValidationError as e:
         return False, str(e)
@@ -950,7 +950,11 @@ def run():
             logger.info(f"[{i}/{total}] Running model={model}")
             if STEP2A_TWO_PASS:
                 result = run_step2a_two_pass(
-                    model, client, PROMPT_COHORT, PROMPT_COURSE
+                    model,
+                    client,
+                    PROMPT_COHORT,
+                    PROMPT_COURSE,
+                    institution_id=target_id,
                 )
             else:
                 result = run_once(model, PROMPT_SINGLE, client)

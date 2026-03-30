@@ -331,26 +331,57 @@ def _step2a_reference_blocks(
     return reference_institution_names, blocks
 
 
-def merge_step2a_entity_manifests(cohort_pass: dict, course_pass: dict) -> dict:
+def merge_step2a_entity_manifests(
+    cohort_pass: dict,
+    course_pass: dict,
+    *,
+    institution_id: str | None = None,
+    schema_version: str = "0.1.0",
+) -> dict:
     """
-    Merge cohort-only and course-only Step 2a JSON objects into one full manifest.
+    Merge cohort-only and course-only Step 2a JSON objects into one full manifest envelope.
 
-    Each pass must return top-level schema_version, institution_id, and manifests
-    with a single key ("cohort" or "course" respectively).
-    Top-level schema_version and institution_id are taken from the cohort pass.
+    Each pass may return either a fragment with top-level ``manifests`` containing a
+    single entity key, or a partial ``FieldMappingManifest``-shaped object (keys
+    ``entity_type``, ``target_schema``, ``mappings``, ``column_aliases`` only).
+
+    When passes omit envelope-level fields, supply ``institution_id`` (and optionally
+    ``schema_version``); otherwise they are taken from the cohort pass when present.
     """
-    cm = cohort_pass.get("manifests") or {}
-    crm = course_pass.get("manifests") or {}
-    if "cohort" not in cm:
-        raise ValueError("cohort pass JSON missing manifests.cohort")
-    if "course" not in crm:
-        raise ValueError("course pass JSON missing manifests.course")
+    def _extract(pass_dict: dict, role: Literal["cohort", "course"]) -> dict:
+        manifests = pass_dict.get("manifests")
+        if isinstance(manifests, dict) and role in manifests:
+            return manifests[role]
+        if pass_dict.get("entity_type") != role:
+            raise ValueError(
+                f"expected entity_type {role!r} for this pass, got {pass_dict.get('entity_type')!r}"
+            )
+        return pass_dict
+
+    cohort_entity = _extract(cohort_pass, "cohort")
+    course_entity = _extract(course_pass, "course")
+
+    inst_id = institution_id
+    if inst_id is None:
+        inst_id = cohort_pass.get("institution_id") or course_pass.get("institution_id")
+    if not inst_id:
+        raise ValueError(
+            "institution_id is required when merging partial entity manifests "
+            "(pass institution_id=... to merge_step2a_entity_manifests)"
+        )
+
+    sv = schema_version
+    if "schema_version" in cohort_pass:
+        sv = cohort_pass.get("schema_version", sv)
+    elif "schema_version" in course_pass:
+        sv = course_pass.get("schema_version", sv)
+
     return {
-        "schema_version": cohort_pass.get("schema_version", course_pass.get("schema_version", "0.1.0")),
-        "institution_id": cohort_pass.get("institution_id") or course_pass.get("institution_id"),
+        "schema_version": sv,
+        "institution_id": inst_id,
         "manifests": {
-            "cohort": cm["cohort"],
-            "course": crm["course"],
+            "cohort": cohort_entity,
+            "course": course_entity,
         },
     }
 
@@ -496,6 +527,7 @@ STRUCTURE (cohort pass only)
 
 {_step2a_rules_after_structure(institution_name, column_aliases_scope="entity_pass")}
 {_step2a_json_output_rules()}
+- Output only the entity manifest object — a JSON object with keys entity_type, target_schema, mappings, and column_aliases. Do not include institution_id, schema_version, or any envelope-level fields. These are added by the calling code.
 - The manifests object MUST contain only the \"cohort\" key; omit \"course\" entirely
 {_step2a_prompt_close(generate_line="Generate the cohort-only mapping manifest JSON now.")}"""
 
@@ -563,6 +595,7 @@ STRUCTURE (course pass only)
 
 {_step2a_rules_after_structure(institution_name, column_aliases_scope="entity_pass")}
 {_step2a_json_output_rules()}
+- Output only the entity manifest object — a JSON object with keys entity_type, target_schema, mappings, and column_aliases. Do not include institution_id, schema_version, or any envelope-level fields. These are added by the calling code.
 - The manifests object MUST contain only the \"course\" key; omit \"cohort\" entirely
 {_step2a_prompt_close(generate_line="Generate the course-only mapping manifest JSON now.")}"""
 

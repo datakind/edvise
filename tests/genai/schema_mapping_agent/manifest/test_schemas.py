@@ -11,6 +11,7 @@ from edvise.genai.schema_mapping_agent.manifest.schemas import (
     FieldMappingRecord,
     JoinConfig,
     JoinFilter,
+    MappingManifestEnvelope,
     RowSelectionConfig,
     RowSelectionStrategy,
     get_manifest_schema_context,
@@ -31,10 +32,32 @@ def _minimal_mapping_record(**overrides) -> dict:
 
 def _minimal_manifest(**overrides) -> dict:
     base = {
-        "institution_id": "test_cc",
         "entity_type": "cohort",
         "target_schema": "RawEdviseStudentDataSchema",
         "mappings": [_minimal_mapping_record()],
+    }
+    base.update(overrides)
+    return base
+
+
+def _minimal_envelope(**overrides) -> dict:
+    base = {
+        "schema_version": "0.1.0",
+        "institution_id": "test_cc",
+        "manifests": {
+            "cohort": _minimal_manifest(),
+            "course": {
+                "entity_type": "course",
+                "target_schema": "RawEdviseCourseDataSchema",
+                "mappings": [
+                    _minimal_mapping_record(
+                        target_field="course_id",
+                        source_column="cid",
+                        source_table="course",
+                    )
+                ],
+            },
+        },
     }
     base.update(overrides)
     return base
@@ -160,12 +183,21 @@ def test_field_mapping_manifest_round_trip_minimal():
         ]
     )
     m = FieldMappingManifest.model_validate(data)
-    assert m.institution_id == "test_cc"
+    assert m.entity_type == "cohort"
     assert len(m.mappings) == 1
     assert isinstance(m.column_aliases[0], ColumnAlias)
+
+
+def test_mapping_manifest_envelope_round_trip_minimal():
+    data = _minimal_envelope()
+    env = MappingManifestEnvelope.model_validate(data)
+    assert env.institution_id == "test_cc"
+    assert env.manifests["cohort"].entity_type == "cohort"
+    assert env.manifests["course"].entity_type == "course"
 
 
 def test_get_manifest_schema_context_non_empty():
     text = get_manifest_schema_context()
     assert "JoinFilter" in text
     assert "FieldMappingManifest" in text
+    assert "MappingManifestEnvelope" in text

@@ -287,8 +287,6 @@ class ColumnAlias(StrictBaseModel):
 
 
 class FieldMappingManifest(StrictBaseModel):
-    schema_version: str = Field(default="0.1.0")
-    institution_id: str = Field(..., description="Institution identifier")
     entity_type: EntityType = Field(..., description="cohort or course")
     target_schema: str = Field(..., description="Target schema name")
     mappings: List[FieldMappingRecord] = Field(
@@ -316,6 +314,15 @@ class FieldMappingManifest(StrictBaseModel):
         return v
 
 
+class MappingManifestEnvelope(StrictBaseModel):
+    schema_version: str = Field(default="0.1.0")
+    institution_id: str = Field(..., description="Institution identifier")
+    manifests: Dict[EntityType, FieldMappingManifest] = Field(
+        ...,
+        description="Per-entity field mapping manifests (cohort and/or course).",
+    )
+
+
 # =============================================================================
 
 def get_manifest_schema_context() -> str:
@@ -323,7 +330,7 @@ def get_manifest_schema_context() -> str:
     Returns a focused schema reference for Agent 2a prompt context.
     Covers only the models relevant to manifest generation —
     RowSelectionStrategy, RowSelectionConfig, JoinFilter, JoinConfig,
-    FieldMappingRecord, ColumnAlias, and FieldMappingManifest.
+    FieldMappingRecord, ColumnAlias, FieldMappingManifest, and MappingManifestEnvelope.
     Excludes transformation map models.
     """
     models = [
@@ -334,6 +341,7 @@ def get_manifest_schema_context() -> str:
         FieldMappingRecord,
         ColumnAlias,
         FieldMappingManifest,
+        MappingManifestEnvelope,
     ]
     sections = []
     for model in models:
