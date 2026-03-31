@@ -39,6 +39,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Declared ``output_dtype`` strings are not used by the field executor. When True, scoring
+# ignores dtype for exact plan match, execution_safe, and aggregate / per-field dtype metrics.
+# Set False to restore legacy dtype comparisons in eval CSVs and logs.
+IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING = True
+
 # Institution configuration — keep in sync with manifest.eval defaults unless testing 2b only
 TARGET_INSTITUTION = {
     "id": "lee_col",
@@ -197,7 +202,12 @@ def _compare_transform_plan(field: str, gold_plan: dict, pred_plan: dict) -> dic
 
     plan_decision_correct = int(g["empty"] == p["empty"])
     output_dtype_correct = int(g["output_dtype"] == p["output_dtype"])
-    exact_plan_match = int(g["normalized"] == p["normalized"])
+    if IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING:
+        g_ex = {k: v for k, v in g["normalized"].items() if k != "output_dtype"}
+        p_ex = {k: v for k, v in p["normalized"].items() if k != "output_dtype"}
+        exact_plan_match = int(g_ex == p_ex)
+    else:
+        exact_plan_match = int(g["normalized"] == p["normalized"])
 
     overlap = _multiset_overlap(g["function_names"], p["function_names"])
     function_chain_precision = _safe_div(overlap, len(p["function_names"])) if p["function_names"] else None
@@ -260,21 +270,26 @@ def _compare_transform_plan(field: str, gold_plan: dict, pred_plan: dict) -> dic
 
     execution_safe = False
     if g["empty"] and p["empty"]:
-        execution_safe = output_dtype_correct == 1
+        if IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING:
+            execution_safe = True
+        else:
+            execution_safe = output_dtype_correct == 1
     elif (not g["empty"]) and (not p["empty"]):
-        dtype_ok = output_dtype_correct == 1
         chain_ok = function_chain_recall == 1
         critical_args_ok = (step_arg_critical_matches == step_arg_critical_total) if step_arg_critical_total > 0 else True
-        execution_safe = dtype_ok and chain_ok and critical_args_ok
+        if IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING:
+            execution_safe = chain_ok and critical_args_ok
+        else:
+            dtype_ok = output_dtype_correct == 1
+            execution_safe = dtype_ok and chain_ok and critical_args_ok
 
     execution_exact = bool(exact_plan_match)
 
-    return {
+    row = {
         "field": field,
         "gold_empty": g["empty"],
         "pred_empty": p["empty"],
         "plan_decision_correct": plan_decision_correct,
-        "output_dtype_correct": output_dtype_correct,
         "exact_plan_match": exact_plan_match,
         "function_chain_exact": function_chain_exact,
         "function_chain_precision": function_chain_precision,
@@ -297,12 +312,16 @@ def _compare_transform_plan(field: str, gold_plan: dict, pred_plan: dict) -> dic
         "execution_safe": int(execution_safe),
         "execution_exact": int(execution_exact),
     }
+    if not IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING:
+        row["output_dtype_correct"] = output_dtype_correct
+    return row
 
 
 def _update_counts_t2b(counts: Counter, cmp: dict) -> None:
     counts["n_fields"] += 1
     counts["plan_decision_correct"] += int(cmp["plan_decision_correct"])
-    counts["output_dtype_correct"] += int(cmp["output_dtype_correct"])
+    if not IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING:
+        counts["output_dtype_correct"] += int(cmp["output_dtype_correct"])
     counts["exact_plan_match"] += int(cmp["exact_plan_match"])
     counts["execution_safe"] += int(cmp["execution_safe"])
     counts["execution_exact"] += int(cmp["execution_exact"])
@@ -351,11 +370,10 @@ def _mean_from_counts(counts: Counter, sum_key: str, n_key: str) -> float | None
 
 
 def _finalize_counts_t2b(entity: str, counts: Counter, field_scores: list[dict]) -> dict:
-    return {
+    out = {
         "entity": entity,
         "n_fields": counts["n_fields"],
         "plan_decision_accuracy": _safe_div(counts["plan_decision_correct"], counts["n_fields"]),
-        "output_dtype_accuracy": _safe_div(counts["output_dtype_correct"], counts["n_fields"]),
         "exact_plan_match_rate": _safe_div(counts["exact_plan_match"], counts["n_fields"]),
         "function_chain_accuracy": _safe_div(
             counts["function_chain_exact_correct"],
@@ -377,6 +395,9 @@ def _finalize_counts_t2b(entity: str, counts: Counter, field_scores: list[dict])
         "execution_exact_rate": _safe_div(counts["execution_exact"], counts["n_fields"]),
         "field_scores": field_scores,
     }
+    if not IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING:
+        out["output_dtype_accuracy"] = _safe_div(counts["output_dtype_correct"], counts["n_fields"])
+    return out
 
 
 def score_transformation_map(pred: dict, gold: dict, entity: str) -> dict:
@@ -437,69 +458,77 @@ def score_t2b_result(result: dict, gold_tm: dict) -> dict | None:
         vals = [v for v in vals if v is not None]
         return round(sum(vals) / len(vals), 3) if vals else None
 
+    overall: dict = {
+        "plan_decision_accuracy": _avg(
+            cohort_scores["plan_decision_accuracy"],
+            course_scores["plan_decision_accuracy"],
+        ),
+        "exact_plan_match_rate": _avg(
+            cohort_scores["exact_plan_match_rate"],
+            course_scores["exact_plan_match_rate"],
+        ),
+        "function_chain_accuracy": _avg(
+            cohort_scores["function_chain_accuracy"],
+            course_scores["function_chain_accuracy"],
+        ),
+        "function_chain_precision": _avg(
+            cohort_scores["function_chain_precision"],
+            course_scores["function_chain_precision"],
+        ),
+        "function_chain_recall": _avg(
+            cohort_scores["function_chain_recall"],
+            course_scores["function_chain_recall"],
+        ),
+        "function_chain_f1": _avg(
+            cohort_scores["function_chain_f1"],
+            course_scores["function_chain_f1"],
+        ),
+        "required_step_recall": _avg(
+            cohort_scores["required_step_recall"],
+            course_scores["required_step_recall"],
+        ),
+        "critical_arg_accuracy": _avg(
+            cohort_scores["critical_arg_accuracy"],
+            course_scores["critical_arg_accuracy"],
+        ),
+        "map_values_step_accuracy": _avg(
+            cohort_scores["map_values_step_accuracy"],
+            course_scores["map_values_step_accuracy"],
+        ),
+        "dependency_accuracy": _avg(
+            cohort_scores["dependency_accuracy"],
+            course_scores["dependency_accuracy"],
+        ),
+        "fill_constant_accuracy": _avg(
+            cohort_scores["fill_constant_accuracy"],
+            course_scores["fill_constant_accuracy"],
+        ),
+        "execution_safe_rate": _avg(
+            cohort_scores["execution_safe_rate"],
+            course_scores["execution_safe_rate"],
+        ),
+        "execution_exact_rate": _avg(
+            cohort_scores["execution_exact_rate"],
+            course_scores["execution_exact_rate"],
+        ),
+    }
+    if not IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING:
+        od = _avg(
+            cohort_scores["output_dtype_accuracy"],
+            course_scores["output_dtype_accuracy"],
+        )
+        overall = {
+            "plan_decision_accuracy": overall["plan_decision_accuracy"],
+            "output_dtype_accuracy": od,
+            **{k: v for k, v in overall.items() if k != "plan_decision_accuracy"},
+        }
+
     return {
         "validation_passed": is_valid,
         "validation_error": validation_error,
         "cohort": cohort_scores,
         "course": course_scores,
-        "overall": {
-            "plan_decision_accuracy": _avg(
-                cohort_scores["plan_decision_accuracy"],
-                course_scores["plan_decision_accuracy"],
-            ),
-            "output_dtype_accuracy": _avg(
-                cohort_scores["output_dtype_accuracy"],
-                course_scores["output_dtype_accuracy"],
-            ),
-            "exact_plan_match_rate": _avg(
-                cohort_scores["exact_plan_match_rate"],
-                course_scores["exact_plan_match_rate"],
-            ),
-            "function_chain_accuracy": _avg(
-                cohort_scores["function_chain_accuracy"],
-                course_scores["function_chain_accuracy"],
-            ),
-            "function_chain_precision": _avg(
-                cohort_scores["function_chain_precision"],
-                course_scores["function_chain_precision"],
-            ),
-            "function_chain_recall": _avg(
-                cohort_scores["function_chain_recall"],
-                course_scores["function_chain_recall"],
-            ),
-            "function_chain_f1": _avg(
-                cohort_scores["function_chain_f1"],
-                course_scores["function_chain_f1"],
-            ),
-            "required_step_recall": _avg(
-                cohort_scores["required_step_recall"],
-                course_scores["required_step_recall"],
-            ),
-            "critical_arg_accuracy": _avg(
-                cohort_scores["critical_arg_accuracy"],
-                course_scores["critical_arg_accuracy"],
-            ),
-            "map_values_step_accuracy": _avg(
-                cohort_scores["map_values_step_accuracy"],
-                course_scores["map_values_step_accuracy"],
-            ),
-            "dependency_accuracy": _avg(
-                cohort_scores["dependency_accuracy"],
-                course_scores["dependency_accuracy"],
-            ),
-            "fill_constant_accuracy": _avg(
-                cohort_scores["fill_constant_accuracy"],
-                course_scores["fill_constant_accuracy"],
-            ),
-            "execution_safe_rate": _avg(
-                cohort_scores["execution_safe_rate"],
-                course_scores["execution_safe_rate"],
-            ),
-            "execution_exact_rate": _avg(
-                cohort_scores["execution_exact_rate"],
-                course_scores["execution_exact_rate"],
-            ),
-        },
+        "overall": overall,
     }
 
 
@@ -610,16 +639,23 @@ def run():
             scores = score_t2b_result(result, GOLD_TM)
             if scores:
                 v_ok = "✓" if scores.get("validation_passed") else "✗"
-                logger.info(
-                    f"→ scores | validation={v_ok} | "
-                    f"plan_decision={scores['overall']['plan_decision_accuracy']} | "
-                    f"dtype={scores['overall']['output_dtype_accuracy']} | "
-                    f"exact_plan={scores['overall']['exact_plan_match_rate']} | "
-                    f"chain_f1={scores['overall']['function_chain_f1']} | "
-                    f"critical_args={scores['overall']['critical_arg_accuracy']} | "
-                    f"exec_safe={scores['overall']['execution_safe_rate']} | "
-                    f"exec_exact={scores['overall']['execution_exact_rate']}"
+                ov = scores["overall"]
+                _parts = [
+                    f"→ scores | validation={v_ok}",
+                    f"plan_decision={ov['plan_decision_accuracy']}",
+                ]
+                if not IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING:
+                    _parts.append(f"dtype={ov['output_dtype_accuracy']}")
+                _parts.extend(
+                    [
+                        f"exact_plan={ov['exact_plan_match_rate']}",
+                        f"chain_f1={ov['function_chain_f1']}",
+                        f"critical_args={ov['critical_arg_accuracy']}",
+                        f"exec_safe={ov['execution_safe_rate']}",
+                        f"exec_exact={ov['execution_exact_rate']}",
+                    ]
                 )
+                logger.info(" | ".join(_parts))
                 if not scores.get("validation_passed"):
                     logger.warning(f"  Validation error: {scores.get('validation_error')}")
                 result["scores"] = scores
@@ -685,9 +721,8 @@ def run():
             cols = ["model", "latency_s"]
             if "validation_passed" in summary_df.columns:
                 cols.append("validation_passed")
-            for metric in (
+            _metrics = [
                 "plan_decision_accuracy",
-                "output_dtype_accuracy",
                 "exact_plan_match_rate",
                 "function_chain_accuracy",
                 "function_chain_f1",
@@ -697,7 +732,10 @@ def run():
                 "fill_constant_accuracy",
                 "execution_safe_rate",
                 "execution_exact_rate",
-            ):
+            ]
+            if not IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING:
+                _metrics.insert(1, "output_dtype_accuracy")
+            for metric in _metrics:
                 c = f"overall_{metric}"
                 if c in summary_df.columns:
                     cols.append(c)
