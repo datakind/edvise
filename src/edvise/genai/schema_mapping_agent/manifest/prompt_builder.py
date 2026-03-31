@@ -89,13 +89,17 @@ def slim_reference_manifest(manifest: dict) -> dict:
     slimmed["manifests"] = {}
 
     for entity, entity_manifest in manifest.get("manifests", {}).items():
-        slimmed_entity = {
-            k: v for k, v in entity_manifest.items() if k != "mappings"
-        }
-        slimmed_entity["mappings"] = [
+        mappings = [
             {k: v for k, v in record.items() if k not in OMIT_FIELDS}
             for record in entity_manifest.get("mappings", [])
         ]
+        # Canonical FieldMappingManifest key order (matches Pydantic / gold): mappings before column_aliases
+        slimmed_entity = {
+            "entity_type": entity_manifest["entity_type"],
+            "target_schema": entity_manifest["target_schema"],
+            "mappings": mappings,
+            "column_aliases": entity_manifest.get("column_aliases") or [],
+        }
         slimmed["manifests"][entity] = slimmed_entity
 
     return slimmed
@@ -210,6 +214,9 @@ Concrete examples:
 {alias_bullet}
 - In the output JSON, column_aliases is nested inside each entity manifest object
   (alongside entity_type, target_schema, mappings) — not at the top level.
+- Key order inside each entity manifest object must be exactly:
+  entity_type, then target_schema, then mappings, then column_aliases (always last).
+  Always include column_aliases (use [] when no join-key renames are needed).
 - The ColumnAlias and FieldMappingManifest definitions in manifest_schema_reference
   are authoritative for field names and types.
 
@@ -450,7 +457,8 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 <rules>
 STRUCTURE
 - Match the reference manifest JSON structure exactly (schema_version, institution_id,
-  manifests with cohort + course sections, column_aliases, mappings array)
+  manifests with cohort + course sections; each section: entity_type, target_schema,
+  mappings array, then column_aliases last)
 - Each mapping entry must include: target_field, source_column, source_table,
   row_selection, confidence, rationale, and a review_status.
 - Set review_status: "pending" on all records — "approved" is only set after human review
@@ -515,8 +523,8 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 STRUCTURE (cohort pass only)
 - Output one JSON object with: schema_version, institution_id, and manifests
 - manifests MUST contain exactly one key: \"cohort\" — do not include \"course\" or any course mappings
-- manifests.cohort must include entity_type, target_schema, column_aliases, and mappings for every
-  target field in the cohort Pandera schema above
+- manifests.cohort must include entity_type, target_schema, mappings for every
+  target field in the cohort Pandera schema above, and column_aliases (last; [] if none)
 - Set institution_id to \"{institution_id}\" (use this exact value)
 - Each mapping entry must include: target_field, source_column, source_table,
   row_selection, confidence, rationale, and a review_status.
@@ -582,8 +590,8 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 STRUCTURE (course pass only)
 - Output one JSON object with: schema_version, institution_id, and manifests
 - manifests MUST contain exactly one key: \"course\" — do not include \"cohort\" or duplicate cohort mappings
-- manifests.course must include entity_type, target_schema, column_aliases, and mappings for every
-  target field in the course Pandera schema above
+- manifests.course must include entity_type, target_schema, mappings for every
+  target field in the course Pandera schema above, and column_aliases (last; [] if none)
 - Set institution_id to \"{institution_id}\" (use this exact value)
 - Set schema_version to match the reference mapping manifests (typically \"0.1.0\")
 - Each mapping entry must include: target_field, source_column, source_table,
