@@ -978,11 +978,19 @@ def run():
                 try:
                     # pretty-print valid JSON; fall back to raw string if parse fails
                     parsed = json.loads(result["response"])
-                    manifest_path.write_text(json.dumps(parsed, indent=2))
+                    envelope = MappingManifestEnvelope.model_validate(parsed)
+                    manifest_path.write_text(
+                        envelope.model_dump_json(indent=2, exclude_none=True)
+                    )
                     logger.info(f"→ manifest saved → {manifest_path}")
                 except json.JSONDecodeError:
                     manifest_path.write_text(result["response"])
                     logger.warning(f"→ manifest saved (raw, invalid JSON) → {manifest_path}")
+                except ValidationError as ve:
+                    manifest_path.write_text(json.dumps(parsed, indent=2))
+                    logger.warning(
+                        f"→ manifest saved (JSON only; envelope validation failed) → {manifest_path}: {ve}"
+                    )
             else:
                 logger.warning(f"→ manifest not saved (inference error)")
             
