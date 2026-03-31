@@ -125,6 +125,46 @@ def _resolve_primary_keys_to_normalized(
     return normalized_uks
 
 
+def _primary_keys_for_column_resolution(
+    primary_keys: list[str],
+    student_id_alias: str | None,
+) -> list[str]:
+    """
+    Map canonical ``student_id`` to the normalized on-disk column name when
+    ``CleaningConfig.student_id_alias`` is set.
+
+    ``primary_keys`` in inputs.toml use logical ``student_id``; the CSV column is
+    named ``student_id_alias`` until :func:`clean_dataset` renames it. Resolution
+    must match :func:`normalize_columns` keys (e.g. ``student_id_randomized_datakind``).
+    """
+    if not student_id_alias:
+        return list(primary_keys)
+    alias_snake = convert_to_snake_case(student_id_alias)
+    return [alias_snake if k == "student_id" else k for k in primary_keys]
+
+
+def _canonical_primary_keys_for_contract(
+    primary_keys: list[str],
+    student_id_alias: str | None,
+) -> list[str]:
+    """
+    Primary key column names as they appear after ``clean_dataset`` (canonical ``student_id``).
+
+    Used for ``freeze_schema`` / schema contract JSON so contracts match inputs.toml and
+    cleaned dataframe columns, not the pre-rename alias name.
+    """
+    if not student_id_alias:
+        return list(primary_keys)
+    alias_snake = convert_to_snake_case(student_id_alias)
+    out: list[str] = []
+    for k in primary_keys:
+        if k in ("student_id", student_id_alias, alias_snake):
+            out.append("student_id")
+        else:
+            out.append(k)
+    return out
+
+
 def build_schema_contract_from_config(
     school_config: SchoolMappingConfig,
     dtype_opts: Optional[DtypeGenerationOptions] = None,
@@ -189,15 +229,17 @@ def build_schema_contract_from_config(
 
         term_col = term_col_by_dataset.get(logical_name, "term")
 
-        pk_list = list(dataset_config.primary_keys or [])
-        if merged_cleaning and merged_cleaning.student_id_alias:
-            pk_list = [
-                "student_id" if k == merged_cleaning.student_id_alias else k
-                for k in pk_list
-            ]
-        unique_keys = pk_list
+        pk_config = list(dataset_config.primary_keys or [])
+        pk_for_resolution = _primary_keys_for_column_resolution(
+            pk_config,
+            merged_cleaning.student_id_alias if merged_cleaning else None,
+        )
         normalized_uks = _resolve_primary_keys_to_normalized(
-            column_mapping, unique_keys, logical_name
+            column_mapping, pk_for_resolution, logical_name
+        )
+        unique_keys_for_contract = _canonical_primary_keys_for_contract(
+            pk_config,
+            merged_cleaning.student_id_alias if merged_cleaning else None,
         )
 
         clean_spec: dict[str, Any] = {
@@ -221,16 +263,19 @@ def build_schema_contract_from_config(
         )
 
         logger.info(
-            "  ✓ After clean_dataset: %d rows, %d columns, unique keys = %s (raw rows before sample=%d)",
+            "  ✓ After clean_dataset: %d rows, %d columns, unique keys = %s "
+            "(raw rows before sample=%d)",
             len(df_clean),
             len(df_clean.columns),
-            normalized_uks,
+            unique_keys_for_contract,
             original_row_count,
         )
 
         cleaned_map[logical_name] = df_clean
+        # Contract stores canonical names (student_id), not pre-alias column names;
+        # clean_spec above uses normalized_uks for on-disk resolution only.
         specs[logical_name] = {
-            "unique keys": normalized_uks,
+            "unique keys": unique_keys_for_contract,
             "non-null columns": [],
             "_orig_cols_": original_columns,
             "term_column": term_col,
