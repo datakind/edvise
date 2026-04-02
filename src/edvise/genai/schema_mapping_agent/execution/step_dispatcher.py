@@ -21,6 +21,11 @@ from typing import Any
 
 import pandas as pd
 
+from edvise.feature_generation.term_code_display import (
+    academic_term_category_from_term_code_display,
+    academic_year_from_term_code_display,
+)
+
 from ..transformation.utilities import (
     cast_boolean,
     cast_datetime,
@@ -171,6 +176,8 @@ def dispatch_step(
         "parse_term_description":   lambda: parse_term_description(s),
         "extract_academic_year_from_term_code": lambda: extract_academic_year_from_term_code(s),
         "extract_term_season_from_term_code": lambda: extract_term_season_from_term_code(s),
+        "academic_year_from_term_code_display": lambda: academic_year_from_term_code_display(s),
+        "academic_term_category_from_term_code_display": lambda: academic_term_category_from_term_code_display(s),
         "parse_term_code_to_datetime": lambda: parse_term_code_to_datetime(s),
     }
 

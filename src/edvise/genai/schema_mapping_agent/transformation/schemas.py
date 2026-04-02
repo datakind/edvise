@@ -210,6 +210,18 @@ class ExtractTermSeasonFromTermCodeStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
+class AcademicYearFromTermCodeDisplayStep(StrictBaseModel):
+    function_name: Literal["academic_year_from_term_code_display"]
+    column: str
+    rationale: Optional[str] = None
+
+
+class AcademicTermCategoryFromTermCodeDisplayStep(StrictBaseModel):
+    function_name: Literal["academic_term_category_from_term_code_display"]
+    column: str
+    rationale: Optional[str] = None
+
+
 class ParseTermCodeToDatetimeStep(StrictBaseModel):
     function_name: Literal["parse_term_code_to_datetime"]
     column: str
@@ -288,6 +300,8 @@ TransformationStep = Annotated[
         ParseTermDescriptionStep,
         ExtractAcademicYearFromTermCodeStep,
         ExtractTermSeasonFromTermCodeStep,
+        AcademicYearFromTermCodeDisplayStep,
+        AcademicTermCategoryFromTermCodeDisplayStep,
         ParseTermCodeToDatetimeStep,
         BirthyearToAgeBucketStep,
         ConditionalCreditsStep,

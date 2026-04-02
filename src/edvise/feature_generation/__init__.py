@@ -7,4 +7,5 @@ from . import (
     student,
     student_term,
     term,
+    term_code_display,
 )
