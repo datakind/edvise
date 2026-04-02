@@ -1,0 +1,83 @@
+bundle:
+  name: edvise_metadata_dashboard
+
+sync:
+  include:
+    - requirements.txt
+
+artifacts:
+  generate_requirements:
+    build: python generate_requirements.py
+
+variables:
+  app_name:
+    description: Databricks app name for the metadata dashboard deployment
+  branch_name:
+    description: Branch suffix used to build the Databricks app name for branch deployments
+  sql_warehouse_id:
+    description: SQL warehouse ID used by the metadata dashboard app
+  datakind_group_to_manage_workflow:
+    description: Group with permissions to manage the metadata dashboard app
+  DB_workspace:
+    description: Catalog name used by the metadata dashboard app
+
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      app_name: edvise-metadata-dashboard
+      DB_workspace: dev_sst_02
+
+  branch:
+    mode: development
+    variables:
+      app_name: edvise-${var.branch_name}
+      DB_workspace: dev_sst_02
+
+  prod:
+    mode: production
+    variables:
+      app_name: edvise-metadata-dashboard
+      DB_workspace: staging_sst_01
+    workspace:
+      root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
+
+resources:
+  apps:
+    metadata_dashboard:
+      name: ${var.app_name}
+      source_code_path: .
+      description: Streamlit app for Edvise pipeline metadata observability
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.sql_warehouse_id}
+            permission: CAN_USE
+        - name: pipeline-runs-table
+          uc_securable:
+            securable_type: TABLE
+            securable_full_name: ${var.DB_workspace}.default.pipeline_runs
+            permission: SELECT
+        - name: pipeline-models-table
+          uc_securable:
+            securable_type: TABLE
+            securable_full_name: ${var.DB_workspace}.default.pipeline_models
+            permission: SELECT
+      config:
+        command:
+          - streamlit
+          - run
+          - app.py
+        env:
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: DB_workspace
+            value: ${var.DB_workspace}
+          - name: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+            value: "false"
+      permissions:
+        - group_name: ${var.datakind_group_to_manage_workflow}
+          level: CAN_MANAGE
+        - group_name: users
+          level: CAN_USE

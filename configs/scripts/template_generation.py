@@ -11,10 +11,8 @@ from edvise.config_validation import (
     TargetCreditsEarnedConfig,
     CheckpointNthConfig,
     CheckpointFirstConfig,
-    CheckpointLastConfig,
     CheckpointFirstAtNumCreditsEarnedConfig,
     CheckpointFirstWithinCohortConfig,
-    CheckpointLastInEnrollmentYearConfig,
 )
 
 
@@ -52,10 +50,8 @@ def main():
         "target_credits_earned": TargetCreditsEarnedConfig,
         "checkpoint_nth": CheckpointNthConfig,
         "checkpoint_first": CheckpointFirstConfig,
-        "checkpoint_last": CheckpointLastConfig,
         "checkpoint_first_at_num_credits": CheckpointFirstAtNumCreditsEarnedConfig,
         "checkpoint_first_within_cohort": CheckpointFirstWithinCohortConfig,
-        "checkpoint_last_in_enrollment_year": CheckpointLastInEnrollmentYearConfig,
     }
 
     for model_name, model_cls in models.items():

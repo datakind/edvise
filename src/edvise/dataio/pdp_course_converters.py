@@ -59,13 +59,18 @@ def dedupe_by_renumbering_courses(
             ignore_index=False,
         )
         .assign(
-            grp_num=lambda d: (
-                d.groupby(unique_cols)["course_number"].transform("cumcount") + 1
+            cum_idx=lambda d: d.groupby(unique_cols)["course_number"].transform(
+                "cumcount"
             ),
             course_number=lambda d: (
                 d["course_number"]
                 .astype("string")
-                .str.cat(d["grp_num"].astype("string"), sep="-")
+                .where(
+                    d["cum_idx"] == 0,
+                    d["course_number"]
+                    .astype("string")
+                    .str.cat(d["cum_idx"].astype("string"), sep="-"),
+                )
             ),
         )
         .loc[:, ["course_number"]]
