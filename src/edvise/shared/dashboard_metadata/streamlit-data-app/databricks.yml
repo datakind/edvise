@@ -24,13 +24,13 @@ targets:
     mode: development
     default: true
     variables:
-      app_name: edvise-dev-metadata-dashboard
+      app_name: edvise-metadata-ui-dev
       DB_workspace: dev_sst_02
 
   prod:
     mode: production
     variables:
-      app_name: edvise-staging-metadata-dashboard
+      app_name: edvise-metadata-ui-staging
       DB_workspace: staging_sst_01
     workspace:
       root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
