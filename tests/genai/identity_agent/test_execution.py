@@ -12,7 +12,6 @@ from edvise.genai.identity_agent.execution import (
     merge_grain_contracts_into_school_config,
 )
 from edvise.genai.identity_agent.grain_inference.schemas import (
-    Confidence,
     DedupPolicy,
     DedupStrategy,
     IdentityGrainContract,
@@ -33,7 +32,7 @@ def _contract(**kwargs) -> IdentityGrainContract:
         cleaning_collapses_to_student_grain=True,
         row_selection_required=False,
         join_keys_for_2a=["k"],
-        confidence=Confidence.HIGH,
+        confidence=0.95,
         hitl_flag=False,
         hitl_question=None,
         reasoning="",
@@ -180,7 +179,7 @@ def _merge_contract(table: str, uks: list[str]) -> IdentityGrainContract:
         cleaning_collapses_to_student_grain=False,
         row_selection_required=True,
         join_keys_for_2a=uks,
-        confidence=Confidence.HIGH,
+        confidence=0.95,
         hitl_flag=False,
         hitl_question=None,
         reasoning="test",

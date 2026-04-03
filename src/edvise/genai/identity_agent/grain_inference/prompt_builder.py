@@ -122,11 +122,11 @@ def _identity_reasoning_steps() -> str:
    - Example: if (student_id, class_number) is unique but term is semantically required,
      emit join_keys_for_2a = [student_id, class_number, term].
 
-7. Assign confidence and flag for HITL if needed
-   - HIGH: all signals agree, domain prior confirms, zero ambiguity
-   - MEDIUM: data inference is clear but domain prior doesn't fully apply, or minor variance
-   - LOW: conflicting signals, ambiguous grain, policy decision required → always FLAG
-   - `hitl_flag` MUST be true whenever `confidence` is LOW. For MEDIUM, set `hitl_flag` true
+7. Assign confidence (0.0–1.0, same scale as Schema Mapping Agent) and flag for HITL if needed
+   - **0.85–1.0**: all signals agree, domain prior confirms, zero ambiguity
+   - **0.5–0.85**: data inference is clear but domain prior doesn't fully apply, or minor variance
+   - **0.0–0.5**: conflicting signals, ambiguous grain, or policy decision required → always FLAG
+   - `hitl_flag` MUST be true whenever `confidence` < 0.5. In the mid band (0.5–0.85), set `hitl_flag` true
      when a policy choice is still required.
 """
 
@@ -151,7 +151,7 @@ Respond ONLY with a JSON object. No preamble, no markdown, no explanation outsid
   "row_selection_required": false,
   "join_keys_for_2a": ["<col1>", "<col2>"],
   "term_order_column": "<column name or null — if set, executor runs add_term_order after dedup>",
-  "confidence": "HIGH | MEDIUM | LOW",
+  "confidence": 0.92,
   "hitl_flag": true,
   "hitl_question": "<specific question for human reviewer, or null if no flag>",
   "reasoning": "<2-3 sentence summary of the inference chain>"

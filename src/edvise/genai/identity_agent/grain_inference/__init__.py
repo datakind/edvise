@@ -15,14 +15,14 @@ from .prompt_builder import (
     strip_json_fences,
 )
 from .schemas import (
-    Confidence,
+    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
     DedupPolicy,
     DedupStrategy,
     IdentityGrainContract,
 )
 
 __all__ = [
-    "Confidence",
+    "IDENTITY_CONFIDENCE_HITL_THRESHOLD",
     "DedupPolicy",
     "DedupStrategy",
     "IDENTITY_AGENT_SYSTEM_PROMPT",

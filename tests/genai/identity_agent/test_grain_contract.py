@@ -9,7 +9,10 @@ from edvise.genai.identity_agent.grain_inference.prompt_builder import (
     parse_identity_grain_contract,
     strip_json_fences,
 )
-from edvise.genai.identity_agent.grain_inference.schemas import Confidence, DedupStrategy
+from edvise.genai.identity_agent.grain_inference.schemas import (
+    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+    DedupStrategy,
+)
 from edvise.genai.identity_agent.profiling.key_profiler import (
     CandidateKey,
     CandidateKeyProfile,
@@ -87,7 +90,7 @@ def test_parse_identity_grain_contract_dict():
         "cleaning_collapses_to_student_grain": False,
         "row_selection_required": True,
         "join_keys_for_2a": ["student_id", "term"],
-        "confidence": "HIGH",
+        "confidence": 0.95,
         "hitl_flag": False,
         "hitl_question": None,
         "reasoning": "Course grain.",
@@ -112,14 +115,14 @@ def test_parse_identity_grain_contract_fenced_json():
         "cleaning_collapses_to_student_grain": True,
         "row_selection_required": False,
         "join_keys_for_2a": ["id"],
-        "confidence": "MEDIUM",
+        "confidence": 0.72,
         "hitl_flag": True,
         "hitl_question": "Confirm?",
         "reasoning": "Demo table.",
     }
     text = "```json\n" + json.dumps(inner) + "\n```"
     c = parse_identity_grain_contract(text)
-    assert c.confidence == Confidence.MEDIUM
+    assert c.confidence == 0.72
 
 
 def test_low_confidence_requires_hitl():
@@ -136,7 +139,7 @@ def test_low_confidence_requires_hitl():
         "cleaning_collapses_to_student_grain": False,
         "row_selection_required": True,
         "join_keys_for_2a": ["a", "b"],
-        "confidence": "LOW",
+        "confidence": IDENTITY_CONFIDENCE_HITL_THRESHOLD - 0.01,
         "hitl_flag": False,
         "hitl_question": None,
         "reasoning": "Ambiguous.",

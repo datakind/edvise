@@ -10,7 +10,7 @@ from . import execution, grain_inference, profiling
 from .grain_inference import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
     IDENTITY_AGENT_USER_TEMPLATE,
-    Confidence,
+    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
     DedupPolicy,
     DedupStrategy,
     IdentityGrainContract,
@@ -41,7 +41,7 @@ __all__ = [
     "CandidateKey",
     "CandidateKeyProfile",
     "ColumnVarianceProfile",
-    "Confidence",
+    "IDENTITY_CONFIDENCE_HITL_THRESHOLD",
     "DedupPolicy",
     "DedupStrategy",
     "IDENTITY_AGENT_SYSTEM_PROMPT",

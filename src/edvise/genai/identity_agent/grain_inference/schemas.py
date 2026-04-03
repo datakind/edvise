@@ -7,11 +7,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-
-class Confidence(str, Enum):
-    HIGH = "HIGH"
-    MEDIUM = "MEDIUM"
-    LOW = "LOW"
+# Below this confidence score, `hitl_flag` must be true (ambiguous grain / policy required).
+IDENTITY_CONFIDENCE_HITL_THRESHOLD: float = 0.5
 
 
 class DedupStrategy(str, Enum):
@@ -50,7 +47,16 @@ class IdentityGrainContract(BaseModel):
     cleaning_collapses_to_student_grain: bool
     row_selection_required: bool
     join_keys_for_2a: list[str]
-    confidence: Confidence
+    confidence: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Agent confidence in the proposed grain and dedup policy (same 0.0–1.0 scale as "
+            "Schema Mapping Agent). Drives HITL — scores below the documented threshold require "
+            "hitl_flag true."
+        ),
+    )
     hitl_flag: bool
     hitl_question: str | None = None
     reasoning: str
@@ -69,6 +75,8 @@ class IdentityGrainContract(BaseModel):
 
     @model_validator(mode="after")
     def low_confidence_requires_hitl(self) -> IdentityGrainContract:
-        if self.confidence == Confidence.LOW and not self.hitl_flag:
-            raise ValueError("hitl_flag must be true when confidence is LOW")
+        if self.confidence < IDENTITY_CONFIDENCE_HITL_THRESHOLD and not self.hitl_flag:
+            raise ValueError(
+                f"hitl_flag must be true when confidence is below {IDENTITY_CONFIDENCE_HITL_THRESHOLD}"
+            )
         return self
