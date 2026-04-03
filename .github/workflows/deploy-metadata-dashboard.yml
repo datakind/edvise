@@ -2,8 +2,8 @@ name: deploy-metadata-dashboard
 
 on:
   push:
-    branches:
-      - fix/metadata_dashboard_deployment
+    tags:
+      - "v*"
 
 concurrency:
   group: deploy-metadata-dashboard-${{ github.ref_name }}-${{ github.job }}
