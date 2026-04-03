@@ -2,6 +2,7 @@ import json
 
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 from edvise.genai.identity_agent.grain_inference.prompt_builder import (
     build_identity_agent_user_message,
@@ -9,10 +10,7 @@ from edvise.genai.identity_agent.grain_inference.prompt_builder import (
     parse_identity_grain_contract,
     strip_json_fences,
 )
-from edvise.genai.identity_agent.grain_inference.schemas import (
-    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
-    DedupStrategy,
-)
+from edvise.genai.identity_agent.grain_inference.schemas import IDENTITY_CONFIDENCE_HITL_THRESHOLD
 from edvise.genai.identity_agent.profiling.key_profiler import (
     CandidateKey,
     CandidateKeyProfile,
@@ -98,7 +96,7 @@ def test_parse_identity_grain_contract_dict():
     c = parse_identity_grain_contract(raw)
     assert c.post_clean_primary_key == ["student_id"]
     assert c.unique_keys == ["student_id"]
-    assert c.dedup_policy.strategy == DedupStrategy.no_dedup
+    assert c.dedup_policy.strategy == "no_dedup"
 
 
 def test_parse_identity_grain_contract_fenced_json():
@@ -123,6 +121,41 @@ def test_parse_identity_grain_contract_fenced_json():
     text = "```json\n" + json.dumps(inner) + "\n```"
     c = parse_identity_grain_contract(text)
     assert c.confidence == 0.72
+
+
+def _valid_minimal_contract_dict() -> dict:
+    return {
+        "institution_id": "x",
+        "table": "t",
+        "post_clean_primary_key": ["student_id"],
+        "dedup_policy": {
+            "strategy": "no_dedup",
+            "sort_by": None,
+            "keep": None,
+            "notes": "",
+        },
+        "cleaning_collapses_to_student_grain": False,
+        "row_selection_required": True,
+        "join_keys_for_2a": ["student_id", "term"],
+        "confidence": 0.95,
+        "hitl_flag": False,
+        "hitl_question": None,
+        "reasoning": "ok",
+    }
+
+
+def test_dedup_policy_rejects_invalid_keep():
+    raw = _valid_minimal_contract_dict()
+    raw["dedup_policy"]["keep"] = "any_row"
+    with pytest.raises(ValidationError):
+        parse_identity_grain_contract(raw)
+
+
+def test_dedup_policy_rejects_invalid_strategy():
+    raw = _valid_minimal_contract_dict()
+    raw["dedup_policy"]["strategy"] = "any_row"
+    with pytest.raises(ValidationError):
+        parse_identity_grain_contract(raw)
 
 
 def test_low_confidence_requires_hitl():

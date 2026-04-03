@@ -10,7 +10,7 @@ import pandas as pd
 
 from edvise.feature_generation.term import add_term_order
 from edvise.genai.identity_agent.grain_inference.deduplication import drop_duplicate_keys
-from edvise.genai.identity_agent.grain_inference.schemas import DedupStrategy, IdentityGrainContract
+from edvise.genai.identity_agent.grain_inference.schemas import IdentityGrainContract
 
 logger = logging.getLogger(__name__)
 
@@ -37,17 +37,17 @@ def apply_grain_dedup(df: pd.DataFrame, contract: IdentityGrainContract) -> pd.D
     keys = list(contract.unique_keys)
     _validate_key_columns(df, keys, label="apply_grain_dedup")
 
-    if policy.strategy == DedupStrategy.no_dedup:
+    if policy.strategy == "no_dedup":
         return df.copy()
 
     sort_list: list[str] | None = [policy.sort_by] if policy.sort_by else None
-    if policy.strategy == DedupStrategy.temporal_collapse and not policy.sort_by:
+    if policy.strategy == "temporal_collapse" and not policy.sort_by:
         logger.warning(
             "temporal_collapse without dedup_policy.sort_by — using key-only dedup (keep=%s)",
             policy.keep or "first",
         )
 
-    keep: KeepArg = (policy.keep or "first") if policy.keep in ("first", "last") else "first"
+    keep: KeepArg = policy.keep or "first"
 
     return drop_duplicate_keys(
         df,

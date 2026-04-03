@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -10,15 +9,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # Below this confidence score, `hitl_flag` must be true (ambiguous grain / policy required).
 IDENTITY_CONFIDENCE_HITL_THRESHOLD: float = 0.5
 
-
-class DedupStrategy(str, Enum):
-    true_duplicate = "true_duplicate"
-    temporal_collapse = "temporal_collapse"
-    no_dedup = "no_dedup"
+# Valid `dedup_policy.strategy` values (JSON must use these exact strings).
+DedupStrategy = Literal["true_duplicate", "temporal_collapse", "no_dedup"]
 
 
 class DedupPolicy(BaseModel):
-    model_config = ConfigDict(extra="forbid", use_enum_values=True)
+    model_config = ConfigDict(extra="forbid")
 
     strategy: DedupStrategy
     sort_by: str | None = None

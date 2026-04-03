@@ -11,11 +11,7 @@ from edvise.genai.identity_agent.execution import (
     build_dedupe_fn_from_grain_contract,
     merge_grain_contracts_into_school_config,
 )
-from edvise.genai.identity_agent.grain_inference.schemas import (
-    DedupPolicy,
-    DedupStrategy,
-    IdentityGrainContract,
-)
+from edvise.genai.identity_agent.grain_inference.schemas import DedupPolicy, IdentityGrainContract
 
 
 def _contract(**kwargs) -> IdentityGrainContract:
@@ -24,7 +20,7 @@ def _contract(**kwargs) -> IdentityGrainContract:
         table="t",
         post_clean_primary_key=["k"],
         dedup_policy=DedupPolicy(
-            strategy=DedupStrategy.true_duplicate,
+            strategy="true_duplicate",
             sort_by=None,
             keep="first",
             notes="",
@@ -46,7 +42,7 @@ def test_no_dedup_leaves_rows():
     df = pd.DataFrame({"k": [1, 1], "v": [1, 2]})
     c = _contract(
         dedup_policy=DedupPolicy(
-            strategy=DedupStrategy.no_dedup,
+            strategy="no_dedup",
             sort_by=None,
             keep=None,
             notes="",
@@ -77,7 +73,7 @@ def test_temporal_collapse_keep_last():
         post_clean_primary_key=["k"],
         join_keys_for_2a=["k", "t"],
         dedup_policy=DedupPolicy(
-            strategy=DedupStrategy.temporal_collapse,
+            strategy="temporal_collapse",
             sort_by="t",
             keep="last",
             notes="",
@@ -110,7 +106,7 @@ def test_apply_grain_execution_order_dedup_then_term():
         post_clean_primary_key=["k"],
         join_keys_for_2a=["k", "term"],
         dedup_policy=DedupPolicy(
-            strategy=DedupStrategy.true_duplicate,
+            strategy="true_duplicate",
             sort_by=None,
             keep="first",
             notes="",
@@ -127,7 +123,7 @@ def test_build_dedupe_fn_from_grain_contract():
     c = _contract(
         post_clean_primary_key=["k"],
         dedup_policy=DedupPolicy(
-            strategy=DedupStrategy.true_duplicate,
+            strategy="true_duplicate",
             sort_by=None,
             keep="first",
             notes="",
@@ -171,7 +167,7 @@ def _merge_contract(table: str, uks: list[str]) -> IdentityGrainContract:
         table=table,
         post_clean_primary_key=uks,
         dedup_policy=DedupPolicy(
-            strategy=DedupStrategy.no_dedup,
+            strategy="no_dedup",
             sort_by=None,
             keep=None,
             notes="",

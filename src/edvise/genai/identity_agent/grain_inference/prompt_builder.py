@@ -86,6 +86,13 @@ def _identity_reasoning_steps() -> str:
     return """
 ## REASONING STEPS
 
+### Mandatory: non-unique rows vs. uniqueness scores
+- Do **not** treat a candidate key as clean **only** because `uniqueness_score` is 1.0 or very close to 1.0.
+- If `non_unique_rows` > 0 for that candidate key, you **must** inspect `within_group_variance`
+  and apply the flag / grain logic in step 2 before concluding the key is acceptable — however few
+  those rows are.
+- A key with **2** non-unique rows is **not** the same as a fully unique key with zero collisions.
+
 1. Identify the best candidate key
    - Prefer the shortest key with the highest uniqueness score that includes student_id.
    - Prefer keys with meaningful semantic columns (term, class_number) over keys that
@@ -104,12 +111,15 @@ def _identity_reasoning_steps() -> str:
 3. Apply domain priors (see above) — these override data inference when they conflict.
 
 4. Determine dedup policy
-   - true_duplicate: drop all but one row (any_row is safe)
+   - true_duplicate: drop all but one row (after dedup, one row per key; SchemaMappingAgent may use any_row **only** where row_selection allows it — that is **not** a `dedup_policy` field)
    - temporal_collapse: keep earliest / latest / specific row by a sort column — specify which
    - no_dedup: table is intentionally multi-row, cleaning should not collapse it
 
    For `dedup_policy.strategy`, use exactly one of these string literals (not a pipe list):
    `"true_duplicate"`, `"temporal_collapse"`, or `"no_dedup"`.
+
+   For `dedup_policy.keep`, use only `"first"`, `"last"`, or JSON `null`. **Never** put `any_row` here
+   (`any_row` is a row_selection strategy in SchemaMappingAgent Step 2a, not a dedup `keep` value).
 
 5. Set row_selection_required
    - True if the post-clean table remains multi-row per student (course, semester tables)
@@ -155,9 +165,9 @@ Respond ONLY with a JSON object. No preamble, no markdown, no explanation outsid
   "table": "<dataset_name>",
   "post_clean_primary_key": ["<col1>", "<col2>"],
   "dedup_policy": {
-    "strategy": "<one of: true_duplicate | temporal_collapse | no_dedup>",
+    "strategy": "<true_duplicate | temporal_collapse | no_dedup>",
     "sort_by": "<column_name or null>",
-    "keep": "<first | last or null>",
+    "keep": "<\"first\" | \"last\" or null — never any_row>",
     "notes": "<brief explanation>"
   },
   "cleaning_collapses_to_student_grain": true,
