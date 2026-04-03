@@ -14,6 +14,7 @@ from .prompt_builder import (
     parse_identity_grain_contract,
     strip_json_fences,
 )
+from .runner import run_identity_agent, run_identity_agents_for_institution
 from .schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
     DedupPolicy,
@@ -33,5 +34,7 @@ __all__ = [
     "deduplication",
     "format_column_list",
     "parse_identity_grain_contract",
+    "run_identity_agent",
+    "run_identity_agents_for_institution",
     "strip_json_fences",
 ]

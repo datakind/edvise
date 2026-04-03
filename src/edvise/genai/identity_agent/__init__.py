@@ -19,6 +19,8 @@ from .grain_inference import (
     deduplication,
     format_column_list,
     parse_identity_grain_contract,
+    run_identity_agent,
+    run_identity_agents_for_institution,
     strip_json_fences,
 )
 from .profiling import (
@@ -63,5 +65,7 @@ __all__ = [
     "parse_identity_grain_contract",
     "profile_candidate_keys",
     "profiling",
+    "run_identity_agent",
+    "run_identity_agents_for_institution",
     "strip_json_fences",
 ]
