@@ -161,6 +161,24 @@ def test_dedup_policy_rejects_invalid_strategy():
         parse_identity_grain_contract(raw)
 
 
+def test_parse_policy_required_dedup_strategy():
+    raw = _valid_minimal_contract_dict()
+    raw["dedup_policy"]["strategy"] = "policy_required"
+    c = parse_identity_grain_contract(raw)
+    assert c.dedup_policy.strategy == "policy_required"
+
+
+def test_term_config_accepts_new_utility_needed_alias():
+    raw = _valid_minimal_contract_dict()
+    raw["term_config"] = {
+        "term_column": "term_descr",
+        "NEW_UTILITY_NEEDED": True,
+    }
+    c = parse_identity_grain_contract(raw)
+    assert c.term_config is not None
+    assert c.term_config.new_utility_needed is True
+
+
 def test_low_confidence_requires_hitl():
     raw = {
         "institution_id": "x",

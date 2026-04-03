@@ -75,9 +75,15 @@ def _add_term_academic_year(g: pd.DataFrame) -> pd.DataFrame:
 def apply_term_order_from_config(df: pd.DataFrame, config: TermOrderConfig) -> pd.DataFrame:
     """
     Run :func:`~edvise.feature_generation.term.add_term_order` with ``canonical_mapping``-derived
-    ``season_order_map`` (for ``YYYYTT``-style codes), then optional ``term_canonical`` /
-    ``term_academic_year`` columns per ``config.outputs``.
+    ``season_order_map``, then optional ``term_canonical`` / ``term_academic_year`` columns per
+    ``config.outputs``. Raises if ``new_utility_needed`` is true (HITL must update contract first).
     """
+    if config.new_utility_needed:
+        raise ValueError(
+            "term_config.new_utility_needed is true — term enrichment is blocked until HITL "
+            "adds a supported parser/utility or updates term_config."
+        )
+
     col = config.term_column
     if col not in df.columns:
         raise ValueError(f"term_config.term_column {col!r} not in DataFrame columns")
@@ -98,9 +104,10 @@ def apply_term_order_from_config(df: pd.DataFrame, config: TermOrderConfig) -> p
         _build_season_order_map(config.canonical_mapping) if config.canonical_mapping else None
     )
 
-    if config.term_format != "YYYYTT":
+    if config.term_format not in (None, "YYYYTT", "Season_YYYY"):
         logger.warning(
-            "term_config.term_format=%r — only YYYYTT is fully supported; using default parsing",
+            "term_config.term_format=%r — Season_YYYY and YYYYTT are supported via add_term_order; "
+            "other formats may parse poorly",
             config.term_format,
         )
 

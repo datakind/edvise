@@ -3,6 +3,7 @@ from .grain_transforms import (
     apply_grain_execution,
     apply_grain_term_order,
     build_dedupe_fn_from_grain_contract,
+    canonicalize_grain_contract_student_id_alias,
 )
 from .schema_contract_executor import (
     build_schema_contract_from_grain_contracts,
@@ -17,5 +18,6 @@ __all__ = [
     "apply_term_order_from_config",
     "build_dedupe_fn_from_grain_contract",
     "build_schema_contract_from_grain_contracts",
+    "canonicalize_grain_contract_student_id_alias",
     "merge_grain_contracts_into_school_config",
 ]

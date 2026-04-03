@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # Below this confidence score, `hitl_flag` must be true (ambiguous grain / policy required).
 IDENTITY_CONFIDENCE_HITL_THRESHOLD: float = 0.5
 
 # Valid `dedup_policy.strategy` values (JSON must use these exact strings).
-DedupStrategy = Literal["true_duplicate", "temporal_collapse", "no_dedup"]
+DedupStrategy = Literal["true_duplicate", "temporal_collapse", "no_dedup", "policy_required"]
+
+# Detected / declared raw term string shapes (IdentityAgent); executor may only fully implement a subset.
+TermFormat = Literal["YYYYTT", "Season_YYYY", "YYYYMM", "YYYY_YY"]
 
 
 class DedupPolicy(BaseModel):
@@ -34,18 +37,54 @@ class TermOrderOutputs(BaseModel):
 
 class TermOrderConfig(BaseModel):
     """
-    Institution term encoding for ``add_term_order`` (e.g. ``YYYYTT`` codes + season aliases).
+    Institution term encoding for ``add_term_order`` and related enrichment.
 
-    ``canonical_mapping`` maps short suffix codes (``FA``, ``SP``) to canonical season labels
-    (``FALL``, ``SPRING``) used to derive ``season_order`` via ``DEFAULT_SEASON_ORDER_MAP``.
+    ``canonical_mapping`` maps raw tokens (YYYYTT suffixes like ``FA``, or season words like
+    ``Fall``) to canonical season labels (``FALL``, ``SPRING``) used to derive sort order.
+
+    Registry utility names must match the keys in ``TERM_UTILITY_REGISTRY`` in
+    ``edvise.genai.identity_agent.grain_inference.prompt_builder``.
     """
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     term_column: str
-    term_format: Literal["YYYYTT"] = "YYYYTT"
-    canonical_mapping: dict[str, str] = Field(default_factory=dict)
-    unmapped_values: list[str] = Field(default_factory=list)
+    term_format: TermFormat | None = Field(
+        default="YYYYTT",
+        description=(
+            "Format detected from sample values: YYYYTT (2018FA), Season_YYYY (Fall 2020), "
+            "YYYYMM, YYYY_YY; null if unrecognized — set new_utility_needed."
+        ),
+    )
+    term_parser: str | None = Field(
+        default=None,
+        description="Approved registry utility for parsing/normalizing terms, or null.",
+    )
+    term_sort_utility: str | None = Field(
+        default=None,
+        description="Registry utility for sort-key derivation, or null.",
+    )
+    term_academic_year_utility: str | None = Field(
+        default=None,
+        description="Registry utility for academic-year labeling, or null.",
+    )
+    term_parser_params: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Extra kwargs for the selected parser utility (e.g. custom season code maps).",
+    )
+    canonical_mapping: dict[str, str] = Field(
+        default_factory=dict,
+        description="Maps raw tokens to FALL/SPRING/SUMMER/WINTER (see IdentityAgent prompt).",
+    )
+    unmapped_values: list[str] = Field(
+        default_factory=list,
+        description="Raw term values that could not be mapped; flagged for HITL.",
+    )
+    new_utility_needed: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("new_utility_needed", "NEW_UTILITY_NEEDED"),
+        description="True if no registry utility fits even with term_parser_params — block enrichment until HITL.",
+    )
     outputs: TermOrderOutputs = Field(default_factory=TermOrderOutputs)
 
 
@@ -53,22 +92,43 @@ class IdentityGrainContract(BaseModel):
     """
     Grain contract for one institution dataset, produced by IdentityAgent.
 
-    ``post_clean_primary_key`` is the proposed ``unique_keys`` for this source
-    table in the schema contract (after cleaning). ``join_keys_for_2a`` informs
-    SchemaMappingAgent Step 2a join key reasoning.
+    When ``student_id_alias`` is set, ``post_clean_primary_key`` and ``join_keys_for_2a``
+    should name that column **as in the pre-canonical-rename frame** (the same string as
+    ``student_id_alias``), so dedup/join keys stay consistent; downstream cleaning renames
+    it to ``student_id`` for the frozen schema contract.
     """
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     institution_id: str
     table: str
+    student_id_alias: str | None = Field(
+        default=None,
+        description=(
+            "Institution student-identifier column **as shown in the column list** (header-normalized, "
+            "typically snake_case), e.g. student_id_randomized_datakind. Use null when the column "
+            "is already student_id after normalization, or when this table's grain has no student "
+            "identifier. Downstream cleaning maps this to canonical student_id once."
+        ),
+    )
     post_clean_primary_key: list[str] = Field(
         ...,
-        description="Proposed unique key column names after cleaning (maps to schema contract unique_keys).",
+        description=(
+            "Grain primary key column names aligned with the frame used for grain dedup: when "
+            "student_id_alias is set, list that column name (not literal student_id) wherever the "
+            "student identifier is part of the key. Maps to schema contract unique_keys after the "
+            "canonical student_id rename."
+        ),
     )
     dedup_policy: DedupPolicy
     row_selection_required: bool
-    join_keys_for_2a: list[str]
+    join_keys_for_2a: list[str] = Field(
+        ...,
+        description=(
+            "Join keys for SchemaMappingAgent 2a; same naming convention as post_clean_primary_key "
+            "for the student identifier column when student_id_alias is set."
+        ),
+    )
     confidence: float = Field(
         ...,
         ge=0.0,
@@ -86,8 +146,8 @@ class IdentityGrainContract(BaseModel):
     term_config: TermOrderConfig | None = Field(
         default=None,
         description=(
-            "Optional term column + YYYYTT-style mapping for add_term_order after dedup. "
-            "See edvise.genai.identity_agent.execution.apply_grain_term_order."
+            "Optional term column, format, registry utilities, mappings, and outputs for "
+            "add_term_order after dedup. See edvise.genai.identity_agent.execution.apply_grain_term_order."
         ),
     )
 
@@ -95,6 +155,16 @@ class IdentityGrainContract(BaseModel):
     def unique_keys(self) -> list[str]:
         """Alias for ``post_clean_primary_key`` (schema contract naming)."""
         return self.post_clean_primary_key
+
+    @field_validator("student_id_alias", mode="before")
+    @classmethod
+    def _empty_student_id_alias_to_none(cls, v: object) -> str | None:
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            return s if s else None
+        return v
 
     @model_validator(mode="after")
     def low_confidence_requires_hitl(self) -> IdentityGrainContract:

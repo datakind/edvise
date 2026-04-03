@@ -8,6 +8,7 @@ from edvise.genai.identity_agent.execution import (
     apply_grain_dedup,
     apply_grain_execution,
     apply_grain_term_order,
+    apply_term_order_from_config,
     build_dedupe_fn_from_grain_contract,
     merge_grain_contracts_into_school_config,
 )
@@ -165,6 +166,39 @@ def test_missing_key_columns_raises():
         apply_grain_dedup(df, c)
 
 
+def test_policy_required_skips_dedup():
+    df = pd.DataFrame({"k": [1, 1], "v": [1, 2]})
+    c = _contract(
+        dedup_policy=DedupPolicy(
+            strategy="policy_required",
+            sort_by=None,
+            keep=None,
+            notes="",
+        ),
+    )
+    out = apply_grain_dedup(df, c)
+    assert len(out) == 2
+
+
+def test_apply_term_order_raises_when_new_utility_needed():
+    df = pd.DataFrame({"term": ["Fall 2020"]})
+    c = TermOrderConfig(term_column="term", new_utility_needed=True)
+    with pytest.raises(ValueError, match="new_utility_needed"):
+        apply_term_order_from_config(df, c)
+
+
+def test_apply_grain_dedup_maps_contract_student_id_alias_to_student_id():
+    """After clean_dataset rename, the frame has student_id; keys may still use the pre-rename name."""
+    df = pd.DataFrame({"student_id": ["a", "a"], "x": [1, 2]})
+    c = _contract(
+        student_id_alias="student_id_randomized_datakind",
+        post_clean_primary_key=["student_id_randomized_datakind"],
+        join_keys_for_2a=["student_id_randomized_datakind"],
+    )
+    out = apply_grain_dedup(df, c)
+    assert len(out) == 1
+
+
 # --- merge_grain_contracts_into_school_config ---
 
 
@@ -185,10 +219,16 @@ def _school_config() -> SchoolMappingConfig:
     )
 
 
-def _merge_contract(table: str, uks: list[str]) -> IdentityGrainContract:
+def _merge_contract(
+    table: str,
+    uks: list[str],
+    *,
+    student_id_alias: str | None = None,
+) -> IdentityGrainContract:
     return IdentityGrainContract(
         institution_id="test_inst",
         table=table,
+        student_id_alias=student_id_alias,
         post_clean_primary_key=uks,
         dedup_policy=DedupPolicy(
             strategy="no_dedup",
@@ -214,6 +254,17 @@ def test_merge_updates_only_listed_datasets():
     )
     assert out.datasets["students"].primary_keys == ["student_id", "cohort_id"]
     assert out.datasets["courses"].primary_keys == ["student_id", "term"]
+
+
+def test_merge_canonicalizes_student_id_alias_in_primary_keys():
+    school = _school_config()
+    gc = _merge_contract(
+        "students",
+        ["legacy_student_col", "term"],
+        student_id_alias="legacy_student_col",
+    )
+    out = merge_grain_contracts_into_school_config(school, {"students": gc})
+    assert out.datasets["students"].primary_keys == ["student_id", "term"]
 
 
 def test_merge_preserves_institution_when_partial():

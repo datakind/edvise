@@ -11,6 +11,9 @@ import pandas as pd
 from edvise.configs.custom import CleaningConfig
 from edvise.configs.genai import DatasetConfig, SchoolMappingConfig
 from edvise.data_audit.custom_cleaning import DtypeGenerationOptions, TermOrderFn
+from edvise.genai.identity_agent.execution.grain_transforms import (
+    canonicalize_grain_contract_student_id_alias,
+)
 from edvise.genai.identity_agent.grain_inference.schemas import IdentityGrainContract
 
 logger = logging.getLogger(__name__)
@@ -69,7 +72,8 @@ def merge_grain_contracts_into_school_config(
                 logical,
             )
 
-        uks = list(gc.unique_keys)
+        gc_resolved = canonicalize_grain_contract_student_id_alias(gc)
+        uks = list(gc_resolved.unique_keys)
         if not uks:
             raise ValueError(
                 f"Grain contract for dataset {name!r} has empty unique_keys / post_clean_primary_key"
