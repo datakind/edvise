@@ -8,9 +8,15 @@ from edvise.genai.identity_agent.grain_inference.prompt_builder import (
     build_identity_agent_user_message,
     format_column_list,
     parse_identity_grain_contract,
+    parse_institution_grain_contracts,
     strip_json_fences,
 )
-from edvise.genai.identity_agent.grain_inference.schemas import IDENTITY_CONFIDENCE_HITL_THRESHOLD
+from edvise.genai.identity_agent.grain_inference.schemas import (
+    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+    IdentityGrainContract,
+    InstitutionGrainContracts,
+    build_institution_grain_contracts,
+)
 from edvise.genai.identity_agent.profiling.key_profiler import (
     CandidateKey,
     CandidateKeyProfile,
@@ -85,7 +91,6 @@ def test_parse_identity_grain_contract_dict():
             "keep": None,
             "notes": "intentional multi-row",
         },
-        "cleaning_collapses_to_student_grain": False,
         "row_selection_required": True,
         "join_keys_for_2a": ["student_id", "term"],
         "confidence": 0.95,
@@ -110,7 +115,6 @@ def test_parse_identity_grain_contract_fenced_json():
             "keep": "first",
             "notes": "drop dupes",
         },
-        "cleaning_collapses_to_student_grain": True,
         "row_selection_required": False,
         "join_keys_for_2a": ["id"],
         "confidence": 0.72,
@@ -134,7 +138,6 @@ def _valid_minimal_contract_dict() -> dict:
             "keep": None,
             "notes": "",
         },
-        "cleaning_collapses_to_student_grain": False,
         "row_selection_required": True,
         "join_keys_for_2a": ["student_id", "term"],
         "confidence": 0.95,
@@ -169,7 +172,6 @@ def test_low_confidence_requires_hitl():
             "keep": None,
             "notes": "",
         },
-        "cleaning_collapses_to_student_grain": False,
         "row_selection_required": True,
         "join_keys_for_2a": ["a", "b"],
         "confidence": IDENTITY_CONFIDENCE_HITL_THRESHOLD - 0.01,
@@ -183,3 +185,43 @@ def test_low_confidence_requires_hitl():
 
 def test_strip_json_fences():
     assert strip_json_fences('```\n{"a": 1}\n```').strip() == '{"a": 1}'
+
+
+def _minimal_contract(institution_id: str = "x", table: str = "t") -> IdentityGrainContract:
+    return IdentityGrainContract(
+        institution_id=institution_id,
+        table=table,
+        post_clean_primary_key=["k"],
+        dedup_policy={
+            "strategy": "no_dedup",
+            "sort_by": None,
+            "keep": None,
+            "notes": "",
+        },
+        row_selection_required=False,
+        join_keys_for_2a=["k"],
+        confidence=0.95,
+        hitl_flag=False,
+        hitl_question=None,
+        reasoning="",
+    )
+
+
+def test_institution_grain_contracts_roundtrip():
+    c1 = _minimal_contract("school_a", "student")
+    c2 = _minimal_contract("school_a", "course")
+    env = build_institution_grain_contracts(
+        "school_a",
+        {"student": c1, "course": c2},
+    )
+    text = env.model_dump_json(indent=2)
+    back = parse_institution_grain_contracts(text)
+    assert back.institution_id == "school_a"
+    assert set(back.datasets) == {"student", "course"}
+    assert back.datasets["student"].table == "student"
+
+
+def test_institution_grain_contracts_rejects_mismatched_institution_id():
+    c = _minimal_contract("other", "t")
+    with pytest.raises(ValueError, match="institution_id"):
+        InstitutionGrainContracts(institution_id="here", datasets={"t": c})

@@ -11,7 +11,11 @@ from edvise.genai.identity_agent.execution import (
     build_dedupe_fn_from_grain_contract,
     merge_grain_contracts_into_school_config,
 )
-from edvise.genai.identity_agent.grain_inference.schemas import DedupPolicy, IdentityGrainContract
+from edvise.genai.identity_agent.grain_inference.schemas import (
+    DedupPolicy,
+    IdentityGrainContract,
+    TermOrderConfig,
+)
 
 
 def _contract(**kwargs) -> IdentityGrainContract:
@@ -25,14 +29,13 @@ def _contract(**kwargs) -> IdentityGrainContract:
             keep="first",
             notes="",
         ),
-        cleaning_collapses_to_student_grain=True,
         row_selection_required=False,
         join_keys_for_2a=["k"],
         confidence=0.95,
         hitl_flag=False,
         hitl_question=None,
         reasoning="",
-        term_order_column=None,
+        term_config=None,
     )
     defaults.update(kwargs)
     return IdentityGrainContract(**defaults)
@@ -89,10 +92,31 @@ def test_apply_grain_term_order_adds_columns():
     c = _contract(
         post_clean_primary_key=["k"],
         join_keys_for_2a=["k", "term"],
-        term_order_column="term",
+        term_config=TermOrderConfig(term_column="term"),
     )
     out = apply_grain_term_order(df, c)
     assert "term_order" in out.columns
+
+
+def test_apply_grain_term_order_yyyytt_with_canonical_mapping():
+    df = pd.DataFrame({"term": ["2018FA", "2019SP"], "k": [1, 2]})
+    c = _contract(
+        post_clean_primary_key=["k"],
+        join_keys_for_2a=["k", "term"],
+        term_config=TermOrderConfig(
+            term_column="term",
+            term_format="YYYYTT",
+            canonical_mapping={
+                "FA": "FALL",
+                "SP": "SPRING",
+                "S1": "SUMMER",
+                "S2": "SUMMER",
+            },
+        ),
+    )
+    out = apply_grain_term_order(df, c)
+    assert "term_order" in out.columns
+    assert "term_canonical" in out.columns
 
 
 def test_apply_grain_execution_order_dedup_then_term():
@@ -111,7 +135,7 @@ def test_apply_grain_execution_order_dedup_then_term():
             keep="first",
             notes="",
         ),
-        term_order_column="term",
+        term_config=TermOrderConfig(term_column="term"),
     )
     out = apply_grain_execution(df, c)
     assert len(out) == 1
@@ -172,7 +196,6 @@ def _merge_contract(table: str, uks: list[str]) -> IdentityGrainContract:
             keep=None,
             notes="",
         ),
-        cleaning_collapses_to_student_grain=False,
         row_selection_required=True,
         join_keys_for_2a=uks,
         confidence=0.95,

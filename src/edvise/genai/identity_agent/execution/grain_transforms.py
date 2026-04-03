@@ -8,9 +8,9 @@ from typing import Literal
 
 import pandas as pd
 
-from edvise.feature_generation.term import add_term_order
 from edvise.genai.identity_agent.grain_inference.deduplication import drop_duplicate_keys
 from edvise.genai.identity_agent.grain_inference.schemas import IdentityGrainContract
+from edvise.genai.identity_agent.execution.term_order_apply import apply_term_order_from_config
 
 logger = logging.getLogger(__name__)
 
@@ -60,17 +60,16 @@ def apply_grain_dedup(df: pd.DataFrame, contract: IdentityGrainContract) -> pd.D
 
 def apply_grain_term_order(df: pd.DataFrame, contract: IdentityGrainContract) -> pd.DataFrame:
     """
-    If ``contract.term_order_column`` is set, run :func:`~edvise.feature_generation.term.add_term_order`.
+    If ``contract.term_config`` is set, run :func:`~edvise.genai.identity_agent.execution.term_order_apply.apply_term_order_from_config`.
 
-    Adds ``season``, ``year``, ``season_order``, ``is_core_term``, ``term_order`` (see that
-    function). If ``term_order_column`` is ``None``, returns ``df`` unchanged.
+    Adds ``season``, ``year``, ``season_order``, ``is_core_term``, ``term_order`` (and optional
+    ``term_canonical``, ``term_academic_year`` per config). If ``term_config`` is ``None``,
+    returns ``df`` unchanged.
     """
-    col = contract.term_order_column
-    if not col:
+    tc = contract.term_config
+    if tc is None:
         return df
-    if col not in df.columns:
-        raise ValueError(f"apply_grain_term_order: column {col!r} not in DataFrame")
-    return add_term_order(df, term_col=col)
+    return apply_term_order_from_config(df, tc)
 
 
 def apply_grain_execution(df: pd.DataFrame, contract: IdentityGrainContract) -> pd.DataFrame:

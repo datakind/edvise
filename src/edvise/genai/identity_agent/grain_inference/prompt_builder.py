@@ -16,7 +16,11 @@ import pandas as pd
 
 from edvise.genai.identity_agent.profiling.key_profiler import KeyProfile
 
-from .schemas import IDENTITY_CONFIDENCE_HITL_THRESHOLD, IdentityGrainContract
+from .schemas import (
+    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+    IdentityGrainContract,
+    InstitutionGrainContracts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +78,9 @@ def _identity_domain_priors() -> str:
 - row_selection IS required on semester tables.
 
 ### Consistency
-- For course and semester tables: `cleaning_collapses_to_student_grain` must be false and
-  `row_selection_required` must be true.
-- For student/demographic tables intended at student grain: typically
-  `cleaning_collapses_to_student_grain` is true and `row_selection_required` is false
-  after cleaning.
+- For course and semester tables: `row_selection_required` must be true.
+- For student/demographic tables intended at one row per student after cleaning: typically
+  `row_selection_required` is false (2a may use `any_row` on that table where appropriate).
 """
 
 
@@ -123,7 +125,7 @@ def _identity_reasoning_steps() -> str:
 
 5. Set row_selection_required
    - True if the post-clean table remains multi-row per student (course, semester tables)
-   - False if cleaning collapses to one row per student (student/demo tables)
+   - False if the table is one row per student after cleaning (typical student/demo tables)
    - When True, 2a is permitted and expected to use first_by / where_not_null strategies
    - When False, 2a should use any_row only — flag if it attempts otherwise
 
@@ -170,15 +172,28 @@ Respond ONLY with a JSON object. No preamble, no markdown, no explanation outsid
     "keep": "<\"first\" | \"last\" or null — never any_row>",
     "notes": "<brief explanation>"
   },
-  "cleaning_collapses_to_student_grain": true,
   "row_selection_required": false,
   "join_keys_for_2a": ["<col1>", "<col2>"],
-  "term_order_column": "<column name or null — if set, executor runs add_term_order after dedup>",
+  "term_config": null,
   "confidence": 0.92,
   "hitl_flag": true,
   "hitl_question": "<specific question for human reviewer, or null if no flag>",
   "reasoning": "<2-3 sentence summary of the inference chain>"
 }
+"""
+
+
+def _identity_term_config_section() -> str:
+    return """
+### TERM_CONFIG (optional)
+
+Use `\"term_config\": null` when no term-order enrichment is needed. For YYYYTT-style term codes on a column, set `term_config` to an object like:
+
+- `term_column` — raw column name (normalized names after cleaning)
+- `term_format` — use `\"YYYYTT\"` for 4-digit year + 2-letter season code (e.g. `2018FA`)
+- `canonical_mapping` — map short codes to canonical season names, e.g. `FA` → `FALL`, `SP` → `SPRING`, `S1`/`S2` → `SUMMER`
+- `unmapped_values` — list of raw tokens to drop before ordering (often empty)
+- `outputs` — `\"_term_sort_key\"`, `\"_term_canonical\"`, `\"_term_academic_year\"` booleans for optional derived columns after `add_term_order`
 """
 
 
@@ -194,6 +209,8 @@ def build_identity_agent_system_prompt() -> str:
         + _identity_confidence_scoring()
         + "\n---\n"
         + _identity_output_format()
+        + "\n---\n"
+        + _identity_term_config_section()
     )
 
 
@@ -276,4 +293,21 @@ def parse_identity_grain_contract(raw: RawContractInput) -> IdentityGrainContrac
         return IdentityGrainContract.model_validate_json(text)
     except Exception:
         logger.debug("Identity grain contract parse failed; raw (truncated): %s", text[:500])
+        raise
+
+
+def parse_institution_grain_contracts(raw: RawContractInput) -> InstitutionGrainContracts:
+    """
+    Parse a single JSON file containing ``institution_id`` and a ``datasets`` map of contracts.
+
+    Accepts raw text (optionally fenced), UTF-8 bytes, or an already-parsed dict.
+    """
+    if isinstance(raw, dict):
+        return InstitutionGrainContracts.model_validate(raw)
+    text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+    text = strip_json_fences(text)
+    try:
+        return InstitutionGrainContracts.model_validate_json(text)
+    except Exception:
+        logger.debug("Institution grain contracts parse failed; raw (truncated): %s", text[:500])
         raise

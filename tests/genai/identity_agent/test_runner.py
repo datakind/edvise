@@ -46,7 +46,6 @@ def _contract_json(*, confidence: float, hitl_flag: bool, table: str = "t") -> s
                 "keep": None,
                 "notes": "",
             },
-            "cleaning_collapses_to_student_grain": False,
             "row_selection_required": True,
             "join_keys_for_2a": ["student_id", "term"],
             "confidence": confidence,
