@@ -1,1 +1,1 @@
-from . import deduplication, duplicate_profiler
+from . import deduplication, key_profiler 
