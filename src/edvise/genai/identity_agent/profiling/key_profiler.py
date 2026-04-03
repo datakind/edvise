@@ -85,7 +85,7 @@ class CandidateKeyProfile(BaseModel):
         description=(
             "Per non-key column: how often it varies across non-unique groups. "
             "Empty when key is fully unique. Interpretation (grain vs noise vs policy) "
-            "is left to IdentityAgent."
+            "is left to IdentityAgent (Step 2)."
         ),
     )
     sampled: bool = Field(False, description="True if variance profile is based on sampled groups")
@@ -93,7 +93,12 @@ class CandidateKeyProfile(BaseModel):
 
 class KeyProfile(BaseModel):
     candidate_key_profiles: list[CandidateKeyProfile] = Field(
-        ..., description="Profile per candidate key, ranked by uniqueness. Feed to IdentityAgent LLM call."
+        ...,
+        description=(
+            "Profile per candidate key, ranked by uniqueness. Pass to "
+            "``edvise.genai.identity_agent.grain_contract.prompt_builder."
+            "build_identity_agent_user_message`` (Step 2)."
+        ),
     )
 
 
@@ -360,7 +365,7 @@ def profile_candidate_keys(df: pd.DataFrame) -> KeyProfile:
     each for group size distribution and per-column within-group variance.
 
     Interpretation (grain inference, dedup policy, cleaning hooks) is
-    intentionally left to the IdentityAgent LLM call. This function
+    intentionally left to the IdentityAgent LLM call (Step 2). This function
     produces facts only.
 
     Args:

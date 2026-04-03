@@ -1,8 +1,8 @@
 """
-Schema-agnostic row deduplication helpers (configurable key columns).
+Optional row-level helpers for applying a ``DedupPolicy`` / cleaning pipelines.
 
-These utilities do not assume PDP or edvise course column names. Compose them
-in pipelines or pass a thin wrapper as ``custom_cleaning.CleanSpec.dedupe_fn``.
+Not required for Step 1 (profiling) or Step 2 (grain contract LLM). Schema-agnostic —
+compose in pipelines or pass as ``custom_cleaning.CleanSpec.dedupe_fn``.
 """
 
 from __future__ import annotations
