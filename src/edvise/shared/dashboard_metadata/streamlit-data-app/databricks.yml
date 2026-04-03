@@ -10,6 +10,8 @@ artifacts:
     build: python generate_requirements.py
 
 variables:
+  app_name:
+    description: Databricks app name for the metadata dashboard deployment
   sql_warehouse_id:
     description: SQL warehouse ID used by the metadata dashboard app
   datakind_group_to_manage_workflow:
