@@ -16,7 +16,7 @@ import pandas as pd
 
 from edvise.genai.identity_agent.profiling.key_profiler import KeyProfile
 
-from .schemas import IdentityGrainContract
+from .schemas import IDENTITY_CONFIDENCE_HITL_THRESHOLD, IdentityGrainContract
 
 logger = logging.getLogger(__name__)
 
@@ -122,12 +122,25 @@ def _identity_reasoning_steps() -> str:
    - Example: if (student_id, class_number) is unique but term is semantically required,
      emit join_keys_for_2a = [student_id, class_number, term].
 
-7. Assign confidence (0.0–1.0, same scale as Schema Mapping Agent) and flag for HITL if needed
-   - **0.85–1.0**: all signals agree, domain prior confirms, zero ambiguity
-   - **0.5–0.85**: data inference is clear but domain prior doesn't fully apply, or minor variance
-   - **0.0–0.5**: conflicting signals, ambiguous grain, or policy decision required → always FLAG
-   - `hitl_flag` MUST be true whenever `confidence` < 0.5. In the mid band (0.5–0.85), set `hitl_flag` true
-     when a policy choice is still required.
+7. Assign numeric `confidence` and `hitl_flag` per **CONFIDENCE SCORING** (next section).
+"""
+
+
+def _identity_confidence_scoring() -> str:
+    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
+    return f"""
+## CONFIDENCE SCORING
+
+Use a **number from 0.0 to 1.0** (same scale as Schema Mapping Agent field mappings). In JSON,
+`confidence` must be a numeric value, not a string.
+
+- Prefer round scores when possible (e.g. 0.6, 0.7, 0.8, 0.9, 1.0).
+- **0.85–1.0**: all signals agree, domain prior confirms, zero ambiguity
+- **{t}–0.85**: data inference is clear but domain prior doesn't fully apply, or minor variance
+- **0.0–{t}**: conflicting signals, ambiguous grain, or policy decision required → always set `hitl_flag` true
+
+- `hitl_flag` MUST be true whenever `confidence` < {t}. In the mid band ({t}–0.85), set `hitl_flag` true
+  when a policy choice is still required.
 """
 
 
@@ -167,6 +180,8 @@ def build_identity_agent_system_prompt() -> str:
         + _identity_domain_priors()
         + "\n---\n"
         + _identity_reasoning_steps()
+        + "\n---\n"
+        + _identity_confidence_scoring()
         + "\n---\n"
         + _identity_output_format()
     )
