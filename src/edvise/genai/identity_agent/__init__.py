@@ -2,12 +2,12 @@
 Identity pipeline: profiling → grain contract → execution (transforms + schema contract build).
 
 - ``profiling``: deterministic candidate keys and variance facts (`KeyProfile`).
-- ``grain_contract``: prompts, `IdentityGrainContract`, optional row helpers.
+- ``grain_inference``: prompts, `IdentityGrainContract`, optional row helpers.
 - ``execution``: grain dedup/term transforms, merge into school config, frozen schema contract.
 """
 
-from . import execution, grain_contract, profiling
-from .grain_contract import (
+from . import execution, grain_inference, profiling
+from .grain_inference import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
     IDENTITY_AGENT_USER_TEMPLATE,
     Confidence,
@@ -58,7 +58,7 @@ __all__ = [
     "deduplication",
     "execution",
     "format_column_list",
-    "grain_contract",
+    "grain_inference",
     "merge_grain_contracts_into_school_config",
     "parse_identity_grain_contract",
     "profile_candidate_keys",

@@ -14,8 +14,9 @@ from typing import Union
 
 import pandas as pd
 
-from edvise.genai.identity_agent.grain_contract.schemas import IdentityGrainContract
 from edvise.genai.identity_agent.profiling.key_profiler import KeyProfile
+
+from .schemas import IdentityGrainContract
 
 logger = logging.getLogger(__name__)
 

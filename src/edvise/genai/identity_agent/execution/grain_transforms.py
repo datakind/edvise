@@ -9,8 +9,8 @@ from typing import Literal
 import pandas as pd
 
 from edvise.feature_generation.term import add_term_order
-from edvise.genai.identity_agent.grain_contract.deduplication import drop_duplicate_keys
-from edvise.genai.identity_agent.grain_contract.schemas import DedupStrategy, IdentityGrainContract
+from edvise.genai.identity_agent.grain_inference.deduplication import drop_duplicate_keys
+from edvise.genai.identity_agent.grain_inference.schemas import DedupStrategy, IdentityGrainContract
 
 logger = logging.getLogger(__name__)
 

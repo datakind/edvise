@@ -11,7 +11,7 @@ from edvise.genai.identity_agent.execution import (
     build_dedupe_fn_from_grain_contract,
     merge_grain_contracts_into_school_config,
 )
-from edvise.genai.identity_agent.grain_contract.schemas import (
+from edvise.genai.identity_agent.grain_inference.schemas import (
     Confidence,
     DedupPolicy,
     DedupStrategy,

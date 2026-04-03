@@ -96,7 +96,7 @@ class KeyProfile(BaseModel):
         ...,
         description=(
             "Profile per candidate key, ranked by uniqueness. Pass to "
-            "``edvise.genai.identity_agent.grain_contract.prompt_builder."
+            "``edvise.genai.identity_agent.grain_inference.prompt_builder."
             "build_identity_agent_user_message`` (Step 2)."
         ),
     )

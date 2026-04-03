@@ -11,7 +11,7 @@ import pandas as pd
 from edvise.configs.custom import CleaningConfig
 from edvise.configs.genai import DatasetConfig, SchoolMappingConfig
 from edvise.data_audit.custom_cleaning import DtypeGenerationOptions, TermOrderFn
-from edvise.genai.identity_agent.grain_contract.schemas import IdentityGrainContract
+from edvise.genai.identity_agent.grain_inference.schemas import IdentityGrainContract
 
 logger = logging.getLogger(__name__)
 

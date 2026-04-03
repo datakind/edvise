@@ -3,13 +3,13 @@ import json
 import pandas as pd
 import pytest
 
-from edvise.genai.identity_agent.grain_contract.prompt_builder import (
+from edvise.genai.identity_agent.grain_inference.prompt_builder import (
     build_identity_agent_user_message,
     format_column_list,
     parse_identity_grain_contract,
     strip_json_fences,
 )
-from edvise.genai.identity_agent.grain_contract.schemas import Confidence, DedupStrategy
+from edvise.genai.identity_agent.grain_inference.schemas import Confidence, DedupStrategy
 from edvise.genai.identity_agent.profiling.key_profiler import (
     CandidateKey,
     CandidateKeyProfile,
