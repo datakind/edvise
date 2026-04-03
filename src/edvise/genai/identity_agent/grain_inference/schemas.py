@@ -82,6 +82,7 @@ class IdentityGrainContract(BaseModel):
     hitl_flag: bool
     hitl_question: str | None = None
     reasoning: str
+    notes: str = ""
     term_config: TermOrderConfig | None = Field(
         default=None,
         description=(
