@@ -10,10 +10,6 @@ artifacts:
     build: python generate_requirements.py
 
 variables:
-  app_name:
-    description: Databricks app name for the metadata dashboard deployment
-  branch_name:
-    description: Branch suffix used to build the Databricks app name for branch deployments
   sql_warehouse_id:
     description: SQL warehouse ID used by the metadata dashboard app
   datakind_group_to_manage_workflow:
@@ -26,19 +22,13 @@ targets:
     mode: development
     default: true
     variables:
-      app_name: edvise-metadata-dashboard
-      DB_workspace: dev_sst_02
-
-  branch:
-    mode: development
-    variables:
-      app_name: edvise-${var.branch_name}
+      app_name: edvise-dev-metadata-dashboard
       DB_workspace: dev_sst_02
 
   prod:
     mode: production
     variables:
-      app_name: edvise-metadata-dashboard
+      app_name: edvise-staging-metadata-dashboard
       DB_workspace: staging_sst_01
     workspace:
       root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
