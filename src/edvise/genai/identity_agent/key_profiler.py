@@ -68,37 +68,37 @@ class CandidateKey(BaseModel):
 class ColumnVarianceProfile(BaseModel):
     column: str
     pct_groups_with_variance: float = Field(
-        ..., description="Fraction of duplicate groups where this column has >1 distinct value"
+        ..., description="Fraction of non-unique groups where this column has >1 distinct value"
     )
     sample_values: list = Field(
-        ..., description="Up to 5 sample values from duplicate rows for LLM context"
+        ..., description="Up to 5 sample values from non-unique rows for LLM context"
     )
 
 
 class CandidateKeyProfile(BaseModel):
     candidate_key: CandidateKey
-    duplicate_rows: int
+    non_unique_rows: int
     affected_groups: int
     group_size_distribution: dict[int, int]
     within_group_variance: list[ColumnVarianceProfile] = Field(
         ...,
         description=(
-            "Per non-key column: how often it varies across duplicate rows. "
-            "Empty when no duplicates exist. Interpretation (grain vs noise vs policy) "
+            "Per non-key column: how often it varies across non-unique groups. "
+            "Empty when key is fully unique. Interpretation (grain vs noise vs policy) "
             "is left to IdentityAgent."
         ),
     )
     sampled: bool = Field(False, description="True if variance profile is based on sampled groups")
 
 
-class DuplicateProfile(BaseModel):
+class KeyProfile(BaseModel):
     candidate_key_profiles: list[CandidateKeyProfile] = Field(
-        ..., description="Duplicate profile per candidate key, ranked by uniqueness. Feed to IdentityAgent LLM call."
+        ..., description="Profile per candidate key, ranked by uniqueness. Feed to IdentityAgent LLM call."
     )
 
 
 # ---------------------------------------------------------------------------
-# Candidate key detection — keep as-is, this is real combinatorial work
+# Candidate key detection — deterministic combinatorial work
 # ---------------------------------------------------------------------------
 
 def _effective_tier1_nunique_floor(n_rows: int) -> int:
@@ -288,13 +288,13 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
 
 
 # ---------------------------------------------------------------------------
-# Per-candidate duplicate profiling — facts only, no interpretation
+# Per-candidate key profiling — facts only, no interpretation
 # ---------------------------------------------------------------------------
 
 def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> CandidateKeyProfile:
     key_cols = list(candidate.columns)
     non_key_cols = [c for c in df.columns if c not in key_cols]
-    logger.info("Profiling duplicates against candidate key: %s", key_cols)
+    logger.info("Profiling against candidate key: %s", key_cols)
 
     sizes = df.groupby(key_cols, sort=False).size()
     dup_sizes = sizes[sizes > 1]
@@ -302,32 +302,31 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
     if len(dup_sizes) == 0:
         return CandidateKeyProfile(
             candidate_key=candidate,
-            duplicate_rows=0,
+            non_unique_rows=0,
             affected_groups=0,
             group_size_distribution={},
             within_group_variance=[],
         )
 
-    duplicate_rows = int(dup_sizes.sum())
+    non_unique_rows = int(dup_sizes.sum())
     affected_groups = len(dup_sizes)
     size_dist = {int(k): int(v) for k, v in dup_sizes.value_counts().items()}
-    logger.info("  Duplicate rows: %d / %d (%.1f%%)", duplicate_rows, len(df), 100 * duplicate_rows / len(df))
+    logger.info("  Non-unique rows: %d / %d (%.1f%%)", non_unique_rows, len(df), 100 * non_unique_rows / len(df))
 
-    # Sample duplicate groups for variance profiling
     sampled = False
     keys_df = dup_sizes.index.to_frame(index=False)
     if len(keys_df) > SAMPLE_GROUP_SIZE:
         keys_df = keys_df.sample(SAMPLE_GROUP_SIZE, random_state=42)
         sampled = True
-        logger.info("  Sampling %d duplicate groups for variance profiling", SAMPLE_GROUP_SIZE)
+        logger.info("  Sampling %d groups for variance profiling", SAMPLE_GROUP_SIZE)
 
     work = df.merge(keys_df, on=key_cols, how="inner")
     if len(work) > PROFILE_MAX_WORK_ROWS:
         work = work.sample(PROFILE_MAX_WORK_ROWS, random_state=43)
         sampled = True
 
-    # Per non-key column: what fraction of duplicate groups have variance?
-    # This is the raw signal IdentityAgent needs to reason about grain.
+    # Per non-key column: what fraction of non-unique groups have variance?
+    # Raw signal for IdentityAgent to reason about grain — no interpretation here.
     variance_profiles = []
     for col in non_key_cols:
         nunique = work.groupby(key_cols, sort=False)[col].nunique()
@@ -339,12 +338,11 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
             sample_values=sample_vals,
         ))
 
-    # Sort by variance descending so the most discriminating columns surface first
     variance_profiles.sort(key=lambda p: p.pct_groups_with_variance, reverse=True)
 
     return CandidateKeyProfile(
         candidate_key=candidate,
-        duplicate_rows=duplicate_rows,
+        non_unique_rows=non_unique_rows,
         affected_groups=affected_groups,
         group_size_distribution=size_dist,
         within_group_variance=variance_profiles,
@@ -356,11 +354,10 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def profile_duplicates(df: pd.DataFrame) -> DuplicateProfile:
+def profile_candidate_keys(df: pd.DataFrame) -> KeyProfile:
     """
-    Deterministic duplicate profiler. Detects candidate keys and profiles
-    duplicate structure against each — counts, group sizes, and per-column
-    within-group variance.
+    Deterministic key profiler. Detects candidate keys and profiles
+    each for group size distribution and per-column within-group variance.
 
     Interpretation (grain inference, dedup policy, cleaning hooks) is
     intentionally left to the IdentityAgent LLM call. This function
@@ -370,12 +367,11 @@ def profile_duplicates(df: pd.DataFrame) -> DuplicateProfile:
         df: Raw institution DataFrame (pre-normalization)
 
     Returns:
-        DuplicateProfile with per-candidate-key stats, ready for LLM consumption
+        KeyProfile with per-candidate-key stats, ready for LLM consumption
     """
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-    logger.info("=== DuplicateProfiler start — %d rows, %d columns ===", len(df), len(df.columns))
+    logger.info("=== KeyProfiler start — %d rows, %d columns ===", len(df), len(df.columns))
 
-    # Strip synthetic index columns
     index_cols = [c for c in df.columns if INDEX_COLUMN_PATTERNS.match(c)]
     if index_cols:
         logger.warning("Stripping synthetic index columns: %s", index_cols)
@@ -385,14 +381,14 @@ def profile_duplicates(df: pd.DataFrame) -> DuplicateProfile:
     logger.info("Top %d candidate keys identified", len(candidate_keys))
 
     profiles = []
-    duplicate_free_keys: list[frozenset[str]] = []
+    unique_keys: list[frozenset[str]] = []
     for candidate in candidate_keys:
         candidate_set = frozenset(candidate.columns)
-        if any(base.issubset(candidate_set) for base in duplicate_free_keys):
-            logger.info("  Skipping %s — superset of duplicate-free key", candidate.columns)
+        if any(base.issubset(candidate_set) for base in unique_keys):
+            logger.info("  Skipping %s — superset of fully unique key", candidate.columns)
             profiles.append(CandidateKeyProfile(
                 candidate_key=candidate,
-                duplicate_rows=0,
+                non_unique_rows=0,
                 affected_groups=0,
                 group_size_distribution={},
                 within_group_variance=[],
@@ -400,9 +396,9 @@ def profile_duplicates(df: pd.DataFrame) -> DuplicateProfile:
             continue
 
         profile = _profile_against_key(df, candidate)
-        if profile.duplicate_rows == 0:
-            duplicate_free_keys.append(candidate_set)
+        if profile.non_unique_rows == 0:
+            unique_keys.append(candidate_set)
         profiles.append(profile)
 
-    logger.info("=== DuplicateProfiler complete ===")
-    return DuplicateProfile(candidate_key_profiles=profiles)
+    logger.info("=== KeyProfiler complete ===")
+    return KeyProfile(candidate_key_profiles=profiles)
