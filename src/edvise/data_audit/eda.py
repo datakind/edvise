@@ -1578,7 +1578,7 @@ def order_terms(
     CUSTOM SCHOOL FUNCTION
 
     Make df[term_col] an ordered categorical based on Season + Year.
-    Expects terms like 'Spring 2024', 'Fall 2023', etc.
+    Handles both 'Spring 2024' and '2024 Spring' formats.
     Compatible with CleanSpec.term_order_fn(df, term_col).
 
     Args:
@@ -1610,7 +1610,7 @@ def order_terms(
         ordered=True,
     )
 
-    LOGGER.info(
+    logging.info(
         "term_order_fn: term_col=%s, categories=%s",
         term_col,
         list(out[term_col].cat.categories),
@@ -1620,24 +1620,19 @@ def order_terms(
 
 def _parse_term(term: str, season_order: dict[str, int]) -> tuple[int, int]:
     """
-    Parse a term string like 'Spring 2024' into (year, season_rank) for sorting.
-
-    Returns (9999, 999) for invalid/NA terms to push them to the end.
+    Parse a term string into a (year, season_rank) tuple for sorting.
+    Handles both 'Spring 2024' and '2024 Spring' formats.
     """
-    if pd.isna(term):
-        return (9999, 999)
-
-    parts = str(term).strip().split()
+    parts = str(term).split()
     if len(parts) != 2:
-        return (9999, 999)
+        return (9999, 99)
 
-    season, year = parts
-    try:
-        year_int = int(year)
-    except ValueError:
-        year_int = 9999
+    if parts[0].isdigit():
+        year, season = int(parts[0]), parts[1]   # '2024 Spring'
+    else:
+        season, year = parts[0], int(parts[1])   # 'Spring 2024'
 
-    return (year_int, season_order.get(season, 999))
+    return (year, season_order.get(season, 99))
 
 
 def convert_numeric_columns(df, columns):
@@ -1772,6 +1767,138 @@ def duplicate_conflict_columns(
         .sort_values("pct_conflicting_groups", ascending=False)
         .reset_index(drop=True)
     )
+
+
+def analyze_merge(
+    left_df: pd.DataFrame,
+    right_df: pd.DataFrame,
+    left_name: str,
+    right_name: str,
+    *,
+    student_df: pd.DataFrame | None = None,
+    merge_on: str | list[str] = "student_id",
+    id_col: str = "student_id",
+) -> pd.DataFrame:
+    """
+    Outer-merge two tables on ``merge_on`` and print join coverage and dimension breakdowns.
+
+    Pass the full ``student_df`` roster so percentages use a stable denominator and so
+    course-only rows can be cross-checked against the student file.
+
+    When ``left_name`` / ``right_name`` is ``\"course\"`` or ``\"semester\"``, reference
+    row and ``id_col`` counts are taken from the corresponding merge operand.
+    """
+    merged = left_df.merge(right_df, on=merge_on, indicator=True, how="outer")
+    counts = merged["_merge"].value_counts(dropna=False)
+
+    if id_col not in merged.columns:
+        raise KeyError(
+            f"analyze_merge: id_col {id_col!r} not in merged columns "
+            f"(merge_on={merge_on!r}); set id_col to the student id column."
+        )
+
+    both_ids = int(merged.loc[merged["_merge"] == "both", id_col].nunique())
+    left_only_ids = int(merged.loc[merged["_merge"] == "left_only", id_col].nunique())
+    right_only_ids = int(merged.loc[merged["_merge"] == "right_only", id_col].nunique())
+
+    if student_df is not None and id_col in student_df.columns:
+        total_ids = int(student_df[id_col].nunique())
+    else:
+        total_ids = int(
+            pd.Index(left_df[id_col].dropna().unique()).union(
+                right_df[id_col].dropna().unique()
+            ).size
+        )
+
+    both_rows = counts.get("both", 0)
+    left_only_rows = counts.get("left_only", 0)
+    right_only_rows = counts.get("right_only", 0)
+
+    def pct(n: int) -> str:
+        return f"{n / total_ids:.1%} of roster" if total_ids else "n/a"
+
+    print(f"{'='*50}")
+    print(f"  {left_name}  x  {right_name}")
+    print(f"{'='*50}")
+    if "course" in (left_name, right_name):
+        ref = left_df if left_name == "course" else right_df
+        if id_col in ref.columns:
+            print(
+                f"  (reference course table: {len(ref):,} rows, "
+                f"{ref[id_col].nunique():,} unique {id_col})"
+            )
+    if "semester" in (left_name, right_name):
+        ref = left_df if left_name == "semester" else right_df
+        if id_col in ref.columns:
+            print(
+                f"  (reference semester table: {len(ref):,} rows, "
+                f"{ref[id_col].nunique():,} unique {id_col})"
+            )
+    print(f"Shared unique student IDs:        {both_ids:>6} ({pct(both_ids)}) | {both_rows:>6} rows")
+    print(f"Missing from {right_name:<20} {left_only_ids:>6} ({pct(left_only_ids)}) | {left_only_rows:>6} rows")
+    print(f"Missing from {left_name:<20} {right_only_ids:>6} ({pct(right_only_ids)}) | {right_only_rows:>6} rows")
+
+    def print_breakdown(title, frame, cols, normalize=True):
+        n_ids = frame[id_col].nunique()
+        print(f"\n[{title} (n={len(frame)} rows, {n_ids} unique {id_col})]")
+        for col in cols:
+            if col in frame.columns:
+                print(f"\n  {col}:\n{frame[col].value_counts(dropna=False, normalize=normalize).to_string()}")
+
+    # --- course: Class Grades + course dims + roster cross-check (left or right) ---
+    if "course" in (left_name, right_name):
+        course_side = "right_only" if right_name == "course" else "left_only"
+        missing = merged[merged["_merge"] == course_side]
+        n_ids = missing[id_col].nunique()
+        label = f"{course_side} (rows only in {right_name if course_side == 'right_only' else left_name})"
+        print(f"[Class Grade nulls in {label}]")
+        if "Class Grade" in missing.columns:
+            print(f"  Null Class Grades:  {missing['Class Grade'].isna().sum()}")
+            print(f"  Total rows:   {len(missing)} ({n_ids} unique student IDs)")
+            print(f"  Pct null:     {missing['Class Grade'].isna().mean():.1%}")
+        else:
+            print("  (no 'Class Grade' column on this side)")
+        print_breakdown(
+            f"Course dimensions ({course_side})",
+            missing,
+            ["course_classification", "department", "course_delivery_method_online_hybrid_in_person"],
+        )
+
+        only_ids_list = missing[id_col].unique()
+        if student_df is not None and id_col in student_df.columns:
+            matched = student_df[student_df[id_col].isin(only_ids_list)]
+            in_roster = matched[id_col].nunique()
+            not_in_roster = len(set(only_ids_list) - set(matched[id_col]))
+            print(f"[{course_side} IDs vs student roster]")
+            print(f"  Found in student file:  {in_roster}")
+            print(f"  Not in student file:    {not_in_roster}")
+            if not matched.empty:
+                print_breakdown(
+                    f"heh_type_desc (students with {course_side} course rows)", matched, ["heh_type_desc"]
+                )
+        else:
+            print(f"[{course_side} IDs vs student roster] (skipped: pass student_df for cross-check)")
+
+    # --- student file: missing side gets heh + first enrollment ---
+    if "student" in (left_name, right_name):
+        side = "left_only" if left_name == "student" else "right_only"
+        print_breakdown(
+            f"Student file gaps ({side})",
+            merged[merged["_merge"] == side],
+            ["heh_type_desc", "first_enrollment_date"],
+        )
+
+    # --- semester file: missing side gets semester + enrollment_intensity together ---
+    if "semester" in (left_name, right_name):
+        side = "left_only" if left_name == "semester" else "right_only"
+        print_breakdown(
+            f"Semester file gaps ({side})",
+            merged[merged["_merge"] == side],
+            ["semester", "enrollment_intensity"],
+        )
+
+    print()
+    return merged
 
 
 class EdaSummary:
