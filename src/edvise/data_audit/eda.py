@@ -1635,6 +1635,100 @@ def _parse_term(term: str, season_order: dict[str, int]) -> tuple[int, int]:
     return (year, season_order.get(season, 99))
 
 
+_ACADEMIC_TERM_SEASON_TOKENS = frozenset(
+    {"Spring", "Summer", "Fall", "Winter", "Autumn"}
+)
+
+
+def value_looks_like_term(val: t.Any) -> bool:
+    """
+    True if *val* looks like a term string such as ``Spring 2024`` or ``2024 Spring``.
+    """
+    if pd.isna(val):
+        return False
+    s = str(val).strip()
+    if not s or s.lower() == "nan":
+        return False
+    parts = s.split()
+    if len(parts) != 2:
+        return False
+    if parts[0].isdigit() and len(parts[0]) == 4:
+        token = parts[1].strip().title()
+    elif parts[1].isdigit() and len(parts[1]) == 4:
+        token = parts[0].strip().title()
+    else:
+        return False
+    return token in _ACADEMIC_TERM_SEASON_TOKENS
+
+
+def term_column_name_hint_score(col: str, name_hints: tuple[str, ...]) -> float:
+    """Small bonus when *col* matches typical term column name substrings."""
+    c = col.lower()
+    if c in {h.lower() for h in name_hints}:
+        return 0.15
+    for h in name_hints:
+        if h.lower() in c:
+            return 0.08
+    return 0.0
+
+
+def infer_term_column(
+    df: pd.DataFrame,
+    *,
+    name_hints: tuple[str, ...],
+    min_match_rate: float = 0.35,
+    max_sample: int = 8000,
+) -> str | None:
+    """
+    Choose the column whose non-null values most often look like academic term strings.
+
+    Scores each candidate as value match rate plus :func:`term_column_name_hint_score`.
+    """
+    best_col: str | None = None
+    best_score = -1.0
+
+    def consider_col(col: str) -> None:
+        nonlocal best_col, best_score
+        s = df[col]
+        if pd.api.types.is_bool_dtype(s):
+            return
+        non_null = s.dropna()
+        if len(non_null) == 0:
+            return
+        sample = non_null.head(max_sample) if len(non_null) > max_sample else non_null
+        str_sample = sample.astype("string")
+        rates = str_sample.map(value_looks_like_term)
+        rate = float(rates.mean()) if len(rates) else 0.0
+        hint = term_column_name_hint_score(col, name_hints)
+        score = rate + hint
+        if rate >= min_match_rate or (hint >= 0.08 and rate >= 0.15):
+            if score > best_score:
+                best_score = score
+                best_col = col
+
+    for col in df.columns:
+        consider_col(col)
+
+    if best_col is None:
+        for col in df.columns:
+            s = df[col]
+            if pd.api.types.is_bool_dtype(s):
+                continue
+            non_null = s.dropna()
+            if len(non_null) == 0:
+                continue
+            sample = non_null.head(max_sample) if len(non_null) > max_sample else non_null
+            str_sample = sample.astype("string")
+            rate = float(str_sample.map(value_looks_like_term).mean())
+            hint = term_column_name_hint_score(col, name_hints)
+            score = rate + hint
+            if score > best_score and rate >= 0.2:
+                best_score = score
+                best_col = col
+
+    return best_col
+
+
 def convert_numeric_columns(df, columns):
     """
     CUSTOM SCHOOL FUNCTION

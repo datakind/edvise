@@ -4,7 +4,13 @@ import pandas as pd
 import pytest
 
 from edvise import data_audit, dataio
-from edvise.data_audit.eda import EdaSummary, log_grade_distribution
+from edvise.data_audit.eda import (
+    EdaSummary,
+    infer_term_column,
+    log_grade_distribution,
+    term_column_name_hint_score,
+    value_looks_like_term,
+)
 
 
 @pytest.mark.parametrize(
@@ -645,3 +651,31 @@ class TestValidateCreditConsistencyPercent:
         assert "pct_of_data" in result["reconciliation_summary"]
         assert result["reconciliation_summary"]["mismatched_rows"] == 1
         assert result["reconciliation_summary"]["pct_of_data"] == round(100 * 1 / 3, 2)
+
+
+def test_value_looks_like_term_accepts_common_formats():
+    assert value_looks_like_term("Spring 2024") is True
+    assert value_looks_like_term("2024 spring") is True
+    assert value_looks_like_term("not a term") is False
+
+
+def test_term_column_name_hint_score():
+    hints = ("entry_term", "term")
+    assert term_column_name_hint_score("entry_term", hints) == 0.15
+    assert term_column_name_hint_score("foo_entry_term_bar", hints) == 0.08
+    assert term_column_name_hint_score("other", hints) == 0.0
+
+
+def test_infer_term_column_picks_term_like_column():
+    df = pd.DataFrame(
+        {
+            "student_id": [1, 2],
+            "entry_term": ["Fall 2023", "Spring 2024"],
+            "notes": ["x", "y"],
+        }
+    )
+    col = infer_term_column(
+        df,
+        name_hints=("entry_term",),
+    )
+    assert col == "entry_term"

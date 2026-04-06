@@ -1121,6 +1121,175 @@ def assign_numeric_grade(
     return df
 
 
+def add_term_col(
+    df: pd.DataFrame,
+    source_col: str,
+    target_col: str = "cohort",
+    season_cutoffs: list[tuple[int, str]] | None = None,
+    *,
+    season_rank: dict[str, int] | None = None,
+    ordered: bool = True,
+    only_for_first_enrollment_column: bool = True,
+    first_enrollment_name_hints: tuple[str, ...] | None = None,
+    only_if_date_like: bool = False,
+    season_token_col: str | None = "cohort_term",
+    date_like_max_sample: int = 8000,
+    date_like_min_rate: float = 0.55,
+    term_string_max_rate: float = 0.35,
+) -> pd.DataFrame:
+    """
+    Map a **first enrollment date** (or similar) column to academic term labels
+    ``\"{Season} {year}\"`` and optionally a season token column (e.g. ``cohort_term``).
+
+    Intended for columns such as ``first_enrollment_date`` / ``first_enrollment``, not
+    generic term fields. When ``only_for_first_enrollment_column`` is True (default),
+    the function no-ops unless ``source_col`` matches ``first_enrollment_name_hints``
+    (substring match, case-insensitive). Set ``only_for_first_enrollment_column=False``
+    to allow any column name.
+
+    Default enrollment seasons (calendar month of the date):
+
+    - **Spring:** January-May
+    - **Summer:** June-August
+    - **Fall:** August-December (months September-November; August is Summer; December
+      is Winter intersession)
+    - **Winter (intersession):** December-January
+
+    Overlaps are resolved as: **January** → Winter; **February-May** → Spring;
+    **June-August** → Summer; **September-November** → Fall; **December** → Winter.
+    Pass ``season_cutoffs`` to use the legacy ``month < cutoff`` rule instead.
+
+    If ``only_if_date_like`` is True, no new columns are added when the source column
+    looks like pre-formatted term strings (e.g. ``Spring 2024``) rather than raw dates.
+    """
+
+    if only_for_first_enrollment_column:
+        hints = first_enrollment_name_hints or (
+            "first_enrollment",
+            "first_enroll",
+            "matriculation",
+        )
+        normalized = source_col.lower().replace(" ", "_")
+        if not any(h in normalized for h in hints):
+            LOGGER.info(
+                "add_term_col: skipped; %r does not match first-enrollment column hints %s",
+                source_col,
+                hints,
+            )
+            return df.copy()
+
+    # Index by calendar month: Winter intersession Jan+Dec; Spring Feb-May; etc.
+    _MONTH_TO_SEASON = (
+        None,
+        "Winter",
+        "Spring",
+        "Spring",
+        "Spring",
+        "Spring",
+        "Summer",
+        "Summer",
+        "Summer",
+        "Fall",
+        "Fall",
+        "Fall",
+        "Winter",
+    )
+
+    def _default_month_to_season(month: int) -> str | None:
+        if 1 <= month <= 12:
+            return _MONTH_TO_SEASON[month]
+        return None
+
+    use_default_calendar = season_cutoffs is None
+    rank = (
+        season_rank
+        if season_rank is not None
+        else {"Spring": 1, "Summer": 2, "Fall": 3, "Winter": 4}
+    )
+    academic_season_tokens = frozenset(
+        {"spring", "summer", "fall", "winter", "autumn"}
+    )
+
+    def _value_looks_like_academic_term_string(val: t.Any) -> bool:
+        if pd.isna(val):
+            return False
+        parts = str(val).strip().split()
+        if len(parts) != 2:
+            return False
+        p0, p1 = parts[0], parts[1]
+        a, b = p0.strip().lower(), p1.strip().lower()
+        if not a or a == "nan" or not b:
+            return False
+        if p0.isdigit() and len(p0) == 4:
+            return b in academic_season_tokens
+        if p1.isdigit() and len(p1) == 4:
+            return a in academic_season_tokens
+        return False
+
+    def _series_looks_like_dates(series: pd.Series) -> bool:
+        non_null = series.dropna()
+        if non_null.empty:
+            return False
+        sample = non_null.iloc[:date_like_max_sample]
+        n = len(sample)
+        term_like = sum(
+            1 for v in sample if _value_looks_like_academic_term_string(v)
+        )
+        date_like = sum(
+            1
+            for v in sample
+            if not _value_looks_like_academic_term_string(v)
+            and pd.notna(pd.to_datetime(v, errors="coerce"))
+        )
+        return (date_like / n >= date_like_min_rate) and (
+            term_like / n <= term_string_max_rate
+        )
+
+    if only_if_date_like and not _series_looks_like_dates(df[source_col]):
+        LOGGER.info(
+            "add_term_col: skipped; column %r does not look date-like",
+            source_col,
+        )
+        return df.copy()
+
+    def to_term(date_str: t.Any) -> str | None:
+        dt = pd.to_datetime(date_str, errors="coerce")
+        if pd.isna(dt):
+            return None
+        if use_default_calendar:
+            season = _default_month_to_season(int(dt.month))
+        else:
+            season = next(
+                (s for c, s in season_cutoffs if dt.month < c),
+                None,
+            )
+        return f"{season} {dt.year}" if season else None
+
+    out = df.copy()
+    out[target_col] = out[source_col].apply(to_term)
+    if season_token_col:
+        out[season_token_col] = out[target_col].astype("string").str.split().str[0]
+
+    if not ordered:
+        return out
+
+    def _parse_term_sort_key(term: str) -> tuple[int, int]:
+        parts = str(term).split()
+        if len(parts) != 2:
+            return (9999, 99)
+        a, b = parts[0], parts[1]
+        try:
+            if a.isdigit() and len(a) == 4:
+                return (int(a), rank.get(b, 99))
+            return (int(b), rank.get(a, 99))
+        except ValueError:
+            return (9999, 99)
+
+    cats = sorted(out[target_col].dropna().unique(), key=_parse_term_sort_key)
+    out[target_col] = pd.Categorical(out[target_col], categories=cats, ordered=True)
+    return out
+
+
 # ---------------------------
 # Serialization helpers
 # ---------------------------
