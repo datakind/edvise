@@ -11,6 +11,7 @@ from edvise.genai.identity_agent.execution import (
     apply_term_order_from_config,
     build_dedupe_fn_from_grain_contract,
     merge_grain_contracts_into_school_config,
+    merge_grain_student_id_alias_into_school_config,
 )
 from edvise.genai.identity_agent.grain_inference.schemas import (
     DedupPolicy,
@@ -272,6 +273,38 @@ def test_merge_preserves_institution_when_partial():
     out = merge_grain_contracts_into_school_config(school, {})
     assert out.institution_id == school.institution_id
     assert out.datasets["students"].primary_keys == ["student_id"]
+
+
+def test_merge_sets_cleaning_student_id_alias_from_grain():
+    school = _school_config()
+    gc = _merge_contract(
+        "students",
+        ["student_id"],
+        student_id_alias="student_id_randomized_datakind",
+    )
+    out = merge_grain_contracts_into_school_config(school, {"students": gc})
+    assert out.cleaning is not None
+    assert out.cleaning.student_id_alias == "student_id_randomized_datakind"
+
+
+def test_merge_grain_student_id_alias_only_is_idempotent():
+    school = _school_config()
+    gc = _merge_contract(
+        "students",
+        ["student_id"],
+        student_id_alias="col_a",
+    )
+    once = merge_grain_student_id_alias_into_school_config(school, {"students": gc})
+    twice = merge_grain_student_id_alias_into_school_config(once, {"students": gc})
+    assert twice.cleaning and twice.cleaning.student_id_alias == "col_a"
+
+
+def test_merge_conflicting_grain_student_id_alias_raises():
+    school = _school_config()
+    a = _merge_contract("students", ["student_id"], student_id_alias="a")
+    b = _merge_contract("courses", ["student_id", "term"], student_id_alias="b")
+    with pytest.raises(ValueError, match="disagree on student_id_alias"):
+        merge_grain_contracts_into_school_config(school, {"students": a, "courses": b})
 
 
 def test_merge_unknown_dataset_raises():
