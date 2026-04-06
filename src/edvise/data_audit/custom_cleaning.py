@@ -997,20 +997,27 @@ def drop_readmits(
 def keep_earlier_record(
     df: pd.DataFrame,
     id_col: str = "student_id",
-    term_col: str = "cohort_term",
+    sort_col: str = "cohort_term",
 ) -> pd.DataFrame:
     """
-    Keeps the earliest record per id_col based on term_col, where term_col
-    looks like 'Spring 2020', 'Fall 2020', etc.
+    Keeps the earliest record per id_col based on sort_col.
+    Handles both term strings ('Spring 2020') and date strings ('1/10/2022').
     """
 
-    def term_to_sort_key(term):
-        if pd.isna(term):
-            return float("inf")  # treat missing as latest
-        term = str(term).strip().title()
-        parts = term.split()
+    def to_sort_key(val):
+        if pd.isna(val):
+            return float("inf")
+
+        # try parsing as a date first
+        try:
+            return pd.to_datetime(val).timestamp()
+        except Exception:
+            pass
+
+        # fall back to term string parsing
+        parts = str(val).strip().title().split()
         if len(parts) != 2:
-            return float("inf")  # unknown format
+            return float("inf")
         season, year_str = parts
         try:
             year = int(year_str)
@@ -1020,15 +1027,13 @@ def keep_earlier_record(
         return year * 10 + season_order.get(season, 5)
 
     out = df.copy()
-    out["_term_sort_key"] = out[term_col].apply(term_to_sort_key)
-
+    out["_sort_key"] = out[sort_col].apply(to_sort_key)
     out = (
-        out.sort_values(by=[id_col, "_term_sort_key"])
+        out.sort_values(by=[id_col, "_sort_key"])
         .drop_duplicates(subset=id_col, keep="first")
-        .drop(columns=["_term_sort_key"])
+        .drop(columns=["_sort_key"])
         .reset_index(drop=True)
     )
-
     return out
 
 
