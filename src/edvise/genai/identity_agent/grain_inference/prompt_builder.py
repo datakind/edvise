@@ -26,19 +26,6 @@ logger = logging.getLogger(__name__)
 
 RawContractInput = Union[str, bytes, dict]
 
-# Registry of approved term utilities available to IdentityAgent.
-# Model must select from this list — do not invent function names.
-TERM_UTILITY_REGISTRY = {
-    "extract_term_season_from_term_code": "YYYYTT → FALL/SPRING/SUMMER (e.g. '2018FA' → 'FALL'). Accepts custom season_mapping param.",
-    "normalize_term_code": "'Fall 2020' / 'SP' / short season codes → FALL/SPRING/SUMMER.",
-    "extract_academic_year_from_term_code": "YYYYTT → YYYY-YY academic year (e.g. '2018FA' → '2018-19').",
-    "format_academic_year_from_calendar_year": "Integer or string calendar year → YYYY-YY (e.g. 2018 → '2018-19').",
-    "parse_term_description": "'Season YYYY' string → datetime (e.g. 'Fall 2020' → 2020-09-01).",
-    "parse_term_code_to_datetime": "YYYYTT → datetime (e.g. '2018FA' → 2018-09-01).",
-    "term_season_from_datetime": "datetime → FALL/SPRING/SUMMER based on month bands.",
-    "extract_year": "Extract first 4-digit year from any string (e.g. '2018FA' → '2018').",
-}
-
 
 # ── System prompt sections ────────────────────────────────────────────────────
 
@@ -171,7 +158,8 @@ def _identity_reasoning_steps() -> str:
 
 7. Assign numeric `confidence` and `hitl_flag` per **CONFIDENCE SCORING** (next section).
 
-8. Determine term_config (see **TERM CONFIG** section below).
+Do **not** emit `term_config` — term ordering utilities are configured outside this contract
+(HITL or preprocessing), not by IdentityAgent.
 """
 
 
@@ -222,65 +210,6 @@ identifier; set `student_id_alias` accordingly; emit keys in `post_clean_primary
 """
 
 
-def _identity_term_config_section() -> str:
-    registry_lines = "\n".join(
-        f"  - `{name}`: {desc}" for name, desc in TERM_UTILITY_REGISTRY.items()
-    )
-    return f"""
-## TERM CONFIG
-
-Set `"term_config": null` when no term column exists or term ordering is not needed.
-
-When a term column is present, populate `term_config` to tell the executor how to derive
-`_term_sort_key`, `_term_canonical`, and `_term_academic_year` from the raw term column.
-
-### Step 1 — Identify the term column
-Inspect the column list and key profile sample_values for a column that encodes academic
-term or semester. Common names: `term`, `term_desc`, `term_descr`, `semester`, `strm`,
-`acad_year`, `cf_boe_term_id`.
-
-### Step 2 — Detect the term format from sample_values
-Match sample values against these known formats:
-- `"YYYYTT"` — 4-digit year + 2-char season code: `"2018FA"`, `"2019SP"`, `"2018S1"`
-- `"Season_YYYY"` — natural language season + year: `"Fall 2020"`, `"Spring 2021"`, `"Med Year 2024-2025"`
-  (e.g. UCF-style `term_descr`). Prefer `term_parser`: `parse_term_description` and a
-  `canonical_mapping` from season words (`Fall`, `Spring`, …) to `FALL` / `SPRING` / `SUMMER`.
-- `"YYYYMM"` — 6-digit year+month integer: `"202108"`, `"202201"`
-- `"YYYY_YY"` — academic year range only: `"2018-19"`, `"2019-20"`
-- `null` — unrecognized format → set `"new_utility_needed": true` (see below)
-
-### Step 3 — Select utilities from the approved registry
-Select `term_parser`, `term_sort_utility`, and `term_academic_year_utility` from this list ONLY.
-Do NOT invent function names. If no utility fits, set all three to null and set
-`"new_utility_needed": true`.
-
-Approved utilities:
-{registry_lines}
-
-### Step 4 — Populate canonical_mapping and term_parser_params
-- `canonical_mapping`: maps raw season tokens to FALL/SPRING/SUMMER/WINTER.
-  For `YYYYTT`: map suffix codes e.g. `{{"FA": "FALL", "SP": "SPRING", "S1": "SUMMER", "S2": "SUMMER"}}`.
-  For `Season_YYYY`: map season words e.g. `{{"Fall": "FALL", "Spring": "SPRING", "Summer": "SUMMER"}}`.
-  For unrecognized tokens: map to `null`.
-- `term_parser_params`: optional dict of extra params passed to the utility function.
-  Use when an existing utility covers the format with a custom mapping rather than requiring
-  a new utility. Example: `{{"season_mapping": {{"40": "FALL", "15": "SPRING", "10": "SUMMER"}}}}`.
-  Before setting `"new_utility_needed": true`, check whether an existing utility handles the
-  format with custom `term_parser_params`. Only set `"new_utility_needed": true` if no existing
-  utility can handle the format even with custom parameters.
-- `unmapped_values`: list any raw term values seen in sample_values that could not be mapped.
-  These will be flagged for HITL review.
-
-### Step 5 — new_utility_needed
-Set `"new_utility_needed": true` (and all utility fields to null) when:
-- The term format is unrecognized and no existing utility handles it even with custom params.
-- Populate `unmapped_values` with all distinct sample values seen.
-- Set `hitl_flag: true` with a specific `hitl_question` describing the unrecognized format
-  and asking the reviewer to identify the correct parsing approach.
-- The executor will refuse to run term enrichment until HITL resolves this.
-"""
-
-
 def _identity_output_format() -> str:
     return """
 ## OUTPUT FORMAT
@@ -290,8 +219,8 @@ Respond ONLY with a JSON object. No preamble, no markdown, no explanation outsid
 Follow **STUDENT IDENTIFIER COLUMN** for `student_id_alias` and for how to name the student id
 in `post_clean_primary_key`, `join_keys_for_2a`, and `dedup_policy.sort_by`.
 
-Use `"term_config": null` when there is no term column or term ordering is not needed. Otherwise
-emit the full `term_config` object (all keys below) so generated JSON matches the schema.
+Do **not** include `term_config` in your JSON (omit the key). Term enrichment is configured
+separately; the schema allows it for hand-edited contracts only.
 
 {
   "institution_id": "<institution_id>",
@@ -306,22 +235,6 @@ emit the full `term_config` object (all keys below) so generated JSON matches th
   },
   "row_selection_required": false,
   "join_keys_for_2a": ["<col1>", "<col2>"],
-  "term_config": {
-    "term_column": "<column name>",
-    "term_format": "<YYYYTT | Season_YYYY | YYYYMM | YYYY_YY | null>",
-    "term_parser": "<utility name from registry or null>",
-    "term_parser_params": {},
-    "term_sort_utility": "<utility name from registry or null>",
-    "term_academic_year_utility": "<utility name from registry or null>",
-    "canonical_mapping": {"<raw_token>": "<FALL | SPRING | SUMMER | WINTER | null>"},
-    "unmapped_values": [],
-    "new_utility_needed": false,
-    "outputs": {
-      "_term_sort_key": true,
-      "_term_canonical": true,
-      "_term_academic_year": true
-    }
-  },
   "confidence": 0.92,
   "hitl_flag": true,
   "hitl_question": "<specific question for human reviewer, or null if no flag>",
@@ -343,8 +256,6 @@ def build_identity_agent_system_prompt() -> str:
         + _identity_confidence_scoring()
         + "\n---\n"
         + _identity_student_id_and_keys().strip()
-        + "\n---\n"
-        + _identity_term_config_section()
         + "\n---\n"
         + _identity_output_format()
     )

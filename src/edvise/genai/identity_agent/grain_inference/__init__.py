@@ -8,7 +8,6 @@ from . import deduplication
 from .prompt_builder import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
     IDENTITY_AGENT_USER_TEMPLATE,
-    TERM_UTILITY_REGISTRY,
     build_identity_agent_system_prompt,
     build_identity_agent_user_message,
     format_column_list,
@@ -19,6 +18,7 @@ from .prompt_builder import (
 from .runner import run_identity_agent, run_identity_agents_for_institution
 from .schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+    TERM_UTILITY_REGISTRY,
     DedupPolicy,
     DedupStrategy,
     IdentityGrainContract,

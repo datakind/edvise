@@ -15,6 +15,18 @@ DedupStrategy = Literal["true_duplicate", "temporal_collapse", "no_dedup", "poli
 # Detected / declared raw term string shapes (IdentityAgent); executor may only fully implement a subset.
 TermFormat = Literal["YYYYTT", "Season_YYYY", "YYYYMM", "YYYY_YY"]
 
+# Approved term utilities for :class:`TermOrderConfig` (HITL / preprocessing — not output by IdentityAgent prompts).
+TERM_UTILITY_REGISTRY: dict[str, str] = {
+    "extract_term_season_from_term_code": "YYYYTT → FALL/SPRING/SUMMER (e.g. '2018FA' → 'FALL'). Accepts custom season_mapping param.",
+    "normalize_term_code": "'Fall 2020' / 'SP' / short season codes → FALL/SPRING/SUMMER.",
+    "extract_academic_year_from_term_code": "YYYYTT → YYYY-YY academic year (e.g. '2018FA' → '2018-19').",
+    "format_academic_year_from_calendar_year": "Integer or string calendar year → YYYY-YY (e.g. 2018 → '2018-19').",
+    "parse_term_description": "'Season YYYY' string → datetime (e.g. 'Fall 2020' → 2020-09-01).",
+    "parse_term_code_to_datetime": "YYYYTT → datetime (e.g. '2018FA' → 2018-09-01).",
+    "term_season_from_datetime": "datetime → FALL/SPRING/SUMMER based on month bands.",
+    "extract_year": "Extract first 4-digit year from any string (e.g. '2018FA' → '2018').",
+}
+
 
 class DedupPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -42,8 +54,7 @@ class TermOrderConfig(BaseModel):
     ``canonical_mapping`` maps raw tokens (YYYYTT suffixes like ``FA``, or season words like
     ``Fall``) to canonical season labels (``FALL``, ``SPRING``) used to derive sort order.
 
-    Registry utility names must match the keys in ``TERM_UTILITY_REGISTRY`` in
-    ``edvise.genai.identity_agent.grain_inference.prompt_builder``.
+    Registry utility names must match the keys in :data:`TERM_UTILITY_REGISTRY` in this module.
     """
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
@@ -74,7 +85,7 @@ class TermOrderConfig(BaseModel):
     )
     canonical_mapping: dict[str, str] = Field(
         default_factory=dict,
-        description="Maps raw tokens to FALL/SPRING/SUMMER/WINTER (see IdentityAgent prompt).",
+        description="Maps raw tokens to FALL/SPRING/SUMMER/WINTER.",
     )
     unmapped_values: list[str] = Field(
         default_factory=list,
@@ -146,8 +157,9 @@ class IdentityGrainContract(BaseModel):
     term_config: TermOrderConfig | None = Field(
         default=None,
         description=(
-            "Optional term column, format, registry utilities, mappings, and outputs for "
-            "add_term_order after dedup. See edvise.genai.identity_agent.execution.apply_grain_term_order."
+            "Optional; not produced by IdentityAgent prompts — set via HITL or preprocessing. "
+            "Term column, utilities, and mappings for add_term_order after dedup. "
+            "See edvise.genai.identity_agent.execution.apply_grain_term_order."
         ),
     )
 

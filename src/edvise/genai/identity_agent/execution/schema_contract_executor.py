@@ -422,6 +422,11 @@ def process_all_schools(
     grain_contracts_by_school: Optional[
         dict[str, dict[str, IdentityGrainContract]]
     ] = None,
+    *,
+    sample_size: int = 10_000,
+    dataset_name_suffix: str = "",
+    term_order_fn: Optional[Any] = None,
+    term_col_by_dataset: Optional[dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     if dtype_opts is None:
         dtype_opts = DtypeGenerationOptions()
@@ -468,6 +473,10 @@ def process_all_schools(
                 dataset_config=dataset_config,
                 dtype_opts=dtype_opts,
                 spark_session=spark_session,
+                sample_size=sample_size,
+                dataset_name_suffix=dataset_name_suffix,
+                term_order_fn=term_order_fn,
+                term_col_by_dataset=term_col_by_dataset,
                 grain_contracts_by_dataset=grain_for_dataset,
             )
 
