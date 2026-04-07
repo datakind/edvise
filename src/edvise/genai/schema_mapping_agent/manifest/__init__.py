@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-__all__ = ["eval", "mapping_helper", "prompt_builder", "schemas"]
+__all__ = ["eval", "prompt_builder", "schemas"]
 
 
 def __getattr__(name: str):
@@ -18,8 +18,4 @@ def __getattr__(name: str):
         from . import eval as ev
 
         return ev
-    if name == "mapping_helper":
-        from . import mapping_helper as mh
-
-        return mh
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

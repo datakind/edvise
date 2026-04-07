@@ -5,8 +5,8 @@ Combines :func:`merge_grain_contracts_into_school_config` / :func:`build_schema_
 with helpers that attach historical-example metadata (samples, null stats, low-cardinality uniques)
 for Schema Mapping Agent prompts.
 
-Prefer :func:`build_enriched_schema_contract_for_dataset` (one dataset per call);
-:func:`process_all_schools` is deprecated.
+Use :func:`build_enriched_schema_contract_for_dataset` once per logical dataset, then
+:func:`save_enriched_schema_contract` (or loop and save with your naming convention).
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from __future__ import annotations
 import json
 import logging
 import time
-import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -28,6 +27,7 @@ from edvise.genai.identity_agent.execution.contract_utilities import (
     canonicalize_grain_contract_student_id_alias,
 )
 from edvise.genai.identity_agent.grain_inference.schemas import GrainContract
+from edvise.utils.data_cleaning import convert_to_snake_case
 
 logger = logging.getLogger(__name__)
 
@@ -215,10 +215,40 @@ def build_schema_contract_from_grain_contracts(
 UNIQUE_VALUES_MAX_CARDINALITY = 50
 
 
+def _canonical_normalized_column_name(
+    norm_col: str,
+    student_id_alias: str | None,
+) -> str:
+    """Match :func:`~edvise.genai.schema_mapping_agent.preprocessing._canonical_primary_keys_for_contract` naming."""
+    if not student_id_alias:
+        return norm_col
+    alias_snake = convert_to_snake_case(student_id_alias)
+    if norm_col == alias_snake:
+        return "student_id"
+    return norm_col
+
+
+def _df_column_for_column_details(
+    norm_col: str,
+    df: pd.DataFrame,
+    student_id_alias: str | None,
+) -> str | None:
+    """Resolve header-normalized name to a column present after :func:`~edvise.data_audit.custom_cleaning.clean_dataset`."""
+    if norm_col in df.columns:
+        return norm_col
+    if student_id_alias:
+        alias_snake = convert_to_snake_case(student_id_alias)
+        if norm_col == alias_snake and "student_id" in df.columns:
+            return "student_id"
+    return None
+
+
 def _build_column_details(
     df: pd.DataFrame,
     original_columns: list[str],
     column_mapping: dict[str, list[str]],
+    *,
+    student_id_alias: str | None = None,
 ) -> List[Dict[str, Any]]:
     orig_to_norm: dict[str, str] = {}
     for norm_col, orig_list in column_mapping.items():
@@ -231,20 +261,22 @@ def _build_column_details(
     column_details: List[Dict[str, Any]] = []
     for orig_col in original_columns:
         norm_col = orig_to_norm.get(orig_col, orig_col)
-        if norm_col not in df.columns:
+        df_col = _df_column_for_column_details(norm_col, df, student_id_alias)
+        if df_col is None:
             logger.warning(
                 "  Normalized column '%s' not found in DataFrame, skipping", norm_col
             )
             continue
 
-        series = df[norm_col]
-        null_count = int(null_counts[norm_col])
+        series = df[df_col]
+        null_count = int(null_counts[df_col])
         null_pct = float(null_count / total_rows * 100) if total_rows > 0 else 0.0
         unique_count = int(series.nunique())
 
+        report_norm = _canonical_normalized_column_name(norm_col, student_id_alias)
         col_detail: Dict[str, Any] = {
             "original_name": orig_col,
-            "normalized_name": norm_col,
+            "normalized_name": report_norm,
             "null_count": null_count,
             "null_percentage": null_pct,
             "unique_count": unique_count,
@@ -258,7 +290,7 @@ def _build_column_details(
                 for v in series[non_null_mask].value_counts().head(5).index.tolist()
             ]
             if unique_count <= UNIQUE_VALUES_MAX_CARDINALITY:
-                unique_values = sorted(df[norm_col].dropna().unique().tolist())
+                unique_values = sorted(df[df_col].dropna().unique().tolist())
                 col_detail["unique_values"] = [str(v) for v in unique_values]
 
         column_details.append(col_detail)
@@ -286,10 +318,14 @@ def build_training_example_from_schema_contract(
     dataset_schema = schema_contract["datasets"][logical_name]
     df = cleaned_dataframes[logical_name]
 
+    sid_alias = (
+        school_config.cleaning.student_id_alias if school_config.cleaning else None
+    )
     column_details = _build_column_details(
         df=df,
         original_columns=original_columns,
         column_mapping=column_mapping,
+        student_id_alias=sid_alias,
     )
 
     orig_to_norm: dict[str, str] = {}
@@ -313,7 +349,10 @@ def build_training_example_from_schema_contract(
         },
         "column_normalization": {
             "original_to_normalized": {
-                orig: orig_to_norm.get(orig, orig) for orig in original_columns
+                orig: _canonical_normalized_column_name(
+                    orig_to_norm.get(orig, orig), sid_alias
+                )
+                for orig in original_columns
             },
             "normalized_to_originals": dict(column_mapping),
             "collisions": {
@@ -453,7 +492,7 @@ def build_enriched_schema_contract_for_dataset(
     Build one SMA-style **enriched** institution JSON containing a **single** logical dataset.
 
     Runs :func:`process_school_dataset` for ``dataset_name``, then merges schema + ``training``
-    metadata the same way as the per-school step in :func:`process_all_schools` (now deprecated).
+    metadata into one institution-style JSON (single dataset under ``datasets``).
 
     For grain-driven primary keys, pass ``grain_contracts_by_dataset`` with at least
     ``{dataset_name: grain_contract}``. To align ``student_id_alias`` with other tables,
@@ -502,133 +541,6 @@ def build_enriched_schema_contract_for_dataset(
         schema_contracts=[(dataset_name, schema_contract)],
         dataset_to_logical_name=dataset_to_logical_name,
     )
-
-
-def process_all_schools(
-    project_config: Any,
-    dtype_opts: Optional[DtypeGenerationOptions] = None,
-    spark_session: Optional[Any] = None,
-    output_dir: Optional[Path] = None,
-    grain_contracts_by_school: Optional[
-        dict[str, dict[str, GrainContract]]
-    ] = None,
-    *,
-    sample_size: int = 10_000,
-    dataset_name_suffix: str = "",
-    term_order_fn: Optional[TermOrderFn] = None,
-    term_column_by_dataset: Optional[dict[str, str]] = None,
-    term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
-) -> List[Dict[str, Any]]:
-    warnings.warn(
-        "process_all_schools is deprecated; call build_enriched_schema_contract_for_dataset "
-        "once per dataset and save_enriched_schema_contract (or save_enriched_schema_contracts "
-        "with a one-element list) instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    if dtype_opts is None:
-        dtype_opts = DtypeGenerationOptions()
-
-    all_examples: List[Dict[str, Any]] = []
-    enriched_schema_contracts: List[Dict[str, Any]] = []
-    total_start = time.time()
-
-    for school_key, school_config in project_config.schools.items():
-        school_start = time.time()
-        logger.info(
-            "Processing: %s (%s)",
-            school_config.institution_name or school_key,
-            school_key,
-        )
-
-        grain_for_school: Optional[dict[str, GrainContract]] = None
-        if grain_contracts_by_school is not None:
-            grain_for_school = grain_contracts_by_school.get(school_key)
-
-        school_config_effective = school_config
-        if grain_for_school:
-            school_config_effective = merge_grain_student_id_alias_into_school_config(
-                school_config, grain_for_school
-            )
-
-        school_examples: List[Dict[str, Any]] = []
-        school_schema_contracts: List[tuple[str, dict]] = []
-        dataset_to_logical_name: Dict[str, str] = {}
-
-        for dataset_name, dataset_config in school_config.datasets.items():
-            dataset_start = time.time()
-            logger.info(
-                "  Dataset: %s (%d files)", dataset_name, len(dataset_config.files)
-            )
-
-            grain_for_dataset: Optional[dict[str, GrainContract]] = None
-            if grain_for_school and dataset_name in grain_for_school:
-                grain_for_dataset = {dataset_name: grain_for_school[dataset_name]}
-
-            example, schema_contract = process_school_dataset(
-                school_config=school_config_effective,
-                dataset_name=dataset_name,
-                dataset_config=dataset_config,
-                dtype_opts=dtype_opts,
-                spark_session=spark_session,
-                sample_size=sample_size,
-                dataset_name_suffix=dataset_name_suffix,
-                term_order_fn=term_order_fn,
-                term_column_by_dataset=term_column_by_dataset,
-                term_order_fn_by_dataset=term_order_fn_by_dataset,
-                grain_contracts_by_dataset=grain_for_dataset,
-            )
-
-            if schema_contract and "datasets" in schema_contract:
-                for logical_name in schema_contract["datasets"].keys():
-                    dataset_to_logical_name[dataset_name] = logical_name
-                    break
-
-            school_examples.append(example)
-            if schema_contract:
-                school_schema_contracts.append((dataset_name, schema_contract))
-
-            dataset_elapsed = time.time() - dataset_start
-            if "error" not in example:
-                logger.info(
-                    "    ✓ Processed: %d rows, %d columns (%.2f seconds)",
-                    example["num_rows"],
-                    example["num_columns"],
-                    dataset_elapsed,
-                )
-                if example.get("column_normalization", {}).get("collisions"):
-                    logger.warning(
-                        "    ⚠ Column name collisions: %d",
-                        len(example["column_normalization"]["collisions"]),
-                    )
-            else:
-                logger.error(
-                    "    ✗ Error: %s (%.2f seconds)",
-                    example["error"],
-                    dataset_elapsed,
-                )
-
-        if school_schema_contracts:
-            enriched_contract = _build_enriched_schema_contract(
-                school_config=school_config,
-                school_examples=school_examples,
-                schema_contracts=school_schema_contracts,
-                dataset_to_logical_name=dataset_to_logical_name,
-            )
-            enriched_schema_contracts.append(enriched_contract)
-
-        all_examples.extend(school_examples)
-
-        school_elapsed = time.time() - school_start
-        logger.info("  School %s completed in %.2f seconds", school_key, school_elapsed)
-
-    total_elapsed = time.time() - total_start
-    logger.info("Total processing time: %.2f seconds", total_elapsed)
-
-    if output_dir is not None:
-        save_enriched_schema_contracts(enriched_schema_contracts, output_dir)
-
-    return enriched_schema_contracts
 
 
 def _build_enriched_schema_contract(
@@ -727,7 +639,6 @@ __all__ = [
     "build_training_example_from_schema_contract",
     "merge_grain_contracts_into_school_config",
     "merge_grain_student_id_alias_into_school_config",
-    "process_all_schools",
     "process_school_dataset",
     "save_enriched_schema_contract",
     "save_enriched_schema_contracts",
