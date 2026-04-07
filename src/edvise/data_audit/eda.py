@@ -1865,22 +1865,6 @@ def check_pf_grade_consistency(
     return anomalies, summary
 
 
-def iter_pf_grade_anomaly_slices(
-    anomalies_pf: pd.DataFrame,
-) -> t.Iterator[tuple[str, pd.DataFrame]]:
-    """
-    Yield ``(flag_column, subset)`` for each :data:`PF_GRADE_ANOMALY_FLAG_COLUMNS` entry
-    that is present and true on a row (see :func:`check_pf_grade_consistency`).
-    """
-    for flag in PF_GRADE_ANOMALY_FLAG_COLUMNS:
-        if flag not in anomalies_pf.columns:
-            continue
-        sub = anomalies_pf.loc[anomalies_pf[flag].eq(True)]
-        if sub.empty:
-            continue
-        yield flag, sub
-
-
 def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") -> None:
     """
     Logs value counts of the 'grade' column and flags if 'M' grades exceed 5%.

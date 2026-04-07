@@ -852,39 +852,6 @@ def test_value_counts_percent_df_named_series():
     assert out["pct_of_rows"].sum() == 100.0
 
 
-def test_iter_pf_grade_anomaly_slices_yields_only_true_rows():
-    from edvise.data_audit import eda as eda_mod
-
-    anomalies = pd.DataFrame(
-        {
-            "earned_with_failing_grade": [True, False],
-            "no_credits_with_passing_grade": [False, True],
-            "grade_pf_disagree": [False, False],
-        }
-    )
-    parts = list(eda_mod.iter_pf_grade_anomaly_slices(anomalies))
-    assert [n for n, _ in parts] == [
-        "earned_with_failing_grade",
-        "no_credits_with_passing_grade",
-    ]
-    assert len(parts[0][1]) == 1 and len(parts[1][1]) == 1
-
-
-def test_iter_pf_grade_anomaly_slices_skips_empty_subframes():
-    from edvise.data_audit import eda as eda_mod
-
-    anomalies = pd.DataFrame(
-        {
-            "earned_with_failing_grade": [True],
-            "no_credits_with_passing_grade": [False],
-            "grade_pf_disagree": [False],
-        }
-    )
-    parts = list(eda_mod.iter_pf_grade_anomaly_slices(anomalies))
-    assert [n for n, _ in parts] == ["earned_with_failing_grade"]
-    assert len(parts[0][1]) == 1
-
-
 def test_infer_pass_fail_flag_tuples_yn():
     from edvise.data_audit import eda as data_audit_eda
 
