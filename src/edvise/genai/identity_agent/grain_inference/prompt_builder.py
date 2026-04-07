@@ -78,6 +78,26 @@ def _identity_domain_priors() -> str:
   dropped — these are system artifacts, not meaningful records.
 - row_selection IS required on semester tables.
 
+### Term dimension columns (course, semester, any grain that includes term)
+Mirror Pass 2 **batch** term normalization when choosing which column is the term dimension
+in `post_clean_primary_key` and `join_keys_for_2a`. Apply these preferences **in order**:
+
+1. Prefer columns whose raw values directly encode both season and year in a human-readable
+   or parseable string format — e.g. `"Fall 2020"`, `"Spring 2021"`, `"2019FA"` — over opaque
+   numeric identifiers such as `"1730"` or `"1192"`, **even when the numeric column appears
+   in a shorter or higher-uniqueness candidate key** from the key profile. Opaque numeric
+   term columns should only be chosen when no readable alternative exists or the readable
+   column cannot safely represent the grain (e.g. excessive nulls, not 1:1 with rows).
+2. Among readable columns, prefer columns with fewer nulls / more complete coverage.
+3. Among equally readable, equally complete columns, any may be used; prefer the one that
+   best matches human-interpretable longitudinal joins.
+
+Note: "coded identifier" means a short, parseable code like `"2020FA"` or `"SP2019"` — not an
+opaque integer like `"1700"`. Preferring coded identifiers (in Pass 2) means compact parseable
+strings over verbose display labels — **not** preferring numeric keys over readable strings.
+For grain, do **not** pick an opaque numeric term code when a suitable descriptive or
+parseable string column is available for the same enrollment rows.
+
 ### Consistency
 - For course and semester tables: `row_selection_required` must be true.
 - For student/demographic tables intended at one row per student after cleaning: typically
@@ -111,6 +131,8 @@ def _identity_reasoning_steps() -> str:
      those candidates. Locate the shortest key composed only of identifier and temporal
      columns — even if it ranks lower and has non_unique_rows > 0 — and treat that as the
      primary grain candidate.
+   - When the grain includes a term dimension, choose the term column per **Term dimension
+     columns** in DOMAIN PRIORS (readable / parseable term values over opaque numeric codes).
 
 2. Interpret within-group variance on non-unique rows
    - High variance on a TEMPORAL column (term, semester, date) → grain is under-specified,
@@ -152,6 +174,8 @@ def _identity_reasoning_steps() -> str:
    - Always include the full semantic grain as join keys, even if a subset achieves uniqueness.
    - Use the **same student-identifier column name** as in `post_clean_primary_key` / column list
      (when `student_id_alias` is non-null, that name — not the literal string `student_id`).
+   - Use the **same term column** as in `post_clean_primary_key` (chosen per **Term dimension
+     columns** in DOMAIN PRIORS).
    - Example: if (student_id, class_number) is unique but term is semantically required,
      emit join_keys_for_2a = [<student column>, class_number, term] using the actual column
      name from the column list for the student slot.
