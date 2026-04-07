@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 CANONICAL_SEASONS = {"FALL", "SPRING", "SUMMER", "WINTER"}
 
@@ -172,8 +178,53 @@ class TermContract(BaseModel):
         return self
 
 
+class InstitutionTermContract(BaseModel):
+    """
+    Single JSON artifact for one institution: all dataset-level :class:`TermContract` values
+    from Pass 2 **batch** mode (one LLM response covering every table).
+
+    Keys in ``datasets`` match logical dataset names (same keys as grain ``contracts_by_dataset``).
+    Each :class:`TermContract` must have ``table`` equal to its map key and ``institution_id``
+    equal to the envelope.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    institution_id: str
+    datasets: dict[str, TermContract]
+
+    @field_validator("datasets")
+    @classmethod
+    def non_empty_dataset_keys(
+        cls, v: dict[str, TermContract]
+    ) -> dict[str, TermContract]:
+        for name in v:
+            if not name.strip():
+                raise ValueError("dataset name keys must be non-empty")
+        return v
+
+    @model_validator(mode="after")
+    def contracts_match_institution_and_keys(self) -> InstitutionTermContract:
+        for dname, c in self.datasets.items():
+            if c.institution_id != self.institution_id:
+                raise ValueError(
+                    f"Dataset {dname!r}: contract institution_id {c.institution_id!r} "
+                    f"does not match envelope institution_id {self.institution_id!r}"
+                )
+            if c.table != dname:
+                raise ValueError(
+                    f"Dataset map key {dname!r} must match TermContract.table {c.table!r}"
+                )
+        return self
+
+    def contracts_by_dataset(self) -> dict[str, TermContract]:
+        """Same mapping expected by §8 / ``term_contract_by_dataset`` style call sites."""
+        return dict(self.datasets)
+
+
 __all__ = [
     "CANONICAL_SEASONS",
+    "InstitutionTermContract",
     "SeasonMapEntry",
     "TermContract",
     "TermOrderConfig",

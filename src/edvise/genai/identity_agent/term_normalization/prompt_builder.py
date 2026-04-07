@@ -9,14 +9,16 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from typing import Union
 
 from edvise.genai.identity_agent.grain_inference.schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+    GrainContract,
 )
 from edvise.genai.identity_agent.profiling.schemas import RawTableProfile
 
-from .schemas import TermContract, TermOrderConfig
+from .schemas import InstitutionTermContract, TermContract
 
 logger = logging.getLogger(__name__)
 
@@ -274,6 +276,100 @@ def build_term_normalization_system_prompt() -> str:
 TERM_NORMALIZATION_SYSTEM_PROMPT = build_term_normalization_system_prompt()
 
 
+def _tn_batch_role_and_inputs() -> str:
+    return """
+You are IdentityAgent (Pass 2, **batch**), responsible for inferring term normalization configs
+for **every** institution dataset in one response.
+
+You will receive a single JSON object with:
+
+- `institution_id`
+- `datasets`: an object whose keys are dataset names. Each value includes:
+  - `row_selection_required` (from Pass 1 grain inference)
+  - `grain_post_clean_primary_key` (Pass 1 grain key columns, for context)
+  - `term_candidates` and `columns` (profiled table metadata)
+
+Apply the same per-table reasoning rules as single-dataset Pass 2 (term column selection,
+`season_map`, `term_extraction`, `hook_spec` when custom) **independently for each dataset**.
+
+**Cross-table:** When several tables share the same term encoding, you may reuse one
+`hook_spec.file` path in `term_config`, but use **distinct function names** inside
+`hook_spec.functions` per table when the extractors differ. Do not merge distinct encodings.
+
+**Coverage:** Emit exactly one `TermContract`-shaped object per key under `datasets` in the
+input. Do not omit datasets.
+"""
+
+
+def _tn_batch_output_format() -> str:
+    return """
+## OUTPUT FORMAT (batch)
+
+Respond ONLY with one JSON object. No preamble, no markdown, no explanation outside the JSON.
+
+Top level:
+
+- `institution_id` — same as in the user payload
+- `datasets` — object mapping **each** dataset name from the user payload to a full per-table
+  contract (same fields as single-table Pass 2).
+
+Shape:
+
+```json
+{
+  "institution_id": "<institution_id>",
+  "datasets": {
+    "<dataset_a>": {
+      "institution_id": "<institution_id>",
+      "table": "<dataset_a>",
+      "term_config": null,
+      "confidence": 0.9,
+      "hitl_flag": false,
+      "hitl_question": null,
+      "reasoning": "<2-3 sentences for this table>"
+    },
+    "<dataset_b>": {
+      "institution_id": "<institution_id>",
+      "table": "<dataset_b>",
+      "term_config": {
+        "term_col": "<column>",
+        "season_map": [{"raw": "<token>", "canonical": "FALL"}],
+        "term_extraction": "standard",
+        "hook_spec": null
+      },
+      "confidence": 0.9,
+      "hitl_flag": false,
+      "hitl_question": null,
+      "reasoning": "<...>"
+    }
+  }
+}
+```
+
+Per-table `term_config`, `confidence`, `hitl_flag`, and `hitl_question` follow the same rules as
+single-table Pass 2. Each nested object must set `"table"` to the **same string** as its key in
+`datasets`.
+"""
+
+
+def build_term_normalization_batch_system_prompt() -> str:
+    """System prompt for Pass 2 when all datasets are inferred in one LLM call."""
+    return (
+        _tn_batch_role_and_inputs().strip()
+        + "\n\n---\n"
+        + _tn_when_null()
+        + "\n---\n"
+        + _tn_reasoning_steps()
+        + "\n---\n"
+        + _tn_confidence_scoring()
+        + "\n---\n"
+        + _tn_batch_output_format()
+    )
+
+
+TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT = build_term_normalization_batch_system_prompt()
+
+
 def _user_message_template() -> str:
     return """
 Institution: {institution_id}
@@ -353,6 +449,70 @@ def build_term_normalization_user_message_from_profiles(
         term_candidates_json=term_candidates_json,
         raw_table_profile_columns_json=raw_table_profile_columns_json,
     )
+
+
+def build_term_normalization_batch_user_payload(
+    institution_id: str,
+    grain_contracts_by_dataset: Mapping[str, GrainContract],
+    run_by_dataset: Mapping[str, Mapping[str, object]],
+) -> dict[str, object]:
+    """
+    Build the JSON-serializable user payload for batch Pass 2.
+
+    ``run_by_dataset`` must contain ``raw_table_profile`` per dataset name (as produced by the
+    profiling notebook cell).
+    """
+    datasets: dict[str, object] = {}
+    for name, gc in grain_contracts_by_dataset.items():
+        if name not in run_by_dataset:
+            raise KeyError(
+                f"Dataset {name!r} missing from run_by_dataset "
+                f"(have {list(run_by_dataset.keys())!r})"
+            )
+        row = run_by_dataset[name]
+        rtp = row["raw_table_profile"]
+        if not isinstance(rtp, RawTableProfile):
+            raise TypeError(
+                f"run_by_dataset[{name!r}]['raw_table_profile'] must be RawTableProfile"
+            )
+        datasets[name] = {
+            "row_selection_required": gc.row_selection_required,
+            "grain_post_clean_primary_key": list(gc.post_clean_primary_key),
+            "term_candidates": [c.model_dump(mode="json") for c in rtp.term_candidates],
+            "columns": [c.model_dump(mode="json") for c in rtp.columns],
+        }
+    return {"institution_id": institution_id, "datasets": datasets}
+
+
+def build_term_normalization_batch_user_message_from_grain_and_profiles(
+    institution_id: str,
+    grain_contracts_by_dataset: Mapping[str, GrainContract],
+    run_by_dataset: Mapping[str, Mapping[str, object]],
+) -> str:
+    """Serialize :func:`build_term_normalization_batch_user_payload` for the LLM user message."""
+    payload = build_term_normalization_batch_user_payload(
+        institution_id, grain_contracts_by_dataset, run_by_dataset
+    )
+    return json.dumps(payload, indent=2)
+
+
+def parse_institution_term_contracts(raw: RawTermPassInput) -> InstitutionTermContract:
+    """
+    Parse batch Pass 2 JSON into :class:`InstitutionTermContract`.
+
+    Accepts raw model text (optionally fenced), UTF-8 bytes, or an already-parsed dict.
+    """
+    if isinstance(raw, dict):
+        return InstitutionTermContract.model_validate(raw)
+    text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+    text = strip_json_fences(text)
+    try:
+        return InstitutionTermContract.model_validate_json(text)
+    except Exception:
+        logger.debug(
+            "Institution term contract parse failed; raw (truncated): %s", text[:500]
+        )
+        raise
 
 
 def parse_term_normalization_pass_output(

@@ -14,6 +14,7 @@ from typing import Any
 
 from .schemas import (
     CANONICAL_SEASONS,
+    InstitutionTermContract,
     SeasonMapEntry,
     TermContract,
     TermOrderConfig,
@@ -21,11 +22,16 @@ from .schemas import (
 
 _PROMPT_EXPORTS = frozenset(
     {
+        "TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT",
         "TERM_NORMALIZATION_SYSTEM_PROMPT",
         "TERM_NORMALIZATION_USER_TEMPLATE",
+        "build_term_normalization_batch_system_prompt",
+        "build_term_normalization_batch_user_message_from_grain_and_profiles",
+        "build_term_normalization_batch_user_payload",
         "build_term_normalization_system_prompt",
         "build_term_normalization_user_message",
         "build_term_normalization_user_message_from_profiles",
+        "parse_institution_term_contracts",
         "parse_term_normalization_pass_output",
         "strip_json_fences",
     }
@@ -33,6 +39,8 @@ _PROMPT_EXPORTS = frozenset(
 
 __all__ = [
     "CANONICAL_SEASONS",
+    "InstitutionTermContract",
+    "TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT",
     "TERM_NORMALIZATION_SYSTEM_PROMPT",
     "TERM_NORMALIZATION_USER_TEMPLATE",
     "SeasonMapEntry",
@@ -41,9 +49,13 @@ __all__ = [
     "apply_term_order_from_config",
     "term_order_column_for_clean_dataset",
     "term_order_fn_from_term_order_config",
+    "build_term_normalization_batch_system_prompt",
+    "build_term_normalization_batch_user_message_from_grain_and_profiles",
+    "build_term_normalization_batch_user_payload",
     "build_term_normalization_system_prompt",
     "build_term_normalization_user_message",
     "build_term_normalization_user_message_from_profiles",
+    "parse_institution_term_contracts",
     "parse_term_normalization_pass_output",
     "strip_json_fences",
 ]
