@@ -1729,6 +1729,502 @@ def infer_term_column(
     return best_col
 
 
+# --- Column inference for student-level audits (IDs, credits, demographics) ---
+
+_AUDIT_DEMOGRAPHIC_NAME_BLOCKLIST = (
+    "ssn",
+    "email",
+    "phone",
+    "address",
+    "uuid",
+    "hash",
+    "password",
+    "name",
+    "first_name",
+    "last_name",
+    "middle_name",
+    "street",
+    "zip",
+    "dob",
+    "date_of_birth",
+    "birth",
+)
+
+
+def audit_demographic_column_name_blocked(col: str) -> bool:
+    """
+    True if *col* should not be used for demographic / student-type inference
+    (PII-ish or free-text name fields). Does not block legitimate ``student_id``.
+    """
+    c = col.lower()
+    return any(f in c for f in _AUDIT_DEMOGRAPHIC_NAME_BLOCKLIST)
+
+
+def audit_value_substring_match_rate(
+    series: pd.Series,
+    substrings: tuple[str, ...],
+    *,
+    max_sample: int = 8000,
+) -> float:
+    """Fraction of non-null *series* values whose string form contains a substring."""
+    non_null = series.dropna()
+    if len(non_null) == 0:
+        return 0.0
+    sample = non_null.head(max_sample) if len(non_null) > max_sample else non_null
+
+    def matches(v: t.Any) -> bool:
+        t_ = str(v).strip().lower()
+        if not t_ or t_ == "nan":
+            return False
+        return any(sub in t_ for sub in substrings)
+
+    return float(sample.map(matches).mean())
+
+
+DEFAULT_STUDENT_TYPE_NAME_HINTS: tuple[str, ...] = (
+    "entry_type",
+    "student_type",
+    "admit_type",
+    "admission_type",
+    "enrollment_type",
+    "stu_type",
+    "student_class",
+    "class_level",
+    "cohort_type",
+)
+DEFAULT_STUDENT_TYPE_VALUE_SUBSTRINGS: tuple[str, ...] = (
+    "transfer",
+    "freshman",
+    "fresh",
+    "ftic",
+    "ftf",
+    "first time",
+    "first-time",
+    "first year",
+    "readmit",
+    "re-admit",
+    "readm",
+    "re_admit",
+    "continuing",
+    "returning",
+    "non-degree",
+    "nondegree",
+    "transient",
+    "dual",
+    "new",
+)
+DEFAULT_FIRST_GEN_NAME_HINTS: tuple[str, ...] = (
+    "first_gen",
+    "first_generation",
+    "firstgen",
+    "fg_status",
+    "firstgeneration",
+    "fgen",
+    "first_time_college",
+    "gen1",
+    "parent_education",
+)
+DEFAULT_RACE_NAME_HINTS: tuple[str, ...] = (
+    "race",
+    "ipeds_race",
+    "racial",
+    "race_code",
+    "race_ethnicity",
+    "ethrace",
+)
+DEFAULT_ETHNICITY_NAME_HINTS: tuple[str, ...] = (
+    "ethnicity",
+    "ethnic",
+    "hispanic",
+    "latinx",
+    "latino",
+    "latina",
+    "hl_indicator",
+    "hispanic_latino",
+    "is_hispanic",
+)
+DEFAULT_GENDER_NAME_HINTS: tuple[str, ...] = (
+    "gender",
+    "legal_sex",
+    "biological_sex",
+    "sex",
+    "gender_identity",
+)
+DEFAULT_AGE_NAME_HINTS: tuple[str, ...] = (
+    "age",
+    "student_age",
+    "age_at_entry",
+    "age_as_of",
+    "stu_age",
+    "current_age",
+    "age_years",
+)
+DEFAULT_PELL_NAME_HINTS: tuple[str, ...] = (
+    "pell",
+    "awarded_pell",
+    "pell_elig",
+    "pell_eligible",
+    "pell_recipient",
+    "pell_flag",
+    "pell_status",
+)
+
+DEFAULT_STUDENT_ID_NAME_HINTS: tuple[str, ...] = (
+    "student_id",
+    "student id",
+    "studentid",
+    "stu_id",
+    "stuid",
+    "emplid",
+    "empl_id",
+    "pid",
+    "person_id",
+    "banner_id",
+    "bannerid",
+    "sis_id",
+    "school_id",
+    "student_number",
+    "student_num",
+    "id_number",
+)
+
+
+def infer_student_file_categorical(
+    df: pd.DataFrame,
+    *,
+    name_hints: tuple[str, ...],
+    value_substrings: tuple[str, ...] | None,
+    exclude_cols: set[str],
+    max_sample: int = 8000,
+    min_nunique: int = 2,
+    max_nunique: int = 80,
+    min_value_rate: float = 0.12,
+    min_name_hint: float = 0.08,
+) -> str | None:
+    """
+    Pick a column using name hints plus optional substring matches in values.
+    Skips PII-ish names and near-unique columns (likely IDs).
+    """
+    n_rows = len(df)
+    best_col: str | None = None
+    best_score = -1.0
+
+    for col in df.columns:
+        if col in exclude_cols or audit_demographic_column_name_blocked(col):
+            continue
+        s = df[col]
+        non_null = s.dropna()
+        if len(non_null) == 0:
+            continue
+        nunique = int(non_null.astype(str).nunique())
+        if nunique < min_nunique or nunique > max_nunique:
+            continue
+        if n_rows and nunique > max(0.92 * n_rows, 500):
+            continue
+
+        hint = term_column_name_hint_score(col, name_hints)
+        if value_substrings is not None:
+            rate = audit_value_substring_match_rate(
+                s, value_substrings, max_sample=max_sample
+            )
+            if hint < min_name_hint and rate < min_value_rate:
+                continue
+            score = 2.5 * hint + rate
+        else:
+            if hint < min_name_hint:
+                continue
+            score = 3.0 * hint + min(1.0, nunique / 50.0)
+
+        if score > best_score:
+            best_score = score
+            best_col = col
+
+    return best_col
+
+
+def _age_numeric_plausibility_rate(series: pd.Series, max_sample: int = 8000) -> float:
+    non_null = series.dropna()
+    if len(non_null) == 0:
+        return 0.0
+    sample = non_null.head(max_sample) if len(non_null) > max_sample else non_null
+    n = pd.to_numeric(sample, errors="coerce")
+    ok = n.notna() & (n >= 10) & (n <= 100)
+    return float(ok.mean()) if len(ok) else 0.0
+
+
+def infer_age_column(
+    df: pd.DataFrame,
+    *,
+    name_hints: tuple[str, ...] = DEFAULT_AGE_NAME_HINTS,
+    exclude_cols: t.AbstractSet[str] | None = None,
+    min_name_hint: float = 0.08,
+    min_plausible_rate: float = 0.65,
+    max_nunique: int = 120,
+) -> str | None:
+    """Infer a student age column (numeric-ish, plausible ages, name hints)."""
+    used = set(exclude_cols or ())
+    best_col: str | None = None
+    best_score = -1.0
+    n_rows = len(df)
+
+    for col in df.columns:
+        if col in used or audit_demographic_column_name_blocked(col):
+            continue
+        s = df[col]
+        non_null = s.dropna()
+        if len(non_null) == 0:
+            continue
+        nunique = int(pd.to_numeric(non_null, errors="coerce").dropna().nunique())
+        if nunique < 2 or nunique > max_nunique:
+            continue
+        if n_rows and nunique > 0.95 * n_rows:
+            continue
+        hint = term_column_name_hint_score(col, name_hints)
+        rate = _age_numeric_plausibility_rate(s)
+        if hint < min_name_hint and rate < min_plausible_rate:
+            continue
+        score = 2.5 * hint + rate
+        if score > best_score:
+            best_score = score
+            best_col = col
+
+    return best_col
+
+
+def infer_student_audit_columns(
+    df: pd.DataFrame,
+    *,
+    term_col: str | None = None,
+    student_type_name_hints: tuple[str, ...] = DEFAULT_STUDENT_TYPE_NAME_HINTS,
+    student_type_value_substrings: tuple[str, ...] = DEFAULT_STUDENT_TYPE_VALUE_SUBSTRINGS,
+    first_gen_name_hints: tuple[str, ...] = DEFAULT_FIRST_GEN_NAME_HINTS,
+    race_name_hints: tuple[str, ...] = DEFAULT_RACE_NAME_HINTS,
+    ethnicity_name_hints: tuple[str, ...] = DEFAULT_ETHNICITY_NAME_HINTS,
+    gender_name_hints: tuple[str, ...] = DEFAULT_GENDER_NAME_HINTS,
+    age_name_hints: tuple[str, ...] = DEFAULT_AGE_NAME_HINTS,
+    pell_name_hints: tuple[str, ...] = DEFAULT_PELL_NAME_HINTS,
+) -> dict[str, str | None]:
+    """
+    Infer student-type and equity-related columns; each role maps to at most one column.
+
+    Roles: ``student_type``, ``first_gen``, ``race``, ``ethnicity``, ``gender``, ``age``, ``pell``.
+    """
+    used: set[str] = set()
+    if term_col:
+        used.add(term_col)
+
+    out: dict[str, str | None] = {}
+
+    out["student_type"] = infer_student_file_categorical(
+        df,
+        name_hints=student_type_name_hints,
+        value_substrings=student_type_value_substrings,
+        exclude_cols=used,
+    )
+    if out["student_type"]:
+        used.add(out["student_type"])
+
+    for key, hints in (
+        ("first_gen", first_gen_name_hints),
+        ("race", race_name_hints),
+        ("ethnicity", ethnicity_name_hints),
+        ("gender", gender_name_hints),
+    ):
+        out[key] = infer_student_file_categorical(
+            df,
+            name_hints=hints,
+            value_substrings=None,
+            exclude_cols=used,
+            max_nunique=120,
+        )
+        if out[key]:
+            used.add(out[key])
+
+    out["age"] = infer_age_column(df, name_hints=age_name_hints, exclude_cols=used)
+    if out["age"]:
+        used.add(out["age"])
+
+    out["pell"] = infer_student_file_categorical(
+        df,
+        name_hints=pell_name_hints,
+        value_substrings=None,
+        exclude_cols=used,
+        max_nunique=120,
+    )
+    if out["pell"]:
+        used.add(out["pell"])
+
+    return out
+
+
+def infer_student_id_column(
+    df: pd.DataFrame,
+    *,
+    name_hints: tuple[str, ...] = DEFAULT_STUDENT_ID_NAME_HINTS,
+    min_name_hint: float = 0.08,
+    max_sample: int = 8000,
+) -> str | None:
+    """
+    Infer the primary student identifier column (high cardinality, stable string/int tokens).
+
+    Strong name matches (e.g. exact ``student_id``) only require two distinct values;
+    otherwise requires enough distinct IDs for roster- or transaction-style files.
+    """
+    n_rows = len(df)
+    if n_rows == 0:
+        return None
+
+    best_col: str | None = None
+    best_score = -1.0
+
+    for col in df.columns:
+        s = df[col]
+        non_null = s.dropna()
+        if len(non_null) == 0:
+            continue
+        nunique = int(non_null.nunique())
+        hint = term_column_name_hint_score(col, name_hints)
+        if hint < min_name_hint:
+            continue
+        if hint >= 0.15:
+            if nunique < 2:
+                continue
+        else:
+            min_distinct = max(10, min(500, n_rows // 500 or 1))
+            if nunique < min_distinct:
+                continue
+            id_ratio = nunique / n_rows if n_rows else 0.0
+            if id_ratio < 0.02:
+                continue
+        sample = non_null.head(max_sample) if len(non_null) > max_sample else non_null
+        str_sample = sample.astype("string").str.strip()
+        frac_short = float((str_sample.str.len() <= 32).mean())
+        if frac_short < 0.95:
+            continue
+        id_ratio = nunique / n_rows if n_rows else 0.0
+        score = 3.0 * hint + id_ratio + 0.1 * frac_short
+        if score > best_score:
+            best_score = score
+            best_col = col
+
+    return best_col
+
+
+def normalize_student_id_column(
+    df: pd.DataFrame,
+    *,
+    target_name: str = "student_id",
+    source_col: str | None = None,
+) -> tuple[pd.DataFrame, str | None]:
+    """
+    Return a copy of *df* with the inferred (or provided) id column renamed to *target_name*.
+
+    If *target_name* already exists, returns ``(df.copy(), target_name)`` without renaming.
+    If no id column can be resolved, returns ``(df.copy(), None)``.
+    """
+    out = df.copy()
+    if target_name in out.columns:
+        return out, target_name
+    src = source_col if source_col is not None else infer_student_id_column(out)
+    if src is None:
+        return out, None
+    if src == target_name:
+        return out, target_name
+    out = out.rename(columns={src: target_name})
+    return out, target_name
+
+
+def _numeric_coercion_rate(series: pd.Series, max_sample: int = 8000) -> float:
+    non_null = series.dropna()
+    if len(non_null) == 0:
+        return 0.0
+    sample = non_null.head(max_sample) if len(non_null) > max_sample else non_null
+    cleaned = (
+        sample.astype("string")
+        .str.strip()
+        .str.replace(",", "", regex=False)
+    )
+    n = pd.to_numeric(cleaned, errors="coerce")
+    return float(n.notna().mean())
+
+
+DEFAULT_INST_TOT_CREDITS_ATTEMPTED_NAME_HINTS: tuple[str, ...] = (
+    "inst_tot_credits_attempted",
+    "institution_credits_attempted",
+    "inst_credits_attempted",
+    "total_credits_attempted",
+    "ug_credits_attempted",
+    "undergrad_credits_attempted",
+    "cumulative_credits_attempted",
+    "cum_credits_attempted",
+    "career_credits_attempted",
+    "credits_attempted_inst",
+)
+DEFAULT_INST_TOT_CREDITS_EARNED_NAME_HINTS: tuple[str, ...] = (
+    "inst_tot_credits_earned",
+    "institution_credits_earned",
+    "inst_credits_earned",
+    "total_credits_earned",
+    "ug_credits_earned",
+    "undergrad_credits_earned",
+    "cumulative_credits_earned",
+    "cum_credits_earned",
+    "career_credits_earned",
+    "credits_earned_inst",
+)
+
+
+def infer_inst_tot_credits_columns(
+    df: pd.DataFrame,
+    *,
+    attempted_name_hints: tuple[str, ...] = DEFAULT_INST_TOT_CREDITS_ATTEMPTED_NAME_HINTS,
+    earned_name_hints: tuple[str, ...] = DEFAULT_INST_TOT_CREDITS_EARNED_NAME_HINTS,
+    min_numeric_rate: float = 0.82,
+    min_name_hint: float = 0.08,
+    max_sample: int = 8000,
+) -> tuple[str | None, str | None]:
+    """
+    Infer institutional total credits attempted and earned columns on a cohort-style frame.
+
+    Returns
+    -------
+    attempted_col, earned_col
+        Distinct columns when possible; ``(None, None)`` if nothing qualifies.
+    """
+
+    def rank_for_hints(hints: tuple[str, ...]) -> list[tuple[float, str]]:
+        ranked: list[tuple[float, str]] = []
+        for col in df.columns:
+            if pd.api.types.is_bool_dtype(df[col]):
+                continue
+            nr = _numeric_coercion_rate(df[col], max_sample=max_sample)
+            if nr < min_numeric_rate:
+                continue
+            hint = term_column_name_hint_score(col, hints)
+            if hint < min_name_hint:
+                continue
+            ranked.append((3.0 * hint + nr, col))
+        ranked.sort(key=lambda x: -x[0])
+        return ranked
+
+    att_ranked = rank_for_hints(attempted_name_hints)
+    ern_ranked = rank_for_hints(earned_name_hints)
+    attempted_col = att_ranked[0][1] if att_ranked else None
+    earned_col = ern_ranked[0][1] if ern_ranked else None
+
+    if attempted_col and earned_col and attempted_col == earned_col:
+        alt_e = next((c for _, c in ern_ranked if c != attempted_col), None)
+        alt_a = next((c for _, c in att_ranked if c != earned_col), None)
+        if alt_e is not None:
+            earned_col = alt_e
+        elif alt_a is not None:
+            attempted_col = alt_a
+        else:
+            earned_col = None
+
+    return attempted_col, earned_col
+
+
 def convert_numeric_columns(df, columns):
     """
     CUSTOM SCHOOL FUNCTION

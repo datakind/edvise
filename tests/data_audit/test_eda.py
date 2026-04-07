@@ -679,3 +679,60 @@ def test_infer_term_column_picks_term_like_column():
         name_hints=("entry_term",),
     )
     assert col == "entry_term"
+
+
+def test_infer_student_id_column_prefers_named_id():
+    from edvise.data_audit import eda as data_audit_eda
+
+    df = pd.DataFrame(
+        {
+            "emplid": ["A1", "A2", "A3"],
+            "student_id": [1, 2, 3],
+            "x": [1, 1, 1],
+        }
+    )
+    col = data_audit_eda.infer_student_id_column(df)
+    assert col == "student_id"
+
+
+def test_normalize_student_id_column_renames():
+    from edvise.data_audit import eda as data_audit_eda
+
+    df = pd.DataFrame({"emplid": ["A1", "A2"], "y": [1, 2]})
+    out, name = data_audit_eda.normalize_student_id_column(df)
+    assert name == "student_id"
+    assert "student_id" in out.columns
+    assert list(out["student_id"]) == ["A1", "A2"]
+
+
+def test_infer_inst_tot_credits_columns_distinct():
+    from edvise.data_audit import eda as data_audit_eda
+
+    df = pd.DataFrame(
+        {
+            "student_id": [1, 2],
+            "inst_tot_credits_attempted": [120.0, 90.0],
+            "inst_tot_credits_earned": [118.0, 88.0],
+        }
+    )
+    a, e = data_audit_eda.infer_inst_tot_credits_columns(df)
+    assert a == "inst_tot_credits_attempted"
+    assert e == "inst_tot_credits_earned"
+
+
+def test_infer_student_audit_columns_includes_age():
+    from edvise.data_audit import eda as data_audit_eda
+
+    df = pd.DataFrame(
+        {
+            "student_id": [1, 2, 3],
+            "entry_term": ["Fall 2023", "Fall 2023", "Spring 2024"],
+            "entry_type": ["Transfer", "FTIC", "Transfer"],
+            "student_age": [19, 20, 22],
+            "first_gen": ["Y", "N", "Y"],
+        }
+    )
+    term = data_audit_eda.infer_term_column(df, name_hints=("entry_term",))
+    out = data_audit_eda.infer_student_audit_columns(df, term_col=term)
+    assert out["age"] == "student_age"
+    assert out["student_type"] == "entry_type"

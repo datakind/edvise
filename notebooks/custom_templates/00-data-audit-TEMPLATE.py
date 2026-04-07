@@ -48,9 +48,11 @@ from edvise.data_audit.eda import (
     check_earned_vs_attempted,
     check_pf_grade_consistency,
     find_dupes,
+    infer_inst_tot_credits_columns,
+    infer_student_audit_columns,
     infer_term_column,
+    normalize_student_id_column,
     order_terms,
-    term_column_name_hint_score,
     validate_credit_consistency,
 )
 
@@ -107,6 +109,32 @@ semester_raw_df = dataio.read.from_csv_file(
 
 # COMMAND ----------
 
+# Normalize primary student identifier to ``student_id`` on all bronze tables (inferred column name may vary by SIS).
+student_raw_df, STUDENT_ID_RESOLVED_STUDENT = normalize_student_id_column(student_raw_df)
+course_raw_df, STUDENT_ID_RESOLVED_COURSE = normalize_student_id_column(course_raw_df)
+semester_raw_df, STUDENT_ID_RESOLVED_SEMESTER = normalize_student_id_column(semester_raw_df)
+print(
+    "student_id column (after normalize_student_id_column):",
+    {
+        "student_file": STUDENT_ID_RESOLVED_STUDENT,
+        "course_file": STUDENT_ID_RESOLVED_COURSE,
+        "semester_file": STUDENT_ID_RESOLVED_SEMESTER,
+    },
+)
+
+INST_TOT_CREDITS_ATTEMPTED_COL, INST_TOT_CREDITS_EARNED_COL = infer_inst_tot_credits_columns(
+    student_raw_df
+)
+print(
+    "Inferred institutional total credit columns (cohort file):",
+    {
+        "attempted": INST_TOT_CREDITS_ATTEMPTED_COL,
+        "earned": INST_TOT_CREDITS_EARNED_COL,
+    },
+)
+
+# COMMAND ----------
+
 # Infer term-like columns from values (and name hints). Override printed names if wrong for your school.
 TERM_NAME_HINTS_COHORT = (
     "entry_term",
@@ -149,230 +177,14 @@ print(
 
 # COMMAND ----------
 
-# Infer student-type and bias-related columns on the student file (name hints + value patterns).
-# Assign each role at most one column; later roles skip columns already chosen.
-
-STUDENT_TYPE_NAME_HINTS = (
-    "entry_type",
-    "student_type",
-    "admit_type",
-    "admission_type",
-    "enrollment_type",
-    "stu_type",
-    "student_class",
-    "class_level",
-    "cohort_type",
-)
-STUDENT_TYPE_VALUE_SUBSTRINGS = (
-    "transfer",
-    "freshman",
-    "fresh",
-    "ftic",
-    "ftf",
-    "first time",
-    "first-time",
-    "first year",
-    "readmit",
-    "re-admit",
-    "readm",
-    "re_admit",
-    "continuing",
-    "returning",
-    "non-degree",
-    "nondegree",
-    "transient",
-    "dual",
-    "new",
-)
-
-FIRST_GEN_NAME_HINTS = (
-    "first_gen",
-    "first_generation",
-    "firstgen",
-    "fg_status",
-    "firstgeneration",
-    "fgen",
-    "first_time_college",
-    "gen1",
-    "parent_education",
-)
-
-RACE_NAME_HINTS = (
-    "race",
-    "ipeds_race",
-    "racial",
-    "race_code",
-    "race_ethnicity",
-    "ethrace",
-)
-
-ETHNICITY_NAME_HINTS = (
-    "ethnicity",
-    "ethnic",
-    "hispanic",
-    "latinx",
-    "latino",
-    "latina",
-    "hl_indicator",
-    "hispanic_latino",
-    "is_hispanic",
-)
-
-GENDER_NAME_HINTS = (
-    "gender",
-    "legal_sex",
-    "biological_sex",
-    "sex",
-    "gender_identity",
-)
-
-PELL_NAME_HINTS = (
-    "pell",
-    "awarded_pell",
-    "pell_elig",
-    "pell_eligible",
-    "pell_recipient",
-    "pell_flag",
-    "pell_status",
-)
-
-_ID_LIKE_NAME_FRAGMENTS = (
-    "student_id",
-    "study_id",
-    "pid",
-    "person_id",
-    "emplid",
-    "banner_id",
-    "ssn",
-    "email",
-    "name",
-    "phone",
-    "address",
-    "uuid",
-    "hash",
-)
-
-
-def _column_name_blocked(col: str) -> bool:
-    c = col.lower()
-    return any(f in c for f in _ID_LIKE_NAME_FRAGMENTS)
-
-
-def _value_substring_match_rate(
-    series: pd.Series, substrings: tuple[str, ...], max_sample: int = 8000
-) -> float:
-    non_null = series.dropna()
-    if len(non_null) == 0:
-        return 0.0
-    sample = non_null.head(max_sample) if len(non_null) > max_sample else non_null
-
-    def matches(v) -> bool:
-        t = str(v).strip().lower()
-        if not t or t == "nan":
-            return False
-        return any(sub in t for sub in substrings)
-
-    return float(sample.map(matches).mean())
-
-
-def infer_student_file_categorical(
-    df: pd.DataFrame,
-    *,
-    name_hints: tuple[str, ...],
-    value_substrings: tuple[str, ...] | None,
-    exclude_cols: set[str],
-    max_sample: int = 8000,
-    min_nunique: int = 2,
-    max_nunique: int = 80,
-    min_value_rate: float = 0.12,
-    min_name_hint: float = 0.08,
-) -> str | None:
-    """
-    Pick a column using name hints plus (optional) substring matches in values.
-    Skips id-like names and near-unique columns.
-    """
-    n_rows = len(df)
-    best_col: str | None = None
-    best_score = -1.0
-
-    for col in df.columns:
-        if col in exclude_cols or _column_name_blocked(col):
-            continue
-        s = df[col]
-        non_null = s.dropna()
-        if len(non_null) == 0:
-            continue
-        nunique = int(non_null.astype(str).nunique())
-        if nunique < min_nunique or nunique > max_nunique:
-            continue
-        if n_rows and nunique > max(0.92 * n_rows, 500):
-            continue
-
-        hint = term_column_name_hint_score(col, name_hints)
-        if value_substrings is not None:
-            rate = _value_substring_match_rate(s, value_substrings, max_sample=max_sample)
-            if hint < min_name_hint and rate < min_value_rate:
-                continue
-            score = 2.5 * hint + rate
-        else:
-            if hint < min_name_hint:
-                continue
-            score = 3.0 * hint + min(1.0, nunique / 50.0)
-
-        if score > best_score:
-            best_score = score
-            best_col = col
-
-    return best_col
-
-
-def infer_student_audit_columns(
-    df: pd.DataFrame, *, term_col: str | None
-) -> dict[str, str | None]:
-    """Sequential inference so race/ethnicity/gender do not reuse the same column."""
-    used: set[str] = set()
-    if term_col:
-        used.add(term_col)
-
-    out: dict[str, str | None] = {}
-
-    out["student_type"] = infer_student_file_categorical(
-        df,
-        name_hints=STUDENT_TYPE_NAME_HINTS,
-        value_substrings=STUDENT_TYPE_VALUE_SUBSTRINGS,
-        exclude_cols=used,
-    )
-    if out["student_type"]:
-        used.add(out["student_type"])
-
-    for key, hints in (
-        ("first_gen", FIRST_GEN_NAME_HINTS),
-        ("race", RACE_NAME_HINTS),
-        ("ethnicity", ETHNICITY_NAME_HINTS),
-        ("gender", GENDER_NAME_HINTS),
-        ("pell", PELL_NAME_HINTS),
-    ):
-        out[key] = infer_student_file_categorical(
-            df,
-            name_hints=hints,
-            value_substrings=None,
-            exclude_cols=used,
-            max_nunique=120,
-        )
-        if out[key]:
-            used.add(out[key])
-
-    return out
-
-
-_audit_cols = infer_student_audit_columns(
-    student_raw_df, term_col=TERM_COL_STUDENT
-)
+# Student-type and equity-related columns (see edvise.data_audit.eda for defaults / helpers).
+_audit_cols = infer_student_audit_columns(student_raw_df, term_col=TERM_COL_STUDENT)
 STUDENT_TYPE_COL_STUDENT = _audit_cols["student_type"]
 FIRST_GEN_COL_STUDENT = _audit_cols["first_gen"]
 RACE_COL_STUDENT = _audit_cols["race"]
 ETHNICITY_COL_STUDENT = _audit_cols["ethnicity"]
 GENDER_COL_STUDENT = _audit_cols["gender"]
+AGE_COL_STUDENT = _audit_cols["age"]
 PELL_COL_STUDENT = _audit_cols["pell"]
 
 print(
@@ -383,6 +195,7 @@ print(
         "RACE_COL_STUDENT": RACE_COL_STUDENT,
         "ETHNICITY_COL_STUDENT": ETHNICITY_COL_STUDENT,
         "GENDER_COL_STUDENT": GENDER_COL_STUDENT,
+        "AGE_COL_STUDENT": AGE_COL_STUDENT,
         "PELL_COL_STUDENT": PELL_COL_STUDENT,
     },
 )
@@ -435,15 +248,14 @@ na_pct_student
 # Term roster counts in chronological order (table only; uses inferred TERM_COL_STUDENT)
 if TERM_COL_STUDENT and TERM_COL_STUDENT in student_raw_df.columns:
     _oc = order_terms(student_raw_df, TERM_COL_STUDENT)
-    display(
+    _tv = (
         _oc[TERM_COL_STUDENT]
         .value_counts()
         .sort_index()
-        .rename("student_rows")
-        .to_frame()
-        .rename_axis(TERM_COL_STUDENT)
         .reset_index()
     )
+    _tv.columns = [TERM_COL_STUDENT, "student_rows"]
+    display(_tv)
 else:
     print("No inferred term column for student file; skip term value counts.")
 
@@ -504,7 +316,7 @@ else:
 # MAGIC %md
 # MAGIC ## Student file: bias & equity variables (populatedness + distributions)
 # MAGIC
-# MAGIC **What this proves:** `pct_populated` is the percent of cohort rows with a non-null value for each inferred column (entry term, student type, first-gen, race, ethnicity, gender/sex, pell). Distribution tables below use `pct_of_non_null_rows` (sums to 100% among non-null rows only).
+# MAGIC **What this proves:** `pct_populated` is the percent of cohort rows with a non-null value for each inferred column (entry term, student type, first-gen, race, ethnicity, gender/sex, age, pell). Distribution tables below use `pct_of_non_null_rows` (sums to 100% among non-null rows only).
 
 # COMMAND ----------
 
@@ -515,6 +327,7 @@ _POPULATEDNESS_SPECS = (
     ("race", RACE_COL_STUDENT),
     ("ethnicity", ETHNICITY_COL_STUDENT),
     ("gender / sex", GENDER_COL_STUDENT),
+    ("age", AGE_COL_STUDENT),
     ("pell status", PELL_COL_STUDENT),
 )
 
@@ -538,6 +351,7 @@ for _label, _col in (
     ("race", RACE_COL_STUDENT),
     ("ethnicity", ETHNICITY_COL_STUDENT),
     ("gender / sex", GENDER_COL_STUDENT),
+    ("age", AGE_COL_STUDENT),
     ("pell status", PELL_COL_STUDENT),
 ):
     if not _col or _col not in student_raw_df.columns:
@@ -577,15 +391,14 @@ na_pct_course
 # COMMAND ----------
 
 if TERM_COL_COURSE and TERM_COL_COURSE in course_raw_df.columns:
-    _term_pct = (
-        course_raw_df[TERM_COL_COURSE]
-        .value_counts(dropna=False, normalize=True)
-        .mul(100)
+    _o_course = order_terms(course_raw_df, TERM_COL_COURSE)
+    display(
+        _o_course[TERM_COL_COURSE]
+        .value_counts()
         .sort_index()
-        .reset_index()
+        .rename("course_rows")
+        .to_frame()
     )
-    _term_pct.columns = [TERM_COL_COURSE, "pct_of_rows"]
-    display(_term_pct)
 else:
     print("No inferred term column for course file; skip term value counts.")
 
@@ -624,15 +437,14 @@ na_pct_semester
 # COMMAND ----------
 
 if TERM_COL_SEMESTER and TERM_COL_SEMESTER in semester_raw_df.columns:
-    _term_pct = (
-        semester_raw_df[TERM_COL_SEMESTER]
-        .value_counts(dropna=False, normalize=True)
-        .mul(100)
+    _o_sem = order_terms(semester_raw_df, TERM_COL_SEMESTER)
+    display(
+        _o_sem[TERM_COL_SEMESTER]
+        .value_counts()
         .sort_index()
-        .reset_index()
+        .rename("semester_rows")
+        .to_frame()
     )
-    _term_pct.columns = [TERM_COL_SEMESTER, "pct_of_rows"]
-    display(_term_pct)
 else:
     print("No inferred term column for semester file; skip term value counts.")
 
@@ -657,15 +469,18 @@ else:
 
 # COMMAND ----------
 
-# Edit column names to match config.toml / schema for your school
-results_cohort_credits = check_earned_vs_attempted(
-    df=student_raw_df,
-    earned_col="inst_tot_credits_earned",
-    attempted_col="inst_tot_credits_attempted",
-)
-
-display(results_cohort_credits["summary"])
-display(results_cohort_credits["anomalies"].head(50))
+if INST_TOT_CREDITS_ATTEMPTED_COL and INST_TOT_CREDITS_EARNED_COL:
+    results_cohort_credits = check_earned_vs_attempted(
+        df=student_raw_df,
+        earned_col=INST_TOT_CREDITS_EARNED_COL,
+        attempted_col=INST_TOT_CREDITS_ATTEMPTED_COL,
+    )
+    display(results_cohort_credits["summary"])
+    display(results_cohort_credits["anomalies"].head(50))
+else:
+    print(
+        "Skip cohort earned vs attempted: could not infer institutional credit total columns."
+    )
 
 # COMMAND ----------
 
@@ -893,9 +708,8 @@ credit_audit = validate_credit_consistency(
     semester_credits_attempted_col="number_of_credits_attempted",
     semester_credits_earned_col="number_of_credits_earned",
     semester_courses_count_col="number_of_courses_enrolled",
-    # Must match cohort bronze columns (same names as check_earned_vs_attempted above unless your school uses totals under other fields)
-    cohort_credits_attempted_col="inst_tot_credits_attempted",
-    cohort_credits_earned_col="inst_tot_credits_earned",
+    cohort_credits_attempted_col=INST_TOT_CREDITS_ATTEMPTED_COL or "inst_tot_credits_attempted",
+    cohort_credits_earned_col=INST_TOT_CREDITS_EARNED_COL or "inst_tot_credits_earned",
 )
 
 display(credit_audit["course_anomalies_summary"])
