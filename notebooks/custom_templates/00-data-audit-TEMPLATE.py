@@ -411,9 +411,7 @@ for _label, _col, _codebook_role in (
     _s.name = _col
     _dist = value_counts_percent_df(_s, pct_col="pct_of_non_null_rows")
     print(f"\n--- {_label} ({_col}) — among non-null rows only ---")
-    _cb = (
-        bias_variable_codebook_line(_codebook_role) if _codebook_role else None
-    )
+    _cb = bias_variable_codebook_line(_codebook_role) if _codebook_role else None
     if _cb:
         print(_cb)
     display(_dist)
