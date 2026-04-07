@@ -18,6 +18,13 @@ from edvise.shared.utils import percent_of_rows
 LOGGER = logging.getLogger(__name__)
 
 
+class EarnedAttemptedCheckResult(t.TypedDict):
+    """Structured return from :func:`check_earned_vs_attempted`."""
+
+    anomalies: pd.DataFrame
+    summary: pd.DataFrame
+
+
 def validate_ids_terms_consistency(
     student_df: t.Optional[pd.DataFrame],
     semester_df: pd.DataFrame,
@@ -27,21 +34,31 @@ def validate_ids_terms_consistency(
     sem_col: str = "semester_code",
     student_id_col: t.Optional[str] = None,
 ) -> t.Dict[str, t.Any]:
-    """
-    Check key-level and ID-level consistency between Course, Semester and Student.
+    """Check (student id, term) keys and bare student ids across course, semester, and student tables.
+
+    Args:
+        student_df: Optional student-level table (one row per student). When omitted,
+            student-id coverage checks return empty frames.
+        semester_df: Semester-level grain; must contain ``id_col`` and ``sem_col``.
+        course_df: Course-level grain; must contain ``id_col`` and ``sem_col``.
+        id_col: Student identifier column name on course and semester frames.
+        sem_col: Term / semester code column name on course and semester frames.
+        student_id_col: Column name on ``student_df`` if it differs from ``id_col``;
+            defaults to ``id_col``.
 
     Returns:
-    {
-        "summary": {....},
-        "unmatched_course_side": DataFrame[(id, sem)],
-        "unmatched_semester_side": DataFrame[(id, sem)],
-        "course_ids_not_in_semester": DataFrame[id],
-        "course_ids_not_in_student": DataFrame[id],
-        "semester_ids_not_in_student": DataFrame[id],
-        "course_terms_not_in_semester_terms": DataFrame[sem],
-        "null_course_keys": DataFrame[(id, sem)],
-        "null_semester_keys": DataFrame[(id, sem)],
-    }
+        Dict with:
+
+        - ``summary``: int counts (unmatched keys, ids missing from peer tables, null keys, etc.).
+        - ``unmatched_course_side`` / ``unmatched_semester_side``: (id, term) keys present on
+          one file but not the other.
+        - ``course_ids_not_in_semester``, ``course_ids_not_in_student``,
+          ``semester_ids_not_in_student``: id-only anti-joins.
+        - ``course_terms_not_in_semester_terms``: term values appearing in courses but not semesters.
+        - ``null_course_keys`` / ``null_semester_keys``: rows with null id or term.
+
+    Note:
+        Does not mutate input frames; copies key columns where needed.
     """
     student_id_col = student_id_col or id_col
     c_keys = course_df[[id_col, sem_col]].copy()
@@ -140,19 +157,47 @@ def validate_ids_terms_consistency(
     }
 
 
-def find_dupes(df: pd.DataFrame, primary_keys: list[str]) -> pd.DataFrame:
-    """
-    Find duplicate rows by key columns and print a summary of column-level conflicts
-    within duplicate groups.
+def _duplicate_key_conflict_metrics(
+    df: pd.DataFrame, primary_keys: list[str]
+) -> pd.DataFrame:
+    """Share of duplicate-key groups (percent) where each column takes multiple values."""
+    empty = pd.DataFrame(columns=["column", "pct_conflicting_groups"])
+    dup = df[df.duplicated(subset=primary_keys, keep=False)]
+    if dup.empty:
+        return empty
+    grp = dup.groupby(primary_keys, dropna=False)
+    conflict = grp.nunique(dropna=False) > 1
+    conflict = conflict[conflict.any(axis=1)]
+    if conflict.empty:
+        return empty
+    return (
+        conflict.mean()
+        .mul(100)
+        .rename("pct_conflicting_groups")
+        .reset_index()
+        .rename(columns={"index": "column"})
+        .sort_values("pct_conflicting_groups", ascending=False)
+        .reset_index(drop=True)
+    )
 
-    Returns
-    -------
-    dupes : pd.DataFrame
-        All rows involved in duplicate key groups (sorted by student_id)
+
+def find_dupes(df: pd.DataFrame, primary_keys: list[str]) -> pd.DataFrame:
+    """Print duplicate-row stats and column-level conflict rates; return all duplicate-key rows.
+
+    Args:
+        df: Table to scan (not mutated).
+        primary_keys: Columns defining a row identity; duplicates are rows sharing the same
+            key values (``keep=False`` semantics — all rows in a duplicate group are kept).
+
+    Returns:
+        Copy of rows that participate in any duplicate key group. If ``student_id`` exists,
+        sorted by that column for stable notebook output.
+
+    Note:
+        Side effect: prints human-readable summary to stdout (intentional for notebooks).
     """
     dupes = df[df.duplicated(subset=primary_keys, keep=False)].copy()
 
-    # Always sort by student_id (guard in case column missing)
     if "student_id" in dupes.columns:
         dupes = dupes.sort_values("student_id", ignore_index=True)
 
@@ -165,35 +210,7 @@ def find_dupes(df: pd.DataFrame, primary_keys: list[str]) -> pd.DataFrame:
         f"({pct_dupes:.2f}% of {total_rows} total rows)"
     )
 
-    if dupes.empty:
-        conflicts = pd.DataFrame(columns=["column", "pct_conflicting_groups"])
-        print(conflicts)
-        return dupes
-
-    grp = dupes.groupby(primary_keys, dropna=False)
-
-    # does each column conflict within each dup group?
-    conflict = grp.nunique(dropna=False) > 1
-
-    # keep only groups with at least one conflict
-    conflict = conflict[conflict.any(axis=1)]
-
-    if conflict.empty:
-        conflicts = pd.DataFrame(columns=["column", "pct_conflicting_groups"])
-        print(conflicts)
-        return dupes
-
-    conflicts = (
-        conflict.mean()
-        .mul(100)
-        .rename("pct_conflicting_groups")
-        .reset_index()
-        .rename(columns={"index": "column"})
-        .sort_values("pct_conflicting_groups", ascending=False)
-        .reset_index(drop=True)
-    )
-
-    print(conflicts)
+    print(_duplicate_key_conflict_metrics(df, primary_keys))
     return dupes
 
 
@@ -202,13 +219,23 @@ def check_earned_vs_attempted(
     *,
     earned_col: str,
     attempted_col: str,
-) -> t.Dict[str, pd.DataFrame]:
-    """
-    CUSTOM SCHOOL FUNCTION
+) -> EarnedAttemptedCheckResult:
+    """Flag course (or similar) rows where earned vs attempted credits are inconsistent.
 
-    Row-wise checks that:
-      1. credits_earned <= credits_attempted
-      2. credits_earned = 0 when credits_attempted = 0
+    Row-wise rules (after numeric coercion):
+
+    - Earned credits must not exceed attempted credits.
+    - If attempted credits are zero, earned credits must be zero.
+
+    Args:
+        df: Input table; must contain ``earned_col`` and ``attempted_col``.
+        earned_col: Column for credits earned (coerced with ``errors='coerce'``).
+        attempted_col: Column for credits attempted (coerced with ``errors='coerce'``).
+
+    Returns:
+        ``anomalies``: rows failing either rule, with boolean flags
+        ``earned_gt_attempted`` and ``earned_when_no_attempt``;
+        ``summary``: one-row frame with counts and ``percent_of_rows`` for each violation type.
     """
     earned = pd.to_numeric(df[earned_col], errors="coerce")
     attempted = pd.to_numeric(df[attempted_col], errors="coerce")
@@ -273,14 +300,24 @@ def log_semester_reconciliation_summary(
     diff_earned_col: str = "diff_earned",
     match_earned_col: str = "match_earned",
 ) -> None:
-    """
-    Log a concise, consistent reconciliation report.
+    """Emit WARNING logs summarizing semester vs aggregated course credit reconciliation.
 
-    Assumes:
-      - s is the semester slice used for merge (has id_col, sem_col)
-      - agg is course aggregates (has id_col, sem_col)
-      - merged is s merged with agg and has:
-          has_course_rows, diff_* and match_* cols (as available)
+    Args:
+        logger: Target logger for detailed reconciliation lines (school or pipeline logger).
+        merged: Semester rows left-joined to course aggregates; expected columns include
+            ``has_course_rows``, optional ``diff_*`` / ``match_*`` pairs for attempted and earned.
+        agg: Course-side aggregate frame (unused here but kept for call-site symmetry).
+        s: Semester slice that was merged (defines row count for percentages).
+        id_col: Student id column name.
+        sem_col: Term column name.
+        sem_has_attempted: When True, log attempted-credit diff statistics.
+        sem_has_earned: When True, log earned-credit diff statistics.
+        diff_attempted_col / match_attempted_col: Column names on ``merged`` for attempted
+            credit reconciliation (difference and boolean match flag).
+        diff_earned_col / match_earned_col: Same for earned credits.
+
+    Note:
+        Also logs one line at module ``LOGGER`` scope for overall reconciliation row count.
     """
     total_sem_rows = int(len(s))
     mismatch_mask = _credit_reconciliation_mismatch_mask(
@@ -359,11 +396,36 @@ def validate_credit_consistency(
     credit_tol: float = 0.0,
     strict_columns: bool = False,
 ) -> t.Dict[str, t.Any]:
-    """
+    """Cross-check course-, semester-, and optional cohort-level credit totals and row rules.
+
+    Aggregates course credits by ``(id_col, sem_col)``, compares to semester file when
+    provided, and optionally compares cohort institutional totals to sums of semester credits.
+    Also surfaces row-level anomalies (earned vs attempted) when the relevant columns exist.
+
     Args:
-        strict_columns: If True, each credit column name is used only when it is non-empty
-            and present on the frame — no alternate name fallbacks (for audit notebooks that
-            pass inferred names only).
+        course_df: Course-grain data (required).
+        semester_df: Optional semester-grain file for reconciliation.
+        cohort_df: Optional cohort-grain file for institutional total checks.
+        id_col: Student identifier column (default ``student_id``).
+        sem_col: Term column on course and semester frames (default ``semester``).
+        course_credits_attempted_col / course_credits_earned_col: Course-row credit columns;
+            when missing, non-strict mode may fall back to common alternate names on the frame.
+        semester_credits_attempted_col / semester_credits_earned_col / semester_courses_count_col:
+            Semester file columns for attempted, earned, and course count (defaults match
+            typical SST naming).
+        cohort_credits_attempted_col / cohort_credits_earned_col: Cohort columns for
+            institution-level attempted/earned totals.
+        credit_tol: Absolute tolerance when comparing summed vs reported credits.
+        strict_columns: If True, only use a credit column name when it is non-empty **and**
+            present on the frame — no alternate-name fallbacks (for notebooks that pass
+            inferred names only).
+
+    Returns:
+        Dict of audit artifacts (summary frames, mismatch masks, reconciliation tables, etc.).
+        Keys are documented in the institutional report helper and notebook templates.
+
+    Note:
+        Logging is verbose (INFO/WARNING) for notebook visibility; does not raise on mismatch.
     """
     LOGGER.info(
         "Starting credit consistency validation "
@@ -1116,10 +1178,22 @@ def infer_term_column(
     min_match_rate: float = 0.35,
     max_sample: int = 8000,
 ) -> str | None:
-    """
-    Choose the column whose non-null values most often look like academic term strings.
+    """Pick the column whose values best resemble academic term codes (e.g. ``Spring 2024``).
 
-    Scores each candidate as value match rate plus :func:`term_column_name_hint_score`.
+    Args:
+        df: Table to scan (all columns considered except boolean dtypes).
+        name_hints: Substrings / exact names that boost a column (via
+            :func:`term_column_name_hint_score`).
+        min_match_rate: Minimum share of sampled non-null values that must match
+            :func:`value_looks_like_term` for a strong pick (unless name-hint fallback applies).
+        max_sample: Cap on non-null rows scored per column (performance for wide/long files).
+
+    Returns:
+        Best-scoring column name, or ``None`` if no column clears thresholds.
+
+    Note:
+        Score combines empirical term-like rate and name hints; a second pass relaxes
+        thresholds slightly if nothing matched the first pass.
     """
     best_col: str | None = None
     best_score = -1.0
@@ -1651,11 +1725,20 @@ def infer_student_id_column(
     min_name_hint: float = 0.08,
     max_sample: int = 8000,
 ) -> str | None:
-    """
-    Infer the primary student identifier column (high cardinality, stable string/int tokens).
+    """Infer the primary student identifier column using name hints and cardinality heuristics.
 
-    Strong name matches (e.g. exact ``student_id``) only require two distinct values;
-    otherwise requires enough distinct IDs for roster- or transaction-style files.
+    Args:
+        df: Student- or roster-grain table (one row per student expected for best results).
+        name_hints: Tokens that indicate an ID column (passed to :func:`term_column_name_hint_score`).
+        min_name_hint: Minimum name-hint score for a column to be considered at all.
+        max_sample: Max non-null values read per column when checking token length / shape.
+
+    Returns:
+        Selected column name, or ``None`` if the frame is empty or no column passes filters.
+
+    Note:
+        Strong name matches (e.g. normalized header equals ``studentid``) relax distinct-count
+        requirements; weakly named columns need high nunique and mostly short string tokens.
     """
     n_rows = len(df)
     if n_rows == 0:
@@ -2292,29 +2375,18 @@ def infer_course_grade_pf_columns(
 def duplicate_conflict_columns(
     df: pd.DataFrame, primary_keys: list[str]
 ) -> pd.DataFrame:
-    dup = df[df.duplicated(subset=primary_keys, keep=False)]
+    """Return a frame of columns and the percent of duplicate-key groups where values disagree.
 
-    if dup.empty:
-        return pd.DataFrame(columns=["column", "pct_conflicting_groups"])
+    Args:
+        df: Source table.
+        primary_keys: Key columns defining duplicates (same semantics as :func:`find_dupes`).
 
-    grp = dup.groupby(primary_keys, dropna=False)
+    Returns:
+        Two columns — ``column`` (feature name) and ``pct_conflicting_groups`` (0–100), sorted
+        descending by conflict rate. Empty frame when there are no duplicate keys or no
+        within-group conflicts.
 
-    # For each group + column: does this column conflict?
-    conflict = grp.nunique(dropna=False) > 1
-
-    # Keep only groups that have *any* conflict
-    conflict = conflict[conflict.any(axis=1)]
-
-    if conflict.empty:
-        return pd.DataFrame(columns=["column", "pct_conflicting_groups"])
-
-    # Percent of conflicting groups where each column conflicts
-    pct = conflict.mean().mul(100)
-
-    return (
-        pct.rename("pct_conflicting_groups")
-        .reset_index()
-        .rename(columns={"index": "column"})
-        .sort_values("pct_conflicting_groups", ascending=False)
-        .reset_index(drop=True)
-    )
+    Note:
+        Unlike :func:`find_dupes`, this does not print; use for programmatic reporting.
+    """
+    return _duplicate_key_conflict_metrics(df, primary_keys)

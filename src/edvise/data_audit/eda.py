@@ -804,7 +804,6 @@ def log_top_majors(df_cohort: pd.DataFrame) -> None:
         top_majors.to_string(),
     )
 
-
 def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") -> None:
     """
     Logs value counts of the 'grade' column and flags if 'M' grades exceed 5%.
@@ -1656,11 +1655,10 @@ audit_value_substring_match_rate = _cda.audit_value_substring_match_rate
 bias_variable_codebook_line = _cda.bias_variable_codebook_line
 check_earned_vs_attempted = _cda.check_earned_vs_attempted
 check_pf_grade_consistency = _cda.check_pf_grade_consistency
+credit_column_name_has_attempt_marker = _cda.credit_column_name_has_attempt_marker
 duplicate_conflict_columns = _cda.duplicate_conflict_columns
 find_dupes = _cda.find_dupes
-format_credit_consistency_institution_report = (
-    _cda.format_credit_consistency_institution_report
-)
+format_credit_consistency_institution_report = _cda.format_credit_consistency_institution_report
 infer_age_column = _cda.infer_age_column
 infer_check_pf_grade_list_kwargs = _cda.infer_check_pf_grade_list_kwargs
 infer_course_credit_columns = _cda.infer_course_credit_columns
@@ -1668,9 +1666,7 @@ infer_course_grade_pf_columns = _cda.infer_course_grade_pf_columns
 infer_inst_tot_credits_columns = _cda.infer_inst_tot_credits_columns
 infer_pass_fail_flag_tuples = _cda.infer_pass_fail_flag_tuples
 infer_semester_credit_aggregate_columns = _cda.infer_semester_credit_aggregate_columns
-infer_semester_enrollment_intensity_column = (
-    _cda.infer_semester_enrollment_intensity_column
-)
+infer_semester_enrollment_intensity_column = _cda.infer_semester_enrollment_intensity_column
 infer_student_audit_columns = _cda.infer_student_audit_columns
 infer_student_file_categorical = _cda.infer_student_file_categorical
 infer_student_id_column = _cda.infer_student_id_column
@@ -1686,3 +1682,4 @@ value_looks_like_term = _cda.value_looks_like_term
 convert_numeric_columns = _cc.convert_numeric_columns
 normalize_student_id_column = _cc.normalize_student_id_column
 order_terms = _cc.order_terms
+

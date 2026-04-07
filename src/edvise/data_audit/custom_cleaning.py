@@ -1,7 +1,7 @@
 """
 Summary:
   • Normalize headers & clean DataFrames
-  • Geneate robust training-time dtypes with thresholds (avoid train–infer skew)
+  • Generate robust training-time dtypes with thresholds (avoid train–infer skew)
   • Freeze per-dataset schemas and assemble a multi-dataset **preprocess schema**
   • Enforce schemas at inference
   • Save/load the schema
