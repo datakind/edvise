@@ -34,7 +34,8 @@ class SeasonMapEntry(BaseModel):
 
 class TermOrderConfig(BaseModel):
     """
-    Institution term encoding consumed by add_term_order and add_term_labels.
+    Institution term encoding consumed by ``add_edvise_term_order`` (order + labels)
+    and optionally ``add_edvise_term_labels`` when ``_year`` / ``_season`` already exist.
 
     Source columns are mutually exclusive:
     - term_col: single column encoding both year and season (e.g. "2018FA", "Fall 2019")
@@ -140,7 +141,7 @@ class TermContract(BaseModel):
     table: str
     term_config: TermOrderConfig | None = Field(
         default=None,
-        description="Executable term config for add_term_order and add_term_labels, or null if not applicable.",
+        description="Executable term config for add_edvise_term_order (term order + labels), or null if not applicable.",
     )
     confidence: float = Field(
         ...,

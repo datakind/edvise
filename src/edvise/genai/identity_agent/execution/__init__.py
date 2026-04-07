@@ -2,21 +2,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from .grain_transforms import (
+from .contract_utilities import (
     apply_grain_dedup,
     apply_grain_execution,
-    apply_grain_term_order,
+    apply_term_order_from_contract,
     build_dedupe_fn_from_grain_contract,
     canonicalize_grain_contract_student_id_alias,
 )
-from .schema_contract_executor import (
+from .contract_builder import (
     UNIQUE_VALUES_MAX_CARDINALITY,
+    build_enriched_schema_contract_for_dataset,
     build_schema_contract_from_grain_contracts,
     build_training_example_from_schema_contract,
     merge_grain_contracts_into_school_config,
     merge_grain_student_id_alias_into_school_config,
     process_all_schools,
     process_school_dataset,
+    save_enriched_schema_contract,
     save_enriched_schema_contracts,
 )
 
@@ -24,11 +26,12 @@ __all__ = [
     "UNIQUE_VALUES_MAX_CARDINALITY",
     "apply_grain_dedup",
     "apply_grain_execution",
-    "apply_grain_term_order",
+    "apply_term_order_from_contract",
     "apply_term_order_from_config",
     "term_order_column_for_clean_dataset",
     "term_order_fn_from_term_order_config",
     "build_dedupe_fn_from_grain_contract",
+    "build_enriched_schema_contract_for_dataset",
     "build_schema_contract_from_grain_contracts",
     "build_training_example_from_schema_contract",
     "canonicalize_grain_contract_student_id_alias",
@@ -36,6 +39,7 @@ __all__ = [
     "merge_grain_student_id_alias_into_school_config",
     "process_all_schools",
     "process_school_dataset",
+    "save_enriched_schema_contract",
     "save_enriched_schema_contracts",
 ]
 

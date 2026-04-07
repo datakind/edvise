@@ -4,6 +4,9 @@ Grain merge, frozen schema-contract build, and enriched training payloads for Ge
 Combines :func:`merge_grain_contracts_into_school_config` / :func:`build_schema_contract_from_grain_contracts`
 with helpers that attach historical-example metadata (samples, null stats, low-cardinality uniques)
 for Schema Mapping Agent prompts.
+
+Prefer :func:`build_enriched_schema_contract_for_dataset` (one dataset per call);
+:func:`process_all_schools` is deprecated.
 """
 
 from __future__ import annotations
@@ -11,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -20,7 +24,7 @@ import pandas as pd
 from edvise.configs.custom import CleaningConfig
 from edvise.configs.genai import DatasetConfig, SchoolMappingConfig
 from edvise.data_audit.custom_cleaning import DtypeGenerationOptions, TermOrderFn
-from edvise.genai.identity_agent.execution.grain_transforms import (
+from edvise.genai.identity_agent.execution.contract_utilities import (
     canonicalize_grain_contract_student_id_alias,
 )
 from edvise.genai.identity_agent.grain_inference.schemas import GrainContract
@@ -432,6 +436,74 @@ def process_school_dataset(
         )
 
 
+def build_enriched_schema_contract_for_dataset(
+    school_config: SchoolMappingConfig,
+    dataset_name: str,
+    *,
+    dtype_opts: Optional[DtypeGenerationOptions] = None,
+    spark_session: Optional[Any] = None,
+    sample_size: int = 10_000,
+    dataset_name_suffix: str = "",
+    term_order_fn: Optional[TermOrderFn] = None,
+    term_column_by_dataset: Optional[dict[str, str]] = None,
+    term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
+    grain_contracts_by_dataset: Optional[dict[str, GrainContract]] = None,
+) -> Dict[str, Any]:
+    """
+    Build one SMA-style **enriched** institution JSON containing a **single** logical dataset.
+
+    Runs :func:`process_school_dataset` for ``dataset_name``, then merges schema + ``training``
+    metadata the same way as the per-school step in :func:`process_all_schools` (now deprecated).
+
+    For grain-driven primary keys, pass ``grain_contracts_by_dataset`` with at least
+    ``{dataset_name: grain_contract}``. To align ``student_id_alias`` with other tables,
+    pass a ``school_config`` already updated via
+    :func:`merge_grain_student_id_alias_into_school_config` using the **full** grain map.
+    """
+    if dataset_name not in school_config.datasets:
+        raise KeyError(
+            f"dataset_name {dataset_name!r} not in school_config.datasets "
+            f"({list(school_config.datasets)})"
+        )
+
+    dataset_config = school_config.datasets[dataset_name]
+    example, schema_contract = process_school_dataset(
+        school_config=school_config,
+        dataset_name=dataset_name,
+        dataset_config=dataset_config,
+        dtype_opts=dtype_opts,
+        spark_session=spark_session,
+        sample_size=sample_size,
+        dataset_name_suffix=dataset_name_suffix,
+        term_order_fn=term_order_fn,
+        term_column_by_dataset=term_column_by_dataset,
+        term_order_fn_by_dataset=term_order_fn_by_dataset,
+        grain_contracts_by_dataset=grain_contracts_by_dataset,
+    )
+
+    if "error" in example:
+        raise RuntimeError(
+            f"Failed to build schema contract for dataset {dataset_name!r}: "
+            f"{example['error']}"
+        )
+    if not schema_contract or "datasets" not in schema_contract:
+        raise RuntimeError(
+            f"No schema contract produced for dataset {dataset_name!r}"
+        )
+
+    dataset_to_logical_name: Dict[str, str] = {}
+    for logical_name in schema_contract["datasets"].keys():
+        dataset_to_logical_name[dataset_name] = logical_name
+        break
+
+    return _build_enriched_schema_contract(
+        school_config=school_config,
+        school_examples=[example],
+        schema_contracts=[(dataset_name, schema_contract)],
+        dataset_to_logical_name=dataset_to_logical_name,
+    )
+
+
 def process_all_schools(
     project_config: Any,
     dtype_opts: Optional[DtypeGenerationOptions] = None,
@@ -447,6 +519,13 @@ def process_all_schools(
     term_column_by_dataset: Optional[dict[str, str]] = None,
     term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
 ) -> List[Dict[str, Any]]:
+    warnings.warn(
+        "process_all_schools is deprecated; call build_enriched_schema_contract_for_dataset "
+        "once per dataset and save_enriched_schema_contract (or save_enriched_schema_contracts "
+        "with a one-element list) instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if dtype_opts is None:
         dtype_opts = DtypeGenerationOptions()
 
@@ -609,6 +688,18 @@ def _build_enriched_schema_contract(
     return enriched_contract
 
 
+def save_enriched_schema_contract(
+    enriched_contract: Dict[str, Any],
+    output_path: Path,
+) -> None:
+    """Write a single enriched schema contract JSON (any filename)."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(enriched_contract, f, indent=2, default=str)
+    logger.info("Saved: %s", output_path.resolve())
+
+
 def save_enriched_schema_contracts(
     enriched_schema_contracts: List[Dict[str, Any]],
     output_dir: Path,
@@ -624,22 +715,20 @@ def save_enriched_schema_contracts(
         school_id = enriched_contract["school_id"]
         filename = f"{school_id}_schema_contract.json"
         filepath = output_dir / filename
-
-        with open(filepath, "w") as f:
-            json.dump(enriched_contract, f, indent=2, default=str)
-
-        logger.info("Saved: %s", filename)
+        save_enriched_schema_contract(enriched_contract, filepath)
 
     logger.info("✓ Saved all enriched schema contracts to %s", output_dir)
 
 
 __all__ = [
     "UNIQUE_VALUES_MAX_CARDINALITY",
+    "build_enriched_schema_contract_for_dataset",
     "build_schema_contract_from_grain_contracts",
     "build_training_example_from_schema_contract",
     "merge_grain_contracts_into_school_config",
     "merge_grain_student_id_alias_into_school_config",
     "process_all_schools",
     "process_school_dataset",
+    "save_enriched_schema_contract",
     "save_enriched_schema_contracts",
 ]

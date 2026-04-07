@@ -78,8 +78,11 @@ def add_edvise_term_order(
     season_extractor: callable | None = None,
 ) -> pd.DataFrame:
     """
-    Adds _year, _season, and term_order columns to a DataFrame
+    Adds _year, _season, _term_order, and standard term label columns to a DataFrame
     from a term_config dictionary.
+
+    Runs :func:`add_edvise_term_labels` at the end so callers always get canonical
+    season and academic-year strings alongside the sort key.
 
     Parameters
     ----------
@@ -100,9 +103,11 @@ def add_edvise_term_order(
     Returns
     -------
     pd.DataFrame with added columns:
-        _year        : Int64  — extracted year
-        _season      : string — raw season token (e.g. "FA", "9", "Spring")
-        _term_order  : Int64  — chronological sort key (year * 100 + season_rank)
+        _year                     : Int64  — extracted calendar year
+        _season                   : string — raw season token (e.g. "FA", "9", "Spring")
+        _term_order               : Int64  — chronological sort key (year * 100 + season_rank)
+        _edvise_term_season       : string — canonical season (FALL, SPRING, SUMMER, WINTER)
+        _edvise_term_academic_year: string — e.g. "2017-18"
     """
     season_map = term_config["season_map"]
     term_extraction = term_config["term_extraction"]
@@ -164,7 +169,8 @@ def add_edvise_term_order(
             return _resolve_season_token(_norm_token(str(val).strip()), norm_keys)
 
         season_norm = s_season.map(_cell_to_season_norm)
-        return _finalize_season_year_order(out, season_norm, raw_to_rank)
+        ordered = _finalize_season_year_order(out, season_norm, raw_to_rank)
+        return add_edvise_term_labels(ordered, term_config)
 
     # --- Combined term_col path ---
     if term_col not in out.columns:
@@ -191,7 +197,8 @@ def add_edvise_term_order(
 
         season_norm = s.apply(_extract_season)
 
-    return _finalize_season_year_order(out, season_norm, raw_to_rank)
+    ordered = _finalize_season_year_order(out, season_norm, raw_to_rank)
+    return add_edvise_term_labels(ordered, term_config)
 
 
 def add_edvise_term_labels(
@@ -199,8 +206,11 @@ def add_edvise_term_labels(
     term_config: dict,
 ) -> pd.DataFrame:
     """
-    Adds Edvise standard term columns to a DataFrame.
-    Expects _year and _season columns produced by add_edvise_term_order.
+    Adds Edvise standard term label columns to a DataFrame.
+    Expects ``_year`` and ``_season`` (e.g. from :func:`add_edvise_term_order`, which
+    invokes this function automatically).
+
+    Calendar year is ``_year`` only; there is no separate ``_edvise_term_year`` column.
 
     Parameters
     ----------
@@ -213,7 +223,6 @@ def add_edvise_term_labels(
     Returns
     -------
     pd.DataFrame with added columns:
-        _edvise_term_year           : Int64  — e.g. 2017
         _edvise_term_season         : string — e.g. "FALL"
         _edvise_term_academic_year  : string — e.g. "2017-18"
     """
@@ -230,9 +239,6 @@ def add_edvise_term_labels(
     }
 
     out = df.copy()
-
-    # _edvise_term_year — direct passthrough
-    out["_edvise_term_year"] = out["_year"]
 
     # _edvise_term_season — map raw token to canonical label
     out["_edvise_term_season"] = (
@@ -254,7 +260,7 @@ def add_edvise_term_labels(
     # FALL/WINTER of year N -> "N-(N+1 2-digit)"
     # SPRING/SUMMER of year N -> "(N-1)-(N 2-digit)"
     def _academic_year(row: pd.Series) -> str | pd.NA:
-        year = row["_edvise_term_year"]
+        year = row["_year"]
         season = row["_edvise_term_season"]
         if pd.isna(year) or pd.isna(season):
             return pd.NA
@@ -328,7 +334,7 @@ def apply_term_order_from_config(
     """
     Apply a validated :class:`~edvise.genai.identity_agent.term_normalization.schemas.TermOrderConfig`
     by calling :func:`add_edvise_term_order` with ``config`` serialized as the JSON-compatible dict
-    IdentityAgent emits.
+    IdentityAgent emits (including :func:`add_edvise_term_labels`).
 
     Custom extraction (``term_extraction == \"custom\"``) requires ``year_extractor`` and
     ``season_extractor``; resolve those from ``hook_spec`` and call :func:`add_edvise_term_order`

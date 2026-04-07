@@ -4,7 +4,7 @@ Identity pipeline: profiling → grain contract → execution (transforms + sche
 - ``profiling``: deterministic candidate keys and variance facts (`RankedCandidateProfiles`).
 - ``grain_inference``: prompts, `GrainContract` (pass 1), optional row helpers.
 - ``term_normalization``: Pass 2 prompts, `term_config` models, and :func:`apply_term_order_from_config`.
-- ``execution``: grain dedup/term transforms, merge into school config, frozen schema contract.
+- ``execution``: grain dedup + term contract application, merge into school config, frozen schema contract.
 """
 
 from __future__ import annotations
@@ -63,14 +63,16 @@ from .execution import (
     UNIQUE_VALUES_MAX_CARDINALITY,
     apply_grain_dedup,
     apply_grain_execution,
-    apply_grain_term_order,
+    apply_term_order_from_contract,
     build_dedupe_fn_from_grain_contract,
+    build_enriched_schema_contract_for_dataset,
     build_schema_contract_from_grain_contracts,
     build_training_example_from_schema_contract,
     merge_grain_contracts_into_school_config,
     merge_grain_student_id_alias_into_school_config,
     process_all_schools,
     process_school_dataset,
+    save_enriched_schema_contract,
     save_enriched_schema_contracts,
 )
 
@@ -99,9 +101,10 @@ __all__ = [
     "TermOrderConfig",
     "apply_grain_dedup",
     "apply_grain_execution",
-    "apply_grain_term_order",
+    "apply_term_order_from_contract",
     "apply_term_order_from_config",
     "build_dedupe_fn_from_grain_contract",
+    "build_enriched_schema_contract_for_dataset",
     "build_schema_contract_from_grain_contracts",
     "build_identity_agent_system_prompt",
     "build_identity_agent_user_message",
@@ -121,6 +124,7 @@ __all__ = [
     "build_training_example_from_schema_contract",
     "process_all_schools",
     "process_school_dataset",
+    "save_enriched_schema_contract",
     "save_enriched_schema_contracts",
     "build_institution_grain_contracts",
     "parse_grain_contract",

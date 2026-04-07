@@ -39,17 +39,18 @@ You will receive:
 - `term_candidates`: columns flagged as likely term columns, with dtype, unique values, and sample values
 - `raw_table_profile`: all columns in the table, for context when term candidates are ambiguous or missing
 
-Your job is to produce a `TermOrderConfig` that tells the cleaning layer how to derive three standardized columns from the raw term identifier:
+Your job is to produce a `TermOrderConfig` that tells the cleaning layer how to derive standardized columns from the raw term identifier:
 
+- `_year` — 4-digit calendar year (integer)
+- `_season` — raw season token as matched from the source (e.g. `FA`, `Spring`)
 - `_edvise_term_season` — canonical season label: `FALL`, `SPRING`, `SUMMER`, or `WINTER`
-- `_edvise_term_year` — 4-digit integer year
 - `_edvise_term_academic_year` — e.g. `"2017-18"`
 - `_term_order` — chronological sort key: `year * 100 + season_rank` (rank = 1-indexed position in `season_map`)
 
-These are produced by two functions that consume `TermOrderConfig` (as a JSON-compatible dict):
+`TermOrderConfig` (as a JSON-compatible dict) is consumed by:
 
-- `add_edvise_term_order(df, term_config, year_extractor, season_extractor)` — produces `_year`, `_season`, `_term_order`
-- `add_edvise_term_labels(df, term_config)` — produces `_edvise_term_season`, `_edvise_term_year`, `_edvise_term_academic_year`
+- `add_edvise_term_order(df, term_config, year_extractor, season_extractor)` — produces `_year`, `_season`, `_term_order`, `_edvise_term_season`, `_edvise_term_academic_year` (it runs term labels automatically)
+- `add_edvise_term_labels(df, term_config)` — use only when `_year` and `_season` already exist; adds `_edvise_term_season`, `_edvise_term_academic_year`
 """
 
 

@@ -7,7 +7,7 @@ from edvise.configs.genai import DatasetConfig, SchoolMappingConfig
 from edvise.genai.identity_agent.execution import (
     apply_grain_dedup,
     apply_grain_execution,
-    apply_grain_term_order,
+    apply_term_order_from_contract,
     apply_term_order_from_config,
     build_dedupe_fn_from_grain_contract,
     merge_grain_contracts_into_school_config,
@@ -104,7 +104,7 @@ def test_temporal_collapse_keep_last():
     assert int(out["t"].iloc[0]) == 3
 
 
-def test_apply_grain_term_order_adds_columns():
+def test_apply_term_order_from_contract_adds_columns():
     df = pd.DataFrame({"term": ["Fall 2020", "Spring 2021"], "k": [1, 2]})
     tp = _term_pass(
         TermOrderConfig(
@@ -116,11 +116,11 @@ def test_apply_grain_term_order_adds_columns():
             term_extraction="standard",
         ),
     )
-    out = apply_grain_term_order(df, tp)
+    out = apply_term_order_from_contract(df, tp)
     assert "_term_order" in out.columns
 
 
-def test_apply_grain_term_order_yyyytt_with_season_map():
+def test_apply_term_order_from_contract_yyyytt_with_season_map():
     df = pd.DataFrame({"term": ["2018FA", "2019SP"], "k": [1, 2]})
     tp = _term_pass(
         TermOrderConfig(
@@ -132,7 +132,7 @@ def test_apply_grain_term_order_yyyytt_with_season_map():
             term_extraction="standard",
         ),
     )
-    out = apply_grain_term_order(df, tp)
+    out = apply_term_order_from_contract(df, tp)
     assert "_term_order" in out.columns
     assert "_year" in out.columns
     assert "_season" in out.columns

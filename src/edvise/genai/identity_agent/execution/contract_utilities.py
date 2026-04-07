@@ -1,4 +1,9 @@
-"""In-memory grain dedup and term-order transforms (for hooks, tests, or notebooks)."""
+"""
+IdentityAgent execution helpers: apply grain and term contracts to DataFrames.
+
+Composes :mod:`edvise.genai.identity_agent.grain_inference` (dedup, keys) with
+:mod:`edvise.genai.identity_agent.term_normalization` (term ordering). For hooks, tests, and notebooks.
+"""
 
 from __future__ import annotations
 
@@ -13,6 +18,9 @@ from edvise.genai.identity_agent.grain_inference.deduplication import (
 )
 from edvise.genai.identity_agent.grain_inference.schemas import GrainContract
 from edvise.genai.identity_agent.term_normalization.schemas import TermContract
+from edvise.genai.identity_agent.term_normalization.utilities import (
+    apply_term_order_from_config,
+)
 from edvise.utils.data_cleaning import convert_to_snake_case
 
 logger = logging.getLogger(__name__)
@@ -128,29 +136,20 @@ def apply_grain_dedup(df: pd.DataFrame, contract: GrainContract) -> pd.DataFrame
     )
 
 
-def apply_grain_term_order(
+def apply_term_order_from_contract(
     df: pd.DataFrame,
     term_pass: TermContract | None,
 ) -> pd.DataFrame:
     """
-    If ``term_pass`` is set and :attr:`~edvise.genai.identity_agent.term_normalization.schemas.TermContract.term_config`
-    is non-null, run :func:`~edvise.genai.identity_agent.term_normalization.utilities.apply_term_order_from_config`.
+    Apply pass-2 :class:`~edvise.genai.identity_agent.term_normalization.schemas.TermContract` when
+    ``term_config`` is set; otherwise return ``df`` unchanged.
 
-    Pass 2 produces ``term_pass``; pass 1 :class:`~edvise.genai.identity_agent.grain_inference.schemas.GrainContract`
-    has no term fields.
-
-    Adds ``_year``, ``_season``, ``_term_order`` (via
-    :func:`~edvise.genai.identity_agent.term_normalization.utilities.add_edvise_term_order`). If there is no
-    executable term config, returns ``df`` unchanged.
+    Delegates to :func:`~edvise.genai.identity_agent.term_normalization.utilities.apply_term_order_from_config`.
+    Pass 1 :class:`~edvise.genai.identity_agent.grain_inference.schemas.GrainContract` has no term fields.
     """
     if term_pass is None or term_pass.term_config is None:
         return df
-    tc = term_pass.term_config
-    from edvise.genai.identity_agent.term_normalization.utilities import (
-        apply_term_order_from_config,
-    )
-
-    return apply_term_order_from_config(df, tc)
+    return apply_term_order_from_config(df, term_pass.term_config)
 
 
 def apply_grain_execution(
@@ -158,9 +157,9 @@ def apply_grain_execution(
     grain: GrainContract,
     term_pass: TermContract | None = None,
 ) -> pd.DataFrame:
-    """Run :func:`apply_grain_dedup` then :func:`apply_grain_term_order` (pass-2 term contract, if any)."""
+    """Run :func:`apply_grain_dedup` then :func:`apply_term_order_from_contract` (pass-2 term contract, if any)."""
     out = apply_grain_dedup(df, grain)
-    return apply_grain_term_order(out, term_pass)
+    return apply_term_order_from_contract(out, term_pass)
 
 
 def build_dedupe_fn_from_grain_contract(
@@ -170,7 +169,7 @@ def build_dedupe_fn_from_grain_contract(
     Build a ``dedupe_fn`` for :func:`~edvise.data_audit.custom_cleaning.clean_dataset` / SMA
     preprocessing that applies only the grain dedup step (not term order).
 
-    Term order still runs later via ``term_order_fn`` / :func:`apply_grain_term_order` if needed.
+    Term order still runs later via ``term_order_fn`` / :func:`apply_term_order_from_contract` if needed.
     """
 
     def _dedupe_fn(frame: pd.DataFrame) -> pd.DataFrame:
