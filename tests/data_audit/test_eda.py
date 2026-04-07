@@ -817,3 +817,42 @@ def test_infer_semester_credit_aggregate_user_style_columns():
     assert a == "credit_hours"
     assert e == "no_of_credits_earned"
     assert c == "no_of_classes"
+
+
+def test_infer_inst_tot_credits_typo_cumulative_column_is_earned():
+    """Misspelled cumulative total without 'attempt' → earned, not attempted."""
+    from edvise.data_audit import eda as data_audit_eda
+
+    df = pd.DataFrame(
+        {
+            "student_id": [1, 2],
+            "total_cumlative_credits": [90.0, 120.0],
+        }
+    )
+    att, earn = data_audit_eda.infer_inst_tot_credits_columns(df)
+    assert att is None
+    assert earn == "total_cumlative_credits"
+
+
+def test_infer_inst_tot_credits_attempt_vs_typo_cumulative():
+    from edvise.data_audit import eda as data_audit_eda
+
+    df = pd.DataFrame(
+        {
+            "student_id": [1, 2],
+            "total_credits_attempted": [100.0, 130.0],
+            "total_cumlative_credits": [90.0, 120.0],
+        }
+    )
+    att, earn = data_audit_eda.infer_inst_tot_credits_columns(df)
+    assert att == "total_credits_attempted"
+    assert earn == "total_cumlative_credits"
+
+
+def test_credit_column_name_has_attempt_marker():
+    from edvise.data_audit import eda as data_audit_eda
+
+    assert data_audit_eda.credit_column_name_has_attempt_marker("total_credits_attempted")
+    assert data_audit_eda.credit_column_name_has_attempt_marker("sem_att_credits")
+    assert not data_audit_eda.credit_column_name_has_attempt_marker("total_cumlative_credits")
+    assert not data_audit_eda.credit_column_name_has_attempt_marker("matter_score")

@@ -2248,57 +2248,169 @@ DEFAULT_INST_TOT_CREDITS_EARNED_NAME_HINTS: tuple[str, ...] = (
 )
 
 
+_CREDIT_NAME_TYPO_NORMALIZATIONS: tuple[tuple[str, str], ...] = (
+    ("cumlative", "cumulative"),
+    ("cumulitive", "cumulative"),
+    ("comulative", "cumulative"),
+    ("comulitive", "cumulative"),
+)
+
+
 def _normalize_credit_column_name(col: str) -> str:
-    return col.lower().replace(" ", "_").replace("-", "_")
+    c = col.lower().replace(" ", "_").replace("-", "_")
+    for wrong, right in _CREDIT_NAME_TYPO_NORMALIZATIONS:
+        c = c.replace(wrong, right)
+    return c
+
+
+def credit_column_name_has_attempt_marker(col: str) -> bool:
+    """
+    True if *col* name signals **attempted** credits (not cumulative totals).
+
+    Matches ``attempt``, ``attmpt``, or a standalone ``att`` token (e.g. ``sem_att_credits``).
+    """
+    c = _normalize_credit_column_name(col)
+    if "attempt" in c or "attmpt" in c:
+        return True
+    return re.search(r"(^|_)att(_|$)", c) is not None
 
 
 def credits_attempted_column_name_score(col: str) -> float:
     """
-    Heuristic score from *col* name: ``credit`` + ``attempt`` / ``hour`` / ``cum`` / ``cumulative`` / totals.
+    **Attempted** institutional / aggregate credits: requires **attempt** markers (or
+    enrollment **hours**). Cumulative/total **without** attempt → not scored here (those
+    default to **earned** in :func:`credits_earned_column_name_score`).
     """
     c = _normalize_credit_column_name(col)
     if "credit" not in c:
         return 0.0
-    if ("earned" in c) and ("attempt" not in c) and ("attmpt" not in c):
+    if ("earned" in c) and not credit_column_name_has_attempt_marker(col):
         return 0.0
+    has_att = credit_column_name_has_attempt_marker(col)
     s = 0.0
     if "hour" in c or "hrs" in c or c.endswith("_hr") or "_hr_" in c:
         if "earned" not in c:
             s += 1.15
-    if "attempt" in c or "attmpt" in c:
+    if has_att:
         s += 1.25
-    if "cum" in c or "cumulative" in c:
-        s += 0.5
-    if "total" in c or "tot_" in c or c.startswith("inst") or "_inst_" in c:
-        s += 0.3
-    if "number_of" in c or "num_" in c or "nbr_" in c:
-        s += 0.15
-    if s < 0.55 and ("cum" in c or "cumulative" in c):
-        s = max(s, 0.4)
+        if "cum" in c or "cumulative" in c:
+            s += 0.5
+        if "total" in c or "tot_" in c or c.startswith("inst") or "_inst_" in c:
+            s += 0.3
+        if "number_of" in c or "num_" in c or "nbr_" in c:
+            s += 0.15
     return s
 
 
 def credits_earned_column_name_score(col: str) -> float:
     """
-    Heuristic score from *col* name: ``credit`` + ``earned`` / ``cum`` / ``cumulative`` / totals.
+    **Earned** credits: explicit ``earned``, or cumulative/total credit columns **without**
+    attempt markers (e.g. ``total_cumlative_credits`` → earned total).
     """
     c = _normalize_credit_column_name(col)
     if "credit" not in c:
         return 0.0
-    if ("attempt" in c or "attmpt" in c) and ("earned" not in c):
+    has_att = credit_column_name_has_attempt_marker(col)
+    if has_att and "earned" not in c:
         return 0.0
     s = 0.0
     if "earned" in c:
         s += 1.25
-    if "cum" in c or "cumulative" in c:
-        s += 0.5
-    if "total" in c or "tot_" in c or c.startswith("inst") or "_inst_" in c:
-        s += 0.3
-    if "number_of" in c or "num_" in c or "nbr_" in c:
-        s += 0.15
-    if s < 0.55 and ("cum" in c or "cumulative" in c) and ("attempt" not in c):
-        s = max(s, 0.4)
+    if not has_att:
+        if "cum" in c or "cumulative" in c:
+            s += 0.85
+        if "total" in c or "tot_" in c or c.startswith("inst") or "_inst_" in c:
+            s += 0.55
+        if "number_of" in c or "num_" in c or "nbr_" in c:
+            s += 0.15
+        if s < 0.9 and ("cum" in c or "cumulative" in c):
+            s = max(s, 0.95)
     return s
+
+
+def _pick_distinct_credit_columns(
+    att_ranked: list[tuple[float, str]],
+    ern_ranked: list[tuple[float, str]],
+) -> tuple[str | None, str | None]:
+    attempted_col = att_ranked[0][1] if att_ranked else None
+    earned_col = ern_ranked[0][1] if ern_ranked else None
+    if attempted_col and earned_col and attempted_col == earned_col:
+        alt_e = next((c for _, c in ern_ranked if c != attempted_col), None)
+        alt_a = next((c for _, c in att_ranked if c != earned_col), None)
+        if alt_e is not None:
+            earned_col = alt_e
+        elif alt_a is not None:
+            attempted_col = alt_a
+        else:
+            earned_col = None
+    return attempted_col, earned_col
+
+
+def _rank_columns_by_name_score(
+    df: pd.DataFrame,
+    *,
+    column_score_fn: t.Callable[[str], float],
+    name_hints: tuple[str, ...],
+    min_base_score: float,
+    tiebreak_fn: t.Callable[[pd.Series], float],
+    tiebreak_weight: float,
+    exclude_cols: t.AbstractSet[str] | None = None,
+) -> list[tuple[float, str]]:
+    """
+    Rank dataframe columns by ``column_score_fn`` + hint bonus, with an optional tie-break
+    from *tiebreak_fn(series)* (e.g. numeric coercion rate or string populated rate).
+    """
+    ranked: list[tuple[float, str]] = []
+    skip = set(exclude_cols or ())
+    for col in df.columns:
+        if col in skip or pd.api.types.is_bool_dtype(df[col]):
+            continue
+        base = float(column_score_fn(col))
+        base += 2.0 * term_column_name_hint_score(col, name_hints)
+        if base < min_base_score:
+            continue
+        tb = tiebreak_fn(df[col])
+        ranked.append((base + tiebreak_weight * tb, col))
+    ranked.sort(key=lambda x: -x[0])
+    return ranked
+
+
+def _infer_two_credit_columns_by_name(
+    df: pd.DataFrame,
+    *,
+    attempted_score_fn: t.Callable[[str], float],
+    earned_score_fn: t.Callable[[str], float],
+    attempted_name_hints: tuple[str, ...],
+    earned_name_hints: tuple[str, ...],
+    min_name_score: float = 0.45,
+    numeric_tiebreak_weight: float = 0.12,
+    max_sample: int = 8000,
+) -> tuple[str | None, str | None]:
+    """Shared ranking for attempted vs earned credit columns (numeric tie-break only)."""
+    if len(df.columns) == 0:
+        return None, None
+
+    def _num_tb(ser: pd.Series) -> float:
+        return _numeric_coercion_rate(ser, max_sample=max_sample)
+
+    return _pick_distinct_credit_columns(
+        _rank_columns_by_name_score(
+            df,
+            column_score_fn=attempted_score_fn,
+            name_hints=attempted_name_hints,
+            min_base_score=min_name_score,
+            tiebreak_fn=_num_tb,
+            tiebreak_weight=numeric_tiebreak_weight,
+        ),
+        _rank_columns_by_name_score(
+            df,
+            column_score_fn=earned_score_fn,
+            name_hints=earned_name_hints,
+            min_base_score=min_name_score,
+            tiebreak_fn=_num_tb,
+            tiebreak_weight=numeric_tiebreak_weight,
+        ),
+    )
 
 
 def infer_inst_tot_credits_columns(
@@ -2311,59 +2423,24 @@ def infer_inst_tot_credits_columns(
     max_sample: int = 8000,
 ) -> tuple[str | None, str | None]:
     """
-    Infer credits **attempted** and **earned** columns by **column name** (cohort or semester file).
+    Infer credits **attempted** and **earned** by **column name** (cohort or semester).
 
-    Matches names containing ``credit`` plus ``attempt`` / ``earned``, and boosts ``cum`` /
-    ``cumulative``, totals, ``inst``, and ``number_of_*`` patterns. Optional legacy hint tuples
-    add a small bonus; numeric coercion rate is only a **tie-break**, not a hard filter.
+    Cumulative/total credit fields **without** ``attempt`` / ``att`` tokens are treated as
+    **earned** (e.g. misspelled ``total_cumlative_credits``). Attempted requires attempt
+    markers or **credit hours**-style enrollment columns.
     """
     if df is None or len(df.columns) == 0:
         return None, None
-
-    def rank_for_attempted() -> list[tuple[float, str]]:
-        ranked: list[tuple[float, str]] = []
-        for col in df.columns:
-            if pd.api.types.is_bool_dtype(df[col]):
-                continue
-            base = credits_attempted_column_name_score(col)
-            base += 2.0 * term_column_name_hint_score(col, attempted_name_hints)
-            if base < min_name_score:
-                continue
-            nr = _numeric_coercion_rate(df[col], max_sample=max_sample)
-            ranked.append((base + numeric_tiebreak_weight * nr, col))
-        ranked.sort(key=lambda x: -x[0])
-        return ranked
-
-    def rank_for_earned() -> list[tuple[float, str]]:
-        ranked: list[tuple[float, str]] = []
-        for col in df.columns:
-            if pd.api.types.is_bool_dtype(df[col]):
-                continue
-            base = credits_earned_column_name_score(col)
-            base += 2.0 * term_column_name_hint_score(col, earned_name_hints)
-            if base < min_name_score:
-                continue
-            nr = _numeric_coercion_rate(df[col], max_sample=max_sample)
-            ranked.append((base + numeric_tiebreak_weight * nr, col))
-        ranked.sort(key=lambda x: -x[0])
-        return ranked
-
-    att_ranked = rank_for_attempted()
-    ern_ranked = rank_for_earned()
-    attempted_col = att_ranked[0][1] if att_ranked else None
-    earned_col = ern_ranked[0][1] if ern_ranked else None
-
-    if attempted_col and earned_col and attempted_col == earned_col:
-        alt_e = next((c for _, c in ern_ranked if c != attempted_col), None)
-        alt_a = next((c for _, c in att_ranked if c != earned_col), None)
-        if alt_e is not None:
-            earned_col = alt_e
-        elif alt_a is not None:
-            attempted_col = alt_a
-        else:
-            earned_col = None
-
-    return attempted_col, earned_col
+    return _infer_two_credit_columns_by_name(
+        df,
+        attempted_score_fn=credits_attempted_column_name_score,
+        earned_score_fn=credits_earned_column_name_score,
+        attempted_name_hints=attempted_name_hints,
+        earned_name_hints=earned_name_hints,
+        min_name_score=min_name_score,
+        numeric_tiebreak_weight=numeric_tiebreak_weight,
+        max_sample=max_sample,
+    )
 
 
 # --- Course-row and semester aggregate columns (validate_credit_consistency / check_pf) ---
@@ -2439,7 +2516,13 @@ def course_row_credits_attempted_name_score(col: str) -> float:
         s += 0.95
     if "credit" in c and "hour" in c and "earned" not in c:
         s = max(s, 1.4)
-    if "credit" in c and s < 0.55 and "attempt" not in c and "hour" not in c:
+    if (
+        "credit" in c
+        and s < 0.55
+        and not credit_column_name_has_attempt_marker(col)
+        and "hour" not in c
+        and "unit" not in c
+    ):
         s = max(s, 0.52)
     return s
 
@@ -2468,51 +2551,16 @@ def infer_course_credit_columns(
     """
     if len(df.columns) == 0:
         return None, None
-
-    def rank_for_attempted() -> list[tuple[float, str]]:
-        ranked: list[tuple[float, str]] = []
-        for col in df.columns:
-            if pd.api.types.is_bool_dtype(df[col]):
-                continue
-            base = course_row_credits_attempted_name_score(col)
-            base += 2.0 * term_column_name_hint_score(col, attempted_name_hints)
-            if base < min_name_score:
-                continue
-            nr = _numeric_coercion_rate(df[col], max_sample=max_sample)
-            ranked.append((base + numeric_tiebreak_weight * nr, col))
-        ranked.sort(key=lambda x: -x[0])
-        return ranked
-
-    def rank_for_earned() -> list[tuple[float, str]]:
-        ranked: list[tuple[float, str]] = []
-        for col in df.columns:
-            if pd.api.types.is_bool_dtype(df[col]):
-                continue
-            base = course_row_credits_earned_name_score(col)
-            base += 2.0 * term_column_name_hint_score(col, earned_name_hints)
-            if base < min_name_score:
-                continue
-            nr = _numeric_coercion_rate(df[col], max_sample=max_sample)
-            ranked.append((base + numeric_tiebreak_weight * nr, col))
-        ranked.sort(key=lambda x: -x[0])
-        return ranked
-
-    att_ranked = rank_for_attempted()
-    ern_ranked = rank_for_earned()
-    attempted_col = att_ranked[0][1] if att_ranked else None
-    earned_col = ern_ranked[0][1] if ern_ranked else None
-
-    if attempted_col and earned_col and attempted_col == earned_col:
-        alt_e = next((c for _, c in ern_ranked if c != attempted_col), None)
-        alt_a = next((c for _, c in att_ranked if c != earned_col), None)
-        if alt_e is not None:
-            earned_col = alt_e
-        elif alt_a is not None:
-            attempted_col = alt_a
-        else:
-            earned_col = None
-
-    return attempted_col, earned_col
+    return _infer_two_credit_columns_by_name(
+        df,
+        attempted_score_fn=course_row_credits_attempted_name_score,
+        earned_score_fn=course_row_credits_earned_name_score,
+        attempted_name_hints=attempted_name_hints,
+        earned_name_hints=earned_name_hints,
+        min_name_score=min_name_score,
+        numeric_tiebreak_weight=numeric_tiebreak_weight,
+        max_sample=max_sample,
+    )
 
 
 def semester_course_count_column_name_score(col: str) -> float:
@@ -2579,17 +2627,15 @@ def infer_semester_credit_aggregate_columns(
         max_sample=max_sample,
     )
     used = {c for c in (att, earn) if c}
-    ranked: list[tuple[float, str]] = []
-    for col in df.columns:
-        if col in used or pd.api.types.is_bool_dtype(df[col]):
-            continue
-        base = semester_course_count_column_name_score(col)
-        base += 2.0 * term_column_name_hint_score(col, course_count_name_hints)
-        if base < count_min_name_score:
-            continue
-        pr = _string_populated_rate(df[col], max_sample=max_sample)
-        ranked.append((base + count_tiebreak_weight * pr, col))
-    ranked.sort(key=lambda x: -x[0])
+    ranked = _rank_columns_by_name_score(
+        df,
+        column_score_fn=semester_course_count_column_name_score,
+        name_hints=course_count_name_hints,
+        min_base_score=count_min_name_score,
+        tiebreak_fn=lambda ser: _string_populated_rate(ser, max_sample=max_sample),
+        tiebreak_weight=count_tiebreak_weight,
+        exclude_cols=used,
+    )
     count_col = ranked[0][1] if ranked else None
     return att, earn, count_col
 
@@ -2651,17 +2697,15 @@ def infer_course_grade_pf_columns(
     used: set[str] = set(exclude_cols or ())
 
     def pick(score_fn: t.Callable[[str], float], hints: tuple[str, ...]) -> str | None:
-        ranked: list[tuple[float, str]] = []
-        for col in df.columns:
-            if col in used or pd.api.types.is_bool_dtype(df[col]):
-                continue
-            base = score_fn(col)
-            base += 2.0 * term_column_name_hint_score(col, hints)
-            if base < min_name_score:
-                continue
-            pr = _string_populated_rate(df[col], max_sample=max_sample)
-            ranked.append((base + tiebreak_weight * pr, col))
-        ranked.sort(key=lambda x: -x[0])
+        ranked = _rank_columns_by_name_score(
+            df,
+            column_score_fn=score_fn,
+            name_hints=hints,
+            min_base_score=min_name_score,
+            tiebreak_fn=lambda ser: _string_populated_rate(ser, max_sample=max_sample),
+            tiebreak_weight=tiebreak_weight,
+            exclude_cols=used,
+        )
         return ranked[0][1] if ranked else None
 
     grade_col = pick(course_grade_column_name_score, grade_name_hints)
