@@ -1044,7 +1044,7 @@ def run():
                         f"→ manifest saved (JSON only; envelope validation failed) → {manifest_path}: {ve}"
                     )
             else:
-                logger.warning(f"→ manifest not saved (inference error)")
+                logger.warning("→ manifest not saved (inference error)")
 
             # score
             scores = score_result(
@@ -1071,7 +1071,7 @@ def run():
                     )
                 result["scores"] = scores
             else:
-                logger.warning(f"→ scoring skipped (parse failure or inference error)")
+                logger.warning("→ scoring skipped (parse failure or inference error)")
                 result["scores"] = None
 
             rows.append(result)

@@ -4,8 +4,7 @@ Builds the prompt for generating a mapping manifest from a schema contract + ref
 """
 
 import json
-from typing import Any, Literal
-import pandera as pa
+from typing import Literal
 
 from edvise.genai.schema_mapping_agent.manifest.schemas import (
     get_manifest_schema_context,

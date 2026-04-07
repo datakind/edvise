@@ -3,7 +3,7 @@ Identity pipeline: profiling → grain contract → execution (transforms + sche
 
 - ``profiling``: deterministic candidate keys and variance facts (`RankedCandidateProfiles`).
 - ``grain_inference``: prompts, `IdentityGrainContract`, optional row helpers.
-- ``term_normalization``: `term_config` models and :func:`apply_term_order_from_config`.
+- ``term_normalization``: Pass 2 prompts, `term_config` models, and :func:`apply_term_order_from_config`.
 - ``execution``: grain dedup/term transforms, merge into school config, frozen schema contract.
 """
 
@@ -32,10 +32,17 @@ from .grain_inference import (
     strip_json_fences,
 )
 from .term_normalization import (
+    TERM_NORMALIZATION_SYSTEM_PROMPT,
+    TERM_NORMALIZATION_USER_TEMPLATE,
     TERM_UTILITY_REGISTRY,
     TermFormat,
+    TermNormalizationPassOutput,
     TermOrderConfig,
     TermOrderOutputs,
+    build_term_normalization_system_prompt,
+    build_term_normalization_user_message,
+    build_term_normalization_user_message_from_profiles,
+    parse_term_normalization_pass_output,
 )
 from .profiling import (
     CandidateKey,
@@ -69,6 +76,8 @@ __all__ = [
     "IDENTITY_CONFIDENCE_HITL_THRESHOLD",
     "DedupPolicy",
     "DedupStrategy",
+    "TERM_NORMALIZATION_SYSTEM_PROMPT",
+    "TERM_NORMALIZATION_USER_TEMPLATE",
     "TERM_UTILITY_REGISTRY",
     "TermFormat",
     "IDENTITY_AGENT_SYSTEM_PROMPT",
@@ -79,6 +88,7 @@ __all__ = [
     "RankedCandidateProfiles",
     "RawColumnProfile",
     "RawTableProfile",
+    "TermNormalizationPassOutput",
     "TermOrderConfig",
     "TermOrderOutputs",
     "apply_grain_dedup",
@@ -89,6 +99,9 @@ __all__ = [
     "build_schema_contract_from_grain_contracts",
     "build_identity_agent_system_prompt",
     "build_identity_agent_user_message",
+    "build_term_normalization_system_prompt",
+    "build_term_normalization_user_message",
+    "build_term_normalization_user_message_from_profiles",
     "deduplication",
     "execution",
     "format_column_list",
@@ -103,6 +116,7 @@ __all__ = [
     "build_institution_grain_contracts",
     "parse_identity_grain_contract",
     "parse_institution_grain_contracts",
+    "parse_term_normalization_pass_output",
     "profile_candidate_keys",
     "profiling",
     "term_normalization",
