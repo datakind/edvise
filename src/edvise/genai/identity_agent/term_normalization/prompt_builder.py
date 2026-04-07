@@ -170,6 +170,125 @@ You do not need to emit academic year logic — just ensure `season_map` canonic
 """
 
 
+def _tn_reasoning_steps_batch() -> str:
+    return """
+## REASONING STEPS
+
+### Step 1 — Select the authoritative term column
+
+From `term_candidates`, select the most authoritative term column. Apply these preferences in order:
+
+1. Prefer columns whose raw values directly encode both season and year in a human-readable or parseable string format — e.g. `"Fall 2020"`, `"Spring 2021"`, `"2019FA"` — over opaque numeric identifiers such as `"1730"` or `"1192"`, even when the numeric column appears in `grain_post_clean_primary_key`. Opaque numeric columns should only be selected when no readable alternative exists.
+2. Among readable columns, prefer zero-null columns over sparse ones.
+3. Among equally readable, equally complete columns, prefer the one that appears in `grain_post_clean_primary_key`.
+
+Note: "coded identifier" means a short, parseable code like `"2020FA"` or `"SP2019"` — not an opaque integer like `"1700"`. The preference for coded identifiers is a preference for compact parseable strings over verbose display labels, not a preference for numeric keys over readable strings.
+
+If multiple valid term columns exist, select the best one by the rules above and note the others in `reasoning`.
+If no term candidate is suitable, inspect `raw_table_profile.columns` for any overlooked term-like column before giving up.
+
+### Step 2 — Inspect dtype and unique values
+
+Use dtype and `unique_values` (or `sample_values` if `unique_values` is null) to classify the term format.
+
+**Known standard formats** (`term_extraction`: `"standard"`):
+
+- **YYYYTT** — 4-digit year + season code suffix: `"2018FA"`, `"2019SP"`, `"2018S1"` — year extractable via 4-digit regex, season matchable via suffix
+- **Season_YYYY** — spelled season + year: `"Fall 2019"`, `"Spring 2021"` — year extractable via 4-digit regex, season matchable via prefix
+
+**Custom formats** (`term_extraction`: `"custom"`):
+
+- `datetime` or `date` dtype — date-based extraction needed
+- Opaque numeric codes — e.g. `"1192"`, `"1199"` with no visible year string or season token
+- `float` or `int` dtype with numeric codes — e.g. `1192.0` — treat as opaque numeric
+
+### Step 3 — Build `season_map`
+
+From unique values, identify all distinct season tokens. List them in **chronological order within a calendar year** (not academic year order).
+
+Rules:
+
+- Canonical label must be one of: `FALL`, `SPRING`, `SUMMER`, `WINTER`
+- Multiple raw tokens may share the same canonical label (e.g. `S1` and `S2` → `SUMMER`) but must appear as **separate entries** to preserve distinct chronological positions
+- Position in the list determines `season_rank` (1-indexed) used for `_term_order`
+- For **Season_YYYY** formats, raw tokens are the spelled words as they appear: `"Fall"`, `"Spring"`
+- For opaque numeric or date formats where season cannot be observed, set `season_map: []`
+
+Example for YYYYTT:
+
+```json
+"season_map": [
+    {"raw": "SP", "canonical": "SPRING"},
+    {"raw": "S1", "canonical": "SUMMER"},
+    {"raw": "S2", "canonical": "SUMMER"},
+    {"raw": "FA", "canonical": "FALL"},
+    {"raw": "WI", "canonical": "WINTER"}
+]
+```
+
+### Step 4 — Set `term_extraction` and populate `hook_spec` if needed
+
+Set `term_extraction`: `"standard"` when:
+
+- A 4-digit year is extractable via regex from the raw value, **AND**
+- Season tokens are matchable via prefix or suffix against `season_map` keys
+
+Set `term_extraction`: `"custom"` when:
+
+- dtype is `datetime` or `date`
+- Raw values are opaque numeric codes with no visible year string or season token
+- dtype is `float` or `int`
+
+When `term_extraction`: `"custom"`, always populate `hook_spec`. Draft extractor functions based on observed patterns in unique values.
+
+For **opaque numeric codes** (e.g. CUNY `"1192"`):
+
+- Reason about positional structure from unique value samples
+- Draft `year_extractor` and `season_extractor` as single Python expressions
+- `season_extractor` output must match a `raw` key in `season_map`
+- Mark all drafts as requiring human review
+
+For **date columns**:
+
+- `year_extractor`: `pd.to_datetime(term).year`
+- `season_extractor`: infer from month bands — 1-4 → Spring, 5-7 → Summer, 8-11 → Fall, 12 → Winter
+- `season_map` should reflect the canonical mapping for those month-inferred seasons
+
+### Step 5 — Set `hitl_flag` and `hitl_question`
+
+Set `hitl_flag`: `true` when any of the following apply:
+
+- `term_extraction`: `"custom"` — hook functions require human review before use
+- `term_candidates` was empty and term column was inferred from `raw_table_profile`
+- Unique values contain unrecognized tokens that could not be mapped to a canonical season
+- Confidence in the term column selection is low (multiple ambiguous candidates)
+
+**REQUIRED:** When `hitl_flag` is `true`, `hitl_question` **MUST** be a non-null string. A null `hitl_question` paired with `hitl_flag`: `true` is invalid output.
+
+`hitl_question` must be specific and actionable. It must name:
+
+- The column in question
+- The specific values or patterns that are ambiguous or unverifiable
+- What the human reviewer needs to confirm or provide
+
+Good examples:
+
+- "`TERM_DESCR` contains unrecognized tokens `'Med Year 2020-2021'`, `'Med Year 2021-2022'`, etc. that do not map to a canonical season. Please confirm how these should be classified (e.g. FALL, SPRING) or whether rows with these values should be excluded from term ordering."
+- "`STRM` year offset logic was inferred from samples (e.g. 1700 → 2017, 1730 → 2017). Please confirm the extraction rule: is the formula `int(str(strm)[:2]) + 2000` correct for all values in this dataset, including edge cases like 1695 and 1725?"
+
+When `hitl_flag` is `false`, `hitl_question` must be `null`.
+
+### ACADEMIC YEAR CONVENTION (do not emit — for your reasoning only)
+
+`_edvise_term_academic_year` is derived deterministically by `add_edvise_term_labels`:
+
+- `FALL` or `WINTER` of year N → `"N-(N+1 2-digit)"` e.g. `"2017-18"`
+- `SPRING` or `SUMMER` of year N → `"(N-1)-N"` 2-digit e.g. `"2017-18"` when N=2018
+
+You do not need to emit academic year logic — just ensure `season_map` canonical labels are correct.
+"""
+
+
 def _tn_confidence_scoring() -> str:
     t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
     return f"""
@@ -347,6 +466,12 @@ Shape:
 }
 ```
 
+VALIDITY RULES
+
+- `hitl_flag`: `true` requires a non-null `hitl_question`. Any output pairing `hitl_flag`: `true` with `hitl_question`: `null` is malformed.
+- `term_config`: `null` requires `reasoning` to explain why no term column was selected or why `row_selection_required` is false.
+- `confidence` must be a numeric value (float), never a string.
+
 Per-table `term_config`, `confidence`, `hitl_flag`, and `hitl_question` follow the same rules as
 single-table Pass 2. Each nested object must set `"table"` to the **same string** as its key in
 `datasets`.
@@ -360,7 +485,7 @@ def build_term_normalization_batch_system_prompt() -> str:
         + "\n\n---\n"
         + _tn_when_null()
         + "\n---\n"
-        + _tn_reasoning_steps()
+        + _tn_reasoning_steps_batch()
         + "\n---\n"
         + _tn_confidence_scoring()
         + "\n---\n"
