@@ -1151,7 +1151,7 @@ def test_keep_earlier_record_with_custom_column_names():
         }
     )
 
-        result = m.keep_earlier_record(df, id_col="user_id", sort_col="enrollment_term")
+    result = m.keep_earlier_record(df, id_col="user_id", sort_col="enrollment_term")
 
     # Should keep earliest record for each user
     assert len(result) == 2
