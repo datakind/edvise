@@ -446,7 +446,7 @@ if TERM_COL_SEMESTER and TERM_COL_SEMESTER in semester_raw_df.columns:
         .reset_index()
     )
     _semtype_pct.columns = [TERM_COL_SEMESTER, "pct_of_rows"]
-    display(_ctype_pct)
+    display(_semtype_pct)
 else:
     print("No inferred term column for semester file; skip term value counts.")
 
