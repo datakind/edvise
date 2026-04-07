@@ -64,27 +64,12 @@ def from_csv_file(
     if spark_session is None:
         df = pd.read_csv(file_path, dtype="string", header="infer", **kwargs)  # type: ignore
     else:
-        try:
-            df = spark_session.read.csv(
-                file_path,
-                inferSchema=False,
-                header=True,
-                **kwargs,  # type: ignore
-            ).toPandas()
-        except Exception as e:
-            # Spark often raises on header-only or empty CSVs: "Can not infer schema from empty dataset"
-            msg = str(e).lower()
-            if ("infer" in msg and "schema" in msg) or (
-                "empty" in msg and "dataset" in msg
-            ):
-                LOGGER.warning(
-                    "Spark CSV read failed (%s); falling back to pandas.read_csv for %s",
-                    e,
-                    file_path,
-                )
-                df = pd.read_csv(file_path, dtype="string", header="infer", **kwargs)  # type: ignore
-            else:
-                raise
+        df = spark_session.read.csv(
+            file_path,
+            inferSchema=False,
+            header=True,
+            **kwargs,  # type: ignore
+        ).toPandas()
     assert isinstance(df, pd.DataFrame)  # type guard
     LOGGER.info("loaded rows x cols = %s from '%s'", df.shape, file_path)
     return df
