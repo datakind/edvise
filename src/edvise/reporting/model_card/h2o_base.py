@@ -99,10 +99,16 @@ class H2OModelCard(ModelCard[C]):
         Returns:
             A dictionary with plot names and their inline HTML representations.
         """
+        run_id = self.run_id
+        if run_id is None:
+            raise RuntimeError(
+                "ModelCard.run_id must be set before get_model_plots(); "
+                "call load_model() first."
+            )
         plots = self._get_plot_config()
         return {
             key: reporting_utils.utils.download_artifact(
-                run_id=self.run_id,
+                run_id=run_id,
                 description=description,
                 artifact_path=path,
                 local_folder=self.assets_folder,

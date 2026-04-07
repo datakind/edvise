@@ -787,6 +787,17 @@ def test_infer_student_audit_columns_includes_age():
     out = data_audit_eda.infer_student_audit_columns(df, term_col=term)
     assert out["age"] == "student_age"
     assert out["student_type"] == "entry_type"
+    assert "incarceration" in out and "military" in out
+    assert "employment" in out and "disability" in out
+
+
+def test_bias_variable_codebook_line_known_roles():
+    from edvise.data_audit import eda as data_audit_eda
+
+    assert data_audit_eda.bias_variable_codebook_line("military") and "Veteran" in (
+        data_audit_eda.bias_variable_codebook_line("military") or ""
+    )
+    assert data_audit_eda.bias_variable_codebook_line("nope") is None
 
 
 def test_string_looks_like_age_bucket_common_labels():

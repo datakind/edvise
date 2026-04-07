@@ -45,6 +45,7 @@ from edvise import dataio, configs
 
 from edvise.data_audit.eda import (
     analyze_merge,
+    bias_variable_codebook_line,
     check_earned_vs_attempted,
     check_pf_grade_consistency,
     find_dupes,
@@ -237,6 +238,10 @@ ETHNICITY_COL_STUDENT = _audit_cols["ethnicity"]
 GENDER_COL_STUDENT = _audit_cols["gender"]
 AGE_COL_STUDENT = _audit_cols["age"]
 PELL_COL_STUDENT = _audit_cols["pell"]
+INCARCERATION_COL_STUDENT = _audit_cols["incarceration"]
+MILITARY_COL_STUDENT = _audit_cols["military"]
+EMPLOYMENT_COL_STUDENT = _audit_cols["employment"]
+DISABILITY_COL_STUDENT = _audit_cols["disability"]
 
 print(
     "Inferred student-type & bias columns (override in notebook if wrong):",
@@ -248,6 +253,10 @@ print(
         "GENDER_COL_STUDENT": GENDER_COL_STUDENT,
         "AGE_COL_STUDENT": AGE_COL_STUDENT,
         "PELL_COL_STUDENT": PELL_COL_STUDENT,
+        "INCARCERATION_COL_STUDENT": INCARCERATION_COL_STUDENT,
+        "MILITARY_COL_STUDENT": MILITARY_COL_STUDENT,
+        "EMPLOYMENT_COL_STUDENT": EMPLOYMENT_COL_STUDENT,
+        "DISABILITY_COL_STUDENT": DISABILITY_COL_STUDENT,
     },
 )
 
@@ -345,7 +354,7 @@ else:
 # MAGIC %md
 # MAGIC ## Student file: bias & equity variables (populatedness + distributions)
 # MAGIC
-# MAGIC **What this proves:** `pct_populated` is the percent of cohort rows with a non-null value for each inferred column (entry term, student type, first-gen, race, ethnicity, gender/sex, age, pell). Distribution tables below use `pct_of_non_null_rows` (sums to 100% among non-null rows only).
+# MAGIC **What this proves:** `pct_populated` is the percent of cohort rows with a non-null value for each inferred column (entry term, student type, first-gen, race, ethnicity, gender/sex, age, pell, incarceration, military, employment, disability). Distribution tables below use `pct_of_non_null_rows` (sums to 100% among non-null rows only). Codebook lines under several variables reflect typical registrar encodings.
 
 # COMMAND ----------
 
@@ -358,6 +367,10 @@ _POPULATEDNESS_SPECS = (
     ("gender / sex", GENDER_COL_STUDENT),
     ("age", AGE_COL_STUDENT),
     ("pell status", PELL_COL_STUDENT),
+    ("incarceration status", INCARCERATION_COL_STUDENT),
+    ("military status", MILITARY_COL_STUDENT),
+    ("employment status", EMPLOYMENT_COL_STUDENT),
+    ("disability status", DISABILITY_COL_STUDENT),
 )
 
 _pop_rows = []
@@ -375,13 +388,17 @@ display(_populatedness_df)
 
 # COMMAND ----------
 
-for _label, _col in (
-    ("first generation", FIRST_GEN_COL_STUDENT),
-    ("race", RACE_COL_STUDENT),
-    ("ethnicity", ETHNICITY_COL_STUDENT),
-    ("gender / sex", GENDER_COL_STUDENT),
-    ("age", AGE_COL_STUDENT),
-    ("pell status", PELL_COL_STUDENT),
+for _label, _col, _codebook_role in (
+    ("first generation", FIRST_GEN_COL_STUDENT, "first_gen"),
+    ("race", RACE_COL_STUDENT, None),
+    ("ethnicity", ETHNICITY_COL_STUDENT, None),
+    ("gender / sex", GENDER_COL_STUDENT, None),
+    ("age", AGE_COL_STUDENT, None),
+    ("pell status", PELL_COL_STUDENT, "pell"),
+    ("incarceration status", INCARCERATION_COL_STUDENT, "incarceration"),
+    ("military status", MILITARY_COL_STUDENT, "military"),
+    ("employment status", EMPLOYMENT_COL_STUDENT, "employment"),
+    ("disability status", DISABILITY_COL_STUDENT, "disability"),
 ):
     if not _col or _col not in student_raw_df.columns:
         print(f"Skip distribution for {_label!r}: column not inferred or missing.")
@@ -394,6 +411,11 @@ for _label, _col in (
     _s.name = _col
     _dist = value_counts_percent_df(_s, pct_col="pct_of_non_null_rows")
     print(f"\n--- {_label} ({_col}) — among non-null rows only ---")
+    _cb = (
+        bias_variable_codebook_line(_codebook_role) if _codebook_role else None
+    )
+    if _cb:
+        print(_cb)
     display(_dist)
 
 # COMMAND ----------

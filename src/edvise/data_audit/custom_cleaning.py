@@ -1255,6 +1255,7 @@ def add_term_col(
         if use_default_calendar:
             season = _default_month_to_season(int(dt.month))
         else:
+            assert season_cutoffs is not None
             season = next(
                 (s for c, s in season_cutoffs if dt.month < c),
                 None,

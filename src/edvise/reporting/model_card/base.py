@@ -6,7 +6,6 @@ from abc import ABC, abstractmethod
 from mlflow.tracking import MlflowClient
 
 import markdown
-from weasyprint import HTML
 import tempfile
 
 from importlib.abc import Traversable
@@ -269,6 +268,8 @@ class ModelCard(t.Generic[C], ABC):
         self.pdf_path = self.output_path.replace(".md", ".pdf")
 
         try:
+            from weasyprint import HTML
+
             HTML(string=self.html_content, base_url=base_path).write_pdf(self.pdf_path)
             LOGGER.info(f"✅ PDF model card saved to {self.pdf_path}")
         except Exception as e:

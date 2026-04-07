@@ -1296,10 +1296,13 @@ def validate_credit_consistency(
 
         s_cols = [id_col, sem_col]
         if sem_has_attempted:
+            assert semester_credits_attempted_col is not None
             s_cols.append(semester_credits_attempted_col)
         if sem_has_earned:
+            assert semester_credits_earned_col is not None
             s_cols.append(semester_credits_earned_col)
         if sem_has_count:
+            assert semester_courses_count_col is not None
             s_cols.append(semester_courses_count_col)
 
         s = semester_df[s_cols].copy()
@@ -1760,16 +1763,16 @@ def _pass_fail_label_series(
 
 
 def check_pf_grade_consistency(
-    df,
-    grade_col="grade",
-    pf_col="pass_fail_flag",
-    credits_col="credits_earned",
+    df: pd.DataFrame,
+    grade_col: str = "grade",
+    pf_col: str = "pass_fail_flag",
+    credits_col: str = "credits_earned",
     *,
     passing_grades: tuple[str, ...] = CHECK_PF_DEFAULT_PASSING_GRADES,
     failing_grades: tuple[str, ...] = CHECK_PF_DEFAULT_FAILING_GRADES,
     pass_flags: tuple[str, ...] = CHECK_PF_DEFAULT_PASS_FLAGS,
     fail_flags: tuple[str, ...] = CHECK_PF_DEFAULT_FAIL_FLAGS,
-):
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     CUSTOM SCHOOL FUNCTION
 
@@ -2242,6 +2245,40 @@ DEFAULT_PELL_NAME_HINTS: tuple[str, ...] = (
     "pell_flag",
     "pell_status",
 )
+DEFAULT_INCARCERATION_NAME_HINTS: tuple[str, ...] = (
+    "incarceration",
+    "incarcerat",
+    "correctional",
+    "justice_involved",
+    "corrections",
+)
+DEFAULT_MILITARY_NAME_HINTS: tuple[str, ...] = (
+    "military",
+    "military_status",
+    "veteran",
+    "vet_status",
+    "armed_forces",
+    "service_status",
+    "ad_t",
+    "national_guard",
+    "reserve",
+)
+DEFAULT_EMPLOYMENT_STATUS_NAME_HINTS: tuple[str, ...] = (
+    "employment_status",
+    "emp_status",
+    "work_status",
+    "student_employment",
+    "employment",
+    "job_status",
+    "labor_status",
+)
+DEFAULT_DISABILITY_NAME_HINTS: tuple[str, ...] = (
+    "disability",
+    "disab_status",
+    "ada",
+    "accessibility",
+    "disabled",
+)
 
 DEFAULT_STUDENT_ID_NAME_HINTS: tuple[str, ...] = (
     "student_id",
@@ -2444,11 +2481,16 @@ def infer_student_audit_columns(
     gender_name_hints: tuple[str, ...] = DEFAULT_GENDER_NAME_HINTS,
     age_name_hints: tuple[str, ...] = DEFAULT_AGE_NAME_HINTS,
     pell_name_hints: tuple[str, ...] = DEFAULT_PELL_NAME_HINTS,
+    incarceration_name_hints: tuple[str, ...] = DEFAULT_INCARCERATION_NAME_HINTS,
+    military_name_hints: tuple[str, ...] = DEFAULT_MILITARY_NAME_HINTS,
+    employment_name_hints: tuple[str, ...] = DEFAULT_EMPLOYMENT_STATUS_NAME_HINTS,
+    disability_name_hints: tuple[str, ...] = DEFAULT_DISABILITY_NAME_HINTS,
 ) -> dict[str, str | None]:
     """
     Infer student-type and equity-related columns; each role maps to at most one column.
 
-    Roles: ``student_type``, ``first_gen``, ``race``, ``ethnicity``, ``gender``, ``age``, ``pell``.
+    Roles: ``student_type``, ``first_gen``, ``race``, ``ethnicity``, ``gender``, ``age``, ``pell``,
+    plus ``incarceration``, ``military``, ``employment``, ``disability`` for extended bias audits.
     """
     used: set[str] = set()
     if term_col:
@@ -2478,8 +2520,9 @@ def infer_student_audit_columns(
             exclude_cols=used,
             max_nunique=120,
         )
-        if out[key]:
-            used.add(out[key])
+        inferred_col = out[key]
+        if inferred_col:
+            used.add(inferred_col)
 
     out["age"] = infer_age_column(df, name_hints=age_name_hints, exclude_cols=used)
     if out["age"]:
@@ -2495,7 +2538,46 @@ def infer_student_audit_columns(
     if out["pell"]:
         used.add(out["pell"])
 
+    for key, hints in (
+        ("incarceration", incarceration_name_hints),
+        ("military", military_name_hints),
+        ("employment", employment_name_hints),
+        ("disability", disability_name_hints),
+    ):
+        out[key] = infer_student_file_categorical(
+            df,
+            name_hints=hints,
+            value_substrings=None,
+            exclude_cols=used,
+            max_nunique=120,
+        )
+        if out[key]:
+            used.add(out[key])
+
     return out
+
+
+def bias_variable_codebook_line(role: str) -> str | None:
+    """
+    Short decoding hint for institutional audit printouts (codes vary by SIS).
+
+    Typical encodings align with common IPEDS-style and registrar exports.
+    """
+    hints: dict[str, str] = {
+        "first_gen": "Typical codes: Y=Yes, N=No (optional at some institutions).",
+        "pell": "Typical codes: Y=Yes, N=No (recipient or eligibility; optional).",
+        "incarceration": "Typical codes: Y=Yes, N=No (optional field).",
+        "military": (
+            "Typical codes: 1=Veteran; 2=Active Duty/Reserves/National Guard; "
+            "3=Never served (optional field)."
+        ),
+        "employment": (
+            "Typical codes: 1=full-time; 2=less than full-time but at least half-time; "
+            "3=less than half-time; 4=not employed (optional field)."
+        ),
+        "disability": "Typical codes: Y=has a disability; N=does not.",
+    }
+    return hints.get(role)
 
 
 def infer_student_id_column(
