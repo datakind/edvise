@@ -577,14 +577,15 @@ na_pct_course
 # COMMAND ----------
 
 if TERM_COL_COURSE and TERM_COL_COURSE in course_raw_df.columns:
-    _o_course = order_terms(course_raw_df, TERM_COL_COURSE)
-    display(
-        _o_course[TERM_COL_COURSE]
-        .value_counts()
+    _term_pct = (
+        course_raw_df[TERM_COL_COURSE]
+        .value_counts(dropna=False, normalize=True)
+        .mul(100)
         .sort_index()
-        .rename("course_rows")
-        .to_frame()
+        .reset_index()
     )
+    _term_pct.columns = [TERM_COL_COURSE, "pct_of_rows"]
+    display(_term_pct)
 else:
     print("No inferred term column for course file; skip term value counts.")
 
@@ -623,14 +624,15 @@ na_pct_semester
 # COMMAND ----------
 
 if TERM_COL_SEMESTER and TERM_COL_SEMESTER in semester_raw_df.columns:
-    _o_sem = order_terms(semester_raw_df, TERM_COL_SEMESTER)
-    display(
-        _o_sem[TERM_COL_SEMESTER]
-        .value_counts()
+    _term_pct = (
+        semester_raw_df[TERM_COL_SEMESTER]
+        .value_counts(dropna=False, normalize=True)
+        .mul(100)
         .sort_index()
-        .rename("semester_rows")
-        .to_frame()
+        .reset_index()
     )
+    _term_pct.columns = [TERM_COL_SEMESTER, "pct_of_rows"]
+    display(_term_pct)
 else:
     print("No inferred term column for semester file; skip term value counts.")
 
