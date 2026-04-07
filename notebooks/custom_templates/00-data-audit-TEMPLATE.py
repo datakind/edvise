@@ -48,7 +48,10 @@ from edvise.data_audit.eda import (
     check_earned_vs_attempted,
     check_pf_grade_consistency,
     find_dupes,
+    infer_course_credit_columns,
+    infer_course_grade_pf_columns,
     infer_inst_tot_credits_columns,
+    infer_semester_credit_aggregate_columns,
     infer_student_audit_columns,
     infer_term_column,
     normalize_student_id_column,
@@ -177,7 +180,36 @@ print(
 
 # COMMAND ----------
 
-# Student-type, demographic and bias-related columns (see edvise.data_audit.eda for defaults / helpers).
+# Course / semester columns for validate_credit_consistency and check_pf_grade_consistency (name-based inference).
+COURSE_CRED_ATTEMPTED_COL, COURSE_CRED_EARNED_COL = infer_course_credit_columns(
+    course_raw_df
+)
+SEM_CRED_ATTEMPTED_COL, SEM_CRED_EARNED_COL, SEM_COURSE_COUNT_COL = (
+    infer_semester_credit_aggregate_columns(semester_raw_df)
+)
+_GRADE_PF_EXCLUDE = {c for c in (COURSE_CRED_ATTEMPTED_COL, COURSE_CRED_EARNED_COL) if c}
+GRADE_COL, PF_COL = infer_course_grade_pf_columns(
+    course_raw_df, exclude_cols=_GRADE_PF_EXCLUDE
+)
+CREDITS_COL = COURSE_CRED_EARNED_COL
+
+print(
+    "Inferred course/semester validation columns:",
+    {
+        "course_credits_attempted": COURSE_CRED_ATTEMPTED_COL,
+        "course_credits_earned": COURSE_CRED_EARNED_COL,
+        "semester_credits_attempted": SEM_CRED_ATTEMPTED_COL,
+        "semester_credits_earned": SEM_CRED_EARNED_COL,
+        "semester_course_count": SEM_COURSE_COUNT_COL,
+        "grade": GRADE_COL,
+        "pass_fail_or_completion": PF_COL,
+        "credits_for_pf_check": CREDITS_COL,
+    },
+)
+
+# COMMAND ----------
+
+# Student-type and equity-related columns (see edvise.data_audit.eda for defaults / helpers).
 _audit_cols = infer_student_audit_columns(student_raw_df, term_col=TERM_COL_STUDENT)
 STUDENT_TYPE_COL_STUDENT = _audit_cols["student_type"]
 FIRST_GEN_COL_STUDENT = _audit_cols["first_gen"]
@@ -391,15 +423,14 @@ na_pct_course
 # COMMAND ----------
 
 if TERM_COL_COURSE and TERM_COL_COURSE in course_raw_df.columns:
-    _ctype_pct = (
-        course_raw_df[TERM_COL_COURSE]
-        .value_counts(dropna=False, normalize=True)
-        .mul(100)
+    _o_course = order_terms(course_raw_df, TERM_COL_COURSE)
+    display(
+        _o_course[TERM_COL_COURSE]
+        .value_counts()
         .sort_index()
-        .reset_index()
+        .rename("course_rows")
+        .to_frame()
     )
-    _ctype_pct.columns = [TERM_COL_COURSE, "pct_of_rows"]
-    display(_ctype_pct)
 else:
     print("No inferred term column for course file; skip term value counts.")
 
@@ -438,15 +469,14 @@ na_pct_semester
 # COMMAND ----------
 
 if TERM_COL_SEMESTER and TERM_COL_SEMESTER in semester_raw_df.columns:
-    _semtype_pct = (
-        semester_raw_df[TERM_COL_SEMESTER]
-        .value_counts(dropna=False, normalize=True)
-        .mul(100)
+    _o_sem = order_terms(semester_raw_df, TERM_COL_SEMESTER)
+    display(
+        _o_sem[TERM_COL_SEMESTER]
+        .value_counts()
         .sort_index()
-        .reset_index()
+        .rename("semester_rows")
+        .to_frame()
     )
-    _semtype_pct.columns = [TERM_COL_SEMESTER, "pct_of_rows"]
-    display(_semtype_pct)
 else:
     print("No inferred term column for semester file; skip term value counts.")
 
@@ -647,20 +677,36 @@ else:
 # De-duplicate course rows the same way as downstream pipelines before grading rules
 cleaned_course = handling_duplicates(course_raw_df)
 
-# Edit column names to match schema: grade, pass_fail_flag, credits earned on the course row
-GRADE_COL = "grade"
-PF_COL = "pass_fail_flag"
-CREDITS_COL = "course_credits_earned"
-
-anomalies_pf, summary_pf = check_pf_grade_consistency(
-    cleaned_course,
-    grade_col=GRADE_COL,
-    pf_col=PF_COL,
-    credits_col=CREDITS_COL,
-)
-
-display(summary_pf)
-display(anomalies_pf.head(50))
+if GRADE_COL and PF_COL and CREDITS_COL:
+    anomalies_pf, summary_pf = check_pf_grade_consistency(
+        cleaned_course,
+        grade_col=GRADE_COL,
+        pf_col=PF_COL,
+        credits_col=CREDITS_COL,
+        passing_grades=(
+            "P",
+            "A",
+            "A-",
+            "B+",
+            "B",
+            "B-",
+            "C+",
+            "C",
+            "C-",
+            "D+",
+            "D",
+            "D-",
+        ),
+        failing_grades=("F", "E", "W", "I"),
+        pass_flags=("Y",),
+        fail_flags=("N",),
+    )
+    display(summary_pf)
+    display(anomalies_pf.head(50))
+else:
+    print(
+        "Skip PF/grade check: could not infer grade, pass/fail (or completion), and credits columns."
+    )
 
 # COMMAND ----------
 
@@ -704,14 +750,17 @@ credit_audit = validate_credit_consistency(
     cohort_df=student_raw_df,
     id_col="student_id",
     sem_col=SEM_COL_FOR_CREDIT,
-    # Placeholders — replace with your bronze column names from config.toml
-    course_credits_attempted_col="course_credits",
-    course_credits_earned_col="number_of_credits_earned",
-    semester_credits_attempted_col="number_of_credits_attempted",
-    semester_credits_earned_col="number_of_credits_earned",
-    semester_courses_count_col="number_of_courses_enrolled",
-    cohort_credits_attempted_col=INST_TOT_CREDITS_ATTEMPTED_COL or "inst_tot_credits_attempted",
-    cohort_credits_earned_col=INST_TOT_CREDITS_EARNED_COL or "inst_tot_credits_earned",
+    course_credits_attempted_col=COURSE_CRED_ATTEMPTED_COL or "course_credits",
+    course_credits_earned_col=COURSE_CRED_EARNED_COL or "credits_earned",
+    semester_credits_attempted_col=SEM_CRED_ATTEMPTED_COL
+    or "number_of_credits_attempted",
+    semester_credits_earned_col=SEM_CRED_EARNED_COL or "number_of_credits_earned",
+    semester_courses_count_col=SEM_COURSE_COUNT_COL
+    or "number_of_courses_enrolled",
+    cohort_credits_attempted_col=INST_TOT_CREDITS_ATTEMPTED_COL
+    or "inst_tot_credits_attempted",
+    cohort_credits_earned_col=INST_TOT_CREDITS_EARNED_COL
+    or "inst_tot_credits_earned",
 )
 
 display(credit_audit["course_anomalies_summary"])

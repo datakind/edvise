@@ -720,6 +720,22 @@ def test_infer_inst_tot_credits_columns_distinct():
     assert e == "inst_tot_credits_earned"
 
 
+def test_infer_inst_tot_credits_columns_semester_style_names():
+    from edvise.data_audit import eda as data_audit_eda
+
+    df = pd.DataFrame(
+        {
+            "student_id": [1, 2],
+            "term": ["Fall 2023", "Fall 2023"],
+            "Cumulative Credits Attempted": [15.0, 18.0],
+            "credits earned semester": [15.0, 17.0],
+        }
+    )
+    a, e = data_audit_eda.infer_inst_tot_credits_columns(df)
+    assert a == "Cumulative Credits Attempted"
+    assert e == "credits earned semester"
+
+
 def test_infer_student_audit_columns_includes_age():
     from edvise.data_audit import eda as data_audit_eda
 
@@ -760,3 +776,44 @@ def test_infer_age_column_categorical_bands():
     )
     col = data_audit_eda.infer_age_column(df, exclude_cols={"student_id"})
     assert col == "age_band"
+
+
+def test_infer_course_credit_and_grade_pf_user_style_columns():
+    from edvise.data_audit import eda as data_audit_eda
+
+    course_df = pd.DataFrame(
+        {
+            "student_id": [1, 1],
+            "term": ["Fall 2023", "Fall 2023"],
+            "Credit Hours": [3.0, 4.0],
+            "No. of Credits Earned": [3.0, 4.0],
+            "Class Class Grade": ["A", "B"],
+            "Class Completion Status": ["Y", "Y"],
+        }
+    )
+    att, earn = data_audit_eda.infer_course_credit_columns(course_df)
+    assert att == "Credit Hours"
+    assert earn == "No. of Credits Earned"
+    g, p = data_audit_eda.infer_course_grade_pf_columns(
+        course_df, exclude_cols={c for c in (att, earn) if c}
+    )
+    assert g == "Class Class Grade"
+    assert p == "Class Completion Status"
+
+
+def test_infer_semester_credit_aggregate_user_style_columns():
+    from edvise.data_audit import eda as data_audit_eda
+
+    sem = pd.DataFrame(
+        {
+            "student_id": [1],
+            "term": ["Fall 2023"],
+            "credit_hours": [15.0],
+            "no_of_credits_earned": [15.0],
+            "no_of_classes": [4],
+        }
+    )
+    a, e, c = data_audit_eda.infer_semester_credit_aggregate_columns(sem)
+    assert a == "credit_hours"
+    assert e == "no_of_credits_earned"
+    assert c == "no_of_classes"
