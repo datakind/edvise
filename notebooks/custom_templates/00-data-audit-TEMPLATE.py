@@ -630,27 +630,13 @@ else:
 
 # MAGIC %md
 # MAGIC ## PF/grade anomalies — example rows by category
-# MAGIC
-# MAGIC Printed samples per rule (text only; first 12 rows per category).
 
 # COMMAND ----------
 
-_PF_EXAMPLE_N = 12
-
-if anomalies_pf is not None and not anomalies_pf.empty:
-    _slices = list(iter_pf_grade_anomaly_slices(anomalies_pf))
-    if not _slices:
-        print(
-            "No rule-specific anomaly rows to print (unexpected if anomalies_pf is non-empty)."
-        )
-    for _flag, _sub in _slices:
-        print(
-            f"\n=== {_flag} — {len(_sub)} row(s) total; "
-            f"up to {_PF_EXAMPLE_N} examples ===\n"
-        )
-        print(_sub.head(_PF_EXAMPLE_N).to_string())
-else:
-    print("No PF/grade anomalies (or check was skipped above).")
+# uncomment and run based on above results
+# anomalies_pf[anomalies_pf["earned_with_failing_grade"] == True]
+# anomalies_pf[anomalies_pf["no_credits_with_passing_grade"] == True]
+# anomalies_pf[anomalies_pf["grade_pf_disagree"] == True]
 
 # COMMAND ----------
 
