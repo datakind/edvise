@@ -92,15 +92,15 @@ display(cfg)
 # COMMAND ----------
 
 student_raw_df = dataio.read.from_csv_file(
-    cfg.datasets.bronze["raw_student"].file_path,
+    cfg.datasets.bronze["raw_student"].train_file_path,
     spark_session=spark,
 )
 course_raw_df = dataio.read.from_csv_file(
-    cfg.datasets.bronze["raw_course"].file_path,
+    cfg.datasets.bronze["raw_course"].train_file_path,
     spark_session=spark,
 )
 semester_raw_df = dataio.read.from_csv_file(
-    cfg.datasets.bronze["raw_semester"].file_path,
+    cfg.datasets.bronze["raw_semester"].train_file_path,
     spark_session=spark,
 )
 
@@ -149,6 +149,23 @@ print(
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC **Validate inferred terms by looking at head of each DF.**
+
+# COMMAND ----------
+
+student_raw_df.head()
+
+# COMMAND ----------
+
+course_raw_df.head()
+
+# COMMAND ----------
+
+semester_raw_df.head()
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC # Missing values
 # MAGIC
 # MAGIC **What this proves:** which fields are incomplete in each raw extract (risk for modeling and reporting).
@@ -183,6 +200,8 @@ if TERM_COL_STUDENT and TERM_COL_STUDENT in student_raw_df.columns:
         .sort_index()
         .rename("student_rows")
         .to_frame()
+        .rename_axis(TERM_COL_STUDENT)
+        .reset_index()
     )
 else:
     print("No inferred term column for student file; skip term value counts.")
@@ -199,6 +218,14 @@ if TERM_COL_STUDENT and TERM_COL_STUDENT in student_raw_df.columns:
     display(na_by_term_student)
 else:
     print("No inferred term column for student file; skip NA% by term.")
+
+# COMMAND ----------
+
+# what cohorts exist
+print((student_raw_df[TERM_COL_STUDENT].value_counts(dropna=False, normalize=True)*100).sort_index())
+
+# what are the common entry types
+print(student_raw_df[STUDENT_TYPE_COL].value_counts(dropna=False, normalize=True) * 100)
 
 # COMMAND ----------
 
