@@ -1369,7 +1369,7 @@ def validate_credit_consistency(
         "skipped" if cohort_anomalies is None else int(len(cohort_anomalies)),
     )
 
-    return {
+    out: dict[str, t.Any] = {
         "course_anomalies": course_anomalies,
         "course_anomalies_summary": course_anomalies_summary,
         "reconciliation_summary": reconciliation_summary,
@@ -1378,6 +1378,189 @@ def validate_credit_consistency(
         "cohort_anomalies": cohort_anomalies,
         "cohort_anomalies_summary": cohort_anomalies_summary,
     }
+    out["institution_report"] = format_credit_consistency_institution_report(out)
+    return out
+
+
+def _credit_report_df_scalar(df: t.Any, col: str, row: int = 0) -> t.Any:
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return None
+    if col not in df.columns:
+        return None
+    return df[col].iloc[row]
+
+
+def format_credit_consistency_institution_report(
+    result: t.Mapping[str, t.Any],
+) -> str:
+    """
+    Turn the dict returned by :func:`validate_credit_consistency` into a short narrative
+    for institutional readers, including suggested next steps.
+    """
+    lines: list[str] = []
+    lines.append("=" * 72)
+    lines.append("CREDIT CONSISTENCY — INSTITUTION SUMMARY")
+    lines.append("=" * 72)
+
+    course_sum = result.get("course_anomalies_summary")
+    recon_sum = result.get("reconciliation_summary")
+    cohort_sum = result.get("cohort_anomalies_summary")
+    course_bad = result.get("course_anomalies")
+    recon_bad = result.get("reconciliation_mismatches")
+    cohort_bad = result.get("cohort_anomalies")
+
+    n_course = int(len(course_bad)) if isinstance(course_bad, pd.DataFrame) else 0
+    n_recon = int(len(recon_bad)) if isinstance(recon_bad, pd.DataFrame) else 0
+    n_cohort = int(len(cohort_bad)) if isinstance(cohort_bad, pd.DataFrame) else 0
+
+    # --- Course-level ---
+    lines.append("")
+    lines.append("1) Course file (per-row earned vs attempted credits)")
+    if isinstance(course_sum, dict):
+        checked = course_sum.get("rows_checked", 0)
+        bad = course_sum.get("rows_with_anomalies", 0)
+        pct = course_sum.get("pct_of_data", 0.0)
+        lines.append(
+            f"   Checked {checked:,} enrollment rows. "
+            f"{bad:,} rows ({pct}%) show earned > attempted, negative credits, or similar issues."
+        )
+        if bad == 0:
+            lines.append("   Status: No issues flagged at course row level.")
+        else:
+            lines.append(
+                "   Status: Review recommended — course-level credits contradict basic rules."
+            )
+    else:
+        lines.append(
+            "   Not run — the course file is missing usable attempted/earned credit columns "
+            "(or names did not resolve). Confirm column names in config / bronze extract."
+        )
+
+    # --- Semester reconciliation ---
+    lines.append("")
+    lines.append("2) Semester file vs summed course credits (same student + term)")
+    if isinstance(recon_sum, dict):
+        total = recon_sum.get("total_semester_rows", 0)
+        mm = recon_sum.get("mismatched_rows", 0)
+        pct = recon_sum.get("pct_of_data", 0.0)
+        lines.append(
+            f"   Compared {total:,} student-term rows on the semester file to aggregates from courses."
+        )
+        lines.append(
+            f"   {mm:,} rows ({pct}%) do not match within tolerance (attempted and/or earned totals)."
+        )
+        if mm == 0:
+            lines.append("   Status: Semester totals align with summed course credits.")
+        else:
+            lines.append(
+                "   Status: Investigate term keys, withdrawal rules, and how semester aggregates are built."
+            )
+    else:
+        lines.append(
+            "   Not run — needs semester extract plus matching student_id and term columns on both "
+            "course and semester files, and compatible credit columns."
+        )
+
+    # --- Cohort ---
+    lines.append("")
+    lines.append("3) Cohort / student file (institutional attempted vs earned totals)")
+    if isinstance(cohort_sum, pd.DataFrame) and not cohort_sum.empty:
+        total_anom = int(_credit_report_df_scalar(cohort_sum, "total_anomalous_rows") or 0)
+        total_pct = _credit_report_df_scalar(cohort_sum, "total_anomalous_rows_pct")
+        eg = int(_credit_report_df_scalar(cohort_sum, "earned_gt_attempted") or 0)
+        ena = int(_credit_report_df_scalar(cohort_sum, "earned_when_no_attempt") or 0)
+        lines.append(
+            f"   {total_anom:,} student rows ({total_pct}%) break earned <= attempted or "
+            f"earned credit with zero attempted (earned>attempted: {eg:,}; "
+            f"credit with no attempt: {ena:,})."
+        )
+        if total_anom == 0:
+            lines.append("   Status: Institutional totals look consistent at row level.")
+        else:
+            lines.append(
+                "   Status: Fix upstream SIS totals or clarify transfer / test credit treatment."
+            )
+    else:
+        lines.append(
+            "   Not run — cohort file missing institutional attempted/earned total columns, "
+            "or cohort extract not provided."
+        )
+
+    # --- Overall ---
+    lines.append("")
+    lines.append("-" * 72)
+    any_issue = (n_course + n_recon + n_cohort) > 0
+    skipped_all = (
+        not isinstance(course_sum, dict)
+        and recon_sum is None
+        and (not isinstance(cohort_sum, pd.DataFrame) or cohort_sum.empty)
+    )
+    if skipped_all:
+        lines.append("Overall: Checks could not run end-to-end — see sections marked \"Not run\".")
+    elif any_issue:
+        lines.append(
+            "Overall: At least one layer failed checks. Use the detailed tables in the audit "
+            "notebook to sample offending rows and trace back to source systems."
+        )
+    else:
+        lines.append(
+            "Overall: No credit consistency issues were flagged in the checks that ran. "
+            "Keep monitoring after SIS or ETL changes."
+        )
+
+    # --- Next steps ---
+    lines.append("")
+    lines.append("SUGGESTED NEXT STEPS FOR THE INSTITUTION")
+    lines.append("-" * 72)
+    steps: list[str] = []
+    if not isinstance(course_sum, dict):
+        steps.append(
+            "Map the correct course-level attempted and earned credit fields in `config.toml` "
+            "and re-run the audit (or rename columns in the bronze extract)."
+        )
+    elif n_course > 0:
+        steps.append(
+            "Course file: Spot-check programs with the highest anomaly rates; verify credit hours "
+            "vs enrollment status and repeat/audit courses."
+        )
+    if recon_sum is None:
+        steps.append(
+            "Semester reconciliation: Ensure course and semester files share the same student ID "
+            "and term identifier; align column names with `validate_credit_consistency` arguments."
+        )
+    elif n_recon > 0:
+        steps.append(
+            "Semester file: Reconcile aggregation logic (sum of course credits vs official term "
+            "totals); confirm part-term drops and cross-listed sections are handled consistently."
+        )
+    if not isinstance(cohort_sum, pd.DataFrame) or cohort_sum.empty:
+        steps.append(
+            "Cohort file: Expose institutional cumulative attempted and earned credits in the "
+            "extract if you want this check; confirm field definitions with the registrar."
+        )
+    elif n_cohort > 0:
+        steps.append(
+            "Cohort totals: Work with the registrar or data owner to correct lifetime attempted/"
+            "earned totals or document known exceptions (e.g. transfer credit timing)."
+        )
+    if not any_issue and not skipped_all:
+        steps.append(
+            "Documentation: Archive this run (counts and date) as evidence for internal QA or "
+            "accreditation folders."
+        )
+    if skipped_all:
+        steps.append(
+            "Prioritize fixing bronze schema and paths so all three layers (course, semester, cohort) "
+            "can be validated automatically."
+        )
+    if not steps:
+        steps.append("No specific follow-up beyond routine monitoring.")
+    for i, s in enumerate(steps, start=1):
+        lines.append(f"  {i}. {s}")
+
+    lines.append("")
+    lines.append("=" * 72)
+    return "\n".join(lines)
 
 
 CHECK_PF_DEFAULT_PASSING_GRADES: tuple[str, ...] = (

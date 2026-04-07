@@ -740,7 +740,7 @@ print(cleaned_course["course_delivery"].value_counts(dropna=False))
 
 # check credits attempted and credits earned fields
 # change column names as needed
-validate_credit_consistency(
+_credit_audit = validate_credit_consistency(
     course_df=course_raw_df,
     semester_df=semester_raw_df,
     cohort_df=student_raw_df,
@@ -752,6 +752,7 @@ validate_credit_consistency(
     cohort_credits_attempted_col="total_credits_attempted",
     cohort_credits_earned_col="total_credits_earned",
 )
+print(_credit_audit["institution_report"])
 
 # COMMAND ----------
 

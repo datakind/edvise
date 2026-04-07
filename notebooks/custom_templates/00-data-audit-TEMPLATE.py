@@ -595,106 +595,6 @@ if not semester_dupes.empty:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC # Cross-file merge checks
-# MAGIC
-# MAGIC **What this proves:** coverage between roster, course, and semester extracts (same students and terms where expected).
-# MAGIC
-# MAGIC **`_merge` categories (pandas `indicator=True`, outer join):**
-# MAGIC - **`both`:** key appears in left and right tables.
-# MAGIC - **`left_only`:** key only in the left table (right file missing those rows).
-# MAGIC - **`right_only`:** key only in the right table (left file missing those rows).
-# MAGIC
-# MAGIC `analyze_merge` prints row and distinct-student counts; pass `student_df=student_raw_df` so percentages use the roster denominator.
-
-# COMMAND ----------
-
-_ = analyze_merge(
-    student_raw_df,
-    course_raw_df,
-    "student",
-    "course",
-    student_df=student_raw_df,
-    merge_on="student_id",
-    id_col="student_id",
-)
-
-# COMMAND ----------
-
-# student × semester: use inferred term columns; align names with a common join key when they differ
-_id = "student_id"
-if (
-    TERM_COL_STUDENT
-    and TERM_COL_SEMESTER
-    and _id in student_raw_df.columns
-    and _id in semester_raw_df.columns
-):
-    if TERM_COL_STUDENT == TERM_COL_SEMESTER:
-        _stu_sm = student_raw_df
-        _sem_sm = semester_raw_df
-        _keys_sm = [_id, TERM_COL_STUDENT]
-    else:
-        _join = "_audit_term_join"
-        _stu_sm = student_raw_df.rename(columns={TERM_COL_STUDENT: _join})
-        _sem_sm = semester_raw_df.rename(columns={TERM_COL_SEMESTER: _join})
-        _keys_sm = [_id, _join]
-        print(
-            f"student×semester join: aligned {TERM_COL_STUDENT!r} (student) with "
-            f"{TERM_COL_SEMESTER!r} (semester) as {_join!r}"
-        )
-    _ = analyze_merge(
-        _stu_sm,
-        _sem_sm,
-        "student",
-        "semester",
-        student_df=student_raw_df,
-        merge_on=_keys_sm,
-        id_col=_id,
-    )
-else:
-    print(
-        "Skip student × semester merge: need student_id plus inferred term on both files, "
-        "or use first_reg_date-style keys manually (rename columns and edit this cell)."
-    )
-
-# COMMAND ----------
-
-# semester × course: inferred term columns; align names when they differ
-if (
-    TERM_COL_SEMESTER
-    and TERM_COL_COURSE
-    and _id in semester_raw_df.columns
-    and _id in course_raw_df.columns
-):
-    if TERM_COL_SEMESTER == TERM_COL_COURSE:
-        _sem_sc = semester_raw_df
-        _crs_sc = course_raw_df
-        _keys_sc = [_id, TERM_COL_SEMESTER]
-    else:
-        _join = "_audit_term_join"
-        _sem_sc = semester_raw_df.rename(columns={TERM_COL_SEMESTER: _join})
-        _crs_sc = course_raw_df.rename(columns={TERM_COL_COURSE: _join})
-        _keys_sc = [_id, _join]
-        print(
-            f"semester×course join: aligned {TERM_COL_SEMESTER!r} (semester) with "
-            f"{TERM_COL_COURSE!r} (course) as {_join!r}"
-        )
-    _ = analyze_merge(
-        _sem_sc,
-        _crs_sc,
-        "semester",
-        "course",
-        student_df=student_raw_df,
-        merge_on=_keys_sc,
-        id_col=_id,
-    )
-else:
-    print(
-        "Skip semester × course merge: need student_id plus inferred term on both files."
-    )
-
-# COMMAND ----------
-
-# MAGIC %md
 # MAGIC # Grades and pass-fail consistency
 # MAGIC
 # MAGIC **What this proves:** pass-fail flags, letter grades, and credit earned fields follow consistent business rules
@@ -704,6 +604,14 @@ else:
 
 # De-duplicate course rows the same way as downstream pipelines before grading rules
 cleaned_course = handling_duplicates(course_raw_df)
+
+# Grade column distribution (percent of rows) — run immediately before PF/grade rules
+if GRADE_COL and GRADE_COL in cleaned_course.columns:
+    display(value_counts_percent_df(cleaned_course[GRADE_COL]))
+else:
+    print("Skip grade distribution: no inferred grade column.")
+
+# COMMAND ----------
 
 if GRADE_COL and PF_COL and CREDITS_COL:
     _pf_kw = infer_check_pf_grade_list_kwargs(cleaned_course, GRADE_COL, PF_COL)
@@ -727,18 +635,6 @@ else:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## Grade column distribution (full course file)
-
-# COMMAND ----------
-
-if GRADE_COL and GRADE_COL in cleaned_course.columns:
-    display(value_counts_percent_df(cleaned_course[GRADE_COL]))
-else:
-    print("Skip grade distribution: no inferred grade column.")
-
-# COMMAND ----------
-
-# MAGIC %md
 # MAGIC ## PF/grade anomalies by rule (boolean flags)
 
 # COMMAND ----------
@@ -757,6 +653,8 @@ else:
 # MAGIC
 # MAGIC **What this proves:** course-level earned vs attempted, reconciliation of course sums to semester totals where columns exist,
 # MAGIC and cohort-level earned vs attempted (embedded in this helper). Align all names with `config.toml`.
+# MAGIC
+# MAGIC Read **`institution_report`** first (plain-language summary and suggested next steps); use the tables below for row-level investigation.
 
 # COMMAND ----------
 
@@ -805,6 +703,11 @@ credit_audit = validate_credit_consistency(
     or "inst_tot_credits_earned",
 )
 
+print(credit_audit["institution_report"])
+
+# COMMAND ----------
+
+# Detail tables (for analysts — sample anomalous / mismatched rows)
 display(credit_audit["course_anomalies_summary"])
 display(credit_audit["reconciliation_summary"])
 display(credit_audit["cohort_anomalies_summary"])
@@ -825,3 +728,118 @@ if isinstance(coh, pd.DataFrame) and not coh.empty:
 rd = credit_audit["reconciliation_merged_detail"]
 if rd is not None and not rd.empty:
     display(rd.head(30))
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # Cross-file merge checks (last)
+# MAGIC
+# MAGIC **What this proves:** coverage between roster, course, and semester extracts (same students and terms where expected).
+# MAGIC Runs after table QA so empty or header-only extracts still load (pandas fallback in `from_csv_file`) before these joins.
+# MAGIC
+# MAGIC **`_merge` categories (pandas `indicator=True`, outer join):**
+# MAGIC - **`both`:** key appears in left and right tables.
+# MAGIC - **`left_only`:** key only in the left table (right file missing those rows).
+# MAGIC - **`right_only`:** key only in the right table (left file missing those rows).
+# MAGIC
+# MAGIC `analyze_merge` prints row and distinct-student counts; pass `student_df=student_raw_df` so percentages use the roster denominator.
+
+# COMMAND ----------
+
+_id = "student_id"
+if (
+    len(student_raw_df) > 0
+    and len(course_raw_df) > 0
+    and _id in student_raw_df.columns
+    and _id in course_raw_df.columns
+):
+    _ = analyze_merge(
+        student_raw_df,
+        course_raw_df,
+        "student",
+        "course",
+        student_df=student_raw_df,
+        merge_on="student_id",
+        id_col="student_id",
+    )
+else:
+    print(
+        "Skip student × course merge: need non-empty tables and student_id on both sides."
+    )
+
+# COMMAND ----------
+
+# student × semester: use inferred term columns; align names with a common join key when they differ
+if (
+    TERM_COL_STUDENT
+    and TERM_COL_SEMESTER
+    and _id in student_raw_df.columns
+    and _id in semester_raw_df.columns
+    and len(student_raw_df) > 0
+    and len(semester_raw_df) > 0
+):
+    if TERM_COL_STUDENT == TERM_COL_SEMESTER:
+        _stu_sm = student_raw_df
+        _sem_sm = semester_raw_df
+        _keys_sm = [_id, TERM_COL_STUDENT]
+    else:
+        _join = "_audit_term_join"
+        _stu_sm = student_raw_df.rename(columns={TERM_COL_STUDENT: _join})
+        _sem_sm = semester_raw_df.rename(columns={TERM_COL_SEMESTER: _join})
+        _keys_sm = [_id, _join]
+        print(
+            f"student×semester join: aligned {TERM_COL_STUDENT!r} (student) with "
+            f"{TERM_COL_SEMESTER!r} (semester) as {_join!r}"
+        )
+    _ = analyze_merge(
+        _stu_sm,
+        _sem_sm,
+        "student",
+        "semester",
+        student_df=student_raw_df,
+        merge_on=_keys_sm,
+        id_col=_id,
+    )
+else:
+    print(
+        "Skip student × semester merge: need non-empty tables, student_id, and inferred term on both files, "
+        "or use first_reg_date-style keys manually (rename columns and edit this cell)."
+    )
+
+# COMMAND ----------
+
+# semester × course: inferred term columns; align names when they differ
+if (
+    TERM_COL_SEMESTER
+    and TERM_COL_COURSE
+    and _id in semester_raw_df.columns
+    and _id in course_raw_df.columns
+    and len(semester_raw_df) > 0
+    and len(course_raw_df) > 0
+):
+    if TERM_COL_SEMESTER == TERM_COL_COURSE:
+        _sem_sc = semester_raw_df
+        _crs_sc = course_raw_df
+        _keys_sc = [_id, TERM_COL_SEMESTER]
+    else:
+        _join = "_audit_term_join"
+        _sem_sc = semester_raw_df.rename(columns={TERM_COL_SEMESTER: _join})
+        _crs_sc = course_raw_df.rename(columns={TERM_COL_COURSE: _join})
+        _keys_sc = [_id, _join]
+        print(
+            f"semester×course join: aligned {TERM_COL_SEMESTER!r} (semester) with "
+            f"{TERM_COL_COURSE!r} (course) as {_join!r}"
+        )
+    _ = analyze_merge(
+        _sem_sc,
+        _crs_sc,
+        "semester",
+        "course",
+        student_df=student_raw_df,
+        merge_on=_keys_sc,
+        id_col=_id,
+    )
+else:
+    print(
+        "Skip semester × course merge: need non-empty tables, student_id, and inferred term on both files."
+    )

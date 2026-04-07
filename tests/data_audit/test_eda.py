@@ -652,6 +652,23 @@ class TestValidateCreditConsistencyPercent:
         assert result["reconciliation_summary"]["mismatched_rows"] == 1
         assert result["reconciliation_summary"]["pct_of_data"] == round(100 * 1 / 3, 2)
 
+    def test_institution_report_in_result(self):
+        """Human-readable report and next steps ship with validate_credit_consistency."""
+        course_df = pd.DataFrame(
+            {
+                "student_id": ["s1"],
+                "semester": ["S1"],
+                "course_credits_attempted": [3],
+                "course_credits_earned": [3],
+            }
+        )
+        result = data_audit.eda.validate_credit_consistency(course_df=course_df)
+        rep = result["institution_report"]
+        assert isinstance(rep, str)
+        assert "CREDIT CONSISTENCY" in rep
+        assert "SUGGESTED NEXT STEPS" in rep
+        assert "1) Course file" in rep
+
 
 def test_value_looks_like_term_accepts_common_formats():
     assert value_looks_like_term("Spring 2024") is True
