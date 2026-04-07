@@ -87,6 +87,17 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # ignore import violations in all init files
 "__init__.py" = ["E402", "F401"]
+# Model card / reporting: keep existing locals; do not refactor for F841.
+"src/edvise/reporting/sections/bias_sections.py" = ["F841"]
+"src/edvise/reporting/sections/custom/bias_sections.py" = ["F841"]
+"src/edvise/reporting/utils/formatting.py" = ["F841"]
+# Keep loop variable naming; do not refactor validation.py for import/loop shadowing.
+"src/edvise/shared/validation.py" = ["F402"]
+# Unrelated tests: keep upstream patterns; do not drive-by "fix" for Ruff.
+"tests/model_prep/test_training_params.py" = ["E741"]
+"tests/modeling/h2o/test_inference.py" = ["F841"]
+"tests/modeling/h2o/test_training.py" = ["F841"]
+"tests/utils/test_data_cleaning.py" = ["F841"]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 1

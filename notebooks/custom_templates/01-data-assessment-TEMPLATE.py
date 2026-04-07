@@ -19,6 +19,12 @@
 # COMMAND ----------
 
 # MAGIC %md
+# MAGIC ### Data audit modules
+# MAGIC Imports below use ``edvise.data_audit.custom_data_audit`` for validation / inference (``find_dupes``, ``validate_credit_consistency``, …) and ``edvise.data_audit.custom_cleaning`` for transforms (``order_terms``, ``assign_numeric_grade``, …). Exploratory-only utilities (plots, extra summaries) live in ``edvise.data_audit.eda`` if you add them later.
+
+# COMMAND ----------
+
+# MAGIC %md
 # MAGIC ### NOTE:
 # MAGIC column names vary across schools. in this notebook are just some examples. You may need to edit the cells to match the respective names. ex. `entry_term` may be `first_enrollment_date`; `entry_type` may be `student_type`; `first_gen` may be `first_generation`; `awarded_pell` may be `awarded_pell_ever`; check the dataframes to know which column names to use.
 
@@ -48,22 +54,22 @@ from py4j.protocol import Py4JJavaError
 from edvise import dataio, configs
 
 
-## Data Audit Imports
+## Structured audit (reports / checks; see ``custom_data_audit``)
 
-from edvise.data_audit.eda import (
-    find_dupes,
-    check_pf_grade_consistency,
+from edvise.data_audit.custom_data_audit import (
     check_earned_vs_attempted,
-    order_terms,
+    check_pf_grade_consistency,
+    find_dupes,
     validate_credit_consistency,
 )
 
-## Data Cleaning Imports
+## Cleaning transforms (mutate or derive columns; see ``custom_cleaning``)
 
 from edvise.data_audit.custom_cleaning import (
     assign_numeric_grade,
-    keep_earlier_record,
     drop_readmits,
+    keep_earlier_record,
+    order_terms,
 )
 
 from edvise.utils.data_cleaning import handling_duplicates
@@ -181,7 +187,7 @@ na_percent_by_cohort
 # COMMAND ----------
 
 # Enforce term order
-ordered_cohort = order_terms(student_raw_df, "entry_term")
+ordered_cohort = order_terms(student_raw_df, term_col="entry_term")
 ordered_cohort.head()
 
 # COMMAND ----------
@@ -274,9 +280,12 @@ cohort_term_dupes.head()
 # COMMAND ----------
 
 # remove readmits and check for any more dupes
-cleaned_cohort = drop_readmits(student_raw_df)
+cleaned_cohort = drop_readmits(student_raw_df, entry_col="entry_type")
 
-cleaned_cohort = keep_earlier_record(cleaned_cohort)
+# Earliest row per student by entry term (defaults use cohort_term; this template uses entry_term)
+cleaned_cohort = keep_earlier_record(
+    cleaned_cohort, id_col="student_id", sort_col="entry_term"
+)
 
 # COMMAND ----------
 
@@ -526,7 +535,7 @@ plt.show()
 # COMMAND ----------
 
 # Enforce term order
-ordered_course = order_terms(course_raw_df, "term")
+ordered_course = order_terms(course_raw_df, term_col="term")
 
 # COMMAND ----------
 
@@ -756,8 +765,8 @@ print(_credit_audit["institution_report"])
 
 # COMMAND ----------
 
-# assign numeric grade
-cleaned_course = assign_numeric_grade(cleaned_course)
+# assign numeric grade (grade_col / output_col are keyword-only)
+cleaned_course = assign_numeric_grade(cleaned_course, grade_col="grade")
 
 # COMMAND ----------
 
@@ -844,7 +853,7 @@ semester_dupes.head()
 # COMMAND ----------
 
 # enforce term order
-ordered_semester = order_terms(semester_raw_df, "term")
+ordered_semester = order_terms(semester_raw_df, term_col="term")
 
 # COMMAND ----------
 
@@ -894,7 +903,7 @@ filtered = cleaned_semester[
 ].copy()
 
 # Enforce term order
-filtered = order_terms(filtered, "term")
+filtered = order_terms(filtered, term_col="term")
 
 # COMMAND ----------
 

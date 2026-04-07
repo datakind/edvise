@@ -6,7 +6,12 @@
 # MAGIC cross-file linkage (outer merges), grade or pass-fail logic, and credit reconciliation. No charts.
 # MAGIC
 # MAGIC **Pipeline context:** this notebook is **00**. After remediation, continue with
-# MAGIC `01-preprocess-data-TEMPLATE.py`, then `02-train-h2o-model-TEMPLATE.py`, etc.
+# MAGIC `01-data-assessment-TEMPLATE.py`, then `02-preprocess-data-TEMPLATE.py`, then training / registration notebooks (e.g. `06-train-h2o-model-TEMPLATE.py`).
+# MAGIC
+# MAGIC **Code layout (``edvise.data_audit``):**
+# MAGIC - ``eda`` — exploratory helpers only (logging, crosstabs, ``analyze_merge``, ``value_counts_*``).
+# MAGIC - ``custom_data_audit`` — structured checks and column inference (``find_dupes``, ``validate_credit_consistency``, ``infer_*``, …).
+# MAGIC - ``custom_cleaning`` — DataFrame transforms (``order_terms``, ``normalize_student_id_column``, schema cleaning, …).
 
 # COMMAND ----------
 
@@ -43,8 +48,8 @@ from py4j.protocol import Py4JJavaError
 
 from edvise import dataio, configs
 
-from edvise.data_audit.eda import (
-    analyze_merge,
+from edvise.data_audit.custom_cleaning import normalize_student_id_column, order_terms
+from edvise.data_audit.custom_data_audit import (
     bias_variable_codebook_line,
     check_earned_vs_attempted,
     check_pf_grade_consistency,
@@ -57,9 +62,10 @@ from edvise.data_audit.eda import (
     infer_semester_enrollment_intensity_column,
     infer_student_audit_columns,
     infer_term_column,
-    normalize_student_id_column,
-    order_terms,
     validate_credit_consistency,
+)
+from edvise.data_audit.eda import (
+    analyze_merge,
     value_counts_percent_df,
     value_counts_sorted_count_df,
 )
@@ -229,7 +235,7 @@ print(
 
 # COMMAND ----------
 
-# Student-type and equity-related columns (see edvise.data_audit.eda for defaults / helpers).
+# Student-type and equity-related columns (see edvise.data_audit.custom_data_audit for helpers).
 _audit_cols = infer_student_audit_columns(student_raw_df, term_col=TERM_COL_STUDENT)
 STUDENT_TYPE_COL_STUDENT = _audit_cols["student_type"]
 FIRST_GEN_COL_STUDENT = _audit_cols["first_gen"]

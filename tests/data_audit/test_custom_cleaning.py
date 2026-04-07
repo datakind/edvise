@@ -1599,7 +1599,7 @@ def test_order_terms_handles_invalid_term_format():
 
 def test_order_terms_logs_categories(caplog):
     """Test that order_terms logs the ordered categories."""
-    caplog.set_level(logging.INFO, logger="edvise.data_audit.eda")
+    caplog.set_level(logging.INFO, logger="edvise.data_audit.custom_cleaning")
 
     df = pd.DataFrame(
         {

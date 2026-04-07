@@ -36,6 +36,8 @@ from edvise.utils.data_cleaning import convert_to_snake_case
 from edvise.feature_generation.term import add_term_order
 from edvise.configs.custom import CustomProjectConfig, CleaningConfig
 
+from .custom_data_audit import infer_student_id_column
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -943,6 +945,128 @@ def align_and_rank_dataframes(
     )
 
     return result
+
+
+def order_terms(
+    df: pd.DataFrame, term_col: str, season_order: dict[str, int] | None = None
+) -> pd.DataFrame:
+    """
+    CUSTOM SCHOOL FUNCTION
+
+    Make df[term_col] an ordered categorical based on Season + Year.
+    Handles both 'Spring 2024' and '2024 Spring' formats.
+    Compatible with CleanSpec.term_order_fn(df, term_col).
+
+    Args:
+        df: DataFrame containing the term column
+        term_col: Name of the column containing term strings
+        season_order: Optional dict mapping season names to sort order.
+                     Defaults to Spring=1, Summer=2, Fall=3, Winter=4
+    """
+    if term_col not in df.columns:
+        return df
+
+    if season_order is None:
+        season_order = {"Spring": 1, "Summer": 2, "Fall": 3, "Winter": 4}
+
+    out = df.copy()
+    out[term_col] = out[term_col].astype("string")
+
+    unique_terms = out[term_col].dropna().unique()
+    if len(unique_terms) == 0:
+        return out
+
+    sorted_terms = sorted(
+        unique_terms, key=lambda term: _parse_term(term, season_order)
+    )
+
+    out[term_col] = pd.Categorical(
+        out[term_col],
+        categories=sorted_terms,
+        ordered=True,
+    )
+
+    LOGGER.info(
+        "term_order_fn: term_col=%s, categories=%s",
+        term_col,
+        list(out[term_col].cat.categories),
+    )
+    return out
+
+
+def _parse_term(term: str, season_order: dict[str, int]) -> tuple[int, int]:
+    """
+    Parse a term string into a (year, season_rank) tuple for sorting.
+    Handles both 'Spring 2024' and '2024 Spring' formats.
+    """
+    parts = str(term).split()
+    if len(parts) != 2:
+        return (9999, 99)
+
+    try:
+        if parts[0].isdigit():
+            year, season = int(parts[0]), parts[1]  # '2024 Spring'
+        else:
+            season, year_s = parts[0], parts[1]  # 'Spring 2024'
+            year = int(year_s)
+    except (TypeError, ValueError):
+        return (9999, 99)
+
+    return (year, season_order.get(season, 99))
+
+
+def convert_numeric_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """
+    CUSTOM SCHOOL FUNCTION
+
+    Converts string-based numeric columns to a numeric dtype for plotting purposes ONLY
+    (we want to maintain dtypes in our modeling dataframe, so ONLY use this for help with EDA).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame containing the columns to clean.
+    columns : list of str
+        List of column names to clean and convert.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with specified columns cleaned and converted to numeric.
+    """
+    out = df.copy()
+    for col in columns:
+        s = out[col].astype(str).str.strip()
+        s = s.str.replace(",", "", regex=False)  # remove commas
+        s = s.str.replace(
+            r"[^\d.\-]", "", regex=True
+        )  # keep only digits, dot (decimals), dash (negative sign)
+        out[col] = pd.to_numeric(s, errors="coerce")
+    return out
+
+
+def normalize_student_id_column(
+    df: pd.DataFrame,
+    *,
+    target_name: str = "student_id",
+    source_col: str | None = None,
+) -> tuple[pd.DataFrame, str | None]:
+    """
+    Return a copy of *df* with the inferred (or provided) id column renamed to *target_name*.
+
+    If *target_name* already exists, returns ``(df.copy(), target_name)`` without renaming.
+    If no id column can be resolved, returns ``(df.copy(), None)``.
+    """
+    out = df.copy()
+    if target_name in out.columns:
+        return out, target_name
+    src = source_col if source_col is not None else infer_student_id_column(out)
+    if src is None:
+        return out, None
+    if src == target_name:
+        return out, target_name
+    out = out.rename(columns={src: target_name})
+    return out, target_name
 
 
 def _extract_readmit_ids(
