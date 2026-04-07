@@ -998,16 +998,13 @@ def keep_earlier_record(
     df: pd.DataFrame,
     id_col: str = "student_id",
     sort_col: str = "cohort_term",
-    *,
-    term_col: str | None = None,
 ) -> pd.DataFrame:
     """
-    Keeps the earliest record per id_col based on sort_col (or term_col alias).
-    Handles both term strings ('Spring 2020') and date strings ('1/10/2022').
-    """
-    if term_col is not None:
-        sort_col = term_col
+    Keep one row per ``id_col``: the earliest by ``sort_col``.
 
+    ``sort_col`` is usually a term/cohort column (e.g. ``cohort_term``, ``enrollment_term``)
+    or any column parseable as dates or as ``Season YYYY`` strings.
+    """
     def to_sort_key(val):
         if pd.isna(val):
             return float("inf")
@@ -1128,28 +1125,26 @@ def assign_numeric_grade(
 def add_term_col(
     df: pd.DataFrame,
     source_col: str,
-    target_col: str = "cohort",
-    season_cutoffs: list[tuple[int, str]] | None = None,
     *,
-    season_rank: dict[str, int] | None = None,
-    ordered: bool = True,
-    only_for_first_enrollment_column: bool = True,
-    first_enrollment_name_hints: tuple[str, ...] | None = None,
-    only_if_date_like: bool = False,
+    target_col: str = "cohort",
     season_token_col: str | None = "cohort_term",
-    date_like_max_sample: int = 8000,
-    date_like_min_rate: float = 0.55,
-    term_string_max_rate: float = 0.35,
+    season_cutoffs: list[tuple[int, str]] | None = None,
+    ordered: bool = True,
+    source_name_hints: tuple[str, ...] | None = (
+        "first_enrollment",
+        "first_enroll",
+        "matriculation",
+    ),
+    require_date_like_values: bool = False,
 ) -> pd.DataFrame:
     """
     Map a **first enrollment date** (or similar) column to academic term labels
     ``\"{Season} {year}\"`` and optionally a season token column (e.g. ``cohort_term``).
 
     Intended for columns such as ``first_enrollment_date`` / ``first_enrollment``, not
-    generic term fields. When ``only_for_first_enrollment_column`` is True (default),
-    the function no-ops unless ``source_col`` matches ``first_enrollment_name_hints``
-    (substring match, case-insensitive). Set ``only_for_first_enrollment_column=False``
-    to allow any column name.
+    generic term fields. When ``source_name_hints`` is non-empty (default), the function
+    no-ops unless ``source_col`` matches one of the hints (substring, case-insensitive).
+    Pass ``source_name_hints=()`` or ``None`` to allow any column name.
 
     Default enrollment seasons (calendar month of the date):
 
@@ -1163,22 +1158,26 @@ def add_term_col(
     **June-August** → Summer; **September-November** → Fall; **December** → Winter.
     Pass ``season_cutoffs`` to use the legacy ``month < cutoff`` rule instead.
 
-    If ``only_if_date_like`` is True, no new columns are added when the source column
-    looks like pre-formatted term strings (e.g. ``Spring 2024``) rather than raw dates.
-    """
+    If ``require_date_like_values`` is True, no new columns are added when cell values
+    look like pre-formatted term strings (e.g. ``Spring 2024``) rather than raw dates.
 
-    if only_for_first_enrollment_column:
-        hints = first_enrollment_name_hints or (
-            "first_enrollment",
-            "first_enroll",
-            "matriculation",
-        )
+    Migration from older kwargs: ``only_for_first_enrollment_column=False`` →
+    ``source_name_hints=None``; ``first_enrollment_name_hints=...`` → ``source_name_hints=...``;
+    ``only_if_date_like=True`` → ``require_date_like_values=True``. Custom season ordering
+    is fixed to Spring < Summer < Fall < Winter (``season_rank`` was removed).
+    """
+    date_like_max_sample = 8000
+    date_like_min_rate = 0.55
+    term_string_max_rate = 0.35
+    season_rank = {"Spring": 1, "Summer": 2, "Fall": 3, "Winter": 4}
+
+    if source_name_hints:
         normalized = source_col.lower().replace(" ", "_")
-        if not any(h in normalized for h in hints):
+        if not any(h in normalized for h in source_name_hints):
             LOGGER.info(
-                "add_term_col: skipped; %r does not match first-enrollment column hints %s",
+                "add_term_col: skipped; %r does not match source_name_hints %s",
                 source_col,
-                hints,
+                source_name_hints,
             )
             return df.copy()
 
@@ -1205,11 +1204,7 @@ def add_term_col(
         return None
 
     use_default_calendar = season_cutoffs is None
-    rank = (
-        season_rank
-        if season_rank is not None
-        else {"Spring": 1, "Summer": 2, "Fall": 3, "Winter": 4}
-    )
+    rank = season_rank
     academic_season_tokens = frozenset({"spring", "summer", "fall", "winter", "autumn"})
 
     def _value_looks_like_academic_term_string(val: t.Any) -> bool:
@@ -1245,7 +1240,7 @@ def add_term_col(
             term_like / n <= term_string_max_rate
         )
 
-    if only_if_date_like and not _series_looks_like_dates(df[source_col]):
+    if require_date_like_values and not _series_looks_like_dates(df[source_col]):
         LOGGER.info(
             "add_term_col: skipped; column %r does not look date-like",
             source_col,
