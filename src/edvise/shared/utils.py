@@ -66,6 +66,22 @@ def as_percent(val: float | int) -> str:
     return str(int(val) if val.is_integer() else round(val, 2))
 
 
+def percent_of_rows(count: int, total_rows: int, *, ndigits: int = 2) -> float:
+    """Compute ``100 * count / total_rows`` as a rounded percentage.
+
+    Args:
+        count: Numerator (e.g. number of rows matching a condition).
+        total_rows: Denominator; must be non-negative.
+        ndigits: Decimal places for ``round`` (default 2).
+
+    Returns:
+        Percentage in ``[0, 100]``, or ``0.0`` when ``total_rows`` is 0 (avoids division by zero).
+    """
+    if not total_rows:
+        return 0.0
+    return round(100 * count / total_rows, ndigits)
+
+
 def normalize_degree(text: str) -> str:
     """
     Normalize degree text by removing the word 'degree' and standardizing capitalization.

@@ -1151,7 +1151,7 @@ def test_keep_earlier_record_with_custom_column_names():
         }
     )
 
-    result = m.keep_earlier_record(df, id_col="user_id", term_col="enrollment_term")
+    result = m.keep_earlier_record(df, id_col="user_id", sort_col="enrollment_term")
 
     # Should keep earliest record for each user
     assert len(result) == 2
@@ -1599,7 +1599,7 @@ def test_order_terms_handles_invalid_term_format():
 
 def test_order_terms_logs_categories(caplog):
     """Test that order_terms logs the ordered categories."""
-    caplog.set_level(logging.INFO, logger="edvise.data_audit.eda")
+    caplog.set_level(logging.INFO, logger="edvise.data_audit.custom_cleaning")
 
     df = pd.DataFrame(
         {

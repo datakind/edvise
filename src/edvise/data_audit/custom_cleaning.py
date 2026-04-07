@@ -1,7 +1,7 @@
 """
 Summary:
   • Normalize headers & clean DataFrames
-  • Geneate robust training-time dtypes with thresholds (avoid train–infer skew)
+  • Generate robust training-time dtypes with thresholds (avoid train–infer skew)
   • Freeze per-dataset schemas and assemble a multi-dataset **preprocess schema**
   • Enforce schemas at inference
   • Save/load the schema
@@ -35,6 +35,8 @@ from pandas.api import types as ptypes
 from edvise.utils.data_cleaning import convert_to_snake_case
 from edvise.feature_generation.term import add_term_order
 from edvise.configs.custom import CustomProjectConfig, CleaningConfig
+
+from .custom_data_audit import infer_student_id_column
 
 LOGGER = logging.getLogger(__name__)
 
@@ -945,6 +947,128 @@ def align_and_rank_dataframes(
     return result
 
 
+def order_terms(
+    df: pd.DataFrame, term_col: str, season_order: dict[str, int] | None = None
+) -> pd.DataFrame:
+    """
+    CUSTOM SCHOOL FUNCTION
+
+    Make df[term_col] an ordered categorical based on Season + Year.
+    Handles both 'Spring 2024' and '2024 Spring' formats.
+    Compatible with CleanSpec.term_order_fn(df, term_col).
+
+    Args:
+        df: DataFrame containing the term column
+        term_col: Name of the column containing term strings
+        season_order: Optional dict mapping season names to sort order.
+                     Defaults to Spring=1, Summer=2, Fall=3, Winter=4
+    """
+    if term_col not in df.columns:
+        return df
+
+    if season_order is None:
+        season_order = {"Spring": 1, "Summer": 2, "Fall": 3, "Winter": 4}
+
+    out = df.copy()
+    out[term_col] = out[term_col].astype("string")
+
+    unique_terms = out[term_col].dropna().unique()
+    if len(unique_terms) == 0:
+        return out
+
+    sorted_terms = sorted(
+        unique_terms, key=lambda term: _parse_term(term, season_order)
+    )
+
+    out[term_col] = pd.Categorical(
+        out[term_col],
+        categories=sorted_terms,
+        ordered=True,
+    )
+
+    LOGGER.info(
+        "term_order_fn: term_col=%s, categories=%s",
+        term_col,
+        list(out[term_col].cat.categories),
+    )
+    return out
+
+
+def _parse_term(term: str, season_order: dict[str, int]) -> tuple[int, int]:
+    """
+    Parse a term string into a (year, season_rank) tuple for sorting.
+    Handles both 'Spring 2024' and '2024 Spring' formats.
+    """
+    parts = str(term).split()
+    if len(parts) != 2:
+        return (9999, 99)
+
+    try:
+        if parts[0].isdigit():
+            year, season = int(parts[0]), parts[1]  # '2024 Spring'
+        else:
+            season, year_s = parts[0], parts[1]  # 'Spring 2024'
+            year = int(year_s)
+    except (TypeError, ValueError):
+        return (9999, 99)
+
+    return (year, season_order.get(season, 99))
+
+
+def convert_numeric_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    """
+    CUSTOM SCHOOL FUNCTION
+
+    Converts string-based numeric columns to a numeric dtype for plotting purposes ONLY
+    (we want to maintain dtypes in our modeling dataframe, so ONLY use this for help with EDA).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        The DataFrame containing the columns to clean.
+    columns : list of str
+        List of column names to clean and convert.
+
+    Returns
+    -------
+    pd.DataFrame
+        DataFrame with specified columns cleaned and converted to numeric.
+    """
+    out = df.copy()
+    for col in columns:
+        s = out[col].astype(str).str.strip()
+        s = s.str.replace(",", "", regex=False)  # remove commas
+        s = s.str.replace(
+            r"[^\d.\-]", "", regex=True
+        )  # keep only digits, dot (decimals), dash (negative sign)
+        out[col] = pd.to_numeric(s, errors="coerce")
+    return out
+
+
+def normalize_student_id_column(
+    df: pd.DataFrame,
+    *,
+    target_name: str = "student_id",
+    source_col: str | None = None,
+) -> tuple[pd.DataFrame, str | None]:
+    """
+    Return a copy of *df* with the inferred (or provided) id column renamed to *target_name*.
+
+    If *target_name* already exists, returns ``(df.copy(), target_name)`` without renaming.
+    If no id column can be resolved, returns ``(df.copy(), None)``.
+    """
+    out = df.copy()
+    if target_name in out.columns:
+        return out, target_name
+    src = source_col if source_col is not None else infer_student_id_column(out)
+    if src is None:
+        return out, None
+    if src == target_name:
+        return out, target_name
+    out = out.rename(columns={src: target_name})
+    return out, target_name
+
+
 def _extract_readmit_ids(
     df: pd.DataFrame,
     entry_col: str = "entry_type",
@@ -997,20 +1121,29 @@ def drop_readmits(
 def keep_earlier_record(
     df: pd.DataFrame,
     id_col: str = "student_id",
-    term_col: str = "cohort_term",
+    sort_col: str = "cohort_term",
 ) -> pd.DataFrame:
     """
-    Keeps the earliest record per id_col based on term_col, where term_col
-    looks like 'Spring 2020', 'Fall 2020', etc.
+    Keep one row per ``id_col``: the earliest by ``sort_col``.
+
+    ``sort_col`` is usually a term/cohort column (e.g. ``cohort_term``, ``enrollment_term``)
+    or any column parseable as dates or as ``Season YYYY`` strings.
     """
 
-    def term_to_sort_key(term):
-        if pd.isna(term):
-            return float("inf")  # treat missing as latest
-        term = str(term).strip().title()
-        parts = term.split()
+    def to_sort_key(val):
+        if pd.isna(val):
+            return float("inf")
+
+        # try parsing as a date first
+        try:
+            return pd.to_datetime(val).timestamp()
+        except Exception:
+            pass
+
+        # fall back to term string parsing
+        parts = str(val).strip().title().split()
         if len(parts) != 2:
-            return float("inf")  # unknown format
+            return float("inf")
         season, year_str = parts
         try:
             year = int(year_str)
@@ -1020,15 +1153,13 @@ def keep_earlier_record(
         return year * 10 + season_order.get(season, 5)
 
     out = df.copy()
-    out["_term_sort_key"] = out[term_col].apply(term_to_sort_key)
-
+    out["_sort_key"] = out[sort_col].apply(to_sort_key)
     out = (
-        out.sort_values(by=[id_col, "_term_sort_key"])
+        out.sort_values(by=[id_col, "_sort_key"])
         .drop_duplicates(subset=id_col, keep="first")
-        .drop(columns=["_term_sort_key"])
+        .drop(columns=["_sort_key"])
         .reset_index(drop=True)
     )
-
     return out
 
 
@@ -1114,6 +1245,170 @@ def assign_numeric_grade(
 
     LOGGER.info("Completed assign_numeric_grade transformation.")
     return df
+
+
+def add_term_col(
+    df: pd.DataFrame,
+    source_col: str,
+    *,
+    target_col: str = "cohort",
+    season_token_col: str | None = "cohort_term",
+    season_cutoffs: list[tuple[int, str]] | None = None,
+    ordered: bool = True,
+    source_name_hints: tuple[str, ...] | None = (
+        "first_enrollment",
+        "first_enroll",
+        "matriculation",
+    ),
+    require_date_like_values: bool = False,
+) -> pd.DataFrame:
+    """
+    Map a **first enrollment date** (or similar) column to academic term labels
+    ``\"{Season} {year}\"`` and optionally a season token column (e.g. ``cohort_term``).
+
+    Intended for columns such as ``first_enrollment_date`` / ``first_enrollment``, not
+    generic term fields. When ``source_name_hints`` is non-empty (default), the function
+    no-ops unless ``source_col`` matches one of the hints (substring, case-insensitive).
+    Pass ``source_name_hints=()`` or ``None`` to allow any column name.
+
+    Default enrollment seasons (calendar month of the date):
+
+    - **Spring:** January-May
+    - **Summer:** June-August
+    - **Fall:** August-December (months September-November; August is Summer; December
+      is Winter intersession)
+    - **Winter (intersession):** December-January
+
+    Overlaps are resolved as: **January** → Winter; **February-May** → Spring;
+    **June-August** → Summer; **September-November** → Fall; **December** → Winter.
+    Pass ``season_cutoffs`` to use the legacy ``month < cutoff`` rule instead.
+
+    If ``require_date_like_values`` is True, no new columns are added when cell values
+    look like pre-formatted term strings (e.g. ``Spring 2024``) rather than raw dates.
+
+    Migration from older kwargs: ``only_for_first_enrollment_column=False`` →
+    ``source_name_hints=None``; ``first_enrollment_name_hints=...`` → ``source_name_hints=...``;
+    ``only_if_date_like=True`` → ``require_date_like_values=True``. Custom season ordering
+    is fixed to Spring < Summer < Fall < Winter (``season_rank`` was removed).
+    """
+    date_like_max_sample = 8000
+    date_like_min_rate = 0.55
+    term_string_max_rate = 0.35
+    season_rank = {"Spring": 1, "Summer": 2, "Fall": 3, "Winter": 4}
+
+    if source_name_hints:
+        normalized = source_col.lower().replace(" ", "_")
+        if not any(h in normalized for h in source_name_hints):
+            LOGGER.info(
+                "add_term_col: skipped; %r does not match source_name_hints %s",
+                source_col,
+                source_name_hints,
+            )
+            return df.copy()
+
+    # Index by calendar month: Winter intersession Jan+Dec; Spring Feb-May; etc.
+    _MONTH_TO_SEASON = (
+        None,
+        "Winter",
+        "Spring",
+        "Spring",
+        "Spring",
+        "Spring",
+        "Summer",
+        "Summer",
+        "Summer",
+        "Fall",
+        "Fall",
+        "Fall",
+        "Winter",
+    )
+
+    def _default_month_to_season(month: int) -> str | None:
+        if 1 <= month <= 12:
+            return _MONTH_TO_SEASON[month]
+        return None
+
+    use_default_calendar = season_cutoffs is None
+    rank = season_rank
+    academic_season_tokens = frozenset({"spring", "summer", "fall", "winter", "autumn"})
+
+    def _value_looks_like_academic_term_string(val: t.Any) -> bool:
+        if pd.isna(val):
+            return False
+        parts = str(val).strip().split()
+        if len(parts) != 2:
+            return False
+        p0, p1 = parts[0], parts[1]
+        a, b = p0.strip().lower(), p1.strip().lower()
+        if not a or a == "nan" or not b:
+            return False
+        if p0.isdigit() and len(p0) == 4:
+            return b in academic_season_tokens
+        if p1.isdigit() and len(p1) == 4:
+            return a in academic_season_tokens
+        return False
+
+    def _series_looks_like_dates(series: pd.Series) -> bool:
+        non_null = series.dropna()
+        if non_null.empty:
+            return False
+        sample = non_null.iloc[:date_like_max_sample]
+        n = len(sample)
+        term_like = sum(1 for v in sample if _value_looks_like_academic_term_string(v))
+        date_like = sum(
+            1
+            for v in sample
+            if not _value_looks_like_academic_term_string(v)
+            and pd.notna(pd.to_datetime(v, errors="coerce"))
+        )
+        return (date_like / n >= date_like_min_rate) and (
+            term_like / n <= term_string_max_rate
+        )
+
+    if require_date_like_values and not _series_looks_like_dates(df[source_col]):
+        LOGGER.info(
+            "add_term_col: skipped; column %r does not look date-like",
+            source_col,
+        )
+        return df.copy()
+
+    def to_term(date_str: t.Any) -> str | None:
+        dt = pd.to_datetime(date_str, errors="coerce")
+        if pd.isna(dt):
+            return None
+        if use_default_calendar:
+            season = _default_month_to_season(int(dt.month))
+        else:
+            assert season_cutoffs is not None
+            season = next(
+                (s for c, s in season_cutoffs if dt.month < c),
+                None,
+            )
+        return f"{season} {dt.year}" if season else None
+
+    out = df.copy()
+    out[target_col] = out[source_col].apply(to_term)
+    if season_token_col:
+        out[season_token_col] = out[target_col].astype("string").str.split().str[0]
+
+    if not ordered:
+        return out
+
+    def _parse_term_sort_key(term: str) -> tuple[int, int]:
+        parts = str(term).split()
+        if len(parts) != 2:
+            return (9999, 99)
+        a, b = parts[0], parts[1]
+        try:
+            if a.isdigit() and len(a) == 4:
+                return (int(a), rank.get(b, 99))
+            return (int(b), rank.get(a, 99))
+        except ValueError:
+            return (9999, 99)
+
+    cats = sorted(out[target_col].dropna().unique(), key=_parse_term_sort_key)
+    out[target_col] = pd.Categorical(out[target_col], categories=cats, ordered=True)
+    return out
 
 
 # ---------------------------

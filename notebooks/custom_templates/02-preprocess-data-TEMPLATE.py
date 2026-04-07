@@ -2,7 +2,7 @@
 # MAGIC %md
 # MAGIC # SST Preprocess Custom Data
 # MAGIC
-# MAGIC First step in the process of transforming raw data into actionable, data-driven insights for advisors: load raw data, build a schema contract to enhance data & pipeline reliability, and ensure limited training-inference skew.
+# MAGIC Build the silver / preprocessed datasets from bronze using ``edvise.data_audit.custom_cleaning`` (schema contract, dtypes, optional ``term_order_fn`` such as ``custom_cleaning.order_terms``). For exploratory plots and institution-facing audit tables, use ``00-data-audit-TEMPLATE.py`` / ``01-data-assessment-TEMPLATE.py`` (``eda`` vs ``custom_data_audit``).
 # MAGIC
 # MAGIC ### References
 # MAGIC
@@ -42,8 +42,8 @@ from py4j.protocol import Py4JJavaError
 from edvise import dataio, configs
 from edvise.data_audit import custom_cleaning
 
-# NOTE: You may want to add term order here
-# from TODO.helpers import create_term_order
+# Optional: use the same term ordering as the audit notebooks, e.g.
+# term_order_by_dataset["student_df"] = (custom_cleaning.order_terms, "cohort_term")
 
 try:
     # Get the pipeline type from job definition
