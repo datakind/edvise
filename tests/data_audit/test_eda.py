@@ -877,7 +877,7 @@ def test_infer_check_pf_grade_list_kwargs_merges_observed_grade():
     df = pd.DataFrame(
         {
             "grade": ["A", "A+"],
-            "pf": ["Y", "Y"],
+            "pf": ["Y", "N"],
         }
     )
     kw = data_audit_eda.infer_check_pf_grade_list_kwargs(df, "grade", "pf")

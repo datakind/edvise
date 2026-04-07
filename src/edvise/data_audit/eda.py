@@ -1985,7 +1985,7 @@ def order_terms(
         ordered=True,
     )
 
-    logging.info(
+    LOGGER.info(
         "term_order_fn: term_col=%s, categories=%s",
         term_col,
         list(out[term_col].cat.categories),
@@ -2002,10 +2002,14 @@ def _parse_term(term: str, season_order: dict[str, int]) -> tuple[int, int]:
     if len(parts) != 2:
         return (9999, 99)
 
-    if parts[0].isdigit():
-        year, season = int(parts[0]), parts[1]  # '2024 Spring'
-    else:
-        season, year = parts[0], int(parts[1])  # 'Spring 2024'
+    try:
+        if parts[0].isdigit():
+            year, season = int(parts[0]), parts[1]  # '2024 Spring'
+        else:
+            season, year_s = parts[0], parts[1]  # 'Spring 2024'
+            year = int(year_s)
+    except (TypeError, ValueError):
+        return (9999, 99)
 
     return (year, season_order.get(season, 99))
 
@@ -2453,10 +2457,11 @@ def infer_age_column(
         nunique = int(non_null.nunique(dropna=True))
         if nunique < 2 or nunique > max_nunique:
             continue
-        if n_rows and nunique > 0.95 * n_rows:
+        rate = _age_plausibility_rate(s)
+        # Near-unique columns are usually IDs; allow when values look like ages.
+        if n_rows and nunique > 0.95 * n_rows and rate < 0.85:
             continue
         hint = term_column_name_hint_score(col, name_hints)
-        rate = _age_plausibility_rate(s)
         if hint < min_name_hint and rate < min_plausible_rate:
             continue
         score = 2.5 * hint + rate
@@ -2551,8 +2556,9 @@ def infer_student_audit_columns(
             exclude_cols=used,
             max_nunique=120,
         )
-        if out[key]:
-            used.add(out[key])
+        inferred_ext = out[key]
+        if inferred_ext:
+            used.add(inferred_ext)
 
     return out
 
@@ -2626,6 +2632,9 @@ def infer_student_id_column(
             continue
         id_ratio = nunique / n_rows if n_rows else 0.0
         score = 3.0 * hint + id_ratio + 0.1 * frac_short
+        cnorm = col.replace("_", "").replace(" ", "").lower()
+        if cnorm == "studentid":
+            score += 2.0
         if score > best_score:
             best_score = score
             best_col = col

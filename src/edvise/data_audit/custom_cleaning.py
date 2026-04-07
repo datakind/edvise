@@ -998,11 +998,15 @@ def keep_earlier_record(
     df: pd.DataFrame,
     id_col: str = "student_id",
     sort_col: str = "cohort_term",
+    *,
+    term_col: str | None = None,
 ) -> pd.DataFrame:
     """
-    Keeps the earliest record per id_col based on sort_col.
+    Keeps the earliest record per id_col based on sort_col (or term_col alias).
     Handles both term strings ('Spring 2020') and date strings ('1/10/2022').
     """
+    if term_col is not None:
+        sort_col = term_col
 
     def to_sort_key(val):
         if pd.isna(val):
