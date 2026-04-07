@@ -669,6 +669,24 @@ class TestValidateCreditConsistencyPercent:
         assert "SUGGESTED NEXT STEPS" in rep
         assert "1) Course file" in rep
 
+    def test_strict_columns_skips_course_check_when_names_not_in_frame(self):
+        """strict_columns=True does not fall back to alternate credit column names."""
+        course_df = pd.DataFrame(
+            {
+                "student_id": ["s1"],
+                "semester": ["S1"],
+                "course_credits_attempted": [3],
+                "course_credits_earned": [3],
+            }
+        )
+        result = data_audit.eda.validate_credit_consistency(
+            course_df=course_df,
+            strict_columns=True,
+            course_credits_attempted_col="not_a_column",
+            course_credits_earned_col="also_missing",
+        )
+        assert result["course_anomalies_summary"] is None
+
 
 def test_value_looks_like_term_accepts_common_formats():
     assert value_looks_like_term("Spring 2024") is True
@@ -850,6 +868,21 @@ def test_iter_pf_grade_anomaly_slices_yields_only_true_rows():
         "no_credits_with_passing_grade",
     ]
     assert len(parts[0][1]) == 1 and len(parts[1][1]) == 1
+
+
+def test_iter_pf_grade_anomaly_slices_skips_empty_subframes():
+    from edvise.data_audit import eda as eda_mod
+
+    anomalies = pd.DataFrame(
+        {
+            "earned_with_failing_grade": [True],
+            "no_credits_with_passing_grade": [False],
+            "grade_pf_disagree": [False],
+        }
+    )
+    parts = list(eda_mod.iter_pf_grade_anomaly_slices(anomalies))
+    assert [n for n, _ in parts] == ["earned_with_failing_grade"]
+    assert len(parts[0][1]) == 1
 
 
 def test_infer_pass_fail_flag_tuples_yn():

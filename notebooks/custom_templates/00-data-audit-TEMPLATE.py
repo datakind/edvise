@@ -64,8 +64,6 @@ from edvise.data_audit.eda import (
     value_counts_sorted_count_df,
 )
 
-from edvise.utils.data_cleaning import handling_duplicates
-
 try:
     run_type = dbutils.widgets.get("run_type")  # noqa: F821
 except Py4JJavaError:
@@ -602,29 +600,25 @@ if not semester_dupes.empty:
 
 # COMMAND ----------
 
-# De-duplicate course rows the same way as downstream pipelines before grading rules
-cleaned_course = handling_duplicates(course_raw_df)
-
 # Grade column distribution (percent of rows) — run immediately before PF/grade rules
-if GRADE_COL and GRADE_COL in cleaned_course.columns:
-    display(value_counts_percent_df(cleaned_course[GRADE_COL]))
+if GRADE_COL and GRADE_COL in course_raw_df.columns:
+    display(value_counts_percent_df(course_raw_df[GRADE_COL]))
 else:
     print("Skip grade distribution: no inferred grade column.")
 
 # COMMAND ----------
 
 if GRADE_COL and PF_COL and CREDITS_COL:
-    _pf_kw = infer_check_pf_grade_list_kwargs(cleaned_course, GRADE_COL, PF_COL)
+    _pf_kw = infer_check_pf_grade_list_kwargs(course_raw_df, GRADE_COL, PF_COL)
     print("PF/grade check kwargs (inferred + defaults):", _pf_kw)
     anomalies_pf, summary_pf = check_pf_grade_consistency(
-        cleaned_course,
+        course_raw_df,
         grade_col=GRADE_COL,
         pf_col=PF_COL,
         credits_col=CREDITS_COL,
         **_pf_kw,
     )
     display(summary_pf)
-    display(anomalies_pf.head(50))
 else:
     print(
         "Skip PF/grade check: could not infer grade, pass/fail (or completion), and credits columns."
@@ -635,16 +629,26 @@ else:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## PF/grade anomalies by rule (boolean flags)
+# MAGIC ## PF/grade anomalies — example rows by category
+# MAGIC
+# MAGIC Printed samples per rule (text only; first 12 rows per category).
 
 # COMMAND ----------
 
+_PF_EXAMPLE_N = 12
+
 if anomalies_pf is not None and not anomalies_pf.empty:
-    for _flag, _sub in iter_pf_grade_anomaly_slices(anomalies_pf):
-        print(f"\n--- rows where {_flag} is True (n={len(_sub)}) ---")
-        display(_sub.head(100))
+    _slices = list(iter_pf_grade_anomaly_slices(anomalies_pf))
+    if not _slices:
+        print("No rule-specific anomaly rows to print (unexpected if anomalies_pf is non-empty).")
+    for _flag, _sub in _slices:
+        print(
+            f"\n=== {_flag} — {len(_sub)} row(s) total; "
+            f"up to {_PF_EXAMPLE_N} examples ===\n"
+        )
+        print(_sub.head(_PF_EXAMPLE_N).to_string())
 else:
-    print("No anomaly rows to slice (run PF/grade check above or anomalies are empty).")
+    print("No PF/grade anomalies (or check was skipped above).")
 
 # COMMAND ----------
 
@@ -690,17 +694,14 @@ credit_audit = validate_credit_consistency(
     cohort_df=student_raw_df,
     id_col="student_id",
     sem_col=SEM_COL_FOR_CREDIT,
-    course_credits_attempted_col=COURSE_CRED_ATTEMPTED_COL or "course_credits",
-    course_credits_earned_col=COURSE_CRED_EARNED_COL or "credits_earned",
-    semester_credits_attempted_col=SEM_CRED_ATTEMPTED_COL
-    or "number_of_credits_attempted",
-    semester_credits_earned_col=SEM_CRED_EARNED_COL or "number_of_credits_earned",
-    semester_courses_count_col=SEM_COURSE_COUNT_COL
-    or "number_of_courses_enrolled",
-    cohort_credits_attempted_col=INST_TOT_CREDITS_ATTEMPTED_COL
-    or "inst_tot_credits_attempted",
-    cohort_credits_earned_col=INST_TOT_CREDITS_EARNED_COL
-    or "inst_tot_credits_earned",
+    strict_columns=True,
+    course_credits_attempted_col=COURSE_CRED_ATTEMPTED_COL,
+    course_credits_earned_col=COURSE_CRED_EARNED_COL,
+    semester_credits_attempted_col=SEM_CRED_ATTEMPTED_COL,
+    semester_credits_earned_col=SEM_CRED_EARNED_COL,
+    semester_courses_count_col=SEM_COURSE_COUNT_COL,
+    cohort_credits_attempted_col=INST_TOT_CREDITS_ATTEMPTED_COL,
+    cohort_credits_earned_col=INST_TOT_CREDITS_EARNED_COL,
 )
 
 print(credit_audit["institution_report"])

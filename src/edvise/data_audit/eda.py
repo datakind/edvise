@@ -1141,15 +1141,22 @@ def validate_credit_consistency(
     *,
     id_col: str = "student_id",
     sem_col: str = "semester",
-    course_credits_attempted_col: str = "credits_attempted",
-    course_credits_earned_col: str = "credits_earned",
-    semester_credits_attempted_col: str = "number_of_semester_credits_attempted",
-    semester_credits_earned_col: str = "number_of_semester_credits_earned",
-    semester_courses_count_col: str = "number_of_semester_courses_enrolled",
-    cohort_credits_attempted_col: str = "inst_tot_credits_attempted",
-    cohort_credits_earned_col: str = "inst_tot_credits_earned",
+    course_credits_attempted_col: t.Optional[str] = "credits_attempted",
+    course_credits_earned_col: t.Optional[str] = "credits_earned",
+    semester_credits_attempted_col: t.Optional[str] = "number_of_semester_credits_attempted",
+    semester_credits_earned_col: t.Optional[str] = "number_of_semester_credits_earned",
+    semester_courses_count_col: t.Optional[str] = "number_of_semester_courses_enrolled",
+    cohort_credits_attempted_col: t.Optional[str] = "inst_tot_credits_attempted",
+    cohort_credits_earned_col: t.Optional[str] = "inst_tot_credits_earned",
     credit_tol: float = 0.0,
+    strict_columns: bool = False,
 ) -> t.Dict[str, t.Any]:
+    """
+    Args:
+        strict_columns: If True, each credit column name is used only when it is non-empty
+            and present on the frame — no alternate name fallbacks (for audit notebooks that
+            pass inferred names only).
+    """
     LOGGER.info(
         "Starting credit consistency validation "
         "(course_df=%d rows, semester_df=%s, cohort_df=%s)",
@@ -1161,21 +1168,35 @@ def validate_credit_consistency(
     # -------------------------------------------------------
     # Resolve course credit column names
     # -------------------------------------------------------
-    resolved_attempted = (
-        course_credits_attempted_col
-        if course_credits_attempted_col in course_df.columns
-        else "course_credits_attempted"
-        if "course_credits_attempted" in course_df.columns
-        else None
-    )
+    if strict_columns:
+        resolved_attempted = (
+            course_credits_attempted_col
+            if course_credits_attempted_col
+            and course_credits_attempted_col in course_df.columns
+            else None
+        )
+        resolved_earned = (
+            course_credits_earned_col
+            if course_credits_earned_col and course_credits_earned_col in course_df.columns
+            else None
+        )
+    else:
+        resolved_attempted = (
+            course_credits_attempted_col
+            if course_credits_attempted_col
+            and course_credits_attempted_col in course_df.columns
+            else "course_credits_attempted"
+            if "course_credits_attempted" in course_df.columns
+            else None
+        )
 
-    resolved_earned = (
-        course_credits_earned_col
-        if course_credits_earned_col in course_df.columns
-        else "course_credits_earned"
-        if "course_credits_earned" in course_df.columns
-        else None
-    )
+        resolved_earned = (
+            course_credits_earned_col
+            if course_credits_earned_col and course_credits_earned_col in course_df.columns
+            else "course_credits_earned"
+            if "course_credits_earned" in course_df.columns
+            else None
+        )
 
     has_course_credit_cols = (
         resolved_attempted is not None and resolved_earned is not None
@@ -1235,6 +1256,23 @@ def validate_credit_consistency(
     merged = None
     reconciliation_summary = None
 
+    sem_has_attempted = False
+    sem_has_earned = False
+    sem_has_count = False
+    if semester_df is not None:
+        sem_has_attempted = (
+            bool(semester_credits_attempted_col)
+            and semester_credits_attempted_col in semester_df.columns
+        )
+        sem_has_earned = (
+            bool(semester_credits_earned_col)
+            and semester_credits_earned_col in semester_df.columns
+        )
+        sem_has_count = (
+            bool(semester_courses_count_col)
+            and semester_courses_count_col in semester_df.columns
+        )
+
     if (
         semester_df is not None
         and has_course_credit_cols
@@ -1242,12 +1280,9 @@ def validate_credit_consistency(
         and sem_col in course_df.columns
         and id_col in semester_df.columns
         and sem_col in semester_df.columns
+        and (sem_has_attempted or sem_has_earned)
     ):
         LOGGER.info("Reconciling semester aggregates with course data")
-
-        sem_has_attempted = semester_credits_attempted_col in semester_df.columns
-        sem_has_earned = semester_credits_earned_col in semester_df.columns
-        sem_has_count = semester_courses_count_col in semester_df.columns
 
         c = course_df[[id_col, sem_col, resolved_attempted, resolved_earned]].copy()
         c[resolved_attempted] = pd.to_numeric(c[resolved_attempted], errors="coerce")
@@ -1322,17 +1357,26 @@ def validate_credit_consistency(
     cohort_anomalies = None
     cohort_anomalies_summary = None
 
-    if (
-        cohort_df is not None
+    cohort_attempted_ok = (
+        bool(cohort_credits_attempted_col)
         and cohort_credits_attempted_col in cohort_df.columns
+        if cohort_df is not None
+        else False
+    )
+    cohort_earned_ok = (
+        bool(cohort_credits_earned_col)
         and cohort_credits_earned_col in cohort_df.columns
-    ):
+        if cohort_df is not None
+        else False
+    )
+
+    if cohort_df is not None and cohort_attempted_ok and cohort_earned_ok:
         LOGGER.info("Running cohort-level earned <= attempted checks")
 
         cohort_checks = check_earned_vs_attempted(
             cohort_df,
-            earned_col=cohort_credits_earned_col,
-            attempted_col=cohort_credits_attempted_col,
+            earned_col=t.cast(str, cohort_credits_earned_col),
+            attempted_col=t.cast(str, cohort_credits_attempted_col),
         )
 
         cohort_anomalies = cohort_checks.get("anomalies")
@@ -1809,6 +1853,8 @@ def iter_pf_grade_anomaly_slices(
         if flag not in anomalies_pf.columns:
             continue
         sub = anomalies_pf.loc[anomalies_pf[flag].eq(True)]
+        if sub.empty:
+            continue
         yield flag, sub
 
 
