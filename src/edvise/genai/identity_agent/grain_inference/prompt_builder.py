@@ -216,8 +216,6 @@ Respond ONLY with a JSON object. No preamble, no markdown, no explanation outsid
 Follow **STUDENT IDENTIFIER COLUMN** for `student_id_alias` and for how to name the student id
 in `post_clean_primary_key`, `join_keys_for_2a`, and `dedup_policy.sort_by`.
 
-Do **not** include `term_config` in this JSON — term normalization is a separate pass.
-
 {
   "institution_id": "<institution_id>",
   "table": "<dataset_name>",
