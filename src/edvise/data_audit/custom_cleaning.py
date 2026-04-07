@@ -1005,6 +1005,7 @@ def keep_earlier_record(
     ``sort_col`` is usually a term/cohort column (e.g. ``cohort_term``, ``enrollment_term``)
     or any column parseable as dates or as ``Season YYYY`` strings.
     """
+
     def to_sort_key(val):
         if pd.isna(val):
             return float("inf")
