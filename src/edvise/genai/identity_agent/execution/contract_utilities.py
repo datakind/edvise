@@ -83,6 +83,59 @@ def canonicalize_grain_contract_student_id_alias(
 
 KeepArg = Literal["first", "last"]
 
+# Grain contracts may name columns as the model guessed (e.g. ``TERM_DESC``) while
+# ``clean_dataset`` has already applied ``normalize_columns`` (e.g. ``term_descr`` from
+# ``TERM_DESCR``). Prefer exact / snake_case match; then a single safe prefix extension.
+_MIN_KEY_LEN_FOR_PREFIX_FALLBACK = 8
+_MAX_PREFIX_EXTENSION_CHARS = 6
+
+
+def _resolve_grain_key_to_existing_column(name: str, columns: list[str]) -> str:
+    """
+    Map a grain-contract column name to a column present on the cleaned frame.
+
+    Order: exact match → ``convert_to_snake_case`` match → unique prefix extension
+    (same base name with a short suffix such as ``r`` in ``term_descr`` vs ``term_desc``).
+    """
+    colset = set(columns)
+    if name in colset:
+        return name
+    normalized = convert_to_snake_case(name)
+    if normalized in colset:
+        return normalized
+    if len(normalized) < _MIN_KEY_LEN_FOR_PREFIX_FALLBACK:
+        raise ValueError(
+            f"Grain key column {name!r} (as {normalized!r}) not in dataframe columns {sorted(colset)!r}"
+        )
+    candidates = [
+        c
+        for c in columns
+        if c.startswith(normalized)
+        and c != normalized
+        and (len(c) - len(normalized)) <= _MAX_PREFIX_EXTENSION_CHARS
+    ]
+    if not candidates:
+        raise ValueError(
+            f"Grain key column {name!r} (as {normalized!r}) not in dataframe columns {sorted(colset)!r}"
+        )
+    candidates.sort(key=lambda c: (len(c) - len(normalized), c))
+    best = candidates[0]
+    best_delta = len(best) - len(normalized)
+    if len(candidates) > 1:
+        second_delta = len(candidates[1]) - len(normalized)
+        if second_delta == best_delta:
+            raise ValueError(
+                f"Grain key {name!r} (as {normalized!r}) is ambiguous: multiple columns extend "
+                f"that prefix: {candidates!r}"
+            )
+    if best != name and best != normalized:
+        logger.info(
+            "Resolved grain key %r → %r (prefix match on cleaned column names)",
+            name,
+            best,
+        )
+    return best
+
 
 def _validate_key_columns(df: pd.DataFrame, keys: list[str], *, label: str) -> None:
     missing = [k for k in keys if k not in df.columns]
@@ -108,7 +161,11 @@ def apply_grain_dedup(df: pd.DataFrame, contract: GrainContract) -> pd.DataFrame
     """
     contract = canonicalize_grain_contract_student_id_alias(contract)
     policy = contract.dedup_policy
-    keys = list(contract.unique_keys)
+    cols = list(df.columns)
+    try:
+        keys = [_resolve_grain_key_to_existing_column(k, cols) for k in contract.unique_keys]
+    except ValueError as e:
+        raise ValueError(f"apply_grain_dedup: {e}") from e
     _validate_key_columns(df, keys, label="apply_grain_dedup")
 
     if policy.strategy in ("no_dedup", "policy_required"):
@@ -118,7 +175,12 @@ def apply_grain_dedup(df: pd.DataFrame, contract: GrainContract) -> pd.DataFrame
             )
         return df.copy()
 
-    sort_list: list[str] | None = [policy.sort_by] if policy.sort_by else None
+    sort_list: list[str] | None = None
+    if policy.sort_by:
+        try:
+            sort_list = [_resolve_grain_key_to_existing_column(policy.sort_by, cols)]
+        except ValueError as e:
+            raise ValueError(f"apply_grain_dedup: dedup_policy.sort_by: {e}") from e
     if policy.strategy == "temporal_collapse" and not policy.sort_by:
         logger.warning(
             "temporal_collapse without dedup_policy.sort_by — using key-only dedup (keep=%s)",

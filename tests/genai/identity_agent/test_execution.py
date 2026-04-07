@@ -188,8 +188,31 @@ def test_build_dedupe_fn_from_grain_contract():
 def test_missing_key_columns_raises():
     df = pd.DataFrame({"x": [1]})
     c = _grain(post_clean_primary_key=["k"])
-    with pytest.raises(ValueError, match="missing columns"):
+    with pytest.raises(ValueError, match="apply_grain_dedup"):
         apply_grain_dedup(df, c)
+
+
+def test_apply_grain_dedup_resolves_term_desc_prefix_to_term_descr():
+    """Grain contract typo / abbreviation vs normalized header (e.g. UCF TERM_DESCR)."""
+    df = pd.DataFrame(
+        {
+            "student_id": ["a", "a"],
+            "term_descr": ["Fall 2020", "Fall 2020"],
+            "v": [1, 2],
+        }
+    )
+    c = _grain(
+        post_clean_primary_key=["student_id", "TERM_DESC"],
+        join_keys_for_2a=["student_id", "term_descr"],
+        dedup_policy=DedupPolicy(
+            strategy="true_duplicate",
+            sort_by=None,
+            keep="first",
+            notes="",
+        ),
+    )
+    out = apply_grain_dedup(df, c)
+    assert len(out) == 1
 
 
 def test_policy_required_skips_dedup():
