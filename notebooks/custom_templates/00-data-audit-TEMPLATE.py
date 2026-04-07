@@ -177,7 +177,7 @@ print(
 
 # COMMAND ----------
 
-# Student-type and equity-related columns (see edvise.data_audit.eda for defaults / helpers).
+# Student-type, demographic and bias-related columns (see edvise.data_audit.eda for defaults / helpers).
 _audit_cols = infer_student_audit_columns(student_raw_df, term_col=TERM_COL_STUDENT)
 STUDENT_TYPE_COL_STUDENT = _audit_cols["student_type"]
 FIRST_GEN_COL_STUDENT = _audit_cols["first_gen"]
@@ -391,14 +391,15 @@ na_pct_course
 # COMMAND ----------
 
 if TERM_COL_COURSE and TERM_COL_COURSE in course_raw_df.columns:
-    _o_course = order_terms(course_raw_df, TERM_COL_COURSE)
-    display(
-        _o_course[TERM_COL_COURSE]
-        .value_counts()
+    _ctype_pct = (
+        course_raw_df[TERM_COL_COURSE]
+        .value_counts(dropna=False, normalize=True)
+        .mul(100)
         .sort_index()
-        .rename("course_rows")
-        .to_frame()
+        .reset_index()
     )
+    _ctype_pct.columns = [TERM_COL_COURSE, "pct_of_rows"]
+    display(_ctype_pct)
 else:
     print("No inferred term column for course file; skip term value counts.")
 
@@ -437,14 +438,15 @@ na_pct_semester
 # COMMAND ----------
 
 if TERM_COL_SEMESTER and TERM_COL_SEMESTER in semester_raw_df.columns:
-    _o_sem = order_terms(semester_raw_df, TERM_COL_SEMESTER)
-    display(
-        _o_sem[TERM_COL_SEMESTER]
-        .value_counts()
+    _semtype_pct = (
+        semester_raw_df[TERM_COL_SEMESTER]
+        .value_counts(dropna=False, normalize=True)
+        .mul(100)
         .sort_index()
-        .rename("semester_rows")
-        .to_frame()
+        .reset_index()
     )
+    _semtype_pct.columns = [TERM_COL_SEMESTER, "pct_of_rows"]
+    display(_ctype_pct)
 else:
     print("No inferred term column for semester file; skip term value counts.")
 
