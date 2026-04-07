@@ -736,3 +736,27 @@ def test_infer_student_audit_columns_includes_age():
     out = data_audit_eda.infer_student_audit_columns(df, term_col=term)
     assert out["age"] == "student_age"
     assert out["student_type"] == "entry_type"
+
+
+def test_string_looks_like_age_bucket_common_labels():
+    from edvise.data_audit import eda as data_audit_eda
+
+    assert data_audit_eda.string_looks_like_age_bucket("<24")
+    assert data_audit_eda.string_looks_like_age_bucket("20-24")
+    assert data_audit_eda.string_looks_like_age_bucket("older than 24")
+    assert data_audit_eda.string_looks_like_age_bucket("24+")
+    assert data_audit_eda.string_looks_like_age_bucket("under 18") is True
+    assert data_audit_eda.string_looks_like_age_bucket("random notes") is False
+
+
+def test_infer_age_column_categorical_bands():
+    from edvise.data_audit import eda as data_audit_eda
+
+    df = pd.DataFrame(
+        {
+            "student_id": [1, 2, 3, 4],
+            "age_band": ["<24", "20-24", "Older Than 24", "20-24"],
+        }
+    )
+    col = data_audit_eda.infer_age_column(df, exclude_cols={"student_id"})
+    assert col == "age_band"

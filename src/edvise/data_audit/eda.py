@@ -1,5 +1,6 @@
 import itertools
 import logging
+import re
 import typing as t
 
 import numpy as np
@@ -1942,13 +1943,75 @@ def infer_student_file_categorical(
     return best_col
 
 
-def _age_numeric_plausibility_rate(series: pd.Series, max_sample: int = 8000) -> float:
+def string_looks_like_age_bucket(s: str) -> bool:
+    """
+    True if *s* looks like an age band or inequality label (e.g. ``<24``, ``20-24``,
+    ``older than 24``), not arbitrary free text.
+    """
+    t = s.strip().lower()
+    if not t or t == "nan":
+        return False
+    compact = re.sub(r"\s+", " ", t)
+
+    if re.search(r"^\d{1,2}\s*[-–—]\s*\d{1,2}$", compact):
+        return True
+    if re.search(r"^\d{1,2}\s+to\s+\d{1,2}$", compact):
+        return True
+    if re.search(r"^\d{1,2}\s+through\s+\d{1,2}$", compact):
+        return True
+    if re.search(r"^<\s*\d{1,2}$", compact):
+        return True
+    if re.search(r"^<=\s*\d{1,2}$", compact):
+        return True
+    if re.search(r"^≤\s*\d{1,2}$", compact):
+        return True
+    if re.search(r"^>\s*\d{1,2}$", compact):
+        return True
+    if re.search(r"^>=\s*\d{1,2}$", compact):
+        return True
+    if re.search(r"^≥\s*\d{1,2}$", compact):
+        return True
+    if re.search(r"older\s+than\s+\d{1,2}", compact):
+        return True
+    if re.search(r"over\s+\d{1,2}", compact):
+        return True
+    if re.search(r"under\s+\d{1,2}", compact):
+        return True
+    if re.search(r"less\s+than\s+\d{1,2}", compact):
+        return True
+    if re.search(r"below\s+\d{1,2}", compact):
+        return True
+    if re.search(r"at\s+least\s+\d{1,2}", compact):
+        return True
+    if re.search(r"more\s+than\s+\d{1,2}", compact):
+        return True
+    if re.search(r"^\d{1,2}\s*\+\s*$", compact):
+        return True
+    if re.search(r"^\d{1,3}\s*\+\s*$", compact):
+        return True
+    return False
+
+
+def age_single_value_plausible(val: t.Any) -> bool:
+    """True for plausible numeric age (10–100) or bucket string (e.g. ``20-24``, ``<24``)."""
+    if pd.isna(val):
+        return False
+    n = pd.to_numeric(pd.Series([val]), errors="coerce").iloc[0]
+    if pd.notna(n) and np.isfinite(float(n)) and 10 <= float(n) <= 100:
+        return True
+    s = str(val).strip().lower()
+    if not s or s == "nan":
+        return False
+    return string_looks_like_age_bucket(s)
+
+
+def _age_plausibility_rate(series: pd.Series, max_sample: int = 8000) -> float:
+    """Fraction of non-null values that are plausible numeric ages or age-band strings."""
     non_null = series.dropna()
     if len(non_null) == 0:
         return 0.0
     sample = non_null.head(max_sample) if len(non_null) > max_sample else non_null
-    n = pd.to_numeric(sample, errors="coerce")
-    ok = n.notna() & (n >= 10) & (n <= 100)
+    ok = sample.map(age_single_value_plausible)
     return float(ok.mean()) if len(ok) else 0.0
 
 
@@ -1961,7 +2024,10 @@ def infer_age_column(
     min_plausible_rate: float = 0.65,
     max_nunique: int = 120,
 ) -> str | None:
-    """Infer a student age column (numeric-ish, plausible ages, name hints)."""
+    """
+    Infer a student age column: integer ages, or categorical bands such as ``<24``,
+    ``20-24``, ``older than 24`` (see :func:`string_looks_like_age_bucket`).
+    """
     used = set(exclude_cols or ())
     best_col: str | None = None
     best_score = -1.0
@@ -1974,13 +2040,13 @@ def infer_age_column(
         non_null = s.dropna()
         if len(non_null) == 0:
             continue
-        nunique = int(pd.to_numeric(non_null, errors="coerce").dropna().nunique())
+        nunique = int(non_null.nunique(dropna=True))
         if nunique < 2 or nunique > max_nunique:
             continue
         if n_rows and nunique > 0.95 * n_rows:
             continue
         hint = term_column_name_hint_score(col, name_hints)
-        rate = _age_numeric_plausibility_rate(s)
+        rate = _age_plausibility_rate(s)
         if hint < min_name_hint and rate < min_plausible_rate:
             continue
         score = 2.5 * hint + rate
