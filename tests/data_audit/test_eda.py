@@ -801,6 +801,62 @@ def test_infer_course_credit_and_grade_pf_user_style_columns():
     assert p == "Class Completion Status"
 
 
+def test_percent_of_rows_helpers():
+    from edvise.data_audit import eda as eda_mod
+
+    assert eda_mod.percent_of_rows(1, 4) == 25.0
+    assert eda_mod.percent_of_rows(0, 0) == 0.0
+
+
+def test_value_counts_percent_df_named_series():
+    from edvise.data_audit import eda as eda_mod
+
+    s = pd.Series(["a", "b", "a"], name="x")
+    out = eda_mod.value_counts_percent_df(s)
+    assert list(out.columns) == ["x", "pct_of_rows"]
+    assert out["pct_of_rows"].sum() == 100.0
+
+
+def test_iter_pf_grade_anomaly_slices_yields_only_true_rows():
+    from edvise.data_audit import eda as eda_mod
+
+    anomalies = pd.DataFrame(
+        {
+            "earned_with_failing_grade": [True, False],
+            "no_credits_with_passing_grade": [False, True],
+            "grade_pf_disagree": [False, False],
+        }
+    )
+    parts = list(eda_mod.iter_pf_grade_anomaly_slices(anomalies))
+    assert [n for n, _ in parts] == [
+        "earned_with_failing_grade",
+        "no_credits_with_passing_grade",
+    ]
+    assert len(parts[0][1]) == 1 and len(parts[1][1]) == 1
+
+
+def test_infer_pass_fail_flag_tuples_yn():
+    from edvise.data_audit import eda as data_audit_eda
+
+    s = pd.Series(["Y", "N", "Y", None])
+    p, f = data_audit_eda.infer_pass_fail_flag_tuples(s)
+    assert p == ("Y",) and f == ("N",)
+
+
+def test_infer_check_pf_grade_list_kwargs_merges_observed_grade():
+    from edvise.data_audit import eda as data_audit_eda
+
+    df = pd.DataFrame(
+        {
+            "grade": ["A", "A+"],
+            "pf": ["Y", "Y"],
+        }
+    )
+    kw = data_audit_eda.infer_check_pf_grade_list_kwargs(df, "grade", "pf")
+    assert kw["pass_flags"] == ("Y",) and kw["fail_flags"] == ("N",)
+    assert "A+" in kw["passing_grades"]
+
+
 def test_infer_semester_credit_aggregate_user_style_columns():
     from edvise.data_audit import eda as data_audit_eda
 
@@ -817,6 +873,41 @@ def test_infer_semester_credit_aggregate_user_style_columns():
     assert a == "credit_hours"
     assert e == "no_of_credits_earned"
     assert c == "no_of_classes"
+
+
+def test_infer_semester_enrollment_intensity_prefers_ftpt():
+    from edvise.data_audit import eda as data_audit_eda
+
+    sem = pd.DataFrame(
+        {
+            "student_id": [1, 2],
+            "term": ["T1", "T2"],
+            "ftpt": ["FULL-TIME", "PART-TIME"],
+            "credit_hours": [12.0, 6.0],
+        }
+    )
+    col = data_audit_eda.infer_semester_enrollment_intensity_column(
+        sem,
+        exclude_cols={"student_id", "term", "credit_hours"},
+    )
+    assert col == "ftpt"
+
+
+def test_infer_semester_enrollment_intensity_skips_instructor_ft_pt():
+    from edvise.data_audit import eda as data_audit_eda
+
+    sem = pd.DataFrame(
+        {
+            "student_id": [1],
+            "strm": ["12023"],
+            "frac_courses_instructor_ft": [0.5],
+            "enrollment_intensity": ["PART-TIME"],
+        }
+    )
+    col = data_audit_eda.infer_semester_enrollment_intensity_column(
+        sem, exclude_cols={"student_id", "strm"}
+    )
+    assert col == "enrollment_intensity"
 
 
 def test_infer_inst_tot_credits_typo_cumulative_column_is_earned():

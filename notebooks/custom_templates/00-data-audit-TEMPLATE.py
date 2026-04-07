@@ -48,15 +48,20 @@ from edvise.data_audit.eda import (
     check_earned_vs_attempted,
     check_pf_grade_consistency,
     find_dupes,
+    infer_check_pf_grade_list_kwargs,
     infer_course_credit_columns,
     infer_course_grade_pf_columns,
     infer_inst_tot_credits_columns,
     infer_semester_credit_aggregate_columns,
+    infer_semester_enrollment_intensity_column,
     infer_student_audit_columns,
     infer_term_column,
+    iter_pf_grade_anomaly_slices,
     normalize_student_id_column,
     order_terms,
     validate_credit_consistency,
+    value_counts_percent_df,
+    value_counts_sorted_count_df,
 )
 
 from edvise.utils.data_cleaning import handling_duplicates
@@ -187,6 +192,20 @@ COURSE_CRED_ATTEMPTED_COL, COURSE_CRED_EARNED_COL = infer_course_credit_columns(
 SEM_CRED_ATTEMPTED_COL, SEM_CRED_EARNED_COL, SEM_COURSE_COUNT_COL = (
     infer_semester_credit_aggregate_columns(semester_raw_df)
 )
+_SEM_EI_EXCLUDE = {
+    c
+    for c in (
+        SEM_CRED_ATTEMPTED_COL,
+        SEM_CRED_EARNED_COL,
+        SEM_COURSE_COUNT_COL,
+        TERM_COL_SEMESTER,
+        "student_id",
+    )
+    if c
+}
+ENROLLMENT_INTENSITY_COL_SEMESTER = infer_semester_enrollment_intensity_column(
+    semester_raw_df, exclude_cols=_SEM_EI_EXCLUDE
+)
 _GRADE_PF_EXCLUDE = {c for c in (COURSE_CRED_ATTEMPTED_COL, COURSE_CRED_EARNED_COL) if c}
 GRADE_COL, PF_COL = infer_course_grade_pf_columns(
     course_raw_df, exclude_cols=_GRADE_PF_EXCLUDE
@@ -201,6 +220,7 @@ print(
         "semester_credits_attempted": SEM_CRED_ATTEMPTED_COL,
         "semester_credits_earned": SEM_CRED_EARNED_COL,
         "semester_course_count": SEM_COURSE_COUNT_COL,
+        "semester_enrollment_intensity": ENROLLMENT_INTENSITY_COL_SEMESTER,
         "grade": GRADE_COL,
         "pass_fail_or_completion": PF_COL,
         "credits_for_pf_check": CREDITS_COL,
@@ -280,13 +300,9 @@ na_pct_student
 # Term roster counts in chronological order (table only; uses inferred TERM_COL_STUDENT)
 if TERM_COL_STUDENT and TERM_COL_STUDENT in student_raw_df.columns:
     _oc = order_terms(student_raw_df, TERM_COL_STUDENT)
-    _tv = (
-        _oc[TERM_COL_STUDENT]
-        .value_counts()
-        .sort_index()
-        .reset_index()
+    _tv = value_counts_sorted_count_df(
+        _oc[TERM_COL_STUDENT], count_col="student_rows"
     )
-    _tv.columns = [TERM_COL_STUDENT, "student_rows"]
     display(_tv)
 else:
     print("No inferred term column for student file; skip term value counts.")
@@ -315,15 +331,7 @@ else:
 
 # Entry term: percent of rows per term (includes NaN as its own bucket if present)
 if TERM_COL_STUDENT and TERM_COL_STUDENT in student_raw_df.columns:
-    _term_pct = (
-        student_raw_df[TERM_COL_STUDENT]
-        .value_counts(dropna=False, normalize=True)
-        .mul(100)
-        .sort_index()
-        .reset_index()
-    )
-    _term_pct.columns = [TERM_COL_STUDENT, "pct_of_rows"]
-    display(_term_pct)
+    display(value_counts_percent_df(student_raw_df[TERM_COL_STUDENT]))
 else:
     print("Skip entry-term distribution: no inferred term column.")
 
@@ -331,15 +339,7 @@ else:
 
 # Student type: percent of rows per category (inferred column)
 if STUDENT_TYPE_COL_STUDENT and STUDENT_TYPE_COL_STUDENT in student_raw_df.columns:
-    _stype_pct = (
-        student_raw_df[STUDENT_TYPE_COL_STUDENT]
-        .value_counts(dropna=False, normalize=True)
-        .mul(100)
-        .sort_index()
-        .reset_index()
-    )
-    _stype_pct.columns = [STUDENT_TYPE_COL_STUDENT, "pct_of_rows"]
-    display(_stype_pct)
+    display(value_counts_percent_df(student_raw_df[STUDENT_TYPE_COL_STUDENT]))
 else:
     print("Skip student-type distribution: no inferred student-type column.")
 
@@ -389,15 +389,13 @@ for _label, _col in (
     if not _col or _col not in student_raw_df.columns:
         print(f"Skip distribution for {_label!r}: column not inferred or missing.")
         continue
-    _dist = (
+    _s = (
         student_raw_df.loc[student_raw_df[_col].notna(), _col]
         .astype("string")
         .str.strip()
-        .value_counts(normalize=True)
-        .mul(100)
-        .reset_index()
     )
-    _dist.columns = [_col, "pct_of_non_null_rows"]
+    _s.name = _col
+    _dist = value_counts_percent_df(_s, pct_col="pct_of_non_null_rows")
     print(f"\n--- {_label} ({_col}) — among non-null rows only ---")
     display(_dist)
 
@@ -425,11 +423,9 @@ na_pct_course
 if TERM_COL_COURSE and TERM_COL_COURSE in course_raw_df.columns:
     _o_course = order_terms(course_raw_df, TERM_COL_COURSE)
     display(
-        _o_course[TERM_COL_COURSE]
-        .value_counts()
-        .sort_index()
-        .rename("course_rows")
-        .to_frame()
+        value_counts_sorted_count_df(
+            _o_course[TERM_COL_COURSE], count_col="course_rows"
+        )
     )
 else:
     print("No inferred term column for course file; skip term value counts.")
@@ -446,6 +442,14 @@ if TERM_COL_COURSE and TERM_COL_COURSE in course_raw_df.columns:
     display(na_by_term_course)
 else:
     print("No inferred term column for course file; skip NA% by term.")
+
+# COMMAND ----------
+
+# Course: percent of rows per term (includes NaN as its own bucket if present)
+if TERM_COL_COURSE and TERM_COL_COURSE in course_raw_df.columns:
+    display(value_counts_percent_df(course_raw_df[TERM_COL_COURSE]))
+else:
+    print("Skip course term percent distribution: no inferred term column.")
 
 # COMMAND ----------
 
@@ -471,11 +475,9 @@ na_pct_semester
 if TERM_COL_SEMESTER and TERM_COL_SEMESTER in semester_raw_df.columns:
     _o_sem = order_terms(semester_raw_df, TERM_COL_SEMESTER)
     display(
-        _o_sem[TERM_COL_SEMESTER]
-        .value_counts()
-        .sort_index()
-        .rename("semester_rows")
-        .to_frame()
+        value_counts_sorted_count_df(
+            _o_sem[TERM_COL_SEMESTER], count_col="semester_rows"
+        )
     )
 else:
     print("No inferred term column for semester file; skip term value counts.")
@@ -491,6 +493,32 @@ if TERM_COL_SEMESTER and TERM_COL_SEMESTER in semester_raw_df.columns:
     display(na_by_term_semester)
 else:
     print("No inferred term column for semester file; skip NA% by term.")
+
+# COMMAND ----------
+
+# Semester: percent of rows per term (includes NaN as its own bucket if present)
+if TERM_COL_SEMESTER and TERM_COL_SEMESTER in semester_raw_df.columns:
+    display(value_counts_percent_df(semester_raw_df[TERM_COL_SEMESTER]))
+else:
+    print("Skip semester term percent distribution: no inferred term column.")
+
+# COMMAND ----------
+
+# Semester file: full-time vs part-time (enrollment intensity), inferred by column name
+if (
+    ENROLLMENT_INTENSITY_COL_SEMESTER
+    and ENROLLMENT_INTENSITY_COL_SEMESTER in semester_raw_df.columns
+):
+    print(
+        "Inferred enrollment intensity column (semester file):",
+        repr(ENROLLMENT_INTENSITY_COL_SEMESTER),
+    )
+    display(value_counts_percent_df(semester_raw_df[ENROLLMENT_INTENSITY_COL_SEMESTER]))
+else:
+    print(
+        "Skip enrollment intensity distribution: column not inferred or not present "
+        "(expected names like ftpt, enrollment_intensity, student_term_enrollment_intensity)."
+    )
 
 # COMMAND ----------
 
@@ -678,28 +706,14 @@ else:
 cleaned_course = handling_duplicates(course_raw_df)
 
 if GRADE_COL and PF_COL and CREDITS_COL:
+    _pf_kw = infer_check_pf_grade_list_kwargs(cleaned_course, GRADE_COL, PF_COL)
+    print("PF/grade check kwargs (inferred + defaults):", _pf_kw)
     anomalies_pf, summary_pf = check_pf_grade_consistency(
         cleaned_course,
         grade_col=GRADE_COL,
         pf_col=PF_COL,
         credits_col=CREDITS_COL,
-        passing_grades=(
-            "P",
-            "A",
-            "A-",
-            "B+",
-            "B",
-            "B-",
-            "C+",
-            "C",
-            "C-",
-            "D+",
-            "D",
-            "D-",
-        ),
-        failing_grades=("F", "E", "W", "I"),
-        pass_flags=("Y",),
-        fail_flags=("N",),
+        **_pf_kw,
     )
     display(summary_pf)
     display(anomalies_pf.head(50))
@@ -707,6 +721,34 @@ else:
     print(
         "Skip PF/grade check: could not infer grade, pass/fail (or completion), and credits columns."
     )
+    anomalies_pf = None
+    summary_pf = None
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Grade column distribution (full course file)
+
+# COMMAND ----------
+
+if GRADE_COL and GRADE_COL in cleaned_course.columns:
+    display(value_counts_percent_df(cleaned_course[GRADE_COL]))
+else:
+    print("Skip grade distribution: no inferred grade column.")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## PF/grade anomalies by rule (boolean flags)
+
+# COMMAND ----------
+
+if anomalies_pf is not None and not anomalies_pf.empty:
+    for _flag, _sub in iter_pf_grade_anomaly_slices(anomalies_pf):
+        print(f"\n--- rows where {_flag} is True (n={len(_sub)}) ---")
+        display(_sub.head(100))
+else:
+    print("No anomaly rows to slice (run PF/grade check above or anomalies are empty).")
 
 # COMMAND ----------
 
@@ -725,7 +767,7 @@ if TERM_COL_COURSE and TERM_COL_SEMESTER and TERM_COL_SEMESTER != TERM_COL_COURS
     )
     SEM_COL_FOR_CREDIT = TERM_COL_COURSE
     print(
-        f"Credit validation: reconciling on course term column {TERM_COL_FOR_CREDIT!r}; "
+        f"Credit validation: reconciling on course term column {SEM_COL_FOR_CREDIT!r}; "
         f"renamed semester column from {TERM_COL_SEMESTER!r}."
     )
 elif TERM_COL_COURSE and (

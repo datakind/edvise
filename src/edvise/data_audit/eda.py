@@ -98,6 +98,52 @@ def compute_group_counts_pcts(
     )
 
 
+def percent_of_rows(count: int, total_rows: int, *, ndigits: int = 2) -> float:
+    """``100 * count / total_rows`` rounded, or ``0.0`` when ``total_rows == 0``."""
+    if not total_rows:
+        return 0.0
+    return round(100 * count / total_rows, ndigits)
+
+
+def value_counts_sorted_count_df(
+    series: pd.Series,
+    *,
+    count_col: str = "count",
+) -> pd.DataFrame:
+    """
+    ``value_counts`` sorted by index (e.g. term order after ``order_terms``), as a two-column frame.
+
+    The first column is named from ``series.name`` when set, otherwise ``value``.
+    """
+    vc = series.value_counts(sort=False).sort_index()
+    out = vc.reset_index()
+    val_name = series.name if series.name is not None else "value"
+    out.columns = [val_name, count_col]
+    return out
+
+
+def value_counts_percent_df(
+    series: pd.Series,
+    *,
+    dropna: bool = False,
+    sort_index: bool = True,
+    pct_col: str = "pct_of_rows",
+    pct_round: int = 2,
+) -> pd.DataFrame:
+    """
+    Normalized value counts as percentages (0–100), for audit tables and notebooks.
+
+    The first column is named from ``series.name`` when set, otherwise ``value``.
+    """
+    vc = series.value_counts(dropna=dropna, normalize=True).mul(100).round(pct_round)
+    if sort_index:
+        vc = vc.sort_index()
+    out = vc.reset_index()
+    val_name = series.name if series.name is not None else "value"
+    out.columns = [val_name, pct_col]
+    return out
+
+
 def compute_crosstabs(
     data: pd.DataFrame,
     index_cols: str | list[str],
@@ -908,7 +954,7 @@ def find_dupes(df: pd.DataFrame, primary_keys: list[str]) -> pd.DataFrame:
 
     total_rows = len(df)
     dupe_rows = len(dupes)
-    pct_dupes = (dupe_rows / total_rows * 100) if total_rows > 0 else 0.0
+    pct_dupes = percent_of_rows(dupe_rows, total_rows)
 
     print(
         f"{dupe_rows} duplicate rows based on {primary_keys} "
@@ -978,21 +1024,32 @@ def check_earned_vs_attempted(
     summary = pd.DataFrame(
         {
             "earned_gt_attempted": [n_earned_gt],
-            "earned_gt_attempted_pct": [
-                round(100 * n_earned_gt / total_rows, 2) if total_rows else 0
-            ],
+            "earned_gt_attempted_pct": [percent_of_rows(n_earned_gt, total_rows)],
             "earned_when_no_attempt": [n_earned_no_attempt],
-            "earned_when_no_attempt_pct": [
-                round(100 * n_earned_no_attempt / total_rows, 2) if total_rows else 0
-            ],
+            "earned_when_no_attempt_pct": [percent_of_rows(n_earned_no_attempt, total_rows)],
             "total_anomalous_rows": [n_total],
-            "total_anomalous_rows_pct": [
-                round(100 * n_total / total_rows, 2) if total_rows else 0
-            ],
+            "total_anomalous_rows_pct": [percent_of_rows(n_total, total_rows)],
         }
     )
 
     return {"anomalies": anomalies, "summary": summary}
+
+
+def _credit_reconciliation_mismatch_mask(
+    merged: pd.DataFrame,
+    *,
+    sem_has_attempted: bool,
+    sem_has_earned: bool,
+    match_attempted_col: str = "match_attempted",
+    match_earned_col: str = "match_earned",
+) -> pd.Series:
+    """True where semester vs course credit reconciliation disagrees (missing match counts as mismatch)."""
+    mismatch_mask = pd.Series(False, index=merged.index)
+    if sem_has_attempted and match_attempted_col in merged.columns:
+        mismatch_mask |= ~merged[match_attempted_col].fillna(True)
+    if sem_has_earned and match_earned_col in merged.columns:
+        mismatch_mask |= ~merged[match_earned_col].fillna(True)
+    return mismatch_mask
 
 
 def log_semester_reconciliation_summary(
@@ -1020,16 +1077,16 @@ def log_semester_reconciliation_summary(
           has_course_rows, diff_* and match_* cols (as available)
     """
     total_sem_rows = int(len(s))
-    mismatch_mask = pd.Series(False, index=merged.index)
-
-    if sem_has_attempted and match_attempted_col in merged.columns:
-        mismatch_mask |= ~merged[match_attempted_col].fillna(True)
-
-    if sem_has_earned and match_earned_col in merged.columns:
-        mismatch_mask |= ~merged[match_earned_col].fillna(True)
+    mismatch_mask = _credit_reconciliation_mismatch_mask(
+        merged,
+        sem_has_attempted=sem_has_attempted,
+        sem_has_earned=sem_has_earned,
+        match_attempted_col=match_attempted_col,
+        match_earned_col=match_earned_col,
+    )
 
     mismatch_rows = int(mismatch_mask.sum())
-    mismatch_rate = mismatch_rows / total_sem_rows if total_sem_rows else 0.0
+    mismatch_pct = percent_of_rows(mismatch_rows, total_sem_rows)
 
     no_course_rows = (
         int((~merged["has_course_rows"]).sum())
@@ -1041,7 +1098,7 @@ def log_semester_reconciliation_summary(
         "Semester reconciliation: rows=%d, mismatches=%d (%.1f%%), semester_rows_without_course_rows=%d",
         total_sem_rows,
         mismatch_rows,
-        100 * mismatch_rate,
+        mismatch_pct,
         no_course_rows,
     )
 
@@ -1062,7 +1119,7 @@ def log_semester_reconciliation_summary(
             " - %s: mismatches=%d (%.1f%%); direction sem>courses=%d, courses>sem=%d; abs_diff median=%.1f, p90=%.1f, max=%.1f",
             label,
             mism,
-            100 * mism / total_sem_rows if total_sem_rows else 0.0,
+            percent_of_rows(mism, total_sem_rows),
             neg,
             pos,
             float(merged[diff_col].abs().median()),
@@ -1159,9 +1216,7 @@ def validate_credit_consistency(
         course_anomalies_summary = {
             "rows_checked": total_course_rows,
             "rows_with_anomalies": n_anomalies,
-            "pct_of_data": round(100 * n_anomalies / total_course_rows, 2)
-            if total_course_rows
-            else 0,
+            "pct_of_data": percent_of_rows(n_anomalies, total_course_rows),
         }
 
         if len(course_anomalies) > 0:
@@ -1233,11 +1288,11 @@ def validate_credit_consistency(
             )
             merged["match_earned"] = merged["diff_earned"].abs() <= credit_tol
 
-        mismatch_mask = pd.Series(False, index=merged.index)
-        if sem_has_attempted:
-            mismatch_mask |= ~merged["match_attempted"].fillna(True)
-        if sem_has_earned:
-            mismatch_mask |= ~merged["match_earned"].fillna(True)
+        mismatch_mask = _credit_reconciliation_mismatch_mask(
+            merged,
+            sem_has_attempted=sem_has_attempted,
+            sem_has_earned=sem_has_earned,
+        )
 
         mismatches = merged.loc[mismatch_mask]
 
@@ -1246,7 +1301,7 @@ def validate_credit_consistency(
         reconciliation_summary = {
             "total_semester_rows": total_sem,
             "mismatched_rows": n_mismatched,
-            "pct_of_data": round(100 * n_mismatched / total_sem, 2) if total_sem else 0,
+            "pct_of_data": percent_of_rows(n_mismatched, total_sem),
         }
 
         # 🔹 Clean summary logging
@@ -1325,42 +1380,145 @@ def validate_credit_consistency(
     }
 
 
+CHECK_PF_DEFAULT_PASSING_GRADES: tuple[str, ...] = (
+    "P",
+    "P*",
+    "A",
+    "A-",
+    "B+",
+    "B",
+    "B-",
+    "C+",
+    "C",
+    "C-",
+    "D+",
+    "D",
+    "D-",
+)
+CHECK_PF_DEFAULT_FAILING_GRADES: tuple[str, ...] = (
+    "F",
+    "E",
+    "^E",
+    "F*",
+    "REF",
+    "NR",
+    "W",
+    "W*",
+    "I",
+)
+CHECK_PF_DEFAULT_PASS_FLAGS: tuple[str, ...] = ("P",)
+CHECK_PF_DEFAULT_FAIL_FLAGS: tuple[str, ...] = ("F",)
+
+_PASS_FAIL_FLAG_VALUE_PAIRS: dict[frozenset[str], tuple[tuple[str, ...], tuple[str, ...]]] = {
+    frozenset({"Y", "N"}): (("Y",), ("N",)),
+    frozenset({"P", "F"}): (("P",), ("F",)),
+    frozenset({"PASS", "FAIL"}): (("PASS",), ("FAIL",)),
+    frozenset({"COMPLETE", "INCOMPLETE"}): (("COMPLETE",), ("INCOMPLETE",)),
+    frozenset({"1", "0"}): (("1",), ("0",)),
+    frozenset({"T", "F"}): (("T",), ("F",)),
+}
+
+
+def _observed_upper_tokens(series: pd.Series) -> set[str]:
+    return {
+        x
+        for x in series.dropna().astype(str).str.strip().str.upper().unique()
+        if x and str(x).upper() != "NAN"
+    }
+
+
+def infer_pass_fail_flag_tuples(pf_series: pd.Series) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
+    """
+    Infer ``pass_flags`` and ``fail_flags`` for :func:`check_pf_grade_consistency` when the
+    column has exactly two distinct non-null tokens (e.g. Y/N, P/F).
+    """
+    u = frozenset(_observed_upper_tokens(pf_series))
+    if len(u) != 2:
+        return None
+    return _PASS_FAIL_FLAG_VALUE_PAIRS.get(u)
+
+
+_LIKELY_PASSING_GRADE_RE = re.compile(
+    r"^([ABCD][+-]?|P\*?|PASS)$",
+    re.IGNORECASE,
+)
+_LIKELY_FAILING_GRADE_RE = re.compile(
+    r"^(F[\*]?|E|W[\*]?|I|NR|REF|\^E|INCOMP)$",
+    re.IGNORECASE,
+)
+
+
+def infer_check_pf_grade_list_kwargs(
+    df: pd.DataFrame,
+    grade_col: str,
+    pf_col: str,
+) -> dict[str, tuple[str, ...]]:
+    """
+    Build ``passing_grades``, ``failing_grades``, ``pass_flags``, and ``fail_flags`` for
+    :func:`check_pf_grade_consistency`: defaults plus pass/fail flags inferred from two-value
+    columns, and any observed grade tokens that look like pass/fail but are not in the defaults.
+    """
+    passing: set[str] = set(CHECK_PF_DEFAULT_PASSING_GRADES)
+    failing: set[str] = set(CHECK_PF_DEFAULT_FAILING_GRADES)
+    if grade_col in df.columns:
+        for g in _observed_upper_tokens(df[grade_col]):
+            if g in passing or g in failing:
+                continue
+            if _LIKELY_PASSING_GRADE_RE.match(g):
+                passing.add(g)
+            elif _LIKELY_FAILING_GRADE_RE.match(g) or len(g) == 1 and g in {"F", "E", "I", "W"}:
+                failing.add(g)
+
+    pf_inf = None
+    if pf_col in df.columns:
+        pf_inf = infer_pass_fail_flag_tuples(df[pf_col])
+    if pf_inf is not None:
+        pass_flags, fail_flags = pf_inf
+    else:
+        pass_flags, fail_flags = CHECK_PF_DEFAULT_PASS_FLAGS, CHECK_PF_DEFAULT_FAIL_FLAGS
+
+    return {
+        "passing_grades": tuple(sorted(passing)),
+        "failing_grades": tuple(sorted(failing)),
+        "pass_flags": pass_flags,
+        "fail_flags": fail_flags,
+    }
+
+
+PF_GRADE_ANOMALY_FLAG_COLUMNS: tuple[str, ...] = (
+    "earned_with_failing_grade",
+    "no_credits_with_passing_grade",
+    "grade_pf_disagree",
+)
+
+
+def _pass_fail_label_series(
+    normalized_tokens: pd.Series,
+    pass_values: tuple[str, ...],
+    fail_values: tuple[str, ...],
+) -> pd.Series:
+    """Map normalized tokens to pass (``True``), fail (``False``), or unknown (missing)."""
+    return pd.Series(
+        np.where(
+            normalized_tokens.isin(pass_values),
+            True,
+            np.where(normalized_tokens.isin(fail_values), False, np.nan),
+        ),
+        index=normalized_tokens.index,
+        dtype="object",
+    )
+
+
 def check_pf_grade_consistency(
     df,
     grade_col="grade",
     pf_col="pass_fail_flag",
     credits_col="credits_earned",
     *,
-    # TODO: add these to the config and allow for customization
-    # change to no default values
-    passing_grades=(
-        "P",
-        "P*",
-        "A",
-        "A-",
-        "B+",
-        "B",
-        "B-",
-        "C+",
-        "C",
-        "C-",
-        "D+",
-        "D",
-        "D-",
-    ),
-    failing_grades=(
-        "F",
-        "E",
-        "^E",
-        "F*",
-        "REF",
-        "NR",
-        "W",
-        "W*",
-        "I",
-    ),
-    pass_flags=("P",),
-    fail_flags=("F",),
+    passing_grades: tuple[str, ...] = CHECK_PF_DEFAULT_PASSING_GRADES,
+    failing_grades: tuple[str, ...] = CHECK_PF_DEFAULT_FAILING_GRADES,
+    pass_flags: tuple[str, ...] = CHECK_PF_DEFAULT_PASS_FLAGS,
+    fail_flags: tuple[str, ...] = CHECK_PF_DEFAULT_FAIL_FLAGS,
 ):
     """
     CUSTOM SCHOOL FUNCTION
@@ -1394,25 +1552,8 @@ def check_pf_grade_consistency(
         credits.notna().sum(),
     )
 
-    # Pass/fail from grade (for disagreement only)
-    pfg = pd.Series(
-        np.where(
-            g.isin(passing_grades),
-            True,
-            np.where(g.isin(failing_grades), False, np.nan),
-        ),
-        index=out.index,
-        dtype="object",
-    )
-
-    # Pass/fail from flag (drives credit rules)
-    pff = pd.Series(
-        np.where(
-            pf.isin(pass_flags), True, np.where(pf.isin(fail_flags), False, np.nan)
-        ),
-        index=out.index,
-        dtype="object",
-    )
+    pfg = _pass_fail_label_series(g, passing_grades, failing_grades)
+    pff = _pass_fail_label_series(pf, pass_flags, fail_flags)
 
     LOGGER.debug(
         "Derived PF indicators (from grade: pass=%d fail=%d unknown=%d; "
@@ -1425,61 +1566,41 @@ def check_pf_grade_consistency(
         int(pff.isna().sum()),
     )
 
-    # ----------------------------
-    # Rule checks
-    # ----------------------------
-    rows_with_earned_with_failing_pf = (pff == False) & credits.notna() & (credits > 0)
-    rows_with_no_credits_with_passing = (pff == True) & credits.notna() & (credits == 0)
-    rows_with_grade_pf_disagree = pfg.notna() & pff.notna() & (pfg != pff)
+    rules = dict(
+        zip(
+            PF_GRADE_ANOMALY_FLAG_COLUMNS,
+            (
+                (pff == False) & credits.notna() & (credits > 0),
+                (pff == True) & credits.notna() & (credits == 0),
+                pfg.notna() & pff.notna() & (pfg != pff),
+            ),
+            strict=True,
+        )
+    )
 
     LOGGER.debug(
-        "Rule violations: earned_with_failing_pf=%d, "
-        "no_credits_with_passing=%d, grade_pf_disagree=%d",
-        int(rows_with_earned_with_failing_pf.sum()),
-        int(rows_with_no_credits_with_passing.sum()),
-        int(rows_with_grade_pf_disagree.sum()),
+        "Rule violations: %s",
+        ", ".join(f"{k}={int(v.sum())}" for k, v in rules.items()),
     )
-    # Collect anomalies
-    mask = (
-        rows_with_earned_with_failing_pf
-        | rows_with_no_credits_with_passing
-        | rows_with_grade_pf_disagree
-    )
-    anomalies = out.loc[mask].copy()
-    anomalies["earned_with_failing_grade"] = rows_with_earned_with_failing_pf.loc[
-        anomalies.index
-    ]
-    anomalies["no_credits_with_passing_grade"] = rows_with_no_credits_with_passing.loc[
-        anomalies.index
-    ]
-    anomalies["grade_pf_disagree"] = rows_with_grade_pf_disagree.loc[anomalies.index]
 
-    # Summary
+    mask = pd.Series(False, index=out.index)
+    for series in rules.values():
+        mask |= series
+
+    anomalies = out.loc[mask].copy()
+    for name, series in rules.items():
+        anomalies[name] = series.loc[anomalies.index]
+
     total_rows = len(df)
-    n_earned_failing = int(rows_with_earned_with_failing_pf.sum())
-    n_no_credits_passing = int(rows_with_no_credits_with_passing.sum())
-    n_grade_pf_disagree = int(rows_with_grade_pf_disagree.sum())
+    summary_payload: dict[str, list[t.Any]] = {}
+    for name, series in rules.items():
+        n = int(series.sum())
+        summary_payload[name] = [n]
+        summary_payload[f"{name}_pct"] = [percent_of_rows(n, total_rows)]
     n_total = int(mask.sum())
-    summary = pd.DataFrame(
-        {
-            "earned_with_failing_grade": [n_earned_failing],
-            "earned_with_failing_grade_pct": [
-                round(100 * n_earned_failing / total_rows, 2) if total_rows else 0
-            ],
-            "no_credits_with_passing_grade": [n_no_credits_passing],
-            "no_credits_with_passing_grade_pct": [
-                round(100 * n_no_credits_passing / total_rows, 2) if total_rows else 0
-            ],
-            "grade_pf_disagree": [n_grade_pf_disagree],
-            "grade_pf_disagree_pct": [
-                round(100 * n_grade_pf_disagree / total_rows, 2) if total_rows else 0
-            ],
-            "total_anomalous_rows": [n_total],
-            "total_anomalous_rows_pct": [
-                round(100 * n_total / total_rows, 2) if total_rows else 0
-            ],
-        }
-    )
+    summary_payload["total_anomalous_rows"] = [n_total]
+    summary_payload["total_anomalous_rows_pct"] = [percent_of_rows(n_total, total_rows)]
+    summary = pd.DataFrame(summary_payload)
 
     if summary["total_anomalous_rows"].iloc[0] > 0:
         LOGGER.warning(
@@ -1492,6 +1613,20 @@ def check_pf_grade_consistency(
 
     LOGGER.debug("PF/grade anomaly summary:\n%s", summary)
     return anomalies, summary
+
+
+def iter_pf_grade_anomaly_slices(
+    anomalies_pf: pd.DataFrame,
+) -> t.Iterator[tuple[str, pd.DataFrame]]:
+    """
+    Yield ``(flag_column, subset)`` for each :data:`PF_GRADE_ANOMALY_FLAG_COLUMNS` entry
+    that is present and true on a row (see :func:`check_pf_grade_consistency`).
+    """
+    for flag in PF_GRADE_ANOMALY_FLAG_COLUMNS:
+        if flag not in anomalies_pf.columns:
+            continue
+        sub = anomalies_pf.loc[anomalies_pf[flag].eq(True)]
+        yield flag, sub
 
 
 def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") -> None:
@@ -2640,6 +2775,80 @@ def infer_semester_credit_aggregate_columns(
     return att, earn, count_col
 
 
+DEFAULT_SEMESTER_ENROLLMENT_INTENSITY_NAME_HINTS: tuple[str, ...] = (
+    "student_term_enrollment_intensity",
+    "enrollment_intensity",
+    "ftpt",
+    "full_part_time",
+    "full_part",
+    "full_time",
+    "part_time",
+    "time_status",
+    "academic_load",
+    "credit_load",
+)
+
+
+def semester_enrollment_intensity_column_name_score(col: str) -> float:
+    """
+    Semester-level **student** full-time vs part-time (enrollment intensity), not instructor FT/PT.
+    """
+    c = _normalize_credit_column_name(col)
+    if "instructor" in c:
+        return 0.0
+    if "frac_" in c or "cumfrac" in c or "cum_frac" in c:
+        return 0.0
+    s = 0.0
+    if c == "ftpt" or "_ftpt" in c or c.startswith("ftpt_"):
+        s = max(s, 1.42)
+    if "student_term_enrollment_intensity" in c:
+        s = max(s, 1.38)
+    if "enrollment_intensity" in c or "enroll_intensity" in c:
+        s = max(s, 1.32)
+    if "enroll" in c and "intensity" in c:
+        s = max(s, 1.28)
+    if "full" in c and "part" in c and "time" in c:
+        s = max(s, 1.18)
+    if ("full_time" in c or "part_time" in c) and "instructor" not in c:
+        s = max(s, 1.08)
+    if "time_status" in c or "timestatus" in c:
+        s = max(s, 1.02)
+    if "term" in c and "intensity" in c and "instructor" not in c:
+        s = max(s, 1.0)
+    if "load" in c and ("acad" in c or "enroll" in c):
+        s = max(s, 0.55)
+    return s
+
+
+def infer_semester_enrollment_intensity_column(
+    df: pd.DataFrame,
+    *,
+    exclude_cols: t.AbstractSet[str] | None = None,
+    min_name_score: float = 0.40,
+    tiebreak_weight: float = 0.06,
+    max_sample: int = 8000,
+    name_hints: tuple[str, ...] = DEFAULT_SEMESTER_ENROLLMENT_INTENSITY_NAME_HINTS,
+) -> str | None:
+    """
+    Infer **full-time vs part-time** (enrollment intensity) on a **semester** / student-term file.
+
+    Typical column names: *ftpt*, *student_term_enrollment_intensity*, *enrollment_intensity*.
+    Excludes credit-hour and term-key columns when passed via ``exclude_cols``.
+    """
+    if len(df.columns) == 0:
+        return None
+    ranked = _rank_columns_by_name_score(
+        df,
+        column_score_fn=semester_enrollment_intensity_column_name_score,
+        name_hints=name_hints,
+        min_base_score=min_name_score,
+        tiebreak_fn=lambda ser: _string_populated_rate(ser, max_sample=max_sample),
+        tiebreak_weight=tiebreak_weight,
+        exclude_cols=exclude_cols,
+    )
+    return ranked[0][1] if ranked else None
+
+
 def course_grade_column_name_score(col: str) -> float:
     c = _normalize_credit_column_name(col)
     s = 0.0
@@ -3242,9 +3451,12 @@ class EdaSummary:
             terms_for_year = []
             for term_name in terms_with_data:
                 count = int(reindexed.iloc[i][term_name])
-                pct = round(100 * count / total, 2) if total else 0
                 terms_for_year.append(
-                    {"count": count, "percentage": pct, "name": term_name}
+                    {
+                        "count": count,
+                        "percentage": percent_of_rows(count, total),
+                        "name": term_name,
+                    }
                 )
             by_year.append({"year": year, "total": total, "terms": terms_for_year})
         return {"years": years, "by_year": by_year}
@@ -3290,9 +3502,12 @@ class EdaSummary:
             terms_for_year = []
             for term_name in terms_with_data:
                 count = int(reindexed.iloc[i][term_name])
-                pct = round(100 * count / total, 2) if total else 0
                 terms_for_year.append(
-                    {"count": count, "percentage": pct, "name": term_name}
+                    {
+                        "count": count,
+                        "percentage": percent_of_rows(count, total),
+                        "name": term_name,
+                    }
                 )
             by_year.append({"year": year, "total": total, "terms": terms_for_year})
         return {"years": years_formatted, "by_year": by_year}
