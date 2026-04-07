@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 # Shared base + enums
 # =============================================================================
 
+
 class StrictBaseModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -39,6 +40,7 @@ class ReviewStatus(str, Enum):
 # 2a — Field Mapping Manifest
 # =============================================================================
 
+
 class JoinFilter(StrictBaseModel):
     """
     Structured filter applied to the lookup table before joining.
@@ -48,6 +50,7 @@ class JoinFilter(StrictBaseModel):
         {"column": "awarded_degree", "operator": "isin",
          "value": ["Certification", "Certificate - TSI Liable"]}
     """
+
     column: str
     operator: Literal["contains", "equals", "startswith", "isin"]
     value: Union[str, List[str]]
@@ -71,6 +74,7 @@ class JoinConfig(StrictBaseModel):
     The field executor uses this to merge base_table ← lookup_table on join_keys,
     then applies RowSelectionConfig to select the correct row.
     """
+
     base_table: str = Field(..., description="Driving table (entity base table)")
     lookup_table: str = Field(..., description="Table to join and pull value from")
     join_keys: List[str] = Field(
@@ -123,6 +127,7 @@ class RowSelectionConfig(StrictBaseModel):
             Typically used with cross-table degree/certificate fields to subset
             to relevant rows (e.g. awarded_degree contains 'Associate').
     """
+
     strategy: RowSelectionStrategy
     order_by: Optional[str] = Field(
         default=None,
@@ -145,8 +150,13 @@ class RowSelectionConfig(StrictBaseModel):
     def validate_strategy_args(self) -> "RowSelectionConfig":
         if self.strategy == RowSelectionStrategy.first_by and not self.order_by:
             raise ValueError("order_by is required when strategy is first_by")
-        if self.strategy == RowSelectionStrategy.where_not_null and not self.condition_col:
-            raise ValueError("condition_col is required when strategy is where_not_null")
+        if (
+            self.strategy == RowSelectionStrategy.where_not_null
+            and not self.condition_col
+        ):
+            raise ValueError(
+                "condition_col is required when strategy is where_not_null"
+            )
         if self.strategy == RowSelectionStrategy.nth:
             if not self.n:
                 raise ValueError("n is required when strategy is nth")
@@ -177,6 +187,7 @@ class FieldMappingRecord(StrictBaseModel):
     The transformation plan only declares what to do with the resolved Series —
     it has no implicit dependency on the manifest beyond receiving the Series.
     """
+
     target_field: str = Field(..., description="Target Edvise schema field")
     source_column: Optional[str] = Field(
         default=None,
@@ -251,9 +262,7 @@ class FieldMappingRecord(StrictBaseModel):
         has_table = self.source_table is not None
 
         if has_source and not has_table:
-            raise ValueError(
-                "source_table must be set when source_column is set"
-            )
+            raise ValueError("source_table must be set when source_column is set")
         if self.join is not None and self.source_table is None:
             raise ValueError(
                 "source_table must be set when join is declared — "
@@ -324,6 +333,7 @@ class MappingManifestEnvelope(StrictBaseModel):
 
 
 # =============================================================================
+
 
 def get_manifest_schema_context() -> str:
     """

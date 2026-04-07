@@ -94,31 +94,37 @@ def test_apply_grain_term_order_adds_columns():
     c = _contract(
         post_clean_primary_key=["k"],
         join_keys_for_2a=["k", "term"],
-        term_config=TermOrderConfig(term_column="term"),
+        term_config=TermOrderConfig(
+            term_col="term",
+            season_map=[
+                {"raw": "Spring", "canonical": "SPRING"},
+                {"raw": "Fall", "canonical": "FALL"},
+            ],
+            term_extraction="standard",
+        ),
     )
     out = apply_grain_term_order(df, c)
-    assert "term_order" in out.columns
+    assert "_term_order" in out.columns
 
 
-def test_apply_grain_term_order_yyyytt_with_canonical_mapping():
+def test_apply_grain_term_order_yyyytt_with_season_map():
     df = pd.DataFrame({"term": ["2018FA", "2019SP"], "k": [1, 2]})
     c = _contract(
         post_clean_primary_key=["k"],
         join_keys_for_2a=["k", "term"],
         term_config=TermOrderConfig(
-            term_column="term",
-            term_format="YYYYTT",
-            canonical_mapping={
-                "FA": "FALL",
-                "SP": "SPRING",
-                "S1": "SUMMER",
-                "S2": "SUMMER",
-            },
+            term_col="term",
+            season_map=[
+                {"raw": "SP", "canonical": "SPRING"},
+                {"raw": "FA", "canonical": "FALL"},
+            ],
+            term_extraction="standard",
         ),
     )
     out = apply_grain_term_order(df, c)
-    assert "term_order" in out.columns
-    assert "term_canonical" in out.columns
+    assert "_term_order" in out.columns
+    assert "_year" in out.columns
+    assert "_season" in out.columns
 
 
 def test_apply_grain_execution_order_dedup_then_term():
@@ -137,11 +143,17 @@ def test_apply_grain_execution_order_dedup_then_term():
             keep="first",
             notes="",
         ),
-        term_config=TermOrderConfig(term_column="term"),
+        term_config=TermOrderConfig(
+            term_col="term",
+            season_map=[
+                {"raw": "Fall", "canonical": "FALL"},
+            ],
+            term_extraction="standard",
+        ),
     )
     out = apply_grain_execution(df, c)
     assert len(out) == 1
-    assert "term_order" in out.columns
+    assert "_term_order" in out.columns
 
 
 def test_build_dedupe_fn_from_grain_contract():
@@ -181,10 +193,15 @@ def test_policy_required_skips_dedup():
     assert len(out) == 2
 
 
-def test_apply_term_order_raises_when_new_utility_needed():
-    df = pd.DataFrame({"term": ["Fall 2020"]})
-    c = TermOrderConfig(term_column="term", new_utility_needed=True)
-    with pytest.raises(ValueError, match="new_utility_needed"):
+def test_apply_term_order_raises_when_custom_hooks_not_wired():
+    df = pd.DataFrame({"term": ["1192"]})
+    c = TermOrderConfig(
+        term_col="term",
+        season_map=[],
+        term_extraction="custom",
+        hook_spec={"file": "pipelines/x/helpers/term_hooks.py", "functions": []},
+    )
+    with pytest.raises(ValueError, match="custom"):
         apply_term_order_from_config(df, c)
 
 

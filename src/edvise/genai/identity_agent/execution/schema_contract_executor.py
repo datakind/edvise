@@ -56,9 +56,7 @@ def merge_grain_student_id_alias_into_school_config(
         )
     alias = next(iter(aliases))
     existing = (
-        school_config.cleaning.student_id_alias
-        if school_config.cleaning
-        else None
+        school_config.cleaning.student_id_alias if school_config.cleaning else None
     )
     if existing and existing != alias:
         logger.warning(
@@ -222,9 +220,7 @@ def _build_column_details(
 
         series = df[norm_col]
         null_count = int(null_counts[norm_col])
-        null_pct = (
-            float(null_count / total_rows * 100) if total_rows > 0 else 0.0
-        )
+        null_pct = float(null_count / total_rows * 100) if total_rows > 0 else 0.0
         unique_count = int(series.nunique())
 
         col_detail: Dict[str, Any] = {
@@ -302,9 +298,7 @@ def build_training_example_from_schema_contract(
             },
             "normalized_to_originals": dict(column_mapping),
             "collisions": {
-                norm: origs
-                for norm, origs in column_mapping.items()
-                if len(origs) > 1
+                norm: origs for norm, origs in column_mapping.items() if len(origs) > 1
             },
         },
         "inferred_dtypes": dataset_schema["dtypes"],
@@ -335,10 +329,12 @@ def process_school_dataset(
             build_schema_contract_from_config,
         )
 
-        _, original_columns, column_mapping, original_row_count = _load_and_preprocess_dataset(
-            dataset_config=dataset_config,
-            spark_session=spark_session,
-            sample_size=None,
+        _, original_columns, column_mapping, original_row_count = (
+            _load_and_preprocess_dataset(
+                dataset_config=dataset_config,
+                spark_session=spark_session,
+                sample_size=None,
+            )
         )
 
         load_start = time.time()
@@ -346,15 +342,17 @@ def process_school_dataset(
             update={"datasets": {dataset_name: dataset_config}},
         )
         if grain_contracts_by_dataset:
-            cleaned_dataframes, schema_contract = build_schema_contract_from_grain_contracts(
-                school_config=partial_school_config,
-                grain_contracts_by_dataset=grain_contracts_by_dataset,
-                dtype_opts=dtype_opts,
-                spark_session=spark_session,
-                dataset_name_suffix=dataset_name_suffix,
-                sample_size=sample_size,
-                term_order_fn=term_order_fn,
-                term_col_by_dataset=term_col_by_dataset,
+            cleaned_dataframes, schema_contract = (
+                build_schema_contract_from_grain_contracts(
+                    school_config=partial_school_config,
+                    grain_contracts_by_dataset=grain_contracts_by_dataset,
+                    dtype_opts=dtype_opts,
+                    spark_session=spark_session,
+                    dataset_name_suffix=dataset_name_suffix,
+                    sample_size=sample_size,
+                    term_order_fn=term_order_fn,
+                    term_col_by_dataset=term_col_by_dataset,
+                )
             )
         else:
             cleaned_dataframes, schema_contract = build_schema_contract_from_config(
@@ -371,7 +369,9 @@ def process_school_dataset(
         )
 
         logical_name = (
-            f"{dataset_name}{dataset_name_suffix}" if dataset_name_suffix else dataset_name
+            f"{dataset_name}{dataset_name_suffix}"
+            if dataset_name_suffix
+            else dataset_name
         )
 
         stats_start = time.time()
@@ -521,9 +521,7 @@ def process_all_schools(
         all_examples.extend(school_examples)
 
         school_elapsed = time.time() - school_start
-        logger.info(
-            "  School %s completed in %.2f seconds", school_key, school_elapsed
-        )
+        logger.info("  School %s completed in %.2f seconds", school_key, school_elapsed)
 
     total_elapsed = time.time() - total_start
     logger.info("Total processing time: %.2f seconds", total_elapsed)

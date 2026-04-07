@@ -57,6 +57,7 @@ SPARK_THRESHOLD = 500_000
 # Entity key derivation
 # =============================================================================
 
+
 def _derive_entity_keys(
     manifest: FieldMappingManifest,
     schema: Type,
@@ -88,9 +89,7 @@ def _derive_entity_keys(
 
     target_entity_keys = getattr(getattr(schema, "Config", object), "unique", None)
     if not target_entity_keys:
-        raise ValueError(
-            f"Schema '{schema.__name__}' must define Config.unique."
-        )
+        raise ValueError(f"Schema '{schema.__name__}' must define Config.unique.")
 
     entity_keys = []
     for target_field in target_entity_keys:
@@ -103,9 +102,11 @@ def _derive_entity_keys(
 
     return list(dict.fromkeys(entity_keys))
 
+
 # =============================================================================
 # Series resolution — always returns len(base_df) rows
 # =============================================================================
+
 
 def resolve_source_series(
     record: FieldMappingRecord,
@@ -198,13 +199,21 @@ def _resolve_cross_table_series(
     rs = record.row_selection
     extra_cols = [rs.order_by] if rs and rs.order_by else []
     filter_cols = [rs.filter.column] if rs and rs.filter else []
-    lookup_cols_needed = list(dict.fromkeys(lookup_join_cols + [value_col] + extra_cols + filter_cols))
+    lookup_cols_needed = list(
+        dict.fromkeys(lookup_join_cols + [value_col] + extra_cols + filter_cols)
+    )
     lookup_df = dataframes[join.lookup_table][lookup_cols_needed].copy()
 
     # Log initial state
     initial_rows = len(lookup_df)
-    initial_students = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and initial_rows > 0 else 0
-    base_students = base_df[base_join_cols[0]].nunique() if base_join_cols else len(base_df)
+    initial_students = (
+        lookup_df[lookup_join_cols[0]].nunique()
+        if lookup_join_cols and initial_rows > 0
+        else 0
+    )
+    base_students = (
+        base_df[base_join_cols[0]].nunique() if base_join_cols else len(base_df)
+    )
     logger.info(
         f"[{record.target_field}] Initial lookup_df: {initial_rows} rows, "
         f"{initial_students} unique students. Base_df: {len(base_df)} rows, "
@@ -213,8 +222,12 @@ def _resolve_cross_table_series(
 
     if rs and rs.filter:
         pre_len = len(lookup_df)
-        pre_students = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and pre_len > 0 else 0
-        
+        pre_students = (
+            lookup_df[lookup_join_cols[0]].nunique()
+            if lookup_join_cols and pre_len > 0
+            else 0
+        )
+
         # Log filter details before applying
         filter_col = rs.filter.column
         if filter_col in lookup_df.columns:
@@ -222,18 +235,22 @@ def _resolve_cross_table_series(
             logger.debug(
                 f"[{record.target_field}] Filter column '{filter_col}' sample values: {sample_values}"
             )
-        
+
         lookup_df = _apply_filter(lookup_df, rs.filter)
-        
+
         post_len = len(lookup_df)
-        post_students = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and post_len > 0 else 0
-        
+        post_students = (
+            lookup_df[lookup_join_cols[0]].nunique()
+            if lookup_join_cols and post_len > 0
+            else 0
+        )
+
         logger.info(
             f"[{record.target_field}] Filter '{rs.filter.operator}' on '{rs.filter.column}' "
             f"(value: {rs.filter.value}): {pre_len} → {post_len} rows "
             f"({pre_students} → {post_students} students)"
         )
-        
+
         if post_len == 0:
             logger.warning(
                 f"[{record.target_field}] Filter removed ALL rows! All students will get NaN. "
@@ -246,7 +263,7 @@ def _resolve_cross_table_series(
                 f"[{record.target_field}] order_by column '{rs.order_by}' "
                 f"not found in '{join.lookup_table}'"
             )
-        
+
         # Check for nulls in order_by column
         null_order_count = lookup_df[rs.order_by].isna().sum()
         if null_order_count > 0:
@@ -254,7 +271,7 @@ def _resolve_cross_table_series(
                 f"[{record.target_field}] order_by column '{rs.order_by}' has {null_order_count} "
                 f"null values. These rows will sort last."
             )
-        
+
         lookup_df = lookup_df.sort_values(rs.order_by, ascending=True)
         logger.debug(
             f"[{record.target_field}] Sorted by '{rs.order_by}' (ascending). "
@@ -273,26 +290,35 @@ def _resolve_cross_table_series(
                 f"{students_with_fewer} students have <{rs.n} rows "
                 f"(will get NaN). Row count distribution: {student_counts.describe().to_dict()}"
             )
-        
+
         lookup_df = (
-            lookup_df
-            .groupby(lookup_join_cols, sort=False)
-            .nth(rs.n - 1)
-            .reset_index()
+            lookup_df.groupby(lookup_join_cols, sort=False).nth(rs.n - 1).reset_index()
         )
-        
+
         post_nth_rows = len(lookup_df)
-        post_nth_students = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and post_nth_rows > 0 else 0
+        post_nth_students = (
+            lookup_df[lookup_join_cols[0]].nunique()
+            if lookup_join_cols and post_nth_rows > 0
+            else 0
+        )
         logger.info(
             f"[{record.target_field}] After nth({rs.n}) selection: {post_nth_rows} rows, "
             f"{post_nth_students} students"
         )
     else:
         pre_dedup_rows = len(lookup_df)
-        pre_dedup_students = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and pre_dedup_rows > 0 else 0
+        pre_dedup_students = (
+            lookup_df[lookup_join_cols[0]].nunique()
+            if lookup_join_cols and pre_dedup_rows > 0
+            else 0
+        )
         lookup_df = lookup_df.drop_duplicates(subset=lookup_join_cols, keep="first")
         post_dedup_rows = len(lookup_df)
-        post_dedup_students = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and post_dedup_rows > 0 else 0
+        post_dedup_students = (
+            lookup_df[lookup_join_cols[0]].nunique()
+            if lookup_join_cols and post_dedup_rows > 0
+            else 0
+        )
         logger.debug(
             f"[{record.target_field}] Deduplication: {pre_dedup_rows} → {post_dedup_rows} rows "
             f"({pre_dedup_students} → {post_dedup_students} students)"
@@ -327,14 +353,18 @@ def _resolve_cross_table_series(
     non_null_count = result_series.notna().sum()
     null_count = result_series.isna().sum()
     null_pct = (null_count / len(result_series) * 100) if len(result_series) > 0 else 0
-    
-    post_dedup_students_final = lookup_df[lookup_join_cols[0]].nunique() if lookup_join_cols and len(lookup_df) > 0 else 0
+
+    post_dedup_students_final = (
+        lookup_df[lookup_join_cols[0]].nunique()
+        if lookup_join_cols and len(lookup_df) > 0
+        else 0
+    )
     logger.info(
         f"[{record.target_field}] Merge complete: {non_null_count} non-null values, "
         f"{null_count} null values ({null_pct:.1f}% NaN). "
         f"Lookup had {len(lookup_df)} rows for {post_dedup_students_final} students."
     )
-    
+
     if null_pct > 50:
         logger.warning(
             f"[{record.target_field}] High NaN rate ({null_pct:.1f}%)! "
@@ -347,6 +377,7 @@ def _resolve_cross_table_series(
 # =============================================================================
 # Per-field grain reduction — operates on base_df in source space
 # =============================================================================
+
 
 def _apply_grain_reduction(
     s: pd.Series,
@@ -382,15 +413,13 @@ def _apply_grain_reduction(
     if not rs or rs.strategy == RowSelectionStrategy.constant:
         # Constant fields produce identical values for all rows — slice to
         # entity grain length so all Series assemble to the same length.
-        return s.iloc[:len(entity_index)].reset_index(drop=True)
+        return s.iloc[: len(entity_index)].reset_index(drop=True)
 
     def _merge_back(reduced: pd.DataFrame) -> pd.Series:
         """Left merge reduced rows back to canonical entity_index order."""
-        return (
-            entity_index
-            .merge(reduced, on=entity_keys, how="left")["_s"]
-            .reset_index(drop=True)
-        )
+        return entity_index.merge(reduced, on=entity_keys, how="left")[
+            "_s"
+        ].reset_index(drop=True)
 
     if rs.strategy in (RowSelectionStrategy.any_row, RowSelectionStrategy.nth):
         reduced = (
@@ -446,6 +475,7 @@ def _apply_grain_reduction(
 # Transformation map execution
 # =============================================================================
 
+
 def execute_transformation_map(
     transformation_map: TransformationMap,
     manifest: FieldMappingManifest,
@@ -491,11 +521,9 @@ def execute_transformation_map(
 
     # Canonical entity order — all strategies merge back to this index so
     # every field's reduced Series has the same row ordering.
-    entity_index = (
-        base_df
-        .drop_duplicates(subset=entity_keys, keep="first")[entity_keys]
-        .reset_index(drop=True)
-    )
+    entity_index = base_df.drop_duplicates(subset=entity_keys, keep="first")[
+        entity_keys
+    ].reset_index(drop=True)
 
     logger.debug(
         f"[{transformation_map.entity_type}] Base table: '{base_table}', "
@@ -519,7 +547,9 @@ def execute_transformation_map(
         record = manifest_index.get(target)
 
         if not record:
-            logger.warning(f"[{i}/{n_plans}] No manifest record for '{target}' — skipping")
+            logger.warning(
+                f"[{i}/{n_plans}] No manifest record for '{target}' — skipping"
+            )
             continue
 
         if not plan.steps and not record.source_column:
@@ -560,10 +590,10 @@ def execute_transformation_map(
             # --- 3. Reduce to one value per entity ---
             if record.row_selection is not None:
                 strategy = record.row_selection.strategy
-                logger.debug(
-                    f"[{i}/{n_plans}] {target} — reducing via {strategy}"
+                logger.debug(f"[{i}/{n_plans}] {target} — reducing via {strategy}")
+                s = _apply_grain_reduction(
+                    s, record, base_df, entity_keys, entity_index
                 )
-                s = _apply_grain_reduction(s, record, base_df, entity_keys, entity_index)
 
             result_cols[target] = s
             executed.append(target)
@@ -635,13 +665,16 @@ def _execute_step(
 # Helpers
 # =============================================================================
 
+
 def _build_alias_map(
     manifest: FieldMappingManifest,
 ) -> dict[str, dict[str, str]]:
     """Build {table: {source_column: canonical_column}} from manifest column_aliases."""
     alias_map: dict[str, dict[str, str]] = {}
     for alias in manifest.column_aliases:
-        alias_map.setdefault(alias.table, {})[alias.source_column] = alias.canonical_column
+        alias_map.setdefault(alias.table, {})[alias.source_column] = (
+            alias.canonical_column
+        )
     return alias_map
 
 
@@ -667,9 +700,7 @@ def _infer_base_table(manifest: FieldMappingManifest) -> str:
             return m.join.base_table
     tables = [m.source_table for m in manifest.mappings if m.source_table]
     if not tables:
-        raise ValueError(
-            f"Cannot infer base table for {manifest.entity_type} manifest"
-        )
+        raise ValueError(f"Cannot infer base table for {manifest.entity_type} manifest")
     return max(set(tables), key=tables.count)
 
 

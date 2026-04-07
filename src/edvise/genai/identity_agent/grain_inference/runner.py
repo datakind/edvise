@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 
 import pandas as pd
 
-from edvise.genai.identity_agent.profiling.key_profiler import KeyProfile
+from edvise.genai.identity_agent.profiling import RankedCandidateProfiles
 
 from .prompt_builder import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
@@ -20,7 +20,7 @@ def run_identity_agent(
     *,
     institution_id: str,
     dataset_name: str,
-    key_profile: KeyProfile,
+    key_profile: RankedCandidateProfiles,
     df: pd.DataFrame,
     llm_complete: Callable[[str, str], str],
 ) -> IdentityGrainContract:
@@ -40,7 +40,7 @@ def run_identity_agent(
 def run_identity_agents_for_institution(
     *,
     institution_id: str,
-    institution_profiles: Mapping[str, KeyProfile],
+    institution_profiles: Mapping[str, RankedCandidateProfiles],
     dfs: Mapping[str, pd.DataFrame],
     llm_complete: Callable[[str, str], str],
     confidence_threshold: float = IDENTITY_CONFIDENCE_HITL_THRESHOLD,

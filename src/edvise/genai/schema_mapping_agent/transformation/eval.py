@@ -89,7 +89,11 @@ def _normalize_obj(x):
 
 def _normalize_step(step: dict | None) -> dict:
     """Drop rationale/review-only fields; stable ordering for nested dicts."""
-    s = {k: v for k, v in (step or {}).items() if k not in {"rationale", "review_status", "reviewer_notes", "validation_notes"}}
+    s = {
+        k: v
+        for k, v in (step or {}).items()
+        if k not in {"rationale", "review_status", "reviewer_notes", "validation_notes"}
+    }
     if "mapping" in s and isinstance(s["mapping"], dict):
         s["mapping"] = _sort_mapping(s["mapping"])
     if "extra_columns" in s and isinstance(s["extra_columns"], dict):
@@ -120,11 +124,7 @@ def _step_signature(step: dict) -> tuple:
 
 def _step_arg_payload(step: dict) -> dict:
     s = _normalize_step(step)
-    return {
-        k: v
-        for k, v in s.items()
-        if k not in {"function_name"}
-    }
+    return {k: v for k, v in s.items() if k not in {"function_name"}}
 
 
 def _critical_args_for_step(step: dict) -> dict:
@@ -145,10 +145,7 @@ def _critical_args_for_step(step: dict) -> dict:
 
 
 def _step_chain_names(plan: dict) -> list[str]:
-    return [
-        _normalize_step(s).get("function_name")
-        for s in (plan.get("steps") or [])
-    ]
+    return [_normalize_step(s).get("function_name") for s in (plan.get("steps") or [])]
 
 
 def _multiset_overlap(a: list[str], b: list[str]) -> int:
@@ -157,15 +154,21 @@ def _multiset_overlap(a: list[str], b: list[str]) -> int:
     return sum(min(ca[k], cb[k]) for k in set(ca) | set(cb))
 
 
-def _steps_aligned_by_index_and_name(g_steps: list[dict], p_steps: list[dict]) -> list[tuple[dict, dict]]:
+def _steps_aligned_by_index_and_name(
+    g_steps: list[dict], p_steps: list[dict]
+) -> list[tuple[dict, dict]]:
     aligned = []
     for g, p in zip(g_steps, p_steps):
-        if _normalize_step(g).get("function_name") == _normalize_step(p).get("function_name"):
+        if _normalize_step(g).get("function_name") == _normalize_step(p).get(
+            "function_name"
+        ):
             aligned.append((g, p))
     return aligned
 
 
-def _mapping_overlap_metrics(gold_mapping: dict | None, pred_mapping: dict | None) -> tuple[int | None, int | None]:
+def _mapping_overlap_metrics(
+    gold_mapping: dict | None, pred_mapping: dict | None
+) -> tuple[int | None, int | None]:
     if gold_mapping is None:
         return None, None
     gold_mapping = gold_mapping or {}
@@ -174,7 +177,10 @@ def _mapping_overlap_metrics(gold_mapping: dict | None, pred_mapping: dict | Non
         return 1, 1 if not pred_mapping else 0
     overlap_keys = set(gold_mapping).intersection(set(pred_mapping))
     key_recall = int(len(overlap_keys) == len(gold_mapping))
-    value_correct = int(all(pred_mapping.get(k) == gold_mapping.get(k) for k in overlap_keys) and len(overlap_keys) == len(gold_mapping))
+    value_correct = int(
+        all(pred_mapping.get(k) == gold_mapping.get(k) for k in overlap_keys)
+        and len(overlap_keys) == len(gold_mapping)
+    )
     return key_recall, value_correct
 
 
@@ -210,10 +216,16 @@ def _compare_transform_plan(field: str, gold_plan: dict, pred_plan: dict) -> dic
         exact_plan_match = int(g["normalized"] == p["normalized"])
 
     overlap = _multiset_overlap(g["function_names"], p["function_names"])
-    function_chain_precision = _safe_div(overlap, len(p["function_names"])) if p["function_names"] else None
-    function_chain_recall = _safe_div(overlap, len(g["function_names"])) if g["function_names"] else None
+    function_chain_precision = (
+        _safe_div(overlap, len(p["function_names"])) if p["function_names"] else None
+    )
+    function_chain_recall = (
+        _safe_div(overlap, len(g["function_names"])) if g["function_names"] else None
+    )
     function_chain_f1 = _f1(function_chain_precision, function_chain_recall)
-    function_chain_exact = int(g["function_names"] == p["function_names"]) if not g["empty"] else None
+    function_chain_exact = (
+        int(g["function_names"] == p["function_names"]) if not g["empty"] else None
+    )
 
     aligned_pairs = _steps_aligned_by_index_and_name(g["steps"], p["steps"])
     aligned_count = len(aligned_pairs)
@@ -249,15 +261,21 @@ def _compare_transform_plan(field: str, gold_plan: dict, pred_plan: dict) -> dic
             map_values_steps_gold += 1
             g_map = gs.get("mapping") or {}
             p_map = ps.get("mapping") or {}
-            key_recall_exact, value_correct_exact = _mapping_overlap_metrics(g_map, p_map)
+            key_recall_exact, value_correct_exact = _mapping_overlap_metrics(
+                g_map, p_map
+            )
             map_values_key_recall_total += int(key_recall_exact == 1)
-            map_values_value_correct_total += int(value_correct_exact == 1 and ps.get("default") == gs.get("default"))
+            map_values_value_correct_total += int(
+                value_correct_exact == 1 and ps.get("default") == gs.get("default")
+            )
             if p_map == g_map and ps.get("default") == gs.get("default"):
                 map_values_steps_correct += 1
 
         if fn == "fill_constant":
             fill_constant_steps_gold += 1
-            if ps.get("value") == gs.get("value") and ps.get("column") == gs.get("column"):
+            if ps.get("value") == gs.get("value") and ps.get("column") == gs.get(
+                "column"
+            ):
                 fill_constant_correct += 1
 
         if "extra_columns" in gs:
@@ -266,7 +284,9 @@ def _compare_transform_plan(field: str, gold_plan: dict, pred_plan: dict) -> dic
                 dependency_correct += 1
 
     required_step_recall = function_chain_recall
-    extra_step_rate = _safe_div(max(len(p["function_names"]) - overlap, 0), len(g["function_names"]) or 1)
+    extra_step_rate = _safe_div(
+        max(len(p["function_names"]) - overlap, 0), len(g["function_names"]) or 1
+    )
 
     execution_safe = False
     if g["empty"] and p["empty"]:
@@ -276,7 +296,11 @@ def _compare_transform_plan(field: str, gold_plan: dict, pred_plan: dict) -> dic
             execution_safe = output_dtype_correct == 1
     elif (not g["empty"]) and (not p["empty"]):
         chain_ok = function_chain_recall == 1
-        critical_args_ok = (step_arg_critical_matches == step_arg_critical_total) if step_arg_critical_total > 0 else True
+        critical_args_ok = (
+            (step_arg_critical_matches == step_arg_critical_total)
+            if step_arg_critical_total > 0
+            else True
+        )
         if IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING:
             execution_safe = chain_ok and critical_args_ok
         else:
@@ -369,34 +393,68 @@ def _mean_from_counts(counts: Counter, sum_key: str, n_key: str) -> float | None
     return round(counts[sum_key] / n, 3) if n else None
 
 
-def _finalize_counts_t2b(entity: str, counts: Counter, field_scores: list[dict]) -> dict:
+def _finalize_counts_t2b(
+    entity: str, counts: Counter, field_scores: list[dict]
+) -> dict:
     out = {
         "entity": entity,
         "n_fields": counts["n_fields"],
-        "plan_decision_accuracy": _safe_div(counts["plan_decision_correct"], counts["n_fields"]),
-        "exact_plan_match_rate": _safe_div(counts["exact_plan_match"], counts["n_fields"]),
+        "plan_decision_accuracy": _safe_div(
+            counts["plan_decision_correct"], counts["n_fields"]
+        ),
+        "exact_plan_match_rate": _safe_div(
+            counts["exact_plan_match"], counts["n_fields"]
+        ),
         "function_chain_accuracy": _safe_div(
             counts["function_chain_exact_correct"],
             counts["function_chain_gold_nonempty"],
         ),
-        "function_chain_precision": _mean_from_counts(counts, "function_chain_precision_sum", "function_chain_precision_n"),
-        "function_chain_recall": _mean_from_counts(counts, "function_chain_recall_sum", "function_chain_recall_n"),
-        "function_chain_f1": _mean_from_counts(counts, "function_chain_f1_sum", "function_chain_f1_n"),
-        "required_step_recall": _mean_from_counts(counts, "required_step_recall_sum", "required_step_recall_n"),
-        "extra_step_rate": _mean_from_counts(counts, "extra_step_rate_sum", "extra_step_rate_n"),
-        "step_arg_exact_accuracy": _safe_div(counts["step_arg_exact_count"], counts["aligned_step_count"]),
-        "critical_arg_accuracy": _safe_div(counts["step_arg_critical_match_count"], counts["step_arg_critical_total"]),
-        "map_values_step_accuracy": _safe_div(counts["map_values_steps_correct"], counts["map_values_steps_gold"]),
-        "map_values_key_recall": _safe_div(counts["map_values_key_recall_count"], counts["map_values_steps_gold"]),
-        "map_values_value_accuracy": _safe_div(counts["map_values_value_correct_count"], counts["map_values_steps_gold"]),
-        "fill_constant_accuracy": _safe_div(counts["fill_constant_correct"], counts["fill_constant_steps_gold"]),
-        "dependency_accuracy": _safe_div(counts["dependency_correct"], counts["dependency_steps_gold"]),
+        "function_chain_precision": _mean_from_counts(
+            counts, "function_chain_precision_sum", "function_chain_precision_n"
+        ),
+        "function_chain_recall": _mean_from_counts(
+            counts, "function_chain_recall_sum", "function_chain_recall_n"
+        ),
+        "function_chain_f1": _mean_from_counts(
+            counts, "function_chain_f1_sum", "function_chain_f1_n"
+        ),
+        "required_step_recall": _mean_from_counts(
+            counts, "required_step_recall_sum", "required_step_recall_n"
+        ),
+        "extra_step_rate": _mean_from_counts(
+            counts, "extra_step_rate_sum", "extra_step_rate_n"
+        ),
+        "step_arg_exact_accuracy": _safe_div(
+            counts["step_arg_exact_count"], counts["aligned_step_count"]
+        ),
+        "critical_arg_accuracy": _safe_div(
+            counts["step_arg_critical_match_count"], counts["step_arg_critical_total"]
+        ),
+        "map_values_step_accuracy": _safe_div(
+            counts["map_values_steps_correct"], counts["map_values_steps_gold"]
+        ),
+        "map_values_key_recall": _safe_div(
+            counts["map_values_key_recall_count"], counts["map_values_steps_gold"]
+        ),
+        "map_values_value_accuracy": _safe_div(
+            counts["map_values_value_correct_count"], counts["map_values_steps_gold"]
+        ),
+        "fill_constant_accuracy": _safe_div(
+            counts["fill_constant_correct"], counts["fill_constant_steps_gold"]
+        ),
+        "dependency_accuracy": _safe_div(
+            counts["dependency_correct"], counts["dependency_steps_gold"]
+        ),
         "execution_safe_rate": _safe_div(counts["execution_safe"], counts["n_fields"]),
-        "execution_exact_rate": _safe_div(counts["execution_exact"], counts["n_fields"]),
+        "execution_exact_rate": _safe_div(
+            counts["execution_exact"], counts["n_fields"]
+        ),
         "field_scores": field_scores,
     }
     if not IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING:
-        out["output_dtype_accuracy"] = _safe_div(counts["output_dtype_correct"], counts["n_fields"])
+        out["output_dtype_accuracy"] = _safe_div(
+            counts["output_dtype_correct"], counts["n_fields"]
+        )
     return out
 
 
@@ -552,19 +610,27 @@ def run():
         logger.info(f"Reference: {reference_name} ({reference_id})")
         logger.info(f"Project root (eval cwd): {project_root}")
 
-        HISTORICAL_BASE = Path(f"pipelines/gen_ai_cleaning/historical_examples/{target_id}")
+        HISTORICAL_BASE = Path(
+            f"pipelines/gen_ai_cleaning/historical_examples/{target_id}"
+        )
         OUTPUT_DIR = HISTORICAL_BASE / "eval_outputs_2b"
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-        gold_path = HISTORICAL_BASE / "final_hitl" / f"{target_id}_transformation_map.json"
+        gold_path = (
+            HISTORICAL_BASE / "final_hitl" / f"{target_id}_transformation_map.json"
+        )
         if not gold_path.exists():
             gold_path = HISTORICAL_BASE / "v1" / f"{target_id}_transformation_map.json"
         GOLD_TM = load_json(str(gold_path))
         logger.info(f"Loaded gold transformation map from {gold_path}")
 
-        manifest_path = HISTORICAL_BASE / "final_hitl" / f"{target_id}_mapping_manifest.json"
+        manifest_path = (
+            HISTORICAL_BASE / "final_hitl" / f"{target_id}_mapping_manifest.json"
+        )
         if not manifest_path.exists():
-            manifest_path = HISTORICAL_BASE / "v1" / f"{target_id}_mapping_manifest.json"
+            manifest_path = (
+                HISTORICAL_BASE / "v1" / f"{target_id}_mapping_manifest.json"
+            )
         institution_mapping_manifest = load_json(str(manifest_path))
         logger.info(f"Loaded target mapping manifest from {manifest_path}")
 
@@ -581,9 +647,7 @@ def run():
             )
         logger.info(f"Loaded reference transformation map from {ref_tm_path}")
 
-        target_contract_path = (
-            HISTORICAL_BASE / f"{target_id}_schema_contract.json"
-        )
+        target_contract_path = HISTORICAL_BASE / f"{target_id}_schema_contract.json"
         target_contract = load_json(str(target_contract_path))
         logger.info(f"Loaded target schema contract from {target_contract_path}")
 
@@ -657,7 +721,9 @@ def run():
                 )
                 logger.info(" | ".join(_parts))
                 if not scores.get("validation_passed"):
-                    logger.warning(f"  Validation error: {scores.get('validation_error')}")
+                    logger.warning(
+                        f"  Validation error: {scores.get('validation_error')}"
+                    )
                 result["scores"] = scores
             else:
                 logger.warning("→ scoring skipped")
@@ -684,7 +750,9 @@ def run():
                     {
                         "validation_passed": r["scores"].get("validation_passed"),
                         "validation_error": r["scores"].get("validation_error"),
-                        **{f"overall_{k}": v for k, v in r["scores"]["overall"].items()},
+                        **{
+                            f"overall_{k}": v for k, v in r["scores"]["overall"].items()
+                        },
                         **{
                             f"cohort_{k}": v
                             for k, v in r["scores"]["cohort"].items()

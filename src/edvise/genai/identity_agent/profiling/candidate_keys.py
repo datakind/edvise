@@ -1,48 +1,42 @@
 from __future__ import annotations
 
 import logging
-import re
 from itertools import combinations
 
 import pandas as pd
-from pydantic import BaseModel, Field
+
+from .constants import (
+    EARLY_STOP_UNIQUENESS,
+    INDEX_COLUMN_PATTERNS,
+    LARGE_TABLE_KEY_SEARCH_SAMPLE_ROWS,
+    LARGE_TABLE_ROW_THRESHOLD,
+    MAX_CANDIDATE_POOL,
+    MAX_COMBINATION_EVALS,
+    MAX_COMBINATION_EVALS_LARGE_TABLE,
+    MAX_KEY_SIZE,
+    MAX_KEY_SIZE_LARGE_TABLE,
+    MAX_NULL_RATE_TIER1,
+    MAX_NULL_RATE_TIER2,
+    MIN_DISCRIMINATOR_NUNIQUE,
+    NEAR_BEST_STOP_DELTA,
+    PROFILE_MAX_WORK_ROWS,
+    SAMPLE_GROUP_SIZE,
+    STUDENT_ANCHOR_NAME_PATTERN,
+    TIER1_MIN_NUNIQUE_ABS,
+    TOP_K_CANDIDATES,
+    TOP_K_CANDIDATES_LARGE_TABLE,
+    WITHIN_GROUP_SAMPLE_VALUES,
+)
+from .raw_snapshot import profile_raw_table
+from .schemas import (
+    CandidateKey,
+    CandidateProfile,
+    ColumnVarianceProfile,
+    KeyProfileResult,
+    RankedCandidateProfiles,
+)
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Constants / thresholds
-# ---------------------------------------------------------------------------
-
-TIER1_MIN_NUNIQUE_ABS = 50
-MIN_DISCRIMINATOR_NUNIQUE = 2
-MAX_NULL_RATE_TIER1 = 0.05
-MAX_NULL_RATE_TIER2 = 0.30
-EARLY_STOP_UNIQUENESS = 0.995
-MAX_CANDIDATE_POOL = 8
-MAX_KEY_SIZE = 6
-TOP_K_CANDIDATES = 10
-LARGE_TABLE_ROW_THRESHOLD = 500_000
-MAX_COMBINATION_EVALS = 3_000
-MAX_KEY_SIZE_LARGE_TABLE = 3      # up from 2 (was already 3 — but combo budget was the real cap)
-MAX_COMBINATION_EVALS_LARGE_TABLE = 500   # up from 40
-NEAR_BEST_STOP_DELTA = 0.003
-LARGE_TABLE_KEY_SEARCH_SAMPLE_ROWS = 100_000
-TOP_K_CANDIDATES_LARGE_TABLE = 5
-
-SAMPLE_GROUP_SIZE = 500
-PROFILE_MAX_WORK_ROWS = 150_000
-WITHIN_GROUP_SAMPLE_VALUES = 5  # sample values per column for LLM context
-
-INDEX_COLUMN_PATTERNS = re.compile(
-    r"^(unnamed:\s*[\d.]+|index|row_number|row_num|rownum|row_id|__index_level_\d+__)$",
-    re.IGNORECASE,
-)
-
-STUDENT_ANCHOR_NAME_PATTERN = re.compile(
-    r"(?:student[_\s]?id|learner[_\s]?id|person[_\s]?id|enrollment[_\s]?id|sis[_\s]?id|"
-    r"member[_\s]?id|participant[_\s]?id)",
-    re.IGNORECASE,
-)
 
 
 def _student_anchor_column_names(columns: pd.Index) -> frozenset[str]:
@@ -55,56 +49,9 @@ def _include_column_for_key_detection(series: pd.Series) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Pydantic models
-# ---------------------------------------------------------------------------
-
-class CandidateKey(BaseModel):
-    columns: list[str]
-    uniqueness_score: float = Field(..., description="Fraction of rows unique on this key")
-    null_rate: float = Field(..., description="Max null rate across key columns")
-    rank: int
-
-
-class ColumnVarianceProfile(BaseModel):
-    column: str
-    pct_groups_with_variance: float = Field(
-        ..., description="Fraction of non-unique groups where this column has >1 distinct value"
-    )
-    sample_values: list = Field(
-        ..., description="Up to 5 sample values from non-unique rows for LLM context"
-    )
-
-
-class CandidateKeyProfile(BaseModel):
-    candidate_key: CandidateKey
-    non_unique_rows: int
-    affected_groups: int
-    group_size_distribution: dict[int, int]
-    within_group_variance: list[ColumnVarianceProfile] = Field(
-        ...,
-        description=(
-            "Per non-key column: how often it varies across non-unique groups. "
-            "Empty when key is fully unique. Interpretation (grain vs noise vs policy) "
-            "is left to IdentityAgent (Step 2)."
-        ),
-    )
-    sampled: bool = Field(False, description="True if variance profile is based on sampled groups")
-
-
-class KeyProfile(BaseModel):
-    candidate_key_profiles: list[CandidateKeyProfile] = Field(
-        ...,
-        description=(
-            "Profile per candidate key, ranked by uniqueness. Pass to "
-            "``edvise.genai.identity_agent.grain_inference.prompt_builder."
-            "build_identity_agent_user_message`` (Step 2)."
-        ),
-    )
-
-
-# ---------------------------------------------------------------------------
 # Candidate key detection — deterministic combinatorial work
 # ---------------------------------------------------------------------------
+
 
 def _effective_tier1_nunique_floor(n_rows: int) -> int:
     if n_rows <= 0:
@@ -149,7 +96,10 @@ def _rank_tier2_pool(
     eligible = [
         (c, u, nr)
         for c, u, nr, key_ok in stats
-        if key_ok and c not in tier1_set and nr <= MAX_NULL_RATE_TIER2 and u >= MIN_DISCRIMINATOR_NUNIQUE
+        if key_ok
+        and c not in tier1_set
+        and nr <= MAX_NULL_RATE_TIER2
+        and u >= MIN_DISCRIMINATOR_NUNIQUE
     ]
     eligible.sort(key=lambda t: (-t[1], t[0]))
     return [c for c, _, _ in eligible[:MAX_CANDIDATE_POOL]]
@@ -157,8 +107,14 @@ def _rank_tier2_pool(
 
 def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     n_rows = len(df)
-    logger.info("Detecting candidate keys across %d columns, %d rows", len(df.columns), n_rows)
-    top_k_limit = TOP_K_CANDIDATES_LARGE_TABLE if n_rows >= LARGE_TABLE_ROW_THRESHOLD else TOP_K_CANDIDATES
+    logger.info(
+        "Detecting candidate keys across %d columns, %d rows", len(df.columns), n_rows
+    )
+    top_k_limit = (
+        TOP_K_CANDIDATES_LARGE_TABLE
+        if n_rows >= LARGE_TABLE_ROW_THRESHOLD
+        else TOP_K_CANDIDATES
+    )
 
     stats = _column_stats(df)
     tier1_cols = _rank_tier1_pool(stats, n_rows, MAX_NULL_RATE_TIER1)
@@ -178,18 +134,25 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
         if c in tier1_cols:
             logger.debug("  Tier 1 (anchor): %s n_unique=%d null_rate=%.4f", c, u, nr)
         elif c in tier2_cols:
-            logger.debug("  Tier 2 (discriminator): %s n_unique=%d null_rate=%.4f", c, u, nr)
+            logger.debug(
+                "  Tier 2 (discriminator): %s n_unique=%d null_rate=%.4f", c, u, nr
+            )
 
     logger.info("Tier 1 pool: %s", tier1_cols)
     logger.info("Tier 2 pool: %s", tier2_cols)
 
     if not tier1_cols:
-        logger.warning("No Tier 1 columns found — cannot generate compound key candidates")
+        logger.warning(
+            "No Tier 1 columns found — cannot generate compound key candidates"
+        )
         return []
 
     eval_df = df
     use_sampled_key_search = False
-    if n_rows >= LARGE_TABLE_ROW_THRESHOLD and len(df) > LARGE_TABLE_KEY_SEARCH_SAMPLE_ROWS:
+    if (
+        n_rows >= LARGE_TABLE_ROW_THRESHOLD
+        and len(df) > LARGE_TABLE_KEY_SEARCH_SAMPLE_ROWS
+    ):
         eval_df = df.sample(LARGE_TABLE_KEY_SEARCH_SAMPLE_ROWS, random_state=44)
         use_sampled_key_search = True
         logger.info("Using %d-row sample for combo key search", len(eval_df))
@@ -199,7 +162,7 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
         if len(cols) == 1:
             return source_df[cols[0]].nunique() / source_n_rows
         compound = sum(
-            pd.util.hash_pandas_object(source_df[c], index=False) * (31 ** i)
+            pd.util.hash_pandas_object(source_df[c], index=False) * (31**i)
             for i, c in enumerate(cols)
         )
         return compound.nunique() / source_n_rows
@@ -217,14 +180,29 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     for col in tier1_cols:
         uniqueness = _uniqueness([col], eval_df)
         null_rate = df[col].isnull().mean()
-        candidates.append(CandidateKey(columns=[col], uniqueness_score=round(uniqueness, 4), null_rate=round(null_rate, 4), rank=0))
+        candidates.append(
+            CandidateKey(
+                columns=[col],
+                uniqueness_score=round(uniqueness, 4),
+                null_rate=round(null_rate, 4),
+                rank=0,
+            )
+        )
         if uniqueness >= EARLY_STOP_UNIQUENESS:
             best_by_subset.add(frozenset([col]))
             logger.info("  Near-unique single column: %s (%.4f)", col, uniqueness)
 
     all_pool = tier1_cols + tier2_cols
-    effective_max_key_size = MAX_KEY_SIZE_LARGE_TABLE if n_rows >= LARGE_TABLE_ROW_THRESHOLD else MAX_KEY_SIZE
-    max_combination_evals = MAX_COMBINATION_EVALS_LARGE_TABLE if n_rows >= LARGE_TABLE_ROW_THRESHOLD else MAX_COMBINATION_EVALS
+    effective_max_key_size = (
+        MAX_KEY_SIZE_LARGE_TABLE
+        if n_rows >= LARGE_TABLE_ROW_THRESHOLD
+        else MAX_KEY_SIZE
+    )
+    max_combination_evals = (
+        MAX_COMBINATION_EVALS_LARGE_TABLE
+        if n_rows >= LARGE_TABLE_ROW_THRESHOLD
+        else MAX_COMBINATION_EVALS
+    )
 
     stop_enumeration = False
     evaluated_combos = 0
@@ -240,7 +218,14 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
             uniqueness = _uniqueness(list(combo), eval_df)
             evaluated_combos += 1
             null_rate = max(df[col].isnull().mean() for col in combo)
-            candidates.append(CandidateKey(columns=list(combo), uniqueness_score=round(uniqueness, 4), null_rate=round(null_rate, 4), rank=0))
+            candidates.append(
+                CandidateKey(
+                    columns=list(combo),
+                    uniqueness_score=round(uniqueness, 4),
+                    null_rate=round(null_rate, 4),
+                    rank=0,
+                )
+            )
             if uniqueness >= EARLY_STOP_UNIQUENESS:
                 logger.info("  Near-unique compound key %s (%.4f)", combo, uniqueness)
             if evaluated_combos >= max_combination_evals:
@@ -248,7 +233,11 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
                 break
             best_so_far = max((c.uniqueness_score for c in candidates), default=0.0)
             at_best = sum(1 for c in candidates if c.uniqueness_score >= best_so_far)
-            near_best = sum(1 for c in candidates if c.uniqueness_score >= max(0.0, best_so_far - NEAR_BEST_STOP_DELTA))
+            near_best = sum(
+                1
+                for c in candidates
+                if c.uniqueness_score >= max(0.0, best_so_far - NEAR_BEST_STOP_DELTA)
+            )
             if best_so_far >= EARLY_STOP_UNIQUENESS and at_best >= top_k_limit:
                 stop_enumeration = True
                 break
@@ -263,22 +252,27 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     if anchor_cols:
         before = len(candidates)
         candidates = [
-            c for c in candidates
+            c
+            for c in candidates
             if len(c.columns) == 1 or any(col in anchor_cols for col in c.columns)
         ]
         dropped = before - len(candidates)
         if dropped:
-            logger.info("  Dropped %d multi-column keys with no student-anchor column", dropped)
+            logger.info(
+                "  Dropped %d multi-column keys with no student-anchor column", dropped
+            )
 
     def _rank_key(c: CandidateKey) -> tuple[float, int, int]:
-        has_anchor = 1 if (anchor_cols and any(col in anchor_cols for col in c.columns)) else 0
+        has_anchor = (
+            1 if (anchor_cols and any(col in anchor_cols for col in c.columns)) else 0
+        )
         if not anchor_cols:
             has_anchor = 1
         return (c.uniqueness_score, has_anchor, -len(c.columns))
 
     if use_sampled_key_search and candidates:
         prelim_sorted = sorted(candidates, key=_rank_key, reverse=True)
-        finalists = prelim_sorted[:max(2 * TOP_K_CANDIDATES, TOP_K_CANDIDATES)]
+        finalists = prelim_sorted[: max(2 * TOP_K_CANDIDATES, TOP_K_CANDIDATES)]
         for c in finalists:
             c.uniqueness_score = round(_uniqueness(c.columns, df), 4)
         candidates = finalists
@@ -287,7 +281,12 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     top = candidates[:top_k_limit]
     for i, c in enumerate(top):
         c.rank = i + 1
-        logger.info("  Candidate #%d: %s (uniqueness=%.4f)", i + 1, c.columns, c.uniqueness_score)
+        logger.info(
+            "  Candidate #%d: %s (uniqueness=%.4f)",
+            i + 1,
+            c.columns,
+            c.uniqueness_score,
+        )
 
     return top
 
@@ -296,7 +295,8 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
 # Per-candidate key profiling — facts only, no interpretation
 # ---------------------------------------------------------------------------
 
-def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> CandidateKeyProfile:
+
+def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> CandidateProfile:
     key_cols = list(candidate.columns)
     non_key_cols = [c for c in df.columns if c not in key_cols]
     logger.info("Profiling against candidate key: %s", key_cols)
@@ -305,7 +305,7 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
     dup_sizes = sizes[sizes > 1]
 
     if len(dup_sizes) == 0:
-        return CandidateKeyProfile(
+        return CandidateProfile(
             candidate_key=candidate,
             non_unique_rows=0,
             affected_groups=0,
@@ -316,7 +316,12 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
     non_unique_rows = int(dup_sizes.sum())
     affected_groups = len(dup_sizes)
     size_dist = {int(k): int(v) for k, v in dup_sizes.value_counts().items()}
-    logger.info("  Non-unique rows: %d / %d (%.1f%%)", non_unique_rows, len(df), 100 * non_unique_rows / len(df))
+    logger.info(
+        "  Non-unique rows: %d / %d (%.1f%%)",
+        non_unique_rows,
+        len(df),
+        100 * non_unique_rows / len(df),
+    )
 
     sampled = False
     keys_df = dup_sizes.index.to_frame(index=False)
@@ -337,15 +342,17 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
         nunique = work.groupby(key_cols, sort=False)[col].nunique()
         pct_varying = round((nunique > 1).mean(), 4)
         sample_vals = work[col].dropna().unique()[:WITHIN_GROUP_SAMPLE_VALUES].tolist()
-        variance_profiles.append(ColumnVarianceProfile(
-            column=col,
-            pct_groups_with_variance=pct_varying,
-            sample_values=sample_vals,
-        ))
+        variance_profiles.append(
+            ColumnVarianceProfile(
+                column=col,
+                pct_groups_with_variance=pct_varying,
+                sample_values=sample_vals,
+            )
+        )
 
     variance_profiles.sort(key=lambda p: p.pct_groups_with_variance, reverse=True)
 
-    return CandidateKeyProfile(
+    return CandidateProfile(
         candidate_key=candidate,
         non_unique_rows=non_unique_rows,
         affected_groups=affected_groups,
@@ -359,10 +366,16 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def profile_candidate_keys(df: pd.DataFrame) -> KeyProfile:
+
+def profile_candidate_keys(
+    df: pd.DataFrame,
+    institution_id: str,
+    dataset: str,
+) -> KeyProfileResult:
     """
-    Deterministic key profiler. Detects candidate keys and profiles
-    each for group size distribution and per-column within-group variance.
+    Deterministic key profiler. Runs raw column profiling, then detects candidate
+    keys and profiles each for group size distribution and per-column within-group
+    variance.
 
     Interpretation (grain inference, dedup policy, cleaning hooks) is
     intentionally left to the IdentityAgent LLM call (Step 2). This function
@@ -370,17 +383,27 @@ def profile_candidate_keys(df: pd.DataFrame) -> KeyProfile:
 
     Args:
         df: Raw institution DataFrame (pre-normalization)
+        institution_id: Institution identifier (passed through to raw table profile)
+        dataset: Logical dataset name (e.g. ``student``, ``course``)
 
     Returns:
-        KeyProfile with per-candidate-key stats, ready for LLM consumption
+        KeyProfileResult with raw column stats and per-candidate-key stats
     """
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-    logger.info("=== KeyProfiler start — %d rows, %d columns ===", len(df), len(df.columns))
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+    )
+    logger.info(
+        "=== KeyProfiler start — %d rows, %d columns ===", len(df), len(df.columns)
+    )
 
     index_cols = [c for c in df.columns if INDEX_COLUMN_PATTERNS.match(c)]
     if index_cols:
         logger.warning("Stripping synthetic index columns: %s", index_cols)
         df = df.drop(columns=index_cols)
+
+    raw_table_profile = profile_raw_table(
+        df, institution_id=institution_id, dataset=dataset
+    )
 
     candidate_keys = _detect_candidate_keys(df)
     logger.info("Top %d candidate keys identified", len(candidate_keys))
@@ -390,14 +413,18 @@ def profile_candidate_keys(df: pd.DataFrame) -> KeyProfile:
     for candidate in candidate_keys:
         candidate_set = frozenset(candidate.columns)
         if any(base.issubset(candidate_set) for base in unique_keys):
-            logger.info("  Skipping %s — superset of fully unique key", candidate.columns)
-            profiles.append(CandidateKeyProfile(
-                candidate_key=candidate,
-                non_unique_rows=0,
-                affected_groups=0,
-                group_size_distribution={},
-                within_group_variance=[],
-            ))
+            logger.info(
+                "  Skipping %s — superset of fully unique key", candidate.columns
+            )
+            profiles.append(
+                CandidateProfile(
+                    candidate_key=candidate,
+                    non_unique_rows=0,
+                    affected_groups=0,
+                    group_size_distribution={},
+                    within_group_variance=[],
+                )
+            )
             continue
 
         profile = _profile_against_key(df, candidate)
@@ -406,4 +433,7 @@ def profile_candidate_keys(df: pd.DataFrame) -> KeyProfile:
         profiles.append(profile)
 
     logger.info("=== KeyProfiler complete ===")
-    return KeyProfile(candidate_key_profiles=profiles)
+    return KeyProfileResult(
+        raw_table_profile=raw_table_profile,
+        key_profile=RankedCandidateProfiles(candidate_key_profiles=profiles),
+    )

@@ -320,6 +320,7 @@ class FieldTransformationPlan(StrictBaseModel):
     The field executor resolves the source Series from the manifest and
     passes it to these steps.
     """
+
     target_field: str = Field(..., description="Target Edvise schema field")
     output_dtype: Optional[str] = Field(
         default=None,

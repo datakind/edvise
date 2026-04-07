@@ -2,30 +2,24 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 # Below this confidence score, `hitl_flag` must be true (ambiguous grain / policy required).
 IDENTITY_CONFIDENCE_HITL_THRESHOLD: float = 0.5
 
 # Valid `dedup_policy.strategy` values (JSON must use these exact strings).
-DedupStrategy = Literal["true_duplicate", "temporal_collapse", "no_dedup", "policy_required"]
-
-# Detected / declared raw term string shapes (IdentityAgent); executor may only fully implement a subset.
-TermFormat = Literal["YYYYTT", "Season_YYYY", "YYYYMM", "YYYY_YY"]
-
-# Approved term utilities for :class:`TermOrderConfig` (HITL / preprocessing — not output by IdentityAgent prompts).
-TERM_UTILITY_REGISTRY: dict[str, str] = {
-    "extract_term_season_from_term_code": "YYYYTT → FALL/SPRING/SUMMER (e.g. '2018FA' → 'FALL'). Accepts custom season_mapping param.",
-    "normalize_term_code": "'Fall 2020' / 'SP' / short season codes → FALL/SPRING/SUMMER.",
-    "extract_academic_year_from_term_code": "YYYYTT → YYYY-YY academic year (e.g. '2018FA' → '2018-19').",
-    "format_academic_year_from_calendar_year": "Integer or string calendar year → YYYY-YY (e.g. 2018 → '2018-19').",
-    "parse_term_description": "'Season YYYY' string → datetime (e.g. 'Fall 2020' → 2020-09-01).",
-    "parse_term_code_to_datetime": "YYYYTT → datetime (e.g. '2018FA' → 2018-09-01).",
-    "term_season_from_datetime": "datetime → FALL/SPRING/SUMMER based on month bands.",
-    "extract_year": "Extract first 4-digit year from any string (e.g. '2018FA' → '2018').",
-}
+DedupStrategy = Literal[
+    "true_duplicate", "temporal_collapse", "no_dedup", "policy_required"
+]
 
 
 class DedupPolicy(BaseModel):
@@ -35,68 +29,6 @@ class DedupPolicy(BaseModel):
     sort_by: str | None = None
     keep: Literal["first", "last"] | None = None
     notes: str = ""
-
-
-class TermOrderOutputs(BaseModel):
-    """Which optional term columns to add after :func:`~edvise.feature_generation.term.add_term_order`."""
-
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
-
-    term_sort_key: bool = Field(default=True, alias="_term_sort_key")
-    term_canonical: bool = Field(default=True, alias="_term_canonical")
-    term_academic_year: bool = Field(default=True, alias="_term_academic_year")
-
-
-class TermOrderConfig(BaseModel):
-    """
-    Institution term encoding for ``add_term_order`` and related enrichment.
-
-    ``canonical_mapping`` maps raw tokens (YYYYTT suffixes like ``FA``, or season words like
-    ``Fall``) to canonical season labels (``FALL``, ``SPRING``) used to derive sort order.
-
-    Registry utility names must match the keys in :data:`TERM_UTILITY_REGISTRY` in this module.
-    """
-
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    term_column: str
-    term_format: TermFormat | None = Field(
-        default="YYYYTT",
-        description=(
-            "Format detected from sample values: YYYYTT (2018FA), Season_YYYY (Fall 2020), "
-            "YYYYMM, YYYY_YY; null if unrecognized — set new_utility_needed."
-        ),
-    )
-    term_parser: str | None = Field(
-        default=None,
-        description="Approved registry utility for parsing/normalizing terms, or null.",
-    )
-    term_sort_utility: str | None = Field(
-        default=None,
-        description="Registry utility for sort-key derivation, or null.",
-    )
-    term_academic_year_utility: str | None = Field(
-        default=None,
-        description="Registry utility for academic-year labeling, or null.",
-    )
-    term_parser_params: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Extra kwargs for the selected parser utility (e.g. custom season code maps).",
-    )
-    canonical_mapping: dict[str, str] = Field(
-        default_factory=dict,
-        description="Maps raw tokens to FALL/SPRING/SUMMER/WINTER.",
-    )
-    unmapped_values: list[str] = Field(
-        default_factory=list,
-        description="Raw term values that could not be mapped; flagged for HITL.",
-    )
-    new_utility_needed: bool = Field(
-        default=False,
-        validation_alias=AliasChoices("new_utility_needed", "NEW_UTILITY_NEEDED"),
-        description="True if no registry utility fits even with term_parser_params — block enrichment until HITL.",
-    )
-    outputs: TermOrderOutputs = Field(default_factory=TermOrderOutputs)
 
 
 class IdentityGrainContract(BaseModel):
@@ -158,8 +90,8 @@ class IdentityGrainContract(BaseModel):
         default=None,
         description=(
             "Optional; not produced by IdentityAgent prompts — set via HITL or preprocessing. "
-            "Term column, utilities, and mappings for add_term_order after dedup. "
-            "See edvise.genai.identity_agent.execution.apply_grain_term_order."
+            "Term column and mappings for add_edvise_term_order after dedup. "
+            "See edvise.genai.identity_agent.execution.grain_transforms.apply_grain_term_order."
         ),
     )
 
@@ -202,7 +134,9 @@ class InstitutionGrainContracts(BaseModel):
 
     @field_validator("datasets")
     @classmethod
-    def non_empty_dataset_keys(cls, v: dict[str, IdentityGrainContract]) -> dict[str, IdentityGrainContract]:
+    def non_empty_dataset_keys(
+        cls, v: dict[str, IdentityGrainContract]
+    ) -> dict[str, IdentityGrainContract]:
         for name in v:
             if not name.strip():
                 raise ValueError("dataset name keys must be non-empty")
@@ -228,4 +162,6 @@ def build_institution_grain_contracts(
     contracts_by_dataset: dict[str, IdentityGrainContract],
 ) -> InstitutionGrainContracts:
     """Wrap per-dataset contracts in one envelope (single JSON file for testing or handoff)."""
-    return InstitutionGrainContracts(institution_id=institution_id, datasets=dict(contracts_by_dataset))
+    return InstitutionGrainContracts(
+        institution_id=institution_id, datasets=dict(contracts_by_dataset)
+    )

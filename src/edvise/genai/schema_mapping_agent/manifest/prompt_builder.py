@@ -7,7 +7,9 @@ import json
 from typing import Any, Literal
 import pandera as pa
 
-from edvise.genai.schema_mapping_agent.manifest.schemas import get_manifest_schema_context
+from edvise.genai.schema_mapping_agent.manifest.schemas import (
+    get_manifest_schema_context,
+)
 
 
 def extract_schema_descriptor(schema_class) -> dict:
@@ -26,13 +28,11 @@ def extract_schema_descriptor(schema_class) -> dict:
 
         fields[field_name] = descriptor
 
-    return {
-        "schema_name": schema_class.__name__,
-        "fields": fields
-    }
+    return {"schema_name": schema_class.__name__, "fields": fields}
 
 
 # ── Schema contract summarization ─────────────────────────────────────────────
+
 
 def summarize_schema_contract(contract: dict) -> dict:
     """
@@ -70,7 +70,7 @@ def summarize_schema_contract(contract: dict) -> dict:
         summary["datasets"][table_name] = {
             "unique_keys": table_info.get("unique_keys", []),
             "num_rows": table_info["training"]["num_rows"],
-            "columns": columns
+            "columns": columns,
         }
 
     return summary
@@ -83,7 +83,12 @@ def slim_reference_manifest(manifest: dict) -> dict:
            column_aliases, confidence, rationale.
     Drops: reviewer_notes, corrected_source_column, validation_notes, review_status.
     """
-    OMIT_FIELDS = {"reviewer_notes", "corrected_source_column", "validation_notes", "review_status"}
+    OMIT_FIELDS = {
+        "reviewer_notes",
+        "corrected_source_column",
+        "validation_notes",
+        "review_status",
+    }
 
     slimmed = {k: v for k, v in manifest.items() if k != "manifests"}
     slimmed["manifests"] = {}
@@ -331,8 +336,8 @@ def _step2a_reference_blocks(
         ]
     blocks = "\n\n".join(
         f'<reference_manifest institution="{name}" role="structural_reference_only">\n'
-        f'{json.dumps(slim_reference_manifest(manifest), indent=2)}\n'
-        f'</reference_manifest>'
+        f"{json.dumps(slim_reference_manifest(manifest), indent=2)}\n"
+        f"</reference_manifest>"
         for name, manifest in zip(reference_institution_names, reference_manifests)
     )
     return reference_institution_names, blocks
@@ -355,6 +360,7 @@ def merge_step2a_entity_manifests(
     When passes omit envelope-level fields, supply ``institution_id`` (and optionally
     ``schema_version``); otherwise they are taken from the cohort pass when present.
     """
+
     def _extract(pass_dict: dict, role: Literal["cohort", "course"]) -> dict:
         manifests = pass_dict.get("manifests")
         if isinstance(manifests, dict) and role in manifests:
@@ -394,6 +400,7 @@ def merge_step2a_entity_manifests(
 
 
 # ── Prompt assembly ────────────────────────────────────────────────────────────
+
 
 def build_step2a_prompt(
     institution_id: str,
@@ -610,6 +617,7 @@ STRUCTURE (course pass only)
 
 # ── Convenience helpers ────────────────────────────────────────────────────────
 
+
 def load_json(path: str) -> dict:
     with open(path) as f:
         return json.load(f)
@@ -619,7 +627,7 @@ def strip_json_fences(text: str) -> str:
     """Strip markdown code fences from JSON text."""
     text = text.strip()
     if text.startswith("```"):
-        text = text[text.index("\n") + 1:]
+        text = text[text.index("\n") + 1 :]
     if text.endswith("```"):
-        text = text[:text.rindex("```")].rstrip()
+        text = text[: text.rindex("```")].rstrip()
     return text

@@ -97,7 +97,9 @@ def resolve_key_collisions(
         if c not in df.columns:
             raise ValueError(f"conflict column {c!r} missing from frame")
     if disambiguate_column not in df.columns:
-        raise ValueError(f"disambiguate_column {disambiguate_column!r} missing from frame")
+        raise ValueError(
+            f"disambiguate_column {disambiguate_column!r} missing from frame"
+        )
 
     parts: list[pd.DataFrame] = []
     for _, g in df.groupby(key_cols, dropna=False, sort=False):

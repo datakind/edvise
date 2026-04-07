@@ -95,6 +95,7 @@ def folder_slug_2b(model: str) -> str:
     base = MODEL_BASE_SLUG.get(model, model.replace("-", "_"))
     return f"{base}_2b_{SHOT_TAG}"
 
+
 # Models that support assistant message prefill (for JSON output formatting)
 MODELS_WITH_PREFILL = {
     "claude-sonnet-test-genai-ai-data-cleaning",
@@ -103,17 +104,18 @@ MODELS_WITH_PREFILL = {
     "gemini-test-genai-ai-datacleaning",
 }
 
+
 # ── inference ─────────────────────────────────────────────────────────────────
 def run_once(model: str, prompt: str, client: OpenAI) -> dict:
     start = time.perf_counter()
     try:
         full_text = ""
-        
+
         # Build messages - only add assistant prefill for models that support it
         messages = [{"role": "user", "content": prompt}]
         if model in MODELS_WITH_PREFILL:
             messages.append({"role": "assistant", "content": "{"})  # prefill for JSON
-        
+
         resp = client.chat.completions.create(
             model=model,
             messages=messages,
@@ -135,7 +137,7 @@ def run_once(model: str, prompt: str, client: OpenAI) -> dict:
                 continue
 
         latency_s = time.perf_counter() - start
-        
+
         # For models with prefill, reattach the brace if needed; for others, just strip fences
         if model in MODELS_WITH_PREFILL:
             # The model's response continues from the prefill "{", so it may already start with "{"
@@ -161,46 +163,46 @@ def run_once(model: str, prompt: str, client: OpenAI) -> dict:
         latency_s = time.perf_counter() - start
         error_msg = str(e)
         error_type = type(e).__name__
-        
+
         # Try to extract HTTP status code and response body
-        status_code = getattr(e, 'status_code', None)
+        status_code = getattr(e, "status_code", None)
         error_details = error_msg
-        
+
         # Check for response body in various formats
         response_body = None
-        if hasattr(e, 'response'):
-            if hasattr(e.response, 'text'):
+        if hasattr(e, "response"):
+            if hasattr(e.response, "text"):
                 try:
                     response_body = e.response.text
                 except:
                     pass
-            elif hasattr(e.response, 'json'):
+            elif hasattr(e.response, "json"):
                 try:
                     response_body = str(e.response.json())
                 except:
                     pass
-        
-        if not response_body and hasattr(e, 'body'):
+
+        if not response_body and hasattr(e, "body"):
             try:
                 response_body = str(e.body)
             except:
                 pass
-        
+
         # Build detailed error message
         if status_code:
             error_details = f"HTTP {status_code}: {error_msg}"
         else:
             error_details = f"{error_type}: {error_msg}"
-        
+
         if response_body:
             error_details = f"{error_details}\nResponse body: {response_body}"
-        
+
         # Also check for additional error attributes
-        if hasattr(e, 'message') and e.message != error_msg:
+        if hasattr(e, "message") and e.message != error_msg:
             error_details = f"{error_details}\nMessage: {e.message}"
-        
+
         logger.error(f"Error calling model {model}: {error_details}")
-        
+
         return {
             "model": model,
             "prompt": prompt,
@@ -299,13 +301,15 @@ def run_step2a_two_pass(
 def _get_mappings(manifest: dict, entity: str) -> dict:
     """Return {target_field: mapping_dict} for a given entity type."""
     return {
-        m["target_field"]
-        : m for m in manifest.get("manifests", {}).get(entity, {}).get("mappings", [])
+        m["target_field"]: m
+        for m in manifest.get("manifests", {}).get(entity, {}).get("mappings", [])
     }
 
 
 def _get_alias_map(manifest: dict, entity: str) -> dict:
-    aliases = manifest.get("manifests", {}).get(entity, {}).get("column_aliases", []) or []
+    aliases = (
+        manifest.get("manifests", {}).get(entity, {}).get("column_aliases", []) or []
+    )
     return {
         (a.get("table"), a.get("source_column")): a.get("canonical_column")
         for a in aliases
@@ -322,13 +326,17 @@ def _f1(precision: float | None, recall: float | None) -> float | None:
     return round(2 * precision * recall / (precision + recall), 3)
 
 
-def _canonicalize_column(table: str | None, column: str | None, alias_map: dict) -> str | None:
+def _canonicalize_column(
+    table: str | None, column: str | None, alias_map: dict
+) -> str | None:
     if column is None:
         return None
     return alias_map.get((table, column), column)
 
 
-def _lookup_table_unique_keys(schema_contract: dict | None, lookup_table: str | None) -> list[str] | None:
+def _lookup_table_unique_keys(
+    schema_contract: dict | None, lookup_table: str | None
+) -> list[str] | None:
     """Return declared unique_keys for a dataset table from a schema contract, if any."""
     if not schema_contract or not lookup_table:
         return None
@@ -344,7 +352,9 @@ def _is_null_mapping(mapping: dict | None) -> bool:
     return mapping.get("source_column") is None and mapping.get("source_table") is None
 
 
-def _normalize_join(join: dict | None, schema_contract: dict | None = None) -> dict | None:
+def _normalize_join(
+    join: dict | None, schema_contract: dict | None = None
+) -> dict | None:
     if not join:
         return None
     keys = list(join.get("join_keys", []))
@@ -377,16 +387,14 @@ def _normalize_row_selection(mapping: dict | None) -> tuple:
 
 def _has_valid_join(mapping: dict | None) -> bool:
     join = (mapping or {}).get("join")
-    return bool(join and all(k in join for k in ("base_table", "lookup_table", "join_keys")))
+    return bool(
+        join and all(k in join for k in ("base_table", "lookup_table", "join_keys"))
+    )
 
 
 def _has_degree_filter(mapping: dict | None) -> bool:
     rs = (mapping or {}).get("row_selection") or {}
-    return (
-        rs.get("strategy") == "where_not_null"
-        or "condition" in rs
-        or "filter" in rs
-    )
+    return rs.get("strategy") == "where_not_null" or "condition" in rs or "filter" in rs
 
 
 def _needs_row_selection_check(gold_mapping: dict) -> bool:
@@ -402,7 +410,9 @@ def _needs_row_selection_check_non_anyrow(gold_mapping: dict) -> bool:
 
 
 def _is_degree_like_field(field: str) -> bool:
-    return any(x in field for x in ("grad_date", "certificate", "degree_grad", "major_grad"))
+    return any(
+        x in field for x in ("grad_date", "certificate", "degree_grad", "major_grad")
+    )
 
 
 def _normalize_mapping(
@@ -505,7 +515,9 @@ def _compare_field(
 
     degree_filter_correct = None
     if _is_degree_like_field(field) and g_mappable:
-        degree_filter_correct = int(_has_degree_filter(pred_mapping) == _has_degree_filter(gold_mapping))
+        degree_filter_correct = int(
+            _has_degree_filter(pred_mapping) == _has_degree_filter(gold_mapping)
+        )
 
     exact_field_match = int(p["normalized"] == g["normalized"])
 
@@ -513,7 +525,9 @@ def _compare_field(
     if g["is_null"] and p["is_null"]:
         execution_ready = True
     elif g_mappable and p_mappable and source_exact == 1:
-        row_ok = row_selection_correct == 1 if row_selection_correct is not None else True
+        row_ok = (
+            row_selection_correct == 1 if row_selection_correct is not None else True
+        )
         join_ok = True
         if g_has_join or p_has_join:
             join_ok = (
@@ -522,11 +536,13 @@ def _compare_field(
                 and join_tables_correct == 1
                 and join_keys_correct == 1
             )
-        degree_ok = degree_filter_correct == 1 if degree_filter_correct is not None else True
+        degree_ok = (
+            degree_filter_correct == 1 if degree_filter_correct is not None else True
+        )
         execution_ready = row_ok and join_ok and degree_ok
 
     return {
-            "field": field,
+        "field": field,
         "gold_mappable": g_mappable,
         "pred_mappable": p_mappable,
         "map_decision_correct": map_decision_correct,
@@ -620,13 +636,17 @@ def _update_counts(counts: Counter, cmp: dict) -> None:
 
 
 def _finalize_counts(entity: str, counts: Counter, field_scores: list[dict]) -> dict:
-    join_precision = _safe_div(counts["join_true_positive"], counts["join_pred_positive"])
+    join_precision = _safe_div(
+        counts["join_true_positive"], counts["join_pred_positive"]
+    )
     join_recall = _safe_div(counts["join_true_positive"], counts["join_gold_positive"])
 
     return {
         "entity": entity,
         "n_fields": counts["n_fields"],
-        "map_decision_accuracy": _safe_div(counts["map_decision_correct"], counts["n_fields"]),
+        "map_decision_accuracy": _safe_div(
+            counts["map_decision_correct"], counts["n_fields"]
+        ),
         "strict_tp": counts["strict_tp"],
         "strict_fp": counts["strict_fp"],
         "strict_fn": counts["strict_fn"],
@@ -746,7 +766,9 @@ def score_result(
 
     is_valid, validation_error = validate_manifest(pred)
     if not is_valid:
-        logger.warning(f"Pydantic validation failed for {result['model']}: {validation_error}")
+        logger.warning(
+            f"Pydantic validation failed for {result['model']}: {validation_error}"
+        )
 
     cohort_scores = score_manifest_v2(pred, gold_manifest, "cohort", schema_contract)
     course_scores = score_manifest_v2(pred, gold_manifest, "course", schema_contract)
@@ -761,26 +783,53 @@ def score_result(
         "cohort": cohort_scores,
         "course": course_scores,
         "overall": {
-            "map_decision_accuracy": _avg(cohort_scores["map_decision_accuracy"], course_scores["map_decision_accuracy"]),
-            "mappable_precision_strict": _avg(cohort_scores["mappable_precision_strict"], course_scores["mappable_precision_strict"]),
-            "mappable_recall_strict": _avg(cohort_scores["mappable_recall_strict"], course_scores["mappable_recall_strict"]),
+            "map_decision_accuracy": _avg(
+                cohort_scores["map_decision_accuracy"],
+                course_scores["map_decision_accuracy"],
+            ),
+            "mappable_precision_strict": _avg(
+                cohort_scores["mappable_precision_strict"],
+                course_scores["mappable_precision_strict"],
+            ),
+            "mappable_recall_strict": _avg(
+                cohort_scores["mappable_recall_strict"],
+                course_scores["mappable_recall_strict"],
+            ),
             "source_exact_accuracy_gold_mappable": _avg(
                 cohort_scores["source_exact_accuracy_gold_mappable"],
                 course_scores["source_exact_accuracy_gold_mappable"],
             ),
-            "row_selection_accuracy": _avg(cohort_scores["row_selection_accuracy"], course_scores["row_selection_accuracy"]),
+            "row_selection_accuracy": _avg(
+                cohort_scores["row_selection_accuracy"],
+                course_scores["row_selection_accuracy"],
+            ),
             "row_selection_accuracy_non_anyrow": _avg(
                 cohort_scores["row_selection_accuracy_non_anyrow"],
                 course_scores["row_selection_accuracy_non_anyrow"],
             ),
             "join_f1": _avg(cohort_scores["join_f1"], course_scores["join_f1"]),
-            "join_table_accuracy": _avg(cohort_scores["join_table_accuracy"], course_scores["join_table_accuracy"]),
-            "join_key_accuracy": _avg(cohort_scores["join_key_accuracy"], course_scores["join_key_accuracy"]),
-            "degree_filter_accuracy": _avg(cohort_scores["degree_filter_accuracy"], course_scores["degree_filter_accuracy"]),
-            "exact_field_match_rate": _avg(cohort_scores["exact_field_match_rate"], course_scores["exact_field_match_rate"]),
-            "execution_ready_rate": _avg(cohort_scores["execution_ready_rate"], course_scores["execution_ready_rate"]),
+            "join_table_accuracy": _avg(
+                cohort_scores["join_table_accuracy"],
+                course_scores["join_table_accuracy"],
+            ),
+            "join_key_accuracy": _avg(
+                cohort_scores["join_key_accuracy"], course_scores["join_key_accuracy"]
+            ),
+            "degree_filter_accuracy": _avg(
+                cohort_scores["degree_filter_accuracy"],
+                course_scores["degree_filter_accuracy"],
+            ),
+            "exact_field_match_rate": _avg(
+                cohort_scores["exact_field_match_rate"],
+                course_scores["exact_field_match_rate"],
+            ),
+            "execution_ready_rate": _avg(
+                cohort_scores["execution_ready_rate"],
+                course_scores["execution_ready_rate"],
+            ),
         },
     }
+
 
 def validate_manifest(manifest_dict: dict) -> tuple[bool, str | None]:
     """
@@ -836,8 +885,7 @@ def _resolve_mapping_manifest(institution_id: str) -> Path:
             return path
     raise FileNotFoundError(
         "Mapping manifest not found for institution "
-        f"{institution_id!r}. Tried:\n  "
-        + "\n  ".join(str(p) for p in candidates)
+        f"{institution_id!r}. Tried:\n  " + "\n  ".join(str(p) for p in candidates)
     )
 
 
@@ -849,7 +897,7 @@ def run():
     # Change to project root for consistent path resolution
     original_cwd = os.getcwd()
     os.chdir(project_root)
-    
+
     try:
         # ── paths ─────────────────────────────────────────────────────────────
         RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -857,33 +905,35 @@ def run():
         target_name = TARGET_INSTITUTION["name"]
         reference_id = REFERENCE_INSTITUTION["id"]
         reference_name = REFERENCE_INSTITUTION["name"]
-        
-        logger.info("="*80)
+
+        logger.info("=" * 80)
         logger.info("EVALUATION CONFIGURATION")
-        logger.info("="*80)
+        logger.info("=" * 80)
         logger.info(f"Target Institution: {target_name} ({target_id})")
         logger.info(f"Reference Institution: {reference_name} ({reference_id})")
         logger.info(f"Project root (eval cwd): {project_root}")
-        logger.info("="*80)
-        
-        HISTORICAL_BASE = Path(f"pipelines/gen_ai_cleaning/historical_examples/{target_id}")
+        logger.info("=" * 80)
+
+        HISTORICAL_BASE = Path(
+            f"pipelines/gen_ai_cleaning/historical_examples/{target_id}"
+        )
         OUTPUT_DIR = HISTORICAL_BASE / "eval_outputs"
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        
+
         # ── gold manifest ─────────────────────────────────────────────────────
         GOLD_MANIFEST_PATH = _resolve_mapping_manifest(target_id)
         GOLD_MANIFEST = load_json(str(GOLD_MANIFEST_PATH))
         logger.info(f"Loaded gold manifest from {GOLD_MANIFEST_PATH}")
-        
+
         # ── prompt (via shared builder) ───────────────────────────────────────
         target_contract_path = f"pipelines/gen_ai_cleaning/historical_examples/{target_id}/{target_id}_schema_contract.json"
         target_contract = load_json(target_contract_path)
         logger.info(f"Loaded target schema contract from {target_contract_path}")
-        
+
         REFERENCE_MANIFEST_PATH = _resolve_mapping_manifest(reference_id)
         reference_manifest = load_json(str(REFERENCE_MANIFEST_PATH))
         reference_manifest_path = str(REFERENCE_MANIFEST_PATH)
-        
+
         # Validate that the reference manifest has the correct institution_id
         manifest_institution_id = reference_manifest.get("institution_id")
         if manifest_institution_id != reference_id:
@@ -892,11 +942,11 @@ def run():
                 f"Expected '{reference_id}' but manifest contains '{manifest_institution_id}'. "
                 f"Loaded from: {reference_manifest_path}"
             )
-        
+
         logger.info(f"Loaded reference manifest from {reference_manifest_path}")
         logger.info(f"  Reference institution: {reference_name} (id: {reference_id})")
         logger.info(f"  Manifest institution_id: {manifest_institution_id} ✓")
-        
+
         output_path = (
             f"pipelines/gen_ai_cleaning/historical_examples/{target_id}/v0/"
             f"{target_id}_mapping_manifest.json"
@@ -931,7 +981,7 @@ def run():
                 cohort_schema_class=RawEdviseStudentDataSchema,
                 course_schema_class=RawEdviseCourseDataSchema,
             )
-        
+
         # ── OpenAI client ─────────────────────────────────────────────────────
         TOKEN = os.environ.get("DATABRICKS_TOKEN")
         if not TOKEN:
@@ -941,12 +991,12 @@ def run():
             api_key=TOKEN,
             base_url=BASE_URL,
         )
-        
+
         # ── run loop ──────────────────────────────────────────────────────────
         rows = []
         total = len(MODELS)
         i = 1
-        
+
         for model in MODELS:
             logger.info(f"[{i}/{total}] Running model={model}")
             if STEP2A_TWO_PASS:
@@ -959,7 +1009,7 @@ def run():
                 )
             else:
                 result = run_once(model, PROMPT_SINGLE, client)
-            if result['success']:
+            if result["success"]:
                 logger.info(
                     f"→ done | success={result['success']} | latency={result['latency_s']}s"
                 )
@@ -967,13 +1017,13 @@ def run():
                 logger.error(
                     f"→ done | success={result['success']} | latency={result['latency_s']}s | error={result['error']}"
                 )
-            
+
             # write manifest JSON to historical examples path
             slug = folder_slug_2a(model)
             manifest_dir = HISTORICAL_BASE / slug
             manifest_dir.mkdir(parents=True, exist_ok=True)
             manifest_path = manifest_dir / f"{target_id}_mapping_manifest.json"
-            
+
             if result["success"]:
                 try:
                     # pretty-print valid JSON; fall back to raw string if parse fails
@@ -985,7 +1035,9 @@ def run():
                     logger.info(f"→ manifest saved → {manifest_path}")
                 except json.JSONDecodeError:
                     manifest_path.write_text(result["response"])
-                    logger.warning(f"→ manifest saved (raw, invalid JSON) → {manifest_path}")
+                    logger.warning(
+                        f"→ manifest saved (raw, invalid JSON) → {manifest_path}"
+                    )
                 except ValidationError as ve:
                     manifest_path.write_text(json.dumps(parsed, indent=2))
                     logger.warning(
@@ -993,9 +1045,11 @@ def run():
                     )
             else:
                 logger.warning(f"→ manifest not saved (inference error)")
-            
+
             # score
-            scores = score_result(result, GOLD_MANIFEST, schema_contract=target_contract)
+            scores = score_result(
+                result, GOLD_MANIFEST, schema_contract=target_contract
+            )
             if scores:
                 validation_status = "✓" if scores.get("validation_passed") else "✗"
                 logger.info(
@@ -1012,35 +1066,43 @@ def run():
                     f"exec_ready={scores['overall']['execution_ready_rate']}"
                 )
                 if not scores.get("validation_passed"):
-                    logger.warning(f"  Validation error: {scores.get('validation_error', 'Unknown error')}")
+                    logger.warning(
+                        f"  Validation error: {scores.get('validation_error', 'Unknown error')}"
+                    )
                 result["scores"] = scores
             else:
                 logger.warning(f"→ scoring skipped (parse failure or inference error)")
                 result["scores"] = None
-            
+
             rows.append(result)
             i += 1
-        
+
         # ── execution summary ─────────────────────────────────────────────────
-        logger.info("\n" + "="*80)
+        logger.info("\n" + "=" * 80)
         logger.info("EXECUTION SUMMARY")
-        logger.info("="*80)
+        logger.info("=" * 80)
         for r in rows:
             status = "✓ SUCCESS" if r["success"] else "✗ FAILED"
             logger.info(f"{status}: {r['model']} (latency: {r['latency_s']}s)")
             if not r["success"]:
-                error_preview = r["error"][:200] + "..." if len(r.get("error", "")) > 200 else r.get("error", "")
+                error_preview = (
+                    r["error"][:200] + "..."
+                    if len(r.get("error", "")) > 200
+                    else r.get("error", "")
+                )
                 logger.info(f"  Error: {error_preview}")
-        logger.info("="*80 + "\n")
-        
+        logger.info("=" * 80 + "\n")
+
         # ── outputs ───────────────────────────────────────────────────────────
         df = pd.DataFrame(rows)
-        
+
         # raw results (one row per model)
         raw_path = OUTPUT_DIR / f"raw_{RUN_ID}.csv"
-        df.drop(columns=["scores", "field_scores"], errors="ignore").to_csv(raw_path, index=False)
+        df.drop(columns=["scores", "field_scores"], errors="ignore").to_csv(
+            raw_path, index=False
+        )
         logger.info(f"Raw results saved → {raw_path}")
-        
+
         # summary metrics (one row per model)
         summary_rows = []
         for r in rows:
@@ -1052,20 +1114,32 @@ def run():
                 "error": r.get("error"),
             }
             if r["scores"] is not None:
-                row_data.update({
-                    "validation_passed": r["scores"].get("validation_passed"),
-                    "validation_error": r["scores"].get("validation_error"),
-                    **{f"overall_{k}": v for k, v in r["scores"]["overall"].items()},
-                    **{f"cohort_{k}": v for k, v in r["scores"]["cohort"].items() if k != "field_scores"},
-                    **{f"course_{k}": v for k, v in r["scores"]["course"].items() if k != "field_scores"},
-                })
+                row_data.update(
+                    {
+                        "validation_passed": r["scores"].get("validation_passed"),
+                        "validation_error": r["scores"].get("validation_error"),
+                        **{
+                            f"overall_{k}": v for k, v in r["scores"]["overall"].items()
+                        },
+                        **{
+                            f"cohort_{k}": v
+                            for k, v in r["scores"]["cohort"].items()
+                            if k != "field_scores"
+                        },
+                        **{
+                            f"course_{k}": v
+                            for k, v in r["scores"]["course"].items()
+                            if k != "field_scores"
+                        },
+                    }
+                )
             summary_rows.append(row_data)
-        
+
         summary_df = pd.DataFrame(summary_rows)
         summary_path = OUTPUT_DIR / f"summary_{RUN_ID}.csv"
         summary_df.to_csv(summary_path, index=False)
         logger.info(f"Summary saved → {summary_path}")
-        
+
         # field-level detail (one row per model x field)
         field_rows = []
         for r in rows:
@@ -1074,32 +1148,34 @@ def run():
             for entity in ("cohort", "course"):
                 for fs in r["scores"][entity]["field_scores"]:
                     field_rows.append({"model": r["model"], **fs})
-        
+
         field_df = pd.DataFrame(field_rows)
         field_path = OUTPUT_DIR / f"field_detail_{RUN_ID}.csv"
         field_df.to_csv(field_path, index=False)
         logger.info(f"Field detail saved → {field_path}")
-        
+
         # print summary table
         if not summary_df.empty:
             # Build column list, including validation_passed if it exists
             cols = ["model", "latency_s"]
             if "validation_passed" in summary_df.columns:
                 cols.append("validation_passed")
-            cols.extend([
-                "overall_map_decision_accuracy",
-                "overall_mappable_precision_strict",
-                "overall_mappable_recall_strict",
-                "overall_source_exact_accuracy_gold_mappable",
-                "overall_row_selection_accuracy",
-                "overall_row_selection_accuracy_non_anyrow",
-                "overall_join_f1",
-                "overall_join_table_accuracy",
-                "overall_join_key_accuracy",
-                "overall_degree_filter_accuracy",
-                "overall_exact_field_match_rate",
-                "overall_execution_ready_rate",
-            ])
+            cols.extend(
+                [
+                    "overall_map_decision_accuracy",
+                    "overall_mappable_precision_strict",
+                    "overall_mappable_recall_strict",
+                    "overall_source_exact_accuracy_gold_mappable",
+                    "overall_row_selection_accuracy",
+                    "overall_row_selection_accuracy_non_anyrow",
+                    "overall_join_f1",
+                    "overall_join_table_accuracy",
+                    "overall_join_key_accuracy",
+                    "overall_degree_filter_accuracy",
+                    "overall_exact_field_match_rate",
+                    "overall_execution_ready_rate",
+                ]
+            )
             # Only include columns that exist in the dataframe
             cols = [c for c in cols if c in summary_df.columns]
             logger.info("\n" + summary_df[cols].to_string(index=False))

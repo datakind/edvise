@@ -132,7 +132,7 @@ def add_term_order(
       1. A prefix of the normalized term string (for formats like "Fall 2014", "Spring 2015")
       2. A suffix of the normalized term string (for formats like "2014FA", "2015SP", "2015S1")
     - If nothing matches, we fall back to the first word (for default maps).
-    
+
     Supports both formats:
     - "Fall 2014", "Spring 2015" (season first, year second)
     - "2014FA", "2015SP", "2015S1", "2015S2" (year first, season code suffix)

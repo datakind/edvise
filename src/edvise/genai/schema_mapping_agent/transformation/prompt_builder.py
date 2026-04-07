@@ -107,10 +107,12 @@ def get_transformation_utilities_context() -> str:
     Returns the full source code of the module for reference.
     """
     from . import utilities
+
     return inspect.getsource(utilities)
 
 
 # ── Prompt assembly ────────────────────────────────────────────────────────────
+
 
 def build_step2b_prompt(
     institution_id: str,
@@ -153,9 +155,11 @@ def build_step2b_prompt(
 
     reference_blocks = "\n\n".join(
         f'<reference_transformation_map institution="{name}" role="structural_reference_only">\n'
-        f'{json.dumps(tmap, indent=2)}\n'
-        f'</reference_transformation_map>'
-        for name, tmap in zip(reference_institution_names, reference_transformation_maps)
+        f"{json.dumps(tmap, indent=2)}\n"
+        f"</reference_transformation_map>"
+        for name, tmap in zip(
+            reference_institution_names, reference_transformation_maps
+        )
     )
 
     prompt = f"""Please act as the SchemaMappingAgent and generate a transformation map for {institution_name} at:
@@ -303,6 +307,7 @@ Output only that object — valid JSON throughout."""
 
 # ── Convenience loader ─────────────────────────────────────────────────────────
 
+
 def load_json(path: str) -> dict:
     with open(path) as f:
         return json.load(f)
@@ -312,7 +317,7 @@ def strip_json_fences(text: str) -> str:
     """Strip markdown code fences from JSON text."""
     text = text.strip()
     if text.startswith("```"):
-        text = text[text.index("\n") + 1:]
+        text = text[text.index("\n") + 1 :]
     if text.endswith("```"):
-        text = text[:text.rindex("```")].rstrip()
+        text = text[: text.rindex("```")].rstrip()
     return text

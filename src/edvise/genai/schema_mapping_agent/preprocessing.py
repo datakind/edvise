@@ -174,7 +174,9 @@ def build_schema_contract_from_config(
     cleaning_cfg: Optional[CleaningConfig] = None,
     term_order_fn: Optional[TermOrderFn] = None,
     term_col_by_dataset: Optional[dict[str, str]] = None,
-    dedupe_fn_by_dataset: Optional[dict[str, Callable[[pd.DataFrame], pd.DataFrame]]] = None,
+    dedupe_fn_by_dataset: Optional[
+        dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
+    ] = None,
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
     Build schema contract from inputs.toml SchoolMappingConfig.
@@ -217,14 +219,22 @@ def build_schema_contract_from_config(
     )
 
     for dataset_name, dataset_config in school_config.datasets.items():
-        logical_name = f"{dataset_name}{dataset_name_suffix}" if dataset_name_suffix else dataset_name
+        logical_name = (
+            f"{dataset_name}{dataset_name_suffix}"
+            if dataset_name_suffix
+            else dataset_name
+        )
 
-        logger.info("Processing dataset: %s (logical name: %s)", dataset_name, logical_name)
+        logger.info(
+            "Processing dataset: %s (logical name: %s)", dataset_name, logical_name
+        )
 
-        df_raw, original_columns, column_mapping, original_row_count = _load_and_preprocess_dataset(
-            dataset_config=dataset_config,
-            spark_session=spark_session,
-            sample_size=sample_size,
+        df_raw, original_columns, column_mapping, original_row_count = (
+            _load_and_preprocess_dataset(
+                dataset_config=dataset_config,
+                spark_session=spark_session,
+                sample_size=sample_size,
+            )
         )
 
         term_col = term_col_by_dataset.get(logical_name, "term")

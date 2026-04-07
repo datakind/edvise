@@ -32,6 +32,7 @@ from edvise.data_audit.schemas._edvise_shared import (
 # Type Casting
 # =============================================================================
 
+
 def cast_nullable_dtype(
     s: pd.Series,
     dtype_str: str,
@@ -48,9 +49,12 @@ def cast_nullable_dtype(
     """
     if boolean_map is None:
         boolean_map = {
-            "true": True, "false": False,
-            "yes": True, "no": False,
-            "1": True, "0": False,
+            "true": True,
+            "false": False,
+            "yes": True,
+            "no": False,
+            "1": True,
+            "0": False,
         }
     return _cast_series_to_nullable_dtype(s, dtype_str, boolean_map)
 
@@ -95,6 +99,7 @@ def cast_datetime(s: pd.Series) -> pd.Series:
 # Coercion
 # =============================================================================
 
+
 def coerce_numeric(s: pd.Series) -> pd.Series:
     """
     Coerce Series to numeric, inferring Int64 or Float64.
@@ -135,6 +140,7 @@ def coerce_datetime(s: pd.Series, fmt: str | None = None) -> pd.Series:
 # String Operations
 # =============================================================================
 
+
 def strip_whitespace(s: pd.Series) -> pd.Series:
     """Strip leading/trailing whitespace from string Series."""
     return s.astype("string").str.strip()
@@ -154,6 +160,7 @@ def uppercase(s: pd.Series) -> pd.Series:
 # Null Handling (used by map_values)
 # =============================================================================
 
+
 def replace_values_with_null(
     s: pd.Series,
     to_replace: str | list[str],
@@ -165,6 +172,7 @@ def replace_values_with_null(
 # =============================================================================
 # Value Mapping
 # =============================================================================
+
 
 def map_values(
     s: pd.Series,
@@ -181,7 +189,7 @@ def map_values(
             "passthrough" — keep original value (default)
             None — fill unmapped with NA
             Any other string — fill unmapped with that value
-    
+
     Note:
         When a value is explicitly mapped to null (e.g., {"(Blank)": null}),
         that null is preserved even with default="passthrough". Only unmapped
@@ -191,21 +199,22 @@ def map_values(
     # Split mapping into null and non-null mappings
     # Check for None, pd.NA, or NaN values
     null_mappings = [
-        k for k, v in mapping.items()
+        k
+        for k, v in mapping.items()
         if v is None or v is pd.NA or (isinstance(v, float) and pd.isna(v))
     ]
     non_null_mapping = {k: v for k, v in mapping.items() if k not in null_mappings}
-    
+
     # Apply null replacements first (using replace_values_with_null for consistency)
     if null_mappings:
         s = replace_values_with_null(s, null_mappings)
-    
+
     # Apply non-null mappings
     if non_null_mapping:
         result = s.map(non_null_mapping)
     else:
         result = s.copy()
-    
+
     # Handle default behavior for unmapped values
     if default == "passthrough":
         # Only fill nulls for values that were NOT in the mapping
@@ -219,7 +228,7 @@ def map_values(
         all_mapped_keys = set(mapping.keys())
         unmapped_mask = ~s.isin(all_mapped_keys)
         result = result.mask(unmapped_mask & result.isna(), default)
-    
+
     return result
 
 
@@ -232,6 +241,7 @@ def map_values(
 # Domain-Specific Normalization
 # Re-exports from _edvise_shared with short aliases for use in transformation maps
 # =============================================================================
+
 
 def normalize_term_code(s: pd.Series) -> pd.Series:
     """
@@ -339,6 +349,7 @@ def normalize_student_age(s: pd.Series) -> pd.Series:
 # Null Handling
 # =============================================================================
 
+
 def fill_nulls(s: pd.Series, value: t.Any) -> pd.Series:
     """
     Fill existing null (pd.NA / NaN) values with a scalar.
@@ -365,6 +376,7 @@ def replace_null_tokens(s: pd.Series, null_tokens: list[str]) -> pd.Series:
 # =============================================================================
 # Specialized
 # =============================================================================
+
 
 def strip_trailing_decimal(s: pd.Series) -> pd.Series:
     """
@@ -410,9 +422,9 @@ def normalize_year_range(s: pd.Series) -> pd.Series:
 
     already_correct = s.str.match(r"^\d{4}-\d{2}$")
     full_range = s.str.extract(r"^(\d{4})-(\d{4})$")
-    converted = (
-        full_range[0] + "-" + full_range[1].str[-2:]
-    ).where(full_range[0].notna())
+    converted = (full_range[0] + "-" + full_range[1].str[-2:]).where(
+        full_range[0].notna()
+    )
 
     result = pd.Series(pd.NA, index=s.index, dtype="string")
     result = result.where(~already_correct, s)
@@ -430,11 +442,7 @@ def extract_year(s: pd.Series) -> pd.Series:
         "2018FA"    → "2018"
         "2018"      → "2018"
     """
-    return (
-        s.astype("string")
-        .str.extract(r"(\d{4})", expand=False)
-        .astype("string")
-    )
+    return s.astype("string").str.extract(r"(\d{4})", expand=False).astype("string")
 
 
 def format_academic_year_from_calendar_year(s: pd.Series) -> pd.Series:
@@ -559,11 +567,13 @@ def parse_term_description(s: pd.Series) -> pd.Series:
 
         if parseable.any():
             dates = pd.to_datetime(
-                pd.DataFrame({
-                    "year": years[parseable],
-                    "month": months[parseable],
-                    "day": 1,
-                }),
+                pd.DataFrame(
+                    {
+                        "year": years[parseable],
+                        "month": months[parseable],
+                        "day": 1,
+                    }
+                ),
                 errors="coerce",
             )
             result[valid[valid].index[parseable]] = dates
@@ -595,7 +605,9 @@ def birthyear_to_age_bucket(
     if reference_year_series is not None:
         ref_numeric = pd.to_numeric(reference_year_series, errors="coerce")
         ref_from_str = pd.to_numeric(
-            reference_year_series.astype("string").str.extract(r"(\d{4})", expand=False),
+            reference_year_series.astype("string").str.extract(
+                r"(\d{4})", expand=False
+            ),
             errors="coerce",
         )
         reference_year = ref_numeric.fillna(ref_from_str).fillna(datetime.now().year)
@@ -647,12 +659,13 @@ def extract_academic_year_from_term_code(s: pd.Series) -> pd.Series:
     academic_year_start = year_numeric.copy()
     is_spring_or_summer = season_match.isin(["SP", "S1", "S2"])
     academic_year_start = academic_year_start.where(
-        ~is_spring_or_summer,
-        academic_year_start - 1
+        ~is_spring_or_summer, academic_year_start - 1
     )
 
     # Calculate academic year end (last 2 digits of start year + 1)
-    academic_year_end = (academic_year_start + 1).astype("Int64").astype("string").str[-2:]
+    academic_year_end = (
+        (academic_year_start + 1).astype("Int64").astype("string").str[-2:]
+    )
 
     # Format as YYYY-YY
     result = (
@@ -661,8 +674,7 @@ def extract_academic_year_from_term_code(s: pd.Series) -> pd.Series:
 
     # Return NA for invalid inputs (where year or season couldn't be extracted)
     return result.where(
-        year_match.notna() & season_match.notna() & academic_year_start.notna(),
-        pd.NA
+        year_match.notna() & season_match.notna() & academic_year_start.notna(), pd.NA
     ).astype("string")
 
 
@@ -741,11 +753,13 @@ def parse_term_code_to_datetime(s: pd.Series) -> pd.Series:
 
     if valid.any():
         dates = pd.to_datetime(
-            pd.DataFrame({
-                "year": year_numeric[valid],
-                "month": month_numeric[valid],
-                "day": 1,
-            }),
+            pd.DataFrame(
+                {
+                    "year": year_numeric[valid],
+                    "month": month_numeric[valid],
+                    "day": 1,
+                }
+            ),
             errors="coerce",
         )
         result[valid] = dates
@@ -754,14 +768,26 @@ def parse_term_code_to_datetime(s: pd.Series) -> pd.Series:
 
 
 # Passing grades per Edvise schema ALLOWED_GRADES
-_PASSING_GRADES = frozenset([
-    "A", "A+", "A-",
-    "B", "B+", "B-",
-    "C", "C+", "C-",
-    "D", "D+", "D-",
-    "P", "PASS",
-    "S", "SAT",
-])
+_PASSING_GRADES = frozenset(
+    [
+        "A",
+        "A+",
+        "A-",
+        "B",
+        "B+",
+        "B-",
+        "C",
+        "C+",
+        "C-",
+        "D",
+        "D+",
+        "D-",
+        "P",
+        "PASS",
+        "S",
+        "SAT",
+    ]
+)
 
 
 def conditional_credits(

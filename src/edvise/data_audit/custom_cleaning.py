@@ -237,7 +237,9 @@ def _cast_series_to_nullable_dtype(
                 # Fill NaN with 0 temporarily for int64 conversion
                 values_filled = np.where(mask, 0, values).astype("int64")
                 # Create Int64 Series, then restore NaN as pd.NA
-                result = pd.Series(pd.array(values_filled, dtype="Int64"), index=s.index)
+                result = pd.Series(
+                    pd.array(values_filled, dtype="Int64"), index=s.index
+                )
                 result[mask] = pd.NA
                 return result
             # If already int64 or other integer type, convert directly
@@ -314,9 +316,7 @@ def generate_column_training_dtype(
     # Skip datetime inference for CIP code columns (they often look like dates but are classification codes)
     # Check column name if available (Series.name attribute)
     col_name = getattr(s, "name", None)
-    skip_datetime_inference = (
-        col_name is not None and "cip" in str(col_name).lower()
-    )
+    skip_datetime_inference = col_name is not None and "cip" in str(col_name).lower()
 
     # Try declared date formats with coercion (skip for CIP columns)
     if not skip_datetime_inference:
@@ -482,7 +482,10 @@ def clean_dataset(
         if inference_opts is not None:
             inference_opts = replace(
                 cfg_opts,
-                forced_dtypes={**cfg_opts.forced_dtypes, **inference_opts.forced_dtypes},
+                forced_dtypes={
+                    **cfg_opts.forced_dtypes,
+                    **inference_opts.forced_dtypes,
+                },
             )
         else:
             inference_opts = cfg_opts

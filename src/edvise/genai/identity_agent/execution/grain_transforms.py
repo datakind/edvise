@@ -8,9 +8,10 @@ from typing import Literal
 
 import pandas as pd
 
-from edvise.genai.identity_agent.grain_inference.deduplication import drop_duplicate_keys
+from edvise.genai.identity_agent.grain_inference.deduplication import (
+    drop_duplicate_keys,
+)
 from edvise.genai.identity_agent.grain_inference.schemas import IdentityGrainContract
-from edvise.genai.identity_agent.execution.term_order_apply import apply_term_order_from_config
 from edvise.utils.data_cleaning import convert_to_snake_case
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,9 @@ def _map_key_after_student_id_rename(name: str, student_id_alias: str | None) ->
     return name
 
 
-def canonicalize_grain_contract_student_id_alias(contract: IdentityGrainContract) -> IdentityGrainContract:
+def canonicalize_grain_contract_student_id_alias(
+    contract: IdentityGrainContract,
+) -> IdentityGrainContract:
     """
     Rewrite ``post_clean_primary_key``, ``join_keys_for_2a``, and ``dedup_policy.sort_by`` so
     any reference to ``contract.student_id_alias`` becomes ``student_id``.
@@ -39,14 +42,19 @@ def canonicalize_grain_contract_student_id_alias(contract: IdentityGrainContract
     if not alias or not str(alias).strip():
         return contract
 
-    pk = [_map_key_after_student_id_rename(k, alias) for k in contract.post_clean_primary_key]
+    pk = [
+        _map_key_after_student_id_rename(k, alias)
+        for k in contract.post_clean_primary_key
+    ]
     jk = [_map_key_after_student_id_rename(k, alias) for k in contract.join_keys_for_2a]
     dp = contract.dedup_policy
     if dp.sort_by is None:
         new_sort: str | None = None
     else:
         new_sort = _map_key_after_student_id_rename(dp.sort_by, alias)
-    new_dp = dp if new_sort == dp.sort_by else dp.model_copy(update={"sort_by": new_sort})
+    new_dp = (
+        dp if new_sort == dp.sort_by else dp.model_copy(update={"sort_by": new_sort})
+    )
 
     if (
         pk == contract.post_clean_primary_key
@@ -63,6 +71,7 @@ def canonicalize_grain_contract_student_id_alias(contract: IdentityGrainContract
         }
     )
 
+
 KeepArg = Literal["first", "last"]
 
 
@@ -72,7 +81,9 @@ def _validate_key_columns(df: pd.DataFrame, keys: list[str], *, label: str) -> N
         raise ValueError(f"{label}: missing columns for grain key: {missing}")
 
 
-def apply_grain_dedup(df: pd.DataFrame, contract: IdentityGrainContract) -> pd.DataFrame:
+def apply_grain_dedup(
+    df: pd.DataFrame, contract: IdentityGrainContract
+) -> pd.DataFrame:
     """
     Apply ``contract.dedup_policy`` using ``post_clean_primary_key`` as the dedup key columns.
 
@@ -118,21 +129,28 @@ def apply_grain_dedup(df: pd.DataFrame, contract: IdentityGrainContract) -> pd.D
     )
 
 
-def apply_grain_term_order(df: pd.DataFrame, contract: IdentityGrainContract) -> pd.DataFrame:
+def apply_grain_term_order(
+    df: pd.DataFrame, contract: IdentityGrainContract
+) -> pd.DataFrame:
     """
-    If ``contract.term_config`` is set, run :func:`~edvise.genai.identity_agent.execution.term_order_apply.apply_term_order_from_config`.
+    If ``contract.term_config`` is set, run :func:`~edvise.genai.identity_agent.term_normalization.utilities.apply_term_order_from_config`.
 
-    Adds ``season``, ``year``, ``season_order``, ``is_core_term``, ``term_order`` (and optional
-    ``term_canonical``, ``term_academic_year`` per config). If ``term_config`` is ``None``,
-    returns ``df`` unchanged.
+    Adds ``_year``, ``_season``, ``_term_order`` (via
+    :func:`~edvise.genai.identity_agent.term_normalization.utilities.add_edvise_term_order`). If ``term_config`` is ``None``, returns ``df`` unchanged.
     """
     tc = contract.term_config
     if tc is None:
         return df
+    from edvise.genai.identity_agent.term_normalization.utilities import (
+        apply_term_order_from_config,
+    )
+
     return apply_term_order_from_config(df, tc)
 
 
-def apply_grain_execution(df: pd.DataFrame, contract: IdentityGrainContract) -> pd.DataFrame:
+def apply_grain_execution(
+    df: pd.DataFrame, contract: IdentityGrainContract
+) -> pd.DataFrame:
     """Run :func:`apply_grain_dedup` then :func:`apply_grain_term_order`."""
     out = apply_grain_dedup(df, contract)
     return apply_grain_term_order(out, contract)

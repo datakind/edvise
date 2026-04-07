@@ -15,30 +15,31 @@ from edvise.genai.identity_agent.grain_inference.schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
     IdentityGrainContract,
     InstitutionGrainContracts,
+    TermOrderConfig,
     build_institution_grain_contracts,
 )
-from edvise.genai.identity_agent.profiling.key_profiler import (
+from edvise.genai.identity_agent.profiling import (
     CandidateKey,
-    CandidateKeyProfile,
-    KeyProfile,
+    CandidateProfile,
+    RankedCandidateProfiles,
 )
 
 
-def _minimal_key_profile() -> KeyProfile:
+def _minimal_key_profile() -> RankedCandidateProfiles:
     ck = CandidateKey(
         columns=["student_id"],
         uniqueness_score=1.0,
         null_rate=0.0,
         rank=1,
     )
-    prof = CandidateKeyProfile(
+    prof = CandidateProfile(
         candidate_key=ck,
         non_unique_rows=0,
         affected_groups=0,
         group_size_distribution={},
         within_group_variance=[],
     )
-    return KeyProfile(candidate_key_profiles=[prof])
+    return RankedCandidateProfiles(candidate_key_profiles=[prof])
 
 
 def test_format_column_list():
@@ -168,15 +169,28 @@ def test_parse_policy_required_dedup_strategy():
     assert c.dedup_policy.strategy == "policy_required"
 
 
-def test_term_config_accepts_new_utility_needed_alias():
+def test_term_config_parses_standard_with_hook_spec_null():
     raw = _valid_minimal_contract_dict()
     raw["term_config"] = {
-        "term_column": "term_descr",
-        "NEW_UTILITY_NEEDED": True,
+        "term_col": "term_descr",
+        "season_map": [{"raw": "FA", "canonical": "FALL"}],
+        "term_extraction": "standard",
+        "hook_spec": None,
     }
     c = parse_identity_grain_contract(raw)
     assert c.term_config is not None
-    assert c.term_config.new_utility_needed is True
+    assert c.term_config.term_col == "term_descr"
+    assert c.term_config.term_extraction == "standard"
+
+
+def test_term_config_custom_requires_hook_spec():
+    with pytest.raises(ValidationError, match="hook_spec"):
+        TermOrderConfig(
+            term_col="t",
+            season_map=[],
+            term_extraction="custom",
+            hook_spec=None,
+        )
 
 
 def test_low_confidence_requires_hitl():
@@ -205,7 +219,9 @@ def test_strip_json_fences():
     assert strip_json_fences('```\n{"a": 1}\n```').strip() == '{"a": 1}'
 
 
-def _minimal_contract(institution_id: str = "x", table: str = "t") -> IdentityGrainContract:
+def _minimal_contract(
+    institution_id: str = "x", table: str = "t"
+) -> IdentityGrainContract:
     return IdentityGrainContract(
         institution_id=institution_id,
         table=table,

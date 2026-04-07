@@ -20,9 +20,7 @@ from edvise.genai.schema_mapping_agent.transformation.schemas import (
 
 def test_transformation_step_discriminated_union_cast_string():
     adapter = TypeAdapter(TransformationStep)
-    step = adapter.validate_python(
-        {"function_name": "cast_string", "column": "raw_id"}
-    )
+    step = adapter.validate_python({"function_name": "cast_string", "column": "raw_id"})
     assert step.function_name == "cast_string"
     assert step.column == "raw_id"
 

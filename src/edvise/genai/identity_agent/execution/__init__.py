@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import Any
+
 from .grain_transforms import (
     apply_grain_dedup,
     apply_grain_execution,
@@ -15,7 +19,6 @@ from .schema_contract_executor import (
     process_school_dataset,
     save_enriched_schema_contracts,
 )
-from .term_order_apply import apply_term_order_from_config
 
 __all__ = [
     "UNIQUE_VALUES_MAX_CARDINALITY",
@@ -33,3 +36,13 @@ __all__ = [
     "process_school_dataset",
     "save_enriched_schema_contracts",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    if name == "apply_term_order_from_config":
+        from edvise.genai.identity_agent.term_normalization.utilities import (
+            apply_term_order_from_config as fn,
+        )
+
+        return fn
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

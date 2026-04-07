@@ -68,13 +68,16 @@ logger = logging.getLogger(__name__)
 # Exceptions
 # -----------------------------------------------------------------------------
 
+
 class ExecutionGapError(Exception):
     """Raised when a plan contains a NEW_UTILITY_NEEDED step."""
+
     pass
 
 
 class ExecutionError(Exception):
     """Raised when a transformation step fails."""
+
     pass
 
 
@@ -82,9 +85,11 @@ class ExecutionError(Exception):
 # Execution result
 # -----------------------------------------------------------------------------
 
+
 @dataclass
 class ExecutionResult:
     """Result of executing a TransformationMap."""
+
     df: pd.DataFrame
     gaps: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
@@ -98,6 +103,7 @@ class ExecutionResult:
 # -----------------------------------------------------------------------------
 # Step dispatcher
 # -----------------------------------------------------------------------------
+
 
 def dispatch_step(
     s: pd.Series,
@@ -132,52 +138,64 @@ def dispatch_step(
         )
 
     dispatch = {
-        "cast_nullable_int":        lambda: cast_nullable_int(s),
-        "cast_nullable_float":      lambda: cast_nullable_float(s),
-        "cast_string":              lambda: cast_string(s),
-        "cast_boolean":             lambda: cast_boolean(
-                                        s,
-                                        step.boolean_map if hasattr(step, "boolean_map") else None,
-                                    ),
-        "cast_datetime":            lambda: cast_datetime(s),
-        "coerce_numeric":           lambda: coerce_numeric(s),
-        "coerce_datetime":          lambda: coerce_datetime(
-                                        s,
-                                        fmt=step.fmt if hasattr(step, "fmt") else None,
-                                    ),
-        "strip_whitespace":         lambda: strip_whitespace(s),
-        "lowercase":                lambda: lowercase(s),
-        "uppercase":                lambda: uppercase(s),
-        "map_values":               lambda: map_values(
-                                        s,
-                                        step.mapping,
-                                        default=step.default,
-                                    ),
-        "normalize_term_code":      lambda: normalize_term_code(s),
-        "normalize_grade":          lambda: normalize_grade(s),
-        "normalize_enrollment":     lambda: normalize_enrollment(s),
-        "normalize_pell":           lambda: normalize_pell(s),
-        "normalize_credential":     lambda: normalize_credential(s),
-        "normalize_student_age":    lambda: normalize_student_age(s),
-        "fill_nulls":               lambda: fill_nulls(s, step.value),
-        "replace_null_tokens":      lambda: replace_null_tokens(s, step.null_tokens),
-        "replace_values_with_null": lambda: replace_values_with_null(s, step.to_replace),
-        "strip_trailing_decimal":   lambda: strip_trailing_decimal(s),
-        "fill_constant":            lambda: fill_constant(s, step.value),
-        "normalize_year_range":     lambda: normalize_year_range(s),
-        "extract_year":             lambda: extract_year(s),
-        "format_academic_year_from_calendar_year": lambda: format_academic_year_from_calendar_year(s),
+        "cast_nullable_int": lambda: cast_nullable_int(s),
+        "cast_nullable_float": lambda: cast_nullable_float(s),
+        "cast_string": lambda: cast_string(s),
+        "cast_boolean": lambda: cast_boolean(
+            s,
+            step.boolean_map if hasattr(step, "boolean_map") else None,
+        ),
+        "cast_datetime": lambda: cast_datetime(s),
+        "coerce_numeric": lambda: coerce_numeric(s),
+        "coerce_datetime": lambda: coerce_datetime(
+            s,
+            fmt=step.fmt if hasattr(step, "fmt") else None,
+        ),
+        "strip_whitespace": lambda: strip_whitespace(s),
+        "lowercase": lambda: lowercase(s),
+        "uppercase": lambda: uppercase(s),
+        "map_values": lambda: map_values(
+            s,
+            step.mapping,
+            default=step.default,
+        ),
+        "normalize_term_code": lambda: normalize_term_code(s),
+        "normalize_grade": lambda: normalize_grade(s),
+        "normalize_enrollment": lambda: normalize_enrollment(s),
+        "normalize_pell": lambda: normalize_pell(s),
+        "normalize_credential": lambda: normalize_credential(s),
+        "normalize_student_age": lambda: normalize_student_age(s),
+        "fill_nulls": lambda: fill_nulls(s, step.value),
+        "replace_null_tokens": lambda: replace_null_tokens(s, step.null_tokens),
+        "replace_values_with_null": lambda: replace_values_with_null(
+            s, step.to_replace
+        ),
+        "strip_trailing_decimal": lambda: strip_trailing_decimal(s),
+        "fill_constant": lambda: fill_constant(s, step.value),
+        "normalize_year_range": lambda: normalize_year_range(s),
+        "extract_year": lambda: extract_year(s),
+        "format_academic_year_from_calendar_year": lambda: format_academic_year_from_calendar_year(
+            s
+        ),
         "term_season_from_datetime": lambda: term_season_from_datetime(s),
         "substring_after_first_delimiter": lambda: substring_after_first_delimiter(
             s,
             delimiter=step.delimiter,
         ),
-        "parse_yyyymm":             lambda: parse_yyyymm(s),
-        "parse_term_description":   lambda: parse_term_description(s),
-        "extract_academic_year_from_term_code": lambda: extract_academic_year_from_term_code(s),
-        "extract_term_season_from_term_code": lambda: extract_term_season_from_term_code(s),
-        "academic_year_from_term_code_display": lambda: academic_year_from_term_code_display(s),
-        "academic_term_category_from_term_code_display": lambda: academic_term_category_from_term_code_display(s),
+        "parse_yyyymm": lambda: parse_yyyymm(s),
+        "parse_term_description": lambda: parse_term_description(s),
+        "extract_academic_year_from_term_code": lambda: extract_academic_year_from_term_code(
+            s
+        ),
+        "extract_term_season_from_term_code": lambda: extract_term_season_from_term_code(
+            s
+        ),
+        "academic_year_from_term_code_display": lambda: academic_year_from_term_code_display(
+            s
+        ),
+        "academic_term_category_from_term_code_display": lambda: academic_term_category_from_term_code_display(
+            s
+        ),
         "parse_term_code_to_datetime": lambda: parse_term_code_to_datetime(s),
     }
 

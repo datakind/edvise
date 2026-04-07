@@ -9,29 +9,31 @@ from edvise.genai.identity_agent.grain_inference.runner import (
     run_identity_agent,
     run_identity_agents_for_institution,
 )
-from edvise.genai.identity_agent.grain_inference.schemas import IDENTITY_CONFIDENCE_HITL_THRESHOLD
-from edvise.genai.identity_agent.profiling.key_profiler import (
+from edvise.genai.identity_agent.grain_inference.schemas import (
+    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+)
+from edvise.genai.identity_agent.profiling import (
     CandidateKey,
-    CandidateKeyProfile,
-    KeyProfile,
+    CandidateProfile,
+    RankedCandidateProfiles,
 )
 
 
-def _kp() -> KeyProfile:
+def _kp() -> RankedCandidateProfiles:
     ck = CandidateKey(
         columns=["student_id"],
         uniqueness_score=1.0,
         null_rate=0.0,
         rank=1,
     )
-    prof = CandidateKeyProfile(
+    prof = CandidateProfile(
         candidate_key=ck,
         non_unique_rows=0,
         affected_groups=0,
         group_size_distribution={},
         within_group_variance=[],
     )
-    return KeyProfile(candidate_key_profiles=[prof])
+    return RankedCandidateProfiles(candidate_key_profiles=[prof])
 
 
 def _contract_json(*, confidence: float, hitl_flag: bool, table: str = "t") -> str:
