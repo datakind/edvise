@@ -26,6 +26,8 @@ __all__ = [
     "apply_grain_execution",
     "apply_grain_term_order",
     "apply_term_order_from_config",
+    "term_order_column_for_clean_dataset",
+    "term_order_fn_from_term_order_config",
     "build_dedupe_fn_from_grain_contract",
     "build_schema_contract_from_grain_contracts",
     "build_training_example_from_schema_contract",
@@ -45,4 +47,11 @@ def __getattr__(name: str) -> Any:
         )
 
         return fn
+    if name in (
+        "term_order_column_for_clean_dataset",
+        "term_order_fn_from_term_order_config",
+    ):
+        from edvise.genai.identity_agent.term_normalization import utilities as u
+
+        return getattr(u, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -23,14 +23,14 @@ from edvise.data_audit.custom_cleaning import DtypeGenerationOptions, TermOrderF
 from edvise.genai.identity_agent.execution.grain_transforms import (
     canonicalize_grain_contract_student_id_alias,
 )
-from edvise.genai.identity_agent.grain_inference.schemas import IdentityGrainContract
+from edvise.genai.identity_agent.grain_inference.schemas import GrainContract
 
 logger = logging.getLogger(__name__)
 
 
 def merge_grain_student_id_alias_into_school_config(
     school_config: SchoolMappingConfig,
-    grain_contracts_by_dataset: dict[str, IdentityGrainContract],
+    grain_contracts_by_dataset: dict[str, GrainContract],
 ) -> SchoolMappingConfig:
     """
     Set ``school_config.cleaning.student_id_alias`` from grain when contracts specify it.
@@ -71,7 +71,7 @@ def merge_grain_student_id_alias_into_school_config(
 
 def merge_grain_contracts_into_school_config(
     school_config: SchoolMappingConfig,
-    grain_contracts_by_dataset: dict[str, IdentityGrainContract],
+    grain_contracts_by_dataset: dict[str, GrainContract],
     *,
     dataset_name_suffix: str = "",
 ) -> SchoolMappingConfig:
@@ -86,7 +86,7 @@ def merge_grain_contracts_into_school_config(
         school_config: Loaded :class:`~edvise.configs.genai.SchoolMappingConfig`.
         grain_contracts_by_dataset: Map **dataset name** (same keys as
             ``school_config.datasets``, i.e. inputs.toml table names) to the approved
-            :class:`IdentityGrainContract` for that table.
+            :class:`GrainContract` for that table.
         dataset_name_suffix: Same suffix you pass to ``build_schema_contract_from_config``
             (used only to log a warning if ``contract.table`` does not match the logical name).
 
@@ -140,7 +140,7 @@ def merge_grain_contracts_into_school_config(
 
 def build_schema_contract_from_grain_contracts(
     school_config: SchoolMappingConfig,
-    grain_contracts_by_dataset: dict[str, IdentityGrainContract],
+    grain_contracts_by_dataset: dict[str, GrainContract],
     *,
     dtype_opts: Optional[DtypeGenerationOptions] = None,
     spark_session: Optional[Any] = None,
@@ -148,7 +148,8 @@ def build_schema_contract_from_grain_contracts(
     sample_size: Optional[int] = None,
     cleaning_cfg: Optional[CleaningConfig] = None,
     term_order_fn: Optional[TermOrderFn] = None,
-    term_col_by_dataset: Optional[dict[str, str]] = None,
+    term_column_by_dataset: Optional[dict[str, str]] = None,
+    term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
     dedupe_fn_by_dataset: Optional[
         dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
     ] = None,
@@ -164,7 +165,20 @@ def build_schema_contract_from_grain_contracts(
         school_config: School mapping config (paths, cleaning, baseline primary_keys).
         grain_contracts_by_dataset: Per-dataset grain contracts. Keys are **dataset names**
             matching ``school_config.datasets``.
-        Remaining kwargs: forwarded to preprocessing.
+        term_order_fn: Optional hook passed to
+            :func:`~edvise.genai.schema_mapping_agent.preprocessing.build_schema_contract_from_config`
+            (same as ``clean_dataset``). For Identity pass-2 output, build from
+            :class:`~edvise.genai.identity_agent.term_normalization.schemas.TermOrderConfig` via
+            :func:`~edvise.genai.identity_agent.term_normalization.utilities.term_order_fn_from_term_order_config`.
+        term_column_by_dataset: Logical dataset name → column name for the term-order step.
+            When using ``term_order_fn_from_term_order_config``, set each entry to
+            ``term_order_column_for_clean_dataset`` for the matching
+            :class:`~edvise.genai.identity_agent.term_normalization.schemas.TermOrderConfig`.
+        term_order_fn_by_dataset: Optional logical name → term-order hook (per dataset).
+            When a key is present, that fn is used; use ``None`` as the value to skip term order
+            for that dataset. Datasets not listed fall back to ``term_order_fn``.
+        dedupe_fn_by_dataset, dtype_opts, spark_session, sample_size, cleaning_cfg: Forwarded
+            to preprocessing.
 
     Returns:
         ``(cleaned_dataframes_by_logical_name, schema_contract_dict)`` — same as preprocessing.
@@ -186,7 +200,8 @@ def build_schema_contract_from_grain_contracts(
         sample_size=sample_size,
         cleaning_cfg=cleaning_cfg,
         term_order_fn=term_order_fn,
-        term_col_by_dataset=term_col_by_dataset,
+        term_column_by_dataset=term_column_by_dataset,
+        term_order_fn_by_dataset=term_order_fn_by_dataset,
         dedupe_fn_by_dataset=dedupe_fn_by_dataset,
     )
 
@@ -314,9 +329,10 @@ def process_school_dataset(
     spark_session: Optional[Any] = None,
     sample_size: int = 10000,
     dataset_name_suffix: str = "",
-    term_order_fn: Optional[Any] = None,
-    term_col_by_dataset: Optional[dict[str, str]] = None,
-    grain_contracts_by_dataset: Optional[dict[str, IdentityGrainContract]] = None,
+    term_order_fn: Optional[TermOrderFn] = None,
+    term_column_by_dataset: Optional[dict[str, str]] = None,
+    term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
+    grain_contracts_by_dataset: Optional[dict[str, GrainContract]] = None,
 ) -> tuple[Dict[str, Any], dict]:
     if dtype_opts is None:
         dtype_opts = DtypeGenerationOptions()
@@ -351,7 +367,8 @@ def process_school_dataset(
                     dataset_name_suffix=dataset_name_suffix,
                     sample_size=sample_size,
                     term_order_fn=term_order_fn,
-                    term_col_by_dataset=term_col_by_dataset,
+                    term_column_by_dataset=term_column_by_dataset,
+                    term_order_fn_by_dataset=term_order_fn_by_dataset,
                 )
             )
         else:
@@ -362,7 +379,8 @@ def process_school_dataset(
                 dataset_name_suffix=dataset_name_suffix,
                 sample_size=sample_size,
                 term_order_fn=term_order_fn,
-                term_col_by_dataset=term_col_by_dataset,
+                term_column_by_dataset=term_column_by_dataset,
+                term_order_fn_by_dataset=term_order_fn_by_dataset,
             )
         logger.debug(
             "  Built schema contract in %.2f seconds", time.time() - load_start
@@ -420,13 +438,14 @@ def process_all_schools(
     spark_session: Optional[Any] = None,
     output_dir: Optional[Path] = None,
     grain_contracts_by_school: Optional[
-        dict[str, dict[str, IdentityGrainContract]]
+        dict[str, dict[str, GrainContract]]
     ] = None,
     *,
     sample_size: int = 10_000,
     dataset_name_suffix: str = "",
-    term_order_fn: Optional[Any] = None,
-    term_col_by_dataset: Optional[dict[str, str]] = None,
+    term_order_fn: Optional[TermOrderFn] = None,
+    term_column_by_dataset: Optional[dict[str, str]] = None,
+    term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
 ) -> List[Dict[str, Any]]:
     if dtype_opts is None:
         dtype_opts = DtypeGenerationOptions()
@@ -443,7 +462,7 @@ def process_all_schools(
             school_key,
         )
 
-        grain_for_school: Optional[dict[str, IdentityGrainContract]] = None
+        grain_for_school: Optional[dict[str, GrainContract]] = None
         if grain_contracts_by_school is not None:
             grain_for_school = grain_contracts_by_school.get(school_key)
 
@@ -463,7 +482,7 @@ def process_all_schools(
                 "  Dataset: %s (%d files)", dataset_name, len(dataset_config.files)
             )
 
-            grain_for_dataset: Optional[dict[str, IdentityGrainContract]] = None
+            grain_for_dataset: Optional[dict[str, GrainContract]] = None
             if grain_for_school and dataset_name in grain_for_school:
                 grain_for_dataset = {dataset_name: grain_for_school[dataset_name]}
 
@@ -476,7 +495,8 @@ def process_all_schools(
                 sample_size=sample_size,
                 dataset_name_suffix=dataset_name_suffix,
                 term_order_fn=term_order_fn,
-                term_col_by_dataset=term_col_by_dataset,
+                term_column_by_dataset=term_column_by_dataset,
+                term_order_fn_by_dataset=term_order_fn_by_dataset,
                 grain_contracts_by_dataset=grain_for_dataset,
             )
 

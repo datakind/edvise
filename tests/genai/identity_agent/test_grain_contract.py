@@ -7,17 +7,17 @@ from pydantic import ValidationError
 from edvise.genai.identity_agent.grain_inference.prompt_builder import (
     build_identity_agent_user_message,
     format_column_list,
-    parse_identity_grain_contract,
+    parse_grain_contract,
     parse_institution_grain_contracts,
     strip_json_fences,
 )
 from edvise.genai.identity_agent.grain_inference.schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
-    IdentityGrainContract,
-    InstitutionGrainContracts,
-    TermOrderConfig,
+    GrainContract,
+    InstitutionGrainContract,
     build_institution_grain_contracts,
 )
+from edvise.genai.identity_agent.term_normalization.schemas import TermOrderConfig
 from edvise.genai.identity_agent.profiling import (
     CandidateKey,
     CandidateProfile,
@@ -81,7 +81,7 @@ def test_build_identity_agent_user_message_rejects_both_or_neither():
         build_identity_agent_user_message("i", "t", kp)
 
 
-def test_parse_identity_grain_contract_dict():
+def test_parse_grain_contract_dict():
     raw = {
         "institution_id": "x",
         "table": "t",
@@ -99,13 +99,13 @@ def test_parse_identity_grain_contract_dict():
         "hitl_question": None,
         "reasoning": "Course grain.",
     }
-    c = parse_identity_grain_contract(raw)
+    c = parse_grain_contract(raw)
     assert c.post_clean_primary_key == ["student_id"]
     assert c.unique_keys == ["student_id"]
     assert c.dedup_policy.strategy == "no_dedup"
 
 
-def test_parse_identity_grain_contract_fenced_json():
+def test_parse_grain_contract_fenced_json():
     inner = {
         "institution_id": "x",
         "table": "t",
@@ -124,7 +124,7 @@ def test_parse_identity_grain_contract_fenced_json():
         "reasoning": "Demo table.",
     }
     text = "```json\n" + json.dumps(inner) + "\n```"
-    c = parse_identity_grain_contract(text)
+    c = parse_grain_contract(text)
     assert c.confidence == 0.72
 
 
@@ -152,24 +152,25 @@ def test_dedup_policy_rejects_invalid_keep():
     raw = _valid_minimal_contract_dict()
     raw["dedup_policy"]["keep"] = "any_row"
     with pytest.raises(ValidationError):
-        parse_identity_grain_contract(raw)
+        parse_grain_contract(raw)
 
 
 def test_dedup_policy_rejects_invalid_strategy():
     raw = _valid_minimal_contract_dict()
     raw["dedup_policy"]["strategy"] = "any_row"
     with pytest.raises(ValidationError):
-        parse_identity_grain_contract(raw)
+        parse_grain_contract(raw)
 
 
 def test_parse_policy_required_dedup_strategy():
     raw = _valid_minimal_contract_dict()
     raw["dedup_policy"]["strategy"] = "policy_required"
-    c = parse_identity_grain_contract(raw)
+    c = parse_grain_contract(raw)
     assert c.dedup_policy.strategy == "policy_required"
 
 
-def test_term_config_parses_standard_with_hook_spec_null():
+def test_legacy_term_config_stripped_from_pass1_json():
+    """Older combined prompts included term_config; pass 1 schema is grain-only."""
     raw = _valid_minimal_contract_dict()
     raw["term_config"] = {
         "term_col": "term_descr",
@@ -177,10 +178,8 @@ def test_term_config_parses_standard_with_hook_spec_null():
         "term_extraction": "standard",
         "hook_spec": None,
     }
-    c = parse_identity_grain_contract(raw)
-    assert c.term_config is not None
-    assert c.term_config.term_col == "term_descr"
-    assert c.term_config.term_extraction == "standard"
+    c = parse_grain_contract(raw)
+    assert isinstance(c, GrainContract)
 
 
 def test_term_config_custom_requires_hook_spec():
@@ -212,17 +211,15 @@ def test_low_confidence_requires_hitl():
         "reasoning": "Ambiguous.",
     }
     with pytest.raises(ValueError, match="hitl_flag"):
-        parse_identity_grain_contract(raw)
+        parse_grain_contract(raw)
 
 
 def test_strip_json_fences():
     assert strip_json_fences('```\n{"a": 1}\n```').strip() == '{"a": 1}'
 
 
-def _minimal_contract(
-    institution_id: str = "x", table: str = "t"
-) -> IdentityGrainContract:
-    return IdentityGrainContract(
+def _minimal_grain(institution_id: str = "x", table: str = "t") -> GrainContract:
+    return GrainContract(
         institution_id=institution_id,
         table=table,
         post_clean_primary_key=["k"],
@@ -242,8 +239,8 @@ def _minimal_contract(
 
 
 def test_institution_grain_contracts_roundtrip():
-    c1 = _minimal_contract("school_a", "student")
-    c2 = _minimal_contract("school_a", "course")
+    c1 = _minimal_grain("school_a", "student")
+    c2 = _minimal_grain("school_a", "course")
     env = build_institution_grain_contracts(
         "school_a",
         {"student": c1, "course": c2},
@@ -256,6 +253,6 @@ def test_institution_grain_contracts_roundtrip():
 
 
 def test_institution_grain_contracts_rejects_mismatched_institution_id():
-    c = _minimal_contract("other", "t")
+    c = _minimal_grain("other", "t")
     with pytest.raises(ValueError, match="institution_id"):
-        InstitutionGrainContracts(institution_id="here", datasets={"t": c})
+        InstitutionGrainContract(institution_id="here", datasets={"t": c})

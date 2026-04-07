@@ -173,7 +173,8 @@ def build_schema_contract_from_config(
     sample_size: Optional[int] = None,
     cleaning_cfg: Optional[CleaningConfig] = None,
     term_order_fn: Optional[TermOrderFn] = None,
-    term_col_by_dataset: Optional[dict[str, str]] = None,
+    term_column_by_dataset: Optional[dict[str, str]] = None,
+    term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
     dedupe_fn_by_dataset: Optional[
         dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
     ] = None,
@@ -189,8 +190,12 @@ def build_schema_contract_from_config(
         spark_session: Optional Spark session for reading files
         dataset_name_suffix: Suffix for logical dataset names (e.g. ``"_df"``).
         sample_size: Optional max rows per dataset after load (``None`` = all rows).
-        term_order_fn: Passed through ``CleanSpec.term_order_fn`` (runs last in ``clean_dataset``).
-        term_col_by_dataset: Logical name -> term column name (default ``"term"``).
+        term_order_fn: Default ``CleanSpec.term_order_fn`` when a logical dataset has no entry
+            in ``term_order_fn_by_dataset`` (runs last in ``clean_dataset``).
+        term_column_by_dataset: Logical name -> term column name (default ``"term"``).
+        term_order_fn_by_dataset: Optional logical name -> term-order hook. When a key is
+            present, its value is used (including ``None`` to skip term order for that dataset);
+            when absent, ``term_order_fn`` applies.
         dedupe_fn_by_dataset: Logical name -> dedupe hook (``CleanSpec.dedupe_fn``, after dtypes).
         cleaning_cfg: Overrides / supplements ``school_config.cleaning`` for ``clean_dataset``.
 
@@ -200,7 +205,8 @@ def build_schema_contract_from_config(
     if dtype_opts is None:
         dtype_opts = DtypeGenerationOptions()
 
-    term_col_by_dataset = term_col_by_dataset or {}
+    term_column_by_dataset = term_column_by_dataset or {}
+    term_order_fn_by_dataset = term_order_fn_by_dataset or {}
     dedupe_fn_by_dataset = dedupe_fn_by_dataset or {}
     merged_cleaning = _merged_cleaning_cfg(school_config, cleaning_cfg)
     cfg_dtype_opts = dtype_opts_from_cleaning_config(merged_cleaning)
@@ -237,7 +243,7 @@ def build_schema_contract_from_config(
             )
         )
 
-        term_col = term_col_by_dataset.get(logical_name, "term")
+        term_col = term_column_by_dataset.get(logical_name, "term")
 
         pk_config = list(dataset_config.primary_keys or [])
         pk_for_resolution = _primary_keys_for_column_resolution(
@@ -252,6 +258,11 @@ def build_schema_contract_from_config(
             merged_cleaning.student_id_alias if merged_cleaning else None,
         )
 
+        if logical_name in term_order_fn_by_dataset:
+            dataset_term_order_fn = term_order_fn_by_dataset[logical_name]
+        else:
+            dataset_term_order_fn = term_order_fn
+
         clean_spec: dict[str, Any] = {
             "unique keys": normalized_uks,
             "non-null columns": [],
@@ -259,7 +270,7 @@ def build_schema_contract_from_config(
             "_orig_cols_": original_columns,
             "term_column": term_col,
             "dedupe_fn": dedupe_fn_by_dataset.get(logical_name),
-            "term_order_fn": term_order_fn,
+            "term_order_fn": dataset_term_order_fn,
         }
 
         df_clean = clean_dataset(

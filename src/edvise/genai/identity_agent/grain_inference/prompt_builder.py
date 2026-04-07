@@ -18,8 +18,8 @@ from edvise.genai.identity_agent.profiling import RankedCandidateProfiles
 
 from .schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
-    IdentityGrainContract,
-    InstitutionGrainContracts,
+    GrainContract,
+    InstitutionGrainContract,
 )
 
 logger = logging.getLogger(__name__)
@@ -207,90 +207,6 @@ identifier; set `student_id_alias` accordingly; emit keys in `post_clean_primary
 """
 
 
-def _identity_term_config() -> str:
-    return """
-## TERM CONFIG
-
-### When to emit term_config
-Set `term_config: null` when no term column exists or term ordering is not needed for this table.
-
-When a term column is present and `row_selection_required` is true, always populate `term_config`.
-
-### Step 1 — Identify the term column
-Inspect column names and unique values for a column encoding academic term or semester.
-Common names: `term`, `term_desc`, `term_descr`, `semester`, `strm`, `acad_year`, `term_code`, `compl_term`.
-If multiple term-like columns exist, select the most semantically authoritative one (prefer
-coded identifiers over display labels; prefer non-null columns).
-
-### Step 2 — Inspect unique values and dtype
-Use the unique values and dtype provided in the column profile to reason about format.
-
-Known formats:
-- `YYYYTT` — 4-digit year + season code suffix: `"2018FA"`, `"2019SP"`, `"2018S1"` → `term_extraction: "standard"`
-- `Season_YYYY` — spelled season + year: `"Fall 2019"`, `"Spring 2021"` → `term_extraction: "standard"`
-- `datetime` dtype — date column, no season codes visible → `term_extraction: "custom"` (date-based extraction needed)
-- Opaque numeric codes — e.g. `"1192"`, `"1199"` with no visible year or season string → `term_extraction: "custom"`
-- Float/int dtype with numeric codes — e.g. `1192.0` → treat as opaque numeric, `term_extraction: "custom"`
-
-### Step 3 — Build season_map
-From unique values, identify all distinct season tokens. List them in **chronological order within a calendar year** (not academic year order). Assign a canonical label to each.
-
-Canonical labels must be one of: `FALL`, `SPRING`, `SUMMER`, `WINTER`.
-
-Multiple raw tokens may share the same canonical label (e.g. `S1` and `S2` both map to `SUMMER`), but must appear as separate entries in `season_map` to preserve their distinct chronological positions.
-
-Example:
-```json
-"season_map": [
-    {"raw": "SP", "canonical": "SPRING"},
-    {"raw": "S1", "canonical": "SUMMER"},
-    {"raw": "S2", "canonical": "SUMMER"},
-    {"raw": "FA", "canonical": "FALL"},
-    {"raw": "WI", "canonical": "WINTER"}
-]
-```
-
-For `Season_YYYY` formats, raw tokens are the spelled season words as they appear in the data:
-```json
-"season_map": [
-    {"raw": "Spring", "canonical": "SPRING"},
-    {"raw": "Summer", "canonical": "SUMMER"},
-    {"raw": "Fall", "canonical": "FALL"}
-]
-```
-
-For opaque numeric or date formats where season cannot be observed from values, set `season_map: []` and `term_extraction: "custom"`.
-
-### Step 4 — Assess extractability and set term_extraction
-Set `term_extraction: "standard"` when:
-- A 4-digit year is extractable via regex from the raw value, AND
-- Season tokens are matchable via prefix or suffix against `season_map` keys
-
-Set `term_extraction: "custom"` when:
-- The dtype is `datetime` or `date`
-- The raw values are opaque numeric codes with no visible year string or season token
-- The dtype is float or int (numeric codes that require coercion before parsing)
-
-### Step 5 — Populate hook_spec when term_extraction == "custom"
-When `term_extraction: "custom"`, always populate `hook_spec`. The LLM should draft the extractor functions based on observed patterns in unique values.
-
-For **opaque numeric codes** (e.g. CUNY `1192`):
-- Reason about positional structure from unique value samples
-- Draft `year_extractor` and `season_extractor` as single-expression Python
-- `season_extractor` output must match a `raw` key in `season_map`
-
-For **date columns**:
-- `year_extractor`: `lambda t: pd.to_datetime(t).year`
-- `season_extractor`: infer from month bands (1-4 → Spring, 5-7 → Summer, 8-11 → Fall, 12 → Winter)
-- `season_map` should reflect the canonical mapping for those month-inferred seasons
-
-All draft functions are marked as drafts requiring human review before use.
-
-### Step 6 — term_config null check
-If `row_selection_required` is false and the table is student-grain (one row per student), `term_config` is typically null unless a term column is explicitly part of the grain key.
-"""
-
-
 def _identity_output_format() -> str:
     return """
 ## OUTPUT FORMAT
@@ -300,7 +216,7 @@ Respond ONLY with a JSON object. No preamble, no markdown, no explanation outsid
 Follow **STUDENT IDENTIFIER COLUMN** for `student_id_alias` and for how to name the student id
 in `post_clean_primary_key`, `join_keys_for_2a`, and `dedup_policy.sort_by`.
 
-Follow **TERM CONFIG** for `term_config` (use JSON `null` when no term column or ordering is not needed).
+Do **not** include `term_config` in this JSON — term normalization is a separate pass.
 
 {
   "institution_id": "<institution_id>",
@@ -319,46 +235,8 @@ Follow **TERM CONFIG** for `term_config` (use JSON `null` when no term column or
   "hitl_flag": true,
   "hitl_question": "<specific question for human reviewer, or null if no flag>",
   "reasoning": "<2-3 sentence summary of the inference chain>",
-  "notes": "<optional short notes for reviewers, or empty string>",
-  "term_config": {
-    "term_col": "<column name>",
-    "season_map": [
-        {"raw": "<raw token>", "canonical": "<FALL|SPRING|SUMMER|WINTER>"}
-    ],
-    "term_extraction": "<standard|custom>",
-    "hook_spec": null
-  }
+  "notes": "<optional short notes for reviewers, or empty string>"
 }
-
-Or for custom:
-```json
-"term_config": {
-    "term_col": "<column name>",
-    "season_map": [],
-    "term_extraction": "custom",
-    "hook_spec": {
-        "file": "pipelines/<institution_id>/helpers/term_hooks.py",
-        "functions": [
-            {
-                "name": "year_extractor",
-                "signature": "def year_extractor(term: str) -> int",
-                "description": "<what it does>",
-                "example_input": "<value>",
-                "example_output": "<int>",
-                "draft": "<expression>"
-            },
-            {
-                "name": "season_extractor",
-                "signature": "def season_extractor(term: str) -> str",
-                "description": "<what it does>",
-                "example_input": "<value>",
-                "example_output": "<raw token>",
-                "draft": "<expression>"
-            }
-        ]
-    }
-}
-```
 """
 
 
@@ -374,8 +252,6 @@ def build_identity_agent_system_prompt() -> str:
         + _identity_confidence_scoring()
         + "\n---\n"
         + _identity_student_id_and_keys().strip()
-        + "\n---\n"
-        + _identity_term_config().strip()
         + "\n---\n"
         + _identity_output_format()
     )
@@ -446,39 +322,54 @@ def build_identity_agent_user_message(
     )
 
 
-def parse_identity_grain_contract(raw: RawContractInput) -> IdentityGrainContract:
+def parse_grain_contract(raw: RawContractInput) -> GrainContract:
     """
-    Parse and validate IdentityAgent JSON output into ``IdentityGrainContract``.
+    Parse and validate IdentityAgent pass-1 JSON into :class:`GrainContract`.
+
+    If a legacy top-level ``term_config`` key is present (older combined prompts), it is
+    removed before validation — term config belongs to pass 2 (:class:`TermContract`).
 
     Accepts raw model text (optionally fenced), UTF-8 bytes, or an already-parsed dict.
     """
-    if isinstance(raw, dict):
-        return IdentityGrainContract.model_validate(raw)
-    text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
-    text = strip_json_fences(text)
+
+    def _as_dict() -> dict:
+        if isinstance(raw, dict):
+            return dict(raw)
+        text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+        return json.loads(strip_json_fences(text))
+
     try:
-        return IdentityGrainContract.model_validate_json(text)
+        d = _as_dict()
+    except Exception:
+        logger.debug("Grain contract parse failed to load JSON")
+        raise
+    if "term_config" in d:
+        d.pop("term_config", None)
+        logger.debug("Stripped legacy term_config from pass-1 grain JSON (use pass 2 for terms)")
+    try:
+        return GrainContract.model_validate(d)
     except Exception:
         logger.debug(
-            "Identity grain contract parse failed; raw (truncated): %s", text[:500]
+            "Grain contract validation failed; raw (truncated): %s",
+            str(raw)[:500] if not isinstance(raw, dict) else str(raw)[:500],
         )
         raise
 
 
 def parse_institution_grain_contracts(
     raw: RawContractInput,
-) -> InstitutionGrainContracts:
+) -> InstitutionGrainContract:
     """
     Parse a single JSON file containing ``institution_id`` and a ``datasets`` map of contracts.
 
     Accepts raw text (optionally fenced), UTF-8 bytes, or an already-parsed dict.
     """
     if isinstance(raw, dict):
-        return InstitutionGrainContracts.model_validate(raw)
+        return InstitutionGrainContract.model_validate(raw)
     text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
     text = strip_json_fences(text)
     try:
-        return InstitutionGrainContracts.model_validate_json(text)
+        return InstitutionGrainContract.model_validate_json(text)
     except Exception:
         logger.debug(
             "Institution grain contracts parse failed; raw (truncated): %s", text[:500]

@@ -11,7 +11,8 @@ import pandas as pd
 from edvise.genai.identity_agent.grain_inference.deduplication import (
     drop_duplicate_keys,
 )
-from edvise.genai.identity_agent.grain_inference.schemas import IdentityGrainContract
+from edvise.genai.identity_agent.grain_inference.schemas import GrainContract
+from edvise.genai.identity_agent.term_normalization.schemas import TermContract
 from edvise.utils.data_cleaning import convert_to_snake_case
 
 logger = logging.getLogger(__name__)
@@ -29,14 +30,14 @@ def _map_key_after_student_id_rename(name: str, student_id_alias: str | None) ->
 
 
 def canonicalize_grain_contract_student_id_alias(
-    contract: IdentityGrainContract,
-) -> IdentityGrainContract:
+    contract: GrainContract,
+) -> GrainContract:
     """
     Rewrite ``post_clean_primary_key``, ``join_keys_for_2a``, and ``dedup_policy.sort_by`` so
     any reference to ``contract.student_id_alias`` becomes ``student_id``.
 
     The dataframe passed to ``apply_grain_dedup`` already has ``student_id`` after cleaning;
-    the contract may still name the pre-rename column in keys unless the model normalized them.
+    the grain contract may still name the pre-rename column in keys unless the model normalized them.
     """
     alias = contract.student_id_alias
     if not alias or not str(alias).strip():
@@ -81,9 +82,7 @@ def _validate_key_columns(df: pd.DataFrame, keys: list[str], *, label: str) -> N
         raise ValueError(f"{label}: missing columns for grain key: {missing}")
 
 
-def apply_grain_dedup(
-    df: pd.DataFrame, contract: IdentityGrainContract
-) -> pd.DataFrame:
+def apply_grain_dedup(df: pd.DataFrame, contract: GrainContract) -> pd.DataFrame:
     """
     Apply ``contract.dedup_policy`` using ``post_clean_primary_key`` as the dedup key columns.
 
@@ -97,7 +96,7 @@ def apply_grain_dedup(
 
     When ``dedupe_fn`` runs inside :func:`~edvise.data_audit.custom_cleaning.clean_dataset`,
     the frame already uses ``student_id``; :func:`canonicalize_grain_contract_student_id_alias`
-    uses ``contract.student_id_alias`` (from IdentityAgent) to align key names with that column.
+    uses ``contract.student_id_alias`` (from IdentityAgent grain) to align key names with that column.
     """
     contract = canonicalize_grain_contract_student_id_alias(contract)
     policy = contract.dedup_policy
@@ -130,17 +129,23 @@ def apply_grain_dedup(
 
 
 def apply_grain_term_order(
-    df: pd.DataFrame, contract: IdentityGrainContract
+    df: pd.DataFrame,
+    term_pass: TermContract | None,
 ) -> pd.DataFrame:
     """
-    If ``contract.term_config`` is set, run :func:`~edvise.genai.identity_agent.term_normalization.utilities.apply_term_order_from_config`.
+    If ``term_pass`` is set and :attr:`~edvise.genai.identity_agent.term_normalization.schemas.TermContract.term_config`
+    is non-null, run :func:`~edvise.genai.identity_agent.term_normalization.utilities.apply_term_order_from_config`.
+
+    Pass 2 produces ``term_pass``; pass 1 :class:`~edvise.genai.identity_agent.grain_inference.schemas.GrainContract`
+    has no term fields.
 
     Adds ``_year``, ``_season``, ``_term_order`` (via
-    :func:`~edvise.genai.identity_agent.term_normalization.utilities.add_edvise_term_order`). If ``term_config`` is ``None``, returns ``df`` unchanged.
+    :func:`~edvise.genai.identity_agent.term_normalization.utilities.add_edvise_term_order`). If there is no
+    executable term config, returns ``df`` unchanged.
     """
-    tc = contract.term_config
-    if tc is None:
+    if term_pass is None or term_pass.term_config is None:
         return df
+    tc = term_pass.term_config
     from edvise.genai.identity_agent.term_normalization.utilities import (
         apply_term_order_from_config,
     )
@@ -149,15 +154,17 @@ def apply_grain_term_order(
 
 
 def apply_grain_execution(
-    df: pd.DataFrame, contract: IdentityGrainContract
+    df: pd.DataFrame,
+    grain: GrainContract,
+    term_pass: TermContract | None = None,
 ) -> pd.DataFrame:
-    """Run :func:`apply_grain_dedup` then :func:`apply_grain_term_order`."""
-    out = apply_grain_dedup(df, contract)
-    return apply_grain_term_order(out, contract)
+    """Run :func:`apply_grain_dedup` then :func:`apply_grain_term_order` (pass-2 term contract, if any)."""
+    out = apply_grain_dedup(df, grain)
+    return apply_grain_term_order(out, term_pass)
 
 
 def build_dedupe_fn_from_grain_contract(
-    contract: IdentityGrainContract,
+    contract: GrainContract,
 ) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """
     Build a ``dedupe_fn`` for :func:`~edvise.data_audit.custom_cleaning.clean_dataset` / SMA

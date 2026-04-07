@@ -1,8 +1,9 @@
 """
 Term column normalization for IdentityAgent: ``term_config`` models, Pass 2 prompts, and apply helpers.
 
-``TermOrderConfig`` is embedded in :class:`~edvise.genai.identity_agent.grain_inference.schemas.IdentityGrainContract`
-as ``term_config``. :func:`apply_term_order_from_config` is exposed lazily via :func:`__getattr__`
+``TermOrderConfig`` is embedded in pass-2 :class:`~edvise.genai.identity_agent.term_normalization.schemas.TermContract`
+as ``term_config`` (pass 1 :class:`~edvise.genai.identity_agent.grain_inference.schemas.GrainContract` is grain-only).
+:func:`apply_term_order_from_config` is exposed lazily via :func:`__getattr__`
 so importing this package does not load ``edvise.feature_generation``. Pass 2 prompt symbols are also
 lazy-loaded from :mod:`edvise.genai.identity_agent.term_normalization.prompt_builder`.
 """
@@ -12,17 +13,16 @@ from __future__ import annotations
 from typing import Any
 
 from .schemas import (
-    TERM_UTILITY_REGISTRY,
-    TermFormat,
+    CANONICAL_SEASONS,
+    SeasonMapEntry,
+    TermContract,
     TermOrderConfig,
-    TermOrderOutputs,
 )
 
 _PROMPT_EXPORTS = frozenset(
     {
         "TERM_NORMALIZATION_SYSTEM_PROMPT",
         "TERM_NORMALIZATION_USER_TEMPLATE",
-        "TermNormalizationPassOutput",
         "build_term_normalization_system_prompt",
         "build_term_normalization_user_message",
         "build_term_normalization_user_message_from_profiles",
@@ -32,14 +32,15 @@ _PROMPT_EXPORTS = frozenset(
 )
 
 __all__ = [
+    "CANONICAL_SEASONS",
     "TERM_NORMALIZATION_SYSTEM_PROMPT",
     "TERM_NORMALIZATION_USER_TEMPLATE",
-    "TERM_UTILITY_REGISTRY",
-    "TermFormat",
-    "TermNormalizationPassOutput",
+    "SeasonMapEntry",
+    "TermContract",
     "TermOrderConfig",
-    "TermOrderOutputs",
     "apply_term_order_from_config",
+    "term_order_column_for_clean_dataset",
+    "term_order_fn_from_term_order_config",
     "build_term_normalization_system_prompt",
     "build_term_normalization_user_message",
     "build_term_normalization_user_message_from_profiles",
@@ -51,6 +52,14 @@ __all__ = [
 def __getattr__(name: str) -> Any:
     if name == "apply_term_order_from_config":
         from .utilities import apply_term_order_from_config as fn
+
+        return fn
+    if name == "term_order_column_for_clean_dataset":
+        from .utilities import term_order_column_for_clean_dataset as fn
+
+        return fn
+    if name == "term_order_fn_from_term_order_config":
+        from .utilities import term_order_fn_from_term_order_config as fn
 
         return fn
     if name in _PROMPT_EXPORTS:

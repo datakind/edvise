@@ -11,45 +11,16 @@ import json
 import logging
 from typing import Union
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
-
 from edvise.genai.identity_agent.grain_inference.schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
 )
 from edvise.genai.identity_agent.profiling.schemas import RawTableProfile
 
-from .schemas import TermOrderConfig
+from .schemas import TermContract, TermOrderConfig
 
 logger = logging.getLogger(__name__)
 
 RawTermPassInput = Union[str, bytes, dict]
-
-
-class TermNormalizationPassOutput(BaseModel):
-    """
-    JSON envelope for IdentityAgent Pass 2 (term column / ``TermOrderConfig`` only).
-
-    Produced by the term-normalization system prompt; distinct from Pass 1
-    :class:`~edvise.genai.identity_agent.grain_inference.schemas.IdentityGrainContract`.
-    """
-
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    institution_id: str
-    table: str
-    term_config: TermOrderConfig | None = None
-    confidence: float = Field(..., ge=0.0, le=1.0)
-    hitl_flag: bool
-    hitl_question: str | None = None
-    reasoning: str
-
-    @model_validator(mode="after")
-    def low_confidence_requires_hitl(self) -> TermNormalizationPassOutput:
-        if self.confidence < IDENTITY_CONFIDENCE_HITL_THRESHOLD and not self.hitl_flag:
-            raise ValueError(
-                f"hitl_flag must be true when confidence is below {IDENTITY_CONFIDENCE_HITL_THRESHOLD}"
-            )
-        return self
 
 
 # ── System prompt sections ────────────────────────────────────────────────────
@@ -386,18 +357,18 @@ def build_term_normalization_user_message_from_profiles(
 
 def parse_term_normalization_pass_output(
     raw: RawTermPassInput,
-) -> TermNormalizationPassOutput:
+) -> TermContract:
     """
-    Parse and validate IdentityAgent Pass 2 JSON into :class:`TermNormalizationPassOutput`.
+    Parse and validate IdentityAgent Pass 2 JSON into :class:`TermContract`.
 
     Accepts raw model text (optionally fenced), UTF-8 bytes, or an already-parsed dict.
     """
     if isinstance(raw, dict):
-        return TermNormalizationPassOutput.model_validate(raw)
+        return TermContract.model_validate(raw)
     text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
     text = strip_json_fences(text)
     try:
-        return TermNormalizationPassOutput.model_validate_json(text)
+        return TermContract.model_validate_json(text)
     except Exception:
         logger.debug(
             "Term normalization pass parse failed; raw (truncated): %s", text[:500]

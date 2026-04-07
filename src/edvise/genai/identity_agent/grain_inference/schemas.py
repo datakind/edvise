@@ -30,9 +30,11 @@ class DedupPolicy(BaseModel):
     notes: str = ""
 
 
-class IdentityGrainContract(BaseModel):
+class GrainContract(BaseModel):
     """
-    Grain contract for one institution dataset, produced by IdentityAgent.
+    Grain contract for one institution dataset from IdentityAgent **pass 1** (grain only).
+
+    Term column config is produced in **pass 2** as :class:`~edvise.genai.identity_agent.term_normalization.schemas.TermContract`.
 
     When ``student_id_alias`` is set, ``post_clean_primary_key`` and ``join_keys_for_2a``
     should name that column **as in the pre-canonical-rename frame** (the same string as
@@ -85,14 +87,6 @@ class IdentityGrainContract(BaseModel):
     hitl_question: str | None = None
     reasoning: str
     notes: str = ""
-    term_config: TermOrderConfig | None = Field(
-        default=None,
-        description=(
-            "Optional; not produced by IdentityAgent prompts — set via HITL or preprocessing. "
-            "Term column and mappings for add_edvise_term_order after dedup. "
-            "See edvise.genai.identity_agent.execution.grain_transforms.apply_grain_term_order."
-        ),
-    )
 
     @property
     def unique_keys(self) -> list[str]:
@@ -110,7 +104,7 @@ class IdentityGrainContract(BaseModel):
         return v
 
     @model_validator(mode="after")
-    def low_confidence_requires_hitl(self) -> IdentityGrainContract:
+    def low_confidence_requires_hitl(self) -> GrainContract:
         if self.confidence < IDENTITY_CONFIDENCE_HITL_THRESHOLD and not self.hitl_flag:
             raise ValueError(
                 f"hitl_flag must be true when confidence is below {IDENTITY_CONFIDENCE_HITL_THRESHOLD}"
@@ -118,9 +112,9 @@ class IdentityGrainContract(BaseModel):
         return self
 
 
-class InstitutionGrainContracts(BaseModel):
+class InstitutionGrainContract(BaseModel):
     """
-    Single JSON artifact for one institution: all dataset-level :class:`IdentityGrainContract` values.
+    Single JSON artifact for one institution: all dataset-level :class:`GrainContract` values.
 
     Keys in ``datasets`` match logical dataset names (same keys as ``inputs.toml`` / ``SchoolMappingConfig.datasets``).
     Use for testing or handoff instead of N separate per-table JSON files.
@@ -129,20 +123,20 @@ class InstitutionGrainContracts(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
     institution_id: str
-    datasets: dict[str, IdentityGrainContract]
+    datasets: dict[str, GrainContract]
 
     @field_validator("datasets")
     @classmethod
     def non_empty_dataset_keys(
-        cls, v: dict[str, IdentityGrainContract]
-    ) -> dict[str, IdentityGrainContract]:
+        cls, v: dict[str, GrainContract]
+    ) -> dict[str, GrainContract]:
         for name in v:
             if not name.strip():
                 raise ValueError("dataset name keys must be non-empty")
         return v
 
     @model_validator(mode="after")
-    def contracts_match_institution(self) -> InstitutionGrainContracts:
+    def contracts_match_institution(self) -> InstitutionGrainContract:
         for dname, c in self.datasets.items():
             if c.institution_id != self.institution_id:
                 raise ValueError(
@@ -151,16 +145,16 @@ class InstitutionGrainContracts(BaseModel):
                 )
         return self
 
-    def contracts_by_dataset(self) -> dict[str, IdentityGrainContract]:
+    def contracts_by_dataset(self) -> dict[str, GrainContract]:
         """Return the same mapping as :func:`run_identity_agents_for_institution` / schema merge APIs expect."""
         return dict(self.datasets)
 
 
 def build_institution_grain_contracts(
     institution_id: str,
-    contracts_by_dataset: dict[str, IdentityGrainContract],
-) -> InstitutionGrainContracts:
-    """Wrap per-dataset contracts in one envelope (single JSON file for testing or handoff)."""
-    return InstitutionGrainContracts(
+    contracts_by_dataset: dict[str, GrainContract],
+) -> InstitutionGrainContract:
+    """Wrap per-dataset grain contracts in one envelope (single JSON file for testing or handoff)."""
+    return InstitutionGrainContract(
         institution_id=institution_id, datasets=dict(contracts_by_dataset)
     )

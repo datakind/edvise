@@ -13,14 +13,18 @@ from edvise.genai.identity_agent.execution import (
     merge_grain_contracts_into_school_config,
     merge_grain_student_id_alias_into_school_config,
 )
-from edvise.genai.identity_agent.grain_inference.schemas import (
-    DedupPolicy,
-    IdentityGrainContract,
+from edvise.genai.identity_agent.grain_inference.schemas import DedupPolicy, GrainContract
+from edvise.genai.identity_agent.term_normalization.schemas import (
+    TermContract,
     TermOrderConfig,
+)
+from edvise.genai.identity_agent.term_normalization.utilities import (
+    term_order_column_for_clean_dataset,
+    term_order_fn_from_term_order_config,
 )
 
 
-def _contract(**kwargs) -> IdentityGrainContract:
+def _grain(**kwargs) -> GrainContract:
     defaults: dict = dict(
         institution_id="x",
         table="t",
@@ -37,15 +41,26 @@ def _contract(**kwargs) -> IdentityGrainContract:
         hitl_flag=False,
         hitl_question=None,
         reasoning="",
-        term_config=None,
     )
     defaults.update(kwargs)
-    return IdentityGrainContract(**defaults)
+    return GrainContract(**defaults)
+
+
+def _term_pass(term_order: TermOrderConfig) -> TermContract:
+    return TermContract(
+        institution_id="x",
+        table="t",
+        term_config=term_order,
+        confidence=0.95,
+        hitl_flag=False,
+        hitl_question=None,
+        reasoning="test",
+    )
 
 
 def test_no_dedup_leaves_rows():
     df = pd.DataFrame({"k": [1, 1], "v": [1, 2]})
-    c = _contract(
+    c = _grain(
         dedup_policy=DedupPolicy(
             strategy="no_dedup",
             sort_by=None,
@@ -59,7 +74,7 @@ def test_no_dedup_leaves_rows():
 
 def test_true_duplicate_collapses():
     df = pd.DataFrame({"k": [1, 1], "v": [1, 2]})
-    c = _contract(
+    c = _grain(
         post_clean_primary_key=["k"],
         join_keys_for_2a=["k"],
     )
@@ -74,7 +89,7 @@ def test_temporal_collapse_keep_last():
             "t": [1, 2, 3],
         }
     )
-    c = _contract(
+    c = _grain(
         post_clean_primary_key=["k"],
         join_keys_for_2a=["k", "t"],
         dedup_policy=DedupPolicy(
@@ -91,10 +106,8 @@ def test_temporal_collapse_keep_last():
 
 def test_apply_grain_term_order_adds_columns():
     df = pd.DataFrame({"term": ["Fall 2020", "Spring 2021"], "k": [1, 2]})
-    c = _contract(
-        post_clean_primary_key=["k"],
-        join_keys_for_2a=["k", "term"],
-        term_config=TermOrderConfig(
+    tp = _term_pass(
+        TermOrderConfig(
             term_col="term",
             season_map=[
                 {"raw": "Spring", "canonical": "SPRING"},
@@ -103,16 +116,14 @@ def test_apply_grain_term_order_adds_columns():
             term_extraction="standard",
         ),
     )
-    out = apply_grain_term_order(df, c)
+    out = apply_grain_term_order(df, tp)
     assert "_term_order" in out.columns
 
 
 def test_apply_grain_term_order_yyyytt_with_season_map():
     df = pd.DataFrame({"term": ["2018FA", "2019SP"], "k": [1, 2]})
-    c = _contract(
-        post_clean_primary_key=["k"],
-        join_keys_for_2a=["k", "term"],
-        term_config=TermOrderConfig(
+    tp = _term_pass(
+        TermOrderConfig(
             term_col="term",
             season_map=[
                 {"raw": "SP", "canonical": "SPRING"},
@@ -121,7 +132,7 @@ def test_apply_grain_term_order_yyyytt_with_season_map():
             term_extraction="standard",
         ),
     )
-    out = apply_grain_term_order(df, c)
+    out = apply_grain_term_order(df, tp)
     assert "_term_order" in out.columns
     assert "_year" in out.columns
     assert "_season" in out.columns
@@ -134,7 +145,7 @@ def test_apply_grain_execution_order_dedup_then_term():
             "term": ["Fall 2020", "Fall 2020"],
         }
     )
-    c = _contract(
+    g = _grain(
         post_clean_primary_key=["k"],
         join_keys_for_2a=["k", "term"],
         dedup_policy=DedupPolicy(
@@ -143,7 +154,9 @@ def test_apply_grain_execution_order_dedup_then_term():
             keep="first",
             notes="",
         ),
-        term_config=TermOrderConfig(
+    )
+    tp = _term_pass(
+        TermOrderConfig(
             term_col="term",
             season_map=[
                 {"raw": "Fall", "canonical": "FALL"},
@@ -151,14 +164,14 @@ def test_apply_grain_execution_order_dedup_then_term():
             term_extraction="standard",
         ),
     )
-    out = apply_grain_execution(df, c)
+    out = apply_grain_execution(df, g, tp)
     assert len(out) == 1
     assert "_term_order" in out.columns
 
 
 def test_build_dedupe_fn_from_grain_contract():
     df = pd.DataFrame({"k": [1, 1], "v": [1, 2]})
-    c = _contract(
+    c = _grain(
         post_clean_primary_key=["k"],
         dedup_policy=DedupPolicy(
             strategy="true_duplicate",
@@ -174,14 +187,14 @@ def test_build_dedupe_fn_from_grain_contract():
 
 def test_missing_key_columns_raises():
     df = pd.DataFrame({"x": [1]})
-    c = _contract(post_clean_primary_key=["k"])
+    c = _grain(post_clean_primary_key=["k"])
     with pytest.raises(ValueError, match="missing columns"):
         apply_grain_dedup(df, c)
 
 
 def test_policy_required_skips_dedup():
     df = pd.DataFrame({"k": [1, 1], "v": [1, 2]})
-    c = _contract(
+    c = _grain(
         dedup_policy=DedupPolicy(
             strategy="policy_required",
             sort_by=None,
@@ -205,10 +218,59 @@ def test_apply_term_order_raises_when_custom_hooks_not_wired():
         apply_term_order_from_config(df, c)
 
 
+def test_apply_term_order_split_year_season_columns():
+    df = pd.DataFrame(
+        {
+            "yr": [2020, 2021],
+            "sem": ["FA", "SP"],
+            "k": [1, 2],
+        }
+    )
+    cfg = TermOrderConfig(
+        year_col="yr",
+        season_col="sem",
+        season_map=[
+            {"raw": "SP", "canonical": "SPRING"},
+            {"raw": "FA", "canonical": "FALL"},
+        ],
+        term_extraction="standard",
+    )
+    out = apply_term_order_from_config(df, cfg)
+    assert list(out["_year"]) == [2020, 2021]
+    assert list(out["_season"]) == ["fa", "sp"]
+    assert "_term_order" in out.columns
+
+
+def test_term_order_fn_wrapper_and_clean_column_hint():
+    cfg = TermOrderConfig(
+        year_col="yr",
+        season_col="sem",
+        season_map=[{"raw": "FA", "canonical": "FALL"}],
+        term_extraction="standard",
+    )
+    assert term_order_column_for_clean_dataset(cfg) == "yr"
+    fn = term_order_fn_from_term_order_config(cfg)
+    df = pd.DataFrame({"yr": [2019], "sem": ["FA"]})
+    with pytest.raises(ValueError, match="term_column"):
+        fn(df, "sem")
+    out = fn(df, "yr")
+    assert int(out["_year"].iloc[0]) == 2019
+    assert out["_season"].iloc[0] == "fa"
+
+
+def test_term_order_column_for_combined_term_col():
+    cfg = TermOrderConfig(
+        term_col="term",
+        season_map=[{"raw": "FA", "canonical": "FALL"}],
+        term_extraction="standard",
+    )
+    assert term_order_column_for_clean_dataset(cfg) == "term"
+
+
 def test_apply_grain_dedup_maps_contract_student_id_alias_to_student_id():
     """After clean_dataset rename, the frame has student_id; keys may still use the pre-rename name."""
     df = pd.DataFrame({"student_id": ["a", "a"], "x": [1, 2]})
-    c = _contract(
+    c = _grain(
         student_id_alias="student_id_randomized_datakind",
         post_clean_primary_key=["student_id_randomized_datakind"],
         join_keys_for_2a=["student_id_randomized_datakind"],
@@ -242,8 +304,8 @@ def _merge_contract(
     uks: list[str],
     *,
     student_id_alias: str | None = None,
-) -> IdentityGrainContract:
-    return IdentityGrainContract(
+) -> GrainContract:
+    return GrainContract(
         institution_id="test_inst",
         table=table,
         student_id_alias=student_id_alias,

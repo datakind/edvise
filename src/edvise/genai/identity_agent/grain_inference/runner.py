@@ -11,9 +11,9 @@ from edvise.genai.identity_agent.profiling import RankedCandidateProfiles
 from .prompt_builder import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
     build_identity_agent_user_message,
-    parse_identity_grain_contract,
+    parse_grain_contract,
 )
-from .schemas import IDENTITY_CONFIDENCE_HITL_THRESHOLD, IdentityGrainContract
+from .schemas import IDENTITY_CONFIDENCE_HITL_THRESHOLD, GrainContract
 
 
 def run_identity_agent(
@@ -23,7 +23,7 @@ def run_identity_agent(
     key_profile: RankedCandidateProfiles,
     df: pd.DataFrame,
     llm_complete: Callable[[str, str], str],
-) -> IdentityGrainContract:
+) -> GrainContract:
     """
     Build IdentityAgent prompts, call ``llm_complete(system, user)``, parse JSON to a contract.
 
@@ -34,7 +34,7 @@ def run_identity_agent(
         institution_id, dataset_name, key_profile, df=df
     )
     raw = llm_complete(IDENTITY_AGENT_SYSTEM_PROMPT, user)
-    return parse_identity_grain_contract(raw)
+    return parse_grain_contract(raw)
 
 
 def run_identity_agents_for_institution(
@@ -44,9 +44,9 @@ def run_identity_agents_for_institution(
     dfs: Mapping[str, pd.DataFrame],
     llm_complete: Callable[[str, str], str],
     confidence_threshold: float = IDENTITY_CONFIDENCE_HITL_THRESHOLD,
-    queue_for_hitl_review: Callable[[IdentityGrainContract], None] | None = None,
-    auto_approve_and_apply: Callable[[IdentityGrainContract], None] | None = None,
-) -> dict[str, IdentityGrainContract]:
+    queue_for_hitl_review: Callable[[GrainContract], None] | None = None,
+    auto_approve_and_apply: Callable[[GrainContract], None] | None = None,
+) -> dict[str, GrainContract]:
     """
     For each ``(dataset_name, key_profile)`` in ``institution_profiles``, run
     :func:`run_identity_agent` with ``dfs[dataset_name]``, then route by HITL / confidence.
@@ -59,7 +59,7 @@ def run_identity_agents_for_institution(
     """
     q = queue_for_hitl_review or (lambda _c: None)
     a = auto_approve_and_apply or (lambda _c: None)
-    contracts: dict[str, IdentityGrainContract] = {}
+    contracts: dict[str, GrainContract] = {}
 
     for dataset_name, key_profile in institution_profiles.items():
         if dataset_name not in dfs:
