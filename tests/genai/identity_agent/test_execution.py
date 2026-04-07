@@ -290,6 +290,23 @@ def test_term_order_column_for_combined_term_col():
     assert term_order_column_for_clean_dataset(cfg) == "term"
 
 
+def test_term_order_column_matches_clean_dataset_normalization():
+    """LLM may emit uppercase headers; clean_dataset uses snake_case column names."""
+    cfg = TermOrderConfig(
+        term_col="TERM_DESC",
+        season_map=[
+            {"raw": "Spring", "canonical": "SPRING"},
+            {"raw": "Fall", "canonical": "FALL"},
+        ],
+        term_extraction="standard",
+    )
+    assert term_order_column_for_clean_dataset(cfg) == "term_desc"
+    fn = term_order_fn_from_term_order_config(cfg)
+    df = pd.DataFrame({"term_desc": ["Fall 2020"]})
+    out = fn(df, "term_desc")
+    assert "_term_order" in out.columns
+
+
 def test_apply_grain_dedup_maps_contract_student_id_alias_to_student_id():
     """After clean_dataset rename, the frame has student_id; keys may still use the pre-rename name."""
     df = pd.DataFrame({"student_id": ["a", "a"], "x": [1, 2]})

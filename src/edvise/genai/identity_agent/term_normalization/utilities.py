@@ -7,9 +7,27 @@ from collections.abc import Callable
 
 import pandas as pd
 
+from edvise.utils.data_cleaning import convert_to_snake_case
+
 from .schemas import TermOrderConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_term_config_column_names(tc: dict) -> dict:
+    """
+    Align ``term_col`` / ``year_col`` / ``season_col`` with :func:`~edvise.data_audit.custom_cleaning.normalize_columns`.
+
+    IdentityAgent may emit uppercase or mixed-case names; ``clean_dataset`` always uses
+    :func:`~edvise.utils.data_cleaning.convert_to_snake_case` on headers before term order runs.
+    """
+    out = dict(tc)
+    for key in ("term_col", "year_col", "season_col"):
+        v = out.get(key)
+        if v is not None:
+            out[key] = convert_to_snake_case(v)
+    return out
+
 
 # Canonical seasons that begin an academic year.
 # FALL and WINTER of year N belong to academic year N → N+1.
@@ -281,14 +299,17 @@ def term_order_column_for_clean_dataset(config: TermOrderConfig) -> str:
     Return the column name to set on ``CleanSpec.term_column`` when using
     :func:`term_order_fn_from_term_order_config` with :func:`~edvise.data_audit.custom_cleaning.clean_dataset`.
 
+    Names are passed through :func:`~edvise.utils.data_cleaning.convert_to_snake_case` so they match
+    headers after ``clean_dataset`` step (1) normalization.
+
     ``clean_dataset`` only checks a single column name before invoking ``term_order_fn``.
-    For split year/season configs, this returns ``year_col`` so that check passes; the frame
-    must still contain ``season_col`` from the same config.
+    For split year/season configs, this returns normalized ``year_col`` so that check passes; the frame
+    must still contain normalized ``season_col`` from the same config.
     """
     if config.term_col is not None:
-        return config.term_col
+        return convert_to_snake_case(config.term_col)
     if config.year_col is not None:
-        return config.year_col
+        return convert_to_snake_case(config.year_col)
     raise ValueError(
         "TermOrderConfig must set term_col or year_col for clean_dataset integration."
     )
@@ -313,7 +334,7 @@ def term_order_fn_from_term_order_config(
             "call add_edvise_term_order with year_extractor and season_extractor from hook_spec."
         )
     expected_column = term_order_column_for_clean_dataset(config)
-    tc = config.model_dump(mode="json")
+    tc = _normalize_term_config_column_names(config.model_dump(mode="json"))
 
     def _fn(df: pd.DataFrame, term_column: str) -> pd.DataFrame:
         if term_column != expected_column:
@@ -345,5 +366,5 @@ def apply_term_order_from_config(
             "term_config.term_extraction is 'custom' — provide year_extractor and season_extractor "
             "from hook_spec to add_edvise_term_order (or preprocess the term column)."
         )
-    tc = config.model_dump(mode="json")
+    tc = _normalize_term_config_column_names(config.model_dump(mode="json"))
     return add_edvise_term_order(df, tc, year_extractor=None, season_extractor=None)
