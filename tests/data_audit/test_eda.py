@@ -993,7 +993,11 @@ def test_infer_inst_tot_credits_attempt_vs_typo_cumulative():
 def test_credit_column_name_has_attempt_marker():
     from edvise.data_audit import eda as data_audit_eda
 
-    assert data_audit_eda.credit_column_name_has_attempt_marker("total_credits_attempted")
+    assert data_audit_eda.credit_column_name_has_attempt_marker(
+        "total_credits_attempted"
+    )
     assert data_audit_eda.credit_column_name_has_attempt_marker("sem_att_credits")
-    assert not data_audit_eda.credit_column_name_has_attempt_marker("total_cumlative_credits")
+    assert not data_audit_eda.credit_column_name_has_attempt_marker(
+        "total_cumlative_credits"
+    )
     assert not data_audit_eda.credit_column_name_has_attempt_marker("matter_score")

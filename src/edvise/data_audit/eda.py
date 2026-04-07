@@ -1026,7 +1026,9 @@ def check_earned_vs_attempted(
             "earned_gt_attempted": [n_earned_gt],
             "earned_gt_attempted_pct": [percent_of_rows(n_earned_gt, total_rows)],
             "earned_when_no_attempt": [n_earned_no_attempt],
-            "earned_when_no_attempt_pct": [percent_of_rows(n_earned_no_attempt, total_rows)],
+            "earned_when_no_attempt_pct": [
+                percent_of_rows(n_earned_no_attempt, total_rows)
+            ],
             "total_anomalous_rows": [n_total],
             "total_anomalous_rows_pct": [percent_of_rows(n_total, total_rows)],
         }
@@ -1143,7 +1145,9 @@ def validate_credit_consistency(
     sem_col: str = "semester",
     course_credits_attempted_col: t.Optional[str] = "credits_attempted",
     course_credits_earned_col: t.Optional[str] = "credits_earned",
-    semester_credits_attempted_col: t.Optional[str] = "number_of_semester_credits_attempted",
+    semester_credits_attempted_col: t.Optional[
+        str
+    ] = "number_of_semester_credits_attempted",
     semester_credits_earned_col: t.Optional[str] = "number_of_semester_credits_earned",
     semester_courses_count_col: t.Optional[str] = "number_of_semester_courses_enrolled",
     cohort_credits_attempted_col: t.Optional[str] = "inst_tot_credits_attempted",
@@ -1177,7 +1181,8 @@ def validate_credit_consistency(
         )
         resolved_earned = (
             course_credits_earned_col
-            if course_credits_earned_col and course_credits_earned_col in course_df.columns
+            if course_credits_earned_col
+            and course_credits_earned_col in course_df.columns
             else None
         )
     else:
@@ -1192,7 +1197,8 @@ def validate_credit_consistency(
 
         resolved_earned = (
             course_credits_earned_col
-            if course_credits_earned_col and course_credits_earned_col in course_df.columns
+            if course_credits_earned_col
+            and course_credits_earned_col in course_df.columns
             else "course_credits_earned"
             if "course_credits_earned" in course_df.columns
             else None
@@ -1509,7 +1515,9 @@ def format_credit_consistency_institution_report(
     lines.append("")
     lines.append("3) Cohort / student file (institutional attempted vs earned totals)")
     if isinstance(cohort_sum, pd.DataFrame) and not cohort_sum.empty:
-        total_anom = int(_credit_report_df_scalar(cohort_sum, "total_anomalous_rows") or 0)
+        total_anom = int(
+            _credit_report_df_scalar(cohort_sum, "total_anomalous_rows") or 0
+        )
         total_pct = _credit_report_df_scalar(cohort_sum, "total_anomalous_rows_pct")
         eg = int(_credit_report_df_scalar(cohort_sum, "earned_gt_attempted") or 0)
         ena = int(_credit_report_df_scalar(cohort_sum, "earned_when_no_attempt") or 0)
@@ -1519,7 +1527,9 @@ def format_credit_consistency_institution_report(
             f"credit with no attempt: {ena:,})."
         )
         if total_anom == 0:
-            lines.append("   Status: Institutional totals look consistent at row level.")
+            lines.append(
+                "   Status: Institutional totals look consistent at row level."
+            )
         else:
             lines.append(
                 "   Status: Fix upstream SIS totals or clarify transfer / test credit treatment."
@@ -1540,7 +1550,9 @@ def format_credit_consistency_institution_report(
         and (not isinstance(cohort_sum, pd.DataFrame) or cohort_sum.empty)
     )
     if skipped_all:
-        lines.append("Overall: Checks could not run end-to-end — see sections marked \"Not run\".")
+        lines.append(
+            'Overall: Checks could not run end-to-end — see sections marked "Not run".'
+        )
     elif any_issue:
         lines.append(
             "Overall: At least one layer failed checks. Use the detailed tables in the audit "
@@ -1636,7 +1648,9 @@ CHECK_PF_DEFAULT_FAILING_GRADES: tuple[str, ...] = (
 CHECK_PF_DEFAULT_PASS_FLAGS: tuple[str, ...] = ("P",)
 CHECK_PF_DEFAULT_FAIL_FLAGS: tuple[str, ...] = ("F",)
 
-_PASS_FAIL_FLAG_VALUE_PAIRS: dict[frozenset[str], tuple[tuple[str, ...], tuple[str, ...]]] = {
+_PASS_FAIL_FLAG_VALUE_PAIRS: dict[
+    frozenset[str], tuple[tuple[str, ...], tuple[str, ...]]
+] = {
     frozenset({"Y", "N"}): (("Y",), ("N",)),
     frozenset({"P", "F"}): (("P",), ("F",)),
     frozenset({"PASS", "FAIL"}): (("PASS",), ("FAIL",)),
@@ -1654,7 +1668,9 @@ def _observed_upper_tokens(series: pd.Series) -> set[str]:
     }
 
 
-def infer_pass_fail_flag_tuples(pf_series: pd.Series) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
+def infer_pass_fail_flag_tuples(
+    pf_series: pd.Series,
+) -> tuple[tuple[str, ...], tuple[str, ...]] | None:
     """
     Infer ``pass_flags`` and ``fail_flags`` for :func:`check_pf_grade_consistency` when the
     column has exactly two distinct non-null tokens (e.g. Y/N, P/F).
@@ -1693,7 +1709,11 @@ def infer_check_pf_grade_list_kwargs(
                 continue
             if _LIKELY_PASSING_GRADE_RE.match(g):
                 passing.add(g)
-            elif _LIKELY_FAILING_GRADE_RE.match(g) or len(g) == 1 and g in {"F", "E", "I", "W"}:
+            elif (
+                _LIKELY_FAILING_GRADE_RE.match(g)
+                or len(g) == 1
+                and g in {"F", "E", "I", "W"}
+            ):
                 failing.add(g)
 
     pf_inf = None
@@ -1702,7 +1722,10 @@ def infer_check_pf_grade_list_kwargs(
     if pf_inf is not None:
         pass_flags, fail_flags = pf_inf
     else:
-        pass_flags, fail_flags = CHECK_PF_DEFAULT_PASS_FLAGS, CHECK_PF_DEFAULT_FAIL_FLAGS
+        pass_flags, fail_flags = (
+            CHECK_PF_DEFAULT_PASS_FLAGS,
+            CHECK_PF_DEFAULT_FAIL_FLAGS,
+        )
 
     return {
         "passing_grades": tuple(sorted(passing)),
@@ -1993,9 +2016,9 @@ def _parse_term(term: str, season_order: dict[str, int]) -> tuple[int, int]:
         return (9999, 99)
 
     if parts[0].isdigit():
-        year, season = int(parts[0]), parts[1]   # '2024 Spring'
+        year, season = int(parts[0]), parts[1]  # '2024 Spring'
     else:
-        season, year = parts[0], int(parts[1])   # 'Spring 2024'
+        season, year = parts[0], int(parts[1])  # 'Spring 2024'
 
     return (year, season_order.get(season, 99))
 
@@ -2082,7 +2105,9 @@ def infer_term_column(
             non_null = s.dropna()
             if len(non_null) == 0:
                 continue
-            sample = non_null.head(max_sample) if len(non_null) > max_sample else non_null
+            sample = (
+                non_null.head(max_sample) if len(non_null) > max_sample else non_null
+            )
             str_sample = sample.astype("string")
             rate = float(str_sample.map(value_looks_like_term).mean())
             hint = term_column_name_hint_score(col, name_hints)
@@ -2426,7 +2451,9 @@ def infer_student_audit_columns(
     *,
     term_col: str | None = None,
     student_type_name_hints: tuple[str, ...] = DEFAULT_STUDENT_TYPE_NAME_HINTS,
-    student_type_value_substrings: tuple[str, ...] = DEFAULT_STUDENT_TYPE_VALUE_SUBSTRINGS,
+    student_type_value_substrings: tuple[
+        str, ...
+    ] = DEFAULT_STUDENT_TYPE_VALUE_SUBSTRINGS,
     first_gen_name_hints: tuple[str, ...] = DEFAULT_FIRST_GEN_NAME_HINTS,
     race_name_hints: tuple[str, ...] = DEFAULT_RACE_NAME_HINTS,
     ethnicity_name_hints: tuple[str, ...] = DEFAULT_ETHNICITY_NAME_HINTS,
@@ -2569,11 +2596,7 @@ def _numeric_coercion_rate(series: pd.Series, max_sample: int = 8000) -> float:
     if len(non_null) == 0:
         return 0.0
     sample = non_null.head(max_sample) if len(non_null) > max_sample else non_null
-    cleaned = (
-        sample.astype("string")
-        .str.strip()
-        .str.replace(",", "", regex=False)
-    )
+    cleaned = sample.astype("string").str.strip().str.replace(",", "", regex=False)
     n = pd.to_numeric(cleaned, errors="coerce")
     return float(n.notna().mean())
 
@@ -2780,7 +2803,9 @@ def _infer_two_credit_columns_by_name(
 def infer_inst_tot_credits_columns(
     df: pd.DataFrame,
     *,
-    attempted_name_hints: tuple[str, ...] = DEFAULT_INST_TOT_CREDITS_ATTEMPTED_NAME_HINTS,
+    attempted_name_hints: tuple[
+        str, ...
+    ] = DEFAULT_INST_TOT_CREDITS_ATTEMPTED_NAME_HINTS,
     earned_name_hints: tuple[str, ...] = DEFAULT_INST_TOT_CREDITS_EARNED_NAME_HINTS,
     min_name_score: float = 0.45,
     numeric_tiebreak_weight: float = 0.12,
@@ -2903,7 +2928,9 @@ def course_row_credits_earned_name_score(col: str) -> float:
 def infer_course_credit_columns(
     df: pd.DataFrame,
     *,
-    attempted_name_hints: tuple[str, ...] = DEFAULT_COURSE_ROW_CREDITS_ATTEMPTED_NAME_HINTS,
+    attempted_name_hints: tuple[
+        str, ...
+    ] = DEFAULT_COURSE_ROW_CREDITS_ATTEMPTED_NAME_HINTS,
     earned_name_hints: tuple[str, ...] = DEFAULT_COURSE_ROW_CREDITS_EARNED_NAME_HINTS,
     min_name_score: float = 0.45,
     numeric_tiebreak_weight: float = 0.12,
@@ -2940,11 +2967,7 @@ def semester_course_count_column_name_score(col: str) -> float:
     if "classes" in c:
         s += 0.95
     if "course" in c and (
-        "count" in c
-        or "number" in c
-        or "num" in c
-        or "nbr" in c
-        or "no_" in c
+        "count" in c or "number" in c or "num" in c or "nbr" in c or "no_" in c
     ):
         s += 1.2
     if "enroll" in c and ("course" in c or "class" in c):
@@ -2971,7 +2994,9 @@ def infer_semester_credit_aggregate_columns(
     count_min_name_score: float = 0.42,
     count_tiebreak_weight: float = 0.06,
     max_sample: int = 8000,
-    attempted_name_hints: tuple[str, ...] = DEFAULT_INST_TOT_CREDITS_ATTEMPTED_NAME_HINTS,
+    attempted_name_hints: tuple[
+        str, ...
+    ] = DEFAULT_INST_TOT_CREDITS_ATTEMPTED_NAME_HINTS,
     earned_name_hints: tuple[str, ...] = DEFAULT_INST_TOT_CREDITS_EARNED_NAME_HINTS,
     course_count_name_hints: tuple[str, ...] = DEFAULT_SEMESTER_COURSE_COUNT_NAME_HINTS,
 ) -> tuple[str | None, str | None, str | None]:
@@ -3323,9 +3348,9 @@ def analyze_merge(
         total_ids = int(student_df[id_col].nunique())
     else:
         total_ids = int(
-            pd.Index(left_df[id_col].dropna().unique()).union(
-                right_df[id_col].dropna().unique()
-            ).size
+            pd.Index(left_df[id_col].dropna().unique())
+            .union(right_df[id_col].dropna().unique())
+            .size
         )
 
     both_rows = counts.get("both", 0)
@@ -3335,9 +3360,9 @@ def analyze_merge(
     def pct(n: int) -> str:
         return f"{n / total_ids:.1%} of roster" if total_ids else "n/a"
 
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
     print(f"  {left_name}  x  {right_name}")
-    print(f"{'='*50}")
+    print(f"{'=' * 50}")
     if "course" in (left_name, right_name):
         ref = left_df if left_name == "course" else right_df
         if id_col in ref.columns:
@@ -3352,16 +3377,24 @@ def analyze_merge(
                 f"  (reference semester table: {len(ref):,} rows, "
                 f"{ref[id_col].nunique():,} unique {id_col})"
             )
-    print(f"Shared unique student IDs:        {both_ids:>6} ({pct(both_ids)}) | {both_rows:>6} rows")
-    print(f"Missing from {right_name:<20} {left_only_ids:>6} ({pct(left_only_ids)}) | {left_only_rows:>6} rows")
-    print(f"Missing from {left_name:<20} {right_only_ids:>6} ({pct(right_only_ids)}) | {right_only_rows:>6} rows")
+    print(
+        f"Shared unique student IDs:        {both_ids:>6} ({pct(both_ids)}) | {both_rows:>6} rows"
+    )
+    print(
+        f"Missing from {right_name:<20} {left_only_ids:>6} ({pct(left_only_ids)}) | {left_only_rows:>6} rows"
+    )
+    print(
+        f"Missing from {left_name:<20} {right_only_ids:>6} ({pct(right_only_ids)}) | {right_only_rows:>6} rows"
+    )
 
     def print_breakdown(title, frame, cols, normalize=True):
         n_ids = frame[id_col].nunique()
         print(f"\n[{title} (n={len(frame)} rows, {n_ids} unique {id_col})]")
         for col in cols:
             if col in frame.columns:
-                print(f"\n  {col}:\n{frame[col].value_counts(dropna=False, normalize=normalize).to_string()}")
+                print(
+                    f"\n  {col}:\n{frame[col].value_counts(dropna=False, normalize=normalize).to_string()}"
+                )
 
     # --- course: Class Grades + course dims + roster cross-check (left or right) ---
     if "course" in (left_name, right_name):
@@ -3379,7 +3412,11 @@ def analyze_merge(
         print_breakdown(
             f"Course dimensions ({course_side})",
             missing,
-            ["course_classification", "department", "course_delivery_method_online_hybrid_in_person"],
+            [
+                "course_classification",
+                "department",
+                "course_delivery_method_online_hybrid_in_person",
+            ],
         )
 
         only_ids_list = missing[id_col].unique()
@@ -3392,10 +3429,14 @@ def analyze_merge(
             print(f"  Not in student file:    {not_in_roster}")
             if not matched.empty:
                 print_breakdown(
-                    f"heh_type_desc (students with {course_side} course rows)", matched, ["heh_type_desc"]
+                    f"heh_type_desc (students with {course_side} course rows)",
+                    matched,
+                    ["heh_type_desc"],
                 )
         else:
-            print(f"[{course_side} IDs vs student roster] (skipped: pass student_df for cross-check)")
+            print(
+                f"[{course_side} IDs vs student roster] (skipped: pass student_df for cross-check)"
+            )
 
     # --- student file: missing side gets heh + first enrollment ---
     if "student" in (left_name, right_name):

@@ -1206,9 +1206,7 @@ def add_term_col(
         if season_rank is not None
         else {"Spring": 1, "Summer": 2, "Fall": 3, "Winter": 4}
     )
-    academic_season_tokens = frozenset(
-        {"spring", "summer", "fall", "winter", "autumn"}
-    )
+    academic_season_tokens = frozenset({"spring", "summer", "fall", "winter", "autumn"})
 
     def _value_looks_like_academic_term_string(val: t.Any) -> bool:
         if pd.isna(val):
@@ -1232,9 +1230,7 @@ def add_term_col(
             return False
         sample = non_null.iloc[:date_like_max_sample]
         n = len(sample)
-        term_like = sum(
-            1 for v in sample if _value_looks_like_academic_term_string(v)
-        )
+        term_like = sum(1 for v in sample if _value_looks_like_academic_term_string(v))
         date_like = sum(
             1
             for v in sample

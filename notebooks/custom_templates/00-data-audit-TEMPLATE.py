@@ -116,9 +116,13 @@ semester_raw_df = dataio.read.from_csv_file(
 # COMMAND ----------
 
 # Normalize primary student identifier to ``student_id`` on all bronze tables (inferred column name may vary by SIS).
-student_raw_df, STUDENT_ID_RESOLVED_STUDENT = normalize_student_id_column(student_raw_df)
+student_raw_df, STUDENT_ID_RESOLVED_STUDENT = normalize_student_id_column(
+    student_raw_df
+)
 course_raw_df, STUDENT_ID_RESOLVED_COURSE = normalize_student_id_column(course_raw_df)
-semester_raw_df, STUDENT_ID_RESOLVED_SEMESTER = normalize_student_id_column(semester_raw_df)
+semester_raw_df, STUDENT_ID_RESOLVED_SEMESTER = normalize_student_id_column(
+    semester_raw_df
+)
 print(
     "student_id column (after normalize_student_id_column):",
     {
@@ -128,8 +132,8 @@ print(
     },
 )
 
-INST_TOT_CREDITS_ATTEMPTED_COL, INST_TOT_CREDITS_EARNED_COL = infer_inst_tot_credits_columns(
-    student_raw_df
+INST_TOT_CREDITS_ATTEMPTED_COL, INST_TOT_CREDITS_EARNED_COL = (
+    infer_inst_tot_credits_columns(student_raw_df)
 )
 print(
     "Inferred institutional total credit columns (cohort file):",
@@ -162,12 +166,8 @@ TERM_NAME_HINTS_SCHEDULE = (
     "semester_term",
 )
 
-TERM_COL_STUDENT = infer_term_column(
-    student_raw_df, name_hints=TERM_NAME_HINTS_COHORT
-)
-TERM_COL_COURSE = infer_term_column(
-    course_raw_df, name_hints=TERM_NAME_HINTS_SCHEDULE
-)
+TERM_COL_STUDENT = infer_term_column(student_raw_df, name_hints=TERM_NAME_HINTS_COHORT)
+TERM_COL_COURSE = infer_term_column(course_raw_df, name_hints=TERM_NAME_HINTS_SCHEDULE)
 TERM_COL_SEMESTER = infer_term_column(
     semester_raw_df, name_hints=TERM_NAME_HINTS_SCHEDULE
 )
@@ -204,7 +204,9 @@ _SEM_EI_EXCLUDE = {
 ENROLLMENT_INTENSITY_COL_SEMESTER = infer_semester_enrollment_intensity_column(
     semester_raw_df, exclude_cols=_SEM_EI_EXCLUDE
 )
-_GRADE_PF_EXCLUDE = {c for c in (COURSE_CRED_ATTEMPTED_COL, COURSE_CRED_EARNED_COL) if c}
+_GRADE_PF_EXCLUDE = {
+    c for c in (COURSE_CRED_ATTEMPTED_COL, COURSE_CRED_EARNED_COL) if c
+}
 GRADE_COL, PF_COL = infer_course_grade_pf_columns(
     course_raw_df, exclude_cols=_GRADE_PF_EXCLUDE
 )
@@ -298,9 +300,7 @@ na_pct_student
 # Term roster counts in chronological order (table only; uses inferred TERM_COL_STUDENT)
 if TERM_COL_STUDENT and TERM_COL_STUDENT in student_raw_df.columns:
     _oc = order_terms(student_raw_df, TERM_COL_STUDENT)
-    _tv = value_counts_sorted_count_df(
-        _oc[TERM_COL_STUDENT], count_col="student_rows"
-    )
+    _tv = value_counts_sorted_count_df(_oc[TERM_COL_STUDENT], count_col="student_rows")
     display(_tv)
 else:
     print("No inferred term column for student file; skip term value counts.")
@@ -640,7 +640,9 @@ _PF_EXAMPLE_N = 12
 if anomalies_pf is not None and not anomalies_pf.empty:
     _slices = list(iter_pf_grade_anomaly_slices(anomalies_pf))
     if not _slices:
-        print("No rule-specific anomaly rows to print (unexpected if anomalies_pf is non-empty).")
+        print(
+            "No rule-specific anomaly rows to print (unexpected if anomalies_pf is non-empty)."
+        )
     for _flag, _sub in _slices:
         print(
             f"\n=== {_flag} — {len(_sub)} row(s) total; "

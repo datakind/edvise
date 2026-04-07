@@ -65,14 +65,12 @@ def from_csv_file(
         df = pd.read_csv(file_path, dtype="string", header="infer", **kwargs)  # type: ignore
     else:
         try:
-            df = (
-                spark_session.read.csv(
-                    file_path,
-                    inferSchema=False,
-                    header=True,
-                    **kwargs,  # type: ignore
-                ).toPandas()
-            )
+            df = spark_session.read.csv(
+                file_path,
+                inferSchema=False,
+                header=True,
+                **kwargs,  # type: ignore
+            ).toPandas()
         except Exception as e:
             # Spark often raises on header-only or empty CSVs: "Can not infer schema from empty dataset"
             msg = str(e).lower()
