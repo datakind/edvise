@@ -529,8 +529,9 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
         na_first = df_cohort[first_gen_col].isna().sum()
         df_cohort[first_gen_col] = df_cohort[first_gen_col].fillna("N")
         LOGGER.info(
-            ' Filled %s NAs in "first_gen" with "N".',
+            ' Filled %s NAs in "%s" with "N".',
             int(na_first),
+            first_gen_col,
         )
         LOGGER.info(
             " After filling 'first_gen':\n%s",
@@ -539,28 +540,25 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
     return df_cohort
 
 
-def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
-    for col, label in [
-        ("course_number", "course_number"),
-        ("course_cip", "course_cip"),
-    ]:
-        validated = validate_optional_column(df_course, col, label, logger=LOGGER)
-        if validated is not None:
-            df_course[validated] = df_course[validated].astype("string")
-            pre_truncated = df_course[validated].copy()
+def strip_trailing_decimal_strings(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Strip a trailing ``.0`` from stringified values in the given columns (in place)."""
+    for col in cols:
+        if col in df.columns:
+            df[col] = df[col].astype("string")
+            pre_truncated = df[col].copy()
 
             # Only remove literal ".0" at the end of the string
-            df_course[validated] = df_course[validated].str.replace(
-                r"\.0$", "", regex=True
-            )
+            df[col] = df[col].str.replace(r"\.0$", "", regex=True)
 
-            truncated = (pre_truncated != df_course[validated]).sum(min_count=1)
+            truncated = (pre_truncated != df[col]).sum(min_count=1)
             LOGGER.info(
                 ' Stripped trailing ".0" in %s rows for column "%s".',
                 int(truncated or 0),
-                validated,
+                col,
             )
-    return df_course
+        else:
+            LOGGER.warning(' ⚠️ Column "%s" not found', col)
+    return df
 
 
 def _infer_student_id_col(df: pd.DataFrame) -> str:
@@ -982,9 +980,11 @@ def _handle_schema_duplicates(
     )
 
     # Build course_id (always in schema mode)
-    df["course_id"] = (
-        df["course_prefix"].astype("string").str.strip()
-        + df["course_number"].astype("string").str.strip()
+    df = df.assign(
+        course_id=(
+            df["course_prefix"].astype("string").str.strip()
+            + df["course_number"].astype("string").str.strip()
+        )
     )
 
     # Calculate summary statistics

@@ -3,17 +3,22 @@ import mlflow
 import pandas as pd
 import typing as t
 import pydantic as pyd
-import pandera as pda
-from pandera.errors import SchemaErrors
 import pyspark.sql
 import pathlib
+import edvise.utils as utils
 
 try:
     import tomllib  # type: ignore
 except ImportError:
     import tomli as tomllib  # noqa
+try:
+    import pandera as pda
+    from pandera.errors import SchemaErrors
+except ModuleNotFoundError:
+    utils.databricks.mock_pandera()
+    import pandera as pda
+    from pandera.errors import SchemaErrors
 
-import edvise.utils as utils
 
 LOGGER = logging.getLogger(__name__)
 

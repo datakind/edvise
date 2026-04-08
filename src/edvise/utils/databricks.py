@@ -1,9 +1,10 @@
 import logging
-import mlflow
-import typing as t
-from typing import Any
-import pydantic as pyd
+import os
 import re
+import typing as t
+
+import mlflow
+import pydantic as pyd
 
 LOGGER = logging.getLogger(__name__)
 
@@ -33,12 +34,6 @@ def get_spark_session() -> SparkSession:
     except Exception:
         logging.error("Unable to create Spark session.")
         raise
-
-
-import logging
-import typing as t
-
-LOGGER = logging.getLogger(__name__)
 
 
 def get_db_widget_param(name: str, *, default: t.Optional[object] = None) -> object:
@@ -117,8 +112,19 @@ def mock_pandera():
     m1.check = check  # type: ignore
     m2.Series = Series  # type: ignore
 
+    m3 = types.ModuleType("pandera.errors")
+
+    class SchemaErrors(Exception): ...
+
+    m3.SchemaErrors = SchemaErrors  # type: ignore
+
     sys.modules[m1.__name__] = m1
     sys.modules[m2.__name__] = m2
+    sys.modules[m3.__name__] = m3
+
+
+def in_databricks() -> bool:
+    return bool(os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER"))
 
 
 # Schema and volume caches for Databricks catalog operations
@@ -203,7 +209,7 @@ def find_bronze_volume_name(spark: SparkSession, catalog: str, schema: str) -> s
         raise ValueError(f"No volumes found in {catalog}.{schema}")
 
     # Usually "volume_name", but be defensive
-    def _get_vol_name(row: Any) -> str:
+    def _get_vol_name(row: t.Any) -> str:
         d = row.asDict()
         for k in ["volume_name", "volumeName", "name"]:
             if k in d:

@@ -1,15 +1,14 @@
 """
-PDP data audit entrypoint. Uses the generalized DataAuditTask with a PDP backend.
+ES data audit entrypoint. Uses the generalized DataAuditTask with an ES backend.
 
-Requires: PDPProjectConfig, RawPDPCohortDataSchema, RawPDPCourseDataSchema,
-PDPCohortStandardizer, PDPCourseStandardizer, read_raw_pdp_cohort_data, read_raw_pdp_course_data.
+Requires: ESProjectConfig, RawESCohortDataSchema, RawESCourseDataSchema,
+ESCohortStandardizer, ESCourseStandardizer, read_raw_es_cohort_data, read_raw_es_course_data.
 """
 
 import argparse
 import importlib
 import logging
 import sys
-from functools import partial
 import os
 
 # Go up 3 levels from the current file's directory to reach repo root
@@ -27,14 +26,18 @@ print("src_path:", src_path)
 print("sys.path:", sys.path)
 
 from edvise.data_audit.data_audit import DataAuditBackend, DataAuditTask
-from edvise.data_audit.schemas import RawPDPCohortDataSchema, RawPDPCourseDataSchema
-from edvise.data_audit.standardizer import (
-    PDPCohortStandardizer,
-    PDPCourseStandardizer,
+
+# ES-specific imports (WIP): symbols not yet exported from schemas/read — see mypy.
+from edvise.data_audit.schemas import (  # type: ignore[attr-defined]
+    RawESCohortDataSchema,
+    RawESCourseDataSchema,
 )
-from edvise.dataio.read import read_raw_pdp_cohort_data, read_raw_pdp_course_data
-from edvise.configs.pdp import PDPProjectConfig
-from edvise.utils.data_cleaning import handling_duplicates
+from edvise.data_audit.standardizer import ESCohortStandardizer, ESCourseStandardizer
+from edvise.dataio.read import (  # type: ignore[attr-defined]
+    read_raw_es_cohort_data,
+    read_raw_es_course_data,
+)
+from edvise.configs.es import ESProjectConfig
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,17 +48,17 @@ logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
 
-def _pdp_backend() -> DataAuditBackend:
+def _es_backend() -> DataAuditBackend:
     return DataAuditBackend(
-        config_schema=PDPProjectConfig,
-        cohort_standardizer=PDPCohortStandardizer(),
-        course_standardizer=PDPCourseStandardizer(),
-        read_raw_cohort_data=read_raw_pdp_cohort_data,
-        read_raw_course_data=read_raw_pdp_course_data,
-        raw_cohort_schema=RawPDPCohortDataSchema,
-        raw_course_schema=RawPDPCourseDataSchema,
-        log_basename="pdp_data_audit.log",
-        default_course_converter=partial(handling_duplicates, schema_type="pdp"),
+        config_schema=ESProjectConfig,
+        cohort_standardizer=ESCohortStandardizer(),
+        course_standardizer=ESCourseStandardizer(),
+        read_raw_cohort_data=read_raw_es_cohort_data,
+        read_raw_course_data=read_raw_es_course_data,
+        raw_cohort_schema=RawESCohortDataSchema,
+        raw_course_schema=RawESCourseDataSchema,
+        log_basename="es_data_audit.log",
+        default_course_converter=None,  # set if ES has a default duplicate handler
     )
 
 
@@ -72,6 +75,12 @@ def parse_arguments() -> argparse.Namespace:
         "--cohort_dataset_validated_path",
         required=False,
         help="Name of the cohort data file during inference with GCS blobs when connected to webapp",
+    )
+    parser.add_argument(
+        "--term_filter",
+        type=str,
+        default=None,
+        help='JSON list of term/cohort labels (e.g. ["fall 2024-25"]). Omit or null for config default. Used for cohort and graduation models.',
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--bronze_volume_path", type=str, required=False)
@@ -105,7 +114,7 @@ if __name__ == "__main__":
 
     task = DataAuditTask(
         args,
-        _pdp_backend(),
+        _es_backend(),
         course_converter_func=course_converter_func,
         cohort_converter_func=cohort_converter_func,
     )
