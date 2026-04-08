@@ -254,7 +254,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--cohort_file_name", required=True)
     parser.add_argument("--db_run_id", required=True)
     parser.add_argument("--gcp_bucket_name", required=True)
-    parser.add_argument("--custom_schemas_path", required=False)
+    parser.add_argument("--legacy_schemas_path", required=False)
     parser.add_argument("--model_name", required=True)
     # parser.add_argument("--config_file_path", required=False)
 
@@ -290,9 +290,9 @@ if __name__ == "__main__":
 
     # Optional dynamic imports for converters/schemas
     for name, attr, desc in [
-        ("dataio", "converter_func_cohort", "custom cohort converter func"),
-        ("dataio", "converter_func_course", "custom course converter func"),
-        ("schemas", None, "custom schema"),
+        ("dataio", "converter_func_cohort", "legacy cohort converter func"),
+        ("dataio", "converter_func_course", "legacy course converter func"),
+        ("schemas", None, "legacy schema"),
     ]:
         try:
             mod = importlib.import_module(name)
@@ -300,7 +300,7 @@ if __name__ == "__main__":
                 getattr(mod, attr)
             logging.info("Running task with %s", desc)
         except Exception:
-            logging.info("Running task with default %s", desc.split(" custom ")[-1])
+            logging.info("Running task with default %s", desc.split(" legacy ")[-1])
 
     task = DataIngestionTask(args)
     if hasattr(args, "strict") and args.strict:

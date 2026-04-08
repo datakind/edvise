@@ -32,7 +32,7 @@ from databricks.connect import DatabricksSession
 
 from edvise import configs, dataio, modeling
 from edvise.modeling import h2o_ml
-from edvise.reporting.model_card.h2o_custom import H2OCustomModelCard
+from edvise.reporting.model_card.h2o_legacy import H2OLegacyModelCard
 
 h2o_ml.utils.safe_h2o_init()
 
@@ -71,7 +71,7 @@ os.environ["MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR"] = "false"
 # but as each step of the pipeline gets built, more parameters will be moved
 # from hard-coded notebook variables to shareable, persistent config fields
 cfg = dataio.read.read_config(
-    "./config-TEMPLATE.toml", schema=configs.custom.CustomProjectConfig
+    "./config-TEMPLATE.toml", schema=configs.legacy.LegacyProjectConfig
 )
 cfg
 
@@ -108,7 +108,7 @@ modeling.registration.register_mlflow_model(
 # COMMAND ----------
 
 # Initialize card
-card = H2OCustomModelCard(
+card = H2OLegacyModelCard(
     config=cfg, catalog=catalog, model_name=model_name, mlflow_client=client
 )
 

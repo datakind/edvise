@@ -659,10 +659,10 @@ if __name__ == "__main__":
         args.job_type = "training"
         logging.info("No --job_type passed; defaulting to job_type='training'.")
     # try:
-    #     if args.custom_schemas_path:
-    #         sys.path.append(args.custom_schemas_path)
+    #     if args.legacy_schemas_path:
+    #         sys.path.append(args.legacy_schemas_path)
     #         schemas = importlib.import_module("schemas")
-    #         logging.info("Using custom schemas")
+    #         logging.info("Using legacy institution schemas")
     # except Exception:
     #     logging.info("Using default schemas")
 

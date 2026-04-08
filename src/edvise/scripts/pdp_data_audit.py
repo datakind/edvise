@@ -506,19 +506,19 @@ if __name__ == "__main__":
     try:
         converter_func = importlib.import_module("dataio")
         cohort_converter_func = converter_func.converter_func_cohort
-        LOGGER.info("Running task with custom cohort converter func")
+        LOGGER.info("Running task with legacy cohort converter func")
     except Exception as e:
         cohort_converter_func = None
         LOGGER.info("Running task with default cohort converter func")
-        LOGGER.warning(f"Failed to load custom converter functions: {e}")
+            LOGGER.warning(f"Failed to load legacy converter functions: {e}")
     try:
         converter_func = importlib.import_module("dataio")
         course_converter_func = converter_func.converter_func_course
-        LOGGER.info("Running task with custom course converter func")
+        LOGGER.info("Running task with legacy course converter func")
     except Exception as e:
         course_converter_func = None
         LOGGER.info("Running task default course converter func")
-        LOGGER.warning(f"Failed to load custom converter functions: {e}")
+            LOGGER.warning(f"Failed to load legacy converter functions: {e}")
 
     task = PDPDataAuditTask(
         args,

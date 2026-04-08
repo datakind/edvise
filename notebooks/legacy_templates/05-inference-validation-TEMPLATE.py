@@ -50,7 +50,7 @@ except Exception:
 
 # load config file
 cfg = dataio.read.read_config(
-    "./config-TEMPLATE.toml", schema=configs.custom.CustomProjectConfig
+    "./config-TEMPLATE.toml", schema=configs.legacy.LegacyProjectConfig
 )
 cfg
 

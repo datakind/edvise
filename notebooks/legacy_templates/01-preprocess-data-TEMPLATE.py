@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # SST Preprocess Custom Data
+# MAGIC # SST Preprocess Legacy (non-PDP) Data
 # MAGIC
 # MAGIC First step in the process of transforming raw data into actionable, data-driven insights for advisors: load raw data, build a schema contract to enhance data & pipeline reliability, and ensure limited training-inference skew.
 # MAGIC
@@ -40,7 +40,7 @@ from databricks.connect import DatabricksSession
 from py4j.protocol import Py4JJavaError
 
 from edvise import dataio, configs
-from edvise.data_audit import custom_cleaning
+from edvise.data_audit import legacy_cleaning
 
 # NOTE: You may want to add term order here
 # from TODO.helpers import create_term_order
@@ -70,7 +70,7 @@ except Exception:
 
 # project configuration stored as a config file in TOML format
 cfg = dataio.read.read_config(
-    "./config-TEMPLATE.toml", schema=configs.custom.CustomProjectConfig
+    "./config-TEMPLATE.toml", schema=configs.legacy.LegacyProjectConfig
 )
 cfg
 
@@ -110,11 +110,11 @@ DF_MAP: t.Dict[str, t.Tuple[str, pd.DataFrame]] = {
 }
 
 # Optional per-dataset term order + dedupe hooks
-term_order_by_dataset: dict[str, tuple[custom_cleaning.TermOrderFn, str]] = {
+term_order_by_dataset: dict[str, tuple[legacy_cleaning.TermOrderFn, str]] = {
     # "student_df":  (create_student_term_order, "term"),
     # "semester_df": (create_semester_term_order, "term_code"),
 }
-dedupe_fn_by_dataset: dict[str, custom_cleaning.DedupeFn] = {
+dedupe_fn_by_dataset: dict[str, legacy_cleaning.DedupeFn] = {
     # "course_df": dedupe_course_rows,
 }
 
@@ -127,7 +127,7 @@ cleaning_cfg
 # Clean bronze datasets
 # Either use one term_order_fn/dedupe_fn for all datasets
 # OR use per-dataset hooks from above
-cleaned = custom_cleaning.clean_bronze_datasets(
+cleaned = legacy_cleaning.clean_bronze_datasets(
     cfg=cfg,
     df_map=DF_MAP,
     run_type=run_type,  # "train" or "predict"
@@ -140,10 +140,10 @@ cleaned = custom_cleaning.clean_bronze_datasets(
 )
 
 # Build specs
-datasets_spec = custom_cleaning.build_datasets_from_bronze(cfg, DF_MAP)
+datasets_spec = legacy_cleaning.build_datasets_from_bronze(cfg, DF_MAP)
 
 # Build or load schema contract
-schema_contract = custom_cleaning.load_or_build_schema_contract(
+schema_contract = legacy_cleaning.load_or_build_schema_contract(
     cfg=cfg,
     run_type=run_type,
     cleaned=cleaned,
@@ -154,7 +154,7 @@ schema_contract = custom_cleaning.load_or_build_schema_contract(
 if run_type == "train":
     aligned = cleaned
 else:
-    aligned = custom_cleaning.enforce_schema_contract(cleaned, schema_contract)
+    aligned = legacy_cleaning.enforce_schema_contract(cleaned, schema_contract)
 
 student_df = aligned["student_df"]
 course_df = aligned["course_df"]

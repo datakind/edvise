@@ -10,7 +10,7 @@ SST tools for validating and extending data schemas using Pandera. It consists o
 ```
 ├── base_schema.json         # The core, organization-wide schema definition
 ├── validation.py            # Validation engine (hard- and soft-errors) using Pandera
-├── generate_schema.py       # Schema extension generator for custom institution fields
+├── generate_schema.py       # Schema extension generator for legacy (non-PDP) institution fields
 └── README.md                # This file
 ```
 

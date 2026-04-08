@@ -250,13 +250,13 @@ def create_terms_lkp(min_year, max_year, possible_seasons):
     years = list(range(int(min_year), int(max_year) + 1))
     years = pd.DataFrame({"academic_year": [str(year) for year in years]})
 
-    # doing this cross-join because one of our custom schools dropped the S2 term, but
+    # doing this cross-join because one of our legacy (non-PDP) schools dropped the S2 term, but
     # for our definition of the outcome variable, we need each year to have the same number of terms
     terms_lkp = years.merge(possible_seasons, how="cross")
     terms_lkp["term_order"] = (
         terms_lkp["academic_year"] + terms_lkp["order"].astype(str)
     ).astype(int)
-    # For one of our custom schools, term_order indicates the year of the fall of that academic year.
+    # For one of our legacy (non-PDP) schools, term_order indicates the year of the fall of that academic year.
     # We define the calendar year as the next year for any season other than the Fall.
     terms_lkp["calendar_year"] = np.where(
         terms_lkp["season"] != "FA",

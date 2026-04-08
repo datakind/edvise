@@ -417,12 +417,12 @@ if __name__ == "__main__":
 
     # # Optional schema hook (kept from your original)
     # try:
-    #     if args.custom_schemas_path:
-    #         sys.path.append(args.custom_schemas_path)
+    #     if args.legacy_schemas_path:
+    #         sys.path.append(args.legacy_schemas_path)
     #         import importlib
 
     #         _ = importlib.import_module(f"{args.databricks_institution_name}.schemas")
-    #         logging.info("Running task with custom schema")
+    #         logging.info("Running task with legacy institution schema")
     # except Exception:
     #     logging.info("Running task with default schema")
 

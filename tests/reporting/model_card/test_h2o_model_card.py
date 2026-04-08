@@ -3,11 +3,11 @@ from unittest.mock import patch, MagicMock
 import pandas as pd
 
 from edvise.reporting.model_card.h2o_base import H2OModelCard
-from edvise.configs.custom import CustomProjectConfig
+from edvise.configs.legacy import LegacyProjectConfig
 
 
 # Minimal concrete implementation for testing
-class TestableH2OModelCard(H2OModelCard[CustomProjectConfig]):
+class TestableH2OModelCard(H2OModelCard[LegacyProjectConfig]):
     """Concrete implementation for testing H2O base functionality."""
 
     def _get_plot_config(self) -> dict[str, tuple[str, str, str, str]]:

@@ -258,12 +258,12 @@ def get_model_name_from_config(
     institution_id: str,
 ) -> str:
     """
-    Get model name by trying PDP logic first, then falling back to custom/edvise
+    Get model name by trying PDP logic first, then falling back to legacy (non-PDP)/edvise
     (target.name, checkpoint.name) if PDP logic fails.
 
     Args:
         preprocessing: Preprocessing config with target, checkpoint, and optional selection
-        institution_id: Institution ID (used for custom/edvise fallback)
+        institution_id: Institution ID (used for legacy/edvise fallback)
 
     Returns:
         Model name string for Unity Catalog

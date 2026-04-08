@@ -6,7 +6,7 @@ LOGGER = logging.getLogger(__name__)
 
 def register_attribute_sections(card, registry):
     """
-    Registers all attributes or characteristics of a custom model such as its outcome,
+    Registers all attributes or characteristics of a legacy (non-PDP) institution model such as its outcome,
     checkpoint, and target population. All of this information is gathered from the model's
     config.toml file.
     """
@@ -27,7 +27,7 @@ def register_attribute_sections(card, registry):
     @registry.register("outcome_section")
     def outcome():
         """
-        Produce section for outcome variable based on config target definition. Custom schools have
+        Produce section for outcome variable based on config target definition. Legacy (non-PDP) schools have
         validation around the config file, which enables us to assume
         that fields will be present.
         """
@@ -129,7 +129,7 @@ def register_attribute_sections(card, registry):
     @registry.register("checkpoint_section")
     def checkpoint():
         """
-        Produce a section for the custom checkpoint. Also defines an
+        Produce a section for the legacy institution checkpoint. Also defines an
         ordinal function.
         """
         try:

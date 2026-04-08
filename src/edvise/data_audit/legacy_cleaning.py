@@ -11,7 +11,7 @@ Notes:
         - This is so we can handle nulls applicable to any schema or any number of datasets.
         - This differs from PDP, where we use sklearn dtypes (non-nullable), which is due to
           the fact that the PDP schema & pipeline are narrow and well-defined in scope.
-        - Unfortunately, this differs greatly from custom schools.
+        - Unfortunately, this differs greatly from legacy (non-PDP) schools.
   - Uses schema enforcement at inference.
         - This is critical for data reliability and to ensure visibility with training-inference skew.
         - The enforcement is meant to be: strict with dtypes, primary keys and extra datasets, and
@@ -34,7 +34,7 @@ from pandas.api import types as ptypes
 
 from edvise.utils.data_cleaning import convert_to_snake_case
 from edvise.feature_generation.term import add_term_order
-from edvise.configs.custom import CustomProjectConfig, CleaningConfig
+from edvise.configs.legacy import LegacyProjectConfig, CleaningConfig
 
 LOGGER = logging.getLogger(__name__)
 
@@ -77,7 +77,7 @@ def create_datasets(
 
 
 def build_datasets_from_bronze(
-    cfg: CustomProjectConfig,
+    cfg: LegacyProjectConfig,
     df_map: t.Dict[str, t.Tuple[str, pd.DataFrame]],
 ) -> dict[str, dict]:
     return {
@@ -334,7 +334,7 @@ def generate_training_dtypes(
 ) -> pd.DataFrame:
     """
     Generate training-time dtypes for an entire DataFrame. This is needed since
-    many of our custom schools give us CSV files, which do not save dtypes (everything
+    many of our legacy (non-PDP) schools give us CSV files, which do not save dtypes (everything
     is usually nullable string type).
 
     Honors any `forced_dtypes` configured in `DtypeGenerationOptions` before applying
@@ -610,7 +610,7 @@ def clean_all_datasets_map(
 
 
 def clean_bronze_datasets(
-    cfg: CustomProjectConfig,
+    cfg: LegacyProjectConfig,
     df_map: t.Dict[str, t.Tuple[str, pd.DataFrame]],
     run_type: str,
     *,
@@ -805,7 +805,7 @@ def enforce_schema_contract(
 
 
 def load_or_build_schema_contract(
-    cfg: CustomProjectConfig,
+    cfg: LegacyProjectConfig,
     run_type: str,
     cleaned: dict[str, pd.DataFrame],
     specs: dict[str, dict[str, t.Any] | CleanSpec],
@@ -823,7 +823,7 @@ def load_or_build_schema_contract(
     if not schema_path:
         raise ValueError(
             "preprocessing.cleaning.schema_contract_path must be set "
-            "on CustomProjectConfig for schema contract I/O."
+            "on LegacyProjectConfig for schema contract I/O."
         )
 
     if run_type == "train":
@@ -1045,7 +1045,7 @@ def assign_numeric_grade(
     Assign a numeric value to each grade based on a provided mapping.
     Grades not found in the mapping are skipped (NaN) and printed.
 
-    We need to standardize the mapping so we can use it for all custom schools
+    We need to standardize the mapping so we can use it for all legacy (non-PDP) schools
 
     """
 

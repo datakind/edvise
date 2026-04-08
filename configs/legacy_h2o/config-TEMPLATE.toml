@@ -1,5 +1,5 @@
-institution_id = "custom_inst_id"
-institution_name = "Custom Institution Name"
+institution_id = "legacy_inst_id"
+institution_name = "Legacy Institution Name"
 
 student_id_col = "student_id"
 target_col = "target"

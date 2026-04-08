@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Edvise Custom Data Assessment and Preprocessing
+# MAGIC # Edvise Legacy (non-PDP) Data Assessment and Preprocessing
 # MAGIC
 # MAGIC First step in the process of transforming raw data into actionable, data-driven insights for advisors: load raw data, build a schema contract to enhance data & pipeline reliability, and ensure limited training-inference skew.
 # MAGIC
@@ -60,7 +60,7 @@ from edvise.data_audit.eda import (
 
 ## Data Cleaning Imports
 
-from edvise.data_audit.custom_cleaning import (
+from edvise.data_audit.legacy_cleaning import (
     assign_numeric_grade,
     keep_earlier_record,
     drop_readmits,
@@ -93,7 +93,7 @@ except Exception:
 
 # project configuration stored as a config file in TOML format
 cfg = dataio.read.read_config(
-    "./config.toml", schema=configs.custom.CustomProjectConfig
+    "./config.toml", schema=configs.legacy.LegacyProjectConfig
 )
 cfg
 

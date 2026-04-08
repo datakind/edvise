@@ -46,13 +46,13 @@ def get_access_tokens(api_key: str) -> t.Any:
     return access_token
 
 
-def create_custom_model(
+def create_legacy_model(
     inst_id: str,
     model_name: str,
     api_key: str,
     valid: bool,
 ) -> t.Any:
-    "Retrieve access token and log custom job ids on the GCP Cloud SQL JobTable"
+    "Retrieve access token and log legacy (non-PDP) institution job ids on the GCP Cloud SQL JobTable"
 
     if not inst_id or not isinstance(inst_id, str):
         return {
@@ -78,8 +78,8 @@ def create_custom_model(
     session = requests.Session()
     access_token = get_access_tokens(api_key=api_key)
 
-    # Log custom jobs in JobTable
-    custom_model_headers = {
+    # Log legacy institution jobs in JobTable
+    legacy_model_headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
@@ -109,7 +109,7 @@ def create_custom_model(
         f"https://staging-sst.datakind.org/api/v1/{inst_id}/models/"
     )
     resp = session.post(
-        create_model_endpoint_url, json=payload, headers=custom_model_headers
+        create_model_endpoint_url, json=payload, headers=legacy_model_headers
     )
     resp.raise_for_status()
 
@@ -119,7 +119,7 @@ def create_custom_model(
         return resp.text
 
 
-def validate_custom_institution_exist(inst_id: str, api_key: str) -> t.Any:
+def validate_legacy_institution_exist(inst_id: str, api_key: str) -> t.Any:
     if not inst_id or not isinstance(inst_id, str):
         return {
             "ok": False,
@@ -138,7 +138,7 @@ def validate_custom_institution_exist(inst_id: str, api_key: str) -> t.Any:
     access_token = get_access_tokens(api_key=api_key)
 
     # Verify institution exists
-    custom_model_headers = {
+    legacy_model_headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
@@ -147,7 +147,7 @@ def validate_custom_institution_exist(inst_id: str, api_key: str) -> t.Any:
     read_inst_endpoint_url = (
         f"https://staging-sst.datakind.org/api/v1/institutions/{inst_id}"
     )
-    resp = session.get(read_inst_endpoint_url, headers=custom_model_headers)
+    resp = session.get(read_inst_endpoint_url, headers=legacy_model_headers)
     resp.raise_for_status()
 
     try:
@@ -156,7 +156,7 @@ def validate_custom_institution_exist(inst_id: str, api_key: str) -> t.Any:
         return resp.text
 
 
-def validate_custom_model_exist(inst_id: str, model_name: str, api_key: str) -> t.Any:
+def validate_legacy_model_exist(inst_id: str, model_name: str, api_key: str) -> t.Any:
     if not isinstance(inst_id, str) or not inst_id.strip():
         raise ValueError("inst_id must be a non-empty string")
     if not isinstance(model_name, str) or not model_name.strip():
@@ -168,14 +168,14 @@ def validate_custom_model_exist(inst_id: str, model_name: str, api_key: str) -> 
     access_token = get_access_tokens(api_key=api_key)
 
     # Verify institution exists
-    custom_model_headers = {
+    legacy_model_headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
     }
 
     read_model_endpoint_url = f"https://staging-sst.datakind.org/api/v1/institutions/{inst_id}/models/{model_name}"
-    resp = session.get(read_model_endpoint_url, headers=custom_model_headers)
+    resp = session.get(read_model_endpoint_url, headers=legacy_model_headers)
     resp.raise_for_status()
 
     try:
@@ -373,10 +373,10 @@ def get_institution_id_by_name(
     return _parse_institution_response(institution_data, normalized_name)
 
 
-def log_custom_job(
+def log_legacy_job(
     inst_id: str, job_run_id: str, model_name: str, api_key: str
 ) -> t.Any:
-    "Retrieve access token and log custom job ids on the GCP Cloud SQL JobTable"
+    "Retrieve access token and log legacy (non-PDP) institution job ids on the GCP Cloud SQL JobTable"
     if not isinstance(inst_id, str) or not inst_id.strip():
         raise ValueError("inst_id must be a non-empty string")
     if not isinstance(job_run_id, str) or not job_run_id.strip():
@@ -389,14 +389,14 @@ def log_custom_job(
     session = requests.Session()
     access_token = get_access_tokens(api_key=api_key)
 
-    # Log custom jobs in JobTable
-    custom_job_headers = {
+    # Log legacy institution jobs in JobTable
+    legacy_job_headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
     }
 
-    custom_job_endpoint_url = f"https://staging-sst.datakind.org/api/v1/{inst_id}/add-custom-school-job/{job_run_id}?model_name={model_name}"
-    resp = session.post(custom_job_endpoint_url, headers=custom_job_headers)
+    legacy_job_endpoint_url = f"https://staging-sst.datakind.org/api/v1/{inst_id}/add-legacy-school-job/{job_run_id}?model_name={model_name}"
+    resp = session.post(legacy_job_endpoint_url, headers=legacy_job_headers)
     resp.raise_for_status()
 
     try:

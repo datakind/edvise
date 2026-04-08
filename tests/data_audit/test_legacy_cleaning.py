@@ -5,9 +5,9 @@ import pandas as pd
 import logging
 import pytest
 
-from edvise.data_audit import custom_cleaning as m
+from edvise.data_audit import legacy_cleaning as m
 from edvise.data_audit import eda
-from edvise.data_audit.custom_cleaning import (
+from edvise.data_audit.legacy_cleaning import (
     create_datasets,
     normalize_columns,
     DtypeGenerationOptions,
@@ -180,7 +180,7 @@ def test_clean_dataset_raises_on_column_collision(monkeypatch):
 
 
 def test_clean_dataset_student_id_rename_null_handling_and_pk_uniqueness(caplog):
-    caplog.set_level(logging.INFO, logger="edvise.data_audit.custom_cleaning")
+    caplog.set_level(logging.INFO, logger="edvise.data_audit.legacy_cleaning")
 
     df = pd.DataFrame(
         {
@@ -605,7 +605,7 @@ def test_align_and_rank_dataframes_preserves_original_columns():
 
 def test_align_and_rank_dataframes_logs_alignment_info(caplog):
     """Test that alignment information is logged."""
-    caplog.set_level(logging.INFO, logger="edvise.data_audit.custom_cleaning")
+    caplog.set_level(logging.INFO, logger="edvise.data_audit.legacy_cleaning")
 
     df1 = pd.DataFrame({"term_order": [1, 2, 3]})
     df2 = pd.DataFrame({"term_order": [2, 3, 4]})
@@ -842,7 +842,7 @@ def test_drop_readmits_removes_multiple_readmit_students():
 
 def test_drop_readmits_logs_removal_info(caplog):
     """Test that drop_readmits logs information about removed students."""
-    caplog.set_level(logging.INFO, logger="edvise.data_audit.custom_cleaning")
+    caplog.set_level(logging.INFO, logger="edvise.data_audit.legacy_cleaning")
 
     df = pd.DataFrame(
         {
@@ -1401,7 +1401,7 @@ def test_assign_numeric_grade_preserves_original_columns():
 
 def test_assign_numeric_grade_logs_transformation(caplog):
     """Test that assign_numeric_grade logs transformation messages."""
-    caplog.set_level(logging.INFO, logger="edvise.data_audit.custom_cleaning")
+    caplog.set_level(logging.INFO, logger="edvise.data_audit.legacy_cleaning")
 
     df = pd.DataFrame({"grade": ["A", "B"]})
     m.assign_numeric_grade(df)

@@ -4,8 +4,8 @@
 - A model card is produced via `config.toml` (source of truth, model definition) and mlflow artifacts from the selected model (plots, tables, metrics).
 
 ## Structure
-- `model_card`: This contains the "main" functions of the model card module and where the ModelCard base class is defined, as well as different overrides such as for PDP or Custom schools.
-- `template`: This contains markdown template used to generate model cards. All institutions use this template (PDP and custom). Also, contains CSS file to style our HTML file prior to PDF conversion.
+- `model_card`: This contains the "main" functions of the model card module and where the ModelCard base class is defined, as well as different overrides such as for PDP or legacy (non-PDP) institutions.
+- `template`: This contains markdown template used to generate model cards. All institutions use this template (PDP and legacy). Also, contains CSS file to style our HTML file prior to PDF conversion.
 - `sections`: This has all the separate sections that are registered for the model card. This is separated out from the model card class
 for unit testing and to scale our model card for our institution and organizational needs.
 - `utils`: This has a formatting class and a general utils file that makes calls to MLflow and embeds images in markdown. We also have a types file, which defines a general model card config so that we can override the config for different platforms.

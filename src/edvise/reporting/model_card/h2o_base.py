@@ -16,7 +16,7 @@ class H2OModelCard(ModelCard[C]):
     Base class for H2O-based model cards.
 
     This intermediate class handles all H2O-specific logic that is common
-    across different project types (Custom, PDP, etc.). Subclasses should
+    across different project types (Legacy non-PDP institutions, PDP, etc.). Subclasses should
     only implement project-specific customizations.
     """
 

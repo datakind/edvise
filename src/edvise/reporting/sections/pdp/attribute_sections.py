@@ -73,9 +73,9 @@ def register_attribute_sections(card, registry):
     def target_population():
         """
         Produce a section for the target population.  This
-        will need to later be refined to support both PDP and custom institutions well.
+        will need to later be refined to support both PDP and legacy (non-PDP) institutions well.
 
-        TODO: Create an alias for column names. Custom schools will need to create their
+        TODO: Create an alias for column names. Legacy (non-PDP) schools will need to create their
         own alias and feed it into the ModelCard as an attribute.
         """
         criteria = card.cfg.preprocessing.selection.student_criteria

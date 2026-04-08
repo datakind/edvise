@@ -7,9 +7,9 @@ import pydantic as pyd
 import pathlib
 import pytest
 
-from edvise.configs import custom
+from edvise.configs import legacy
 
-SRC_ROOT = pathlib.Path(__file__).parents[2] / "configs" / "custom_h2o"
+SRC_ROOT = pathlib.Path(__file__).parents[2] / "configs" / "legacy_h2o"
 
 
 @pytest.fixture(scope="module")
@@ -19,8 +19,8 @@ def template_cfg_dict():
         return tomllib.load(f)
 
 
-def test_template_custom_cfgs(template_cfg_dict):
-    result = custom.CustomProjectConfig.model_validate(template_cfg_dict)
+def test_template_legacy_cfgs(template_cfg_dict):
+    result = legacy.LegacyProjectConfig.model_validate(template_cfg_dict)
     print(result)
     assert isinstance(result, pyd.BaseModel)
 
@@ -29,20 +29,20 @@ def test_template_custom_cfgs(template_cfg_dict):
     ["cfg_str", "context"],
     [
         (
-            'institution_id = "custom_inst_id"',
+            'institution_id = "legacy_inst_id"',
             pytest.raises(pyd.ValidationError),
         ),
         (
             """
             institution_id = "INVALID_IDENTIFIER!"
-            institution_name = "Custom Institution Name"
+            institution_name = "Legacy Institution Name"
             """,
             pytest.raises(pyd.ValidationError),
         ),
         (
             """
-            institution_id = "custom_inst_id"
-            institution_name = "Custom Institution Name"
+            institution_id = "legacy_inst_id"
+            institution_name = "Legacy Institution Name"
             [datasets.bronze]
 
             [datasets.bronze.raw_cohort]
@@ -66,8 +66,8 @@ def test_template_custom_cfgs(template_cfg_dict):
         ),
     ],
 )
-def test_bad_custom_cfgs(cfg_str, context):
+def test_bad_legacy_cfgs(cfg_str, context):
     cfg = tomllib.loads(cfg_str)
     with context:
-        result = custom.CustomProjectConfig.model_validate(cfg)
+        result = legacy.LegacyProjectConfig.model_validate(cfg)
         assert isinstance(result, pyd.BaseModel)

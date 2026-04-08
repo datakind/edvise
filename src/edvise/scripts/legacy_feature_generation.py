@@ -19,7 +19,7 @@ logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
 
-class CustomFeatureGenerationTask:
+class LegacyFeatureGenerationTask:
     """Encapsulates the data preprocessing logic for the SST pipeline."""
 
     def __init__(self, args: argparse.Namespace):
@@ -137,7 +137,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--cohort_dataset_validated_path", type=str, required=True)
     parser.add_argument("--course_dataset_validated_path", type=str, required=True)
     parser.add_argument("--toml_file_path", type=str, required=True)
-    parser.add_argument("--custom_schemas_path", required=False)
+    parser.add_argument("--legacy_schemas_path", required=False)
     parser.add_argument("--student_term_path", required=False)
     return parser.parse_args()
 
@@ -145,14 +145,15 @@ def parse_arguments() -> argparse.Namespace:
 if __name__ == "__main__":
     args = parse_arguments()
     try:
-        sys.path.append(args.custom_schemas_path)
+        if getattr(args, "legacy_schemas_path", None):
+            sys.path.append(args.legacy_schemas_path)
         sys.path.append(
             f"/Volumes/staging_sst_01/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
         )
         schemas = importlib.import_module("schemas")
-        logging.info("Running task with custom schema")
+        logging.info("Running task with legacy institution schema")
     except Exception:
         logging.info("Running task with default schema")
 
-    task = CustomFeatureGenerationTask(args)
+    task = LegacyFeatureGenerationTask(args)
     task.run()

@@ -191,14 +191,14 @@ def parse_arguments() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_arguments()
-    # again no school has a custom schema for pdp , but add in iff needed
+    # again no school has a legacy institution schema for pdp , but add in iff needed
     # try:
-    #     sys.path.append(args.custom_schemas_path)
+    #     sys.path.append(args.legacy_schemas_path)
     #     sys.path.append(
     #         f"/Volumes/staging_sst_01/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
     #     )
     #     schemas = importlib.import_module("schemas")
-    #     logging.info("Running task with custom schema")
+    #     logging.info("Running task with legacy institution schema")
     # except Exception:
     #     logging.info("Running task with default schema")
     task = PDPCheckpointsTask(args)
