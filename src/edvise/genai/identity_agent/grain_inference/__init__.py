@@ -12,10 +12,16 @@ from .prompt_builder import (
     build_identity_agent_user_message,
     format_column_list,
     parse_grain_contract,
+    parse_grain_contract_with_hitl,
     parse_institution_grain_contracts,
     strip_json_fences,
 )
-from .runner import run_identity_agent, run_identity_agents_for_institution
+from .runner import (
+    run_identity_agent,
+    run_identity_agent_with_hitl,
+    run_identity_agents_for_institution,
+    run_identity_agents_for_institution_with_hitl,
+)
 from .schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
     DedupPolicy,
@@ -39,8 +45,11 @@ __all__ = [
     "format_column_list",
     "build_institution_grain_contracts",
     "parse_grain_contract",
+    "parse_grain_contract_with_hitl",
     "parse_institution_grain_contracts",
     "run_identity_agent",
+    "run_identity_agent_with_hitl",
     "run_identity_agents_for_institution",
+    "run_identity_agents_for_institution_with_hitl",
     "strip_json_fences",
 ]

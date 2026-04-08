@@ -14,6 +14,7 @@ from typing import Union
 
 import pandas as pd
 
+from edvise.genai.identity_agent.hitl.schemas import HITLItem
 from edvise.genai.identity_agent.profiling import RankedCandidateProfiles
 
 from .schemas import (
@@ -430,38 +431,55 @@ def build_identity_agent_user_message(
     )
 
 
-def parse_grain_contract(raw: RawContractInput) -> GrainContract:
+def _grain_payload_as_dict(raw: RawContractInput) -> dict:
+    if isinstance(raw, dict):
+        return dict(raw)
+    text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+    return json.loads(strip_json_fences(text))
+
+
+def parse_grain_contract_with_hitl(raw: RawContractInput) -> tuple[GrainContract, list[HITLItem]]:
     """
-    Parse and validate IdentityAgent pass-1 JSON into :class:`GrainContract`.
+    Parse pass-1 JSON into :class:`GrainContract` plus structured ``hitl_items``.
 
-    If a legacy top-level ``term_config`` key is present (older combined prompts), it is
-    removed before validation — term config belongs to pass 2 (:class:`TermContract`).
-
-    Accepts raw model text (optionally fenced), UTF-8 bytes, or an already-parsed dict.
+    Top-level ``hitl_items`` (if present) is validated as :class:`HITLItem` and removed
+    before grain validation. Legacy ``term_config`` is stripped from the payload.
     """
-
-    def _as_dict() -> dict:
-        if isinstance(raw, dict):
-            return dict(raw)
-        text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
-        return json.loads(strip_json_fences(text))
-
     try:
-        d = _as_dict()
+        d = _grain_payload_as_dict(raw)
     except Exception:
         logger.debug("Grain contract parse failed to load JSON")
         raise
+    hitl_raw = d.pop("hitl_items", None)
+    if hitl_raw is None:
+        hitl_raw = []
+    if not isinstance(hitl_raw, list):
+        raise ValueError("hitl_items must be a list or null")
     if "term_config" in d:
         d.pop("term_config", None)
         logger.debug("Stripped legacy term_config from pass-1 grain JSON (use pass 2 for terms)")
+    items = [HITLItem.model_validate(x) for x in hitl_raw]
     try:
-        return GrainContract.model_validate(d)
+        return GrainContract.model_validate(d), items
     except Exception:
         logger.debug(
             "Grain contract validation failed; raw (truncated): %s",
             str(raw)[:500] if not isinstance(raw, dict) else str(raw)[:500],
         )
         raise
+
+
+def parse_grain_contract(raw: RawContractInput) -> GrainContract:
+    """
+    Parse and validate IdentityAgent pass-1 JSON into :class:`GrainContract`.
+
+    Strips ``hitl_items`` when present (use :func:`parse_grain_contract_with_hitl` to keep it).
+    If a legacy top-level ``term_config`` key is present, it is removed.
+
+    Accepts raw model text (optionally fenced), UTF-8 bytes, or an already-parsed dict.
+    """
+    gc, _ = parse_grain_contract_with_hitl(raw)
+    return gc
 
 
 def parse_institution_grain_contracts(

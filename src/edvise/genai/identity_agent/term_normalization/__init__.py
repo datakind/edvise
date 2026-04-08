@@ -32,6 +32,7 @@ _PROMPT_EXPORTS = frozenset(
         "build_term_normalization_user_message",
         "build_term_normalization_user_message_from_profiles",
         "parse_institution_term_contracts",
+        "parse_institution_term_contracts_with_hitl",
         "parse_term_normalization_pass_output",
         "strip_json_fences",
     }
@@ -56,6 +57,7 @@ __all__ = [
     "build_term_normalization_user_message",
     "build_term_normalization_user_message_from_profiles",
     "parse_institution_term_contracts",
+    "parse_institution_term_contracts_with_hitl",
     "parse_term_normalization_pass_output",
     "strip_json_fences",
 ]

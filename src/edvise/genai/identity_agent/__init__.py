@@ -4,7 +4,9 @@ Identity pipeline: profiling → grain contract → execution (transforms + sche
 - ``profiling``: deterministic candidate keys and variance facts (`RankedCandidateProfiles`).
 - ``grain_inference``: prompts, `GrainContract` (pass 1), optional row helpers.
 - ``term_normalization``: Pass 2 prompts, `term_config` models, and :func:`apply_term_order_from_config`.
-- ``execution``: grain dedup + term contract application, merge into school config, frozen schema contract.
+- ``execution``: grain dedup + term contract application, merge into school config; emits the single
+  SMA-facing frozen contract type :class:`EnrichedSchemaContractForSMA`.
+- ``identity_bundle``: optional combined handoff :class:`InstitutionIdentityContract` (pass 1 + pass 2 envelopes).
 """
 
 from __future__ import annotations
@@ -12,6 +14,11 @@ from __future__ import annotations
 from typing import Any
 
 from . import execution, grain_inference, profiling, term_normalization
+from .hitl import (
+    check_gate,
+    write_identity_grain_artifacts,
+    write_identity_term_artifacts,
+)
 from .grain_inference import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
     IDENTITY_AGENT_USER_TEMPLATE,
@@ -26,9 +33,12 @@ from .grain_inference import (
     deduplication,
     format_column_list,
     parse_grain_contract,
+    parse_grain_contract_with_hitl,
     parse_institution_grain_contracts,
     run_identity_agent,
+    run_identity_agent_with_hitl,
     run_identity_agents_for_institution,
+    run_identity_agents_for_institution_with_hitl,
     strip_json_fences,
 )
 from .term_normalization import (
@@ -47,6 +57,7 @@ from .term_normalization import (
     build_term_normalization_user_message,
     build_term_normalization_user_message_from_profiles,
     parse_institution_term_contracts,
+    parse_institution_term_contracts_with_hitl,
     parse_term_normalization_pass_output,
 )
 from .profiling import (
@@ -68,11 +79,17 @@ from .execution import (
     build_enriched_schema_contract_for_dataset,
     build_schema_contract_from_grain_contracts,
     build_training_example_from_schema_contract,
+    EnrichedSchemaContractForSMA,
     merge_grain_contracts_into_school_config,
     merge_grain_student_id_alias_into_school_config,
+    parse_enriched_schema_contract_for_sma,
     process_school_dataset,
     save_enriched_schema_contract,
     save_enriched_schema_contracts,
+)
+from .identity_bundle import (
+    InstitutionIdentityContract,
+    institution_identity_contract_from_parts,
 )
 
 __all__ = [
@@ -82,6 +99,7 @@ __all__ = [
     "IDENTITY_CONFIDENCE_HITL_THRESHOLD",
     "DedupPolicy",
     "DedupStrategy",
+    "EnrichedSchemaContractForSMA",
     "CANONICAL_SEASONS",
     "InstitutionTermContract",
     "TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT",
@@ -93,6 +111,7 @@ __all__ = [
     "IDENTITY_AGENT_USER_TEMPLATE",
     "GrainContract",
     "InstitutionGrainContract",
+    "InstitutionIdentityContract",
     "KeyProfileResult",
     "RankedCandidateProfiles",
     "RawColumnProfile",
@@ -125,16 +144,25 @@ __all__ = [
     "save_enriched_schema_contract",
     "save_enriched_schema_contracts",
     "build_institution_grain_contracts",
+    "check_gate",
+    "institution_identity_contract_from_parts",
     "parse_grain_contract",
+    "parse_grain_contract_with_hitl",
     "parse_institution_grain_contracts",
+    "parse_enriched_schema_contract_for_sma",
     "parse_institution_term_contracts",
+    "parse_institution_term_contracts_with_hitl",
     "parse_term_normalization_pass_output",
     "profile_candidate_keys",
     "profiling",
     "term_normalization",
     "run_identity_agent",
+    "run_identity_agent_with_hitl",
     "run_identity_agents_for_institution",
+    "run_identity_agents_for_institution_with_hitl",
     "strip_json_fences",
+    "write_identity_grain_artifacts",
+    "write_identity_term_artifacts",
 ]
 
 

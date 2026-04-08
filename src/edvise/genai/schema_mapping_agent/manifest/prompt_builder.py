@@ -36,6 +36,10 @@ def extract_schema_descriptor(schema_class) -> dict:
 def summarize_schema_contract(contract: dict) -> dict:
     """
     Slim down the schema contract for prompt injection.
+
+    Input shape matches the IdentityAgent enriched JSON validated by
+    ``edvise.genai.identity_agent.execution.sma_schema_contract.EnrichedSchemaContractForSMA``.
+
     Keeps: column names, dtypes (from each dataset's frozen ``dtypes`` map), null %,
     unique values (if present), sample values from ``training.column_details``.
     Drops: column_order_hash, normalization maps, file paths, boolean_map, null_tokens.

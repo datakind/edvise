@@ -59,7 +59,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from edvise.genai.identity_agent.grain_inference.schemas import HookSpec
-from hitl_models import (
+from edvise.genai.identity_agent.hitl.schemas import (
     GrainResolution,
     HITLDomain,
     HITLItem,

@@ -20,8 +20,19 @@ from .contract_builder import (
     save_enriched_schema_contract,
     save_enriched_schema_contracts,
 )
+from .sma_schema_contract import (
+    EnrichedSchemaContractForSMA,
+    FrozenDatasetSchemaForSMA,
+    SchemaContractColumnDetail,
+    SchemaContractTrainingBlock,
+    parse_enriched_schema_contract_for_sma,
+)
 
 __all__ = [
+    "EnrichedSchemaContractForSMA",
+    "FrozenDatasetSchemaForSMA",
+    "SchemaContractColumnDetail",
+    "SchemaContractTrainingBlock",
     "UNIQUE_VALUES_MAX_CARDINALITY",
     "apply_grain_dedup",
     "apply_grain_execution",
@@ -36,6 +47,7 @@ __all__ = [
     "canonicalize_grain_contract_student_id_alias",
     "merge_grain_contracts_into_school_config",
     "merge_grain_student_id_alias_into_school_config",
+    "parse_enriched_schema_contract_for_sma",
     "process_school_dataset",
     "save_enriched_schema_contract",
     "save_enriched_schema_contracts",

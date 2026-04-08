@@ -7,6 +7,7 @@ for model output — mirrors :mod:`edvise.genai.identity_agent.grain_inference.p
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from collections.abc import Mapping
@@ -16,6 +17,8 @@ from edvise.genai.identity_agent.grain_inference.schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
     GrainContract,
 )
+from edvise.genai.identity_agent.hitl.persistence import dedupe_hitl_items
+from edvise.genai.identity_agent.hitl.schemas import HITLItem
 from edvise.genai.identity_agent.profiling.schemas import RawTableProfile
 
 from .schemas import InstitutionTermContract, TermContract
@@ -644,23 +647,59 @@ def build_term_normalization_batch_user_message_from_grain_and_profiles(
     return json.dumps(payload, indent=2)
 
 
+def _term_payload_as_dict(raw: RawTermPassInput) -> dict:
+    if isinstance(raw, dict):
+        return copy.deepcopy(raw)
+    text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+    text = strip_json_fences(text)
+    return json.loads(text)
+
+
+def _strip_term_batch_hitl_payload(d: dict) -> tuple[dict, list[HITLItem]]:
+    """Remove ``hitl_items`` from top level and per-dataset entries; validate items."""
+    d = copy.deepcopy(d)
+    collected: list[HITLItem] = []
+    top = d.pop("hitl_items", None)
+    if top:
+        collected.extend(HITLItem.model_validate(x) for x in top)
+    datasets = d.get("datasets")
+    if isinstance(datasets, dict):
+        for _k, v in datasets.items():
+            if not isinstance(v, dict):
+                continue
+            nested = v.pop("hitl_items", None)
+            if nested:
+                collected.extend(HITLItem.model_validate(x) for x in nested)
+    return d, dedupe_hitl_items(collected)
+
+
+def parse_institution_term_contracts_with_hitl(
+    raw: RawTermPassInput,
+) -> tuple[InstitutionTermContract, list[HITLItem]]:
+    """
+    Parse batch Pass 2 JSON into :class:`InstitutionTermContract` plus ``hitl_items``.
+
+    Strips ``hitl_items`` from the payload before contract validation.
+    """
+    try:
+        d = _term_payload_as_dict(raw)
+        d2, items = _strip_term_batch_hitl_payload(d)
+        return InstitutionTermContract.model_validate(d2), items
+    except Exception:
+        text = raw if isinstance(raw, str) else str(raw)[:500]
+        logger.debug("Institution term contract parse failed; raw (truncated): %s", text)
+        raise
+
+
 def parse_institution_term_contracts(raw: RawTermPassInput) -> InstitutionTermContract:
     """
     Parse batch Pass 2 JSON into :class:`InstitutionTermContract`.
 
-    Accepts raw model text (optionally fenced), UTF-8 bytes, or an already-parsed dict.
+    Strips ``hitl_items`` when present (use :func:`parse_institution_term_contracts_with_hitl`
+    to retain them). Accepts raw model text (optionally fenced), UTF-8 bytes, or a dict.
     """
-    if isinstance(raw, dict):
-        return InstitutionTermContract.model_validate(raw)
-    text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
-    text = strip_json_fences(text)
-    try:
-        return InstitutionTermContract.model_validate_json(text)
-    except Exception:
-        logger.debug(
-            "Institution term contract parse failed; raw (truncated): %s", text[:500]
-        )
-        raise
+    inst, _ = parse_institution_term_contracts_with_hitl(raw)
+    return inst
 
 
 def parse_term_normalization_pass_output(

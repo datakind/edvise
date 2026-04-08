@@ -6,12 +6,14 @@ from collections.abc import Callable, Mapping
 
 import pandas as pd
 
+from edvise.genai.identity_agent.hitl.schemas import HITLItem
 from edvise.genai.identity_agent.profiling import RankedCandidateProfiles
 
 from .prompt_builder import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
     build_identity_agent_user_message,
     parse_grain_contract,
+    parse_grain_contract_with_hitl,
 )
 from .schemas import IDENTITY_CONFIDENCE_HITL_THRESHOLD, GrainContract
 
@@ -35,6 +37,24 @@ def run_identity_agent(
     )
     raw = llm_complete(IDENTITY_AGENT_SYSTEM_PROMPT, user)
     return parse_grain_contract(raw)
+
+
+def run_identity_agent_with_hitl(
+    *,
+    institution_id: str,
+    dataset_name: str,
+    key_profile: RankedCandidateProfiles,
+    df: pd.DataFrame,
+    llm_complete: Callable[[str, str], str],
+) -> tuple[GrainContract, list[HITLItem]]:
+    """
+    Same as :func:`run_identity_agent`, but also returns structured ``hitl_items`` from the model.
+    """
+    user = build_identity_agent_user_message(
+        institution_id, dataset_name, key_profile, df=df
+    )
+    raw = llm_complete(IDENTITY_AGENT_SYSTEM_PROMPT, user)
+    return parse_grain_contract_with_hitl(raw)
 
 
 def run_identity_agents_for_institution(
@@ -81,3 +101,45 @@ def run_identity_agents_for_institution(
             a(contract)
 
     return contracts
+
+
+def run_identity_agents_for_institution_with_hitl(
+    *,
+    institution_id: str,
+    institution_profiles: Mapping[str, RankedCandidateProfiles],
+    dfs: Mapping[str, pd.DataFrame],
+    llm_complete: Callable[[str, str], str],
+    confidence_threshold: float = IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+    queue_for_hitl_review: Callable[[GrainContract], None] | None = None,
+    auto_approve_and_apply: Callable[[GrainContract], None] | None = None,
+) -> tuple[dict[str, GrainContract], list[HITLItem]]:
+    """
+    Like :func:`run_identity_agents_for_institution`, but merges all per-table ``hitl_items``
+    into a single list (for :func:`~edvise.genai.identity_agent.hitl.persistence.write_identity_grain_artifacts`).
+    """
+    q = queue_for_hitl_review or (lambda _c: None)
+    a = auto_approve_and_apply or (lambda _c: None)
+    contracts: dict[str, GrainContract] = {}
+    all_hitl: list[HITLItem] = []
+
+    for dataset_name, key_profile in institution_profiles.items():
+        if dataset_name not in dfs:
+            raise KeyError(
+                f"No DataFrame for dataset {dataset_name!r} in dfs "
+                f"(have {list(dfs.keys())!r})"
+            )
+        contract, items = run_identity_agent_with_hitl(
+            institution_id=institution_id,
+            dataset_name=dataset_name,
+            key_profile=key_profile,
+            df=dfs[dataset_name],
+            llm_complete=llm_complete,
+        )
+        contracts[dataset_name] = contract
+        all_hitl.extend(items)
+        if contract.hitl_flag or contract.confidence < confidence_threshold:
+            q(contract)
+        else:
+            a(contract)
+
+    return contracts, all_hitl

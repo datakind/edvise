@@ -5,6 +5,10 @@ Combines :func:`merge_grain_contracts_into_school_config` / :func:`build_schema_
 with helpers that attach historical-example metadata (samples, null stats, low-cardinality uniques)
 for Schema Mapping Agent prompts.
 
+The **canonical JSON shape** consumed by Schema Mapping Agent is
+:class:`~edvise.genai.identity_agent.execution.sma_schema_contract.EnrichedSchemaContractForSMA`
+(enriched institution file with ``school_id`` and per-dataset ``training``).
+
 Use :func:`build_enriched_schema_contract_for_dataset` once per logical dataset, then
 :func:`save_enriched_schema_contract` (or loop and save with your naming convention).
 """
@@ -603,8 +607,23 @@ def _build_enriched_schema_contract(
 def save_enriched_schema_contract(
     enriched_contract: Dict[str, Any],
     output_path: Path,
+    *,
+    validate_for_sma: bool = False,
 ) -> None:
-    """Write a single enriched schema contract JSON (any filename)."""
+    """
+    Write a single enriched schema contract JSON (any filename).
+
+    Set ``validate_for_sma=True`` to assert the payload matches
+    :class:`~edvise.genai.identity_agent.execution.sma_schema_contract.EnrichedSchemaContractForSMA`
+    before writing.
+    """
+    if validate_for_sma:
+        from edvise.genai.identity_agent.execution.sma_schema_contract import (
+            parse_enriched_schema_contract_for_sma,
+        )
+
+        parse_enriched_schema_contract_for_sma(enriched_contract)
+
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w") as f:
