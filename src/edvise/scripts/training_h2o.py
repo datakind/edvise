@@ -380,8 +380,13 @@ class TrainingTask:
                 label="Training SHAP Feature Importance table",
             )
 
+            # Generate support_overview using full test dataset (same as ROC table)
+            logging.info("Generating support_overview table from full test dataset")
+            out_full = run_predictions(
+                pred_cfg=cfg, pred_paths=paths, run_type=RunType.TRAIN, test_sample_cap=None
+            )
             self.write_delta(
-                df=out.support_score_distribution,
+                df=out_full.support_score_distribution,
                 table_name_suffix=f"training_{self.cfg.model.run_id}_support_overview",
                 label="Training Support Overview table",
             )
