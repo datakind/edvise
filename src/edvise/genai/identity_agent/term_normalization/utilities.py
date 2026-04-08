@@ -112,11 +112,11 @@ def add_edvise_term_order(
         - ``term_col``: single column encoding both year and season; or
         - ``year_col`` and ``season_col``: separate columns (mutually exclusive with ``term_col``).
 
-        Also ``season_map``, ``term_extraction`` (``standard`` | ``custom``).
+        Also ``season_map``, ``term_extraction`` (``standard`` | ``hook_required``).
     year_extractor : callable | None
-        Required when term_config["term_extraction"] == "custom" (combined ``term_col`` only).
+        Required when term_config["term_extraction"] == "hook_required" (combined ``term_col`` only).
     season_extractor : callable | None
-        Required when term_config["term_extraction"] == "custom" (combined ``term_col`` only).
+        Required when term_config["term_extraction"] == "hook_required" (combined ``term_col`` only).
 
     Returns
     -------
@@ -150,19 +150,19 @@ def add_edvise_term_order(
             "term_col is mutually exclusive with year_col and season_col in term_config."
         )
 
-    if term_extraction == "custom":
+    if term_extraction == "hook_required":
         if has_split:
             raise ValueError(
-                "term_extraction 'custom' is not supported when year_col and season_col are set."
+                "term_extraction 'hook_required' is not supported when year_col and season_col are set."
             )
         if year_extractor is None or season_extractor is None:
             raise ValueError(
-                "term_extraction is 'custom' but year_extractor and/or season_extractor not provided. "
+                "term_extraction is 'hook_required' but year_extractor and/or season_extractor not provided. "
                 "Resolve extractors from institution hook file via resolve_term_extractors()."
             )
     elif has_split and (year_extractor is not None or season_extractor is not None):
         raise ValueError(
-            "year_extractor and season_extractor are only used with term_extraction 'custom' "
+            "year_extractor and season_extractor are only used with term_extraction 'hook_required' "
             "and a combined term_col."
         )
 
@@ -325,12 +325,12 @@ def term_order_fn_from_term_order_config(
     Pass the result as ``term_order_fn`` and set ``term_column`` to
     :func:`term_order_column_for_clean_dataset`\\(config\\) so the optional term-order step runs.
 
-    Custom extraction (``term_extraction == \"custom\"``) is not supported here; resolve
+    Hook-required extraction (``term_extraction == \"hook_required\"``) is not supported here; resolve
     extractors from ``hook_spec`` and call :func:`add_edvise_term_order` directly instead.
     """
-    if config.term_extraction == "custom":
+    if config.term_extraction == "hook_required":
         raise ValueError(
-            "term_order_fn_from_term_order_config does not support term_extraction 'custom'; "
+            "term_order_fn_from_term_order_config does not support term_extraction 'hook_required'; "
             "call add_edvise_term_order with year_extractor and season_extractor from hook_spec."
         )
     expected_column = term_order_column_for_clean_dataset(config)
@@ -357,13 +357,13 @@ def apply_term_order_from_config(
     by calling :func:`add_edvise_term_order` with ``config`` serialized as the JSON-compatible dict
     IdentityAgent emits (including :func:`add_edvise_term_labels`).
 
-    Custom extraction (``term_extraction == \"custom\"``) requires ``year_extractor`` and
+    Hook-required extraction (``term_extraction == \"hook_required\"``) requires ``year_extractor`` and
     ``season_extractor``; resolve those from ``hook_spec`` and call :func:`add_edvise_term_order`
     directly instead of this helper.
     """
-    if config.term_extraction == "custom":
+    if config.term_extraction == "hook_required":
         raise ValueError(
-            "term_config.term_extraction is 'custom' — provide year_extractor and season_extractor "
+            "term_config.term_extraction is 'hook_required' — provide year_extractor and season_extractor "
             "from hook_spec to add_edvise_term_order (or preprocess the term column)."
         )
     tc = _normalize_term_config_column_names(config.model_dump(mode="json"))

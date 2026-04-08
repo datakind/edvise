@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -11,6 +11,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+from edvise.genai.identity_agent.grain_inference.schemas import HookFunctionSpec, HookSpec  # noqa: F401
 
 CANONICAL_SEASONS = {"FALL", "SPRING", "SUMMER", "WINTER"}
 
@@ -44,7 +46,7 @@ class TermOrderConfig(BaseModel):
     season_map is an ordered list of raw tokens with canonical season labels; list position is
     chronological rank (1-indexed) within a calendar year.
 
-    When term_extraction is "custom", hook_spec must describe drafted year_extractor and
+    When term_extraction is "hook_required", hook_spec must describe drafted year_extractor and
     season_extractor functions for human review before execution. hook_spec is never needed
     when year_col and season_col are provided.
     """
@@ -79,10 +81,13 @@ class TermOrderConfig(BaseModel):
             "within a calendar year. canonical must be one of: FALL, SPRING, SUMMER, WINTER."
         ),
     )
-    term_extraction: Literal["standard", "custom"]
-    hook_spec: dict[str, Any] | None = Field(
+    term_extraction: Literal["standard", "hook_required"]
+    hook_spec: HookSpec | None = Field(
         default=None,
-        description="Required when term_extraction == 'custom'; null for standard extraction.",
+        description=(
+            "Required when term_extraction == 'hook_required'; null for standard extraction. "
+            "Same HookSpec shape as DedupPolicy.hook_spec."
+        ),
     )
 
     @model_validator(mode="after")
@@ -107,10 +112,10 @@ class TermOrderConfig(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def _hook_spec_when_custom(self) -> TermOrderConfig:
+    def _hook_spec_when_hook_required(self) -> TermOrderConfig:
         # standard hook_spec rule
-        if self.term_extraction == "custom" and self.hook_spec is None:
-            raise ValueError("hook_spec is required when term_extraction is 'custom'")
+        if self.term_extraction == "hook_required" and self.hook_spec is None:
+            raise ValueError("hook_spec is required when term_extraction is 'hook_required'")
         # split column constraints
         if self.year_col is not None and self.season_col is not None:
             if self.term_extraction != "standard":
@@ -225,6 +230,8 @@ class InstitutionTermContract(BaseModel):
 
 __all__ = [
     "CANONICAL_SEASONS",
+    "HookFunctionSpec",
+    "HookSpec",
     "InstitutionTermContract",
     "SeasonMapEntry",
     "TermContract",

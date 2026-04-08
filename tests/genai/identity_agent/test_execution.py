@@ -13,7 +13,7 @@ from edvise.genai.identity_agent.execution import (
     merge_grain_contracts_into_school_config,
     merge_grain_student_id_alias_into_school_config,
 )
-from edvise.genai.identity_agent.grain_inference.schemas import DedupPolicy, GrainContract
+from edvise.genai.identity_agent.grain_inference.schemas import DedupPolicy, GrainContract, HookSpec
 from edvise.genai.identity_agent.term_normalization.schemas import (
     TermContract,
     TermOrderConfig,
@@ -229,15 +229,15 @@ def test_policy_required_skips_dedup():
     assert len(out) == 2
 
 
-def test_apply_term_order_raises_when_custom_hooks_not_wired():
+def test_apply_term_order_raises_when_hook_required_hooks_not_wired():
     df = pd.DataFrame({"term": ["1192"]})
     c = TermOrderConfig(
         term_col="term",
         season_map=[],
-        term_extraction="custom",
-        hook_spec={"file": "pipelines/x/helpers/term_hooks.py", "functions": []},
+        term_extraction="hook_required",
+        hook_spec=HookSpec(file="pipelines/x/helpers/term_hooks.py", functions=[]),
     )
-    with pytest.raises(ValueError, match="custom"):
+    with pytest.raises(ValueError, match="hook_required"):
         apply_term_order_from_config(df, c)
 
 

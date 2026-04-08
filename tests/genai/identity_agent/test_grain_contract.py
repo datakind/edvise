@@ -182,12 +182,12 @@ def test_legacy_term_config_stripped_from_pass1_json():
     assert isinstance(c, GrainContract)
 
 
-def test_term_config_custom_requires_hook_spec():
+def test_term_config_hook_required_requires_hook_spec():
     with pytest.raises(ValidationError, match="hook_spec"):
         TermOrderConfig(
             term_col="t",
             season_map=[],
-            term_extraction="custom",
+            term_extraction="hook_required",
             hook_spec=None,
         )
 

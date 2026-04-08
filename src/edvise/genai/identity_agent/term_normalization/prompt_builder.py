@@ -92,7 +92,7 @@ Use dtype and `unique_values` (or `sample_values` if `unique_values` is null) to
 - **YYYYTT** — 4-digit year + season code suffix: `"2018FA"`, `"2019SP"`, `"2018S1"` — year extractable via 4-digit regex, season matchable via suffix
 - **Season_YYYY** — spelled season + year: `"Fall 2019"`, `"Spring 2021"` — year extractable via 4-digit regex, season matchable via prefix
 
-**Custom formats** (`term_extraction`: `"custom"`):
+**Hook-required formats** (`term_extraction`: `"hook_required"`):
 
 - `datetime` or `date` dtype — date-based extraction needed
 - Opaque numeric codes — e.g. `"1192"`, `"1199"` with no visible year string or season token
@@ -129,13 +129,13 @@ Set `term_extraction`: `"standard"` when:
 - A 4-digit year is extractable via regex from the raw value, **AND**
 - Season tokens are matchable via prefix or suffix against `season_map` keys
 
-Set `term_extraction`: `"custom"` when:
+Set `term_extraction`: `"hook_required"` when:
 
 - dtype is `datetime` or `date`
 - Raw values are opaque numeric codes with no visible year string or season token
 - dtype is `float` or `int`
 
-When `term_extraction`: `"custom"`, always populate `hook_spec`. Draft extractor functions based on observed patterns in unique values.
+When `term_extraction`: `"hook_required"`, always populate `hook_spec`. Draft extractor functions based on observed patterns in unique values.
 
 For **opaque numeric codes** (e.g. CUNY `"1192"`):
 
@@ -154,7 +154,7 @@ For **date columns**:
 
 Set `hitl_flag`: `true` when:
 
-- `term_extraction`: `"custom"` — hook functions require human review before use
+- `term_extraction`: `"hook_required"` — hook functions require human review before use
 - `term_candidates` was empty and term column was inferred from `raw_table_profile`
 - Unique values contain unrecognized tokens that could not be mapped to a canonical season
 - Confidence in the term column selection is low (multiple ambiguous candidates)
@@ -196,7 +196,7 @@ Use dtype and `unique_values` (or `sample_values` if `unique_values` is null) to
 - **YYYYTT** — 4-digit year + season code suffix: `"2018FA"`, `"2019SP"`, `"2018S1"` — year extractable via 4-digit regex, season matchable via suffix
 - **Season_YYYY** — spelled season + year: `"Fall 2019"`, `"Spring 2021"` — year extractable via 4-digit regex, season matchable via prefix
 
-**Custom formats** (`term_extraction`: `"custom"`):
+**Hook-required formats** (`term_extraction`: `"hook_required"`):
 
 - `datetime` or `date` dtype — date-based extraction needed
 - Opaque numeric codes — e.g. `"1192"`, `"1199"` with no visible year string or season token
@@ -233,13 +233,13 @@ Set `term_extraction`: `"standard"` when:
 - A 4-digit year is extractable via regex from the raw value, **AND**
 - Season tokens are matchable via prefix or suffix against `season_map` keys
 
-Set `term_extraction`: `"custom"` when:
+Set `term_extraction`: `"hook_required"` when:
 
 - dtype is `datetime` or `date`
 - Raw values are opaque numeric codes with no visible year string or season token
 - dtype is `float` or `int`
 
-When `term_extraction`: `"custom"`, always populate `hook_spec`. Draft extractor functions based on observed patterns in unique values.
+When `term_extraction`: `"hook_required"`, always populate `hook_spec`. Draft extractor functions based on observed patterns in unique values.
 
 For **opaque numeric codes** (e.g. CUNY `"1192"`):
 
@@ -254,7 +254,7 @@ For **date columns**:
 - `season_extractor`: infer from month bands — 1-4 → Spring, 5-7 → Summer, 8-11 → Fall, 12 → Winter
 - `season_map` should reflect the canonical mapping for those month-inferred seasons
 
-### Step 5 — Set `hitl_flag` and `hitl_question`
+### Step 5 — Set `hitl_flag` and emit `hitl_items`
 
 Set `hitl_flag`: `true` when any of the following apply:
 
@@ -263,20 +263,30 @@ Set `hitl_flag`: `true` when any of the following apply:
 - Unique values contain unrecognized tokens that could not be mapped to a canonical season
 - Confidence in the term column selection is low (multiple ambiguous candidates)
 
-**REQUIRED:** When `hitl_flag` is `true`, `hitl_question` **MUST** be a non-null string. A null `hitl_question` paired with `hitl_flag`: `true` is invalid output.
+When `hitl_flag` is `true`, emit one `HITLItem` per distinct ambiguity in `hitl_items`.
+When `hitl_flag` is `false`, emit `hitl_items: []`.
 
-`hitl_question` must be specific and actionable. It must name:
+Each HITLItem must have:
 
-- The column in question
-- The specific values or patterns that are ambiguous or unverifiable
-- What the human reviewer needs to confirm or provide
+- `hitl_question`: specific and actionable — name the column, the specific values or
+  patterns that are ambiguous, and what the reviewer needs to decide.
+- `hitl_context`: the raw values or samples that triggered the flag. Give the reviewer
+  the evidence they need without requiring them to look at the data.
+- `options`: exactly 2–3 options. Last option must always be `option_id: "custom"` with
+  `resolution: null` and `reentry: "generate_hook"`.
+- Non-custom options must have a non-null `resolution` with concrete field mutations.
+- `reentry: "terminal"` for parameterized resolutions (exclude_tokens, season_map_append,
+  term_col_override). `reentry: "generate_hook"` when a hook is required.
+- `hook_group_id`: set to a shared snake_case string when multiple tables share the same
+  term encoding e.g. `"jjc_term_format_a"`. Null for unique encodings.
 
-Good examples:
+Good `hitl_question` examples:
 
-- "`TERM_DESCR` contains unrecognized tokens `'Med Year 2020-2021'`, `'Med Year 2021-2022'`, etc. that do not map to a canonical season. Please confirm how these should be classified (e.g. FALL, SPRING) or whether rows with these values should be excluded from term ordering."
-- "`STRM` year offset logic was inferred from samples (e.g. 1700 → 2017, 1730 → 2017). Please confirm the extraction rule: is the formula `int(str(strm)[:2]) + 2000` correct for all values in this dataset, including edge cases like 1695 and 1725?"
-
-When `hitl_flag` is `false`, `hitl_question` must be `null`.
+- "`TERM_DESCR` contains unrecognized tokens `'Med Year 2020-2021'`, `'Med Year 2021-2022'`
+  that do not map to a canonical season. Should these rows be excluded from term ordering,
+  or mapped to a proxy canonical season?"
+- "`STRM` is an opaque int64 column (e.g. 1700, 1730). Year offset logic was inferred from
+  samples. Please confirm the extraction rule before hook generation proceeds."
 
 ### ACADEMIC YEAR CONVENTION (do not emit — for your reasoning only)
 
@@ -298,11 +308,11 @@ Use a **number from 0.0 to 1.0** (same scale as Schema Mapping Agent field mappi
 `confidence` must be a numeric value, not a string.
 
 - Prefer round scores when possible (e.g. 0.6, 0.7, 0.8, 0.9, 1.0).
-- **0.85–1.0**: clear term column, format is standard or unambiguous custom hooks
+- **0.85–1.0**: clear term column, format is standard or unambiguous hook-required extractors
 - **{t}–0.85**: workable inference with minor ambiguity
 - **0.0–{t}**: conflicting signals or policy required → always set `hitl_flag` true
 
-- `hitl_flag` MUST be true whenever `confidence` < {t}. In the mid band, set `hitl_flag` true when human review is still required (e.g. custom hooks).
+- `hitl_flag` MUST be true whenever `confidence` < {t}. In the mid band, set `hitl_flag` true when human review is still required (e.g. hook-required extractors).
 """
 
 
@@ -312,9 +322,9 @@ def _tn_output_format() -> str:
 
 Respond ONLY with a JSON object. No preamble, no markdown, no explanation outside the JSON.
 
-Return `"term_config": null` with `hitl_flag: false` when term config is not needed.
+Return `"term_config": null` with `hitl_flag: false` and `hitl_items: []` when term config is not needed.
 
-**Standard extraction:**
+**Standard extraction (no HITL):**
 
 ```json
 {
@@ -330,12 +340,11 @@ Return `"term_config": null` with `hitl_flag: false` when term config is not nee
     },
     "confidence": 0.9,
     "hitl_flag": false,
-    "hitl_question": null,
     "reasoning": "<2-3 sentence summary of term column selection and format inference>"
 }
 ```
 
-**Custom extraction:**
+**Custom extraction or unrecognized tokens (HITL required):**
 
 ```json
 {
@@ -347,34 +356,23 @@ Return `"term_config": null` with `hitl_flag: false` when term config is not nee
             {"raw": "<raw token>", "canonical": "<FALL|SPRING|SUMMER|WINTER>"}
         ],
         "term_extraction": "custom",
-        "hook_spec": {
-            "file": "pipelines/<institution_id>/helpers/term_hooks.py",
-            "functions": [
-                {
-                    "name": "year_extractor",
-                    "signature": "def year_extractor(term: str) -> int",
-                    "description": "<what it does>",
-                    "example_input": "<raw value from unique_values>",
-                    "example_output": "<expected int year>",
-                    "draft": "<single Python expression>"
-                },
-                {
-                    "name": "season_extractor",
-                    "signature": "def season_extractor(term: str) -> str",
-                    "description": "<what it does>",
-                    "example_input": "<raw value from unique_values>",
-                    "example_output": "<raw token matching a 'raw' key in season_map>",
-                    "draft": "<single Python expression>"
-                }
-            ]
-        }
+        "hook_spec": null
     },
     "confidence": 0.6,
     "hitl_flag": true,
-    "hitl_question": "<specific question for human reviewer describing what needs to be validated in the draft hook functions>",
     "reasoning": "<2-3 sentence summary>"
 }
 ```
+
+HITL items for flagged tables are emitted in the top-level `hitl_items` list only —
+see OUTPUT FORMAT (batch) for the full response shape and HITLItem structure.
+
+VALIDITY RULES
+
+- `hitl_flag: true` requires at least one corresponding item in the top-level `hitl_items`.
+- `hitl_flag: false` means no items for this table appear in `hitl_items`.
+- `confidence < 0.5` requires `hitl_flag: true`.
+- `confidence` must be a numeric float, never a string.
 """
 
 
@@ -410,7 +408,7 @@ You will receive a single JSON object with:
   - `term_candidates` and `columns` (profiled table metadata)
 
 Apply the same per-table reasoning rules as single-dataset Pass 2 (term column selection,
-`season_map`, `term_extraction`, `hook_spec` when custom) **independently for each dataset**.
+`season_map`, `term_extraction`, `hook_spec` when hook_required) **independently for each dataset**.
 
 **Cross-table:** When several tables share the same term encoding, you may reuse one
 `hook_spec.file` path in `term_config`, but use **distinct function names** inside
@@ -432,6 +430,8 @@ Top level:
 - `institution_id` — same as in the user payload
 - `datasets` — object mapping **each** dataset name from the user payload to a full per-table
   contract (same fields as single-table Pass 2).
+- `hitl_items` — flat list of all HITLItem objects across all tables. Empty list when no
+  flags were raised. This is written to a separate file by the pipeline.
 
 Shape:
 
@@ -445,8 +445,8 @@ Shape:
       "term_config": null,
       "confidence": 0.9,
       "hitl_flag": false,
-      "hitl_question": null,
-      "reasoning": "<2-3 sentences for this table>"
+      "reasoning": "<2-3 sentences for this table>",
+      "hitl_items": []
     },
     "<dataset_b>": {
       "institution_id": "<institution_id>",
@@ -459,22 +459,44 @@ Shape:
       },
       "confidence": 0.9,
       "hitl_flag": false,
-      "hitl_question": null,
-      "reasoning": "<...>"
+      "reasoning": "<...>",
+      "hitl_items": []
+    },
+    "<dataset_c>": {
+      "institution_id": "<institution_id>",
+      "table": "<dataset_c>",
+      "term_config": {
+        "term_col": "<column>",
+        "season_map": [{"raw": "<token>", "canonical": "FALL"}],
+        "term_extraction": "custom",
+        "hook_spec": null
+      },
+      "confidence": 0.6,
+      "hitl_flag": true,
+      "reasoning": "<...>",
+      "hitl_items": ["<see HITLItem shape in single-table output format>"]
     }
-  }
+  },
+  "hitl_items": ["<flat list — all HITLItems across all tables, same objects as nested above>"]
 }
 ```
 
+CROSS-TABLE: When multiple tables share the same term encoding, set `hook_group_id` to the
+same snake_case string on all related HITLItems e.g. `"jjc_term_format_a"`. The pipeline
+will generate one hook and fan it out to all tables in the group.
+
 VALIDITY RULES
 
-- `hitl_flag`: `true` requires a non-null `hitl_question`. Any output pairing `hitl_flag`: `true` with `hitl_question`: `null` is malformed.
-- `term_config`: `null` requires `reasoning` to explain why no term column was selected or why `row_selection_required` is false.
-- `confidence` must be a numeric value (float), never a string.
-
-Per-table `term_config`, `confidence`, `hitl_flag`, and `hitl_question` follow the same rules as
-single-table Pass 2. Each nested object must set `"table"` to the **same string** as its key in
-`datasets`.
+- `hitl_flag: true` requires at least one item in the table's `hitl_items`.
+- `hitl_flag: false` requires `hitl_items: []` for that table.
+- `confidence < 0.5` requires `hitl_flag: true`.
+- `term_config: null` requires `reasoning` to explain why.
+- `confidence` must be a numeric float, never a string.
+- Every HITLItem must have exactly 2–3 options. Last option must be `option_id: "custom"`.
+- `item_id` must be unique across the entire response.
+- Top-level `hitl_items` must contain exactly the same objects as the per-table `hitl_items`
+  combined — no duplicates, no omissions.
+- Each nested object must set `"table"` to the same string as its key in `datasets`.
 """
 
 

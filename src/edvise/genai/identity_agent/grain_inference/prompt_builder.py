@@ -181,6 +181,21 @@ def _identity_reasoning_steps() -> str:
      name from the column list for the student slot.
 
 7. Assign numeric `confidence` and `hitl_flag` per **CONFIDENCE SCORING** (next section).
+
+8. Emit `hitl_items` when `hitl_flag` is true
+   - Emit one `HITLItem` per distinct ambiguity. A single table may have multiple items
+     if independent questions arise (e.g. grain ambiguity + dedup policy).
+   - Each item must have 2–3 options. The last option must always be `option_id: "custom"`
+     with `resolution: null` and `reentry: "generate_hook"`.
+   - Non-custom options must have a non-null `resolution` with concrete `dedup_strategy`,
+     `dedup_sort_by`, and `dedup_keep` values where applicable.
+   - Use `reentry: "terminal"` for parameterized resolutions (true_duplicate, temporal_collapse,
+     no_dedup). Use `reentry: "generate_hook"` when a custom hook is required.
+   - Set `hook_group_id` when multiple tables share the same dedup pattern.
+   - `hitl_context` must include the specific raw values, uniqueness scores, or variance
+     patterns that triggered the flag — give the reviewer the evidence they need without
+     requiring them to look at the data.
+   - When `hitl_flag` is false, emit `hitl_items: []`.
 """
 
 
@@ -240,6 +255,7 @@ Respond ONLY with a JSON object. No preamble, no markdown, no explanation outsid
 Follow **STUDENT IDENTIFIER COLUMN** for `student_id_alias` and for how to name the student id
 in `post_clean_primary_key`, `join_keys_for_2a`, and `dedup_policy.sort_by`.
 
+```json
 {
   "institution_id": "<institution_id>",
   "table": "<dataset_name>",
@@ -249,16 +265,86 @@ in `post_clean_primary_key`, `join_keys_for_2a`, and `dedup_policy.sort_by`.
     "strategy": "<true_duplicate | temporal_collapse | no_dedup | policy_required>",
     "sort_by": "<column_name or null>",
     "keep": "<\"first\" | \"last\" or null — never any_row>",
+    "hook_spec": null,
     "notes": "<brief explanation>"
   },
   "row_selection_required": false,
   "join_keys_for_2a": ["<col1>", "<col2>"],
   "confidence": 0.92,
   "hitl_flag": true,
-  "hitl_question": "<specific question for human reviewer, or null if no flag>",
   "reasoning": "<2-3 sentence summary of the inference chain>",
   "notes": "<optional short notes for reviewers, or empty string>"
 }
+```
+
+When `hitl_flag` is true, emit HITLItems in the response's top-level `hitl_items` list.
+The pipeline writes these to `identity_pass1_hitl.json` separately from the grain contracts.
+
+HITLItem shape for grain:
+
+```json
+{
+  "item_id": "<institution_id>_<table>_<short_descriptor>",
+  "institution_id": "<institution_id>",
+  "table": "<dataset_name>",
+  "domain": "identity_grain",
+  "hook_group_id": null,
+  "hitl_question": "<specific, actionable question naming the column, values, and decision needed>",
+  "hitl_context": "<raw values, uniqueness scores, or variance patterns that triggered this flag>",
+  "options": [
+    {
+      "option_id": "<snake_case_id>",
+      "label": "<short label ~4 words>",
+      "description": "<one sentence consequence>",
+      "resolution": {
+        "candidate_key_override": null,
+        "dedup_strategy": "<true_duplicate | temporal_collapse | no_dedup>",
+        "dedup_sort_by": "<column or null>",
+        "dedup_keep": "<first | last | null>",
+        "hook_spec": null
+      },
+      "reentry": "terminal"
+    },
+    {
+      "option_id": "hook_required",
+      "label": "Generate custom hook",
+      "description": "<one sentence explaining why a hook is needed>",
+      "resolution": {
+        "candidate_key_override": null,
+        "dedup_strategy": null,
+        "dedup_sort_by": null,
+        "dedup_keep": null,
+        "hook_spec": null
+      },
+      "reentry": "generate_hook"
+    },
+    {
+      "option_id": "custom",
+      "label": "Specify custom handling",
+      "description": "Reviewer provides explicit instructions.",
+      "resolution": null,
+      "reentry": "generate_hook"
+    }
+  ],
+  "target": {
+    "institution_id": "<institution_id>",
+    "table": "<dataset_name>",
+    "config": "grain_contract",
+    "field": "dedup_policy"
+  },
+  "status": "pending",
+  "resolution": null
+}
+```
+
+VALIDITY RULES
+
+- `hitl_flag: true` requires at least one corresponding item in the top-level `hitl_items`.
+- `hitl_flag: false` means no items for this table appear in `hitl_items`.
+- `confidence < 0.5` requires `hitl_flag: true`.
+- Every HITLItem must have exactly 2–3 options. Last option must be `option_id: "custom"` with `resolution: null`.
+- Non-custom options must have a non-null `resolution`.
+- `item_id` must be unique — use `<institution_id>_<table>_<descriptor>`.
 """
 
 

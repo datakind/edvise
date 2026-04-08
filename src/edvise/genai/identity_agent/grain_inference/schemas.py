@@ -17,17 +17,74 @@ IDENTITY_CONFIDENCE_HITL_THRESHOLD: float = 0.5
 
 # Valid `dedup_policy.strategy` values (JSON must use these exact strings).
 DedupStrategy = Literal[
-    "true_duplicate", "temporal_collapse", "no_dedup", "policy_required"
+    "true_duplicate",
+    "temporal_collapse",
+    "no_dedup",
+    "policy_required",  # current state only — never a valid resolution target
 ]
+
+
+class HookFunctionSpec(BaseModel):
+    """
+    Spec for one generated hook function.
+    Mirrors term_normalization hook_spec functions shape exactly.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    name:           str
+    signature:      str
+    description:    str
+    example_input:  str | None = None
+    example_output: str | None = None
+    draft:          str | None = None  # None for DataFrame-level hooks — body generated separately
+
+
+class HookSpec(BaseModel):
+    """
+    File path + function specs for a generated hook.
+    Shared shape between term extraction hooks and dedup hooks.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    file:      str = Field(..., description="Relative path e.g. 'jjc/dedup_hooks.py'")
+    functions: list[HookFunctionSpec]
 
 
 class DedupPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    strategy: DedupStrategy
-    sort_by: str | None = None
-    keep: Literal["first", "last"] | None = None
-    notes: str = ""
+    strategy:     DedupStrategy
+    sort_by:      str | None = None
+    keep:         Literal["first", "last"] | None = None
+    notes:        str = ""
+    dedup_method: Literal["standard", "custom"] = Field(
+        default="standard",
+        description=(
+            "Mirrors term_extraction in TermOrderConfig. "
+            "'standard' — parameterized strategy (true_duplicate, temporal_collapse, no_dedup). "
+            "'custom' — hook function required; hook_spec must be populated after hook generation."
+        ),
+    )
+    hook_spec: HookSpec | None = Field(
+        default=None,
+        description=(
+            "Populated when dedup_method='custom'. "
+            "Contains file path and function specs for the generated dedup hook. "
+            "Null at flag time — written by resolver after hook generation call."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def hook_spec_requires_policy_required(self) -> "DedupPolicy":
+        if self.hook_spec is not None and self.strategy != "policy_required":
+            raise ValueError(
+                "hook_spec should only be populated when strategy='policy_required'."
+            )
+        if self.dedup_method == "custom" and self.strategy != "policy_required":
+            raise ValueError(
+                "dedup_method='custom' requires strategy='policy_required'."
+            )
+        return self
 
 
 class GrainContract(BaseModel):
