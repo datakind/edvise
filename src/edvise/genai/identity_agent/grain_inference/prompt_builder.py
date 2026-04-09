@@ -151,8 +151,12 @@ def _identity_reasoning_steps() -> str:
 
    - `"true_duplicate"`: all non-key columns are identical across duplicate rows — drop all
      but one (any_row is safe after dedup). Use when within-group variance = 0.
-   - `"temporal_collapse"`: keep earliest / latest row by a sort column — specify `sort_by`
-     and `keep` ("first" or "last"). Use when grain is clear but one row per key is needed.
+   - `"temporal_collapse"`: collapse to one row per key by sorting on a column and keeping
+     the first row. Always use `keep="first"` and control direction via `sort_ascending`:
+     - Keep **earliest** value: `sort_by="<col>"`, `sort_ascending=true`,  `keep="first"`
+     - Keep **latest** value:   `sort_by="<col>"`, `sort_ascending=false`, `keep="first"`
+     Never use `keep="last"` — it is ambiguous to reviewers and not a valid resolution target.
+     Use when grain is clear but one row per key is needed.
    - `"no_dedup"`: table is intentionally multi-row per student — cleaning should not
      collapse it. Use for course and semester tables.
    - `"policy_required"`: a collapse is needed but the rule cannot be determined from data
@@ -189,9 +193,12 @@ def _identity_reasoning_steps() -> str:
    - Each item must have 2–3 options. The last option must always be `option_id: "custom"`
      with `resolution: null` and `reentry: "generate_hook"`.
    - Non-custom options must have a non-null `resolution` with concrete `dedup_strategy`,
-     `dedup_sort_by`, and `dedup_keep` values where applicable.
+     `dedup_sort_by`, `dedup_sort_ascending`, and `dedup_keep` values where applicable.
    - Use `reentry: "terminal"` for parameterized resolutions (true_duplicate, temporal_collapse,
      no_dedup). Use `reentry: "generate_hook"` when a custom hook is required.
+   - For `temporal_collapse` options, always set `dedup_keep="first"` and express direction
+     via `dedup_sort_ascending`. Two options for the same sort column should differ only in
+     `dedup_sort_ascending` (true vs false), not in `dedup_keep`.
    - Set `hook_group_id` when multiple tables share the same dedup pattern.
    - `hitl_context` must include the specific raw values, uniqueness scores, or variance
      patterns that triggered the flag — give the reviewer the evidence they need without
@@ -265,7 +272,8 @@ in `post_clean_primary_key`, `join_keys_for_2a`, and `dedup_policy.sort_by`.
   "dedup_policy": {
     "strategy": "<true_duplicate | temporal_collapse | no_dedup | policy_required>",
     "sort_by": "<column_name or null>",
-    "keep": "<\"first\" | \"last\" or null — never any_row>",
+    "sort_ascending": "<true | false | null — required when strategy is temporal_collapse>",
+    "keep": "<\"first\" | \"last\" or null — never any_row; prefer \"first\" with sort_ascending for temporal_collapse>",
     "hook_spec": null,
     "notes": "<brief explanation>"
   },
@@ -301,7 +309,8 @@ HITLItem shape for grain:
         "candidate_key_override": null,
         "dedup_strategy": "<true_duplicate | temporal_collapse | no_dedup>",
         "dedup_sort_by": "<column or null>",
-        "dedup_keep": "<first | last | null>",
+        "dedup_sort_ascending": "<true for earliest | false for latest | null>",
+        "dedup_keep": "first",
         "hook_spec": null
       },
       "reentry": "terminal"
@@ -314,6 +323,7 @@ HITLItem shape for grain:
         "candidate_key_override": null,
         "dedup_strategy": null,
         "dedup_sort_by": null,
+        "dedup_sort_ascending": null,
         "dedup_keep": null,
         "hook_spec": null
       },

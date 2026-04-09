@@ -53,10 +53,18 @@ class HookSpec(BaseModel):
 class DedupPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    strategy:     DedupStrategy
-    sort_by:      str | None = None
-    keep:         Literal["first", "last"] | None = None
-    notes:        str = ""
+    strategy:       DedupStrategy
+    sort_by:        str | None = None
+    sort_ascending: bool | None = Field(
+        default=None,
+        description=(
+            "Sort direction for temporal_collapse. "
+            "True = ascending (earliest first), False = descending (latest first). "
+            "Always pair with keep='first'. Never use keep='last'."
+        ),
+    )
+    keep:           Literal["first", "last"] | None = None
+    notes:          str = ""
     dedup_method: Literal["standard", "custom"] = Field(
         default="standard",
         description=(
@@ -83,6 +91,19 @@ class DedupPolicy(BaseModel):
         if self.dedup_method == "custom" and self.strategy != "policy_required":
             raise ValueError(
                 "dedup_method='custom' requires strategy='policy_required'."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def sort_ascending_requires_sort_by(self) -> "DedupPolicy":
+        if self.sort_ascending is not None and self.sort_by is None:
+            raise ValueError(
+                "sort_ascending requires sort_by to be set."
+            )
+        if self.strategy == "temporal_collapse" and self.sort_ascending is None:
+            raise ValueError(
+                "temporal_collapse requires sort_ascending to be explicitly set — "
+                "True for earliest, False for latest."
             )
         return self
 

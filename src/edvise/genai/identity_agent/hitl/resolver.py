@@ -445,10 +445,16 @@ def _apply_grain_resolution(
         print(f"  → post_clean_primary_key overridden: {resolution.candidate_key_override}")
 
     if resolution.dedup_strategy:
-        grain_cfg["dedup_policy"]["strategy"] = resolution.dedup_strategy
-        grain_cfg["dedup_policy"]["sort_by"]  = resolution.dedup_sort_by
-        grain_cfg["dedup_policy"]["keep"]     = resolution.dedup_keep
-        print(f"  → dedup_policy updated: strategy={resolution.dedup_strategy}")
+        grain_cfg["dedup_policy"]["strategy"]       = resolution.dedup_strategy
+        grain_cfg["dedup_policy"]["sort_by"]        = resolution.dedup_sort_by
+        grain_cfg["dedup_policy"]["sort_ascending"] = resolution.dedup_sort_ascending
+        grain_cfg["dedup_policy"]["keep"]           = resolution.dedup_keep
+        print(
+            "  → dedup_policy updated: "
+            f"strategy={resolution.dedup_strategy}, "
+            f"sort_by={resolution.dedup_sort_by}, "
+            f"ascending={resolution.dedup_sort_ascending}"
+        )
 
 
 def _apply_term_resolution(

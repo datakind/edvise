@@ -95,7 +95,8 @@ def test_temporal_collapse_keep_last():
         dedup_policy=DedupPolicy(
             strategy="temporal_collapse",
             sort_by="t",
-            keep="last",
+            sort_ascending=False,
+            keep="first",
             notes="",
         ),
     )

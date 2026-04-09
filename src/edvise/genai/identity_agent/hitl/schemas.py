@@ -53,9 +53,7 @@ class GrainResolution(BaseModel):
     dedup_strategy excludes 'policy_required' — that is the current state that
     triggered the HITL item, never a valid resolution target.
 
-    When hook_spec is present, resolver sets DedupPolicy.dedup_method='hook_required'
-    and DedupPolicy.hook_spec from this value. When hook_spec is absent, resolver
-    sets DedupPolicy.dedup_method='standard'.
+    When hook_spec is present, resolver writes DedupPolicy.hook_spec from this value.
 
     All fields optional — resolver applies only those present.
     """
@@ -78,33 +76,54 @@ class GrainResolution(BaseModel):
         default=None,
         description="Sort column for temporal_collapse strategy.",
     )
+    dedup_sort_ascending: bool | None = Field(
+        default=None,
+        description=(
+            "Sort direction for temporal_collapse. "
+            "True = ascending (earliest first), False = descending (latest first). "
+            "Always pair with dedup_keep='first'. Never use dedup_keep='last'."
+        ),
+    )
     dedup_keep: Literal["first", "last"] | None = Field(
         default=None,
-        description="Which row to keep after sort. Never 'any_row' — that is a 2a concept.",
+        description=(
+            "Which row to keep after sort. Always 'first' — "
+            "control direction via dedup_sort_ascending instead. "
+            "Never 'last' — it is ambiguous to reviewers."
+        ),
     )
     hook_spec: HookSpec | None = Field(
         default=None,
         description=(
             "Populated on GENERATE_HOOK reentry after hook generation call. "
-            "Presence signals resolver to set dedup_method='hook_required' on DedupPolicy."
+            "Presence signals resolver to set hook_spec on DedupPolicy."
         ),
     )
 
     @model_validator(mode="after")
     def temporal_collapse_requires_sort(self) -> "GrainResolution":
-        if self.dedup_strategy == "temporal_collapse" and self.dedup_sort_by is None:
-            raise ValueError(
-                "dedup_strategy='temporal_collapse' requires dedup_sort_by to be set."
-            )
+        if self.dedup_strategy == "temporal_collapse":
+            if self.dedup_sort_by is None:
+                raise ValueError(
+                    "dedup_strategy='temporal_collapse' requires dedup_sort_by."
+                )
+            if self.dedup_sort_ascending is None:
+                raise ValueError(
+                    "dedup_strategy='temporal_collapse' requires dedup_sort_ascending — "
+                    "True for earliest, False for latest."
+                )
+            if self.dedup_keep != "first":
+                raise ValueError(
+                    "dedup_keep must be 'first' for temporal_collapse. "
+                    "Control direction via dedup_sort_ascending instead."
+                )
         return self
 
     @model_validator(mode="after")
     def hook_spec_excludes_strategy(self) -> "GrainResolution":
         if self.hook_spec is not None and self.dedup_strategy is not None:
             raise ValueError(
-                "hook_spec and dedup_strategy are mutually exclusive — "
-                "hook_spec resolution replaces strategy-based resolution. "
-                "Execution layer infers hook path from hook_spec presence."
+                "hook_spec and dedup_strategy are mutually exclusive."
             )
         return self
 
@@ -323,13 +342,13 @@ class InstitutionHITLItems(BaseModel):
     """
     All HITL items for one institution run, written alongside agent output files.
 
-    Pass 1 writes: identity_pass1_hitl.json
-    Pass 2 writes: identity_pass2_hitl.json
+    Grain inference writes: identity_grain_hitl.json  →  domain="grain"
+    Term normalization writes: identity_term_hitl.json →  domain="term"
 
     Empty items list means no flags were raised — gate check passes immediately.
     """
     institution_id: str
-    pass_number:    Literal[1, 2]
+    domain:         Literal["grain", "term"]
     items:          list[HITLItem] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -339,6 +358,20 @@ class InstitutionHITLItems(BaseModel):
                 raise ValueError(
                     f"HITLItem '{item.item_id}' institution_id '{item.institution_id}' "
                     f"does not match envelope institution_id '{self.institution_id}'."
+                )
+        return self
+
+    @model_validator(mode="after")
+    def items_match_domain(self) -> "InstitutionHITLItems":
+        expected = (
+            HITLDomain.IDENTITY_GRAIN if self.domain == "grain"
+            else HITLDomain.IDENTITY_TERM
+        )
+        for item in self.items:
+            if item.domain != expected:
+                raise ValueError(
+                    f"HITLItem '{item.item_id}' domain '{item.domain.value}' "
+                    f"does not match envelope domain '{self.domain}'."
                 )
         return self
 

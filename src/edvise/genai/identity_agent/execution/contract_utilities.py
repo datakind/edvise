@@ -188,13 +188,14 @@ def apply_grain_dedup(df: pd.DataFrame, contract: GrainContract) -> pd.DataFrame
         )
 
     keep: KeepArg = policy.keep or "first"
+    ascending = policy.sort_ascending if policy.sort_ascending is not None else True
 
     return drop_duplicate_keys(
         df,
         keys,
         keep=keep,
         sort_by=sort_list,
-        ascending=True,
+        ascending=ascending,
     )
 
 
