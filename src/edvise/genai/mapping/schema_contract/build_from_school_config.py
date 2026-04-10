@@ -153,8 +153,13 @@ def _canonical_primary_keys_for_contract(
     """
     Primary key column names as they appear after ``clean_dataset`` (canonical learner column).
 
-    Used for ``freeze_schema`` / schema contract JSON so contracts match inputs.toml and
-    cleaned dataframe columns, not the pre-rename alias name.
+    ``primary_keys`` should be the **resolved** normalized header names (same list as
+    :func:`_resolve_primary_keys_to_normalized` / ``clean_spec["unique keys"]``) so
+    non-learner parts of composite keys match :func:`~edvise.data_audit.custom_cleaning.normalize_columns`
+    outputs; the person-key columns are then rewritten to ``canonical_learner_column``.
+
+    Used for ``freeze_schema`` / schema contract JSON so ``unique_keys`` match the cleaned
+    dataframe, not grain-only spellings (e.g. abbreviations vs snake_case).
     """
     target = canonical_learner_column
     if not student_id_alias:
@@ -269,7 +274,7 @@ def build_schema_contract_from_config(
             column_mapping, pk_for_resolution, logical_name
         )
         unique_keys_for_contract = _canonical_primary_keys_for_contract(
-            pk_config,
+            normalized_uks,
             merged_cleaning.student_id_alias if merged_cleaning else None,
             canonical_learner_column=canonical_learner_column,
         )
@@ -310,8 +315,7 @@ def build_schema_contract_from_config(
         )
 
         cleaned_map[logical_name] = df_clean
-        # Contract stores canonical names (student_id), not pre-alias column names;
-        # clean_spec above uses normalized_uks for on-disk resolution only.
+        # Same resolution as clean_spec unique keys, then canonical learner column for freeze_schema.
         specs[logical_name] = {
             "unique keys": unique_keys_for_contract,
             "non-null columns": [],
