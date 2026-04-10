@@ -58,8 +58,8 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from edvise.genai.identity_agent.grain_inference.schemas import HookSpec
-from edvise.genai.identity_agent.hitl.schemas import (
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
+from edvise.genai.mapping.identity_agent.hitl.schemas import (
     GrainResolution,
     HITLDomain,
     HITLItem,
