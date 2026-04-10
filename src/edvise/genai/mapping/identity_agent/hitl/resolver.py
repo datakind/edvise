@@ -70,6 +70,7 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     RunLog,
     TermResolution,
 )
+from edvise.genai.mapping.identity_agent.term_normalization.schemas import SeasonMapEntry
 
 
 # ---------------------------------------------------------------------------
@@ -487,8 +488,61 @@ def validate_hook(
 
 
 # ---------------------------------------------------------------------------
-# Resolution handlers
+# Resolution handlers — config shape must match GrainContract / TermContract validators
 # ---------------------------------------------------------------------------
+
+
+def _apply_grain_hook_spec_dict(grain_cfg: dict, hook_spec: HookSpec) -> None:
+    """
+    Write ``dedup_policy.hook_spec`` and set ``strategy='policy_required'``.
+
+    Clears sort/keep fields that only apply to temporal_collapse so
+    :class:`~edvise.genai.mapping.identity_agent.grain_inference.schemas.DedupPolicy` reloads cleanly.
+    """
+    dp = grain_cfg.setdefault("dedup_policy", {})
+    dp["strategy"] = "policy_required"
+    dp["hook_spec"] = hook_spec.model_dump(mode="json")
+    dp["sort_by"] = None
+    dp["sort_ascending"] = None
+    dp["keep"] = None
+
+
+def _apply_term_hook_spec_dict(
+    term_cfg: dict, hook_spec: HookSpec, *, item_id: str
+) -> None:
+    """
+    Write ``hook_spec``, set ``term_extraction='hook_required'``.
+
+    TermOrderConfig forbids ``hook_spec`` alongside ``year_col``/``season_col``; when both split
+    columns and ``term_col`` are present, split columns are cleared (combined-column hook path).
+    """
+    yc = term_cfg.get("year_col")
+    sc = term_cfg.get("season_col")
+    tc = term_cfg.get("term_col")
+    has_split = yc is not None and sc is not None
+    has_partial_split = (yc is None) != (sc is None)
+    if has_partial_split:
+        raise HITLValidationError(
+            f"[{item_id}] term_config has only one of year_col/season_col — "
+            "fix the config before writing hook_spec."
+        )
+    if has_split:
+        if tc is None:
+            raise HITLValidationError(
+                f"[{item_id}] Cannot write term hook_spec while only year_col/season_col are set. "
+                "Set term_col (e.g. term_col_override in the same resolution) so the hook targets "
+                "a combined term column, or drop split columns manually."
+            )
+        term_cfg["year_col"] = None
+        term_cfg["season_col"] = None
+    elif tc is None:
+        raise HITLValidationError(
+            f"[{item_id}] term_config must set term_col before hook_spec "
+            "(split year/season without term_col is unsupported for hook extraction)."
+        )
+
+    term_cfg["term_extraction"] = "hook_required"
+    term_cfg["hook_spec"] = hook_spec.model_dump(mode="json")
 
 
 def _apply_grain_resolution(
@@ -518,6 +572,10 @@ def _apply_grain_resolution(
             f"ascending={resolution.dedup_sort_ascending}"
         )
 
+    if resolution.hook_spec is not None:
+        _apply_grain_hook_spec_dict(grain_cfg, resolution.hook_spec)
+        print("  → dedup_policy: hook_spec set, strategy=policy_required")
+
 
 def _apply_term_resolution(
     config: dict,
@@ -536,12 +594,20 @@ def _apply_term_resolution(
 
     if resolution.season_map_append:
         existing = term_cfg.setdefault("season_map", [])
-        existing.extend(resolution.season_map_append)
+        for raw_entry in resolution.season_map_append:
+            entry = SeasonMapEntry.model_validate(raw_entry)
+            existing.append(entry.model_dump(mode="json"))
         print(f"  → season_map extended: {resolution.season_map_append}")
 
     if resolution.term_col_override:
         term_cfg["term_col"] = resolution.term_col_override
+        term_cfg["year_col"] = None
+        term_cfg["season_col"] = None
         print(f"  → term_col overridden: {resolution.term_col_override}")
+
+    if resolution.hook_spec is not None:
+        _apply_term_hook_spec_dict(term_cfg, resolution.hook_spec, item_id=item.item_id)
+        print(f"  → term_config: hook_spec set, term_extraction=hook_required [{item.item_id}]")
 
 
 def _write_hook_spec_to_config(
@@ -552,10 +618,10 @@ def _write_hook_spec_to_config(
     table = item.target.table
     if item.domain == HITLDomain.IDENTITY_GRAIN:
         grain_cfg = _get_nested(config, table, "grain_contract", item.item_id)
-        grain_cfg["dedup_policy"]["hook_spec"] = hook_spec.model_dump()
+        _apply_grain_hook_spec_dict(grain_cfg, hook_spec)
     elif item.domain == HITLDomain.IDENTITY_TERM:
         term_cfg = _get_nested(config, table, "term_config", item.item_id)
-        term_cfg["hook_spec"] = hook_spec.model_dump()
+        _apply_term_hook_spec_dict(term_cfg, hook_spec, item_id=item.item_id)
     else:
         raise HITLValidationError(
             f"[{item.item_id}] apply_hook_spec only handles IDENTITY_GRAIN and "

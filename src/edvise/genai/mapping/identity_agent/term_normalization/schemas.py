@@ -89,6 +89,15 @@ class TermOrderConfig(BaseModel):
             "within a calendar year. canonical must be one of: FALL, SPRING, SUMMER, WINTER."
         ),
     )
+    exclude_tokens: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional raw value prefixes to drop before term ordering (case-insensitive). "
+            "Rows whose term_col value, or year_col / season_col value on the split path, "
+            "starts with one of these strings after stripping whitespace are removed. "
+            "Populated by HITL TermResolution.exclude_tokens."
+        ),
+    )
     term_extraction: Literal["standard", "hook_required"]
     hook_spec: HookSpec | None = Field(
         default=None,

@@ -269,6 +269,31 @@ def test_apply_term_order_split_year_season_columns():
     assert "_term_order" in out.columns
 
 
+def test_apply_term_order_exclude_tokens_prefix():
+    """HITL exclude_tokens: drop rows whose raw term values start with a listed prefix."""
+    df = pd.DataFrame(
+        {
+            "yr": [2020, 2020, 2021],
+            "sem": ["Med Year", "FA", "SP"],
+            "k": [1, 2, 3],
+        }
+    )
+    cfg = TermOrderConfig(
+        year_col="yr",
+        season_col="sem",
+        exclude_tokens=["Med Year"],
+        season_map=[
+            {"raw": "SP", "canonical": "SPRING"},
+            {"raw": "FA", "canonical": "FALL"},
+        ],
+        term_extraction="standard",
+    )
+    out = apply_term_order_from_config(df, cfg)
+    assert len(out) == 2
+    assert set(out["k"]) == {2, 3}
+    assert list(out["_season"]) == ["fa", "sp"]
+
+
 def test_term_order_fn_wrapper_and_clean_column_hint():
     cfg = TermOrderConfig(
         year_col="yr",

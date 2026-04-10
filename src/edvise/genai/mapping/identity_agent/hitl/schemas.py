@@ -53,9 +53,9 @@ class GrainResolution(BaseModel):
     dedup_strategy excludes 'policy_required' — that is the current state that
     triggered the HITL item, never a valid resolution target.
 
-    When hook_spec is present, resolver sets DedupPolicy.dedup_method='hook_required'
-    and DedupPolicy.hook_spec from this value. When hook_spec is absent, resolver
-    sets DedupPolicy.dedup_method='standard'.
+    When hook_spec is present, :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.resolve_items`
+    writes ``dedup_policy.hook_spec`` and sets ``strategy='policy_required'`` (same as
+    :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.apply_hook_spec`).
 
     All fields optional — resolver applies only those present.
     """
@@ -137,8 +137,10 @@ class TermResolution(BaseModel):
     """
     Mutations applied to term_config when a Pass 2 HITL item is resolved.
 
-    When hook_spec is present, resolver sets TermOrderConfig.term_extraction='hook_required'
-    and TermOrderConfig.hook_spec from this value.
+    When hook_spec is present, :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.resolve_items`
+    or :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.apply_hook_spec` sets
+    ``term_extraction='hook_required'`` and writes ``hook_spec``. Split ``year_col``/``season_col``
+    are cleared when ``term_col`` is present (see resolver).
 
     All fields optional — resolver applies only those present.
     """
@@ -152,17 +154,22 @@ class TermResolution(BaseModel):
     )
     season_map_append: list[dict[str, str]] | None = Field(
         default=None,
-        description="New raw → canonical entries to append to season_map.",
+        description=(
+            "New raw → canonical entries to append to season_map. "
+            "Each dict is validated as SeasonMapEntry (canonical must be FALL|SPRING|SUMMER|WINTER)."
+        ),
     )
     term_col_override: str | None = Field(
         default=None,
-        description="Column name to use instead of LLM-selected term_col.",
+        description=(
+            "Column name for combined term encoding. Clears year_col and season_col when set."
+        ),
     )
     hook_spec: HookSpec | None = Field(
         default=None,
         description=(
-            "Populated on GENERATE_HOOK reentry after hook generation call. "
-            "Presence signals resolver to set term_extraction='hook_required' on TermOrderConfig."
+            "May be set after GENERATE_HOOK hook generation, or on a terminal resolution option. "
+            "Resolver sets term_extraction='hook_required' and clears split columns when term_col is set."
         ),
     )
 

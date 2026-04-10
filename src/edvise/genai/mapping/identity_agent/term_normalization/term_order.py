@@ -57,6 +57,19 @@ def _resolve_season_token(t_norm: str | None, norm_keys: list[str]) -> str | Non
     return None
 
 
+def _is_excluded_by_term_prefix(series: pd.Series, exclude_tokens: list[str]) -> pd.Series:
+    """True where the row should be dropped — raw string starts with any exclude prefix (case-insensitive)."""
+    if not exclude_tokens:
+        return pd.Series(False, index=series.index)
+    cleaned = series.astype("string").fillna("").str.strip().str.lower()
+    excluded = pd.Series(False, index=series.index)
+    for tok in exclude_tokens:
+        tl = tok.strip().lower()
+        if tl:
+            excluded |= cleaned.str.startswith(tl)
+    return excluded
+
+
 def _season_map_lookups(season_map: list) -> tuple[dict[str, int], list[str]]:
     raw_to_rank = {item["raw"].lower(): i + 1 for i, item in enumerate(season_map)}
     norm_keys = sorted(raw_to_rank.keys(), key=len, reverse=True)
@@ -168,6 +181,19 @@ def add_edvise_term_order(
 
     raw_to_rank, norm_keys = _season_map_lookups(season_map)
     out = df.copy()
+
+    exclude_tokens = [
+        str(t).strip() for t in (term_config.get("exclude_tokens") or []) if str(t).strip()
+    ]
+    if exclude_tokens:
+        if has_split:
+            excl = _is_excluded_by_term_prefix(
+                out[season_col], exclude_tokens
+            ) | _is_excluded_by_term_prefix(out[year_col], exclude_tokens)
+            out = out.loc[~excl].copy()
+        else:
+            excl = _is_excluded_by_term_prefix(out[term_col], exclude_tokens)
+            out = out.loc[~excl].copy()
 
     if has_split:
         for c in (year_col, season_col):
