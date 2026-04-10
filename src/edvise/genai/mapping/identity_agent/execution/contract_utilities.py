@@ -228,7 +228,7 @@ def apply_grain_dedup(
 
     When ``dedupe_fn`` runs inside :func:`~edvise.data_audit.custom_cleaning.clean_dataset`,
     the frame already uses the canonical learner column (default ``learner_id`` for GenAI, or
-    ``student_id`` when ``canonical_learner_column=\"student_id\"``); :func:`canonicalize_grain_contract_learner_id_alias`
+    ``student_id`` when ``canonical_learner_column`` is set accordingly); :func:`canonicalize_grain_contract_learner_id_alias`
     uses ``contract.learner_id_alias`` (from IdentityAgent grain) to align key names with that column.
     """
     contract = canonicalize_grain_contract_learner_id_alias(

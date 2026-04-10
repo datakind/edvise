@@ -631,7 +631,15 @@ def clean_dataset(
 
     # 7) optional dataset-specific dedupe hook (pre-key)
     if spec.dedupe_fn and callable(spec.dedupe_fn):
+        LOGGER.info("%s - Applying dedupe_fn", dataset_name)
+        before_dedupe_fn = len(g)
         g = spec.dedupe_fn(g)
+        LOGGER.info(
+            "%s - After dedupe_fn: %d rows removed | shape=%s",
+            dataset_name,
+            before_dedupe_fn - len(g),
+            g.shape,
+        )
 
     # 8) drop full row duplicates
     before = len(g)
