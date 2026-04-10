@@ -82,6 +82,13 @@ class GrainResolution(BaseModel):
         default=None,
         description="Sort column for temporal_collapse strategy.",
     )
+    dedup_sort_ascending: bool | None = Field(
+        default=None,
+        description=(
+            "Sort direction for temporal_collapse. True = ascending (earliest first), "
+            "False = descending (latest first). Pair with dedup_keep='first' per contract docs."
+        ),
+    )
     dedup_keep: Literal["first", "last"] | None = Field(
         default=None,
         description="Which row to keep after sort. Never 'any_row' — that is a 2a concept.",
@@ -96,10 +103,18 @@ class GrainResolution(BaseModel):
 
     @model_validator(mode="after")
     def temporal_collapse_requires_sort(self) -> "GrainResolution":
-        if self.dedup_strategy == "temporal_collapse" and self.dedup_sort_by is None:
-            raise ValueError(
-                "dedup_strategy='temporal_collapse' requires dedup_sort_by to be set."
-            )
+        if self.dedup_strategy == "temporal_collapse":
+            if self.dedup_sort_by is None:
+                raise ValueError(
+                    "dedup_strategy='temporal_collapse' requires dedup_sort_by to be set."
+                )
+            if self.dedup_sort_ascending is None:
+                raise ValueError(
+                    "dedup_strategy='temporal_collapse' requires dedup_sort_ascending to be set "
+                    "(True for earliest, False for latest)."
+                )
+        if self.dedup_sort_ascending is not None and self.dedup_sort_by is None:
+            raise ValueError("dedup_sort_ascending requires dedup_sort_by to be set.")
         return self
 
     @model_validator(mode="after")
