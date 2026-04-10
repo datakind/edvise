@@ -22,7 +22,7 @@ from edvise.genai.mapping.identity_agent.hitl.artifacts import (
 )
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
     HITLItem,
-    get_hitl_item_schema_context,
+    get_term_hitl_item_schema_context,
 )
 from edvise.genai.mapping.identity_agent.profiling.schemas import RawTableProfile
 from edvise.genai.mapping.identity_agent.utilities import strip_json_fences
@@ -416,7 +416,7 @@ types, and nesting must match; do not add extra keys at validated levels.
 </term_contract_schema_reference>
 
 <hitl_item_schema_reference>
-{get_hitl_item_schema_context()}
+{get_term_hitl_item_schema_context()}
 </hitl_item_schema_reference>
 """
 

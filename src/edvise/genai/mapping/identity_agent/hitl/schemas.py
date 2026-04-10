@@ -400,8 +400,13 @@ class InstitutionHITLItems(BaseModel):
         return all(i.choice is not None for i in self.items)
 
 
-def get_hitl_item_schema_context() -> str:
-    """Python source for HITL models (``hitl_items`` entries and envelope ``InstitutionHITLItems``)."""
+def get_grain_hitl_item_schema_context() -> str:
+    """
+    Python source for grain-pass HITL prompts only.
+
+    Includes :class:`GrainResolution` and shared HITL shapes; omits :class:`TermResolution`
+    so the model is not shown term-only fields alongside grain options.
+    """
     return concat_model_sources(
         (
             HITLDomain,
@@ -409,6 +414,27 @@ def get_hitl_item_schema_context() -> str:
             HookFunctionSpec,
             HookSpec,
             GrainResolution,
+            HITLOption,
+            HITLTarget,
+            HITLItem,
+            InstitutionHITLItems,
+        )
+    )
+
+
+def get_term_hitl_item_schema_context() -> str:
+    """
+    Python source for term-pass HITL prompts only.
+
+    Includes :class:`TermResolution` and shared HITL shapes; omits :class:`GrainResolution`
+    so the model is not shown dedup/grain fields alongside term options.
+    """
+    return concat_model_sources(
+        (
+            HITLDomain,
+            ReentryDepth,
+            HookFunctionSpec,
+            HookSpec,
             TermResolution,
             HITLOption,
             HITLTarget,
