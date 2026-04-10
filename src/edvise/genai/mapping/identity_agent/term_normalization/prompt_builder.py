@@ -285,8 +285,12 @@ Each HITLItem must have:
   patterns that are ambiguous, and what the reviewer needs to decide.
 - `hitl_context`: the raw values or samples that triggered the flag. Give the reviewer
   the evidence they need without requiring them to look at the data.
-- `options`: exactly 2–3 options. Last option must always be `option_id: "custom"` with
-  `resolution: null` and `reentry: "generate_hook"`.
+- `options`: 2–5 options. Last option must always be `option_id: "custom"` with
+  `resolution: null` and `reentry: "generate_hook"`. Use more options when the
+  resolution space is genuinely wider — e.g. grain ambiguity cases where
+  "keep earliest", "keep latest", and "keep as multi-row" are all meaningful
+  and distinct choices. Avoid padding with options that are not meaningfully
+  different.
 - Non-custom options must have a non-null `resolution` with concrete field mutations.
 - `reentry: "terminal"` for parameterized resolutions (exclude_tokens, season_map_append,
   term_col_override). `reentry: "generate_hook"` when a hook is required.
@@ -535,7 +539,9 @@ VALIDITY RULES
 - `confidence < 0.5` requires `hitl_flag: true`.
 - `term_config: null` requires `reasoning` to explain why.
 - `confidence` must be a numeric float, never a string.
-- Every HITLItem must have exactly 2–3 options. Last option must be `option_id: "custom"`.
+- Every HITLItem must have 2–5 options. Last option must be `option_id: "custom"`
+  with `resolution: null`. Use more options only when the resolution space is
+  genuinely wider — avoid padding.
 - `item_id` must be unique across the entire response.
 - Top-level `hitl_items` must contain exactly the same objects as the per-table `hitl_items`
   combined — no duplicates, no omissions.

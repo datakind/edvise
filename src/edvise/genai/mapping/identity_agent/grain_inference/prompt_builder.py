@@ -195,8 +195,12 @@ def _identity_reasoning_steps() -> str:
 8. Emit `hitl_items` when `hitl_flag` is true
    - Emit one `HITLItem` per distinct ambiguity. A single table may have multiple items
      if independent questions arise (e.g. grain ambiguity + dedup policy).
-   - Each item must have 2–3 options. The last option must always be `option_id: "custom"`
-     with `resolution: null` and `reentry: "generate_hook"`.
+   - `options`: 2–5 options. Last option must always be `option_id: "custom"` with
+     `resolution: null` and `reentry: "generate_hook"`. Use more options when the
+     resolution space is genuinely wider — e.g. grain ambiguity cases where
+     "keep earliest", "keep latest", and "keep as multi-row" are all meaningful
+     and distinct choices. Avoid padding with options that are not meaningfully
+     different.
    - Non-custom options must have a non-null `resolution` with concrete `dedup_strategy`,
      `dedup_sort_by`, `dedup_sort_ascending`, and `dedup_keep` values where applicable.
    - Use `reentry: "terminal"` for parameterized resolutions (true_duplicate, temporal_collapse,
@@ -394,7 +398,9 @@ VALIDITY RULES
 - `hitl_flag: true` requires at least one corresponding item in the top-level `hitl_items`.
 - `hitl_flag: false` means no items for this table appear in `hitl_items`.
 - `confidence < 0.5` requires `hitl_flag: true`.
-- Every HITLItem must have exactly 2–3 options. Last option must be `option_id: "custom"` with `resolution: null`.
+- Every HITLItem must have 2–5 options. Last option must be `option_id: "custom"`
+  with `resolution: null`. Use more options only when the resolution space is
+  genuinely wider — avoid padding.
 - Non-custom options must have a non-null `resolution`.
 - `item_id` must be unique — use `<institution_id>_<table>_<descriptor>`.
 """

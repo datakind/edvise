@@ -178,7 +178,7 @@ def check_gate(hitl_path: str | Path) -> None:
     raise HITLBlockingError(
         f"\n{len(envelope.pending)} unreviewed HITL item(s) blocking pipeline:\n{summary}\n\n"
         f"To resolve, edit {hitl_path.name}:\n"
-        f"  • Set 'choice' to 1, 2, or 3 for your selected option.\n"
+        f"  • Set 'choice' to the 1-based index of your selected option (1 … number of options).\n"
         f"  • Re-run this cell."
     )
 

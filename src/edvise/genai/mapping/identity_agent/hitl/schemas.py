@@ -2,7 +2,7 @@
 Pydantic models for IdentityAgent HITL items.
 
 HITLItem is the unit of human review — one item per ambiguity, per table.
-Reviewer sets ``choice`` to 1, 2, or 3 to select an option.
+Reviewer sets ``choice`` to a 1-based index into ``options`` (2–5 options per item).
 hitl_resolver.py reads these files and applies the selected resolution to the
 relevant config (grain_contract or term_config).
 
@@ -170,7 +170,7 @@ class HITLOption(BaseModel):
     One reviewer-selectable resolution for a HITL flag.
 
     Rules enforced by HITLItem validator:
-    - Exactly 2–3 options per item.
+    - 2–5 options per item.
     - Last option must always be option_id='custom' with resolution=None.
     - All non-custom options must have a non-null resolution.
     """
@@ -236,7 +236,7 @@ class HITLItem(BaseModel):
     One HITLItem per ambiguity per table. A single table may emit multiple
     items if independent questions arise (e.g. grain ambiguity + dedup policy).
 
-    Reviewer action: set ``choice`` to 1, 2, or 3 for the selected option, save file.
+    Reviewer action: set ``choice`` to the 1-based index of the selected option, save file.
     hitl_resolver.py does the rest.
     """
 
@@ -273,7 +273,7 @@ class HITLItem(BaseModel):
         default=None,
         description=(
             "1-indexed selection from options. "
-            "Reviewer sets this to 1, 2, or 3. Resolver reads options[choice - 1]. "
+            "Reviewer sets this to 1 … len(options). Resolver reads options[choice - 1]. "
             "null = not yet reviewed. Re-run resolver after changing choice to reapply."
         ),
     )
@@ -281,8 +281,8 @@ class HITLItem(BaseModel):
     @model_validator(mode="after")
     def validate_options(self) -> "HITLItem":
         n = len(self.options)
-        if n < 2 or n > 3:
-            raise ValueError(f"HITLItem must have 2–3 options, got {n}.")
+        if n < 2 or n > 5:
+            raise ValueError(f"HITLItem must have 2–5 options, got {n}.")
         if self.options[-1].option_id != "custom":
             raise ValueError(
                 "Last option must always be option_id='custom' as an escape hatch."
