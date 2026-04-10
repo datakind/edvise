@@ -342,9 +342,7 @@ def term_order_fn_from_term_order_config(
                 f"term_column {term_column!r} must be {expected_column!r} for this TermOrderConfig "
                 "(use term_order_column_for_clean_dataset(config) when building CleanSpec)."
             )
-        return add_edvise_term_order(
-            df, tc, year_extractor=None, season_extractor=None
-        )
+        return add_edvise_term_order(df, tc, year_extractor=None, season_extractor=None)
 
     return _fn
 

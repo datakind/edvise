@@ -2,8 +2,13 @@
 
 import json
 
-from edvise.genai.mapping.identity_agent.grain_inference.prompt_builder import parse_grain_contract_with_hitl
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import DedupPolicy, GrainContract
+from edvise.genai.mapping.identity_agent.grain_inference.prompt_builder import (
+    parse_grain_contract_with_hitl,
+)
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+    DedupPolicy,
+    GrainContract,
+)
 from edvise.genai.mapping.identity_agent.hitl.artifacts import (
     build_grain_config_for_resolver,
     write_identity_grain_artifacts,
@@ -11,7 +16,10 @@ from edvise.genai.mapping.identity_agent.hitl.artifacts import (
 from edvise.genai.mapping.identity_agent.term_normalization.prompt_builder import (
     parse_institution_term_contracts,
 )
-from edvise.genai.mapping.identity_agent.term_normalization.schemas import InstitutionTermContract, TermContract
+from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
+    InstitutionTermContract,
+    TermContract,
+)
 
 
 def _grain(inst: str, table: str) -> GrainContract:
@@ -64,15 +72,17 @@ def test_parse_grain_contract_with_hitl_no_items():
 def test_parse_institution_term_contracts_strips_empty_hitl_items():
     inst = InstitutionTermContract(
         institution_id="school_a",
-        datasets={"enroll": TermContract(
-            institution_id="school_a",
-            table="enroll",
-            term_config=None,
-            confidence=0.9,
-            hitl_flag=False,
-            hitl_question=None,
-            reasoning="x",
-        )},
+        datasets={
+            "enroll": TermContract(
+                institution_id="school_a",
+                table="enroll",
+                term_config=None,
+                confidence=0.9,
+                hitl_flag=False,
+                hitl_question=None,
+                reasoning="x",
+            )
+        },
     )
     payload = json.loads(inst.model_dump_json())
     payload["hitl_items"] = []

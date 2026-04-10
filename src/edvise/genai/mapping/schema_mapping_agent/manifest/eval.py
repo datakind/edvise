@@ -20,7 +20,9 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.prompt_builder import (
     strip_json_fences,
 )
 
-from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import MappingManifestEnvelope
+from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
+    MappingManifestEnvelope,
+)
 from edvise.data_audit.schemas.raw_edvise_student import (
     RawEdviseStudentDataSchema,
 )

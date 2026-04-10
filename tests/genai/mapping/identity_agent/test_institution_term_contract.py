@@ -4,8 +4,14 @@ import json
 
 import pytest
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import DedupPolicy, GrainContract
-from edvise.genai.mapping.identity_agent.profiling.schemas import RawColumnProfile, RawTableProfile
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+    DedupPolicy,
+    GrainContract,
+)
+from edvise.genai.mapping.identity_agent.profiling.schemas import (
+    RawColumnProfile,
+    RawTableProfile,
+)
 from edvise.genai.mapping.identity_agent.term_normalization.prompt_builder import (
     build_term_normalization_batch_user_payload,
     parse_institution_term_contracts,

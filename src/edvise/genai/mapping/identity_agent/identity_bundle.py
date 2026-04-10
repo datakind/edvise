@@ -10,8 +10,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import InstitutionGrainContract
-from edvise.genai.mapping.identity_agent.term_normalization.schemas import InstitutionTermContract
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+    InstitutionGrainContract,
+)
+from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
+    InstitutionTermContract,
+)
 
 
 class InstitutionIdentityContract(BaseModel):

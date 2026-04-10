@@ -13,7 +13,11 @@ from edvise.genai.mapping.identity_agent.execution import (
     merge_grain_contracts_into_school_config,
     merge_grain_student_id_alias_into_school_config,
 )
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import DedupPolicy, GrainContract, HookSpec
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+    DedupPolicy,
+    GrainContract,
+    HookSpec,
+)
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     TermContract,
     TermOrderConfig,

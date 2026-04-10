@@ -76,24 +76,29 @@ from edvise.genai.identity_agent.hitl.schemas import (
 # Exceptions
 # ---------------------------------------------------------------------------
 
+
 class HITLBlockingError(Exception):
     """Raised when unresolved HITL items are blocking pipeline progression."""
+
     pass
 
 
 class HITLValidationError(Exception):
     """Raised when a HITL file is malformed or reviewer left multiple options."""
+
     pass
 
 
 class HookValidationError(Exception):
     """Raised when a generated hook fails unit testing against example inputs."""
+
     pass
 
 
 # ---------------------------------------------------------------------------
 # Load / save helpers
 # ---------------------------------------------------------------------------
+
 
 def _load_hitl(hitl_path: Path) -> InstitutionHITLItems:
     if not hitl_path.exists():
@@ -134,7 +139,7 @@ def _append_run_log(
         timestamp=datetime.now(timezone.utc).isoformat(),
         resolved_by=resolved_by,
         agent="identity_agent",
-        domain=envelope.domain,   # "grain" or "term"
+        domain=envelope.domain,  # "grain" or "term"
         item_id=item.item_id,
         choice=item.choice,
         option_id=selected.option_id,
@@ -148,6 +153,7 @@ def _append_run_log(
 # 1. check_gate
 # ---------------------------------------------------------------------------
 
+
 def check_gate(hitl_path: str | Path) -> None:
     """
     Raises HITLBlockingError if any items in the HITL file are still pending.
@@ -155,7 +161,7 @@ def check_gate(hitl_path: str | Path) -> None:
     Safe to call repeatedly — never mutates.
     """
     hitl_path = Path(hitl_path)
-    envelope  = _load_hitl(hitl_path)
+    envelope = _load_hitl(hitl_path)
 
     if not envelope.items:
         print("✓ No HITL items — pipeline gate clear.")
@@ -181,10 +187,11 @@ def check_gate(hitl_path: str | Path) -> None:
 # 2. resolve_items
 # ---------------------------------------------------------------------------
 
+
 def resolve_items(
-    hitl_path:    str | Path,
-    config_path:  str | Path,
-    resolved_by:  str | None = None,
+    hitl_path: str | Path,
+    config_path: str | Path,
+    resolved_by: str | None = None,
     run_log_path: str | Path | None = None,
 ) -> None:
     """
@@ -194,11 +201,11 @@ def resolve_items(
 
     Writes updated config and HITL envelope back to disk.
     """
-    hitl_path   = Path(hitl_path)
+    hitl_path = Path(hitl_path)
     config_path = Path(config_path)
 
     envelope = _load_hitl(hitl_path)
-    config   = _load_config(config_path)
+    config = _load_config(config_path)
 
     for item in envelope.items:
         selected = _validate_selection(item)
@@ -238,6 +245,7 @@ def resolve_items(
 # 3. get_hook_items
 # ---------------------------------------------------------------------------
 
+
 def get_hook_items(hitl_path: str | Path) -> list[HITLItem]:
     """
     Returns one representative HITLItem per hook group (or per ungrouped item)
@@ -253,7 +261,7 @@ def get_hook_items(hitl_path: str | Path) -> list[HITLItem]:
         hook_items = get_hook_items("institutions/jjc/identity_term_hitl.json")
     """
     hitl_path = Path(hitl_path)
-    envelope  = _load_hitl(hitl_path)
+    envelope = _load_hitl(hitl_path)
 
     seen_groups: set[str] = set()
     result: list[HITLItem] = []
@@ -279,14 +287,15 @@ def get_hook_items(hitl_path: str | Path) -> list[HITLItem]:
 # 4. apply_hook_spec
 # ---------------------------------------------------------------------------
 
+
 def apply_hook_spec(
-    hitl_path:      str | Path,
-    config_path:    str | Path,
-    item_id:        str,
-    hook_spec:      HookSpec,
+    hitl_path: str | Path,
+    config_path: str | Path,
+    item_id: str,
+    hook_spec: HookSpec,
     apply_to_group: bool = False,
-    resolved_by:    str | None = None,
-    run_log_path:   str | Path | None = None,
+    resolved_by: str | None = None,
+    run_log_path: str | Path | None = None,
 ) -> None:
     """
     Writes a generated HookSpec to the correct config field.
@@ -316,25 +325,25 @@ def apply_hook_spec(
             resolved_by="dk"
         )
     """
-    hitl_path   = Path(hitl_path)
+    hitl_path = Path(hitl_path)
     config_path = Path(config_path)
 
     envelope = _load_hitl(hitl_path)
-    config   = _load_config(config_path)
+    config = _load_config(config_path)
 
     # Resolve target items
-    anchor     = _find_item(envelope, item_id)
-    group_id   = anchor.hook_group_id
+    anchor = _find_item(envelope, item_id)
+    group_id = anchor.hook_group_id
     target_items = (
-        _group_members(envelope, group_id)
-        if apply_to_group and group_id
-        else [anchor]
+        _group_members(envelope, group_id) if apply_to_group and group_id else [anchor]
     )
 
     for item in target_items:
         _write_hook_spec_to_config(config, item, hook_spec)
         # choice already set by reviewer — no status to update
-        print(f"✓ [{item.item_id}] hook_spec written to '{item.domain.value}' config for table '{item.table}'.")
+        print(
+            f"✓ [{item.item_id}] hook_spec written to '{item.domain.value}' config for table '{item.table}'."
+        )
 
         if run_log_path is not None:
             selected = item.selected_option()
@@ -357,12 +366,13 @@ def apply_hook_spec(
 # 5. validate_hook
 # ---------------------------------------------------------------------------
 
+
 def validate_hook(
-    config_path:    str | Path,
-    hitl_path:      str | Path,
+    config_path: str | Path,
+    hitl_path: str | Path,
     *,
-    item_id:        str | None = None,
-    hook_group_id:  str | None = None,
+    item_id: str | None = None,
+    hook_group_id: str | None = None,
 ) -> None:
     """
     Unit tests a generated hook against example_input / example_output from
@@ -387,17 +397,19 @@ def validate_hook(
     if item_id is None and hook_group_id is None:
         raise ValueError("Provide either item_id or hook_group_id.")
 
-    hitl_path   = Path(hitl_path)
+    hitl_path = Path(hitl_path)
     config_path = Path(config_path)
 
     envelope = _load_hitl(hitl_path)
-    config   = _load_config(config_path)
+    config = _load_config(config_path)
 
     # Resolve representative item
     if hook_group_id:
         members = _group_members(envelope, hook_group_id)
         if not members:
-            raise HITLValidationError(f"No items found for hook_group_id='{hook_group_id}'.")
+            raise HITLValidationError(
+                f"No items found for hook_group_id='{hook_group_id}'."
+            )
         item = members[0]
     else:
         item = _find_item(envelope, item_id)
@@ -415,17 +427,17 @@ def validate_hook(
         raise HookValidationError(f"Hook file not found: {hook_file}")
 
     # Dynamically import hook module
-    spec   = importlib.util.spec_from_file_location("_hook_module", hook_file)
+    spec = importlib.util.spec_from_file_location("_hook_module", hook_file)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
     # Test each function
     failures: list[str] = []
     for fn_spec in hook_spec_dict["functions"]:
-        name           = fn_spec["name"]
-        example_input  = fn_spec.get("example_input")
+        name = fn_spec["name"]
+        example_input = fn_spec.get("example_input")
         example_output = fn_spec.get("example_output")
-        expected_type  = fn_spec.get("expected_type")
+        expected_type = fn_spec.get("expected_type")
 
         if example_input is None:
             print(f"  ⚠  [{name}] No example_input — skipping.")
@@ -439,7 +451,9 @@ def validate_hook(
         try:
             result = fn(example_input)
         except Exception as e:
-            failures.append(f"[{name}] Raised exception on input {example_input!r}: {e}")
+            failures.append(
+                f"[{name}] Raised exception on input {example_input!r}: {e}"
+            )
             continue
 
         if expected_type:
@@ -476,24 +490,27 @@ def validate_hook(
 # Resolution handlers
 # ---------------------------------------------------------------------------
 
+
 def _apply_grain_resolution(
-    config:     dict,
-    item:       HITLItem,
+    config: dict,
+    item: HITLItem,
     resolution: GrainResolution,
 ) -> None:
-    table     = item.target.table
+    table = item.target.table
     grain_cfg = _get_nested(config, table, "grain_contract", item.item_id)
 
     if resolution.candidate_key_override:
         grain_cfg["post_clean_primary_key"] = resolution.candidate_key_override
-        grain_cfg["join_keys_for_2a"]       = resolution.candidate_key_override
-        print(f"  → post_clean_primary_key overridden: {resolution.candidate_key_override}")
+        grain_cfg["join_keys_for_2a"] = resolution.candidate_key_override
+        print(
+            f"  → post_clean_primary_key overridden: {resolution.candidate_key_override}"
+        )
 
     if resolution.dedup_strategy:
-        grain_cfg["dedup_policy"]["strategy"]       = resolution.dedup_strategy
-        grain_cfg["dedup_policy"]["sort_by"]        = resolution.dedup_sort_by
+        grain_cfg["dedup_policy"]["strategy"] = resolution.dedup_strategy
+        grain_cfg["dedup_policy"]["sort_by"] = resolution.dedup_sort_by
         grain_cfg["dedup_policy"]["sort_ascending"] = resolution.dedup_sort_ascending
-        grain_cfg["dedup_policy"]["keep"]           = resolution.dedup_keep
+        grain_cfg["dedup_policy"]["keep"] = resolution.dedup_keep
         print(
             "  → dedup_policy updated: "
             f"strategy={resolution.dedup_strategy}, "
@@ -503,11 +520,11 @@ def _apply_grain_resolution(
 
 
 def _apply_term_resolution(
-    config:     dict,
-    item:       HITLItem,
+    config: dict,
+    item: HITLItem,
     resolution: TermResolution,
 ) -> None:
-    table    = item.target.table
+    table = item.target.table
     term_cfg = _get_nested(config, table, "term_config", item.item_id)
 
     if resolution.exclude_tokens:
@@ -528,8 +545,8 @@ def _apply_term_resolution(
 
 
 def _write_hook_spec_to_config(
-    config:    dict,
-    item:      HITLItem,
+    config: dict,
+    item: HITLItem,
     hook_spec: HookSpec,
 ) -> None:
     table = item.target.table
@@ -561,6 +578,7 @@ def _read_hook_spec_from_config(config: dict, item: HITLItem) -> dict | None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _validate_selection(item: HITLItem) -> HITLOption | None:
     """Returns None when no choice set — caller skips unreviewed items."""
     return item.selected_option()
@@ -576,7 +594,9 @@ def _find_item(envelope: InstitutionHITLItems, item_id: str) -> HITLItem:
     )
 
 
-def _group_members(envelope: InstitutionHITLItems, hook_group_id: str) -> list[HITLItem]:
+def _group_members(
+    envelope: InstitutionHITLItems, hook_group_id: str
+) -> list[HITLItem]:
     """Returns all items sharing the given hook_group_id."""
     return [i for i in envelope.items if i.hook_group_id == hook_group_id]
 

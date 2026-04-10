@@ -13,7 +13,10 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
-from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem, InstitutionHITLItems
+from edvise.genai.mapping.identity_agent.hitl.schemas import (
+    HITLItem,
+    InstitutionHITLItems,
+)
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermContract
 
 

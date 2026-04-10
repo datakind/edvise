@@ -4,7 +4,9 @@ from edvise.genai.mapping.identity_agent.hitl.hook_generation.generate import (
     generate_hook_spec,
     generate_hook_specs_for_hook_items,
 )
-from edvise.genai.mapping.identity_agent.hitl.hook_generation.parse import parse_hook_spec
+from edvise.genai.mapping.identity_agent.hitl.hook_generation.parse import (
+    parse_hook_spec,
+)
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.prompt_builder import (
     build_hook_generation_system_prompt,
     build_hook_generation_user_message,

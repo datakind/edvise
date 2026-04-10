@@ -17,28 +17,30 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from edvise.genai.identity_agent.grain_inference.schemas import HookSpec
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
 
 
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
 
+
 class HITLDomain(str, Enum):
     IDENTITY_GRAIN = "identity_grain"
-    IDENTITY_TERM  = "identity_term"
+    IDENTITY_TERM = "identity_term"
     SCHEMA_MAPPING = "schema_mapping"  # future
-    TRANSFORM      = "transform"       # future
+    TRANSFORM = "transform"  # future
 
 
 class ReentryDepth(str, Enum):
-    TERMINAL      = "terminal"       # apply resolution, continue to next stage
+    TERMINAL = "terminal"  # apply resolution, continue to next stage
     GENERATE_HOOK = "generate_hook"  # trigger hook gen LLM call, then continue
 
 
 # ---------------------------------------------------------------------------
 # GrainResolution — Pass 1 output mutations
 # ---------------------------------------------------------------------------
+
 
 class GrainResolution(BaseModel):
     """
@@ -53,15 +55,19 @@ class GrainResolution(BaseModel):
 
     All fields optional — resolver applies only those present.
     """
+
     candidate_key_override: list[str] | None = Field(
         default=None,
         description="Reviewer-corrected columns forming the post-clean primary key.",
     )
-    dedup_strategy: Literal[
-        "true_duplicate",
-        "temporal_collapse",
-        "no_dedup",
-    ] | None = Field(
+    dedup_strategy: (
+        Literal[
+            "true_duplicate",
+            "temporal_collapse",
+            "no_dedup",
+        ]
+        | None
+    ) = Field(
         default=None,
         description=(
             "Resolved dedup strategy. 'policy_required' is intentionally excluded — "
@@ -107,6 +113,7 @@ class GrainResolution(BaseModel):
 # TermResolution — Pass 2 output mutations
 # ---------------------------------------------------------------------------
 
+
 class TermResolution(BaseModel):
     """
     Mutations applied to term_config when a Pass 2 HITL item is resolved.
@@ -116,6 +123,7 @@ class TermResolution(BaseModel):
 
     All fields optional — resolver applies only those present.
     """
+
     exclude_tokens: list[str] | None = Field(
         default=None,
         description=(
@@ -159,11 +167,12 @@ class HITLOption(BaseModel):
     - Last option must always be option_id='custom' with resolution=None.
     - All non-custom options must have a non-null resolution.
     """
-    option_id:   str = Field(
+
+    option_id: str = Field(
         ...,
         description="Snake-case identifier, unique within the item.",
     )
-    label:       str = Field(
+    label: str = Field(
         ...,
         description="Short display label for reviewer (~4 words).",
     )
@@ -171,11 +180,11 @@ class HITLOption(BaseModel):
         ...,
         description="One sentence explaining the consequence of this choice.",
     )
-    resolution:  AnyResolution | None = Field(
+    resolution: AnyResolution | None = Field(
         ...,
         description="Mutation applied by resolver on selection. Null only for option_id='custom'.",
     )
-    reentry:     ReentryDepth
+    reentry: ReentryDepth
 
     @model_validator(mode="after")
     def validate_resolution(self) -> "HITLOption":
@@ -192,15 +201,17 @@ class HITLOption(BaseModel):
 # HITLTarget
 # ---------------------------------------------------------------------------
 
+
 class HITLTarget(BaseModel):
     """Points the resolver at the exact config object to mutate."""
+
     institution_id: str
-    table:          str
-    config:         str = Field(
+    table: str
+    config: str = Field(
         ...,
         description="Which config to mutate e.g. 'grain_contract', 'term_config'.",
     )
-    field:          str = Field(
+    field: str = Field(
         ...,
         description="Which field within that config e.g. 'dedup_policy', 'season_map'.",
     )
@@ -209,6 +220,7 @@ class HITLTarget(BaseModel):
 # ---------------------------------------------------------------------------
 # HITLItem
 # ---------------------------------------------------------------------------
+
 
 class HITLItem(BaseModel):
     """
@@ -220,11 +232,12 @@ class HITLItem(BaseModel):
     Reviewer action: set ``choice`` to 1, 2, or 3 for the selected option, save file.
     hitl_resolver.py does the rest.
     """
-    item_id:        str
+
+    item_id: str
     institution_id: str
-    table:          str
-    domain:         HITLDomain
-    hook_group_id:  str | None = Field(
+    table: str
+    domain: HITLDomain
+    hook_group_id: str | None = Field(
         default=None,
         description=(
             "Shared identifier for items that use the same hook. "
@@ -239,7 +252,7 @@ class HITLItem(BaseModel):
         ...,
         description="Specific, actionable question naming the column, values, and decision needed.",
     )
-    hitl_context:  str | None = Field(
+    hitl_context: str | None = Field(
         default=None,
         description=(
             "Raw values or samples the LLM was looking at when it raised the flag. "
@@ -247,9 +260,9 @@ class HITLItem(BaseModel):
         ),
     )
 
-    options:    list[HITLOption]
-    target:     HITLTarget
-    choice:     int | None = Field(
+    options: list[HITLOption]
+    target: HITLTarget
+    choice: int | None = Field(
         default=None,
         description=(
             "1-indexed selection from options. "
@@ -283,12 +296,16 @@ class HITLItem(BaseModel):
         for opt in self.options:
             if opt.resolution is None:
                 continue
-            if self.domain == HITLDomain.IDENTITY_GRAIN and not isinstance(opt.resolution, GrainResolution):
+            if self.domain == HITLDomain.IDENTITY_GRAIN and not isinstance(
+                opt.resolution, GrainResolution
+            ):
                 raise ValueError(
                     f"domain='identity_grain' requires GrainResolution, "
                     f"got {type(opt.resolution).__name__} on option '{opt.option_id}'."
                 )
-            if self.domain == HITLDomain.IDENTITY_TERM and not isinstance(opt.resolution, TermResolution):
+            if self.domain == HITLDomain.IDENTITY_TERM and not isinstance(
+                opt.resolution, TermResolution
+            ):
                 raise ValueError(
                     f"domain='identity_term' requires TermResolution, "
                     f"got {type(opt.resolution).__name__} on option '{opt.option_id}'."
@@ -310,6 +327,7 @@ class HITLItem(BaseModel):
 # InstitutionHITLItems — top-level file written by IdentityAgent
 # ---------------------------------------------------------------------------
 
+
 class InstitutionHITLItems(BaseModel):
     """
     All HITL items for one institution run, written alongside agent output files.
@@ -319,9 +337,10 @@ class InstitutionHITLItems(BaseModel):
 
     Empty items list means no flags were raised — gate check passes immediately.
     """
+
     institution_id: str
-    domain:         Literal["grain", "term"]
-    items:          list[HITLItem] = Field(default_factory=list)
+    domain: Literal["grain", "term"]
+    items: list[HITLItem] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def items_match_institution(self) -> "InstitutionHITLItems":
@@ -336,7 +355,8 @@ class InstitutionHITLItems(BaseModel):
     @model_validator(mode="after")
     def items_match_domain(self) -> "InstitutionHITLItems":
         expected = (
-            HITLDomain.IDENTITY_GRAIN if self.domain == "grain"
+            HITLDomain.IDENTITY_GRAIN
+            if self.domain == "grain"
             else HITLDomain.IDENTITY_TERM
         )
         for item in self.items:
@@ -362,21 +382,23 @@ class InstitutionHITLItems(BaseModel):
 # Run log — append-only audit trail written by hitl_resolver.py
 # ---------------------------------------------------------------------------
 
+
 class RunEvent(BaseModel):
     """
     One resolved HITL item event. Written by hitl_resolver on each resolve_items
     or apply_hook_spec call. Append-only — never mutated after writing.
     """
+
     model_config = ConfigDict(extra="forbid")
 
-    timestamp:   str          # ISO datetime string
-    resolved_by: str | None   # user identifier passed to resolver
-    agent:       str          # e.g. "identity_agent", "schema_mapping_agent"
-    domain:      str          # e.g. "grain", "term", "mapping"
-    item_id:     str
-    choice:      int
-    option_id:   str
-    reentry:     str          # "terminal" or "generate_hook"
+    timestamp: str  # ISO datetime string
+    resolved_by: str | None  # user identifier passed to resolver
+    agent: str  # e.g. "identity_agent", "schema_mapping_agent"
+    domain: str  # e.g. "grain", "term", "mapping"
+    item_id: str
+    choice: int
+    option_id: str
+    reentry: str  # "terminal" or "generate_hook"
 
 
 class RunLog(BaseModel):
@@ -385,7 +407,8 @@ class RunLog(BaseModel):
     Written to: institutions/<institution_id>/run_log.json
     One file per institution — all pipeline stages append to the same file.
     """
+
     model_config = ConfigDict(extra="forbid")
 
     institution_id: str
-    events:         list[RunEvent] = Field(default_factory=list)
+    events: list[RunEvent] = Field(default_factory=list)

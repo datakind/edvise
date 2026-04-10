@@ -17,7 +17,9 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     InstitutionGrainContract,
     build_institution_grain_contracts,
 )
-from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermOrderConfig
+from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
+    TermOrderConfig,
+)
 from edvise.genai.mapping.identity_agent.profiling import (
     CandidateKey,
     CandidateProfile,

@@ -12,7 +12,10 @@ from pydantic import (
     model_validator,
 )
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookFunctionSpec, HookSpec  # noqa: F401
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+    HookFunctionSpec,
+    HookSpec,
+)  # noqa: F401
 from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
 
 CANONICAL_SEASONS = {"FALL", "SPRING", "SUMMER", "WINTER"}
@@ -23,8 +26,12 @@ class SeasonMapEntry(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    raw: str = Field(description="Raw season token as it appears in the institution data (e.g. 'FA', '9', 'Fall').")
-    canonical: str = Field(description="Canonical season label. Must be one of: FALL, SPRING, SUMMER, WINTER.")
+    raw: str = Field(
+        description="Raw season token as it appears in the institution data (e.g. 'FA', '9', 'Fall')."
+    )
+    canonical: str = Field(
+        description="Canonical season label. Must be one of: FALL, SPRING, SUMMER, WINTER."
+    )
 
     @model_validator(mode="after")
     def _validate_canonical(self) -> SeasonMapEntry:
@@ -116,7 +123,9 @@ class TermOrderConfig(BaseModel):
     def _hook_spec_when_hook_required(self) -> TermOrderConfig:
         # standard hook_spec rule
         if self.term_extraction == "hook_required" and self.hook_spec is None:
-            raise ValueError("hook_spec is required when term_extraction is 'hook_required'")
+            raise ValueError(
+                "hook_spec is required when term_extraction is 'hook_required'"
+            )
         # split column constraints
         if self.year_col is not None and self.season_col is not None:
             if self.term_extraction != "standard":

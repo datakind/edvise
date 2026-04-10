@@ -531,9 +531,7 @@ def build_enriched_schema_contract_for_dataset(
             f"{example['error']}"
         )
     if not schema_contract or "datasets" not in schema_contract:
-        raise RuntimeError(
-            f"No schema contract produced for dataset {dataset_name!r}"
-        )
+        raise RuntimeError(f"No schema contract produced for dataset {dataset_name!r}")
 
     dataset_to_logical_name: Dict[str, str] = {}
     for logical_name in schema_contract["datasets"].keys():
@@ -619,7 +617,9 @@ def save_enriched_schema_contract(
     before writing.
     """
     if validate_for_sma:
-        from edvise.genai.mapping.schema_contract import parse_enriched_schema_contract_for_sma
+        from edvise.genai.mapping.schema_contract import (
+            parse_enriched_schema_contract_for_sma,
+        )
 
         parse_enriched_schema_contract_for_sma(enriched_contract)
 

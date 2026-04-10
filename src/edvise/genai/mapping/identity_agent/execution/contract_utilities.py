@@ -163,7 +163,9 @@ def apply_grain_dedup(df: pd.DataFrame, contract: GrainContract) -> pd.DataFrame
     policy = contract.dedup_policy
     cols = list(df.columns)
     try:
-        keys = [_resolve_grain_key_to_existing_column(k, cols) for k in contract.unique_keys]
+        keys = [
+            _resolve_grain_key_to_existing_column(k, cols) for k in contract.unique_keys
+        ]
     except ValueError as e:
         raise ValueError(f"apply_grain_dedup: {e}") from e
     _validate_key_columns(df, keys, label="apply_grain_dedup")

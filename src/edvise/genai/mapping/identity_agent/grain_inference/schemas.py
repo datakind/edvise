@@ -33,15 +33,20 @@ class HookFunctionSpec(BaseModel):
     example_input, example_output, and expected_type are used by validate_hook()
     to unit test the generated function before pipeline execution.
     """
+
     model_config = ConfigDict(extra="forbid")
 
-    name:           str
-    signature:      str
-    description:    str
-    example_input:  str | None = None
+    name: str
+    signature: str
+    description: str
+    example_input: str | None = None
     example_output: str | None = None
-    expected_type:  str | None = None  # "int", "str" — for type checking output in validate_hook
-    draft:          str | None = None  # None for DataFrame-level hooks — body generated separately
+    expected_type: str | None = (
+        None  # "int", "str" — for type checking output in validate_hook
+    )
+    draft: str | None = (
+        None  # None for DataFrame-level hooks — body generated separately
+    )
 
 
 class HookSpec(BaseModel):
@@ -49,17 +54,18 @@ class HookSpec(BaseModel):
     File path + function specs for a generated hook.
     Shared shape between term extraction hooks and dedup hooks.
     """
+
     model_config = ConfigDict(extra="forbid")
 
-    file:      str = Field(..., description="Relative path e.g. 'jjc/dedup_hooks.py'")
+    file: str = Field(..., description="Relative path e.g. 'jjc/dedup_hooks.py'")
     functions: list[HookFunctionSpec]
 
 
 class DedupPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    strategy:       DedupStrategy
-    sort_by:        str | None = None
+    strategy: DedupStrategy
+    sort_by: str | None = None
     sort_ascending: bool | None = Field(
         default=None,
         description=(
@@ -68,8 +74,8 @@ class DedupPolicy(BaseModel):
             "Always pair with keep='first'. Never use keep='last'."
         ),
     )
-    keep:      Literal["first", "last"] | None = None
-    notes:     str = ""
+    keep: Literal["first", "last"] | None = None
+    notes: str = ""
     hook_spec: HookSpec | None = Field(
         default=None,
         description=(
@@ -91,9 +97,7 @@ class DedupPolicy(BaseModel):
     @model_validator(mode="after")
     def sort_ascending_requires_sort_by(self) -> "DedupPolicy":
         if self.sort_ascending is not None and self.sort_by is None:
-            raise ValueError(
-                "sort_ascending requires sort_by to be set."
-            )
+            raise ValueError("sort_ascending requires sort_by to be set.")
         if self.strategy == "temporal_collapse" and self.sort_ascending is None:
             raise ValueError(
                 "temporal_collapse requires sort_ascending to be explicitly set — "

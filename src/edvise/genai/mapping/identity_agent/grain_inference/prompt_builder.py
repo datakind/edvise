@@ -14,7 +14,10 @@ from typing import Union
 
 import pandas as pd
 
-from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem, get_hitl_item_schema_context
+from edvise.genai.mapping.identity_agent.hitl.schemas import (
+    HITLItem,
+    get_hitl_item_schema_context,
+)
 from edvise.genai.mapping.identity_agent.utilities import strip_json_fences
 from edvise.genai.mapping.identity_agent.profiling import RankedCandidateProfiles
 
@@ -461,7 +464,9 @@ def _grain_payload_as_dict(raw: RawContractInput) -> dict:
     return json.loads(strip_json_fences(text))
 
 
-def parse_grain_contract_with_hitl(raw: RawContractInput) -> tuple[GrainContract, list[HITLItem]]:
+def parse_grain_contract_with_hitl(
+    raw: RawContractInput,
+) -> tuple[GrainContract, list[HITLItem]]:
     """
     Parse grain-stage JSON into :class:`GrainContract` plus structured ``hitl_items``.
 
@@ -480,7 +485,9 @@ def parse_grain_contract_with_hitl(raw: RawContractInput) -> tuple[GrainContract
         raise ValueError("hitl_items must be a list or null")
     if "term_config" in d:
         d.pop("term_config", None)
-        logger.debug("Stripped legacy term_config from grain JSON (use term stage for terms)")
+        logger.debug(
+            "Stripped legacy term_config from grain JSON (use term stage for terms)"
+        )
     items = [HITLItem.model_validate(x) for x in hitl_raw]
     try:
         return GrainContract.model_validate(d), items

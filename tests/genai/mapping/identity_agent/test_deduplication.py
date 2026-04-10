@@ -1,7 +1,9 @@
 import pandas as pd
 import pytest
 
-from edvise.genai.mapping.identity_agent.grain_inference.deduplication import drop_duplicate_keys
+from edvise.genai.mapping.identity_agent.grain_inference.deduplication import (
+    drop_duplicate_keys,
+)
 
 
 def test_drop_duplicate_keys_sort_prefers_row():

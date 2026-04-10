@@ -17,12 +17,21 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
     GrainContract,
 )
-from edvise.genai.mapping.identity_agent.hitl.artifacts import unique_hitl_items_by_item_id
-from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem, get_hitl_item_schema_context
+from edvise.genai.mapping.identity_agent.hitl.artifacts import (
+    unique_hitl_items_by_item_id,
+)
+from edvise.genai.mapping.identity_agent.hitl.schemas import (
+    HITLItem,
+    get_hitl_item_schema_context,
+)
 from edvise.genai.mapping.identity_agent.profiling.schemas import RawTableProfile
 from edvise.genai.mapping.identity_agent.utilities import strip_json_fences
 
-from .schemas import InstitutionTermContract, TermContract, get_term_contract_schema_context
+from .schemas import (
+    InstitutionTermContract,
+    TermContract,
+    get_term_contract_schema_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -701,7 +710,9 @@ def parse_institution_term_contracts_with_hitl(
         return InstitutionTermContract.model_validate(d2), items
     except Exception:
         text = raw if isinstance(raw, str) else str(raw)[:500]
-        logger.debug("Institution term contract parse failed; raw (truncated): %s", text)
+        logger.debug(
+            "Institution term contract parse failed; raw (truncated): %s", text
+        )
         raise
 
 

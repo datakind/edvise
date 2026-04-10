@@ -65,7 +65,9 @@ def __getattr__(name: str) -> Any:
         "term_order_column_for_clean_dataset",
         "term_order_fn_from_term_order_config",
     ):
-        from edvise.genai.mapping.identity_agent.term_normalization import term_order as _term_order
+        from edvise.genai.mapping.identity_agent.term_normalization import (
+            term_order as _term_order,
+        )
 
         return getattr(_term_order, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
