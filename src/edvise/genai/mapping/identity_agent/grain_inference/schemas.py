@@ -30,6 +30,8 @@ class HookFunctionSpec(BaseModel):
     """
     Spec for one generated hook function.
     Mirrors term_normalization hook_spec functions shape exactly.
+    example_input, example_output, and expected_type are used by validate_hook()
+    to unit test the generated function before pipeline execution.
     """
     model_config = ConfigDict(extra="forbid")
 
@@ -38,6 +40,7 @@ class HookFunctionSpec(BaseModel):
     description:    str
     example_input:  str | None = None
     example_output: str | None = None
+    expected_type:  str | None = None  # "int", "str" — for type checking output in validate_hook
     draft:          str | None = None  # None for DataFrame-level hooks — body generated separately
 
 
@@ -65,22 +68,15 @@ class DedupPolicy(BaseModel):
             "Always pair with keep='first'. Never use keep='last'."
         ),
     )
-    keep:           Literal["first", "last"] | None = None
-    notes:          str = ""
-    dedup_method: Literal["standard", "custom"] = Field(
-        default="standard",
-        description=(
-            "Mirrors term_extraction in TermOrderConfig. "
-            "'standard' — parameterized strategy (true_duplicate, temporal_collapse, no_dedup). "
-            "'custom' — hook function required; hook_spec must be populated after hook generation."
-        ),
-    )
+    keep:      Literal["first", "last"] | None = None
+    notes:     str = ""
     hook_spec: HookSpec | None = Field(
         default=None,
         description=(
-            "Populated when dedup_method='custom'. "
-            "Contains file path and function specs for the generated dedup hook. "
-            "Null at flag time — written by resolver after hook generation call."
+            "Populated when strategy='policy_required' and a custom hook is needed. "
+            "Null at flag time — written by resolver after hook generation call. "
+            "Execution layer infers hook path from hook_spec presence; "
+            "no separate dedup_method field is needed."
         ),
     )
 
@@ -89,10 +85,6 @@ class DedupPolicy(BaseModel):
         if self.hook_spec is not None and self.strategy != "policy_required":
             raise ValueError(
                 "hook_spec should only be populated when strategy='policy_required'."
-            )
-        if self.dedup_method == "custom" and self.strategy != "policy_required":
-            raise ValueError(
-                "dedup_method='custom' requires strategy='policy_required'."
             )
         return self
 
@@ -122,7 +114,7 @@ class GrainContract(BaseModel):
     it to ``student_id`` for the frozen schema contract.
     """
 
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
     institution_id: str
     table: str
@@ -164,7 +156,6 @@ class GrainContract(BaseModel):
         ),
     )
     hitl_flag: bool
-    hitl_question: str | None = None
     reasoning: str
     notes: str = ""
 
@@ -200,7 +191,7 @@ class InstitutionGrainContract(BaseModel):
     Use for testing or handoff instead of N separate per-table JSON files.
     """
 
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
     institution_id: str
     datasets: dict[str, GrainContract]

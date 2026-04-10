@@ -141,7 +141,7 @@ class TermContract(BaseModel):
     :class:`~edvise.genai.mapping.identity_agent.grain_inference.schemas.GrainContract` without term fields.
     """
 
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
     institution_id: str
     table: str
@@ -156,21 +156,15 @@ class TermContract(BaseModel):
         description="Agent confidence in term column selection and format inference (0.0–1.0).",
     )
     hitl_flag: bool = Field(
-        description="True when hook_spec requires human review, or term column selection is uncertain."
-    )
-    hitl_question: str | None = Field(
-        default=None,
-        description="Specific question for human reviewer. Required when hitl_flag is true.",
+        description=(
+            "True when hook_spec requires human review, term column selection is uncertain, "
+            "or unique values contain unrecognized tokens. "
+            "When true, HITLItems are emitted in the top-level hitl_items list."
+        )
     )
     reasoning: str = Field(
         description="2-3 sentence summary of term column selection and format inference."
     )
-
-    @model_validator(mode="after")
-    def _hitl_question_when_flagged(self) -> TermContract:
-        if self.hitl_flag and not self.hitl_question:
-            raise ValueError("hitl_question is required when hitl_flag is true")
-        return self
 
     @model_validator(mode="after")
     def low_confidence_requires_hitl(self) -> TermContract:
