@@ -157,6 +157,9 @@ AnyResolution = Annotated[
     Field(discriminator=None),
 ]
 
+# Public name for :class:`HITLOption` resolution payloads (re-exports ``AnyResolution``).
+HITLResolution = AnyResolution
+
 
 class HITLOption(BaseModel):
     """
