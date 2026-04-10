@@ -26,43 +26,107 @@ from edvise.utils.data_cleaning import convert_to_snake_case
 logger = logging.getLogger(__name__)
 
 
-def _map_key_after_student_id_rename(name: str, learner_id_alias: str | None) -> str:
-    """Align key names with ``student_id`` after :func:`~edvise.data_audit.custom_cleaning.clean_dataset` rename."""
+def _map_key_after_canonical_learner_rename(
+    name: str,
+    learner_id_alias: str | None,
+    *,
+    canonical_column: str = "student_id",
+) -> str:
+    """Align key names with the canonical learner column after :func:`~edvise.data_audit.custom_cleaning.clean_dataset` rename."""
+    if canonical_column not in ("student_id", "learner_id"):
+        raise ValueError(
+            f"canonical_column must be 'student_id' or 'learner_id', got {canonical_column!r}"
+        )
     if not learner_id_alias or not str(learner_id_alias).strip():
+        if canonical_column == "learner_id" and name == "student_id":
+            return "learner_id"
         return name
     alias = str(learner_id_alias).strip()
     alias_snake = convert_to_snake_case(alias)
-    if name in ("student_id", alias, alias_snake):
-        return "student_id"
+    if canonical_column == "student_id":
+        if name in ("student_id", alias, alias_snake):
+            return "student_id"
+        return name
+    if name in ("learner_id", "student_id", alias, alias_snake):
+        return "learner_id"
     return name
 
 
 def canonicalize_grain_contract_learner_id_alias(
     contract: GrainContract,
+    *,
+    canonical_column: str = "student_id",
 ) -> GrainContract:
     """
     Rewrite ``post_clean_primary_key``, ``join_keys_for_2a``, and ``dedup_policy.sort_by`` so
-    any reference to ``contract.learner_id_alias`` becomes ``student_id``.
+    references to the learner identifier column match the canonical name after cleaning
+    (``student_id`` or, for GenAI, ``learner_id``).
 
-    The dataframe passed to ``apply_grain_dedup`` already has ``student_id`` after cleaning;
+    The dataframe passed to ``apply_grain_dedup`` already uses that canonical column;
     the grain contract may still name the pre-rename column in keys unless the model normalized them.
     """
     alias = contract.learner_id_alias
     if not alias or not str(alias).strip():
+        if canonical_column == "learner_id":
+            pk = [
+                _map_key_after_canonical_learner_rename(
+                    k, alias, canonical_column=canonical_column
+                )
+                for k in contract.post_clean_primary_key
+            ]
+            jk = [
+                _map_key_after_canonical_learner_rename(
+                    k, alias, canonical_column=canonical_column
+                )
+                for k in contract.join_keys_for_2a
+            ]
+            dp = contract.dedup_policy
+            new_sort = (
+                None
+                if dp.sort_by is None
+                else _map_key_after_canonical_learner_rename(
+                    dp.sort_by, alias, canonical_column=canonical_column
+                )
+            )
+            new_dp = (
+                dp
+                if new_sort == dp.sort_by
+                else dp.model_copy(update={"sort_by": new_sort})
+            )
+            if (
+                pk == contract.post_clean_primary_key
+                and jk == contract.join_keys_for_2a
+                and new_dp is dp
+            ):
+                return contract
+            return contract.model_copy(
+                update={
+                    "post_clean_primary_key": pk,
+                    "join_keys_for_2a": jk,
+                    "dedup_policy": new_dp,
+                }
+            )
         return contract
 
     pk = [
-        _map_key_after_student_id_rename(k, alias)
+        _map_key_after_canonical_learner_rename(
+            k, alias, canonical_column=canonical_column
+        )
         for k in contract.post_clean_primary_key
     ]
     jk = [
-        _map_key_after_student_id_rename(k, alias) for k in contract.join_keys_for_2a
+        _map_key_after_canonical_learner_rename(
+            k, alias, canonical_column=canonical_column
+        )
+        for k in contract.join_keys_for_2a
     ]
     dp = contract.dedup_policy
     if dp.sort_by is None:
         new_sort: str | None = None
     else:
-        new_sort = _map_key_after_student_id_rename(dp.sort_by, alias)
+        new_sort = _map_key_after_canonical_learner_rename(
+            dp.sort_by, alias, canonical_column=canonical_column
+        )
     new_dp = (
         dp if new_sort == dp.sort_by else dp.model_copy(update={"sort_by": new_sort})
     )
@@ -145,7 +209,12 @@ def _validate_key_columns(df: pd.DataFrame, keys: list[str], *, label: str) -> N
         raise ValueError(f"{label}: missing columns for grain key: {missing}")
 
 
-def apply_grain_dedup(df: pd.DataFrame, contract: GrainContract) -> pd.DataFrame:
+def apply_grain_dedup(
+    df: pd.DataFrame,
+    contract: GrainContract,
+    *,
+    canonical_learner_column: str = "student_id",
+) -> pd.DataFrame:
     """
     Apply ``contract.dedup_policy`` using ``post_clean_primary_key`` as the dedup key columns.
 
@@ -158,10 +227,13 @@ def apply_grain_dedup(df: pd.DataFrame, contract: GrainContract) -> pd.DataFrame
       warning and behaves like ``true_duplicate``.
 
     When ``dedupe_fn`` runs inside :func:`~edvise.data_audit.custom_cleaning.clean_dataset`,
-    the frame already uses ``student_id``; :func:`canonicalize_grain_contract_learner_id_alias`
+    the frame already uses the canonical learner column (``student_id`` or ``learner_id`` per
+    ``canonical_learner_column``); :func:`canonicalize_grain_contract_learner_id_alias`
     uses ``contract.learner_id_alias`` (from IdentityAgent grain) to align key names with that column.
     """
-    contract = canonicalize_grain_contract_learner_id_alias(contract)
+    contract = canonicalize_grain_contract_learner_id_alias(
+        contract, canonical_column=canonical_learner_column
+    )
     policy = contract.dedup_policy
     cols = list(df.columns)
     try:
@@ -223,14 +295,20 @@ def apply_grain_execution(
     df: pd.DataFrame,
     grain: GrainContract,
     term_pass: TermContract | None = None,
+    *,
+    canonical_learner_column: str = "student_id",
 ) -> pd.DataFrame:
     """Run :func:`apply_grain_dedup` then :func:`apply_term_order_from_contract` (term contract, if any)."""
-    out = apply_grain_dedup(df, grain)
+    out = apply_grain_dedup(
+        df, grain, canonical_learner_column=canonical_learner_column
+    )
     return apply_term_order_from_contract(out, term_pass)
 
 
 def build_dedupe_fn_from_grain_contract(
     contract: GrainContract,
+    *,
+    canonical_learner_column: str = "student_id",
 ) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """
     Build a ``dedupe_fn`` for :func:`~edvise.data_audit.custom_cleaning.clean_dataset` /
@@ -238,9 +316,13 @@ def build_dedupe_fn_from_grain_contract(
     only the grain dedup step (not term order).
 
     Term order still runs later via ``term_order_fn`` / :func:`apply_term_order_from_contract` if needed.
+    Pass ``canonical_learner_column=\"learner_id\"`` when :func:`~edvise.data_audit.custom_cleaning.clean_dataset`
+    uses GenAI canonical naming.
     """
 
     def _dedupe_fn(frame: pd.DataFrame) -> pd.DataFrame:
-        return apply_grain_dedup(frame, contract)
+        return apply_grain_dedup(
+            frame, contract, canonical_learner_column=canonical_learner_column
+        )
 
     return _dedupe_fn

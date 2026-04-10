@@ -175,6 +175,21 @@ def test_apply_grain_execution_order_dedup_then_term():
     assert "_term_order" in out.columns
 
 
+def test_apply_grain_dedup_learner_id_canonical_column():
+    df = pd.DataFrame({"learner_id": ["a", "a"], "x": [1, 2]})
+    c = _grain(
+        post_clean_primary_key=["student_id"],
+        dedup_policy=DedupPolicy(
+            strategy="true_duplicate",
+            sort_by=None,
+            keep="first",
+            notes="",
+        ),
+    )
+    out = apply_grain_dedup(df, c, canonical_learner_column="learner_id")
+    assert len(out) == 1
+
+
 def test_build_dedupe_fn_from_grain_contract():
     df = pd.DataFrame({"k": [1, 1], "v": [1, 2]})
     c = _grain(
@@ -426,6 +441,21 @@ def test_merge_canonicalizes_learner_id_alias_in_primary_keys():
     )
     out = merge_grain_contracts_into_school_config(school, {"students": gc})
     assert out.datasets["students"].primary_keys == ["student_id", "term"]
+
+
+def test_merge_canonicalizes_learner_id_alias_to_learner_id_primary_keys():
+    school = _school_config()
+    gc = _merge_contract(
+        "students",
+        ["legacy_student_col", "term"],
+        learner_id_alias="legacy_student_col",
+    )
+    out = merge_grain_contracts_into_school_config(
+        school,
+        {"students": gc},
+        canonical_learner_column="learner_id",
+    )
+    assert out.datasets["students"].primary_keys == ["learner_id", "term"]
 
 
 def test_merge_preserves_institution_when_partial():

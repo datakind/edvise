@@ -14,7 +14,7 @@ import logging
 from dataclasses import replace
 from datetime import datetime, timezone
 from collections.abc import Callable
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import pandas as pd
 
@@ -139,26 +139,33 @@ def _primary_keys_for_column_resolution(
     if not student_id_alias:
         return list(primary_keys)
     alias_snake = convert_to_snake_case(student_id_alias)
-    return [alias_snake if k == "student_id" else k for k in primary_keys]
+    return [
+        alias_snake if k in ("student_id", "learner_id") else k for k in primary_keys
+    ]
 
 
 def _canonical_primary_keys_for_contract(
     primary_keys: list[str],
     student_id_alias: str | None,
+    *,
+    canonical_learner_column: Literal["student_id", "learner_id"] = "student_id",
 ) -> list[str]:
     """
-    Primary key column names as they appear after ``clean_dataset`` (canonical ``student_id``).
+    Primary key column names as they appear after ``clean_dataset`` (canonical learner column).
 
     Used for ``freeze_schema`` / schema contract JSON so contracts match inputs.toml and
     cleaned dataframe columns, not the pre-rename alias name.
     """
+    target = canonical_learner_column
     if not student_id_alias:
+        if target == "learner_id":
+            return ["learner_id" if k == "student_id" else k for k in primary_keys]
         return list(primary_keys)
     alias_snake = convert_to_snake_case(student_id_alias)
     out: list[str] = []
     for k in primary_keys:
-        if k in ("student_id", student_id_alias, alias_snake):
-            out.append("student_id")
+        if k in ("student_id", "learner_id", student_id_alias, alias_snake):
+            out.append(target)
         else:
             out.append(k)
     return out
@@ -177,6 +184,7 @@ def build_schema_contract_from_config(
     dedupe_fn_by_dataset: Optional[
         dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
     ] = None,
+    canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
     Build schema contract from inputs.toml SchoolMappingConfig.
@@ -197,6 +205,9 @@ def build_schema_contract_from_config(
             when absent, ``term_order_fn`` applies.
         dedupe_fn_by_dataset: Logical name -> dedupe hook (``CleanSpec.dedupe_fn``, after dtypes).
         cleaning_cfg: Overrides / supplements ``school_config.cleaning`` for ``clean_dataset``.
+        canonical_learner_column: Person-key column after cleaning. GenAI defaults to
+            ``\"learner_id\"``; custom data audit callers should pass ``\"student_id\"`` to match
+            :func:`~edvise.data_audit.custom_cleaning.clean_dataset` defaults.
 
     Returns:
         Tuple of (cleaned_dataframes, schema_contract)
@@ -213,6 +224,11 @@ def build_schema_contract_from_config(
         dtype_opts,
         forced_dtypes={**cfg_dtype_opts.forced_dtypes, **dtype_opts.forced_dtypes},
     )
+    if canonical_learner_column == "learner_id":
+        fd = dict(dtype_opts.forced_dtypes)
+        if "student_id" in fd and "learner_id" not in fd:
+            fd["learner_id"] = fd["student_id"]
+        dtype_opts = replace(dtype_opts, forced_dtypes=fd)
 
     cleaned_map: dict[str, pd.DataFrame] = {}
     specs: dict[str, dict[str, Any]] = {}
@@ -255,6 +271,7 @@ def build_schema_contract_from_config(
         unique_keys_for_contract = _canonical_primary_keys_for_contract(
             pk_config,
             merged_cleaning.student_id_alias if merged_cleaning else None,
+            canonical_learner_column=canonical_learner_column,
         )
 
         if logical_name in term_order_fn_by_dataset:
@@ -280,6 +297,7 @@ def build_schema_contract_from_config(
             enforce_uniqueness=True,
             generate_dtypes=True,
             cleaning_cfg=merged_cleaning,
+            canonical_learner_column=canonical_learner_column,
         )
 
         logger.info(
@@ -310,6 +328,7 @@ def build_schema_contract_from_config(
         student_id_alias=(
             merged_cleaning.student_id_alias if merged_cleaning else None
         ),
+        canonical_learner_column=canonical_learner_column,
     )
     freeze_opts = SchemaFreezeOptions(include_column_order_hash=True)
 

@@ -16,6 +16,7 @@ from edvise.data_audit.custom_cleaning import (
     CleanSpec,
     clean_dataset,
     clean_all_datasets_map,
+    rename_learner_id_alias_column,
     SchemaFreezeOptions,
     freeze_schema,
     enforce_schema,
@@ -208,6 +209,29 @@ def test_clean_dataset_student_id_rename_null_handling_and_pk_uniqueness(caplog)
 
     # uniqueness enforced on renamed key
     assert out["student_id"].is_unique
+
+
+def test_rename_learner_id_alias_column():
+    df = pd.DataFrame({"legacy_sid": ["a", "b"]})
+    out, renamed = rename_learner_id_alias_column(df, "legacy_sid", dataset_label="t")
+    assert renamed
+    assert list(out.columns) == ["learner_id"]
+
+
+def test_clean_dataset_canonical_learner_id_column():
+    df = pd.DataFrame(
+        {"student_id_randomized_datakind": ["x", "x"], "term": [1, 2]}
+    )
+    spec = CleanSpec(
+        unique_keys=["student_id_randomized_datakind"],
+        student_id_alias="student_id_randomized_datakind",
+    )
+    out = clean_dataset(
+        df, spec, dataset_name="t", canonical_learner_column="learner_id"
+    )
+    assert "learner_id" in out.columns
+    assert "student_id_randomized_datakind" not in out.columns
+    assert len(out) == 1
 
 
 def test_clean_dataset_dedupe_fn_and_pk_dedupe():

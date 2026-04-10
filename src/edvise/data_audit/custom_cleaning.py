@@ -438,6 +438,40 @@ def rename_student_id_alias_column(
     return df, False
 
 
+def rename_learner_id_alias_column(
+    df: pd.DataFrame,
+    alias: str,
+    *,
+    dataset_label: str = "",
+) -> tuple[pd.DataFrame, bool]:
+    """
+    If ``alias`` names a column and is not ``learner_id``, rename it to ``learner_id``
+    when ``learner_id`` is not already present.
+
+    Used by :func:`clean_dataset` when ``canonical_learner_column`` is ``\"learner_id\"`` (GenAI
+    schema contracts). The default audit path still uses :func:`rename_student_id_alias_column`
+    (``student_id``).
+    """
+    label = dataset_label or "dataset"
+    if not alias or alias == "learner_id":
+        return df, False
+    if alias not in df.columns:
+        return df, False
+    if "learner_id" not in df.columns:
+        LOGGER.info(
+            "%s - Renaming learner ID alias '%s' -> 'learner_id'",
+            label,
+            alias,
+        )
+        return df.rename(columns={alias: "learner_id"}), True
+    LOGGER.warning(
+        "%s - Found both 'learner_id' and alias '%s'; leaving both unchanged.",
+        label,
+        alias,
+    )
+    return df, False
+
+
 @dataclass
 class CleanSpec:
     drop_columns: list[str] | None = None
@@ -461,6 +495,8 @@ def clean_dataset(
     enforce_uniqueness: bool = True,
     generate_dtypes: bool = True,
     cleaning_cfg: "CleaningConfig | None" = None,
+    *,
+    canonical_learner_column: t.Literal["student_id", "learner_id"] = "student_id",
 ) -> pd.DataFrame:
     """
     End-to-end cleaner with robust training-time dtype generation and consistent policies.
@@ -476,6 +512,11 @@ def clean_dataset(
     `generate_dtypes=False` is useful at inference to avoid re-generating dtypes
     and introducing train–inference skew; instead, `enforce_schema` should dictate
     the final dtypes.
+
+    ``canonical_learner_column``:
+      - ``\"student_id\"`` (default): rename alias → ``student_id`` (custom audit behavior).
+      - ``\"learner_id\"``: GenAI schema contracts — rename alias → ``learner_id``, or
+        ``student_id`` → ``learner_id`` if the file already used ``student_id``.
     """
     if cleaning_cfg is not None:
         cfg_opts = dtype_opts_from_cleaning_config(cleaning_cfg)
@@ -520,11 +561,33 @@ def clean_dataset(
         )
     g.columns = norm
 
-    # 2) canonical student_id rename
+    # 2) canonical learner column rename (audit: student_id; GenAI: learner_id)
     alias = spec.student_id_alias or "student_id_randomized_datakind"
-    g, renamed = rename_student_id_alias_column(g, alias, dataset_label=dataset_name)
+    if canonical_learner_column == "student_id":
+        g, renamed = rename_student_id_alias_column(g, alias, dataset_label=dataset_name)
+        canonical_col = "student_id"
+    else:
+        g, renamed = rename_learner_id_alias_column(g, alias, dataset_label=dataset_name)
+        if not renamed and "student_id" in g.columns and "learner_id" not in g.columns:
+            LOGGER.info(
+                "%s - Renaming student_id -> learner_id (GenAI canonical_learner_column)",
+                dataset_name,
+            )
+            g = g.rename(columns={"student_id": "learner_id"})
+            renamed = True
+        canonical_col = "learner_id"
     if renamed and spec.unique_keys:
-        spec.unique_keys = ["student_id" if k == alias else k for k in spec.unique_keys]
+        if canonical_learner_column == "student_id":
+            spec.unique_keys = [
+                "student_id" if k == alias else k for k in spec.unique_keys
+            ]
+        else:
+            spec.unique_keys = [
+                "learner_id"
+                if k in (alias, "student_id")
+                else k
+                for k in spec.unique_keys
+            ]
 
     # 3) normalize null tokens & whitespace
     null_tokens = cleaning_cfg.null_tokens if cleaning_cfg else ["(Blank)"]
@@ -537,9 +600,10 @@ def clean_dataset(
                 lambda s: s.replace(r"^\s*$", pd.NA, regex=True)
             )
 
-    # 4) drop requested columns (never drop student_id)
+    # 4) drop requested columns (never drop canonical learner id column)
     to_drop = set(spec.drop_columns or [])
     to_drop.discard("student_id")
+    to_drop.discard("learner_id")
     if to_drop:
         g = g.drop(columns=list(to_drop), errors="ignore")
         LOGGER.info(
@@ -562,8 +626,8 @@ def clean_dataset(
     # 6) generate dtypes at training-time
     if generate_dtypes:
         g = generate_training_dtypes(g, opts=inference_opts)
-    if "student_id" in g.columns:
-        g["student_id"] = g["student_id"].astype("string")
+    if canonical_col in g.columns:
+        g[canonical_col] = g[canonical_col].astype("string")
 
     # 7) optional dataset-specific dedupe hook (pre-key)
     if spec.dedupe_fn and callable(spec.dedupe_fn):
@@ -823,6 +887,8 @@ class SchemaContractMeta:
     )
     null_tokens: list[str] = field(default_factory=lambda: ["(Blank)"])
     student_id_alias: str | None = None
+    #: After cleaning, person-key column name: ``student_id`` (audit default) or ``learner_id`` (GenAI).
+    canonical_learner_column: str = "student_id"
 
 
 def build_schema_contract(
@@ -861,6 +927,8 @@ def build_schema_contract(
     }
     if meta.student_id_alias:
         out["student_id_alias"] = meta.student_id_alias
+    if meta.canonical_learner_column != "student_id":
+        out["canonical_learner_column"] = meta.canonical_learner_column
     return out
 
 
@@ -1206,6 +1274,7 @@ __all__ = [
     "generate_column_training_dtype",
     "generate_training_dtypes",
     "rename_student_id_alias_column",
+    "rename_learner_id_alias_column",
     "CleanSpec",
     "clean_dataset",
     "SchemaFreezeOptions",

@@ -20,7 +20,7 @@ import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import pandas as pd
 
@@ -87,6 +87,7 @@ def merge_grain_contracts_into_school_config(
     grain_contracts_by_dataset: dict[str, GrainContract],
     *,
     dataset_name_suffix: str = "",
+    canonical_learner_column: Literal["student_id", "learner_id"] = "student_id",
 ) -> SchoolMappingConfig:
     """
     Return a copy of ``school_config`` with ``primary_keys`` overridden from grain contracts,
@@ -102,6 +103,8 @@ def merge_grain_contracts_into_school_config(
             :class:`GrainContract` for that table.
         dataset_name_suffix: Same suffix you pass to ``build_schema_contract_from_config``
             (used only to log a warning if ``contract.table`` does not match the logical name).
+        canonical_learner_column: Grain primary keys in merged config use this canonical name
+            (``learner_id`` for GenAI; default ``student_id`` for tests and non-GenAI callers).
 
     Returns:
         New ``SchoolMappingConfig`` with updated ``DatasetConfig.primary_keys`` where provided
@@ -140,7 +143,9 @@ def merge_grain_contracts_into_school_config(
                 logical,
             )
 
-        gc_resolved = canonicalize_grain_contract_learner_id_alias(gc)
+        gc_resolved = canonicalize_grain_contract_learner_id_alias(
+            gc, canonical_column=canonical_learner_column
+        )
         uks = list(gc_resolved.unique_keys)
         if not uks:
             raise ValueError(
@@ -155,6 +160,7 @@ def dedupe_fn_by_dataset_from_grain_contracts(
     grain_contracts_by_dataset: dict[str, GrainContract],
     *,
     dataset_name_suffix: str = "",
+    canonical_learner_column: Literal["student_id", "learner_id"] = "student_id",
 ) -> dict[str, Callable[[pd.DataFrame], pd.DataFrame]]:
     """
     Build ``dedupe_fn_by_dataset`` for :func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`
@@ -173,7 +179,9 @@ def dedupe_fn_by_dataset_from_grain_contracts(
         logical = (
             f"{ds_name}{dataset_name_suffix}" if dataset_name_suffix else ds_name
         )
-        out[logical] = build_dedupe_fn_from_grain_contract(gc)
+        out[logical] = build_dedupe_fn_from_grain_contract(
+            gc, canonical_learner_column=canonical_learner_column
+        )
     return out
 
 
@@ -192,6 +200,7 @@ def build_schema_contract_from_grain_contracts(
     dedupe_fn_by_dataset: Optional[
         dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
     ] = None,
+    canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
     Build cleaned frames and a frozen schema contract (envelope uses ``student_id_alias`` from
@@ -236,10 +245,12 @@ def build_schema_contract_from_grain_contracts(
         school_config,
         grain_contracts_by_dataset,
         dataset_name_suffix=dataset_name_suffix,
+        canonical_learner_column=canonical_learner_column,
     )
     auto_dedupe = dedupe_fn_by_dataset_from_grain_contracts(
         grain_contracts_by_dataset,
         dataset_name_suffix=dataset_name_suffix,
+        canonical_learner_column=canonical_learner_column,
     )
     merged_dedupe = {**auto_dedupe, **(dedupe_fn_by_dataset or {})}
     return build_schema_contract_from_config(
@@ -253,6 +264,7 @@ def build_schema_contract_from_grain_contracts(
         term_column_by_dataset=term_column_by_dataset,
         term_order_fn_by_dataset=term_order_fn_by_dataset,
         dedupe_fn_by_dataset=merged_dedupe if merged_dedupe else None,
+        canonical_learner_column=canonical_learner_column,
     )
 
 
@@ -264,13 +276,17 @@ UNIQUE_VALUES_MAX_CARDINALITY = 50
 def _canonical_normalized_column_name(
     norm_col: str,
     learner_id_alias: str | None,
+    *,
+    canonical_learner_column: str = "student_id",
 ) -> str:
     """Match :func:`~edvise.genai.mapping.schema_contract.build_from_school_config._canonical_primary_keys_for_contract` naming."""
     if not learner_id_alias:
+        if canonical_learner_column == "learner_id" and norm_col == "student_id":
+            return "learner_id"
         return norm_col
     alias_snake = convert_to_snake_case(learner_id_alias)
     if norm_col == alias_snake:
-        return "student_id"
+        return canonical_learner_column
     return norm_col
 
 
@@ -278,14 +294,19 @@ def _df_column_for_column_details(
     norm_col: str,
     df: pd.DataFrame,
     learner_id_alias: str | None,
+    *,
+    canonical_learner_column: str = "student_id",
 ) -> str | None:
     """Resolve header-normalized name to a column present after :func:`~edvise.data_audit.custom_cleaning.clean_dataset`."""
     if norm_col in df.columns:
         return norm_col
     if learner_id_alias:
         alias_snake = convert_to_snake_case(learner_id_alias)
-        if norm_col == alias_snake and "student_id" in df.columns:
-            return "student_id"
+        if norm_col == alias_snake:
+            if canonical_learner_column == "learner_id" and "learner_id" in df.columns:
+                return "learner_id"
+            if "student_id" in df.columns:
+                return "student_id"
     return None
 
 
@@ -295,6 +316,7 @@ def _build_column_details(
     column_mapping: dict[str, list[str]],
     *,
     learner_id_alias: str | None = None,
+    canonical_learner_column: str = "student_id",
 ) -> List[Dict[str, Any]]:
     orig_to_norm: dict[str, str] = {}
     for norm_col, orig_list in column_mapping.items():
@@ -307,7 +329,12 @@ def _build_column_details(
     column_details: List[Dict[str, Any]] = []
     for orig_col in original_columns:
         norm_col = orig_to_norm.get(orig_col, orig_col)
-        df_col = _df_column_for_column_details(norm_col, df, learner_id_alias)
+        df_col = _df_column_for_column_details(
+            norm_col,
+            df,
+            learner_id_alias,
+            canonical_learner_column=canonical_learner_column,
+        )
         if df_col is None:
             logger.warning(
                 "  Normalized column '%s' not found in DataFrame, skipping", norm_col
@@ -319,7 +346,11 @@ def _build_column_details(
         null_pct = float(null_count / total_rows * 100) if total_rows > 0 else 0.0
         unique_count = int(series.nunique())
 
-        report_norm = _canonical_normalized_column_name(norm_col, learner_id_alias)
+        report_norm = _canonical_normalized_column_name(
+            norm_col,
+            learner_id_alias,
+            canonical_learner_column=canonical_learner_column,
+        )
         col_detail: Dict[str, Any] = {
             "original_name": orig_col,
             "normalized_name": report_norm,
@@ -354,6 +385,8 @@ def build_training_example_from_schema_contract(
     column_mapping: dict[str, list[str]],
     original_row_count: int,
     file_path: str,
+    *,
+    canonical_learner_column: str | None = None,
 ) -> Dict[str, Any]:
     if logical_name not in schema_contract["datasets"]:
         raise KeyError(
@@ -364,6 +397,12 @@ def build_training_example_from_schema_contract(
     dataset_schema = schema_contract["datasets"][logical_name]
     df = cleaned_dataframes[logical_name]
 
+    clc = canonical_learner_column or schema_contract.get(
+        "canonical_learner_column", "student_id"
+    )
+    if clc not in ("student_id", "learner_id"):
+        clc = "student_id"
+
     sid_alias = (
         school_config.cleaning.student_id_alias if school_config.cleaning else None
     )
@@ -372,6 +411,7 @@ def build_training_example_from_schema_contract(
         original_columns=original_columns,
         column_mapping=column_mapping,
         learner_id_alias=sid_alias,
+        canonical_learner_column=clc,
     )
 
     orig_to_norm: dict[str, str] = {}
@@ -396,7 +436,9 @@ def build_training_example_from_schema_contract(
         "column_normalization": {
             "original_to_normalized": {
                 orig: _canonical_normalized_column_name(
-                    orig_to_norm.get(orig, orig), sid_alias
+                    orig_to_norm.get(orig, orig),
+                    sid_alias,
+                    canonical_learner_column=clc,
                 )
                 for orig in original_columns
             },
@@ -422,6 +464,7 @@ def process_school_dataset(
     term_column_by_dataset: Optional[dict[str, str]] = None,
     term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
     grain_contracts_by_dataset: Optional[dict[str, GrainContract]] = None,
+    canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
 ) -> tuple[Dict[str, Any], dict]:
     if dtype_opts is None:
         dtype_opts = DtypeGenerationOptions()
@@ -458,6 +501,7 @@ def process_school_dataset(
                     term_order_fn=term_order_fn,
                     term_column_by_dataset=term_column_by_dataset,
                     term_order_fn_by_dataset=term_order_fn_by_dataset,
+                    canonical_learner_column=canonical_learner_column,
                 )
             )
         else:
@@ -470,6 +514,7 @@ def process_school_dataset(
                 term_order_fn=term_order_fn,
                 term_column_by_dataset=term_column_by_dataset,
                 term_order_fn_by_dataset=term_order_fn_by_dataset,
+                canonical_learner_column=canonical_learner_column,
             )
         logger.debug(
             "  Built schema contract in %.2f seconds", time.time() - load_start
@@ -492,6 +537,7 @@ def process_school_dataset(
             column_mapping=column_mapping,
             original_row_count=original_row_count,
             file_path=file_path,
+            canonical_learner_column=canonical_learner_column,
         )
 
         logger.debug(
@@ -533,6 +579,7 @@ def build_enriched_schema_contract_for_dataset(
     term_column_by_dataset: Optional[dict[str, str]] = None,
     term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
     grain_contracts_by_dataset: Optional[dict[str, GrainContract]] = None,
+    canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
 ) -> Dict[str, Any]:
     """
     Build one SMA-style **enriched** institution JSON containing a **single** logical dataset.
@@ -564,6 +611,7 @@ def build_enriched_schema_contract_for_dataset(
         term_column_by_dataset=term_column_by_dataset,
         term_order_fn_by_dataset=term_order_fn_by_dataset,
         grain_contracts_by_dataset=grain_contracts_by_dataset,
+        canonical_learner_column=canonical_learner_column,
     )
 
     if "error" in example:
@@ -643,6 +691,9 @@ def _build_enriched_schema_contract(
     )
     if lid:
         enriched_contract["learner_id_alias"] = lid
+    clc = base_contract.get("canonical_learner_column")
+    if clc:
+        enriched_contract["canonical_learner_column"] = clc
 
     return enriched_contract
 
