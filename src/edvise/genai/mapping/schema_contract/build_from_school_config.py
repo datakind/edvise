@@ -148,7 +148,7 @@ def _canonical_primary_keys_for_contract(
     primary_keys: list[str],
     student_id_alias: str | None,
     *,
-    canonical_learner_column: Literal["student_id", "learner_id"] = "student_id",
+    canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
 ) -> list[str]:
     """
     Primary key column names as they appear after ``clean_dataset`` (canonical learner column).

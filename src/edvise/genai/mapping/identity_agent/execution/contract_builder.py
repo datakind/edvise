@@ -9,8 +9,9 @@ The **canonical JSON shape** consumed by Schema Mapping Agent is
 :class:`~edvise.genai.mapping.schema_contract.EnrichedSchemaContractForSMA`
 (enriched institution file with ``school_id`` and per-dataset ``training``).
 
-Use :func:`build_enriched_schema_contract_for_dataset` once per logical dataset, then
-:func:`save_enriched_schema_contract` (or loop and save with your naming convention).
+Use :func:`build_enriched_schema_contract_for_institution` for one JSON per institution
+(all logical datasets under ``datasets``), or :func:`build_enriched_schema_contract_for_dataset`
+for a single-dataset slice. Then :func:`save_enriched_schema_contract`.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
@@ -45,8 +46,8 @@ def merge_grain_learner_id_alias_into_school_config(
     Set ``school_config.cleaning.student_id_alias`` from grain ``learner_id_alias`` when specified.
 
     Grain JSON uses ``learner_id_alias``; that value is written to ``CleaningConfig.student_id_alias``
-    because :func:`~edvise.data_audit.custom_cleaning.clean_dataset` still renames the column to
-    ``student_id``.
+    for :func:`~edvise.data_audit.custom_cleaning.clean_dataset`, which maps the alias to the
+    canonical person column (``learner_id`` when using GenAI defaults).
 
     All non-null ``learner_id_alias`` values across the given contracts must agree; otherwise
     raises. When ``inputs.toml`` already sets a different alias, grain wins and a warning is logged.
@@ -87,7 +88,7 @@ def merge_grain_contracts_into_school_config(
     grain_contracts_by_dataset: dict[str, GrainContract],
     *,
     dataset_name_suffix: str = "",
-    canonical_learner_column: Literal["student_id", "learner_id"] = "student_id",
+    canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
 ) -> SchoolMappingConfig:
     """
     Return a copy of ``school_config`` with ``primary_keys`` overridden from grain contracts,
@@ -104,7 +105,7 @@ def merge_grain_contracts_into_school_config(
         dataset_name_suffix: Same suffix you pass to ``build_schema_contract_from_config``
             (used only to log a warning if ``contract.table`` does not match the logical name).
         canonical_learner_column: Grain primary keys in merged config use this canonical name
-            (``learner_id`` for GenAI; default ``student_id`` for tests and non-GenAI callers).
+            (default ``learner_id`` for GenAI; pass ``student_id`` for legacy audit-style configs).
 
     Returns:
         New ``SchoolMappingConfig`` with updated ``DatasetConfig.primary_keys`` where provided
@@ -160,7 +161,7 @@ def dedupe_fn_by_dataset_from_grain_contracts(
     grain_contracts_by_dataset: dict[str, GrainContract],
     *,
     dataset_name_suffix: str = "",
-    canonical_learner_column: Literal["student_id", "learner_id"] = "student_id",
+    canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
 ) -> dict[str, Callable[[pd.DataFrame], pd.DataFrame]]:
     """
     Build ``dedupe_fn_by_dataset`` for :func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`
@@ -277,7 +278,7 @@ def _canonical_normalized_column_name(
     norm_col: str,
     learner_id_alias: str | None,
     *,
-    canonical_learner_column: str = "student_id",
+    canonical_learner_column: str = "learner_id",
 ) -> str:
     """Match :func:`~edvise.genai.mapping.schema_contract.build_from_school_config._canonical_primary_keys_for_contract` naming."""
     if not learner_id_alias:
@@ -295,7 +296,7 @@ def _df_column_for_column_details(
     df: pd.DataFrame,
     learner_id_alias: str | None,
     *,
-    canonical_learner_column: str = "student_id",
+    canonical_learner_column: str = "learner_id",
 ) -> str | None:
     """Resolve header-normalized name to a column present after :func:`~edvise.data_audit.custom_cleaning.clean_dataset`."""
     if norm_col in df.columns:
@@ -316,7 +317,7 @@ def _build_column_details(
     column_mapping: dict[str, list[str]],
     *,
     learner_id_alias: str | None = None,
-    canonical_learner_column: str = "student_id",
+    canonical_learner_column: str = "learner_id",
 ) -> List[Dict[str, Any]]:
     orig_to_norm: dict[str, str] = {}
     for norm_col, orig_list in column_mapping.items():
@@ -398,10 +399,10 @@ def build_training_example_from_schema_contract(
     df = cleaned_dataframes[logical_name]
 
     clc = canonical_learner_column or schema_contract.get(
-        "canonical_learner_column", "student_id"
+        "canonical_learner_column", "learner_id"
     )
     if clc not in ("student_id", "learner_id"):
-        clc = "student_id"
+        clc = "learner_id"
 
     sid_alias = (
         school_config.cleaning.student_id_alias if school_config.cleaning else None
@@ -567,6 +568,100 @@ def process_school_dataset(
         )
 
 
+def build_enriched_schema_contract_for_institution(
+    school_config: SchoolMappingConfig,
+    *,
+    dataset_names: Optional[Sequence[str]] = None,
+    dtype_opts: Optional[DtypeGenerationOptions] = None,
+    spark_session: Optional[Any] = None,
+    sample_size: int = 10_000,
+    dataset_name_suffix: str = "",
+    term_order_fn: Optional[TermOrderFn] = None,
+    term_column_by_dataset: Optional[dict[str, str]] = None,
+    term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
+    grain_contracts_by_dataset: Optional[dict[str, GrainContract]] = None,
+    canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
+) -> Dict[str, Any]:
+    """
+    Build one SMA-style **enriched** institution JSON with **all** requested logical datasets.
+
+    Runs :func:`process_school_dataset` for each name in ``dataset_names`` (or the default set
+    described below), then merges schema + per-dataset ``training`` metadata into a single
+    institution-style JSON.
+
+    **Default ``dataset_names``:** if ``None``, uses ``sorted(grain_contracts_by_dataset)``
+    when ``grain_contracts_by_dataset`` is provided; otherwise ``sorted(school_config.datasets)``.
+
+    For grain-driven primary keys, pass ``grain_contracts_by_dataset``; each dataset processed
+    uses ``{dataset_name: grain_contract}`` when that key is present. Pass a ``school_config``
+    already updated via :func:`merge_grain_learner_id_alias_into_school_config` with the **full**
+    grain map so ``cleaning.student_id_alias`` matches §8 / multi-table workflows.
+    """
+    if dataset_names is None:
+        if grain_contracts_by_dataset:
+            names = sorted(grain_contracts_by_dataset.keys())
+        else:
+            names = sorted(school_config.datasets.keys())
+    else:
+        names = list(dataset_names)
+
+    if not names:
+        raise ValueError("dataset_names is empty (nothing to enrich)")
+
+    school_examples: List[Dict[str, Any]] = []
+    schema_contracts: List[tuple[str, dict]] = []
+    dataset_to_logical_name: Dict[str, str] = {}
+
+    for dataset_name in names:
+        if dataset_name not in school_config.datasets:
+            raise KeyError(
+                f"dataset_name {dataset_name!r} not in school_config.datasets "
+                f"({list(school_config.datasets)})"
+            )
+
+        dataset_config = school_config.datasets[dataset_name]
+        grain_slice: Optional[dict[str, GrainContract]] = None
+        if grain_contracts_by_dataset is not None and dataset_name in grain_contracts_by_dataset:
+            grain_slice = {dataset_name: grain_contracts_by_dataset[dataset_name]}
+
+        example, schema_contract = process_school_dataset(
+            school_config=school_config,
+            dataset_name=dataset_name,
+            dataset_config=dataset_config,
+            dtype_opts=dtype_opts,
+            spark_session=spark_session,
+            sample_size=sample_size,
+            dataset_name_suffix=dataset_name_suffix,
+            term_order_fn=term_order_fn,
+            term_column_by_dataset=term_column_by_dataset,
+            term_order_fn_by_dataset=term_order_fn_by_dataset,
+            grain_contracts_by_dataset=grain_slice,
+            canonical_learner_column=canonical_learner_column,
+        )
+
+        if "error" in example:
+            raise RuntimeError(
+                f"Failed to build schema contract for dataset {dataset_name!r}: "
+                f"{example['error']}"
+            )
+        if not schema_contract or "datasets" not in schema_contract:
+            raise RuntimeError(f"No schema contract produced for dataset {dataset_name!r}")
+
+        for logical_name in schema_contract["datasets"].keys():
+            dataset_to_logical_name[dataset_name] = logical_name
+            break
+
+        school_examples.append(example)
+        schema_contracts.append((dataset_name, schema_contract))
+
+    return _build_enriched_schema_contract(
+        school_config=school_config,
+        school_examples=school_examples,
+        schema_contracts=schema_contracts,
+        dataset_to_logical_name=dataset_to_logical_name,
+    )
+
+
 def build_enriched_schema_contract_for_dataset(
     school_config: SchoolMappingConfig,
     dataset_name: str,
@@ -584,25 +679,12 @@ def build_enriched_schema_contract_for_dataset(
     """
     Build one SMA-style **enriched** institution JSON containing a **single** logical dataset.
 
-    Runs :func:`process_school_dataset` for ``dataset_name``, then merges schema + ``training``
-    metadata into one institution-style JSON (single dataset under ``datasets``).
-
-    For grain-driven primary keys, pass ``grain_contracts_by_dataset`` with at least
-    ``{dataset_name: grain_contract}``. To align ``learner_id_alias`` / cleaning with other tables,
-    pass a ``school_config`` already updated via
-    :func:`merge_grain_learner_id_alias_into_school_config` using the **full** grain map.
+    Equivalent to :func:`build_enriched_schema_contract_for_institution` with
+    ``dataset_names=[dataset_name]``.
     """
-    if dataset_name not in school_config.datasets:
-        raise KeyError(
-            f"dataset_name {dataset_name!r} not in school_config.datasets "
-            f"({list(school_config.datasets)})"
-        )
-
-    dataset_config = school_config.datasets[dataset_name]
-    example, schema_contract = process_school_dataset(
-        school_config=school_config,
-        dataset_name=dataset_name,
-        dataset_config=dataset_config,
+    return build_enriched_schema_contract_for_institution(
+        school_config,
+        dataset_names=[dataset_name],
         dtype_opts=dtype_opts,
         spark_session=spark_session,
         sample_size=sample_size,
@@ -612,26 +694,6 @@ def build_enriched_schema_contract_for_dataset(
         term_order_fn_by_dataset=term_order_fn_by_dataset,
         grain_contracts_by_dataset=grain_contracts_by_dataset,
         canonical_learner_column=canonical_learner_column,
-    )
-
-    if "error" in example:
-        raise RuntimeError(
-            f"Failed to build schema contract for dataset {dataset_name!r}: "
-            f"{example['error']}"
-        )
-    if not schema_contract or "datasets" not in schema_contract:
-        raise RuntimeError(f"No schema contract produced for dataset {dataset_name!r}")
-
-    dataset_to_logical_name: Dict[str, str] = {}
-    for logical_name in schema_contract["datasets"].keys():
-        dataset_to_logical_name[dataset_name] = logical_name
-        break
-
-    return _build_enriched_schema_contract(
-        school_config=school_config,
-        school_examples=[example],
-        schema_contracts=[(dataset_name, schema_contract)],
-        dataset_to_logical_name=dataset_to_logical_name,
     )
 
 
@@ -747,6 +809,7 @@ def save_enriched_schema_contracts(
 
 __all__ = [
     "UNIQUE_VALUES_MAX_CARDINALITY",
+    "build_enriched_schema_contract_for_institution",
     "build_enriched_schema_contract_for_dataset",
     "dedupe_fn_by_dataset_from_grain_contracts",
     "build_schema_contract_from_grain_contracts",

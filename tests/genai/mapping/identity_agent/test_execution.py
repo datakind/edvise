@@ -186,7 +186,7 @@ def test_apply_grain_dedup_learner_id_canonical_column():
             notes="",
         ),
     )
-    out = apply_grain_dedup(df, c, canonical_learner_column="learner_id")
+    out = apply_grain_dedup(df, c)
     assert len(out) == 1
 
 
@@ -227,14 +227,14 @@ def test_apply_grain_dedup_resolves_term_desc_prefix_to_term_descr():
     """Grain contract typo / abbreviation vs normalized header (e.g. UCF TERM_DESCR)."""
     df = pd.DataFrame(
         {
-            "student_id": ["a", "a"],
+            "learner_id": ["a", "a"],
             "term_descr": ["Fall 2020", "Fall 2020"],
             "v": [1, 2],
         }
     )
     c = _grain(
-        post_clean_primary_key=["student_id", "TERM_DESC"],
-        join_keys_for_2a=["student_id", "term_descr"],
+        post_clean_primary_key=["learner_id", "TERM_DESC"],
+        join_keys_for_2a=["learner_id", "term_descr"],
         dedup_policy=DedupPolicy(
             strategy="true_duplicate",
             sort_by=None,
@@ -363,9 +363,9 @@ def test_term_order_column_matches_clean_dataset_normalization():
     assert "_term_order" in out.columns
 
 
-def test_apply_grain_dedup_maps_contract_learner_id_alias_to_student_id():
-    """After clean_dataset rename, the frame has student_id; keys may still use the pre-rename name."""
-    df = pd.DataFrame({"student_id": ["a", "a"], "x": [1, 2]})
+def test_apply_grain_dedup_maps_contract_learner_id_alias_to_learner_id():
+    """After clean_dataset rename, the frame has learner_id; keys may still use the pre-rename name."""
+    df = pd.DataFrame({"learner_id": ["a", "a"], "x": [1, 2]})
     c = _grain(
         learner_id_alias="student_id_randomized_datakind",
         post_clean_primary_key=["student_id_randomized_datakind"],
@@ -428,7 +428,7 @@ def test_merge_updates_only_listed_datasets():
         school,
         {"students": gc_students},
     )
-    assert out.datasets["students"].primary_keys == ["student_id", "cohort_id"]
+    assert out.datasets["students"].primary_keys == ["learner_id", "cohort_id"]
     assert out.datasets["courses"].primary_keys == ["student_id", "term"]
 
 
@@ -440,10 +440,10 @@ def test_merge_canonicalizes_learner_id_alias_in_primary_keys():
         learner_id_alias="legacy_student_col",
     )
     out = merge_grain_contracts_into_school_config(school, {"students": gc})
-    assert out.datasets["students"].primary_keys == ["student_id", "term"]
+    assert out.datasets["students"].primary_keys == ["learner_id", "term"]
 
 
-def test_merge_canonicalizes_learner_id_alias_to_learner_id_primary_keys():
+def test_merge_canonicalizes_learner_id_alias_with_explicit_student_id_column():
     school = _school_config()
     gc = _merge_contract(
         "students",
@@ -453,9 +453,9 @@ def test_merge_canonicalizes_learner_id_alias_to_learner_id_primary_keys():
     out = merge_grain_contracts_into_school_config(
         school,
         {"students": gc},
-        canonical_learner_column="learner_id",
+        canonical_learner_column="student_id",
     )
-    assert out.datasets["students"].primary_keys == ["learner_id", "term"]
+    assert out.datasets["students"].primary_keys == ["student_id", "term"]
 
 
 def test_merge_preserves_institution_when_partial():

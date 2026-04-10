@@ -11,6 +11,7 @@ from .contract_utilities import (
 )
 from .contract_builder import (
     UNIQUE_VALUES_MAX_CARDINALITY,
+    build_enriched_schema_contract_for_institution,
     build_enriched_schema_contract_for_dataset,
     build_schema_contract_from_grain_contracts,
     build_training_example_from_schema_contract,
@@ -42,6 +43,7 @@ __all__ = [
     "term_order_column_for_clean_dataset",
     "term_order_fn_from_term_order_config",
     "build_dedupe_fn_from_grain_contract",
+    "build_enriched_schema_contract_for_institution",
     "build_enriched_schema_contract_for_dataset",
     "build_schema_contract_from_grain_contracts",
     "dedupe_fn_by_dataset_from_grain_contracts",
