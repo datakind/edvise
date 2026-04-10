@@ -17,7 +17,11 @@ from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+    HookFunctionSpec,
+    HookSpec,
+)
+from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
 
 
 # ---------------------------------------------------------------------------
@@ -379,6 +383,24 @@ class InstitutionHITLItems(BaseModel):
     def is_clear(self) -> bool:
         """True when all items have a choice set — gate check passes."""
         return all(i.choice is not None for i in self.items)
+
+
+def get_hitl_item_schema_context() -> str:
+    """Python source for HITL models (``hitl_items`` entries and envelope ``InstitutionHITLItems``)."""
+    return concat_model_sources(
+        (
+            HITLDomain,
+            ReentryDepth,
+            HookFunctionSpec,
+            HookSpec,
+            GrainResolution,
+            TermResolution,
+            HITLOption,
+            HITLTarget,
+            HITLItem,
+            InstitutionHITLItems,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
