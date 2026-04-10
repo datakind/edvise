@@ -28,6 +28,7 @@ from edvise.configs.custom import CleaningConfig
 from edvise.configs.genai import DatasetConfig, SchoolMappingConfig
 from edvise.data_audit.custom_cleaning import DtypeGenerationOptions, TermOrderFn
 from edvise.genai.mapping.identity_agent.execution.contract_utilities import (
+    build_dedupe_fn_from_grain_contract,
     canonicalize_grain_contract_learner_id_alias,
 )
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
@@ -150,6 +151,32 @@ def merge_grain_contracts_into_school_config(
     return school_config.model_copy(update={"datasets": datasets})
 
 
+def dedupe_fn_by_dataset_from_grain_contracts(
+    grain_contracts_by_dataset: dict[str, GrainContract],
+    *,
+    dataset_name_suffix: str = "",
+) -> dict[str, Callable[[pd.DataFrame], pd.DataFrame]]:
+    """
+    Build ``dedupe_fn_by_dataset`` for :func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`
+    using :func:`~edvise.genai.mapping.identity_agent.execution.contract_utilities.build_dedupe_fn_from_grain_contract`
+    per grain contract.
+
+    Keys are **logical** dataset names (same rule as ``build_schema_contract_from_config``):
+    ``{dataset_name}{dataset_name_suffix}`` when ``dataset_name_suffix`` is non-empty, else
+    ``dataset_name``.
+
+    :func:`build_schema_contract_from_grain_contracts` applies this automatically and merges
+    with any explicit ``dedupe_fn_by_dataset`` (explicit entries override auto-built fns).
+    """
+    out: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {}
+    for ds_name, gc in grain_contracts_by_dataset.items():
+        logical = (
+            f"{ds_name}{dataset_name_suffix}" if dataset_name_suffix else ds_name
+        )
+        out[logical] = build_dedupe_fn_from_grain_contract(gc)
+    return out
+
+
 def build_schema_contract_from_grain_contracts(
     school_config: SchoolMappingConfig,
     grain_contracts_by_dataset: dict[str, GrainContract],
@@ -189,7 +216,12 @@ def build_schema_contract_from_grain_contracts(
         term_order_fn_by_dataset: Optional logical name → term-order hook (per dataset).
             When a key is present, that fn is used; use ``None`` as the value to skip term order
             for that dataset. Datasets not listed fall back to ``term_order_fn``.
-        dedupe_fn_by_dataset, dtype_opts, spark_session, sample_size, cleaning_cfg: Forwarded
+        dedupe_fn_by_dataset: Optional per-logical-name overrides for ``CleanSpec.dedupe_fn``.
+            If omitted or empty, fns are **auto-built** from each grain contract’s
+            ``dedup_policy`` (``sort_by`` / ``keep`` / temporal collapse, etc.). Non-empty
+            ``dedupe_fn_by_dataset`` is merged on top: **explicit keys replace** the auto fn
+            for that dataset (e.g. custom school hooks).
+        dtype_opts, spark_session, sample_size, cleaning_cfg: Forwarded
             to :func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`.
 
     Returns:
@@ -205,6 +237,11 @@ def build_schema_contract_from_grain_contracts(
         grain_contracts_by_dataset,
         dataset_name_suffix=dataset_name_suffix,
     )
+    auto_dedupe = dedupe_fn_by_dataset_from_grain_contracts(
+        grain_contracts_by_dataset,
+        dataset_name_suffix=dataset_name_suffix,
+    )
+    merged_dedupe = {**auto_dedupe, **(dedupe_fn_by_dataset or {})}
     return build_schema_contract_from_config(
         merged,
         dtype_opts=dtype_opts,
@@ -215,7 +252,7 @@ def build_schema_contract_from_grain_contracts(
         term_order_fn=term_order_fn,
         term_column_by_dataset=term_column_by_dataset,
         term_order_fn_by_dataset=term_order_fn_by_dataset,
-        dedupe_fn_by_dataset=dedupe_fn_by_dataset,
+        dedupe_fn_by_dataset=merged_dedupe if merged_dedupe else None,
     )
 
 
@@ -660,6 +697,7 @@ def save_enriched_schema_contracts(
 __all__ = [
     "UNIQUE_VALUES_MAX_CARDINALITY",
     "build_enriched_schema_contract_for_dataset",
+    "dedupe_fn_by_dataset_from_grain_contracts",
     "build_schema_contract_from_grain_contracts",
     "build_training_example_from_schema_contract",
     "merge_grain_contracts_into_school_config",

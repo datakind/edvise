@@ -10,6 +10,7 @@ from edvise.genai.mapping.identity_agent.execution import (
     apply_term_order_from_contract,
     apply_term_order_from_config,
     build_dedupe_fn_from_grain_contract,
+    dedupe_fn_by_dataset_from_grain_contracts,
     merge_grain_contracts_into_school_config,
     merge_grain_learner_id_alias_into_school_config,
 )
@@ -188,6 +189,16 @@ def test_build_dedupe_fn_from_grain_contract():
     fn = build_dedupe_fn_from_grain_contract(c)
     out = fn(df)
     assert len(out) == 1
+
+
+def test_dedupe_fn_by_dataset_from_grain_contracts_keys():
+    g1 = _grain(table="t1", post_clean_primary_key=["k"])
+    g2 = _grain(table="t2", post_clean_primary_key=["k"])
+    m = dedupe_fn_by_dataset_from_grain_contracts({"a": g1, "b": g2})
+    assert set(m) == {"a", "b"}
+    assert callable(m["a"])
+    ms = dedupe_fn_by_dataset_from_grain_contracts({"a": g1}, dataset_name_suffix="_df")
+    assert set(ms) == {"a_df"}
 
 
 def test_missing_key_columns_raises():
