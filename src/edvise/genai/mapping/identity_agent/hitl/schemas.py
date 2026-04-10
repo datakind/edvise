@@ -2,11 +2,11 @@
 Pydantic models for IdentityAgent HITL items.
 
 HITLItem is the unit of human review — one item per ambiguity, per table.
-Reviewer sets ``choice`` to 1, 2, or 3 and ``status`` to ``resolved``.
+Reviewer sets ``choice`` to 1, 2, or 3 to select an option.
 hitl_resolver.py reads these files and applies the selected resolution to the
 relevant config (grain_contract or term_config).
 
-Scope: IdentityAgent grain and term stages only for M2.
+Scope: IdentityAgent Pass 1 (grain) and Pass 2 (term) only for M2.
 SCHEMA_MAPPING and TRANSFORM domains are stubs for future use.
 """
 
@@ -15,10 +15,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import Annotated, Literal, Union
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
-from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
+from edvise.genai.identity_agent.grain_inference.schemas import HookSpec
 
 
 # ---------------------------------------------------------------------------
@@ -37,24 +36,20 @@ class ReentryDepth(str, Enum):
     GENERATE_HOOK = "generate_hook"  # trigger hook gen LLM call, then continue
 
 
-class HITLStatus(str, Enum):
-    PENDING  = "pending"
-    RESOLVED = "resolved"
-    SKIPPED  = "skipped"
-
-
 # ---------------------------------------------------------------------------
-# GrainResolution — grain-stage output mutations
+# GrainResolution — Pass 1 output mutations
 # ---------------------------------------------------------------------------
 
 class GrainResolution(BaseModel):
     """
-    Mutations applied to the grain contract when a grain-stage HITL item is resolved.
+    Mutations applied to the grain contract when a Pass 1 HITL item is resolved.
 
     dedup_strategy excludes 'policy_required' — that is the current state that
     triggered the HITL item, never a valid resolution target.
 
-    When hook_spec is present, resolver writes DedupPolicy.hook_spec from this value.
+    When hook_spec is present, resolver sets DedupPolicy.dedup_method='hook_required'
+    and DedupPolicy.hook_spec from this value. When hook_spec is absent, resolver
+    sets DedupPolicy.dedup_method='standard'.
 
     All fields optional — resolver applies only those present.
     """
@@ -77,65 +72,44 @@ class GrainResolution(BaseModel):
         default=None,
         description="Sort column for temporal_collapse strategy.",
     )
-    dedup_sort_ascending: bool | None = Field(
-        default=None,
-        description=(
-            "Sort direction for temporal_collapse. "
-            "True = ascending (earliest first), False = descending (latest first). "
-            "Always pair with dedup_keep='first'. Never use dedup_keep='last'."
-        ),
-    )
     dedup_keep: Literal["first", "last"] | None = Field(
         default=None,
-        description=(
-            "Which row to keep after sort. Always 'first' — "
-            "control direction via dedup_sort_ascending instead. "
-            "Never 'last' — it is ambiguous to reviewers."
-        ),
+        description="Which row to keep after sort. Never 'any_row' — that is a 2a concept.",
     )
     hook_spec: HookSpec | None = Field(
         default=None,
         description=(
             "Populated on GENERATE_HOOK reentry after hook generation call. "
-            "Presence signals resolver to set hook_spec on DedupPolicy."
+            "Presence signals resolver to set dedup_method='hook_required' on DedupPolicy."
         ),
     )
 
     @model_validator(mode="after")
     def temporal_collapse_requires_sort(self) -> "GrainResolution":
-        if self.dedup_strategy == "temporal_collapse":
-            if self.dedup_sort_by is None:
-                raise ValueError(
-                    "dedup_strategy='temporal_collapse' requires dedup_sort_by."
-                )
-            if self.dedup_sort_ascending is None:
-                raise ValueError(
-                    "dedup_strategy='temporal_collapse' requires dedup_sort_ascending — "
-                    "True for earliest, False for latest."
-                )
-            if self.dedup_keep != "first":
-                raise ValueError(
-                    "dedup_keep must be 'first' for temporal_collapse. "
-                    "Control direction via dedup_sort_ascending instead."
-                )
+        if self.dedup_strategy == "temporal_collapse" and self.dedup_sort_by is None:
+            raise ValueError(
+                "dedup_strategy='temporal_collapse' requires dedup_sort_by to be set."
+            )
         return self
 
     @model_validator(mode="after")
     def hook_spec_excludes_strategy(self) -> "GrainResolution":
         if self.hook_spec is not None and self.dedup_strategy is not None:
             raise ValueError(
-                "hook_spec and dedup_strategy are mutually exclusive."
+                "hook_spec and dedup_strategy are mutually exclusive — "
+                "hook_spec resolution replaces strategy-based resolution. "
+                "Execution layer infers hook path from hook_spec presence."
             )
         return self
 
 
 # ---------------------------------------------------------------------------
-# TermResolution — term-stage output mutations
+# TermResolution — Pass 2 output mutations
 # ---------------------------------------------------------------------------
 
 class TermResolution(BaseModel):
     """
-    Mutations applied to term_config when a term-stage HITL item is resolved.
+    Mutations applied to term_config when a Pass 2 HITL item is resolved.
 
     When hook_spec is present, resolver sets TermOrderConfig.term_extraction='hook_required'
     and TermOrderConfig.hook_spec from this value.
@@ -233,18 +207,6 @@ class HITLTarget(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# HITLResolution — written back by resolver after reviewer acts
-# ---------------------------------------------------------------------------
-
-class HITLResolution(BaseModel):
-    """Populated by hitl_resolver.py after the reviewer selects an option."""
-    selected_option_id: str
-    custom_instruction: str | None = None  # only when option_id='custom'
-    resolved_by:        str | None = None
-    resolved_at:        str | None = None  # ISO datetime string
-
-
-# ---------------------------------------------------------------------------
 # HITLItem
 # ---------------------------------------------------------------------------
 
@@ -255,7 +217,7 @@ class HITLItem(BaseModel):
     One HITLItem per ambiguity per table. A single table may emit multiple
     items if independent questions arise (e.g. grain ambiguity + dedup policy).
 
-    Reviewer action: set ``choice`` (1-indexed), set status='resolved', save file.
+    Reviewer action: set ``choice`` to 1, 2, or 3 for the selected option, save file.
     hitl_resolver.py does the rest.
     """
     item_id:        str
@@ -290,13 +252,11 @@ class HITLItem(BaseModel):
     choice:     int | None = Field(
         default=None,
         description=(
-            "1-indexed selection from options. Reviewer sets this to 1, 2, or 3 "
-            "and sets status='resolved'. Resolver reads options[choice - 1]."
+            "1-indexed selection from options. "
+            "Reviewer sets this to 1, 2, or 3. Resolver reads options[choice - 1]. "
+            "null = not yet reviewed. Re-run resolver after changing choice to reapply."
         ),
     )
-
-    status:     HITLStatus     = HITLStatus.PENDING
-    resolution: HITLResolution | None = None
 
     @model_validator(mode="after")
     def validate_options(self) -> "HITLItem":
@@ -310,12 +270,7 @@ class HITLItem(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def choice_valid_when_resolved(self) -> "HITLItem":
-        if self.status == HITLStatus.RESOLVED and self.choice is None:
-            raise ValueError(
-                "choice must be set when status='resolved'. "
-                "Set choice to 1, 2, or 3 to select an option."
-            )
+    def choice_in_range(self) -> "HITLItem":
         if self.choice is not None and not (1 <= self.choice <= len(self.options)):
             raise ValueError(
                 f"choice={self.choice} is out of range — "
@@ -343,7 +298,8 @@ class HITLItem(BaseModel):
     def selected_option(self) -> HITLOption | None:
         """
         Returns the option selected by the reviewer via the choice field.
-        Returns None if choice is not yet set (item still pending).
+        Returns None if choice is not yet set (not yet reviewed).
+        Idempotent — safe to call multiple times, always reflects current choice.
         """
         if self.choice is not None:
             return self.options[self.choice - 1]
@@ -358,8 +314,8 @@ class InstitutionHITLItems(BaseModel):
     """
     All HITL items for one institution run, written alongside agent output files.
 
-    Grain inference writes: identity_grain_hitl.json  →  domain="grain"
-    Term normalization writes: identity_term_hitl.json →  domain="term"
+    Grain inference writes: identity_grain_hitl.json
+    Term normalization writes: identity_term_hitl.json
 
     Empty items list means no flags were raised — gate check passes immediately.
     """
@@ -393,26 +349,43 @@ class InstitutionHITLItems(BaseModel):
 
     @property
     def pending(self) -> list[HITLItem]:
-        return [i for i in self.items if i.status == HITLStatus.PENDING]
+        """Items not yet reviewed — choice is null."""
+        return [i for i in self.items if i.choice is None]
 
     @property
     def is_clear(self) -> bool:
-        """True when no items are pending — gate check passes."""
-        return len(self.pending) == 0
+        """True when all items have a choice set — gate check passes."""
+        return all(i.choice is not None for i in self.items)
 
 
-def get_hitl_item_schema_context() -> str:
-    """Python source for ``HITLItem`` and nested option / resolution types (grain + term)."""
-    return concat_model_sources(
-        (
-            HITLDomain,
-            ReentryDepth,
-            HITLStatus,
-            GrainResolution,
-            TermResolution,
-            HITLOption,
-            HITLTarget,
-            HITLResolution,
-            HITLItem,
-        )
-    )
+# ---------------------------------------------------------------------------
+# Run log — append-only audit trail written by hitl_resolver.py
+# ---------------------------------------------------------------------------
+
+class RunEvent(BaseModel):
+    """
+    One resolved HITL item event. Written by hitl_resolver on each resolve_items
+    or apply_hook_spec call. Append-only — never mutated after writing.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    timestamp:   str          # ISO datetime string
+    resolved_by: str | None   # user identifier passed to resolver
+    agent:       str          # e.g. "identity_agent", "schema_mapping_agent"
+    domain:      str          # e.g. "grain", "term", "mapping"
+    item_id:     str
+    choice:      int
+    option_id:   str
+    reentry:     str          # "terminal" or "generate_hook"
+
+
+class RunLog(BaseModel):
+    """
+    Full audit trail for one institution across all agents and domains.
+    Written to: institutions/<institution_id>/run_log.json
+    One file per institution — all pipeline stages append to the same file.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    institution_id: str
+    events:         list[RunEvent] = Field(default_factory=list)

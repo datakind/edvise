@@ -58,16 +58,16 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
-from edvise.genai.mapping.identity_agent.hitl.schemas import (
+from edvise.genai.identity_agent.grain_inference.schemas import HookSpec
+from edvise.genai.identity_agent.hitl.schemas import (
     GrainResolution,
     HITLDomain,
     HITLItem,
     HITLOption,
-    HITLResolution,
-    HITLStatus,
     InstitutionHITLItems,
     ReentryDepth,
+    RunEvent,
+    RunLog,
     TermResolution,
 )
 
@@ -113,6 +113,37 @@ def _save_config(config: dict, config_path: Path) -> None:
     config_path.write_text(json.dumps(config, indent=2))
 
 
+def _append_run_log(
+    run_log_path: Path,
+    institution_id: str,
+    item: HITLItem,
+    selected: HITLOption,
+    envelope: InstitutionHITLItems,
+    resolved_by: str | None,
+) -> None:
+    """
+    Append one RunEvent to run_log.json for this institution.
+    Creates the file if it does not exist. Never overwrites existing events.
+    """
+    if run_log_path.exists():
+        run_log = RunLog.model_validate_json(run_log_path.read_text())
+    else:
+        run_log = RunLog(institution_id=institution_id)
+
+    event = RunEvent(
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        resolved_by=resolved_by,
+        agent="identity_agent",
+        domain=envelope.domain,   # "grain" or "term"
+        item_id=item.item_id,
+        choice=item.choice,
+        option_id=selected.option_id,
+        reentry=selected.reentry.value,
+    )
+    run_log.events.append(event)
+    run_log_path.write_text(run_log.model_dump_json(indent=2))
+
+
 # ---------------------------------------------------------------------------
 # 1. check_gate
 # ---------------------------------------------------------------------------
@@ -120,7 +151,7 @@ def _save_config(config: dict, config_path: Path) -> None:
 def check_gate(hitl_path: str | Path) -> None:
     """
     Raises HITLBlockingError if any items in the HITL file are still pending.
-    Prints a clear summary and returns cleanly if all items are resolved or skipped.
+    Prints a clear summary and returns cleanly if all items have been reviewed.
     Safe to call repeatedly — never mutates.
     """
     hitl_path = Path(hitl_path)
@@ -131,9 +162,7 @@ def check_gate(hitl_path: str | Path) -> None:
         return
 
     if envelope.is_clear:
-        resolved = sum(1 for i in envelope.items if i.status == HITLStatus.RESOLVED)
-        skipped  = sum(1 for i in envelope.items if i.status == HITLStatus.SKIPPED)
-        print(f"✓ HITL gate clear — {resolved} resolved, {skipped} skipped.")
+        print(f"✓ HITL gate clear — {len(envelope.items)} item(s) reviewed.")
         return
 
     summary = "\n".join(
@@ -141,10 +170,9 @@ def check_gate(hitl_path: str | Path) -> None:
         for i in envelope.pending
     )
     raise HITLBlockingError(
-        f"\n{len(envelope.pending)} unresolved HITL item(s) blocking pipeline:\n{summary}\n\n"
+        f"\n{len(envelope.pending)} unreviewed HITL item(s) blocking pipeline:\n{summary}\n\n"
         f"To resolve, edit {hitl_path.name}:\n"
         f"  • Set 'choice' to 1, 2, or 3 for your selected option.\n"
-        f"  • Set 'status' to 'resolved'.\n"
         f"  • Re-run this cell."
     )
 
@@ -154,13 +182,14 @@ def check_gate(hitl_path: str | Path) -> None:
 # ---------------------------------------------------------------------------
 
 def resolve_items(
-    hitl_path:   str | Path,
-    config_path: str | Path,
-    resolved_by: str | None = None,
+    hitl_path:    str | Path,
+    config_path:  str | Path,
+    resolved_by:  str | None = None,
+    run_log_path: str | Path | None = None,
 ) -> None:
     """
-    For each pending HITLItem where reviewer left exactly one option:
-      - TERMINAL reentry  → applies resolution to config, marks item resolved
+    For each HITLItem with ``choice`` set:
+      - TERMINAL reentry  → applies resolution to config
       - GENERATE_HOOK     → skips config mutation, surfaces via get_hook_items()
 
     Writes updated config and HITL envelope back to disk.
@@ -172,10 +201,9 @@ def resolve_items(
     config   = _load_config(config_path)
 
     for item in envelope.items:
-        if item.status != HITLStatus.PENDING:
-            continue
-
         selected = _validate_selection(item)
+        if selected is None:
+            continue
 
         if selected.reentry == ReentryDepth.GENERATE_HOOK:
             print(
@@ -189,9 +217,17 @@ def resolve_items(
         elif isinstance(selected.resolution, TermResolution):
             _apply_term_resolution(config, item, selected.resolution)
 
-        item.status     = HITLStatus.RESOLVED
-        item.resolution = _make_resolution(selected.option_id, resolved_by)
-        print(f"✓ [{item.item_id}] Resolved via '{selected.option_id}'.")
+        print(f"✓ [{item.item_id}] Applied option '{selected.option_id}'.")
+
+        if run_log_path is not None:
+            _append_run_log(
+                Path(run_log_path),
+                envelope.institution_id,
+                item,
+                selected,
+                envelope,
+                resolved_by,
+            )
 
     _save_config(config, config_path)
     _save_hitl(envelope, hitl_path)
@@ -223,7 +259,7 @@ def get_hook_items(hitl_path: str | Path) -> list[HITLItem]:
     result: list[HITLItem] = []
 
     for item in envelope.items:
-        if item.status != HITLStatus.PENDING:
+        if item.choice is None:
             continue
         selected = item.selected_option()
         if not selected or selected.reentry != ReentryDepth.GENERATE_HOOK:
@@ -250,9 +286,10 @@ def apply_hook_spec(
     hook_spec:      HookSpec,
     apply_to_group: bool = False,
     resolved_by:    str | None = None,
+    run_log_path:   str | Path | None = None,
 ) -> None:
     """
-    Writes a generated HookSpec to the correct config field and marks item(s) resolved.
+    Writes a generated HookSpec to the correct config field.
 
     When apply_to_group=True, writes the same HookSpec to all items sharing
     the same hook_group_id as the named item_id. Use this when multiple tables
@@ -268,7 +305,7 @@ def apply_hook_spec(
             item_id="jjc_demo_dedup",
             hook_spec=generated_spec,
             apply_to_group=True,
-            resolved_by="vish"
+            resolved_by="dk"
         )
         apply_hook_spec(
             hitl_path="institutions/jjc/identity_term_hitl.json",
@@ -276,7 +313,7 @@ def apply_hook_spec(
             item_id="jjc_student_term",
             hook_spec=generated_spec,
             apply_to_group=True,
-            resolved_by="vish"
+            resolved_by="dk"
         )
     """
     hitl_path   = Path(hitl_path)
@@ -296,12 +333,20 @@ def apply_hook_spec(
 
     for item in target_items:
         _write_hook_spec_to_config(config, item, hook_spec)
-        item.status     = HITLStatus.RESOLVED
-        item.resolution = _make_resolution(
-            item.selected_option().option_id if item.selected_option() else "hook_applied",
-            resolved_by,
-        )
+        # choice already set by reviewer — no status to update
         print(f"✓ [{item.item_id}] hook_spec written to '{item.domain.value}' config for table '{item.table}'.")
+
+        if run_log_path is not None:
+            selected = item.selected_option()
+            if selected:
+                _append_run_log(
+                    Path(run_log_path),
+                    envelope.institution_id,
+                    item,
+                    selected,
+                    envelope,
+                    resolved_by,
+                )
 
     _save_config(config, config_path)
     _save_hitl(envelope, hitl_path)
@@ -516,14 +561,9 @@ def _read_hook_spec_from_config(config: dict, item: HITLItem) -> dict | None:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _validate_selection(item: HITLItem) -> HITLOption:
-    selected = item.selected_option()
-    if selected is None:
-        raise HITLValidationError(
-            f"[{item.item_id}] No choice set — "
-            f"set 'choice' to 1, 2, or 3 and 'status' to 'resolved'."
-        )
-    return selected
+def _validate_selection(item: HITLItem) -> HITLOption | None:
+    """Returns None when no choice set — caller skips unreviewed items."""
+    return item.selected_option()
 
 
 def _find_item(envelope: InstitutionHITLItems, item_id: str) -> HITLItem:
@@ -553,11 +593,3 @@ def _get_nested(config: dict, table: str, config_key: str, item_id: str) -> dict
             f"Available tables: {list(config.get('datasets', {}).keys())}"
         )
     return cfg
-
-
-def _make_resolution(option_id: str, resolved_by: str | None) -> HITLResolution:
-    return HITLResolution(
-        selected_option_id=option_id,
-        resolved_by=resolved_by,
-        resolved_at=datetime.now(timezone.utc).isoformat(),
-    )
