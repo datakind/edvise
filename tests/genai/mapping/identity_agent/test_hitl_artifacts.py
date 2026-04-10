@@ -11,7 +11,10 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
 )
 from edvise.genai.mapping.identity_agent.hitl.artifacts import (
     build_grain_config_for_resolver,
+    load_grain_contracts_from_resolver_config,
+    load_term_contracts_from_resolver_config,
     write_identity_grain_artifacts,
+    write_identity_term_artifacts,
 )
 from edvise.genai.mapping.identity_agent.term_normalization.prompt_builder import (
     parse_institution_term_contracts,
@@ -26,7 +29,7 @@ def _grain(inst: str, table: str) -> GrainContract:
     return GrainContract(
         institution_id=inst,
         table=table,
-        student_id_alias=None,
+        learner_id_alias=None,
         post_clean_primary_key=["sid"],
         dedup_policy=DedupPolicy(
             strategy="no_dedup",
@@ -59,6 +62,31 @@ def test_write_identity_grain_artifacts_roundtrip(tmp_path):
     assert env["institution_id"] == "u1"
     assert env["domain"] == "grain"
     assert env["items"] == []
+
+
+def test_load_grain_contracts_from_resolver_config_roundtrip(tmp_path):
+    gc = _grain("u1", "t1")
+    cfg_p, _ = write_identity_grain_artifacts(tmp_path, "u1", {"t1": gc}, [])
+    loaded = load_grain_contracts_from_resolver_config(
+        cfg_p, expected_institution_id="u1"
+    )
+    assert loaded["t1"].model_dump(mode="json") == gc.model_dump(mode="json")
+
+
+def test_load_term_contracts_from_resolver_config_roundtrip(tmp_path):
+    tc = TermContract(
+        institution_id="u1",
+        table="t1",
+        term_config=None,
+        confidence=0.9,
+        hitl_flag=False,
+        reasoning="x",
+    )
+    cfg_p, _ = write_identity_term_artifacts(tmp_path, "u1", {"t1": tc}, [])
+    loaded = load_term_contracts_from_resolver_config(
+        cfg_p, expected_institution_id="u1"
+    )
+    assert loaded["t1"].model_dump(mode="json") == tc.model_dump(mode="json")
 
 
 def test_parse_grain_contract_with_hitl_no_items():

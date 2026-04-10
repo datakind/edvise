@@ -26,28 +26,28 @@ from edvise.utils.data_cleaning import convert_to_snake_case
 logger = logging.getLogger(__name__)
 
 
-def _map_key_after_student_id_rename(name: str, student_id_alias: str | None) -> str:
+def _map_key_after_student_id_rename(name: str, learner_id_alias: str | None) -> str:
     """Align key names with ``student_id`` after :func:`~edvise.data_audit.custom_cleaning.clean_dataset` rename."""
-    if not student_id_alias or not str(student_id_alias).strip():
+    if not learner_id_alias or not str(learner_id_alias).strip():
         return name
-    alias = str(student_id_alias).strip()
+    alias = str(learner_id_alias).strip()
     alias_snake = convert_to_snake_case(alias)
     if name in ("student_id", alias, alias_snake):
         return "student_id"
     return name
 
 
-def canonicalize_grain_contract_student_id_alias(
+def canonicalize_grain_contract_learner_id_alias(
     contract: GrainContract,
 ) -> GrainContract:
     """
     Rewrite ``post_clean_primary_key``, ``join_keys_for_2a``, and ``dedup_policy.sort_by`` so
-    any reference to ``contract.student_id_alias`` becomes ``student_id``.
+    any reference to ``contract.learner_id_alias`` becomes ``student_id``.
 
     The dataframe passed to ``apply_grain_dedup`` already has ``student_id`` after cleaning;
     the grain contract may still name the pre-rename column in keys unless the model normalized them.
     """
-    alias = contract.student_id_alias
+    alias = contract.learner_id_alias
     if not alias or not str(alias).strip():
         return contract
 
@@ -55,7 +55,9 @@ def canonicalize_grain_contract_student_id_alias(
         _map_key_after_student_id_rename(k, alias)
         for k in contract.post_clean_primary_key
     ]
-    jk = [_map_key_after_student_id_rename(k, alias) for k in contract.join_keys_for_2a]
+    jk = [
+        _map_key_after_student_id_rename(k, alias) for k in contract.join_keys_for_2a
+    ]
     dp = contract.dedup_policy
     if dp.sort_by is None:
         new_sort: str | None = None
@@ -156,10 +158,10 @@ def apply_grain_dedup(df: pd.DataFrame, contract: GrainContract) -> pd.DataFrame
       warning and behaves like ``true_duplicate``.
 
     When ``dedupe_fn`` runs inside :func:`~edvise.data_audit.custom_cleaning.clean_dataset`,
-    the frame already uses ``student_id``; :func:`canonicalize_grain_contract_student_id_alias`
-    uses ``contract.student_id_alias`` (from IdentityAgent grain) to align key names with that column.
+    the frame already uses ``student_id``; :func:`canonicalize_grain_contract_learner_id_alias`
+    uses ``contract.learner_id_alias`` (from IdentityAgent grain) to align key names with that column.
     """
-    contract = canonicalize_grain_contract_student_id_alias(contract)
+    contract = canonicalize_grain_contract_learner_id_alias(contract)
     policy = contract.dedup_policy
     cols = list(df.columns)
     try:

@@ -117,9 +117,77 @@ def unique_hitl_items_by_item_id(items: list[HITLItem]) -> list[HITLItem]:
     return out
 
 
+def load_grain_contracts_from_resolver_config(
+    config_path: str | Path,
+    *,
+    expected_institution_id: str | None = None,
+) -> dict[str, GrainContract]:
+    """
+    Load per-dataset :class:`GrainContract` values from resolver-shaped JSON
+    (e.g. ``identity_grain_output.json`` written by :func:`write_identity_grain_artifacts`
+    and updated by :func:`resolve_items`).
+
+    Parameters
+    ----------
+    config_path:
+        Path to JSON with ``datasets[table].grain_contract``.
+    expected_institution_id:
+        If set, must match the file's top-level ``institution_id``.
+    """
+    path = Path(config_path)
+    raw = json.loads(path.read_text())
+    inst = raw.get("institution_id")
+    if expected_institution_id is not None and inst != expected_institution_id:
+        raise ValueError(
+            f"{path.name}: institution_id {inst!r} != expected {expected_institution_id!r}"
+        )
+    datasets = raw.get("datasets") or {}
+    out: dict[str, GrainContract] = {}
+    for name, payload in datasets.items():
+        if not isinstance(payload, dict):
+            raise TypeError(f"{path.name}: datasets[{name!r}] must be an object, got {type(payload)}")
+        gc_raw = payload.get("grain_contract")
+        if gc_raw is None:
+            raise ValueError(f"{path.name}: missing grain_contract for dataset {name!r}")
+        out[name] = GrainContract.model_validate(gc_raw)
+    return out
+
+
+def load_term_contracts_from_resolver_config(
+    config_path: str | Path,
+    *,
+    expected_institution_id: str | None = None,
+) -> dict[str, TermContract]:
+    """
+    Load per-dataset :class:`TermContract` values from resolver-shaped JSON
+    (e.g. ``identity_term_output.json`` from :func:`write_identity_term_artifacts` / ``resolve_items``).
+
+    Parameters
+    ----------
+    config_path:
+        Path to JSON whose ``datasets[table]`` objects are full term contract dumps.
+    expected_institution_id:
+        If set, must match the file's top-level ``institution_id``.
+    """
+    path = Path(config_path)
+    raw = json.loads(path.read_text())
+    inst = raw.get("institution_id")
+    if expected_institution_id is not None and inst != expected_institution_id:
+        raise ValueError(
+            f"{path.name}: institution_id {inst!r} != expected {expected_institution_id!r}"
+        )
+    datasets = raw.get("datasets") or {}
+    out: dict[str, TermContract] = {}
+    for name, payload in datasets.items():
+        out[name] = TermContract.model_validate(payload)
+    return out
+
+
 __all__ = [
     "build_grain_config_for_resolver",
     "build_term_config_for_resolver",
+    "load_grain_contracts_from_resolver_config",
+    "load_term_contracts_from_resolver_config",
     "unique_hitl_items_by_item_id",
     "write_identity_grain_artifacts",
     "write_identity_term_artifacts",

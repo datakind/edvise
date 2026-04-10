@@ -1,17 +1,20 @@
 """
 **Enriched** schema-contract Pydantic models (think of this module as ``enriched_schemas``).
 
-Despite the filename ``schemas.py``, everything here describes the **enriched** institution
+Despite the filename ``schemas.py``, most types here describe the **enriched** institution
 JSON IdentityAgent produces **after** freezing per-dataset schemas: per-dataset
 ``training`` metadata (column stats, samples, etc.) plus envelope fields such as
-``school_id`` / ``school_name``. That is **not** the same artifact as the raw multi-dataset
-dict from :func:`~edvise.data_audit.custom_cleaning.build_schema_contract` or
-:func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`,
-which only freeze dtypes / keys / hashes from cleaned frames — enrichment is applied in
-:mod:`edvise.genai.mapping.identity_agent.execution.contract_builder`.
+``school_id`` / ``school_name``.
 
-IdentityAgent writes this shape (e.g. :func:`~edvise.genai.mapping.identity_agent.execution.contract_builder.save_enriched_schema_contract`);
-Schema Mapping Agent consumes it (e.g. :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.prompt_builder.summarize_schema_contract`).
+**Base frozen contract (GenAI view)** — :class:`BaseFrozenSchemaContract` / :class:`FrozenDatasetSchemaCore`
+validate the same structural dict as :func:`~edvise.data_audit.custom_cleaning.build_schema_contract`,
+but the **envelope alias field is renamed**: data audit and ``build_schema_contract`` JSON use
+``student_id_alias`` (see :class:`~edvise.data_audit.custom_cleaning.SchemaContractMeta`); these
+models expose ``learner_id_alias`` for Schema Mapping Agent / learner-oriented naming. Parsing
+maps ``student_id_alias`` → ``learner_id_alias`` (see :class:`BaseFrozenSchemaContract` validator).
+
+Enrichment is applied in :mod:`edvise.genai.mapping.identity_agent.execution.contract_builder`.
+IdentityAgent writes :class:`EnrichedSchemaContractForSMA`; Schema Mapping Agent consumes it.
 Files are typically named ``{school_id}_schema_contract.json``.
 """
 
@@ -19,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class SchemaContractColumnDetail(BaseModel):
@@ -50,10 +53,10 @@ class SchemaContractTrainingBlock(BaseModel):
     column_details: list[SchemaContractColumnDetail]
 
 
-class FrozenDatasetSchemaForSMA(BaseModel):
+class FrozenDatasetSchemaCore(BaseModel):
     """
-    One dataset entry: output of :func:`~edvise.data_audit.custom_cleaning.freeze_schema`
-    plus ``training`` from IdentityAgent enrichment.
+    One dataset entry from :func:`~edvise.data_audit.custom_cleaning.freeze_schema`
+    (no ``training`` block).
     """
 
     model_config = ConfigDict(extra="allow")
@@ -65,26 +68,67 @@ class FrozenDatasetSchemaForSMA(BaseModel):
     null_tokens: list[str]
     boolean_map: dict[str, bool]
     column_order_hash: str | None = None
-    training: SchemaContractTrainingBlock
 
 
-class EnrichedSchemaContractForSMA(BaseModel):
+class BaseFrozenSchemaContract(BaseModel):
     """
-    Single schema contract document for an institution — SMA prompt/eval input shape.
+    GenAI frozen schema contract envelope — per-dataset shape matches
+    :func:`~edvise.data_audit.custom_cleaning.build_schema_contract`, but the raw dict's
+    ``student_id_alias`` key is represented here as ``learner_id_alias`` for SMA / learner naming.
 
-    Validated JSON matches files written by IdentityAgent enrichment and summarized by
-    :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.prompt_builder.summarize_schema_contract`.
+    Raw ``build_schema_contract`` output uses ``student_id_alias`` (data audit convention);
+    :meth:`model_validate` accepts that dict and maps the field onto ``learner_id_alias``.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     created_at: str | None = None
     null_tokens: list[str] = Field(default_factory=list)
+    learner_id_alias: str | None = None
+    datasets: dict[str, FrozenDatasetSchemaCore]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _data_audit_student_id_alias_to_learner_id_alias(cls, data: Any) -> Any:
+        """Map ``student_id_alias`` (custom_cleaning / build_schema_contract) → ``learner_id_alias``."""
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        if "student_id_alias" in out:
+            if out.get("learner_id_alias") is None:
+                out["learner_id_alias"] = out.get("student_id_alias")
+            out.pop("student_id_alias", None)
+        return out
+
+
+class FrozenDatasetSchemaForSMA(FrozenDatasetSchemaCore):
+    """
+    One dataset entry: output of :func:`~edvise.data_audit.custom_cleaning.freeze_schema`
+    plus ``training`` from IdentityAgent enrichment.
+    """
+
+    training: SchemaContractTrainingBlock
+
+
+class EnrichedSchemaContractForSMA(BaseFrozenSchemaContract):
+    """
+    Single schema contract document for an institution — SMA prompt/eval input shape.
+
+    Extends :class:`BaseFrozenSchemaContract` with ``school_id`` / ``school_name`` / ``notes``
+    and per-dataset :class:`FrozenDatasetSchemaForSMA` (includes ``training``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
     school_id: str
     school_name: str
     notes: str | None = None
-    student_id_alias: str | None = None
     datasets: dict[str, FrozenDatasetSchemaForSMA]
+
+
+def parse_base_frozen_schema_contract(data: dict[str, Any]) -> BaseFrozenSchemaContract:
+    """Parse a raw schema-contract dict from :func:`~edvise.data_audit.custom_cleaning.build_schema_contract`."""
+    return BaseFrozenSchemaContract.model_validate(data)
 
 
 def parse_enriched_schema_contract_for_sma(
@@ -94,10 +138,30 @@ def parse_enriched_schema_contract_for_sma(
     return EnrichedSchemaContractForSMA.model_validate(data)
 
 
+def assert_build_schema_contract_matches_base_model(
+    cleaned_map: dict[str, Any],
+    specs: dict[str, Any],
+    *,
+    meta: Any = None,
+) -> BaseFrozenSchemaContract:
+    """
+    Build via :func:`~edvise.data_audit.custom_cleaning.build_schema_contract` and assert the
+    result validates as :class:`BaseFrozenSchemaContract` (runtime alignment check).
+    """
+    from edvise.data_audit.custom_cleaning import build_schema_contract
+
+    raw = build_schema_contract(cleaned_map, specs, meta=meta)
+    return parse_base_frozen_schema_contract(raw)
+
+
 __all__ = [
+    "BaseFrozenSchemaContract",
     "EnrichedSchemaContractForSMA",
+    "FrozenDatasetSchemaCore",
     "FrozenDatasetSchemaForSMA",
     "SchemaContractColumnDetail",
     "SchemaContractTrainingBlock",
+    "assert_build_schema_contract_matches_base_model",
+    "parse_base_frozen_schema_contract",
     "parse_enriched_schema_contract_for_sma",
 ]

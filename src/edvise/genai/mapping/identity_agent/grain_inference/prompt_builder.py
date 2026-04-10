@@ -183,7 +183,7 @@ def _identity_reasoning_steps() -> str:
 6. Determine join keys for 2a
    - Always include the full semantic grain as join keys, even if a subset achieves uniqueness.
    - Use the **same student-identifier column name** as in `post_clean_primary_key` / column list
-     (when `student_id_alias` is non-null, that name — not the literal string `student_id`).
+     (when `learner_id_alias` is non-null, that name — not the literal string `student_id`).
    - Use the **same term column** as in `post_clean_primary_key` (chosen per **Term dimension
      columns** in DOMAIN PRIORS).
    - Example: if (student_id, class_number) is unique but term is semantically required,
@@ -273,29 +273,29 @@ Use a **number from 0.0 to 1.0** (same scale as Schema Mapping Agent field mappi
 
 def _identity_student_id_and_keys() -> str:
     return """
-## STUDENT IDENTIFIER COLUMN (`student_id_alias` vs primary keys and join keys)
+## LEARNER IDENTIFIER COLUMN (`learner_id_alias` vs primary keys and join keys)
 
 Distinguish these two ideas:
 
-1. **`student_id_alias`** — The institution's student-identifier column **as it appears in the
+1. **`learner_id_alias`** — The institution's learner/student-identifier column **as it appears in the
    column list** you receive (header-normalized, typically snake_case). Examples:
    `student_id_randomized_datakind`, or a normalized form of a raw header like `STUDENT_ID`.
    Set to JSON `null` when the column list already shows `student_id`, or when this dataset's
-   grain does not include a student identifier.
+   grain does not include a person identifier.
 
 2. **`post_clean_primary_key`**, **`join_keys_for_2a`**, and **`dedup_policy.sort_by`** — Where the
-   grain includes the student identifier, use **that same column name** (the alias string when
-   `student_id_alias` is non-null). Do **not** substitute the literal string `student_id` in those
+   grain includes the learner identifier, use **that same column name** (the alias string when
+   `learner_id_alias` is non-null). Do **not** substitute the literal string `student_id` in those
    arrays unless the column list already uses `student_id`. This keeps the contract, dedup key,
-   and join keys **consistent with the dataframe column names before the canonical rename**.
+   and join keys **consistent with the dataframe column names before the canonical rename** to `student_id`.
 
-3. **Downstream cleaning** maps `student_id_alias` to canonical `student_id` **once**, as part of
+3. **Downstream cleaning** maps `learner_id_alias` to canonical `student_id` **once**, as part of
    the cleaning pass **after** grain dedup and term-order hooks. Your JSON should describe the
-   pre-rename names so execution stays consistent.
+   pre-rename names so execution stays consistent (schema contracts and SMA use learner-oriented naming).
 
-**Inference:** From the column list and key profile, decide which column is the student
-identifier; set `student_id_alias` accordingly; emit keys in `post_clean_primary_key` /
-`join_keys_for_2a` / `sort_by` using that name wherever the student id participates in the grain.
+**Inference:** From the column list and key profile, decide which column is the learner
+identifier; set `learner_id_alias` accordingly; emit keys in `post_clean_primary_key` /
+`join_keys_for_2a` / `sort_by` using that name wherever the learner id participates in the grain.
 """
 
 
@@ -305,14 +305,14 @@ def _identity_output_format() -> str:
 
 Respond ONLY with a JSON object. No preamble, no markdown, no explanation outside the JSON.
 
-Follow **STUDENT IDENTIFIER COLUMN** for `student_id_alias` and for how to name the student id
+Follow **LEARNER IDENTIFIER COLUMN** for `learner_id_alias` and for how to name the learner id
 in `post_clean_primary_key`, `join_keys_for_2a`, and `dedup_policy.sort_by`.
 
 ```json
 {
   "institution_id": "<institution_id>",
   "table": "<dataset_name>",
-  "student_id_alias": "<column name from column list, or null>",
+  "learner_id_alias": "<column name from column list, or null>",
   "post_clean_primary_key": ["<col1>", "<col2>"],
   "dedup_policy": {
     "strategy": "<true_duplicate | temporal_collapse | no_dedup | policy_required>",

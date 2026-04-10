@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -112,31 +112,33 @@ class GrainContract(BaseModel):
 
     Term column config is produced in the **term** stage as :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermContract`.
 
-    When ``student_id_alias`` is set, ``post_clean_primary_key`` and ``join_keys_for_2a``
+    When ``learner_id_alias`` is set, ``post_clean_primary_key`` and ``join_keys_for_2a``
     should name that column **as in the pre-canonical-rename frame** (the same string as
-    ``student_id_alias``), so dedup/join keys stay consistent; downstream cleaning renames
-    it to ``student_id`` for the frozen schema contract.
+    ``learner_id_alias``), so dedup/join keys stay consistent; downstream cleaning renames
+    it to canonical ``student_id`` for the frozen schema contract (GenAI uses learner naming
+    to align with Schema Mapping Agent ``learner_id`` migration).
     """
 
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
 
     institution_id: str
     table: str
-    student_id_alias: str | None = Field(
+    learner_id_alias: str | None = Field(
         default=None,
         description=(
-            "Institution student-identifier column **as shown in the column list** (header-normalized, "
-            "typically snake_case), e.g. student_id_randomized_datakind. Use null when the column "
-            "is already student_id after normalization, or when this table's grain has no student "
-            "identifier. Downstream cleaning maps this to canonical student_id once."
+            "Institution learner/student-identifier column **as shown in the column list** "
+            "(header-normalized, typically snake_case), e.g. student_id_randomized_datakind. "
+            "Use null when the column is already student_id after normalization, or when this "
+            "table's grain has no person identifier. Downstream cleaning maps this to canonical "
+            "student_id once (see CleaningConfig.student_id_alias)."
         ),
     )
     post_clean_primary_key: list[str] = Field(
         ...,
         description=(
             "Grain primary key column names aligned with the frame used for grain dedup: when "
-            "student_id_alias is set, list that column name (not literal student_id) wherever the "
-            "student identifier is part of the key. Maps to schema contract unique_keys after the "
+            "learner_id_alias is set, list that column name (not literal student_id) wherever the "
+            "learner identifier is part of the key. Maps to schema contract unique_keys after the "
             "canonical student_id rename."
         ),
     )
@@ -146,7 +148,7 @@ class GrainContract(BaseModel):
         ...,
         description=(
             "Join keys for SchemaMappingAgent 2a; same naming convention as post_clean_primary_key "
-            "for the student identifier column when student_id_alias is set."
+            "for the learner identifier column when learner_id_alias is set."
         ),
     )
     confidence: float = Field(
@@ -168,9 +170,21 @@ class GrainContract(BaseModel):
         """Alias for ``post_clean_primary_key`` (schema contract naming)."""
         return self.post_clean_primary_key
 
-    @field_validator("student_id_alias", mode="before")
+    @model_validator(mode="before")
     @classmethod
-    def _empty_student_id_alias_to_none(cls, v: object) -> str | None:
+    def _legacy_student_id_alias_field(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        if "student_id_alias" in out and "learner_id_alias" not in out:
+            out["learner_id_alias"] = out.pop("student_id_alias", None)
+        elif "student_id_alias" in out and "learner_id_alias" in out:
+            out.pop("student_id_alias", None)
+        return out
+
+    @field_validator("learner_id_alias", mode="before")
+    @classmethod
+    def _empty_learner_id_alias_to_none(cls, v: object) -> str | None:
         if v is None:
             return None
         if isinstance(v, str):

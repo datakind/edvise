@@ -16,7 +16,9 @@ from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     TermContract,
 )
 from edvise.genai.mapping.schema_contract import (
+    BaseFrozenSchemaContract,
     EnrichedSchemaContractForSMA,
+    parse_base_frozen_schema_contract,
     parse_enriched_schema_contract_for_sma,
 )
 
@@ -25,7 +27,7 @@ def _grain(inst: str, table: str) -> GrainContract:
     return GrainContract(
         institution_id=inst,
         table=table,
-        student_id_alias=None,
+        learner_id_alias=None,
         post_clean_primary_key=["sid"],
         dedup_policy=DedupPolicy(
             strategy="no_dedup",
@@ -85,6 +87,84 @@ def test_institution_identity_contract_rejects_mismatched_dataset_keys():
     )
     with pytest.raises(ValueError, match="same keys"):
         institution_identity_contract_from_parts(grain, term)
+
+
+def test_enriched_legacy_student_id_alias_maps_to_learner_id_alias():
+    raw = {
+        "school_id": "s1",
+        "school_name": "School One",
+        "student_id_alias": "raw_sid_col",
+        "datasets": {
+            "students": {
+                "normalized_columns": {"A": "a"},
+                "dtypes": {"a": "Int64"},
+                "non_null_columns": [],
+                "unique_keys": ["a"],
+                "null_tokens": ["(Blank)"],
+                "boolean_map": {"true": True, "false": False},
+                "training": {
+                    "file_path": "/x.csv",
+                    "num_rows": 1,
+                    "num_columns": 1,
+                    "column_normalization": {"original_to_normalized": {}},
+                    "column_details": [
+                        {
+                            "original_name": "A",
+                            "normalized_name": "a",
+                            "null_count": 0,
+                            "null_percentage": 0.0,
+                            "unique_count": 1,
+                            "sample_values": ["1"],
+                        }
+                    ],
+                },
+            }
+        },
+    }
+    m = parse_enriched_schema_contract_for_sma(raw)
+    assert m.learner_id_alias == "raw_sid_col"
+
+
+def test_base_frozen_maps_build_schema_contract_student_id_alias_to_learner():
+    """Raw dict uses ``student_id_alias`` (data audit); GenAI model exposes ``learner_id_alias``."""
+    raw = {
+        "created_at": "2024-01-01T00:00:00Z",
+        "null_tokens": ["(Blank)"],
+        "student_id_alias": "from_audit",
+        "datasets": {
+            "t": {
+                "normalized_columns": {"A": "a"},
+                "dtypes": {"a": "Int64"},
+                "non_null_columns": [],
+                "unique_keys": ["a"],
+                "null_tokens": ["(Blank)"],
+                "boolean_map": {"true": True},
+            }
+        },
+    }
+    m = parse_base_frozen_schema_contract(raw)
+    assert m.learner_id_alias == "from_audit"
+
+
+def test_base_frozen_schema_contract_minimal():
+    raw = {
+        "created_at": "2024-01-01T00:00:00Z",
+        "null_tokens": ["(Blank)"],
+        "learner_id_alias": "x",
+        "datasets": {
+            "t": {
+                "normalized_columns": {"A": "a"},
+                "dtypes": {"a": "Int64"},
+                "non_null_columns": [],
+                "unique_keys": ["a"],
+                "null_tokens": ["(Blank)"],
+                "boolean_map": {"true": True},
+            }
+        },
+    }
+    m = parse_base_frozen_schema_contract(raw)
+    assert isinstance(m, BaseFrozenSchemaContract)
+    assert m.learner_id_alias == "x"
 
 
 def test_enriched_schema_contract_for_sma_minimal():

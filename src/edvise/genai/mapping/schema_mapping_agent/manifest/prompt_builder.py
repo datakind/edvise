@@ -60,8 +60,8 @@ def summarize_schema_contract(
         "school_name": parsed.school_name,
         "datasets": {},
     }
-    if parsed.student_id_alias:
-        summary["student_id_alias"] = parsed.student_id_alias
+    if parsed.learner_id_alias:
+        summary["learner_id_alias"] = parsed.learner_id_alias
 
     for table_name, table_info in parsed.datasets.items():
         dtypes_map = table_info.dtypes or {}

@@ -13,6 +13,8 @@ from edvise.genai.mapping.identity_agent.hitl.hook_generation import (
 from edvise.genai.mapping.identity_agent.hitl.artifacts import (
     build_grain_config_for_resolver,
     build_term_config_for_resolver,
+    load_grain_contracts_from_resolver_config,
+    load_term_contracts_from_resolver_config,
     unique_hitl_items_by_item_id,
     write_identity_grain_artifacts,
     write_identity_term_artifacts,
@@ -61,6 +63,8 @@ __all__ = [
     "apply_hook_spec",
     "build_grain_config_for_resolver",
     "build_term_config_for_resolver",
+    "load_grain_contracts_from_resolver_config",
+    "load_term_contracts_from_resolver_config",
     "check_gate",
     "unique_hitl_items_by_item_id",
     "get_hook_items",

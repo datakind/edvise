@@ -26,7 +26,7 @@ def _grain(inst: str, table: str, *, row_sel: bool = True) -> GrainContract:
     return GrainContract(
         institution_id=inst,
         table=table,
-        student_id_alias=None,
+        learner_id_alias=None,
         post_clean_primary_key=["sid", "term_code"],
         dedup_policy=DedupPolicy(
             strategy="no_dedup",

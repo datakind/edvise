@@ -330,6 +330,15 @@ def test_build_schema_contract_and_enforce_schema_contract_wiring(monkeypatch):
     schema_contract = build_schema_contract(cleaned, specs, meta=meta)
     assert schema_contract["created_at"] == "2024-01-01T00:00:00Z"
     assert set(schema_contract["datasets"].keys()) == {"students", "courses"}
+    assert "student_id_alias" not in schema_contract
+
+    meta_alias = SchemaContractMeta(
+        created_at="2024-01-01T00:00:00Z",
+        null_tokens=["(Blank)"],
+        student_id_alias="raw_student_id_col",
+    )
+    with_alias = build_schema_contract(cleaned, specs, meta=meta_alias)
+    assert with_alias["student_id_alias"] == "raw_student_id_col"
 
     calls = []
 

@@ -83,6 +83,29 @@ def test_build_identity_agent_user_message_rejects_both_or_neither():
         build_identity_agent_user_message("i", "t", kp)
 
 
+def test_parse_grain_contract_legacy_student_id_alias_maps_to_learner_id_alias():
+    raw = {
+        "institution_id": "x",
+        "table": "t",
+        "student_id_alias": "legacy_col",
+        "post_clean_primary_key": ["student_id"],
+        "dedup_policy": {
+            "strategy": "no_dedup",
+            "sort_by": None,
+            "keep": None,
+            "notes": "",
+        },
+        "row_selection_required": True,
+        "join_keys_for_2a": ["student_id", "term"],
+        "confidence": 0.95,
+        "hitl_flag": False,
+        "hitl_question": None,
+        "reasoning": "ok",
+    }
+    c = parse_grain_contract(raw)
+    assert c.learner_id_alias == "legacy_col"
+
+
 def test_parse_grain_contract_dict():
     raw = {
         "institution_id": "x",

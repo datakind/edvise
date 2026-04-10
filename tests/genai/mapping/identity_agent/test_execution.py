@@ -11,7 +11,7 @@ from edvise.genai.mapping.identity_agent.execution import (
     apply_term_order_from_config,
     build_dedupe_fn_from_grain_contract,
     merge_grain_contracts_into_school_config,
-    merge_grain_student_id_alias_into_school_config,
+    merge_grain_learner_id_alias_into_school_config,
 )
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     DedupPolicy,
@@ -312,11 +312,11 @@ def test_term_order_column_matches_clean_dataset_normalization():
     assert "_term_order" in out.columns
 
 
-def test_apply_grain_dedup_maps_contract_student_id_alias_to_student_id():
+def test_apply_grain_dedup_maps_contract_learner_id_alias_to_student_id():
     """After clean_dataset rename, the frame has student_id; keys may still use the pre-rename name."""
     df = pd.DataFrame({"student_id": ["a", "a"], "x": [1, 2]})
     c = _grain(
-        student_id_alias="student_id_randomized_datakind",
+        learner_id_alias="student_id_randomized_datakind",
         post_clean_primary_key=["student_id_randomized_datakind"],
         join_keys_for_2a=["student_id_randomized_datakind"],
     )
@@ -348,12 +348,12 @@ def _merge_contract(
     table: str,
     uks: list[str],
     *,
-    student_id_alias: str | None = None,
+    learner_id_alias: str | None = None,
 ) -> GrainContract:
     return GrainContract(
         institution_id="test_inst",
         table=table,
-        student_id_alias=student_id_alias,
+        learner_id_alias=learner_id_alias,
         post_clean_primary_key=uks,
         dedup_policy=DedupPolicy(
             strategy="no_dedup",
@@ -381,12 +381,12 @@ def test_merge_updates_only_listed_datasets():
     assert out.datasets["courses"].primary_keys == ["student_id", "term"]
 
 
-def test_merge_canonicalizes_student_id_alias_in_primary_keys():
+def test_merge_canonicalizes_learner_id_alias_in_primary_keys():
     school = _school_config()
     gc = _merge_contract(
         "students",
         ["legacy_student_col", "term"],
-        student_id_alias="legacy_student_col",
+        learner_id_alias="legacy_student_col",
     )
     out = merge_grain_contracts_into_school_config(school, {"students": gc})
     assert out.datasets["students"].primary_keys == ["student_id", "term"]
@@ -399,35 +399,35 @@ def test_merge_preserves_institution_when_partial():
     assert out.datasets["students"].primary_keys == ["student_id"]
 
 
-def test_merge_sets_cleaning_student_id_alias_from_grain():
+def test_merge_sets_cleaning_student_id_alias_from_grain_learner_id_alias():
     school = _school_config()
     gc = _merge_contract(
         "students",
         ["student_id"],
-        student_id_alias="student_id_randomized_datakind",
+        learner_id_alias="student_id_randomized_datakind",
     )
     out = merge_grain_contracts_into_school_config(school, {"students": gc})
     assert out.cleaning is not None
     assert out.cleaning.student_id_alias == "student_id_randomized_datakind"
 
 
-def test_merge_grain_student_id_alias_only_is_idempotent():
+def test_merge_grain_learner_id_alias_only_is_idempotent():
     school = _school_config()
     gc = _merge_contract(
         "students",
         ["student_id"],
-        student_id_alias="col_a",
+        learner_id_alias="col_a",
     )
-    once = merge_grain_student_id_alias_into_school_config(school, {"students": gc})
-    twice = merge_grain_student_id_alias_into_school_config(once, {"students": gc})
+    once = merge_grain_learner_id_alias_into_school_config(school, {"students": gc})
+    twice = merge_grain_learner_id_alias_into_school_config(once, {"students": gc})
     assert twice.cleaning and twice.cleaning.student_id_alias == "col_a"
 
 
-def test_merge_conflicting_grain_student_id_alias_raises():
+def test_merge_conflicting_grain_learner_id_alias_raises():
     school = _school_config()
-    a = _merge_contract("students", ["student_id"], student_id_alias="a")
-    b = _merge_contract("courses", ["student_id", "term"], student_id_alias="b")
-    with pytest.raises(ValueError, match="disagree on student_id_alias"):
+    a = _merge_contract("students", ["student_id"], learner_id_alias="a")
+    b = _merge_contract("courses", ["student_id", "term"], learner_id_alias="b")
+    with pytest.raises(ValueError, match="disagree on learner_id_alias"):
         merge_grain_contracts_into_school_config(school, {"students": a, "courses": b})
 
 

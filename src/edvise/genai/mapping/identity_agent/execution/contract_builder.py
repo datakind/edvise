@@ -28,7 +28,7 @@ from edvise.configs.custom import CleaningConfig
 from edvise.configs.genai import DatasetConfig, SchoolMappingConfig
 from edvise.data_audit.custom_cleaning import DtypeGenerationOptions, TermOrderFn
 from edvise.genai.mapping.identity_agent.execution.contract_utilities import (
-    canonicalize_grain_contract_student_id_alias,
+    canonicalize_grain_contract_learner_id_alias,
 )
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
 from edvise.utils.data_cleaning import convert_to_snake_case
@@ -36,14 +36,18 @@ from edvise.utils.data_cleaning import convert_to_snake_case
 logger = logging.getLogger(__name__)
 
 
-def merge_grain_student_id_alias_into_school_config(
+def merge_grain_learner_id_alias_into_school_config(
     school_config: SchoolMappingConfig,
     grain_contracts_by_dataset: dict[str, GrainContract],
 ) -> SchoolMappingConfig:
     """
-    Set ``school_config.cleaning.student_id_alias`` from grain when contracts specify it.
+    Set ``school_config.cleaning.student_id_alias`` from grain ``learner_id_alias`` when specified.
 
-    All non-null ``student_id_alias`` values across the given contracts must agree; otherwise
+    Grain JSON uses ``learner_id_alias``; that value is written to ``CleaningConfig.student_id_alias``
+    because :func:`~edvise.data_audit.custom_cleaning.clean_dataset` still renames the column to
+    ``student_id``.
+
+    All non-null ``learner_id_alias`` values across the given contracts must agree; otherwise
     raises. When ``inputs.toml`` already sets a different alias, grain wins and a warning is logged.
 
     Callers that build schema contracts **one dataset at a time** (e.g. manifest helpers) should
@@ -53,13 +57,13 @@ def merge_grain_student_id_alias_into_school_config(
     """
     aliases: set[str] = set()
     for gc in grain_contracts_by_dataset.values():
-        if gc.student_id_alias:
-            aliases.add(gc.student_id_alias.strip())
+        if gc.learner_id_alias:
+            aliases.add(gc.learner_id_alias.strip())
     if not aliases:
         return school_config
     if len(aliases) > 1:
         raise ValueError(
-            "Grain contracts disagree on student_id_alias: "
+            "Grain contracts disagree on learner_id_alias: "
             f"{sorted(aliases)}. Resolve before merging into school config."
         )
     alias = next(iter(aliases))
@@ -102,7 +106,7 @@ def merge_grain_contracts_into_school_config(
         New ``SchoolMappingConfig`` with updated ``DatasetConfig.primary_keys`` where provided
         and optional ``cleaning.student_id_alias`` from grain.
     """
-    school_config = merge_grain_student_id_alias_into_school_config(
+    school_config = merge_grain_learner_id_alias_into_school_config(
         school_config, grain_contracts_by_dataset
     )
     unknown = set(grain_contracts_by_dataset) - set(school_config.datasets)
@@ -135,7 +139,7 @@ def merge_grain_contracts_into_school_config(
                 logical,
             )
 
-        gc_resolved = canonicalize_grain_contract_student_id_alias(gc)
+        gc_resolved = canonicalize_grain_contract_learner_id_alias(gc)
         uks = list(gc_resolved.unique_keys)
         if not uks:
             raise ValueError(
@@ -163,8 +167,8 @@ def build_schema_contract_from_grain_contracts(
     ] = None,
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
-    Build cleaned frames and a frozen schema contract, with primary keys and ``student_id_alias``
-    taken from grain contracts where provided.
+    Build cleaned frames and a frozen schema contract (envelope uses ``student_id_alias`` from
+    data audit); primary keys and cleaning alias are taken from grain contracts where provided.
 
     Applies :func:`merge_grain_contracts_into_school_config` (primary keys + cleaning alias) then
     :func:`edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`.
@@ -222,12 +226,12 @@ UNIQUE_VALUES_MAX_CARDINALITY = 50
 
 def _canonical_normalized_column_name(
     norm_col: str,
-    student_id_alias: str | None,
+    learner_id_alias: str | None,
 ) -> str:
     """Match :func:`~edvise.genai.mapping.schema_contract.build_from_school_config._canonical_primary_keys_for_contract` naming."""
-    if not student_id_alias:
+    if not learner_id_alias:
         return norm_col
-    alias_snake = convert_to_snake_case(student_id_alias)
+    alias_snake = convert_to_snake_case(learner_id_alias)
     if norm_col == alias_snake:
         return "student_id"
     return norm_col
@@ -236,13 +240,13 @@ def _canonical_normalized_column_name(
 def _df_column_for_column_details(
     norm_col: str,
     df: pd.DataFrame,
-    student_id_alias: str | None,
+    learner_id_alias: str | None,
 ) -> str | None:
     """Resolve header-normalized name to a column present after :func:`~edvise.data_audit.custom_cleaning.clean_dataset`."""
     if norm_col in df.columns:
         return norm_col
-    if student_id_alias:
-        alias_snake = convert_to_snake_case(student_id_alias)
+    if learner_id_alias:
+        alias_snake = convert_to_snake_case(learner_id_alias)
         if norm_col == alias_snake and "student_id" in df.columns:
             return "student_id"
     return None
@@ -253,7 +257,7 @@ def _build_column_details(
     original_columns: list[str],
     column_mapping: dict[str, list[str]],
     *,
-    student_id_alias: str | None = None,
+    learner_id_alias: str | None = None,
 ) -> List[Dict[str, Any]]:
     orig_to_norm: dict[str, str] = {}
     for norm_col, orig_list in column_mapping.items():
@@ -266,7 +270,7 @@ def _build_column_details(
     column_details: List[Dict[str, Any]] = []
     for orig_col in original_columns:
         norm_col = orig_to_norm.get(orig_col, orig_col)
-        df_col = _df_column_for_column_details(norm_col, df, student_id_alias)
+        df_col = _df_column_for_column_details(norm_col, df, learner_id_alias)
         if df_col is None:
             logger.warning(
                 "  Normalized column '%s' not found in DataFrame, skipping", norm_col
@@ -278,7 +282,7 @@ def _build_column_details(
         null_pct = float(null_count / total_rows * 100) if total_rows > 0 else 0.0
         unique_count = int(series.nunique())
 
-        report_norm = _canonical_normalized_column_name(norm_col, student_id_alias)
+        report_norm = _canonical_normalized_column_name(norm_col, learner_id_alias)
         col_detail: Dict[str, Any] = {
             "original_name": orig_col,
             "normalized_name": report_norm,
@@ -330,7 +334,7 @@ def build_training_example_from_schema_contract(
         df=df,
         original_columns=original_columns,
         column_mapping=column_mapping,
-        student_id_alias=sid_alias,
+        learner_id_alias=sid_alias,
     )
 
     orig_to_norm: dict[str, str] = {}
@@ -500,9 +504,9 @@ def build_enriched_schema_contract_for_dataset(
     metadata into one institution-style JSON (single dataset under ``datasets``).
 
     For grain-driven primary keys, pass ``grain_contracts_by_dataset`` with at least
-    ``{dataset_name: grain_contract}``. To align ``student_id_alias`` with other tables,
+    ``{dataset_name: grain_contract}``. To align ``learner_id_alias`` / cleaning with other tables,
     pass a ``school_config`` already updated via
-    :func:`merge_grain_student_id_alias_into_school_config` using the **full** grain map.
+    :func:`merge_grain_learner_id_alias_into_school_config` using the **full** grain map.
     """
     if dataset_name not in school_config.datasets:
         raise KeyError(
@@ -597,8 +601,11 @@ def _build_enriched_schema_contract(
         "notes": school_config.notes,
         "datasets": merged_datasets,
     }
-    if base_contract.get("student_id_alias"):
-        enriched_contract["student_id_alias"] = base_contract["student_id_alias"]
+    lid = base_contract.get("learner_id_alias") or base_contract.get(
+        "student_id_alias"
+    )
+    if lid:
+        enriched_contract["learner_id_alias"] = lid
 
     return enriched_contract
 
@@ -656,7 +663,7 @@ __all__ = [
     "build_schema_contract_from_grain_contracts",
     "build_training_example_from_schema_contract",
     "merge_grain_contracts_into_school_config",
-    "merge_grain_student_id_alias_into_school_config",
+    "merge_grain_learner_id_alias_into_school_config",
     "process_school_dataset",
     "save_enriched_schema_contract",
     "save_enriched_schema_contracts",
