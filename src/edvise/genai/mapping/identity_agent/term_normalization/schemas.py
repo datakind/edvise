@@ -13,6 +13,7 @@ from pydantic import (
 )
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookFunctionSpec, HookSpec  # noqa: F401
+from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
 
 CANONICAL_SEASONS = {"FALL", "SPRING", "SUMMER", "WINTER"}
 
@@ -228,6 +229,16 @@ class InstitutionTermContract(BaseModel):
         return dict(self.datasets)
 
 
+def get_term_contract_schema_context(
+    *, include_institution_envelope: bool = False
+) -> str:
+    """Python source for term-stage contract models; optionally the batch envelope."""
+    models: list[type] = [SeasonMapEntry, TermOrderConfig, TermContract]
+    if include_institution_envelope:
+        models.append(InstitutionTermContract)
+    return concat_model_sources(models)
+
+
 __all__ = [
     "CANONICAL_SEASONS",
     "HookFunctionSpec",
@@ -236,4 +247,5 @@ __all__ = [
     "SeasonMapEntry",
     "TermContract",
     "TermOrderConfig",
+    "get_term_contract_schema_context",
 ]

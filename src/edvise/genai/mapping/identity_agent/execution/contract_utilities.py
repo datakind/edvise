@@ -229,8 +229,9 @@ def build_dedupe_fn_from_grain_contract(
     contract: GrainContract,
 ) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """
-    Build a ``dedupe_fn`` for :func:`~edvise.data_audit.custom_cleaning.clean_dataset` / SMA
-    preprocessing that applies only the grain dedup step (not term order).
+    Build a ``dedupe_fn`` for :func:`~edvise.data_audit.custom_cleaning.clean_dataset` /
+    :func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config` that applies
+    only the grain dedup step (not term order).
 
     Term order still runs later via ``term_order_fn`` / :func:`apply_term_order_from_contract` if needed.
     """

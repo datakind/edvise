@@ -12,6 +12,8 @@ from pydantic import (
     model_validator,
 )
 
+from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
+
 # Below this confidence score, `hitl_flag` must be true (ambiguous grain / policy required).
 IDENTITY_CONFIDENCE_HITL_THRESHOLD: float = 0.5
 
@@ -235,4 +237,11 @@ def build_institution_grain_contracts(
     """Wrap per-dataset grain contracts in one envelope (single JSON file for testing or handoff)."""
     return InstitutionGrainContract(
         institution_id=institution_id, datasets=dict(contracts_by_dataset)
+    )
+
+
+def get_grain_contract_schema_context() -> str:
+    """Python source for grain-stage contract models (per-dataset ``GrainContract`` JSON)."""
+    return concat_model_sources(
+        (HookFunctionSpec, HookSpec, DedupPolicy, GrainContract)
     )

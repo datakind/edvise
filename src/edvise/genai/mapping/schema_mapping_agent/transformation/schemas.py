@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import Field, field_validator
@@ -374,3 +375,54 @@ class TransformationMap(StrictBaseModel):
                 "Each target_field must appear only once in the transformation map"
             )
         return v
+
+
+def get_transformation_map_schema_context() -> str:
+    """
+    Focused schema reference for Agent 2b prompt context: TransformationStep models,
+    FieldTransformationPlan, and TransformationMap.
+    """
+    models = [
+        CastNullableIntStep,
+        CastNullableFloatStep,
+        CastStringStep,
+        CastBooleanStep,
+        CastDatetimeStep,
+        CoerceNumericStep,
+        CoerceDatetimeStep,
+        StripWhitespaceStep,
+        LowercaseStep,
+        UppercaseStep,
+        MapValuesStep,
+        NormalizeTermCodeStep,
+        NormalizeGradeStep,
+        NormalizeEnrollmentStep,
+        NormalizePellStep,
+        NormalizeCredentialStep,
+        NormalizeStudentAgeStep,
+        FillNullsStep,
+        ReplaceNullTokensStep,
+        ReplaceValuesWithNullStep,
+        StripTrailingDecimalStep,
+        FillConstantStep,
+        NormalizeYearRangeStep,
+        ExtractYearStep,
+        ParseYyyymmStep,
+        ParseTermDescriptionStep,
+        ExtractAcademicYearFromTermCodeStep,
+        ExtractTermSeasonFromTermCodeStep,
+        ParseTermCodeToDatetimeStep,
+        BirthyearToAgeBucketStep,
+        ConditionalCreditsStep,
+        NewUtilityNeededStep,
+        FieldTransformationPlan,
+        TransformationMap,
+    ]
+    sections = []
+    for model in models:
+        try:
+            source = inspect.getsource(model)
+            sections.append(source)
+        except (OSError, TypeError):
+            pass
+    return "\n\n".join(sections)

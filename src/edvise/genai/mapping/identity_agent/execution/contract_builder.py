@@ -167,7 +167,7 @@ def build_schema_contract_from_grain_contracts(
     taken from grain contracts where provided.
 
     Applies :func:`merge_grain_contracts_into_school_config` (primary keys + cleaning alias) then
-    :func:`edvise.genai.mapping.schema_mapping_agent.preprocessing.build_schema_contract_from_config`.
+    :func:`edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`.
 
     Args:
         school_config: School mapping config (paths, cleaning, baseline primary_keys).
@@ -186,12 +186,13 @@ def build_schema_contract_from_grain_contracts(
             When a key is present, that fn is used; use ``None`` as the value to skip term order
             for that dataset. Datasets not listed fall back to ``term_order_fn``.
         dedupe_fn_by_dataset, dtype_opts, spark_session, sample_size, cleaning_cfg: Forwarded
-            to preprocessing.
+            to :func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`.
 
     Returns:
-        ``(cleaned_dataframes_by_logical_name, schema_contract_dict)`` — same as preprocessing.
+        ``(cleaned_dataframes_by_logical_name, schema_contract_dict)`` — same as
+        :func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`.
     """
-    from edvise.genai.mapping.schema_mapping_agent.preprocessing import (
+    from edvise.genai.mapping.schema_contract.build_from_school_config import (
         build_schema_contract_from_config,
     )
 
@@ -223,7 +224,7 @@ def _canonical_normalized_column_name(
     norm_col: str,
     student_id_alias: str | None,
 ) -> str:
-    """Match :func:`~edvise.genai.mapping.schema_mapping_agent.preprocessing._canonical_primary_keys_for_contract` naming."""
+    """Match :func:`~edvise.genai.mapping.schema_contract.build_from_school_config._canonical_primary_keys_for_contract` naming."""
     if not student_id_alias:
         return norm_col
     alias_snake = convert_to_snake_case(student_id_alias)
@@ -387,7 +388,7 @@ def process_school_dataset(
     file_path = dataset_config.files[0]
 
     try:
-        from edvise.genai.mapping.schema_mapping_agent.preprocessing import (
+        from edvise.genai.mapping.schema_contract.build_from_school_config import (
             _load_and_preprocess_dataset,
             build_schema_contract_from_config,
         )

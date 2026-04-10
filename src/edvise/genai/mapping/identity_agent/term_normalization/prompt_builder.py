@@ -18,31 +18,15 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     GrainContract,
 )
 from edvise.genai.mapping.identity_agent.hitl.artifacts import unique_hitl_items_by_item_id
-from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem
+from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem, get_hitl_item_schema_context
 from edvise.genai.mapping.identity_agent.profiling.schemas import RawTableProfile
-from edvise.genai.mapping.identity_agent.hitl.prompt_schema_context import (
-    get_hitl_item_schema_context,
-)
-from edvise.genai.mapping.identity_agent.utilities import concat_model_sources, strip_json_fences
+from edvise.genai.mapping.identity_agent.utilities import strip_json_fences
 
-from .schemas import InstitutionTermContract, TermContract
+from .schemas import InstitutionTermContract, TermContract, get_term_contract_schema_context
 
 logger = logging.getLogger(__name__)
 
 RawTermPassInput = Union[str, bytes, dict]
-
-
-# ── Term-only schema context (shared helpers: ``utilities``; HITL: ``hitl.prompt_schema_context``) ──
-
-
-def get_term_contract_schema_context(*, include_institution_envelope: bool = False) -> str:
-    """Python source for term-stage contract models; optionally the batch envelope."""
-    from .schemas import InstitutionTermContract, SeasonMapEntry, TermContract, TermOrderConfig
-
-    models: list[type] = [SeasonMapEntry, TermOrderConfig, TermContract]
-    if include_institution_envelope:
-        models.append(InstitutionTermContract)
-    return concat_model_sources(models)
 
 
 # ── System prompt sections ────────────────────────────────────────────────────

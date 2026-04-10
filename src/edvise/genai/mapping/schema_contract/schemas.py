@@ -1,5 +1,14 @@
 """
-Pydantic models for the **enriched** frozen schema JSON shared by IdentityAgent and SMA.
+**Enriched** schema-contract Pydantic models (think of this module as ``enriched_schemas``).
+
+Despite the filename ``schemas.py``, everything here describes the **enriched** institution
+JSON IdentityAgent produces **after** freezing per-dataset schemas: per-dataset
+``training`` metadata (column stats, samples, etc.) plus envelope fields such as
+``school_id`` / ``school_name``. That is **not** the same artifact as the raw multi-dataset
+dict from :func:`~edvise.data_audit.custom_cleaning.build_schema_contract` or
+:func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`,
+which only freeze dtypes / keys / hashes from cleaned frames — enrichment is applied in
+:mod:`edvise.genai.mapping.identity_agent.execution.contract_builder`.
 
 IdentityAgent writes this shape (e.g. :func:`~edvise.genai.mapping.identity_agent.execution.contract_builder.save_enriched_schema_contract`);
 Schema Mapping Agent consumes it (e.g. :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.prompt_builder.summarize_schema_contract`).

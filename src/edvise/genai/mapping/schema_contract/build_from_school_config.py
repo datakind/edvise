@@ -1,12 +1,11 @@
 """
-Preprocessing step for SchemaMappingAgent pipeline (Milestone 1).
+Load CSVs from :class:`~edvise.configs.genai.SchoolMappingConfig`, run
+:class:`~edvise.data_audit.custom_cleaning.clean_dataset` (same steps as the custom audit
+pipeline), and freeze a schema contract JSON.
 
-After loading (and optional row sampling) from config paths, each dataset is cleaned with
-:class:`edvise.data_audit.custom_cleaning.clean_dataset` — same steps as the custom audit
-pipeline: normalize headers, student-id alias rename, null tokens, optional column drops /
-non-null row drops, training dtypes, dedupe hook, full-row dedupe, primary-key dedupe and
-uniqueness check, then term order. This keeps GenAI schema contracts and training examples
-aligned with ``clean_dataset``.
+Shared by IdentityAgent (grain/term → enriched contract) and Schema Mapping Agent
+downstream consumers. Keeps GenAI schema contracts and training examples aligned with
+``clean_dataset``.
 """
 
 from __future__ import annotations
@@ -328,3 +327,6 @@ def build_schema_contract_from_config(
     )
 
     return cleaned_map, schema_contract
+
+
+__all__ = ["build_schema_contract_from_config"]

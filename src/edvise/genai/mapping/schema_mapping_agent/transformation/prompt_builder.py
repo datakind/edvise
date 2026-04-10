@@ -3,102 +3,15 @@ Step 2b Prompt Assembly — SchemaMappingAgent Transformation Map
 Builds the prompt for generating a transformation map from a mapping manifest + reference examples.
 """
 
-import json
 import inspect
+import json
 
-from .schemas import (
-    FieldTransformationPlan,
-    TransformationMap,
-    CastNullableIntStep,
-    CastNullableFloatStep,
-    CastStringStep,
-    CastBooleanStep,
-    CastDatetimeStep,
-    CoerceNumericStep,
-    CoerceDatetimeStep,
-    StripWhitespaceStep,
-    LowercaseStep,
-    UppercaseStep,
-    MapValuesStep,
-    NormalizeTermCodeStep,
-    NormalizeGradeStep,
-    NormalizeEnrollmentStep,
-    NormalizePellStep,
-    NormalizeCredentialStep,
-    NormalizeStudentAgeStep,
-    FillNullsStep,
-    ReplaceNullTokensStep,
-    ReplaceValuesWithNullStep,
-    StripTrailingDecimalStep,
-    FillConstantStep,
-    NormalizeYearRangeStep,
-    ExtractYearStep,
-    ParseYyyymmStep,
-    ParseTermDescriptionStep,
-    ExtractAcademicYearFromTermCodeStep,
-    ExtractTermSeasonFromTermCodeStep,
-    ParseTermCodeToDatetimeStep,
-    BirthyearToAgeBucketStep,
-    ConditionalCreditsStep,
-    NewUtilityNeededStep,
-)
+from .schemas import get_transformation_map_schema_context
 
 from ..manifest.prompt_builder import (
     extract_schema_descriptor,
     summarize_schema_contract,
 )
-
-
-def get_transformation_map_schema_context() -> str:
-    """
-    Returns a focused schema reference for Agent 2b prompt context.
-    Covers only the models relevant to transformation map generation —
-    TransformationStep models, FieldTransformationPlan, and TransformationMap.
-    """
-    models = [
-        CastNullableIntStep,
-        CastNullableFloatStep,
-        CastStringStep,
-        CastBooleanStep,
-        CastDatetimeStep,
-        CoerceNumericStep,
-        CoerceDatetimeStep,
-        StripWhitespaceStep,
-        LowercaseStep,
-        UppercaseStep,
-        MapValuesStep,
-        NormalizeTermCodeStep,
-        NormalizeGradeStep,
-        NormalizeEnrollmentStep,
-        NormalizePellStep,
-        NormalizeCredentialStep,
-        NormalizeStudentAgeStep,
-        FillNullsStep,
-        ReplaceNullTokensStep,
-        ReplaceValuesWithNullStep,
-        StripTrailingDecimalStep,
-        FillConstantStep,
-        NormalizeYearRangeStep,
-        ExtractYearStep,
-        ParseYyyymmStep,
-        ParseTermDescriptionStep,
-        ExtractAcademicYearFromTermCodeStep,
-        ExtractTermSeasonFromTermCodeStep,
-        ParseTermCodeToDatetimeStep,
-        BirthyearToAgeBucketStep,
-        ConditionalCreditsStep,
-        NewUtilityNeededStep,
-        FieldTransformationPlan,
-        TransformationMap,
-    ]
-    sections = []
-    for model in models:
-        try:
-            source = inspect.getsource(model)
-            sections.append(source)
-        except (OSError, TypeError):
-            pass
-    return "\n\n".join(sections)
 
 
 def get_transformation_utilities_context() -> str:

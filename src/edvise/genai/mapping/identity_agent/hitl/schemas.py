@@ -18,6 +18,7 @@ from typing import Annotated, Literal, Union
 from pydantic import BaseModel, Field, model_validator
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
+from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
 
 
 # ---------------------------------------------------------------------------
@@ -398,3 +399,20 @@ class InstitutionHITLItems(BaseModel):
     def is_clear(self) -> bool:
         """True when no items are pending — gate check passes."""
         return len(self.pending) == 0
+
+
+def get_hitl_item_schema_context() -> str:
+    """Python source for ``HITLItem`` and nested option / resolution types (grain + term)."""
+    return concat_model_sources(
+        (
+            HITLDomain,
+            ReentryDepth,
+            HITLStatus,
+            GrainResolution,
+            TermResolution,
+            HITLOption,
+            HITLTarget,
+            HITLResolution,
+            HITLItem,
+        )
+    )

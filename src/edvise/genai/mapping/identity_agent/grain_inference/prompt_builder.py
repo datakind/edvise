@@ -14,34 +14,20 @@ from typing import Union
 
 import pandas as pd
 
-from edvise.genai.mapping.identity_agent.hitl.prompt_schema_context import (
-    get_hitl_item_schema_context,
-)
-from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem
-from edvise.genai.mapping.identity_agent.utilities import concat_model_sources, strip_json_fences
+from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem, get_hitl_item_schema_context
+from edvise.genai.mapping.identity_agent.utilities import strip_json_fences
 from edvise.genai.mapping.identity_agent.profiling import RankedCandidateProfiles
 
 from .schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
     GrainContract,
     InstitutionGrainContract,
+    get_grain_contract_schema_context,
 )
 
 logger = logging.getLogger(__name__)
 
 RawContractInput = Union[str, bytes, dict]
-
-
-# ── Grain-only schema context (shared helpers: ``utilities``; HITL: ``hitl.prompt_schema_context``) ──
-
-
-def get_grain_contract_schema_context() -> str:
-    """Python source for grain-stage contract models (per-dataset ``GrainContract`` JSON)."""
-    from .schemas import DedupPolicy, GrainContract, HookFunctionSpec, HookSpec
-
-    return concat_model_sources(
-        (HookFunctionSpec, HookSpec, DedupPolicy, GrainContract)
-    )
 
 
 # ── System prompt sections ────────────────────────────────────────────────────
