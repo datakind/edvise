@@ -131,7 +131,7 @@ class TermResolution(BaseModel):
     exclude_tokens: list[str] | None = Field(
         default=None,
         description=(
-            "Token prefixes to exclude from term ordering e.g. ['Med Year']. "
+            "Token prefixes to exclude from term ordering e.g. ['Custom label']. "
             "Resolver matches by prefix strip — enumerating every variant is not required."
         ),
     )
@@ -251,7 +251,7 @@ class HITLItem(BaseModel):
             "get_hook_items() returns one representative per group. "
             "apply_hook_spec() fans the generated HookSpec out to all group members "
             "when apply_to_group=True. "
-            "e.g. 'jjc_term_format_a' for three tables sharing the same term encoding."
+            "e.g. 'shared_term_encoding_a' for three tables sharing the same term encoding."
         ),
     )
 

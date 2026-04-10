@@ -57,7 +57,7 @@ class HookSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    file: str = Field(..., description="Relative path e.g. 'jjc/dedup_hooks.py'")
+    file: str = Field(..., description="Relative path e.g. '<institution_slug>/dedup_hooks.py'")
     functions: list[HookFunctionSpec]
 
 

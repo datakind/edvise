@@ -201,8 +201,44 @@ def _identity_reasoning_steps() -> str:
      `dedup_sort_by`, `dedup_sort_ascending`, and `dedup_keep` values where applicable.
    - Use `reentry: "terminal"` for parameterized resolutions (true_duplicate, temporal_collapse,
      no_dedup). Use `reentry: "generate_hook"` when a custom hook is required.
-   - For `temporal_collapse` options, always set `dedup_keep="first"` and express direction
-     via `dedup_sort_ascending`. Two options for the same sort column should differ only in
+   - For `policy_required` dedup patterns, options must cover the full resolution
+     spectrum — never jump from "keep all rows" directly to "collapse further" without
+     offering the middle ground. The three options should be:
+       1. Keep as intentionally multi-row (`no_dedup`) — if the table may be a
+          legitimate multi-row-per-student table (e.g. semester summary)
+       2. Collapse to the semantic grain with a tiebreak on the ambiguous column
+          (`temporal_collapse` on the variance column, keeping student-term grain)
+       3. `custom` escape hatch
+     Do not offer "collapse to student only" as an option unless the grain contract
+     already specifies a student-only key. Collapsing further than the semantic grain
+     is a destructive decision that requires explicit reviewer intent.
+   - For `temporal_collapse` resolutions in HITLItem options, always set:
+       - `dedup_sort_ascending`: true = keep earliest value, false = keep latest value
+       - `dedup_keep`: always "first" — never "last"
+     Both fields are required when `dedup_strategy` is `temporal_collapse`.
+     The Pydantic validator will reject the output if either is missing or if
+     `dedup_keep` is not "first".
+
+     Example — keep earliest COHORT_YEAR:
+     ```json
+     {
+       "dedup_strategy": "temporal_collapse",
+       "dedup_sort_by": "COHORT_YEAR",
+       "dedup_sort_ascending": true,
+       "dedup_keep": "first"
+     }
+     ```
+
+     Example — keep latest COHORT_YEAR:
+     ```json
+     {
+       "dedup_strategy": "temporal_collapse",
+       "dedup_sort_by": "COHORT_YEAR",
+       "dedup_sort_ascending": false,
+       "dedup_keep": "first"
+     }
+     ```
+     Two non-custom options for the same sort column should differ only in
      `dedup_sort_ascending` (true vs false), not in `dedup_keep`.
    - Set `hook_group_id` when multiple tables share the same dedup pattern.
    - `hitl_context` must include the specific raw values, uniqueness scores, or variance

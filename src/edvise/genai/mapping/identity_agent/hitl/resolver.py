@@ -21,34 +21,34 @@ Public API:
 
 Notebook usage pattern:
     # Gate check before advancing
-    check_gate("institutions/jjc/identity_grain_hitl.json")
+    check_gate("institutions/<institution_id>/identity_grain_hitl.json")
 
     # Apply terminal resolutions
     resolve_items(
-        hitl_path="institutions/jjc/identity_grain_hitl.json",
-        config_path="institutions/jjc/identity_grain_output.json",
+        hitl_path="institutions/<institution_id>/identity_grain_hitl.json",
+        config_path="institutions/<institution_id>/identity_grain_output.json",
         resolved_by="vish"
     )
 
     # Hook generation loop — one call per group
-    hook_items = get_hook_items("institutions/jjc/identity_grain_hitl.json")
+    hook_items = get_hook_items("institutions/<institution_id>/identity_grain_hitl.json")
     for item in hook_items:
         generated_spec = <LLM hook generation call using item.hitl_context>
         validate_hook(
-            hitl_path="institutions/jjc/identity_grain_hitl.json",
-            config_path="institutions/jjc/identity_grain_output.json",
+            hitl_path="institutions/<institution_id>/identity_grain_hitl.json",
+            config_path="institutions/<institution_id>/identity_grain_output.json",
             hook_group_id=item.hook_group_id or item.item_id,
         )
         apply_hook_spec(
-            hitl_path="institutions/jjc/identity_grain_hitl.json",
-            config_path="institutions/jjc/identity_grain_output.json",
+            hitl_path="institutions/<institution_id>/identity_grain_hitl.json",
+            config_path="institutions/<institution_id>/identity_grain_output.json",
             item_id=item.item_id,
             hook_spec=generated_spec,
             apply_to_group=True,
         )
 
     # Confirm gate clear before advancing to term normalization
-    check_gate("institutions/jjc/identity_grain_hitl.json")
+    check_gate("institutions/<institution_id>/identity_grain_hitl.json")
 """
 
 from __future__ import annotations
@@ -257,8 +257,8 @@ def get_hook_items(hitl_path: str | Path) -> list[HITLItem]:
     the result out to all members of the group.
 
     Notebook usage:
-        hook_items = get_hook_items("institutions/jjc/identity_grain_hitl.json")
-        hook_items = get_hook_items("institutions/jjc/identity_term_hitl.json")
+        hook_items = get_hook_items("institutions/<institution_id>/identity_grain_hitl.json")
+        hook_items = get_hook_items("institutions/<institution_id>/identity_term_hitl.json")
     """
     hitl_path = Path(hitl_path)
     envelope = _load_hitl(hitl_path)
@@ -309,17 +309,17 @@ def apply_hook_spec(
 
     Notebook usage:
         apply_hook_spec(
-            hitl_path="institutions/jjc/identity_grain_hitl.json",
-            config_path="institutions/jjc/identity_grain_output.json",
-            item_id="jjc_demo_dedup",
+            hitl_path="institutions/<institution_id>/identity_grain_hitl.json",
+            config_path="institutions/<institution_id>/identity_grain_output.json",
+            item_id="<institution_id>_demo_dedup",
             hook_spec=generated_spec,
             apply_to_group=True,
             resolved_by="dk"
         )
         apply_hook_spec(
-            hitl_path="institutions/jjc/identity_term_hitl.json",
-            config_path="institutions/jjc/identity_term_output.json",
-            item_id="jjc_student_term",
+            hitl_path="institutions/<institution_id>/identity_term_hitl.json",
+            config_path="institutions/<institution_id>/identity_term_output.json",
+            item_id="<institution_id>_student_term",
             hook_spec=generated_spec,
             apply_to_group=True,
             resolved_by="dk"
@@ -384,14 +384,14 @@ def validate_hook(
 
     Notebook usage:
         validate_hook(
-            config_path="institutions/jjc/identity_grain_output.json",
-            hitl_path="institutions/jjc/identity_grain_hitl.json",
-            hook_group_id="jjc_dedup_format_a",
+            config_path="institutions/<institution_id>/identity_grain_output.json",
+            hitl_path="institutions/<institution_id>/identity_grain_hitl.json",
+            hook_group_id="shared_dedup_format_a",
         )
         validate_hook(
-            config_path="institutions/jjc/identity_term_output.json",
-            hitl_path="institutions/jjc/identity_term_hitl.json",
-            hook_group_id="jjc_term_format_a",
+            config_path="institutions/<institution_id>/identity_term_output.json",
+            hitl_path="institutions/<institution_id>/identity_term_hitl.json",
+            hook_group_id="shared_term_format_a",
         )
     """
     if item_id is None and hook_group_id is None:

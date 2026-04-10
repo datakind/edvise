@@ -150,7 +150,7 @@ Set `term_extraction`: `"hook_required"` when:
 
 When `term_extraction`: `"hook_required"`, always populate `hook_spec`. Draft extractor functions based on observed patterns in unique values.
 
-For **opaque numeric codes** (e.g. CUNY `"1192"`):
+For **opaque numeric codes** (e.g. `"1192"` with no visible year in the string):
 
 - Reason about positional structure from unique value samples
 - Draft `year_extractor` and `season_extractor` as single Python expressions
@@ -254,7 +254,7 @@ Set `term_extraction`: `"hook_required"` when:
 
 When `term_extraction`: `"hook_required"`, always populate `hook_spec`. Draft extractor functions based on observed patterns in unique values.
 
-For **opaque numeric codes** (e.g. CUNY `"1192"`):
+For **opaque numeric codes** (e.g. `"1192"` with no visible year in the string):
 
 - Reason about positional structure from unique value samples
 - Draft `year_extractor` and `season_extractor` as single Python expressions
@@ -291,11 +291,20 @@ Each HITLItem must have:
 - `reentry: "terminal"` for parameterized resolutions (exclude_tokens, season_map_append,
   term_col_override). `reentry: "generate_hook"` when a hook is required.
 - `hook_group_id`: set to a shared snake_case string when multiple tables share the same
-  term encoding e.g. `"jjc_term_format_a"`. Null for unique encodings.
+  term encoding e.g. `"shared_term_encoding_a"`. Null for unique encodings.
+- When emitting `exclude_tokens` in a TermResolution, always use the shortest
+  stable prefix that uniquely identifies the token pattern. Do not enumerate
+  year-specific variants.
+
+  Correct:   `"exclude_tokens": ["Custom label"]`
+  Incorrect: `"exclude_tokens": ["Custom label 2020-2021", "Custom label 2021-2022", ...]`
+
+  The resolver matches by prefix — all values starting with the token will be
+  excluded automatically, including future academic years not yet in the data.
 
 Good `hitl_question` examples:
 
-- "`TERM_DESCR` contains unrecognized tokens `'Med Year 2020-2021'`, `'Med Year 2021-2022'`
+- "`TERM_DESCR` contains unrecognized tokens `'Custom label 2020-2021'`, `'Custom label 2021-2022'`
   that do not map to a canonical season. Should these rows be excluded from term ordering,
   or mapped to a proxy canonical season?"
 - "`STRM` is an opaque int64 column (e.g. 1700, 1730). Year offset logic was inferred from
@@ -516,7 +525,7 @@ Shape:
 ```
 
 CROSS-TABLE: When multiple tables share the same term encoding, set `hook_group_id` to the
-same snake_case string on all related HITLItems e.g. `"jjc_term_format_a"`. The pipeline
+same snake_case string on all related HITLItems e.g. `"shared_term_encoding_a"`. The pipeline
 will generate one hook and fan it out to all tables in the group.
 
 VALIDITY RULES
