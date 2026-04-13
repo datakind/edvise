@@ -159,6 +159,13 @@ class TermResolution(BaseModel):
             "Each dict is validated as SeasonMapEntry (canonical must be FALL|SPRING|SUMMER|WINTER)."
         ),
     )
+    season_map_replace: list[dict[str, str]] | None = Field(
+        default=None,
+        description=(
+            "Full raw → canonical season map for hook-required resolutions. "
+            "Raw keys must match every possible season_extractor return value when hook_spec is set."
+        ),
+    )
     term_col_override: str | None = Field(
         default=None,
         description=(
@@ -172,6 +179,16 @@ class TermResolution(BaseModel):
             "Resolver sets term_extraction='hook_required' and clears split columns when term_col is set."
         ),
     )
+
+    @model_validator(mode="after")
+    def hook_spec_requires_season_map_replace(self) -> "TermResolution":
+        if self.hook_spec is not None and self.season_map_replace is None:
+            raise ValueError(
+                "season_map_replace is required when hook_spec is present — "
+                "season_extractor returns raw tokens that must be mapped via season_map_replace. "
+                "Provide season_map_replace with one entry per possible season_extractor return value."
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +306,16 @@ class HITLItem(BaseModel):
             "1-indexed selection from options. "
             "Reviewer sets this to 1 … len(options). Resolver reads options[choice - 1]. "
             "null = not yet reviewed. Re-run resolver after changing choice to reapply."
+        ),
+    )
+    reviewer_note: str | None = Field(
+        default=None,
+        description=(
+            "Freetext correction or instruction from the reviewer. "
+            "Filled in by the reviewer alongside setting choice when the selected option "
+            "is custom (reentry='generate_hook') or when the draft resolution needs correction. "
+            "Passed as authoritative context to the hook generation LLM call by the resolver. "
+            "null = no reviewer note provided."
         ),
     )
 

@@ -189,6 +189,7 @@ def test_term_resolution_applies_terminal_hook_spec_after_override():
     res = TermResolution(
         term_col_override="term_raw",
         hook_spec=_hook(),
+        season_map_replace=[{"raw": "FA", "canonical": "FALL"}],
     )
     _apply_term_resolution(cfg, _term_item(), res)
     tc = cfg["datasets"]["t1"]["term_config"]

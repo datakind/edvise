@@ -273,6 +273,12 @@ For **date columns**:
 - `season_extractor`: infer from month bands — 1-4 → Spring, 5-7 → Summer, 8-11 → Fall, 12 → Winter
 - `season_map` should reflect the canonical mapping for those month-inferred seasons
 
+When drafting `season_extractor` for hook-required tables: the function must return the **raw
+token as a string** — the same value that will appear as a raw key in `season_map_replace`. Do
+not return canonical labels (`FALL`, `SPRING`, …) from the extractor. The cleaning layer looks up
+the raw token in `season_map` to get the canonical label — if the extractor returns the canonical
+label directly, the lookup fails.
+
 ### Step 5 — Set `hitl_flag` and emit `hitl_items`
 
 Set `hitl_flag`: `true` and emit at least one `HITLItem` when any of the following apply:
@@ -607,6 +613,57 @@ VALIDITY RULES
 - `season_map` must only contain tokens directly observable in the unique values as strings.
   For opaque numeric or date term columns, set `season_map: []` — do not infer or speculate
   raw tokens.
+- **Hook-required HITL resolution contract — `season_extractor` and `season_map_replace` are two
+  halves of the same pipeline and must always appear together in a non-custom option resolution:**
+  - `season_extractor` must return a **raw token** (e.g. `"9"`, `"2"`, `"6"`) — not a canonical
+    label like `"FALL"`. The raw token is the bridge between the extractor and the season map.
+  - `season_map_replace` must map **every** raw token that `season_extractor` can return to a
+    canonical label (`FALL`, `SPRING`, `SUMMER`, `WINTER`). The set of raw keys in
+    `season_map_replace` must **exactly** match the set of possible return values from
+    `season_extractor`.
+  - Never return canonical labels directly from `season_extractor` — that bypasses `season_map`
+    and breaks `add_edvise_term_order`.
+  - Both must appear together in every non-custom hook-required resolution. A resolution with
+    `hook_spec` but no `season_map_replace` is incomplete.
+
+  Example (correct — raw tokens in the extractor match `season_map_replace` keys):
+
+```json
+"resolution": {
+  "hook_spec": {
+    "file": "<institution_id>/term_hooks.py",
+    "functions": [
+      {
+        "name": "year_extractor_<table>",
+        "signature": "def year_extractor_<table>(term: str) -> int",
+        "description": "Extract year from opaque numeric term code.",
+        "example_input": "1192",
+        "example_output": "2019",
+        "expected_type": "int",
+        "draft": "int(str(term)[1:3]) + 2000"
+      },
+      {
+        "name": "season_extractor_<table>",
+        "signature": "def season_extractor_<table>(term: str) -> str",
+        "description": "Extract raw season token from term code. Returns one of: '9', '2', '6'.",
+        "example_input": "1192",
+        "example_output": "9",
+        "expected_type": "str",
+        "draft": "str(term)[3:]"
+      }
+    ]
+  },
+  "season_map_replace": [
+    {"raw": "2", "canonical": "SPRING"},
+    {"raw": "6", "canonical": "SUMMER"},
+    {"raw": "9", "canonical": "FALL"}
+  ]
+}
+```
+
+  The raw values in `season_map_replace` (`"2"`, `"6"`, `"9"`) exactly match what
+  `season_extractor` returns. The resolver writes `season_map_replace` to `term_config.season_map`
+  and writes `hook_spec` to `term_config.hook_spec` in one atomic operation.
 - When `term_extraction` is `"hook_required"`, `term_config.hook_spec` must always be populated
   — it is the draft. Draft the extractor functions inline from observed value patterns; do not
   defer hook drafting to HITL resolution. The HITL item exists to get human confirmation of that

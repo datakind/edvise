@@ -42,6 +42,7 @@ def build_hook_generation_user_message(
         "hook_group_id": item.hook_group_id,
         "hitl_question": item.hitl_question,
         "hitl_context": item.hitl_context,
+        "reviewer_note": item.reviewer_note,
         "target": item.target.model_dump(mode="json"),
         "config_snippet": config_snippet,
     }
@@ -94,6 +95,9 @@ Respond with **one JSON object only** — no markdown fences, no preamble. The o
 }
 
 Rules:
+- hitl_context contains the raw data samples the agent was looking at when it raised the flag — use it to understand the data shape.
+- If reviewer_note is present, treat it as the authoritative instruction and override any draft logic in config_snippet. The reviewer has inspected the draft and is providing the correct implementation.
+- If reviewer_note is absent, use hitl_context and config_snippet together to infer the correct implementation from the draft.
 - Functions implement the policy implied by hitl_question / hitl_context and the grain_contract snippet.
 - Prefer small, testable functions; pandas may be imported at module level in the real file.
 - ``file`` should live under pipelines/<institution_id>/helpers/ for the given institution_id in the user JSON.
@@ -130,6 +134,9 @@ Respond with **one JSON object only** — no markdown fences, no preamble. The o
 }
 
 Rules:
+- hitl_context contains the raw data samples the agent was looking at when it raised the flag — use it to understand the data shape.
+- If reviewer_note is present, treat it as the authoritative instruction and override any draft logic in config_snippet. The reviewer has inspected the draft and is providing the correct implementation.
+- If reviewer_note is absent, use hitl_context and config_snippet together to infer the correct implementation from the draft.
 - season_extractor output must match raw keys in season_map when term_config uses a single term column.
 - If term_config is null, infer requirements from hitl_context only.
 - ``file`` should live under pipelines/<institution_id>/helpers/ for the given institution_id in the user JSON.
