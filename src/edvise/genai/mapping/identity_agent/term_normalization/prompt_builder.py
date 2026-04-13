@@ -291,7 +291,9 @@ Each HITLItem must have:
   "keep earliest", "keep latest", and "keep as multi-row" are all meaningful
   and distinct choices. Avoid padding with options that are not meaningfully
   different.
-- Non-custom options must have a non-null `resolution` with concrete field mutations.
+- Non-custom options must always have a non-null `resolution`. For hook-confirmation items,
+  the resolution must carry the confirmed `hook_spec` inline (e.g. `{"hook_spec": {...}}`).
+  Never set `resolution: null` on a non-custom option, even when `reentry` is `"generate_hook"`.
 - `reentry: "terminal"` for parameterized resolutions (exclude_tokens, season_map_append,
   term_col_override). `reentry: "generate_hook"` when a hook is required.
 - `hook_group_id`: set to a shared snake_case string when multiple tables share the same
@@ -477,8 +479,10 @@ Top level:
 - `institution_id` — same as in the user payload
 - `datasets` — object mapping **each** dataset name from the user payload to a full per-table
   contract (same fields as single-table term output).
-- `hitl_items` — flat list of all HITLItem objects across all tables. Empty list when no
-  flags were raised. This is written to a separate file by the pipeline.
+- `hitl_items` — **only** place HITLItem objects are emitted: the flat canonical list across
+  all tables. Empty list when no flags were raised. This is written to a separate file by the
+  pipeline. Per-dataset `hitl_items` must always be `[]` — never duplicate HITLItems under each
+  table.
 
 Shape:
 
@@ -521,10 +525,61 @@ Shape:
       "confidence": 0.6,
       "hitl_flag": true,
       "reasoning": "<...>",
-      "hitl_items": ["<see HITLItem shape in single-table output format>"]
+      "hitl_items": []
     }
   },
-  "hitl_items": ["<flat list — all HITLItems across all tables, same objects as nested above>"]
+  "hitl_items": [
+    {
+      "item_id": "<institution_id>_<dataset_c>_<short_descriptor>",
+      "institution_id": "<institution_id>",
+      "table": "<dataset_c>",
+      "domain": "identity_term",
+      "hook_group_id": null,
+      "hitl_question": "<specific, actionable question>",
+      "hitl_context": "<evidence for the reviewer>",
+      "options": [
+        {
+          "option_id": "confirm_extraction",
+          "label": "<~4 words>",
+          "description": "<one sentence — confirm drafted extractors before hook generation>",
+          "resolution": {
+            "hook_spec": {
+              "file": "<institution_slug>/term_hooks.py",
+              "functions": [
+                {
+                  "name": "year_extractor",
+                  "signature": "def year_extractor(term: str) -> int",
+                  "description": "<...>",
+                  "draft": "<Python expression>"
+                },
+                {
+                  "name": "season_extractor",
+                  "signature": "def season_extractor(term: str) -> str",
+                  "description": "<...>",
+                  "draft": "<Python expression>"
+                }
+              ]
+            }
+          },
+          "reentry": "generate_hook"
+        },
+        {
+          "option_id": "custom",
+          "label": "<...>",
+          "description": "Reviewer provides explicit instructions.",
+          "resolution": null,
+          "reentry": "generate_hook"
+        }
+      ],
+      "target": {
+        "institution_id": "<institution_id>",
+        "table": "<dataset_c>",
+        "config": "term_config",
+        "field": "hook_spec"
+      },
+      "choice": null
+    }
+  ]
 }
 ```
 
@@ -534,18 +589,24 @@ will generate one hook and fan it out to all tables in the group.
 
 VALIDITY RULES
 
-- `hitl_flag: true` requires at least one item in the table's `hitl_items`.
-- `hitl_flag: false` requires `hitl_items: []` for that table.
+- Per-dataset `hitl_items` must always be `[]` — never populate nested lists; emit every
+  HITLItem only in the top-level `hitl_items` list.
+- `hitl_flag: true` for a dataset requires at least one HITLItem in the top-level `hitl_items`
+  whose `"table"` matches that dataset's key.
+- `hitl_flag: false` for a dataset means no HITLItem in the top-level list has `"table"`
+  matching that dataset's key.
 - `confidence < 0.5` requires `hitl_flag: true`.
 - `term_config: null` requires `reasoning` to explain why.
 - `confidence` must be a numeric float, never a string.
 - Every HITLItem must have 2–5 options. Last option must be `option_id: "custom"`
   with `resolution: null`. Use more options only when the resolution space is
   genuinely wider — avoid padding.
+- Non-custom options (any `option_id` other than `"custom"`) must always carry a non-null
+  `resolution` object with concrete field mutations. For hook-confirmation items (`reentry`:
+  `"generate_hook"`), the resolution must include the confirmed `hook_spec` inline — do not
+  leave `resolution: null` on a non-custom option.
 - `item_id` must be unique across the entire response.
-- Top-level `hitl_items` must contain exactly the same objects as the per-table `hitl_items`
-  combined — no duplicates, no omissions.
-- Each nested object must set `"table"` to the same string as its key in `datasets`.
+- Each nested object under `datasets` must set `"table"` to the same string as its key in `datasets`.
 """
 
 
