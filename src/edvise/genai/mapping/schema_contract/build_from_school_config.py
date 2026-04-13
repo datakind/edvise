@@ -31,7 +31,11 @@ from edvise.data_audit.custom_cleaning import (
 from edvise.dataio.read import from_csv_file
 from edvise.utils.data_cleaning import convert_to_snake_case
 from edvise.configs.custom import CleaningConfig
-from edvise.configs.genai import DatasetConfig, SchoolMappingConfig
+from edvise.configs.genai import (
+    DatasetConfig,
+    SchoolMappingConfig,
+    resolve_genai_data_path,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,8 @@ def _load_and_preprocess_dataset(
     dataset_config: DatasetConfig,
     spark_session: Optional[Any] = None,
     sample_size: Optional[int] = None,
+    *,
+    bronze_volumes_path: Optional[str] = None,
 ) -> tuple[pd.DataFrame, list[str], dict[str, list[str]], int]:
     """
     Load CSV(s), optionally sample rows, return raw frame plus column metadata.
@@ -66,7 +72,8 @@ def _load_and_preprocess_dataset(
     """
     dfs = []
     for file_path in dataset_config.files:
-        df = from_csv_file(file_path, spark_session=spark_session)
+        resolved = resolve_genai_data_path(bronze_volumes_path, file_path)
+        df = from_csv_file(resolved, spark_session=spark_session)
         dfs.append(df)
 
     if len(dfs) > 1:
@@ -260,6 +267,7 @@ def build_schema_contract_from_config(
                 dataset_config=dataset_config,
                 spark_session=spark_session,
                 sample_size=sample_size,
+                bronze_volumes_path=school_config.bronze_volumes_path,
             )
         )
 

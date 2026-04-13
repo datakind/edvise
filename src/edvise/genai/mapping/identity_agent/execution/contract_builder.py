@@ -26,7 +26,7 @@ from typing import Any, Dict, List, Literal, Optional
 import pandas as pd
 
 from edvise.configs.custom import CleaningConfig
-from edvise.configs.genai import DatasetConfig, SchoolMappingConfig
+from edvise.configs.genai import DatasetConfig, SchoolMappingConfig, resolve_genai_data_path
 from edvise.data_audit.custom_cleaning import DtypeGenerationOptions, TermOrderFn
 from edvise.genai.mapping.identity_agent.execution.contract_utilities import (
     build_dedupe_fn_from_grain_contract,
@@ -470,7 +470,9 @@ def process_school_dataset(
     if dtype_opts is None:
         dtype_opts = DtypeGenerationOptions()
 
-    file_path = dataset_config.files[0]
+    file_path = resolve_genai_data_path(
+        school_config.bronze_volumes_path, dataset_config.files[0]
+    )
 
     try:
         from edvise.genai.mapping.schema_contract.build_from_school_config import (

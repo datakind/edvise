@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -13,6 +14,47 @@ class StrictBaseModel(BaseModel):
         str_strip_whitespace=True,
         validate_assignment=True,
     )
+
+
+def bronze_volume_path_for_institution(
+    institution_id: str,
+    *,
+    catalog: str,
+) -> str:
+    """
+    Databricks Unity Catalog bronze volume path for an institution.
+
+    Returns ``/Volumes/<catalog>/<institution_id>_bronze/bronze_volume``.
+    The UC *catalog* is supplied by the caller (e.g. a notebook variable or job parameter),
+    not by edvise defaults.
+    """
+    cat = catalog.strip()
+    if not cat:
+        raise ValueError("catalog must be non-empty")
+    inst = institution_id.strip()
+    if not inst:
+        raise ValueError("institution_id must be non-empty")
+    return f"/Volumes/{cat}/{inst}_bronze/bronze_volume"
+
+
+def resolve_genai_data_path(
+    bronze_volumes_path: Optional[str], file_path: str
+) -> str:
+    """
+    Join ``file_path`` to ``bronze_volumes_path`` when the path is relative.
+
+    Absolute ``file_path`` values (e.g. Databricks ``/Volumes/...``) are returned unchanged.
+    When ``bronze_volumes_path`` is missing or blank, ``file_path`` is returned as-is.
+
+    Use this for CSV reads and for writing identity-agent cleaned outputs under the same root.
+    """
+    if not bronze_volumes_path or not str(bronze_volumes_path).strip():
+        return file_path
+    p = Path(file_path)
+    if p.is_absolute():
+        return file_path
+    root = Path(bronze_volumes_path.rstrip("/"))
+    return str(root / p)
 
 
 class DatasetConfig(StrictBaseModel):
@@ -39,6 +81,13 @@ class DatasetConfig(StrictBaseModel):
 class SchoolMappingConfig(StrictBaseModel):
     institution_id: str
     institution_name: Optional[str] = None
+    bronze_volumes_path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Root path on UC/Databricks volumes for relative entries in "
+            "``datasets.*.files``. Also the base directory for identity-agent cleaned-data I/O."
+        ),
+    )
     target_cohort_schema: str = "RawEdviseStudentDataSchema"
     target_course_schema: str = "RawEdviseCourseDataSchema"
     cleaning: Optional[CleaningConfig] = Field(
@@ -83,19 +132,27 @@ class InstitutionIdSection(StrictBaseModel):
     id: str = Field(..., description="Institution identifier (snake_case)")
 
 
-class IdentityAgentInputsConfig(StrictBaseModel):
+class IdentityAgentDatasets(StrictBaseModel):
     """
-    Per-institution inputs: ``[institution]`` (id) and ``[files]`` (dataset → path(s)).
+    ``[datasets]`` in per-institution ``inputs.toml`` — a flat ``files`` map only.
 
-    File values may be a single string or a list of strings (e.g. multiple course files).
-    Resolve basenames against your bronze volume root or use absolute paths.
+    The bronze volume root is not stored here; :meth:`IdentityAgentInputsConfig.to_school_mapping_config`
+    sets :attr:`SchoolMappingConfig.bronze_volumes_path` via :func:`bronze_volume_path_for_institution`
+    from ``[institution].id`` and the caller-supplied Unity Catalog name.
 
-    Load with :func:`edvise.dataio.read.read_config` and ``schema=IdentityAgentInputsConfig``,
-    then :meth:`to_school_mapping_config` for :class:`SchoolMappingConfig` (``primary_keys`` unset).
+    TOML example::
+
+        [datasets.files]
+        student = "roster.csv"
     """
 
-    institution: InstitutionIdSection
-    files: Dict[str, Union[str, List[str]]]
+    files: Dict[str, Union[str, List[str]]] = Field(
+        ...,
+        description=(
+            "Logical dataset name → CSV path(s), relative to the resolved bronze volume root "
+            "when that root is set."
+        ),
+    )
 
     @field_validator("files", mode="before")
     @classmethod
@@ -112,15 +169,36 @@ class IdentityAgentInputsConfig(StrictBaseModel):
             )
         return v
 
-    def to_school_mapping_config(self) -> SchoolMappingConfig:
+
+class IdentityAgentInputsConfig(StrictBaseModel):
+    """
+    Per-institution config: ``[institution]`` and ``[datasets.files]``.
+
+    File values may be a single string or a list of strings (e.g. multiple course files).
+    Relative paths resolve against :func:`bronze_volume_path_for_institution` once you pass the
+    Unity Catalog name to :meth:`to_school_mapping_config`.
+    Use absolute paths in ``files`` when reading from outside that layout.
+
+    Load with :func:`edvise.dataio.read.read_config` and ``schema=IdentityAgentInputsConfig``,
+    then :meth:`to_school_mapping_config` for :class:`SchoolMappingConfig` (``primary_keys`` unset).
+    """
+
+    institution: InstitutionIdSection
+    datasets: IdentityAgentDatasets
+
+    def to_school_mapping_config(self, *, uc_catalog: str) -> SchoolMappingConfig:
         """Build :class:`SchoolMappingConfig` with ``DatasetConfig`` entries (files only, no PKs)."""
+        ds = self.datasets
         datasets: Dict[str, DatasetConfig] = {}
-        for name, spec in self.files.items():
+        for name, spec in ds.files.items():
             paths: List[str] = [spec] if isinstance(spec, str) else list(spec)
             if not paths:
-                raise ValueError(f"files[{name!r}] must list at least one path")
+                raise ValueError(f"datasets.files[{name!r}] must list at least one path")
             datasets[name] = DatasetConfig(files=paths, primary_keys=None)
         return SchoolMappingConfig(
             institution_id=self.institution.id,
             datasets=datasets,
+            bronze_volumes_path=bronze_volume_path_for_institution(
+                self.institution.id, catalog=uc_catalog
+            ),
         )
