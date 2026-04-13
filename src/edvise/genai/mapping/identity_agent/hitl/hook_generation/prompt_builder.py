@@ -101,6 +101,7 @@ Rules:
 - Functions implement the policy implied by hitl_question / hitl_context and the grain_contract snippet.
 - Prefer small, testable functions; pandas may be imported at module level in the real file.
 - ``file`` should live under pipelines/<institution_id>/helpers/ for the given institution_id in the user JSON.
+- example_output must always be a JSON string, even for integer or float-returning functions. e.g. "2019" not 2019, "0.5" not 0.5.
 - Output must be parseable JSON (double quotes, no trailing commas).
 """.strip()
 
@@ -140,6 +141,7 @@ Rules:
 - season_extractor output must match raw keys in season_map when term_config uses a single term column.
 - If term_config is null, infer requirements from hitl_context only.
 - ``file`` should live under pipelines/<institution_id>/helpers/ for the given institution_id in the user JSON.
+- example_output must always be a JSON string, even for integer or float-returning functions. e.g. "2019" not 2019, "0.5" not 0.5.
 - Output must be parseable JSON (double quotes, no trailing commas).
 """.strip()
 

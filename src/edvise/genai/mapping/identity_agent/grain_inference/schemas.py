@@ -40,7 +40,7 @@ class HookFunctionSpec(BaseModel):
     signature: str
     description: str
     example_input: str | None = None
-    example_output: str | None = None
+    example_output: str | int | float | None = None
     expected_type: str | None = (
         None  # "int", "str" — for type checking output in validate_hook
     )
