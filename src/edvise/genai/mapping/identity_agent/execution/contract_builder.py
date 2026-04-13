@@ -485,6 +485,7 @@ def process_school_dataset(
                 dataset_config=dataset_config,
                 spark_session=spark_session,
                 sample_size=None,
+                bronze_volumes_path=school_config.bronze_volumes_path,
             )
         )
 
