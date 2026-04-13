@@ -597,6 +597,10 @@ VALIDITY RULES
   matching that dataset's key.
 - `confidence < 0.5` requires `hitl_flag: true`.
 - `term_config: null` requires `reasoning` to explain why.
+- `term_extraction`: `"hook_required"` requires `hook_spec` to be non-null in `term_config` —
+  always, unconditionally. Draft the extractor functions inline based on observed value patterns.
+  Do not defer hook drafting to HITL resolution. The HITL item exists to get human confirmation
+  of the draft, not to replace it.
 - `confidence` must be a numeric float, never a string.
 - Every HITLItem must have 2–5 options. Last option must be `option_id: "custom"`
   with `resolution: null`. Use more options only when the resolution space is
