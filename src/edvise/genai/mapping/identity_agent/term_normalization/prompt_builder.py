@@ -227,6 +227,12 @@ Rules:
 - For **Season_YYYY** formats, raw tokens are the spelled words as they appear: `"Fall"`, `"Spring"`
 - For opaque numeric or date formats where season cannot be observed, set `season_map: []`
 
+For opaque numeric or date formats (`term_extraction`: `"hook_required"`): set `season_map: []`.
+Do not speculate about raw season tokens or canonical mappings that are not directly observable
+as strings in the unique values. The reviewer will supply the confirmed mapping via
+`season_map_append` in the HITL resolution. Never add a canonical season that is not evidenced
+by the data.
+
 Example for YYYYTT:
 
 ```json
@@ -269,9 +275,10 @@ For **date columns**:
 
 ### Step 5 — Set `hitl_flag` and emit `hitl_items`
 
-Set `hitl_flag`: `true` when any of the following apply:
+Set `hitl_flag`: `true` and emit at least one `HITLItem` when any of the following apply:
 
-- `term_extraction`: `"custom"` — hook functions require human review before use
+- `term_extraction`: `"hook_required"` — always, unconditionally, regardless of confidence.
+  Hook drafts require human confirmation before execution. Confidence level does not gate this.
 - `term_candidates` was empty and term column was inferred from `raw_table_profile`
 - Unique values contain unrecognized tokens that could not be mapped to a canonical season
 - Confidence in the term column selection is low (multiple ambiguous candidates)
@@ -597,12 +604,18 @@ VALIDITY RULES
   matching that dataset's key.
 - `confidence < 0.5` requires `hitl_flag: true`.
 - `term_config: null` requires `reasoning` to explain why.
+- `season_map` must only contain tokens directly observable in the unique values as strings.
+  For opaque numeric or date term columns, set `season_map: []` — do not infer or speculate
+  raw tokens.
 - When `term_extraction` is `"hook_required"`, `term_config.hook_spec` must always be populated
   — it is the draft. Draft the extractor functions inline from observed value patterns; do not
   defer hook drafting to HITL resolution. The HITL item exists to get human confirmation of that
   draft, not to store or replace it. When multiple tables share an encoding, populate identical
   `hook_spec` drafts on each table's `term_config` and link the related HITLItems with the same
   `hook_group_id` — the resolver fans out the confirmed spec automatically.
+- `term_extraction`: `"hook_required"` always requires `hitl_flag`: `true` and at least one
+  `HITLItem` in the top-level `hitl_items` list. This is unconditional — confidence level does
+  not gate HITL emission for hook-required tables.
 - `confidence` must be a numeric float, never a string.
 - Every HITLItem must have 2–5 options. Last option must be `option_id: "custom"`
   with `resolution: null`. Use more options only when the resolution space is
