@@ -203,7 +203,8 @@ class HITLOption(BaseModel):
     Rules enforced by HITLItem validator:
     - 2–5 options per item.
     - Last option must always be option_id='custom' with resolution=None.
-    - All non-custom options must have a non-null resolution.
+    - Non-custom options must have a non-null resolution unless reentry is
+      ``generate_hook`` (resolution may be null until hook generation fills hook_spec).
     """
 
     option_id: str = Field(
@@ -220,7 +221,10 @@ class HITLOption(BaseModel):
     )
     resolution: dict | None = Field(
         ...,
-        description="Mutation applied by resolver on selection. Null only for option_id='custom'.",
+        description=(
+            "Mutation applied by resolver on selection. Null for option_id='custom', or for "
+            "non-custom options with reentry='generate_hook' before hook_spec exists."
+        ),
     )
     reentry: ReentryDepth
 
@@ -229,9 +233,11 @@ class HITLOption(BaseModel):
         if self.option_id == "custom" and self.resolution is not None:
             raise ValueError("option_id='custom' must have resolution=null.")
         if self.option_id != "custom" and self.resolution is None:
-            raise ValueError(
-                f"Non-custom option '{self.option_id}' must have a non-null resolution."
-            )
+            if self.reentry != ReentryDepth.GENERATE_HOOK:
+                raise ValueError(
+                    f"Non-custom option '{self.option_id}' must have a non-null resolution "
+                    f"unless reentry is '{ReentryDepth.GENERATE_HOOK.value}'."
+                )
         return self
 
 
