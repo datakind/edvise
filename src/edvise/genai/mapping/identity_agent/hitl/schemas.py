@@ -13,7 +13,7 @@ SCHEMA_MAPPING and TRANSFORM domains are stubs for future use.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Annotated, Literal, Union
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -178,14 +178,6 @@ class TermResolution(BaseModel):
 # HITLOption
 # ---------------------------------------------------------------------------
 
-AnyResolution = Annotated[
-    Union[GrainResolution, TermResolution],
-    Field(discriminator=None),
-]
-
-# Public name for :class:`HITLOption` resolution payloads (re-exports ``AnyResolution``).
-HITLResolution = AnyResolution
-
 
 class HITLOption(BaseModel):
     """
@@ -209,7 +201,7 @@ class HITLOption(BaseModel):
         ...,
         description="One sentence explaining the consequence of this choice.",
     )
-    resolution: AnyResolution | None = Field(
+    resolution: dict | None = Field(
         ...,
         description="Mutation applied by resolver on selection. Null only for option_id='custom'.",
     )
@@ -325,20 +317,10 @@ class HITLItem(BaseModel):
         for opt in self.options:
             if opt.resolution is None:
                 continue
-            if self.domain == HITLDomain.IDENTITY_GRAIN and not isinstance(
-                opt.resolution, GrainResolution
-            ):
-                raise ValueError(
-                    f"domain='identity_grain' requires GrainResolution, "
-                    f"got {type(opt.resolution).__name__} on option '{opt.option_id}'."
-                )
-            if self.domain == HITLDomain.IDENTITY_TERM and not isinstance(
-                opt.resolution, TermResolution
-            ):
-                raise ValueError(
-                    f"domain='identity_term' requires TermResolution, "
-                    f"got {type(opt.resolution).__name__} on option '{opt.option_id}'."
-                )
+            if self.domain == HITLDomain.IDENTITY_GRAIN:
+                GrainResolution.model_validate(opt.resolution)
+            elif self.domain == HITLDomain.IDENTITY_TERM:
+                TermResolution.model_validate(opt.resolution)
         return self
 
     def selected_option(self) -> HITLOption | None:
