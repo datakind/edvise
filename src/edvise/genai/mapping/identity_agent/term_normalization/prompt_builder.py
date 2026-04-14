@@ -311,6 +311,9 @@ Each HITLItem must have:
   term_col_override). `reentry: "generate_hook"` when a hook is required.
 - `hook_group_id`: set to a shared snake_case string when multiple tables share the same
   term encoding e.g. `"shared_term_encoding_a"`. Null for unique encodings.
+- `hook_group_tables`: when `hook_group_id` is set, list **every** logical dataset name that
+  shares this hook (same strings as keys under `datasets` in `identity_term_output.json`).
+  Required whenever one HITL item represents a group so `apply_hook_spec` can update every table.
 - When emitting `exclude_tokens` in a TermResolution, always use the shortest
   stable prefix that uniquely identifies the token pattern. Do not enumerate
   year-specific variants.
@@ -472,10 +475,15 @@ You will receive a single JSON object with:
 Apply the same per-table reasoning rules as single-dataset term inference (term column selection,
 `season_map`, `term_extraction`, `hook_spec` when hook_required) **independently for each dataset**.
 
-**Cross-table:** When several tables share the same term encoding, they share the same
-canonical hook module path (assigned by the pipeline — typically
-``identity_hooks/<institution_id>/term_hooks.py`` under the bronze volume); use **distinct function names** inside
-``hook_spec.functions`` per table when the extractors differ. Do not merge distinct encodings.
+**Cross-table:** When several tables share the same term encoding, set the **same**
+``hook_group_id`` on the **HITLItem** and set ``hook_group_tables`` to the full list of dataset
+names (map keys) in that group. Do **not** put group membership on ``term_config`` — the HITL
+file is the source of truth for which tables share a hook. The resolver applies one generated
+``hook_spec`` to every dataset listed. They share one canonical module path (typically
+``identity_hooks/<institution_id>/term_hooks.py``). Use **distinct** ``hook_spec.functions`` names
+per table only when extraction logic truly differs; when logic is identical, use one shared pair of
+names (e.g. ``year_extractor_shared`` / ``season_extractor_shared``) in drafts. Do not merge
+distinct encodings into one group.
 
 **Coverage:** Emit exactly one `TermContract`-shaped object per key under `datasets` in the
 input. Do not omit datasets.
@@ -549,6 +557,7 @@ Shape:
       "table": "<dataset_c>",
       "domain": "identity_term",
       "hook_group_id": null,
+      "hook_group_tables": null,
       "hitl_question": "<specific, actionable question>",
       "hitl_context": "<evidence for the reviewer>",
       "options": [
@@ -598,8 +607,9 @@ Shape:
 ```
 
 CROSS-TABLE: When multiple tables share the same term encoding, set `hook_group_id` to the
-same snake_case string on all related HITLItems e.g. `"shared_term_encoding_a"`. The pipeline
-will generate one hook and fan it out to all tables in the group.
+same snake_case string on the HITL item and set `hook_group_tables` to the full list of dataset
+names in that group (e.g. `["student", "course", "semester"]`). The pipeline generates one hook
+and `apply_hook_spec` fans it out to every listed table.
 
 VALIDITY RULES
 
@@ -663,8 +673,9 @@ VALIDITY RULES
   — it is the draft. Draft the extractor functions inline from observed value patterns; do not
   defer hook drafting to HITL resolution. The HITL item exists to get human confirmation of that
   draft, not to store or replace it. When multiple tables share an encoding, populate identical
-  `hook_spec` drafts on each table's `term_config` and link the related HITLItems with the same
-  `hook_group_id` — the resolver fans out the confirmed spec automatically.
+  `hook_spec` drafts on each table's `term_config`, set the same `hook_group_id` on the HITL item,
+  and list every dataset in `hook_group_tables` — the resolver fans out the confirmed spec to
+  those tables automatically.
 - `term_extraction`: `"hook_required"` always requires `hitl_flag`: `true` and at least one
   `HITLItem` in the top-level `hitl_items` list. This is unconditional — confidence level does
   not gate HITL emission for hook-required tables.

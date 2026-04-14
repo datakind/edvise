@@ -14,7 +14,8 @@ Public API:
 
     apply_hook_spec(hitl_path, config_path, item_id, hook_spec, apply_to_group, resolved_by, …)
         — writes a generated HookSpec to the correct config field
-        — when apply_to_group=True, fans out to all items sharing the same hook_group_id
+        — when apply_to_group=True (term): fans out to HITL items sharing hook_group_id **and**
+          every dataset listed in HITLItem.hook_group_tables for that group
         — optional materialize=True + repo_root= writes hook_spec.file as a Python module
         — optional merge_materialize_with=[...] merges other HookSpecs into one file before write
           (same path — use when multiple encodings share identity_hooks/.../term_hooks.py)
@@ -303,6 +304,26 @@ def get_hook_items(hitl_path: str | Path) -> list[HITLItem]:
 # ---------------------------------------------------------------------------
 
 
+def _term_tables_for_hook_group(
+    envelope: InstitutionHITLItems,
+    group_id: str,
+) -> list[str]:
+    """
+    Tables that should receive the same term hook_spec for ``group_id``.
+
+    Union of (1) ``table`` for each IDENTITY_TERM HITL item with ``hook_group_id == group_id``
+    and (2) every name in ``hook_group_tables`` on those items (explicit dataset list for the group).
+    Ordering is stable (sorted table names).
+    """
+    tables: set[str] = set()
+    for item in envelope.items:
+        if item.domain == HITLDomain.IDENTITY_TERM and item.hook_group_id == group_id:
+            tables.add(item.table)
+            if item.hook_group_tables:
+                tables.update(item.hook_group_tables)
+    return sorted(tables)
+
+
 def apply_hook_spec(
     hitl_path: str | Path,
     config_path: str | Path,
@@ -319,9 +340,14 @@ def apply_hook_spec(
     """
     Writes a generated HookSpec to the correct config field.
 
-    When apply_to_group=True, writes the same HookSpec to all items sharing
-    the same hook_group_id as the named item_id. Use this when multiple tables
-    share the same term encoding or dedup pattern.
+    When apply_to_group=True and the anchor item has hook_group_id:
+
+    - **IDENTITY_TERM:** writes the same HookSpec to every table in the union of (a) HITL items
+      with that ``hook_group_id`` and (b) dataset names listed in ``hook_group_tables`` on those
+      items (Pass 2 should set ``hook_group_tables`` on the representative item when several
+      logical datasets share one hook, using the same names as keys under ``datasets`` in
+      ``identity_term_output.json``).
+    - **IDENTITY_GRAIN:** writes to all HITL items sharing the same hook_group_id (unchanged).
 
     For IDENTITY_GRAIN items: writes hook_spec to dedup_policy.hook_spec
     For IDENTITY_TERM items: writes hook_spec to term_config.hook_spec and sets
@@ -377,30 +403,61 @@ def apply_hook_spec(
         domain=anchor.domain,
     )
 
-    # Resolve target items
     group_id = anchor.hook_group_id
-    target_items = (
-        _group_members(envelope, group_id) if apply_to_group and group_id else [anchor]
-    )
-
-    for item in target_items:
-        _write_hook_spec_to_config(config, item, hook_spec)
-        # choice already set by reviewer — no status to update
-        print(
-            f"✓ [{item.item_id}] hook_spec written to '{item.domain.value}' config for table '{item.table}'."
+    if (
+        anchor.domain == HITLDomain.IDENTITY_TERM
+        and apply_to_group
+        and group_id
+    ):
+        tables = _term_tables_for_hook_group(envelope, group_id)
+        if not tables:
+            tables = [anchor.table]
+        for table in tables:
+            term_cfg = _get_nested(config, table, "term_config", anchor.item_id)
+            _apply_term_hook_spec_dict(
+                term_cfg,
+                hook_spec,
+                item_id=f"{anchor.item_id}:{table}",
+                institution_id=envelope.institution_id,
+            )
+            print(
+                f"✓ [{anchor.item_id}] hook_spec written to '{anchor.domain.value}' config "
+                f"for table '{table}'."
+            )
+        for item in _group_members(envelope, group_id):
+            if run_log_path is not None:
+                selected = item.selected_option()
+                if selected:
+                    _append_run_log(
+                        Path(run_log_path),
+                        envelope.institution_id,
+                        item,
+                        selected,
+                        envelope,
+                        resolved_by,
+                    )
+    else:
+        target_items = (
+            _group_members(envelope, group_id) if apply_to_group and group_id else [anchor]
         )
 
-        if run_log_path is not None:
-            selected = item.selected_option()
-            if selected:
-                _append_run_log(
-                    Path(run_log_path),
-                    envelope.institution_id,
-                    item,
-                    selected,
-                    envelope,
-                    resolved_by,
-                )
+        for item in target_items:
+            _write_hook_spec_to_config(config, item, hook_spec)
+            print(
+                f"✓ [{item.item_id}] hook_spec written to '{item.domain.value}' config for table '{item.table}'."
+            )
+
+            if run_log_path is not None:
+                selected = item.selected_option()
+                if selected:
+                    _append_run_log(
+                        Path(run_log_path),
+                        envelope.institution_id,
+                        item,
+                        selected,
+                        envelope,
+                        resolved_by,
+                    )
 
     _save_config(config, config_path)
     _save_hitl(envelope, hitl_path)

@@ -40,6 +40,7 @@ def build_hook_generation_user_message(
         "table": item.table,
         "domain": item.domain.value,
         "hook_group_id": item.hook_group_id,
+        "hook_group_tables": item.hook_group_tables,
         "hitl_question": item.hitl_question,
         "hitl_context": item.hitl_context,
         "reviewer_note": item.reviewer_note,

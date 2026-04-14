@@ -335,7 +335,8 @@ def load_term_extractors_from_hook_spec(
 
     Chooses functions by name: exactly one ``functions[]`` entry whose ``name`` contains ``year``
     (case-insensitive) and exactly one whose ``name`` contains ``season``. Typical names are
-    ``year_extractor_<table>`` and ``season_extractor_<table>``.
+    ``year_extractor_<table>`` and ``season_extractor_<table>``, or one shared pair after HITL
+    ``apply_hook_spec`` has written the same ``hook_spec`` to every dataset in the hook group.
     """
     from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
         resolve_hook_module_path,

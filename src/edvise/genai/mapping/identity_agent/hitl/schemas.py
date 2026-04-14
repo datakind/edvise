@@ -15,7 +15,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     HookFunctionSpec,
@@ -291,6 +291,16 @@ class HITLItem(BaseModel):
             "e.g. 'shared_term_encoding_a' for three tables sharing the same term encoding."
         ),
     )
+    hook_group_tables: list[str] | None = Field(
+        default=None,
+        description=(
+            "When hook_group_id is set (typically identity_term), list every logical dataset name "
+            "that shares this hook — the same names as keys under identity_term_output.json "
+            "`datasets`. apply_hook_spec(apply_to_group=True) writes hook_spec to each listed "
+            "table (union with HITL rows that share hook_group_id). "
+            "Null or empty means only tables that have a HITLItem in this group receive updates."
+        ),
+    )
 
     hitl_question: str = Field(
         ...,
@@ -324,6 +334,22 @@ class HITLItem(BaseModel):
             "null = no reviewer note provided."
         ),
     )
+
+    @field_validator("hook_group_tables", mode="before")
+    @classmethod
+    def _normalize_hook_group_tables(cls, v: object) -> list[str] | None:
+        if v is None:
+            return None
+        if not isinstance(v, list):
+            raise TypeError("hook_group_tables must be a list of strings or null")
+        out = [str(x).strip() for x in v if str(x).strip()]
+        return out or None
+
+    @model_validator(mode="after")
+    def hook_group_tables_requires_group_id(self) -> "HITLItem":
+        if self.hook_group_tables and not self.hook_group_id:
+            raise ValueError("hook_group_tables requires hook_group_id to be set")
+        return self
 
     @model_validator(mode="after")
     def validate_options(self) -> "HITLItem":
