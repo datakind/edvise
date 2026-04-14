@@ -5,9 +5,12 @@ from __future__ import annotations
 from edvise.genai.mapping.identity_agent.hitl.hook_generation import (
     build_hook_generation_system_prompt,
     build_hook_generation_user_message,
+    default_hook_module_relpath,
     extract_config_snippet_for_hook_item,
     generate_hook_spec,
     generate_hook_specs_for_hook_items,
+    ensure_hook_spec_file,
+    materialize_hook_spec_to_file,
     parse_hook_spec,
 )
 from edvise.genai.mapping.identity_agent.hitl.artifacts import (
@@ -43,9 +46,11 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
 __all__ = [
     "build_hook_generation_system_prompt",
     "build_hook_generation_user_message",
+    "default_hook_module_relpath",
     "extract_config_snippet_for_hook_item",
     "generate_hook_spec",
     "generate_hook_specs_for_hook_items",
+    "ensure_hook_spec_file",
     "GrainResolution",
     "HITLBlockingError",
     "HITLDomain",
@@ -63,6 +68,7 @@ __all__ = [
     "build_term_config_for_resolver",
     "load_grain_contracts_from_resolver_config",
     "load_term_contracts_from_resolver_config",
+    "materialize_hook_spec_to_file",
     "check_gate",
     "unique_hitl_items_by_item_id",
     "get_hook_items",

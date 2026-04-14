@@ -30,11 +30,7 @@ from ..transformation.utilities import (
     cast_string,
     coerce_datetime,
     coerce_numeric,
-    extract_academic_year_from_term_code,
-    extract_term_season_from_term_code,
     extract_year,
-    format_academic_year_from_calendar_year,
-    parse_term_code_to_datetime,
     fill_constant,
     fill_nulls,
     lowercase,
@@ -44,16 +40,11 @@ from ..transformation.utilities import (
     normalize_grade,
     normalize_pell,
     normalize_student_age,
-    normalize_term_code,
-    normalize_year_range,
-    parse_term_description,
-    parse_yyyymm,
     replace_null_tokens,
     replace_values_with_null,
     strip_trailing_decimal,
     strip_whitespace,
     substring_after_first_delimiter,
-    term_season_from_datetime,
     uppercase,
 )
 
@@ -155,7 +146,6 @@ def dispatch_step(
             step.mapping,
             default=step.default,
         ),
-        "normalize_term_code": lambda: normalize_term_code(s),
         "normalize_grade": lambda: normalize_grade(s),
         "normalize_enrollment": lambda: normalize_enrollment(s),
         "normalize_pell": lambda: normalize_pell(s),
@@ -168,25 +158,11 @@ def dispatch_step(
         ),
         "strip_trailing_decimal": lambda: strip_trailing_decimal(s),
         "fill_constant": lambda: fill_constant(s, step.value),
-        "normalize_year_range": lambda: normalize_year_range(s),
         "extract_year": lambda: extract_year(s),
-        "format_academic_year_from_calendar_year": lambda: format_academic_year_from_calendar_year(
-            s
-        ),
-        "term_season_from_datetime": lambda: term_season_from_datetime(s),
         "substring_after_first_delimiter": lambda: substring_after_first_delimiter(
             s,
             delimiter=step.delimiter,
         ),
-        "parse_yyyymm": lambda: parse_yyyymm(s),
-        "parse_term_description": lambda: parse_term_description(s),
-        "extract_academic_year_from_term_code": lambda: extract_academic_year_from_term_code(
-            s
-        ),
-        "extract_term_season_from_term_code": lambda: extract_term_season_from_term_code(
-            s
-        ),
-        "parse_term_code_to_datetime": lambda: parse_term_code_to_datetime(s),
     }
 
     if fn not in dispatch:

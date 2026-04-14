@@ -25,7 +25,6 @@ from edvise.data_audit.schemas._edvise_shared import (
     grade_series_normalized,
     pell_series_to_pdp,
     student_age_series_to_pdp,
-    term_series_to_pdp,
 )
 
 # =============================================================================
@@ -236,29 +235,10 @@ def map_values(
 # Domain-Specific Normalization
 # Re-exports from _edvise_shared with short aliases for use in transformation maps
 # =============================================================================
-
-# =============================================================================
-# Domain-Specific Normalization
-# Re-exports from _edvise_shared with short aliases for use in transformation maps
-# =============================================================================
-
-
-def normalize_term_code(s: pd.Series) -> pd.Series:
-    """
-    Normalize "Season YYYY" term description strings to canonical PDP term codes.
-
-    Input:  "Spring 2020", "Fall 2019", "Summer 2021", "SP", "FA"
-    Output: "SPRING",      "FALL",      "SUMMER",      "SPRING", "FALL"
-
-    Unmapped values → pd.NA.
-
-    Use this for institutions whose term columns contain natural-language season
-    descriptions or short season codes (e.g. UCF's term_desc / term_descr columns).
-
-    Do NOT use for YYYYTT format term codes (e.g. "2019SP", "2018FA") —
-    use extract_term_season_from_term_code for those instead.
-    """
-    return term_series_to_pdp(s)
+#
+# Canonical term season / academic year strings are produced upstream by
+# IdentityAgent (e.g. _edvise_term_season, _edvise_term_academic_year).
+# SMA no longer ships normalize_term_code / normalize_year_range / parse_term_description.
 
 
 def normalize_grade(s: pd.Series) -> pd.Series:
@@ -406,32 +386,6 @@ def fill_constant(s: pd.Series, value: str) -> pd.Series:
     return pd.Series([value] * len(s), dtype="string")
 
 
-def normalize_year_range(s: pd.Series) -> pd.Series:
-    """
-    Normalize year range string to YYYY-YY format matching YEAR_PATTERN (^\\d{4}-\\d{2}$).
-
-    Handles:
-        "2018-2019" → "2018-19"
-        "2018-19"   → "2018-19"  (passthrough)
-        other       → null
-
-    Args:
-        s: String Series containing year range values
-    """
-    s = s.astype("string").str.strip()
-
-    already_correct = s.str.match(r"^\d{4}-\d{2}$")
-    full_range = s.str.extract(r"^(\d{4})-(\d{4})$")
-    converted = (full_range[0] + "-" + full_range[1].str[-2:]).where(
-        full_range[0].notna()
-    )
-
-    result = pd.Series(pd.NA, index=s.index, dtype="string")
-    result = result.where(~already_correct, s)
-    result = result.where(converted.isna(), converted)
-    return result
-
-
 def extract_year(s: pd.Series) -> pd.Series:
     """
     Extract the first 4-digit year from a string Series.
@@ -443,59 +397,6 @@ def extract_year(s: pd.Series) -> pd.Series:
         "2018"      → "2018"
     """
     return s.astype("string").str.extract(r"(\d{4})", expand=False).astype("string")
-
-
-def format_academic_year_from_calendar_year(s: pd.Series) -> pd.Series:
-    """
-    Convert a single calendar start year to PDP academic year label YYYY-YY.
-
-    Use after ``extract_year`` when the cohort is defined by the fall year that
-    begins the academic year (e.g. first enrollment in Fall 2018 → ``2018-19``).
-
-    Accepts:
-        - Int / float / numeric string (e.g. 2018, 2018.0, ``"2018"``)
-        - Datetime (calendar year component is used)
-
-    Output examples: ``2018`` → ``2018-19``, ``2020`` → ``2020-21``.
-
-    Unparseable or out-of-range years → ``pd.NA``.
-    """
-    if pd.api.types.is_datetime64_any_dtype(s.dtype):
-        year_num = pd.to_numeric(s.dt.year, errors="coerce")
-    else:
-        year_num = pd.to_numeric(s, errors="coerce")
-        from_str = s.astype("string").str.extract(r"(\d{4})", expand=False)
-        year_num = year_num.fillna(pd.to_numeric(from_str, errors="coerce"))
-
-    yi = year_num.round().astype("Int64")
-    valid = yi.notna() & (yi >= 1000) & (yi <= 9999)
-    y_str = yi.astype("Int64").astype("string")
-    end_two = (yi + 1).astype("Int64").astype("string").str[-2:]
-    out = y_str + "-" + end_two
-    return out.where(valid, pd.NA).astype("string")
-
-
-def term_season_from_datetime(s: pd.Series) -> pd.Series:
-    """
-    Map each datetime to a canonical term season label.
-
-    Month bands (inclusive):
-        - August–December → ``FALL``
-        - January–May → ``SPRING``
-        - June–July → ``SUMMER``
-
-    NaT / unparseable inputs → ``pd.NA``.
-    """
-    dt = pd.to_datetime(s, errors="coerce")
-    m = dt.dt.month
-    conds = [
-        m.isin(range(8, 13)),
-        m.isin(range(1, 6)),
-        m.isin([6, 7]),
-    ]
-    labels = ["FALL", "SPRING", "SUMMER"]
-    picked = np.select(conds, labels, default=None)
-    return pd.Series(picked, index=s.index, dtype="string")
 
 
 def substring_after_first_delimiter(s: pd.Series, delimiter: str = "-") -> pd.Series:
@@ -519,66 +420,6 @@ def substring_after_first_delimiter(s: pd.Series, delimiter: str = "-") -> pd.Se
     tail.index = s.index
     tail.name = None
     return tail
-
-
-def parse_yyyymm(s: pd.Series) -> pd.Series:
-    """
-    Parse YYYYMM string Series to datetime using the first day of the month.
-
-    Expects values like "202301" (after strip_trailing_decimal removes ".0").
-    Nulls and unparseable values become NaT.
-    """
-    return pd.to_datetime(
-        s.astype("string"),
-        format="%Y%m",
-        errors="coerce",
-    )
-
-
-def parse_term_description(s: pd.Series) -> pd.Series:
-    """
-    Parse "Season YYYY" term description strings to datetime.
-
-    Expects values like "Summer 2018", "Fall 2020", "Spring 2021".
-    Uses the start month of each term season.
-    Nulls and unparseable values become NaT.
-
-    Season → start month mapping:
-        FALL   → September (9)
-        SPRING → February (2)
-        SUMMER → June (6)
-        WINTER → January (1)
-    """
-    TERM_MONTHS = {"FALL": 9, "SPRING": 2, "SUMMER": 6, "WINTER": 1, "JANUARY": 1}
-
-    s_upper = s.astype("string").str.strip().str.upper()
-    matches = s_upper.str.extract(
-        r"^(SPRING|SUMMER|FALL|WINTER|JANUARY)\s+(\d{4})$",
-        expand=True,
-    )
-
-    result = pd.Series(pd.NaT, index=s.index, dtype="datetime64[ns]")
-    valid = matches[0].notna() & matches[1].notna()
-
-    if valid.any():
-        months = matches[0][valid].map(TERM_MONTHS)
-        years = pd.to_numeric(matches[1][valid], errors="coerce")
-        parseable = months.notna() & years.notna()
-
-        if parseable.any():
-            dates = pd.to_datetime(
-                pd.DataFrame(
-                    {
-                        "year": years[parseable],
-                        "month": months[parseable],
-                        "day": 1,
-                    }
-                ),
-                errors="coerce",
-            )
-            result[valid[valid].index[parseable]] = dates
-
-    return result
 
 
 def birthyear_to_age_bucket(
@@ -626,145 +467,6 @@ def birthyear_to_age_bucket(
         return "OLDER THAN 24"
 
     return age.map(_bucket).astype("string")
-
-
-def extract_academic_year_from_term_code(s: pd.Series) -> pd.Series:
-    """
-    Extract academic year from YYYYTT format term codes and convert to YYYY-YY format.
-
-    Academic year logic:
-        - FA (Fall) terms start the academic year: '2018FA' -> '2018-19'
-        - SP (Spring) terms end the prior academic year: '2019SP' -> '2018-19'
-        - S1/S2 (Summer) terms are part of the prior academic year: '2018S1'/'2018S2' -> '2017-18'
-
-    Args:
-        s: String Series of term codes in YYYYTT format (e.g., '2018FA', '2019SP', '2018S1', '2018S2')
-
-    Returns:
-        String Series in YYYY-YY format matching YEAR_PATTERN (^\\d{4}-\\d{2}$), or pd.NA for invalid inputs
-    """
-    s = s.astype("string").str.strip().str.upper()
-
-    # Extract year (first 4 digits) and season code (last 2 characters)
-    year_match = s.str.extract(r"^(\d{4})", expand=False)
-    season_match = s.str.extract(r"([A-Z0-9]{2})$", expand=False)
-
-    # Convert year to numeric
-    year_numeric = pd.to_numeric(year_match, errors="coerce")
-
-    # Determine academic year start year based on season
-    # FA (Fall) starts the academic year, so use the year as-is
-    # SP (Spring) ends the prior academic year, so subtract 1
-    # S1/S2 (Summer) are part of the prior academic year, so subtract 1
-    academic_year_start = year_numeric.copy()
-    is_spring_or_summer = season_match.isin(["SP", "S1", "S2"])
-    academic_year_start = academic_year_start.where(
-        ~is_spring_or_summer, academic_year_start - 1
-    )
-
-    # Calculate academic year end (last 2 digits of start year + 1)
-    academic_year_end = (
-        (academic_year_start + 1).astype("Int64").astype("string").str[-2:]
-    )
-
-    # Format as YYYY-YY
-    result = (
-        academic_year_start.astype("Int64").astype("string") + "-" + academic_year_end
-    )
-
-    # Return NA for invalid inputs (where year or season couldn't be extracted)
-    return result.where(
-        year_match.notna() & season_match.notna() & academic_year_start.notna(), pd.NA
-    ).astype("string")
-
-
-def extract_term_season_from_term_code(s: pd.Series) -> pd.Series:
-    """
-    Extract canonical term season from YYYYTT format term codes.
-
-    Maps season codes to canonical PDP term categories:
-        - 'FA' -> 'FALL'
-        - 'SP' -> 'SPRING'
-        - 'S1'/'S2' -> 'SUMMER'
-
-    Args:
-        s: String Series of term codes in YYYYTT format (e.g., '2018FA', '2019SP', '2018S1', '2018S2')
-
-    Returns:
-        String Series with values in ['FALL', 'SPRING', 'SUMMER'], or pd.NA for unmapped/invalid inputs
-    """
-    s = s.astype("string").str.strip().str.upper()
-
-    # Extract season code (last 2 characters)
-    season_match = s.str.extract(r"([A-Z0-9]{2})$", expand=False)
-
-    # Map season codes to canonical terms
-    season_mapping = {
-        "FA": "FALL",
-        "SP": "SPRING",
-        "S1": "SUMMER",
-        "S2": "SUMMER",
-    }
-
-    result = season_match.map(season_mapping)
-    return result.astype("string")
-
-
-def parse_term_code_to_datetime(s: pd.Series) -> pd.Series:
-    """
-    Parse YYYYTT format term codes to datetime using the first day of the term.
-
-    Maps term codes to start dates:
-        - '2018FA' -> 2018-09-01 (Fall starts in September)
-        - '2019SP' -> 2019-01-01 (Spring starts in January)
-        - '2018S1'/'2018S2' -> 2018-06-01 (Summer starts in June)
-
-    Args:
-        s: String Series of term codes in YYYYTT format (e.g., '2018FA', '2019SP', '2018S1', '2018S2')
-
-    Returns:
-        Datetime Series with first day of term, or pd.NaT for invalid inputs
-    """
-    s = s.astype("string").str.strip().str.upper()
-
-    # Extract year (first 4 digits) and season code (last 2 characters)
-    year_match = s.str.extract(r"^(\d{4})", expand=False)
-    season_match = s.str.extract(r"([A-Z0-9]{2})$", expand=False)
-
-    # Convert year to numeric
-    year_numeric = pd.to_numeric(year_match, errors="coerce")
-
-    # Map season codes to start months
-    # FA (Fall) -> September (9)
-    # SP (Spring) -> January (1)
-    # S1/S2 (Summer) -> June (6)
-    season_to_month = {
-        "FA": 9,
-        "SP": 1,
-        "S1": 6,
-        "S2": 6,
-    }
-
-    month_numeric = season_match.map(season_to_month)
-
-    # Create datetime from year, month, day=1
-    result = pd.Series(pd.NaT, index=s.index, dtype="datetime64[ns]")
-    valid = year_numeric.notna() & month_numeric.notna()
-
-    if valid.any():
-        dates = pd.to_datetime(
-            pd.DataFrame(
-                {
-                    "year": year_numeric[valid],
-                    "month": month_numeric[valid],
-                    "day": 1,
-                }
-            ),
-            errors="coerce",
-        )
-        result[valid] = dates
-
-    return result
 
 
 # Passing grades per Edvise schema ALLOWED_GRADES

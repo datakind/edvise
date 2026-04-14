@@ -472,9 +472,10 @@ You will receive a single JSON object with:
 Apply the same per-table reasoning rules as single-dataset term inference (term column selection,
 `season_map`, `term_extraction`, `hook_spec` when hook_required) **independently for each dataset**.
 
-**Cross-table:** When several tables share the same term encoding, you may reuse one
-`hook_spec.file` path in `term_config`, but use **distinct function names** inside
-`hook_spec.functions` per table when the extractors differ. Do not merge distinct encodings.
+**Cross-table:** When several tables share the same term encoding, they share the same
+canonical hook module path (assigned by the pipeline — typically
+``pipelines/<institution_id>/helpers/term_hooks.py``); use **distinct function names** inside
+``hook_spec.functions`` per table when the extractors differ. Do not merge distinct encodings.
 
 **Coverage:** Emit exactly one `TermContract`-shaped object per key under `datasets` in the
 input. Do not omit datasets.

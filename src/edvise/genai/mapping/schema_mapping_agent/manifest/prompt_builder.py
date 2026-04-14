@@ -318,7 +318,15 @@ TARGET SCHEMA AUTHORITY
 - Use the Pandera schemas as the authoritative definition of target fields
 - Allowed values, nullability, and regex patterns from the schema should directly inform confidence scoring,
   validation_notes, and when lower confidence is warranted — but follow RATIONALE: do not restate unconstrained-string
-  or free-text facts about the target field in prose"""
+  or free-text facts about the target field in prose
+
+DATETIME AND DATE TARGET FIELDS
+- For target fields whose Pandera dtype is datetime (e.g. matriculation_date, degree conferral dates), map only when
+  the chosen source column's dtype in the schema contract is already a datetime type (e.g. datetime64[ns]).
+- Do not map free-text or descriptive date strings (e.g. term labels like "Summer 2018") to datetime targets — those
+  are not datetime columns in the contract; leave unmappable with null source_column/source_table/row_selection.
+- Numeric or fixed-format encodings (e.g. YYYYMM integers) may still be mapped if the contract dtype and validation
+  evidence support a reliable interpretation; flag lower confidence and validation_notes when parsing would be required."""
 
 
 def _step2a_json_output_rules() -> str:

@@ -11,6 +11,7 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
 from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem
 
 from .parse import parse_hook_spec
+from .paths import ensure_hook_spec_file
 from .prompt_builder import (
     build_hook_generation_system_prompt,
     build_hook_generation_user_message,
@@ -33,7 +34,10 @@ def generate_hook_spec(
     system = build_hook_generation_system_prompt(item.domain)
     user = build_hook_generation_user_message(item, snippet)
     raw = llm_complete(system, user)
-    return parse_hook_spec(raw)
+    spec = parse_hook_spec(raw)
+    return ensure_hook_spec_file(
+        spec, institution_id=item.institution_id, domain=item.domain
+    )
 
 
 def generate_hook_specs_for_hook_items(
@@ -45,8 +49,9 @@ def generate_hook_specs_for_hook_items(
     """
     Run :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.get_hook_items` and generate a spec per representative item.
 
-    Returns (item_id, HookSpec) pairs. Caller should write hook files to disk (if needed) and call
-    :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.apply_hook_spec` for each.
+    Returns (item_id, HookSpec) pairs. Call
+    :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.apply_hook_spec` for each pair;
+    pass ``materialize=True`` and ``repo_root=`` to emit the hook module at ``hook_spec.file``.
     """
     # Local import avoids circular imports at package load time.
     from edvise.genai.mapping.identity_agent.hitl.resolver import get_hook_items

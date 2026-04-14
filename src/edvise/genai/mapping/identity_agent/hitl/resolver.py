@@ -12,9 +12,10 @@ Public API:
         — returns one representative HITLItem per hook_group_id (or per ungrouped item)
         — these require a hook generation LLM call before the pipeline can advance
 
-    apply_hook_spec(hitl_path, config_path, item_id, hook_spec, apply_to_group, resolved_by)
+    apply_hook_spec(hitl_path, config_path, item_id, hook_spec, apply_to_group, resolved_by, …)
         — writes a generated HookSpec to the correct config field
         — when apply_to_group=True, fans out to all items sharing the same hook_group_id
+        — optional materialize=True + repo_root= writes hook_spec.file as a Python module
 
     validate_hook(hitl_path, config_path, item_id, hook_group_id)
         — unit tests a generated hook against example_input/example_output from HookFunctionSpec
@@ -59,6 +60,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
+from edvise.genai.mapping.identity_agent.hitl.hook_generation.literals import (
+    coerce_hook_example_value,
+)
+from edvise.genai.mapping.identity_agent.hitl.hook_generation.signature_check import (
+    signature_mismatches,
+)
+from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
+    ensure_hook_spec_file,
+)
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
     GrainResolution,
     HITLDomain,
@@ -297,6 +307,9 @@ def apply_hook_spec(
     apply_to_group: bool = False,
     resolved_by: str | None = None,
     run_log_path: str | Path | None = None,
+    *,
+    materialize: bool = False,
+    repo_root: str | Path | None = None,
 ) -> None:
     """
     Writes a generated HookSpec to the correct config field.
@@ -308,6 +321,10 @@ def apply_hook_spec(
     For IDENTITY_GRAIN items: writes hook_spec to dedup_policy.hook_spec
     For IDENTITY_TERM items:  writes hook_spec to term_config.hook_spec
 
+    When ``materialize`` is True, also writes a ``.py`` file at ``hook_spec.file``
+    (relative to ``repo_root``) so :func:`validate_hook` can import it. Requires
+    ``repo_root`` (e.g. the git workspace root that contains ``pipelines/``).
+
     Notebook usage:
         apply_hook_spec(
             hitl_path="institutions/<institution_id>/identity_grain_hitl.json",
@@ -315,7 +332,9 @@ def apply_hook_spec(
             item_id="<institution_id>_demo_dedup",
             hook_spec=generated_spec,
             apply_to_group=True,
-            resolved_by="dk"
+            resolved_by="dk",
+            materialize=True,
+            repo_root="/path/to/repo",
         )
         apply_hook_spec(
             hitl_path="institutions/<institution_id>/identity_term_hitl.json",
@@ -323,7 +342,9 @@ def apply_hook_spec(
             item_id="<institution_id>_student_term",
             hook_spec=generated_spec,
             apply_to_group=True,
-            resolved_by="dk"
+            resolved_by="dk",
+            materialize=True,
+            repo_root="/path/to/repo",
         )
     """
     hitl_path = Path(hitl_path)
@@ -332,8 +353,14 @@ def apply_hook_spec(
     envelope = _load_hitl(hitl_path)
     config = _load_config(config_path)
 
-    # Resolve target items
     anchor = _find_item(envelope, item_id)
+    hook_spec = ensure_hook_spec_file(
+        hook_spec,
+        institution_id=envelope.institution_id,
+        domain=anchor.domain,
+    )
+
+    # Resolve target items
     group_id = anchor.hook_group_id
     target_items = (
         _group_members(envelope, group_id) if apply_to_group and group_id else [anchor]
@@ -362,6 +389,19 @@ def apply_hook_spec(
     _save_hitl(envelope, hitl_path)
     print(f"\nUpdated config written to {config_path.name}.")
 
+    if materialize:
+        if repo_root is None:
+            raise ValueError("apply_hook_spec(..., materialize=True) requires repo_root")
+        from edvise.genai.mapping.identity_agent.hitl.hook_generation.materialize import (
+            materialize_hook_spec_to_file,
+        )
+
+        materialize_hook_spec_to_file(
+            hook_spec,
+            repo_root=repo_root,
+            domain=anchor.domain,
+        )
+
 
 # ---------------------------------------------------------------------------
 # 5. validate_hook
@@ -376,9 +416,17 @@ def validate_hook(
     hook_group_id: str | None = None,
 ) -> None:
     """
-    Unit tests a generated hook against example_input / example_output from
-    each HookFunctionSpec. Dynamically imports the hook file and calls each
-    function. Raises HookValidationError on any failure.
+    For every domain: compares each function's ``draft`` (AST) to the imported function's runtime
+    signature — parameter names/order and return annotation when the draft includes ``->``.
+
+    For **identity_term** items only: also runs each function with ``example_input`` /
+    ``example_output`` coerced via :func:`ast.literal_eval`, asserting equality (same contract as
+    post-materialize smoke tests).
+
+    For **identity_grain** (and future non-term domains such as transform hooks):
+    ``example_input`` / ``example_output`` are documentation only — no literal_eval or execution.
+
+    Raises HookValidationError on failure.
 
     Pass either item_id or hook_group_id — hook_group_id uses the first group
     member as the representative (all share the same hook file and functions).
@@ -432,51 +480,69 @@ def validate_hook(
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    # Test each function
+    def _call_with_literal_input(fn, parsed_in):
+        if isinstance(parsed_in, tuple):
+            return fn(*parsed_in)
+        return fn(parsed_in)
+
+    run_literal_tests = item.domain == HITLDomain.IDENTITY_TERM
+
     failures: list[str] = []
     for fn_spec in hook_spec_dict["functions"]:
         name = fn_spec["name"]
         example_input = fn_spec.get("example_input")
         example_output = fn_spec.get("example_output")
-        expected_type = fn_spec.get("expected_type")
-
-        if example_input is None:
-            print(f"  ⚠  [{name}] No example_input — skipping.")
-            continue
+        draft = fn_spec.get("draft")
 
         fn = getattr(module, name, None)
         if fn is None:
             failures.append(f"[{name}] Function not found in {hook_file}.")
             continue
 
-        try:
-            result = fn(example_input)
-        except Exception as e:
-            failures.append(
-                f"[{name}] Raised exception on input {example_input!r}: {e}"
+        failures.extend(signature_mismatches(fn, expected_name=name, draft=draft))
+
+        if not run_literal_tests:
+            print(
+                f"  ℹ  [{name}] {item.domain.value} — examples are documentation only; "
+                f"skipping literal smoke test."
             )
             continue
 
-        if expected_type:
-            actual_type = type(result).__name__
-            if actual_type != expected_type:
-                failures.append(
-                    f"[{name}] Expected return type '{expected_type}', got '{actual_type}'."
-                )
+        if example_input is None:
+            print(f"  ⚠  [{name}] No example_input — skipping literal test.")
+            continue
+
+        try:
+            parsed_in = coerce_hook_example_value(example_input)
+        except (ValueError, SyntaxError) as e:
+            failures.append(
+                f"[{name}] Could not literal_eval example_input {example_input!r}: {e}"
+            )
+            continue
+
+        try:
+            result = _call_with_literal_input(fn, parsed_in)
+        except Exception as e:
+            failures.append(
+                f"[{name}] Raised exception on input {parsed_in!r}: {e}"
+            )
+            continue
 
         if example_output is not None:
-            # Coerce example_output to result type for comparison
             try:
-                coerced = type(result)(example_output)
-            except (ValueError, TypeError):
-                coerced = example_output
-            if result != coerced:
+                expected = coerce_hook_example_value(example_output)
+            except (ValueError, SyntaxError) as e:
                 failures.append(
-                    f"[{name}] Expected output {coerced!r}, got {result!r} "
-                    f"for input {example_input!r}."
+                    f"[{name}] Could not literal_eval example_output {example_output!r}: {e}"
+                )
+                continue
+            if result != expected:
+                failures.append(
+                    f"[{name}] Expected output {expected!r}, got {result!r} "
+                    f"for input {parsed_in!r}."
                 )
             else:
-                print(f"  ✓ [{name}] {example_input!r} → {result!r}")
+                print(f"  ✓ [{name}] {parsed_in!r} → {result!r}")
 
     if failures:
         raise HookValidationError(
@@ -484,7 +550,15 @@ def validate_hook(
             + "\n".join(f"  • {f}" for f in failures)
         )
 
-    print(f"✓ All hook functions validated for {hook_file}.")
+    if run_literal_tests:
+        print(
+            f"✓ Hook signatures and literal examples validated for {hook_file}."
+        )
+    else:
+        print(
+            f"✓ Hook signatures verified for {hook_file} — "
+            f"{item.domain.value} examples are not executed (documentation only)."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -492,13 +566,20 @@ def validate_hook(
 # ---------------------------------------------------------------------------
 
 
-def _apply_grain_hook_spec_dict(grain_cfg: dict, hook_spec: HookSpec) -> None:
+def _apply_grain_hook_spec_dict(
+    grain_cfg: dict, hook_spec: HookSpec, *, institution_id: str
+) -> None:
     """
     Write ``dedup_policy.hook_spec`` and set ``strategy='policy_required'``.
 
     Clears sort/keep fields that only apply to temporal_collapse so
     :class:`~edvise.genai.mapping.identity_agent.grain_inference.schemas.DedupPolicy` reloads cleanly.
     """
+    hook_spec = ensure_hook_spec_file(
+        hook_spec,
+        institution_id=institution_id,
+        domain=HITLDomain.IDENTITY_GRAIN,
+    )
     dp = grain_cfg.setdefault("dedup_policy", {})
     dp["strategy"] = "policy_required"
     dp["hook_spec"] = hook_spec.model_dump(mode="json")
@@ -508,7 +589,7 @@ def _apply_grain_hook_spec_dict(grain_cfg: dict, hook_spec: HookSpec) -> None:
 
 
 def _apply_term_hook_spec_dict(
-    term_cfg: dict, hook_spec: HookSpec, *, item_id: str
+    term_cfg: dict, hook_spec: HookSpec, *, item_id: str, institution_id: str
 ) -> None:
     """
     Write ``hook_spec``, set ``term_extraction='hook_required'``.
@@ -516,6 +597,11 @@ def _apply_term_hook_spec_dict(
     TermOrderConfig forbids ``hook_spec`` alongside ``year_col``/``season_col``; when both split
     columns and ``term_col`` are present, split columns are cleared (combined-column hook path).
     """
+    hook_spec = ensure_hook_spec_file(
+        hook_spec,
+        institution_id=institution_id,
+        domain=HITLDomain.IDENTITY_TERM,
+    )
     yc = term_cfg.get("year_col")
     sc = term_cfg.get("season_col")
     tc = term_cfg.get("term_col")
@@ -573,7 +659,9 @@ def _apply_grain_resolution(
         )
 
     if resolution.hook_spec is not None:
-        _apply_grain_hook_spec_dict(grain_cfg, resolution.hook_spec)
+        _apply_grain_hook_spec_dict(
+            grain_cfg, resolution.hook_spec, institution_id=item.institution_id
+        )
         print("  → dedup_policy: hook_spec set, strategy=policy_required")
 
 
@@ -606,7 +694,12 @@ def _apply_term_resolution(
         print(f"  → term_col overridden: {resolution.term_col_override}")
 
     if resolution.hook_spec is not None:
-        _apply_term_hook_spec_dict(term_cfg, resolution.hook_spec, item_id=item.item_id)
+        _apply_term_hook_spec_dict(
+            term_cfg,
+            resolution.hook_spec,
+            item_id=item.item_id,
+            institution_id=item.institution_id,
+        )
         print(f"  → term_config: hook_spec set, term_extraction=hook_required [{item.item_id}]")
 
 
@@ -618,10 +711,12 @@ def _write_hook_spec_to_config(
     table = item.target.table
     if item.domain == HITLDomain.IDENTITY_GRAIN:
         grain_cfg = _get_nested(config, table, "grain_contract", item.item_id)
-        _apply_grain_hook_spec_dict(grain_cfg, hook_spec)
+        _apply_grain_hook_spec_dict(grain_cfg, hook_spec, institution_id=item.institution_id)
     elif item.domain == HITLDomain.IDENTITY_TERM:
         term_cfg = _get_nested(config, table, "term_config", item.item_id)
-        _apply_term_hook_spec_dict(term_cfg, hook_spec, item_id=item.item_id)
+        _apply_term_hook_spec_dict(
+            term_cfg, hook_spec, item_id=item.item_id, institution_id=item.institution_id
+        )
     else:
         raise HITLValidationError(
             f"[{item.item_id}] apply_hook_spec only handles IDENTITY_GRAIN and "

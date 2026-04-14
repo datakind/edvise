@@ -23,23 +23,31 @@ from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermO
 
 def _hook() -> HookSpec:
     return HookSpec(
-        file="inst/hooks.py",
         functions=[
             HookFunctionSpec(
                 name="f",
                 signature="def f(x: str) -> str",
                 description="t",
+                draft="def f(x: str) -> str:\n    return x\n",
             )
         ],
     )
 
 
 def _term_item(table: str = "t1") -> SimpleNamespace:
-    return SimpleNamespace(item_id="item_a", target=SimpleNamespace(table=table))
+    return SimpleNamespace(
+        item_id="item_a",
+        institution_id="u",
+        target=SimpleNamespace(table=table),
+    )
 
 
 def _grain_item(table: str = "t1") -> SimpleNamespace:
-    return SimpleNamespace(item_id="item_g", target=SimpleNamespace(table=table))
+    return SimpleNamespace(
+        item_id="item_g",
+        institution_id="u",
+        target=SimpleNamespace(table=table),
+    )
 
 
 def test_term_col_override_clears_split_columns():
@@ -92,10 +100,11 @@ def test_apply_grain_hook_spec_dict_sets_policy_required():
             "notes": "",
         }
     }
-    _apply_grain_hook_spec_dict(grain_cfg, _hook())
+    _apply_grain_hook_spec_dict(grain_cfg, _hook(), institution_id="u")
     dp = grain_cfg["dedup_policy"]
     assert dp["strategy"] == "policy_required"
     assert dp["hook_spec"] is not None
+    assert dp["hook_spec"]["file"] == "pipelines/u/helpers/dedup_hooks.py"
     assert dp["sort_by"] is None
     assert dp["sort_ascending"] is None
     assert dp["keep"] is None
@@ -122,7 +131,7 @@ def test_apply_term_hook_spec_dict_clears_split_when_term_col_present():
         "season_map": [{"raw": "FA", "canonical": "FALL"}],
         "term_extraction": "standard",
     }
-    _apply_term_hook_spec_dict(term_cfg, _hook(), item_id="x")
+    _apply_term_hook_spec_dict(term_cfg, _hook(), item_id="x", institution_id="u")
     assert term_cfg["year_col"] is None
     assert term_cfg["season_col"] is None
     assert term_cfg["term_extraction"] == "hook_required"
@@ -138,7 +147,7 @@ def test_apply_term_hook_spec_dict_raises_when_split_only():
         "term_extraction": "standard",
     }
     with pytest.raises(HITLValidationError, match="Cannot write term hook_spec"):
-        _apply_term_hook_spec_dict(term_cfg, _hook(), item_id="x")
+        _apply_term_hook_spec_dict(term_cfg, _hook(), item_id="x", institution_id="u")
 
 
 def test_grain_resolution_applies_terminal_hook_spec():

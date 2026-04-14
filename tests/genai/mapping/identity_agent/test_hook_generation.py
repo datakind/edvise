@@ -34,7 +34,9 @@ def _minimal_grain_item(table: str = "t1") -> HITLItem:
                 option_id="no_dedup",
                 label="No dedup",
                 description="d",
-                resolution=GrainResolution(dedup_strategy="no_dedup"),
+                resolution=GrainResolution(dedup_strategy="no_dedup").model_dump(
+                    mode="json"
+                ),
                 reentry=ReentryDepth.TERMINAL,
             ),
             HITLOption(
@@ -67,7 +69,9 @@ def _minimal_term_item(table: str = "c1") -> HITLItem:
                 option_id="map",
                 label="Map",
                 description="d",
-                resolution=TermResolution(exclude_tokens=["Med"]),
+                resolution=TermResolution(exclude_tokens=["Med"]).model_dump(
+                    mode="json"
+                ),
                 reentry=ReentryDepth.TERMINAL,
             ),
             HITLOption(
@@ -90,8 +94,11 @@ def _minimal_term_item(table: str = "c1") -> HITLItem:
 def test_build_hook_generation_system_prompt_grain_term():
     g = build_hook_generation_system_prompt(HITLDomain.IDENTITY_GRAIN)
     assert "HookSpec" in g and "dedup" in g.lower()
+    assert "machine-round-trip" not in g.lower()
+    assert "documentation only" in g.lower()
     t = build_hook_generation_system_prompt(HITLDomain.IDENTITY_TERM)
     assert "year_extractor" in t and "season_extractor" in t
+    assert "literal_eval" in t.lower()
 
 
 def test_build_hook_generation_system_prompt_rejects_unknown():
@@ -101,23 +108,23 @@ def test_build_hook_generation_system_prompt_rejects_unknown():
 
 def test_parse_hook_spec_dict_and_fenced_json():
     spec = {
-        "file": "pipelines/u1/helpers/h.py",
         "functions": [
             {
                 "name": "f",
                 "signature": "def f(x: str) -> int",
                 "description": "test",
-                "example_input": "a",
+                "example_input": "'a'",
                 "example_output": "1",
-                "draft": "1",
+                "draft": "def f(x: str) -> int:\n    return 1\n",
             }
         ],
     }
     h1 = parse_hook_spec(spec)
     assert isinstance(h1, HookSpec)
+    assert h1.file is None
     text = "```json\n" + json.dumps(spec) + "\n```"
     h2 = parse_hook_spec(text)
-    assert h2.file == h1.file
+    assert h2.functions[0].name == h1.functions[0].name
 
 
 def test_extract_config_snippet_grain():

@@ -157,7 +157,7 @@ STEP ORDERING
   not after. The map keys must match the values that actually arrive at that step.
 - Apply type casting steps (cast_string, cast_nullable_int, etc.) after value transformations
   unless an earlier step requires a specific type as input
-- Apply domain-specific normalization (normalize_term_code, normalize_grade, etc.) as needed
+- Apply domain-specific normalization (normalize_grade, etc.) as needed; canonical term season and academic year come from IdentityAgent columns (_edvise_term_season, _edvise_term_academic_year), not SMA string parsers
 
 EXTRA COLUMNS
 - Some utilities require extra_columns

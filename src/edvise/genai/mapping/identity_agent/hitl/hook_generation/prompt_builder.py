@@ -78,30 +78,31 @@ def _system_prompt_grain() -> str:
     return """
 You are a code-generation assistant for IdentityAgent **grain** (deduplication) hooks.
 
-Respond with **one JSON object only** — no markdown fences, no preamble. The object must validate as HookSpec:
+Respond with **one JSON object only** — no markdown fences, no preamble. The object must validate as HookSpec (omit ``file`` — the pipeline assigns the module path):
 
 {
-  "file": "<relative path e.g. pipelines/<institution_id>/helpers/dedup_hooks.py>",
   "functions": [
     {
-      "name": "<python function name>",
-      "signature": "<def name(...): ...>",
+      "name": "<python function name — must match the def>",
+      "signature": "<optional copy of the def line for display only>",
       "description": "<what it does>",
-      "example_input": "<optional>",
-      "example_output": "<optional>",
-      "draft": "<optional: single expression or short body as a string>"
+      "example_input": "<optional free-form string: human-readable description of representative input / DataFrame shape>",
+      "example_output": "<optional free-form string: what the function returns or effect on grain>",
+      "draft": "<one complete syntactically valid Python function: full def line + indented body>"
     }
   ]
 }
 
 Rules:
+- **draft** must be a **complete function definition** in one string: from ``def name(...)`` through the body (indented). It must be parseable as part of a Python module. Put any needed imports **inside** the function body unless you emit a second function whose draft is only imports (avoid that — prefer imports inside ``def``).
+- **name** must exactly match the function name in **draft**.
+- **signature** is optional metadata for reviewers; materialization does not use it.
+- **example_input** / **example_output** are **documentation only** for reviewers (e.g. describe column layout, sample keys, or transformation intent). They are **not** used for automated smoke tests. Use plain-language or structured prose.
 - hitl_context contains the raw data samples the agent was looking at when it raised the flag — use it to understand the data shape.
-- If reviewer_note is present, treat it as the authoritative instruction and override any draft logic in config_snippet. The reviewer has inspected the draft and is providing the correct implementation.
-- If reviewer_note is absent, use hitl_context and config_snippet together to infer the correct implementation from the draft.
+- If reviewer_note is present, treat it as the authoritative instruction and override any draft logic in config_snippet.
+- If reviewer_note is absent, use hitl_context and config_snippet together to infer the correct implementation.
 - Functions implement the policy implied by hitl_question / hitl_context and the grain_contract snippet.
-- Prefer small, testable functions; pandas may be imported at module level in the real file.
-- ``file`` should live under pipelines/<institution_id>/helpers/ for the given institution_id in the user JSON.
-- example_output must always be a JSON string, even for integer or float-returning functions. e.g. "2019" not 2019, "0.5" not 0.5.
+- Do **not** include a ``file`` field; hook module paths are assigned by the pipeline after review.
 - Output must be parseable JSON (double quotes, no trailing commas).
 """.strip()
 
@@ -110,38 +111,40 @@ def _system_prompt_term() -> str:
     return """
 You are a code-generation assistant for IdentityAgent **term** normalization hooks.
 
-Respond with **one JSON object only** — no markdown fences, no preamble. The object must validate as HookSpec:
+Respond with **one JSON object only** — no markdown fences, no preamble. The object must validate as HookSpec (omit ``file`` — the pipeline assigns the module path):
 
 {
-  "file": "<relative path e.g. pipelines/<institution_id>/helpers/term_hooks.py>",
   "functions": [
     {
       "name": "year_extractor",
-      "signature": "def year_extractor(term: str) -> int",
+      "signature": "<optional; e.g. def year_extractor(term: str) -> int>",
       "description": "<what it does>",
-      "example_input": "<raw token from data>",
-      "example_output": "<expected int year>",
-      "draft": "<single Python expression>"
+      "example_input": "<JSON string: Python literal repr, e.g. \\"1192\\" for an int>",
+      "example_output": "<JSON string: Python literal repr, e.g. \\"2019\\">",
+      "draft": "<complete def year_extractor(term: str) -> int:\\n    ...body...>"
     },
     {
       "name": "season_extractor",
-      "signature": "def season_extractor(term: str) -> str",
+      "signature": "<optional>",
       "description": "<what it does>",
-      "example_input": "<raw token>",
-      "example_output": "<raw token matching a 'raw' key in season_map>",
-      "draft": "<single Python expression>"
+      "example_input": "<JSON string literal repr>",
+      "example_output": "<JSON string literal repr>",
+      "draft": "<complete def season_extractor(term: str) -> str:\\n    ...body...>"
     }
   ]
 }
 
 Rules:
+- **draft** for each function must be the **full** ``def`` block (signature + body), syntactically valid Python, not a bare expression.
+- **name** must match the ``def`` name in **draft**.
+- **signature** is optional display-only metadata.
+- **Term only — machine smoke tests:** **example_input** and **example_output** must be JSON **strings** whose text is a Python literal accepted by ``ast.literal_eval`` (e.g. ``"1192"`` for an integer, ``"\\\"FA\\\""`` for a string token). The pipeline runs automated smoke tests after materialize; mismatches fail hard. Omit either field only if you truly cannot provide a round-trippable literal (smoke test will skip that function).
 - hitl_context contains the raw data samples the agent was looking at when it raised the flag — use it to understand the data shape.
-- If reviewer_note is present, treat it as the authoritative instruction and override any draft logic in config_snippet. The reviewer has inspected the draft and is providing the correct implementation.
-- If reviewer_note is absent, use hitl_context and config_snippet together to infer the correct implementation from the draft.
+- If reviewer_note is present, treat it as the authoritative instruction and override any draft logic in config_snippet.
+- If reviewer_note is absent, use hitl_context and config_snippet together to infer the correct implementation.
 - season_extractor output must match raw keys in season_map when term_config uses a single term column.
 - If term_config is null, infer requirements from hitl_context only.
-- ``file`` should live under pipelines/<institution_id>/helpers/ for the given institution_id in the user JSON.
-- example_output must always be a JSON string, even for integer or float-returning functions. e.g. "2019" not 2019, "0.5" not 0.5.
+- Do **not** include a ``file`` field; hook module paths are assigned by the pipeline after review.
 - Output must be parseable JSON (double quotes, no trailing commas).
 """.strip()
 

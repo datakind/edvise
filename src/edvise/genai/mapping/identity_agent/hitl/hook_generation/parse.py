@@ -17,6 +17,9 @@ RawHookSpecInput = Union[str, bytes, dict]
 def parse_hook_spec(raw: RawHookSpecInput) -> HookSpec:
     """
     Parse model output (optionally fenced) or a dict into :class:`HookSpec`.
+
+    ``file`` may be omitted; :func:`~edvise.genai.mapping.identity_agent.hitl.hook_generation.paths.ensure_hook_spec_file`
+    assigns the canonical path before persisting.
     """
     if isinstance(raw, dict):
         return HookSpec.model_validate(raw)

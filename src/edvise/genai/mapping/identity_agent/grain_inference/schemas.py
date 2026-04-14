@@ -29,23 +29,27 @@ DedupStrategy = Literal[
 class HookFunctionSpec(BaseModel):
     """
     Spec for one generated hook function.
-    Mirrors term_normalization hook_spec functions shape exactly.
-    example_input, example_output, and expected_type are used by validate_hook()
-    to unit test the generated function before pipeline execution.
+
+    ``draft`` is the **full function definition** (``def`` line through body) as one string.
+    ``signature`` is optional human/LLM metadata; materialize does not use it.
+    For **term** hooks, prompts require ``example_input`` / ``example_output`` to be
+    literal-evaluable for smoke tests. For **grain** (and similar domains), they are
+    free-form documentation strings only.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     name: str
-    signature: str
+    signature: str | None = Field(
+        default=None,
+        description="Optional; not used by materialize (draft carries the full def).",
+    )
     description: str
     example_input: str | None = None
     example_output: str | int | float | None = None
-    expected_type: str | None = (
-        None  # "int", "str" — for type checking output in validate_hook
-    )
-    draft: str | None = (
-        None  # None for DataFrame-level hooks — body generated separately
+    draft: str | None = Field(
+        default=None,
+        description="Complete Python function definition: signature and body as one string.",
     )
 
 
@@ -53,11 +57,20 @@ class HookSpec(BaseModel):
     """
     File path + function specs for a generated hook.
     Shared shape between term extraction hooks and dedup hooks.
+
+    ``file`` is optional in raw LLM JSON; hook generation overwrites it with a canonical path
+    from ``institution_id`` and domain before persisting to config.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    file: str = Field(..., description="Relative path e.g. '<institution_slug>/dedup_hooks.py'")
+    file: str | None = Field(
+        default=None,
+        description=(
+            "Relative path to the materialized module; set by the pipeline, not the LLM "
+            "(e.g. pipelines/<institution_id>/helpers/dedup_hooks.py)."
+        ),
+    )
     functions: list[HookFunctionSpec]
 
 

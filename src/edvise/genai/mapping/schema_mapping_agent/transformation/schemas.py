@@ -86,12 +86,6 @@ class MapValuesStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
-class NormalizeTermCodeStep(StrictBaseModel):
-    function_name: Literal["normalize_term_code"]
-    column: str
-    rationale: Optional[str] = None
-
-
 class NormalizeGradeStep(StrictBaseModel):
     function_name: Literal["normalize_grade"]
     column: str
@@ -156,26 +150,8 @@ class FillConstantStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
-class NormalizeYearRangeStep(StrictBaseModel):
-    function_name: Literal["normalize_year_range"]
-    column: str
-    rationale: Optional[str] = None
-
-
 class ExtractYearStep(StrictBaseModel):
     function_name: Literal["extract_year"]
-    column: str
-    rationale: Optional[str] = None
-
-
-class FormatAcademicYearFromCalendarYearStep(StrictBaseModel):
-    function_name: Literal["format_academic_year_from_calendar_year"]
-    column: str
-    rationale: Optional[str] = None
-
-
-class TermSeasonFromDatetimeStep(StrictBaseModel):
-    function_name: Literal["term_season_from_datetime"]
     column: str
     rationale: Optional[str] = None
 
@@ -187,30 +163,6 @@ class SubstringAfterFirstDelimiterStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
-class ParseYyyymmStep(StrictBaseModel):
-    function_name: Literal["parse_yyyymm"]
-    column: str
-    rationale: Optional[str] = None
-
-
-class ParseTermDescriptionStep(StrictBaseModel):
-    function_name: Literal["parse_term_description"]
-    column: str
-    rationale: Optional[str] = None
-
-
-class ExtractAcademicYearFromTermCodeStep(StrictBaseModel):
-    function_name: Literal["extract_academic_year_from_term_code"]
-    column: str
-    rationale: Optional[str] = None
-
-
-class ExtractTermSeasonFromTermCodeStep(StrictBaseModel):
-    function_name: Literal["extract_term_season_from_term_code"]
-    column: str
-    rationale: Optional[str] = None
-
-
 class AcademicYearFromTermCodeDisplayStep(StrictBaseModel):
     function_name: Literal["academic_year_from_term_code_display"]
     column: str
@@ -219,12 +171,6 @@ class AcademicYearFromTermCodeDisplayStep(StrictBaseModel):
 
 class AcademicTermCategoryFromTermCodeDisplayStep(StrictBaseModel):
     function_name: Literal["academic_term_category_from_term_code_display"]
-    column: str
-    rationale: Optional[str] = None
-
-
-class ParseTermCodeToDatetimeStep(StrictBaseModel):
-    function_name: Literal["parse_term_code_to_datetime"]
     column: str
     rationale: Optional[str] = None
 
@@ -281,7 +227,6 @@ TransformationStep = Annotated[
         LowercaseStep,
         UppercaseStep,
         MapValuesStep,
-        NormalizeTermCodeStep,
         NormalizeGradeStep,
         NormalizeEnrollmentStep,
         NormalizePellStep,
@@ -292,18 +237,10 @@ TransformationStep = Annotated[
         ReplaceValuesWithNullStep,
         StripTrailingDecimalStep,
         FillConstantStep,
-        NormalizeYearRangeStep,
         ExtractYearStep,
-        FormatAcademicYearFromCalendarYearStep,
-        TermSeasonFromDatetimeStep,
         SubstringAfterFirstDelimiterStep,
-        ParseYyyymmStep,
-        ParseTermDescriptionStep,
-        ExtractAcademicYearFromTermCodeStep,
-        ExtractTermSeasonFromTermCodeStep,
         AcademicYearFromTermCodeDisplayStep,
         AcademicTermCategoryFromTermCodeDisplayStep,
-        ParseTermCodeToDatetimeStep,
         BirthyearToAgeBucketStep,
         ConditionalCreditsStep,
         NewUtilityNeededStep,
@@ -394,7 +331,6 @@ def get_transformation_map_schema_context() -> str:
         LowercaseStep,
         UppercaseStep,
         MapValuesStep,
-        NormalizeTermCodeStep,
         NormalizeGradeStep,
         NormalizeEnrollmentStep,
         NormalizePellStep,
@@ -405,13 +341,7 @@ def get_transformation_map_schema_context() -> str:
         ReplaceValuesWithNullStep,
         StripTrailingDecimalStep,
         FillConstantStep,
-        NormalizeYearRangeStep,
         ExtractYearStep,
-        ParseYyyymmStep,
-        ParseTermDescriptionStep,
-        ExtractAcademicYearFromTermCodeStep,
-        ExtractTermSeasonFromTermCodeStep,
-        ParseTermCodeToDatetimeStep,
         BirthyearToAgeBucketStep,
         ConditionalCreditsStep,
         NewUtilityNeededStep,
