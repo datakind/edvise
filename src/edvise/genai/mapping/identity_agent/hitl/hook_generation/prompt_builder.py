@@ -119,8 +119,8 @@ Respond with **one JSON object only** — no markdown fences, no preamble. The o
       "name": "year_extractor",
       "signature": "<optional; e.g. def year_extractor(term: str) -> int>",
       "description": "<what it does>",
-      "example_input": "<JSON string: Python literal repr, e.g. \\"1192\\" for an int>",
-      "example_output": "<JSON string: Python literal repr, e.g. \\"2019\\">",
+      "example_input": "<JSON string: text that ast.literal_eval parses to your test input (int, str, tuple, etc.)>",
+      "example_output": "<JSON string: text that ast.literal_eval parses to the matching return value>",
       "draft": "<complete def year_extractor(term: str) -> int:\\n    ...body...>"
     },
     {
@@ -138,7 +138,9 @@ Rules:
 - **draft** for each function must be the **full** ``def`` block (signature + body), syntactically valid Python, not a bare expression.
 - **name** must match the ``def`` name in **draft**.
 - **signature** is optional display-only metadata.
-- **Term only — machine smoke tests:** **example_input** and **example_output** must be JSON **strings** whose text is a Python literal accepted by ``ast.literal_eval`` (e.g. ``"1192"`` for an integer, ``"\\\"FA\\\""`` for a string token). The pipeline runs automated smoke tests after materialize; mismatches fail hard. Omit either field only if you truly cannot provide a round-trippable literal (smoke test will skip that function).
+- **Term only — machine smoke tests:** **example_input** and **example_output** must be JSON **strings** whose text is a Python literal accepted by ``ast.literal_eval`` (numbers, quoted strings, tuples, etc.). After materialize, the pipeline runs smoke tests: **wrong examples log warnings** (fix in config if needed); **exceptions from executing the draft** fail materialization. Omit either field only if you truly cannot provide a round-trippable literal (smoke test will skip that function).
+- **Before responding:** Mentally run each **draft** on ``literal_eval(example_input)`` and confirm the return value equals ``literal_eval(example_output)``. They must agree; revise the draft or the example strings until they do.
+- **Same representation as the body:** The smoke test coerces inputs with ``literal_eval`` then calls your function. If the body uses string slicing or indexing, ensure you are slicing the same conceptual value (watch ``int`` vs ``str`` and string positions). Do not set ``example_output`` to match prose in the **description** if that disagrees with what the **code** returns for the chosen ``example_input``.
 - hitl_context contains the raw data samples the agent was looking at when it raised the flag — use it to understand the data shape.
 - If reviewer_note is present, treat it as the authoritative instruction and override any draft logic in config_snippet.
 - If reviewer_note is absent, use hitl_context and config_snippet together to infer the correct implementation.

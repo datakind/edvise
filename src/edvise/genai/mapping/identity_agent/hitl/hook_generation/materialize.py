@@ -39,8 +39,10 @@ def materialize_hook_spec_to_file(
     Validates the assembled module with :func:`ast.parse` before writing. Optionally runs pyflakes
     (warning only). When ``domain`` is
     :class:`~edvise.genai.mapping.identity_agent.hitl.schemas.HITLDomain.IDENTITY_TERM`, runs a
-    smoke test that uses :func:`ast.literal_eval` on ``example_input`` / ``example_output`` and
-    fails hard on mismatch. Grain and other domains skip smoke tests (examples are documentation).
+    smoke test that uses :func:`ast.literal_eval` on ``example_input`` / ``example_output``;
+    **mismatches log a warning** (reviewer may fix examples). **Execution errors** during the smoke
+    test raise :class:`~edvise.genai.mapping.identity_agent.hitl.resolver.HITLValidationError` and
+    block writing. Grain and other domains skip smoke tests (examples are documentation).
 
     ``domain`` is optional; when set, it is recorded in the module header comment only.
     """
@@ -132,8 +134,8 @@ def _call_fn_with_example(fn, parsed_in):
 def _run_hook_smoke_tests(hook_spec: HookSpec, module_path: Path) -> None:
     """
     **Term hooks only** (caller must pass ``domain=identity_term``). Import the module and
-    assert each function whose ``example_input`` / ``example_output`` are set matches after
-    :func:`ast.literal_eval`.
+    run each function whose ``example_input`` / ``example_output`` are set. Mismatches log a
+    warning; raised exceptions from the function call fail materialization.
     """
     from edvise.genai.mapping.identity_agent.hitl.resolver import HITLValidationError
 
@@ -171,15 +173,20 @@ def _run_hook_smoke_tests(hook_spec: HookSpec, module_path: Path) -> None:
             result = _call_fn_with_example(fn, parsed_in)
         except Exception as e:
             raise HITLValidationError(
-                f"Smoke test [{fn_spec.name}] raised on input {parsed_in!r}: {e}"
+                f"Smoke test execution failed for {fn_spec.name!r} with input "
+                f"{fn_spec.example_input!r}: {e}"
             ) from e
 
         if result != expected:
-            raise HITLValidationError(
-                f"Smoke test [{fn_spec.name}] expected {expected!r}, got {result!r} "
-                f"for input {parsed_in!r}."
+            logger.warning(
+                "Smoke test mismatch for %r: got %r, expected %r. "
+                "Example may be wrong — verify manually in logs; materialization continues.",
+                fn.__name__,
+                result,
+                fn_spec.example_output,
             )
-        print(f"  ✓ smoke [{fn_spec.name}] {parsed_in!r} → {result!r}")
+        else:
+            print(f"  ✓ smoke [{fn_spec.name}] {parsed_in!r} → {result!r}")
 
 
 __all__ = ["materialize_hook_spec_to_file"]

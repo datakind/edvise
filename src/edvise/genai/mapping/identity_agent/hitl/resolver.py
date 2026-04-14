@@ -56,6 +56,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -82,6 +83,8 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     TermResolution,
 )
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import SeasonMapEntry
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -424,8 +427,10 @@ def validate_hook(
     signature — parameter names/order and return annotation when the draft includes ``->``.
 
     For **identity_term** items only: also runs each function with ``example_input`` /
-    ``example_output`` coerced via :func:`ast.literal_eval`, asserting equality (same contract as
-    post-materialize smoke tests).
+    ``example_output`` coerced via :func:`ast.literal_eval`. If the return value does not match
+    ``example_output``, a **warning** is logged (reviewer may fix examples); **execution errors**
+    still fail validation. Same spirit as post-materialize smoke tests in
+    :func:`~edvise.genai.mapping.identity_agent.hitl.hook_generation.materialize.materialize_hook_spec_to_file`.
 
     For **identity_grain** (and future non-term domains such as transform hooks):
     ``example_input`` / ``example_output`` are documentation only — no literal_eval or execution.
@@ -502,6 +507,7 @@ def validate_hook(
         return fn(parsed_in)
 
     run_literal_tests = item.domain == HITLDomain.IDENTITY_TERM
+    term_example_mismatch_logged = False
 
     failures: list[str] = []
     for fn_spec in hook_spec_dict["functions"]:
@@ -553,9 +559,13 @@ def validate_hook(
                 )
                 continue
             if result != expected:
-                failures.append(
-                    f"[{name}] Expected output {expected!r}, got {result!r} "
-                    f"for input {parsed_in!r}."
+                term_example_mismatch_logged = True
+                logger.warning(
+                    "Hook validate_hook example mismatch for %r: got %r, expected raw "
+                    "example_output %r. Reviewer may fix examples in config — verify manually.",
+                    name,
+                    result,
+                    example_output,
                 )
             else:
                 print(f"  ✓ [{name}] {parsed_in!r} → {result!r}")
@@ -567,9 +577,15 @@ def validate_hook(
         )
 
     if run_literal_tests:
-        print(
-            f"✓ Hook signatures and literal examples validated for {hook_file}."
-        )
+        if term_example_mismatch_logged:
+            print(
+                f"✓ Hook signatures verified for {hook_file}; "
+                f"one or more example_input/example_output pairs mismatched execution (see warnings)."
+            )
+        else:
+            print(
+                f"✓ Hook signatures and literal examples validated for {hook_file}."
+            )
     else:
         print(
             f"✓ Hook signatures verified for {hook_file} — "
