@@ -640,7 +640,6 @@ VALIDITY RULES
         "description": "Extract year from opaque numeric term code.",
         "example_input": "1192",
         "example_output": "2019",
-        "expected_type": "int",
         "draft": "int(str(term)[1:3]) + 2000"
       },
       {
@@ -649,7 +648,6 @@ VALIDITY RULES
         "description": "Extract raw season token from term code. Returns one of: '9', '2', '6'.",
         "example_input": "1192",
         "example_output": "9",
-        "expected_type": "str",
         "draft": "str(term)[3:]"
       }
     ]
