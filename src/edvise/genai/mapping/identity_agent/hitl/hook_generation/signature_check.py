@@ -27,11 +27,20 @@ def _param_names_from_functiondef(node: ast.FunctionDef) -> list[str]:
     return names
 
 
-def _return_annotation_strings(func_def: ast.FunctionDef) -> tuple[str | None, bool]:
-    """Returns (unparsed return expr or None, whether draft specifies any return)."""
+def _draft_return_semantic_str(func_def: ast.FunctionDef) -> tuple[str | None, bool]:
+    """
+    Return text comparable to :func:`inspect.signature` return_annotation.
+
+    String forward refs (``-> "pd.DataFrame"``) are returned as ``pd.DataFrame`` — no outer
+    quote characters — so they match runtime ``str`` annotations and compare fairly to
+    resolved types (see :func:`_return_ann_match`).
+    """
     if func_def.returns is None:
         return None, False
-    return ast.unparse(func_def.returns).strip(), True
+    node = func_def.returns
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value, True
+    return ast.unparse(node).strip(), True
 
 
 def _runtime_ann_short(ann: object) -> str:
@@ -45,11 +54,26 @@ def _runtime_ann_short(ann: object) -> str:
 
 
 def _return_ann_match(draft_ret: str, ann: object) -> bool:
+    """
+    True if draft return annotation is consistent with runtime annotation.
+
+    Handles quoted forward refs (``"pd.DataFrame"`` in source) vs runtime ``str`` or
+    resolved class objects (e.g. ``pandas.DataFrame``).
+    """
     d = draft_ret.replace(" ", "")
     if ann is inspect.Signature.empty:
         return False
+    if isinstance(ann, str):
+        return d == ann.replace(" ", "")
     if isinstance(ann, type):
-        return d in (ann.__name__, ann.__qualname__)
+        q = ann.__qualname__.replace(" ", "")
+        n = ann.__name__.replace(" ", "")
+        if d in (q, n):
+            return True
+        # e.g. draft "pd.DataFrame" vs runtime pandas.DataFrame (__qualname__ "DataFrame")
+        if d.endswith("." + q) or d.endswith("." + n):
+            return True
+        return False
     return d == str(ann).replace(" ", "")
 
 
@@ -100,7 +124,7 @@ def signature_mismatches(
             f"vs module {runtime_params!r}"
         )
 
-    draft_ret_str, has_draft_return = _return_annotation_strings(func_def)
+    draft_ret_str, has_draft_return = _draft_return_semantic_str(func_def)
     if has_draft_return and draft_ret_str is not None:
         ann = sig.return_annotation
         if ann is inspect.Signature.empty:
