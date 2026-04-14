@@ -73,8 +73,25 @@ def _tn_when_null() -> str:
 
 Return `"term_config": null` when:
 
-- `row_selection_required` is **false** — term ordering is not needed for student-grain tables
 - No term column exists in the table after inspecting both `term_candidates` and `raw_table_profile`
+
+**Student-grain tables (`row_selection_required` is false):** Do **not** return null solely because
+multi-row term ordering is unnecessary. If the table still has a usable **cohort / entry /
+matriculation** column, return a non-null `term_config` so the cleaning layer can materialize
+`_edvise_term_academic_year`, `_edvise_term_season`, and `_term_order` on **one row per learner**.
+
+- **Term codes / strings:** Prefer scalar term-encoded columns (e.g. `starting_cohort_term`,
+  `entry_term_code`, `first_term_at_institution`) whose values use the **same institutional encoding**
+  as other datasets (YYYYTT, season+year strings, etc.). Set `term_col` to the **authoritative cohort or
+  entry** column from Step 1.
+- **Datetime columns:** If the only term-related candidates are datetimes, set `term_col` only on a
+  column that represents **start of cohort, entry, or matriculation** (e.g. program start, first
+  enrollment start). Do **not** use end dates, graduation dates, or unrelated timestamps as the
+  student-grain term column. Use `term_extraction` / `hook_spec` appropriate for datetime (see Step 2).
+
+If **no** column plausibly represents cohort, entry, or matriculation term or start (only demographics,
+IDs, unrelated dates, etc.), return `"term_config": null` — do not invent a term config from non-entry
+columns.
 
 When `term_candidates` is empty but `row_selection_required` is **true**, inspect `raw_table_profile` for any column that could encode term information before returning null. If still nothing found, return null with `hitl_flag: true`.
 """
@@ -91,6 +108,14 @@ From `term_candidates`, select the most authoritative term column. Prefer:
 - Coded identifiers over display labels (e.g. `term_code` over `term_desc`)
 - Non-null columns over sparse ones
 - Columns that are part of `post_clean_primary_key` from grain inference
+
+**Student-grain (one row per learner):** Prefer the column that defines **cohort / entry /
+matriculation start** for Edvise (e.g. `starting_cohort_term`, `cohort_term`, `entry_term`) when it
+uses the institution's standard term encoding, even if other term-like columns exist (e.g. expected
+graduation term). **Datetime fields:** only choose a datetime if it is clearly **start**-aligned
+(entry / cohort / matriculation start), not program end or degree dates. If only one suitable
+term-like scalar exists, use it as `term_col`. The goal is one `term_config` whose `season_map`
+matches other datasets so `_edvise_term_*` labels align across tables.
 
 If multiple valid term columns exist, select the one most suitable for parsing and note the others.
 

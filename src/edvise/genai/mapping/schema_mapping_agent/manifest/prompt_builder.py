@@ -132,13 +132,83 @@ def _column_aliases_scope_bullet(scope: Literal["single_pass", "entity_pass"]) -
   are producing in this response, based only on joins present in that section."""
 
 
+def _step2a_cohort_entry_term_rules() -> str:
+    """Step 2a: mapping rules for cohort entry_year / entry_term (manifest)."""
+    return """
+COHORT entry_year AND entry_term — decision hierarchy (apply in order)
+
+**(1) Preferred — IdentityAgent normalized columns on the student (cohort base) table**
+- When the schema contract **dtypes** for the cohort base table (typically `student`) include
+  `_edvise_term_academic_year` and `_edvise_term_season`, map `entry_year` and `entry_term` to those
+  columns with `source_table` = that base table and `row_selection.strategy`: `"any_row"`.
+- Do **not** treat raw institutional term-code strings on student (e.g. `starting_cohort_term`) as an
+  equivalent preferred source when `_edvise_term_*` are present.
+
+**(2) Fallback — join to `term` or `course` (student-term grain)**
+- Use only when **(1)** is impossible: `_edvise_term_*` are missing on the student row **and** a viable
+  join exists from student → `term` or `course` on `student_id` only (see JOINS AND ALIASES).
+- Resolve `entry_year` / `entry_term` from the lookup table's `_edvise_term_academic_year` /
+  `_edvise_term_season` using `row_selection.strategy`: `"first_by"`, `row_selection.order_by`:
+  `"_term_order"` (IdentityAgent chronological key).
+- **Semantic caveat:** this path means **first term in enrollment history** (earliest term row), **not**
+  necessarily institutional cohort / starting cohort. State that explicitly in **rationale** and
+  **validation_notes**.
+- Use **low confidence** (typically ≤ 0.65) and flag **HITL review** — this is a proxy, not cohort.
+
+**(3) Unmapped — upstream IdentityAgent / enrichment gap**
+- If neither **(1)** nor **(2)** is defensible, set `entry_year` / `entry_term` to unmappable
+  (`source_column` / `source_table` / `row_selection` null as required by UNMAPPABLE FIELDS).
+- **validation_notes** must state that **IdentityAgent must resolve** materializing `_edvise_term_*` on
+  student or providing a joinable normalized path — **surface to the human reviewer**; this is not fixable
+  by SMA alone.
+"""
+
+
+def _step2a_course_academic_term_rules() -> str:
+    """Step 2a: mapping rules for course academic_year / academic_term (manifest)."""
+    return """
+COURSE academic_year AND academic_term — decision hierarchy (apply in order)
+
+**(1) Preferred — IdentityAgent normalized columns on the course base table**
+- When **dtypes** for the course entity base table (e.g. `course`) include `_edvise_term_academic_year`
+  and `_edvise_term_season`, map `academic_year` and `academic_term` to those columns with
+  `source_table` = that base table and `row_selection.strategy`: `"any_row"`.
+- Do **not** map from raw `term` code strings on the course row when `_edvise_term_*` are present.
+
+**(2) Missing `_edvise_*` on course — do not join to the `term` table**
+- Each course row already carries the term identifier (e.g. `term`). Joining course → `term` only to copy
+  `_edvise_term_*` does not fix the real issue: IdentityAgent should materialize those columns **on the
+  course frame** for that same key. Prefer treating this as an **upstream IA / enrichment gap**:
+  **unmappable** with **validation_notes** that IA must resolve (term order on course), **surface to reviewer**.
+- Only if you must ship a non-null mapping and a raw term code column exists **on the same course row**,
+  map from that column as a **temporary** fallback with low confidence, **HITL**, and **validation_notes**
+  flagging IA — transformation will use extract utilities; this is not equivalent to **(1)**.
+
+**(3) No usable term column on course**
+- Leave `academic_year` / `academic_term` unmappable; document in rationale / validation_notes.
+"""
+
+
 def _step2a_rules_after_structure(
     institution_name: str,
     *,
     column_aliases_scope: Literal["single_pass", "entity_pass"],
+    term_rules: Literal["cohort_and_course", "cohort_only", "course_only"] = "cohort_and_course",
 ) -> str:
-    """Shared rules (SOURCE COLUMNS → TARGET SCHEMA AUTHORITY) for all Step 2a prompt variants."""
+    """Shared rules (SOURCE COLUMNS → TARGET SCHEMA AUTHORITY) for all Step 2a prompt variants.
+
+    ``term_rules`` controls which term-field hierarchies are injected (cohort entry vs course academic):
+    ``cohort_and_course`` for single-pass prompts; ``cohort_only`` / ``course_only`` for entity passes
+    so each pass only sees instructions for its entity.
+    """
     alias_bullet = _column_aliases_scope_bullet(column_aliases_scope)
+    if term_rules == "cohort_and_course":
+        term_blocks = _step2a_cohort_entry_term_rules() + _step2a_course_academic_term_rules()
+    elif term_rules == "cohort_only":
+        term_blocks = _step2a_cohort_entry_term_rules()
+    else:
+        term_blocks = _step2a_course_academic_term_rules()
+
     return f"""SOURCE COLUMNS
 - Use only source columns and tables present in the {institution_name} schema contract
 - Do not use any {institution_name} codebase or prior cleaning scripts as a reference
@@ -243,7 +313,7 @@ Step 4 — row_selection resolves multiplicity after the join
 - After joining, row_selection picks which row(s) to use. This is where ordering,
   filtering, and nth selection belong — not in join_keys.
 - See the ROW SELECTION section below for allowed strategies and when to use each.
-
+{term_blocks}
 ROW SELECTION
 - row_selection.strategy: "any_row", "first_by", "where_not_null", "constant", or "nth"
 - row_selection.filter.operator (optional): ONLY "contains", "equals", "startswith", or "isin" —
@@ -562,7 +632,7 @@ STRUCTURE (cohort pass only)
   these are institution-specific and must be derived from the {institution_name} schema contract.
   The reference manifests are structural reference only
 
-{_step2a_rules_after_structure(institution_name, column_aliases_scope="entity_pass")}
+{_step2a_rules_after_structure(institution_name, column_aliases_scope="entity_pass", term_rules="cohort_only")}
 {_step2a_json_output_rules()}
 - Output only the entity manifest object — a JSON object with keys entity_type, target_schema, mappings, and column_aliases. Do not include institution_id, schema_version, or any envelope-level fields. These are added by the calling code.
 - The manifests object MUST contain only the \"cohort\" key; omit \"course\" entirely
@@ -630,7 +700,7 @@ STRUCTURE (course pass only)
   these are institution-specific and must be derived from the {institution_name} schema contract.
   The reference manifests are structural reference only
 
-{_step2a_rules_after_structure(institution_name, column_aliases_scope="entity_pass")}
+{_step2a_rules_after_structure(institution_name, column_aliases_scope="entity_pass", term_rules="course_only")}
 {_step2a_json_output_rules()}
 - Output only the entity manifest object — a JSON object with keys entity_type, target_schema, mappings, and column_aliases. Do not include institution_id, schema_version, or any envelope-level fields. These are added by the calling code.
 - The manifests object MUST contain only the \"course\" key; omit \"cohort\" entirely

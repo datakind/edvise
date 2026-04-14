@@ -14,6 +14,45 @@ from ..manifest.prompt_builder import (
 )
 
 
+def _step2b_cohort_entry_term_transformation_rules() -> str:
+    """Step 2b: transformation steps for cohort entry_year / entry_term (align with manifest hierarchy)."""
+    return """
+COHORT entry_year AND entry_term — transformation steps (mirror manifest hierarchy)
+
+**(1) Preferred — `_edvise_term_*` on the cohort base table are the manifest sources**
+- Use only `strip_whitespace` and `cast_string` on `_edvise_term_academic_year` and `_edvise_term_season`.
+- Do **not** use `extract_academic_year_from_term_code` or `extract_term_season_from_term_code`.
+
+**(2) Fallback — manifest used a `term` / `course` join with `first_by` `_term_order`**
+- Same strip/cast on the resolved `_edvise_term_*` Series from the lookup row.
+- **reviewer_notes:** remind that semantics are **first term in history**, not necessarily cohort.
+
+**(3) Manifest could not use normalized columns — unmappable or raw term fallback**
+- If the manifest points at raw term codes and **validation_notes** flagged an IA gap, use extract
+  utilities matching that column's format and **reviewer_notes:** IdentityAgent must materialize
+  `_edvise_term_*` on student.
+- If unmappable in the manifest, use empty `steps` with appropriate reviewer_notes.
+"""
+
+
+def _step2b_course_academic_term_transformation_rules() -> str:
+    """Step 2b: transformation steps for course academic_year / academic_term."""
+    return """
+COURSE academic_year AND academic_term — transformation steps (mirror manifest hierarchy)
+
+**(1) Preferred — manifest sources are `_edvise_term_*` on the course base table**
+- Use only `strip_whitespace` and `cast_string` on `_edvise_term_academic_year` and `_edvise_term_season`.
+- Do **not** use extract utilities on those columns.
+
+**(2) Manifest maps raw `term` on the course row (IA gap; temporary)**
+- Use `extract_academic_year_from_term_code` / `extract_term_season_from_term_code` only when the manifest
+  explicitly maps from a raw term code column on **course**; **reviewer_notes** flag upstream IA.
+
+**(3) Unmappable in manifest**
+- Empty `steps`; do not invent transforms.
+"""
+
+
 def get_transformation_utilities_context() -> str:
     """
     Extract transformation utilities documentation from transformation_utilities.py.
@@ -159,6 +198,8 @@ STEP ORDERING
   unless an earlier step requires a specific type as input
 - Apply domain-specific normalization (normalize_grade, etc.) as needed; canonical term season and academic year come from IdentityAgent columns (_edvise_term_season, _edvise_term_academic_year), not SMA string parsers
 
+{_step2b_cohort_entry_term_transformation_rules()}
+{_step2b_course_academic_term_transformation_rules()}
 EXTRA COLUMNS
 - Some utilities require extra_columns
   (e.g., birthyear_to_age_bucket needs reference_year_series, conditional_credits needs grade_series)
