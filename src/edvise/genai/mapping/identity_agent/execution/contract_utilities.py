@@ -251,7 +251,9 @@ def load_grain_dedup_hook_from_hook_spec(
 
     The hook is invoked once per key-group: ``df.groupby(keys).apply`` passes each group
     ``DataFrame`` (same columns as the full frame) to the loaded function, which must return
-    a ``DataFrame`` (typically zero or one row per group).
+    a ``DataFrame`` (typically zero or one row per group). Column names are **already
+    snake_case** — :func:`~edvise.data_audit.custom_cleaning.clean_dataset` runs
+    ``normalize_columns`` before ``dedupe_fn``.
     """
     from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
         resolve_hook_module_path,
@@ -284,6 +286,7 @@ def _apply_grain_hook_dedup_by_key_groups(
     keys: list[str],
     hook_fn: Callable[[pd.DataFrame], pd.DataFrame],
 ) -> pd.DataFrame:
+    """``df`` uses normalized column names (see :func:`apply_grain_dedup`)."""
     if df.empty:
         return df.copy()
     pieces: list[pd.DataFrame] = []

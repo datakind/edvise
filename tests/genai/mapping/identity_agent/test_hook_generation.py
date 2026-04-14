@@ -7,7 +7,9 @@ import pytest
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
 from edvise.genai.mapping.identity_agent.hitl.hook_generation import (
     build_hook_generation_system_prompt,
+    build_hook_generation_user_message,
     extract_config_snippet_for_hook_item,
+    normalized_column_names_from_raw_headers,
     parse_hook_spec,
 )
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
@@ -96,9 +98,40 @@ def test_build_hook_generation_system_prompt_grain_term():
     assert "HookSpec" in g and "dedup" in g.lower()
     assert "machine-round-trip" not in g.lower()
     assert "ast.parse" in g
+    assert "normalized_columns" in g
     t = build_hook_generation_system_prompt(HITLDomain.IDENTITY_TERM)
     assert "year_extractor" in t and "season_extractor" in t
     assert "validate_hook" in t
+    assert "normalized_columns" in t
+
+
+def test_normalized_column_names_from_raw_headers_snake_case():
+    assert normalized_column_names_from_raw_headers(["Major", "MAJOR_CODE"]) == [
+        "major",
+        "major_code",
+    ]
+
+
+def test_build_hook_generation_user_message_includes_normalized_columns():
+    item = _minimal_grain_item("programs")
+    cfg = {
+        "institution_id": "u1",
+        "datasets": {
+            "programs": {
+                "grain_contract": {"table": "programs", "institution_id": "u1"},
+            }
+        },
+    }
+    sn = extract_config_snippet_for_hook_item(cfg, item)
+    raw = build_hook_generation_user_message(
+        item,
+        sn,
+        normalized_columns=["major", "major_code", "learner_id"],
+    )
+    payload = json.loads(raw)
+    assert payload["normalized_columns"] == ["major", "major_code", "learner_id"]
+    payload2 = json.loads(build_hook_generation_user_message(item, sn))
+    assert "normalized_columns" not in payload2
 
 
 def test_build_hook_generation_system_prompt_rejects_unknown():

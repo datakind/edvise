@@ -21,6 +21,7 @@ from edvise.genai.mapping.identity_agent.hitl.hook_generation.prompt_builder imp
     build_hook_generation_system_prompt,
     build_hook_generation_user_message,
     extract_config_snippet_for_hook_item,
+    normalized_column_names_from_raw_headers,
 )
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.signature_check import (
     signature_mismatches,
@@ -31,6 +32,7 @@ __all__ = [
     "build_hook_generation_user_message",
     "default_hook_module_relpath",
     "extract_config_snippet_for_hook_item",
+    "normalized_column_names_from_raw_headers",
     "generate_hook_spec",
     "generate_hook_specs_for_hook_items",
     "ensure_hook_spec_file",

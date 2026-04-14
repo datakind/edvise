@@ -8,9 +8,24 @@ Term: ``year_extractor`` / ``season_extractor`` (or split-column helpers) for ``
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from typing import Any
 
+from edvise.data_audit.custom_cleaning import normalize_columns
 from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain, HITLItem
+
+
+def normalized_column_names_from_raw_headers(cols: Iterable[str]) -> list[str]:
+    """
+    Column names as they appear **after** :func:`~edvise.data_audit.custom_cleaning.normalize_columns`
+    (same as step 1 of :func:`~edvise.data_audit.custom_cleaning.clean_dataset`).
+
+    Pass raw file / CSV headers; use the returned list as ``normalized_columns`` for
+    :func:`build_hook_generation_user_message` / :func:`generate_hook_spec` so the LLM sees
+    authoritative names (e.g. ``major`` not ``Major``).
+    """
+    norm, _ = normalize_columns(cols)
+    return [str(x) for x in norm]
 
 
 def build_hook_generation_system_prompt(domain: HITLDomain) -> str:
@@ -27,14 +42,21 @@ def build_hook_generation_system_prompt(domain: HITLDomain) -> str:
 def build_hook_generation_user_message(
     item: HITLItem,
     config_snippet: dict[str, Any],
+    *,
+    normalized_columns: list[str] | None = None,
 ) -> str:
     """
     User payload: HITL item fields plus the relevant config slice (grain or term).
 
     ``config_snippet`` should be shaped like
     ``{"grain_contract": {...}}`` or ``{"term_config": {...}}`` (term_config may be null).
+
+    ``normalized_columns``: exact column names on the dataframe **after** ``normalize_columns``
+    in ``clean_dataset`` (snake_case). Pass :func:`normalized_column_names_from_raw_headers` on
+    raw headers, or any list aligned with the cleaned frame. When set, prompts tell the model to
+    use **only** these names for indexing (avoids ``KeyError`` from raw header spellings in hitl_context).
     """
-    payload = {
+    payload: dict[str, Any] = {
         "item_id": item.item_id,
         "institution_id": item.institution_id,
         "table": item.table,
@@ -47,6 +69,8 @@ def build_hook_generation_user_message(
         "target": item.target.model_dump(mode="json"),
         "config_snippet": config_snippet,
     }
+    if normalized_columns is not None:
+        payload["normalized_columns"] = list(normalized_columns)
     return json.dumps(payload, indent=2)
 
 
@@ -99,6 +123,8 @@ Rules:
 - **signature** is optional metadata for reviewers; materialization does not use it.
 - **description** documents intent for reviewers. Materialization validates **draft** with syntax check (``ast.parse``) and optional pyflakes.
 - hitl_context contains the raw data samples the agent was looking at when it raised the flag — use it to understand the data shape.
+- **Column names in ``draft`` (e.g. ``group["…"]``) must match the cleaned dataframe:** headers are **normalized to snake_case** (``normalize_columns``) **before** ``dedupe_fn`` runs inside ``clean_dataset``.
+- **When the user message JSON includes ``normalized_columns``:** treat that list as **authoritative** — use **only** those strings for bracket indexing and column logic. Do not infer names from ``hitl_context`` sample labels if they disagree (raw ``Major`` vs cleaned ``major``). If ``normalized_columns`` is absent, infer snake_case from context and config_snippet; wrong names cause ``KeyError`` at runtime.
 - If reviewer_note is present, treat it as the authoritative instruction and override any draft logic in config_snippet.
 - If reviewer_note is absent, use hitl_context and config_snippet together to infer the correct implementation.
 - Functions implement the policy implied by hitl_question / hitl_context and the grain_contract snippet.
@@ -137,6 +163,7 @@ Rules:
 - **signature** is optional display-only metadata.
 - **description** documents intent for reviewers. After materialize, validation is **syntax** (``ast.parse``), optional **pyflakes**, then **signature** comparison in ``validate_hook`` (draft vs imported function) — no execution smoke tests.
 - hitl_context contains the raw data samples the agent was looking at when it raised the flag — use it to understand the data shape.
+- **When the user message JSON includes ``normalized_columns``:** those are the exact column names on the cleaned frame (after ``normalize_columns``). Use them for any code that references dataframe columns (e.g. if you read auxiliary columns beyond the term string). If absent, align with term_col / year_col / season_col from config_snippet using snake_case names.
 - If reviewer_note is present, treat it as the authoritative instruction and override any draft logic in config_snippet.
 - If reviewer_note is absent, use hitl_context and config_snippet together to infer the correct implementation.
 - season_extractor output must match raw keys in season_map when term_config uses a single term column.
@@ -150,4 +177,5 @@ __all__ = [
     "build_hook_generation_system_prompt",
     "build_hook_generation_user_message",
     "extract_config_snippet_for_hook_item",
+    "normalized_column_names_from_raw_headers",
 ]
