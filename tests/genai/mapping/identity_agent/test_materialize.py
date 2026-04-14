@@ -178,7 +178,7 @@ def test_merge_hook_specs_rejects_different_paths(tmp_path: Path) -> None:
         merge_hook_specs(a, b, repo_root=tmp_path)
 
 
-def test_merge_hook_specs_rejects_duplicate_names(tmp_path: Path) -> None:
+def test_merge_hook_specs_dedupes_identical_duplicate_names(tmp_path: Path) -> None:
     dup = HookFunctionSpec(
         name="f",
         description="d",
@@ -186,7 +186,33 @@ def test_merge_hook_specs_rejects_duplicate_names(tmp_path: Path) -> None:
     )
     a = HookSpec(file="helpers/x.py", functions=[dup])
     b = HookSpec(file="helpers/x.py", functions=[dup])
-    with pytest.raises(HITLValidationError, match="duplicate function name"):
+    merged = merge_hook_specs(a, b, repo_root=tmp_path)
+    assert len(merged.functions) == 1
+    assert merged.functions[0].name == "f"
+
+
+def test_merge_hook_specs_rejects_conflicting_duplicate_names(tmp_path: Path) -> None:
+    a = HookSpec(
+        file="helpers/x.py",
+        functions=[
+            HookFunctionSpec(
+                name="f",
+                description="d",
+                draft="def f():\n    return 1\n",
+            )
+        ],
+    )
+    b = HookSpec(
+        file="helpers/x.py",
+        functions=[
+            HookFunctionSpec(
+                name="f",
+                description="d",
+                draft="def f():\n    return 2\n",
+            )
+        ],
+    )
+    with pytest.raises(HITLValidationError, match="conflicting"):
         merge_hook_specs(a, b, repo_root=tmp_path)
 
 

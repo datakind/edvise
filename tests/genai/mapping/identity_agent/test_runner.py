@@ -6,8 +6,8 @@ import pandas as pd
 import pytest
 
 from edvise.genai.mapping.identity_agent.grain_inference.runner import (
-    run_identity_agent,
-    run_identity_agents_for_institution,
+    run_identity_agent_with_hitl,
+    run_identity_agents_for_institution_with_hitl,
 )
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
@@ -67,7 +67,7 @@ def test_run_identity_agent_calls_llm_and_parse():
         assert "inst" in user and "students" in user
         return raw
 
-    c = run_identity_agent(
+    c, items = run_identity_agent_with_hitl(
         institution_id="inst",
         dataset_name="students",
         key_profile=_kp(),
@@ -76,9 +76,10 @@ def test_run_identity_agent_calls_llm_and_parse():
     )
     assert c.table == "t"
     assert c.confidence == 0.9
+    assert items == []
 
 
-def test_run_identity_agents_for_institution_routes_callbacks():
+def test_run_identity_agents_for_institution_with_hitl_routes_callbacks():
     df_a = pd.DataFrame({"student_id": [1]})
     df_b = pd.DataFrame({"student_id": [2]})
     profiles = {"a": _kp(), "b": _kp()}
@@ -102,7 +103,7 @@ def test_run_identity_agents_for_institution_routes_callbacks():
     def auto(c):
         calls.append(("auto", c.table))
 
-    out = run_identity_agents_for_institution(
+    out, _hitl = run_identity_agents_for_institution_with_hitl(
         institution_id="inst",
         institution_profiles=profiles,
         dfs=dfs,
@@ -115,12 +116,12 @@ def test_run_identity_agents_for_institution_routes_callbacks():
     assert calls == [("auto", "a"), ("hitl", "b")]
 
 
-def test_run_identity_agents_for_institution_missing_df():
+def test_run_identity_agents_for_institution_with_hitl_missing_df():
     profiles = {"a": _kp()}
     dfs: dict = {}
 
     with pytest.raises(KeyError, match="No DataFrame"):
-        run_identity_agents_for_institution(
+        run_identity_agents_for_institution_with_hitl(
             institution_id="inst",
             institution_profiles=profiles,
             dfs=dfs,

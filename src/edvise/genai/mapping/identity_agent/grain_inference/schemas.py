@@ -245,7 +245,7 @@ class InstitutionGrainContract(BaseModel):
         return self
 
     def contracts_by_dataset(self) -> dict[str, GrainContract]:
-        """Return the same mapping as :func:`run_identity_agents_for_institution` / schema merge APIs expect."""
+        """Return the same mapping as institution grain runners / schema merge APIs expect."""
         return dict(self.datasets)
 
 

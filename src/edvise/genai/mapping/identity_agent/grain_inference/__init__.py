@@ -31,9 +31,7 @@ from .prompt_builder import (
     strip_json_fences,
 )
 from .runner import (
-    run_identity_agent,
     run_identity_agent_with_hitl,
-    run_identity_agents_for_institution,
     run_identity_agents_for_institution_with_hitl,
 )
 from .run_by_dataset import (
@@ -74,9 +72,7 @@ __all__ = [
     "parse_grain_contract",
     "parse_grain_contract_with_hitl",
     "parse_institution_grain_contracts",
-    "run_identity_agent",
     "run_identity_agent_with_hitl",
-    "run_identity_agents_for_institution",
     "run_identity_agents_for_institution_with_hitl",
     "require_databricks_token",
     "resolve_ai_gateway_base_url",

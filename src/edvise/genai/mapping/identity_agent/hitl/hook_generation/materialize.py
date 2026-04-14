@@ -40,7 +40,9 @@ def merge_hook_specs(
     - With ``repo_root``: resolved paths (via :func:`~edvise.genai.mapping.identity_agent.hitl.hook_generation.paths.resolve_hook_module_path`) must be identical.
     - Without ``repo_root``: ``hook_spec.file`` strings must be identical and non-null.
 
-    Function ``name`` values must be unique across the merged list (duplicate names raise).
+    Duplicate function ``name`` values are allowed when the ``draft`` text matches (same
+    definition from multiple tables); only the first copy is kept. Conflicting drafts for the
+    same name raise.
 
     The first spec's ``file`` is kept on the result.
     """
@@ -74,14 +76,18 @@ def merge_hook_specs(
             )
 
     merged_functions: list[HookFunctionSpec] = []
-    seen: set[str] = set()
+    seen_draft_by_name: dict[str, str] = {}
     for s in specs:
         for fn in s.functions:
-            if fn.name in seen:
-                raise HITLValidationError(
-                    f"merge_hook_specs: duplicate function name {fn.name!r} across specs"
-                )
-            seen.add(fn.name)
+            draft = (fn.draft or "").strip()
+            if fn.name in seen_draft_by_name:
+                if seen_draft_by_name[fn.name] != draft:
+                    raise HITLValidationError(
+                        f"merge_hook_specs: duplicate function name {fn.name!r} with conflicting "
+                        "drafts — use one definition or align drafts across HookSpecs."
+                    )
+                continue
+            seen_draft_by_name[fn.name] = draft
             merged_functions.append(fn)
 
     return HookSpec(file=specs[0].file, functions=merged_functions)

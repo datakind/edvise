@@ -212,8 +212,10 @@ def resolve_items(
 ) -> None:
     """
     For each HITLItem with ``choice`` set:
-      - TERMINAL reentry  → applies resolution to config
-      - GENERATE_HOOK     → skips config mutation, surfaces via get_hook_items()
+      - TERMINAL reentry  → applies full resolution to config
+      - GENERATE_HOOK     → applies everything **except** ``hook_spec`` (e.g. ``season_map_replace``,
+        ``exclude_tokens``, grain PK/dedup); ``hook_spec`` is written later via
+        :func:`apply_hook_spec`. Surfaces the item via :func:`get_hook_items`.
 
     Writes updated config and HITL envelope back to disk.
     """
@@ -229,16 +231,34 @@ def resolve_items(
             continue
 
         if selected.reentry == ReentryDepth.GENERATE_HOOK:
+            # Still apply non-hook mutations (e.g. season_map_replace, exclude_tokens,
+            # term_col_override, grain PK / dedup). hook_spec is deferred to apply_hook_spec.
+            if selected.resolution is not None:
+                coerced_gh = _coerce_resolution(item, selected.resolution)
+                if isinstance(coerced_gh, TermResolution):
+                    deferred = coerced_gh.model_copy(update={"hook_spec": None})
+                    _apply_term_resolution_for_hook_group(
+                        config, envelope, item, deferred
+                    )
+                elif isinstance(coerced_gh, GrainResolution):
+                    deferred = coerced_gh.model_copy(update={"hook_spec": None})
+                    _apply_grain_resolution(config, item, deferred)
             print(
                 f"⚠  [{item.item_id}] Requires hook generation — "
                 f"call get_hook_items() and apply_hook_spec() after hook gen."
             )
             continue
 
-        if isinstance(selected.resolution, GrainResolution):
-            _apply_grain_resolution(config, item, selected.resolution)
-        elif isinstance(selected.resolution, TermResolution):
-            _apply_term_resolution(config, item, selected.resolution)
+        coerced = _coerce_resolution(item, selected.resolution)
+        if isinstance(coerced, GrainResolution):
+            _apply_grain_resolution(config, item, coerced)
+        elif isinstance(coerced, TermResolution):
+            _apply_term_resolution_for_hook_group(config, envelope, item, coerced)
+        else:
+            raise HITLValidationError(
+                f"[{item.item_id}] Internal error: coerced resolution has unexpected type "
+                f"{type(coerced)}"
+            )
 
         print(f"✓ [{item.item_id}] Applied option '{selected.option_id}'.")
 
@@ -322,6 +342,32 @@ def _term_tables_for_hook_group(
             if item.hook_group_tables:
                 tables.update(item.hook_group_tables)
     return sorted(tables)
+
+
+def _term_target_tables_for_item(
+    envelope: InstitutionHITLItems,
+    item: HITLItem,
+) -> list[str]:
+    """
+    Tables that should receive the same ``term_config`` mutations as :func:`apply_hook_spec`
+    fan-out — union of ``hook_group_tables`` and each item's ``table`` for the group.
+    """
+    if item.domain != HITLDomain.IDENTITY_TERM:
+        return [item.target.table]
+    if item.hook_group_id:
+        return _term_tables_for_hook_group(envelope, item.hook_group_id)
+    return [item.target.table]
+
+
+def _apply_term_resolution_for_hook_group(
+    config: dict,
+    envelope: InstitutionHITLItems,
+    item: HITLItem,
+    resolution: TermResolution,
+) -> None:
+    """Apply :func:`_apply_term_resolution` to every table in the item's term hook group."""
+    for tbl in _term_target_tables_for_item(envelope, item):
+        _apply_term_resolution(config, item, resolution, table=tbl)
 
 
 def apply_hook_spec(
@@ -704,29 +750,41 @@ def _apply_term_resolution(
     config: dict,
     item: HITLItem,
     resolution: TermResolution,
+    *,
+    table: str | None = None,
 ) -> None:
-    table = item.target.table
-    term_cfg = _get_nested(config, table, "term_config", item.item_id)
+    tbl = table if table is not None else item.target.table
+    term_cfg = _get_nested(config, tbl, "term_config", item.item_id)
 
     if resolution.exclude_tokens:
         existing = term_cfg.setdefault("exclude_tokens", [])
         for token in resolution.exclude_tokens:
             if token not in existing:
                 existing.append(token)
-        print(f"  → exclude_tokens appended: {resolution.exclude_tokens}")
+        print(
+            f"  → [{tbl}] exclude_tokens appended: {resolution.exclude_tokens}"
+        )
+
+    if resolution.season_map_replace is not None:
+        new_map: list[dict] = []
+        for raw_entry in resolution.season_map_replace:
+            entry = SeasonMapEntry.model_validate(raw_entry)
+            new_map.append(entry.model_dump(mode="json"))
+        term_cfg["season_map"] = new_map
+        print(f"  → [{tbl}] season_map replaced ({len(new_map)} entries)")
 
     if resolution.season_map_append:
         existing = term_cfg.setdefault("season_map", [])
         for raw_entry in resolution.season_map_append:
             entry = SeasonMapEntry.model_validate(raw_entry)
             existing.append(entry.model_dump(mode="json"))
-        print(f"  → season_map extended: {resolution.season_map_append}")
+        print(f"  → [{tbl}] season_map extended: {resolution.season_map_append}")
 
     if resolution.term_col_override:
         term_cfg["term_col"] = resolution.term_col_override
         term_cfg["year_col"] = None
         term_cfg["season_col"] = None
-        print(f"  → term_col overridden: {resolution.term_col_override}")
+        print(f"  → [{tbl}] term_col overridden: {resolution.term_col_override}")
 
     if resolution.hook_spec is not None:
         _apply_term_hook_spec_dict(
@@ -736,7 +794,7 @@ def _apply_term_resolution(
             institution_id=item.institution_id,
         )
         print(
-            f"  → term_config: hook_spec set; term_extraction=hook_required "
+            f"  → [{tbl}] term_config: hook_spec set; term_extraction=hook_required "
             f"(runtime mode for hook extractors — unchanged after materialize) [{item.item_id}]"
         )
 
@@ -776,6 +834,38 @@ def _read_hook_spec_from_config(config: dict, item: HITLItem) -> dict | None:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _coerce_resolution(
+    item: HITLItem,
+    resolution: object,
+) -> GrainResolution | TermResolution:
+    """
+    JSON-loaded HITL stores ``option.resolution`` as a plain ``dict``.
+    :func:`resolve_items` must validate into :class:`GrainResolution` or
+    :class:`TermResolution` before applying mutations.
+    """
+    if resolution is None:
+        raise HITLValidationError(
+            f"[{item.item_id}] resolution is null — cannot apply (use reentry=generate_hook "
+            f"for hook generation, or pick a non-custom option)."
+        )
+    if isinstance(resolution, GrainResolution):
+        return resolution
+    if isinstance(resolution, TermResolution):
+        return resolution
+    if isinstance(resolution, dict):
+        if item.domain == HITLDomain.IDENTITY_GRAIN:
+            return GrainResolution.model_validate(resolution)
+        if item.domain == HITLDomain.IDENTITY_TERM:
+            return TermResolution.model_validate(resolution)
+        raise HITLValidationError(
+            f"[{item.item_id}] Unsupported HITL domain for resolution dict: {item.domain!r}"
+        )
+    raise HITLValidationError(
+        f"[{item.item_id}] resolution must be dict, GrainResolution, or TermResolution; "
+        f"got {type(resolution).__name__}"
+    )
 
 
 def _validate_selection(item: HITLItem) -> HITLOption | None:
