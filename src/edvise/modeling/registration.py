@@ -1,6 +1,7 @@
 import logging
 import re
 import typing as t
+from collections.abc import Iterable
 
 import mlflow
 import mlflow.exceptions
@@ -60,7 +61,7 @@ def _retention_credential_suffix(raw: object) -> str:
     ASSOCIATE DEGREE``); labels may contain the word "certificate".
     """
     items = (
-        [str(x) for x in raw]
+        [str(x) for x in t.cast(Iterable[object], raw)]
         if edvise_types.is_collection_but_not_string(raw)
         else [str(raw)]
     )
