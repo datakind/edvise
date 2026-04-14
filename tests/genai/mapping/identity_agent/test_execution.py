@@ -273,7 +273,9 @@ def test_apply_term_order_raises_when_hook_required_hooks_not_wired():
         apply_term_order_from_config(df, c)
 
 
-def test_apply_term_order_hook_required_loads_extractors_from_hook_modules_root(tmp_path):
+def test_apply_term_order_hook_required_loads_extractors_from_hook_modules_root(
+    tmp_path,
+):
     hook_dir = tmp_path / "identity_hooks" / "jj"
     hook_dir.mkdir(parents=True)
     (hook_dir / "term_hooks.py").write_text(

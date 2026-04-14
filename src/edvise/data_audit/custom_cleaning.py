@@ -564,10 +564,14 @@ def clean_dataset(
     # 2) canonical learner column rename (audit: student_id; GenAI: learner_id)
     alias = spec.student_id_alias or "student_id_randomized_datakind"
     if canonical_learner_column == "student_id":
-        g, renamed = rename_student_id_alias_column(g, alias, dataset_label=dataset_name)
+        g, renamed = rename_student_id_alias_column(
+            g, alias, dataset_label=dataset_name
+        )
         canonical_col = "student_id"
     else:
-        g, renamed = rename_learner_id_alias_column(g, alias, dataset_label=dataset_name)
+        g, renamed = rename_learner_id_alias_column(
+            g, alias, dataset_label=dataset_name
+        )
         if not renamed and "student_id" in g.columns and "learner_id" not in g.columns:
             LOGGER.info(
                 "%s - Renaming student_id -> learner_id (GenAI canonical_learner_column)",
@@ -583,9 +587,7 @@ def clean_dataset(
             ]
         else:
             spec.unique_keys = [
-                "learner_id"
-                if k in (alias, "student_id")
-                else k
+                "learner_id" if k in (alias, "student_id") else k
                 for k in spec.unique_keys
             ]
 

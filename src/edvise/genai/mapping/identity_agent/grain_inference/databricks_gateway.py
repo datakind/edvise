@@ -22,7 +22,9 @@ _LOG = logging.getLogger(__name__)
 
 def resolve_ai_gateway_base_url() -> str:
     """``AI_GATEWAY_BASE_URL`` env, else :data:`DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL`."""
-    return os.environ.get("AI_GATEWAY_BASE_URL", DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL)
+    return os.environ.get(
+        "AI_GATEWAY_BASE_URL", DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL
+    )
 
 
 def resolve_gateway_model_id() -> str:
@@ -88,7 +90,9 @@ def make_databricks_gateway_llm_complete(
     return complete
 
 
-def log_grain_hitl_queue(contract: GrainContract, *, logger: logging.Logger | None = None) -> None:
+def log_grain_hitl_queue(
+    contract: GrainContract, *, logger: logging.Logger | None = None
+) -> None:
     """Log HITL routing for one grain contract (structured ``hitl_items`` or legacy ``hitl_question``)."""
     log = logger if logger is not None else _LOG
     items = getattr(contract, "hitl_items", None)
@@ -113,7 +117,9 @@ def log_grain_hitl_queue(contract: GrainContract, *, logger: logging.Logger | No
         )
 
 
-def log_grain_auto_approve(contract: GrainContract, *, logger: logging.Logger | None = None) -> None:
+def log_grain_auto_approve(
+    contract: GrainContract, *, logger: logging.Logger | None = None
+) -> None:
     """Log auto-approve path for one grain contract."""
     log = logger if logger is not None else _LOG
     log.info("Auto-approve: %s confidence= %s", contract.table, contract.confidence)

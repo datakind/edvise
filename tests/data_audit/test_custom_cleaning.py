@@ -219,9 +219,7 @@ def test_rename_learner_id_alias_column():
 
 
 def test_clean_dataset_canonical_learner_id_column():
-    df = pd.DataFrame(
-        {"student_id_randomized_datakind": ["x", "x"], "term": [1, 2]}
-    )
+    df = pd.DataFrame({"student_id_randomized_datakind": ["x", "x"], "term": [1, 2]})
     spec = CleanSpec(
         unique_keys=["student_id_randomized_datakind"],
         student_id_alias="student_id_randomized_datakind",

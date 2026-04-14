@@ -22,7 +22,9 @@ def default_hook_module_relpath(institution_id: str, domain: HITLDomain) -> str:
     elif domain == HITLDomain.IDENTITY_TERM:
         basename = "term_hooks.py"
     else:
-        raise ValueError(f"Hook modules are only defined for grain and term, not {domain!r}")
+        raise ValueError(
+            f"Hook modules are only defined for grain and term, not {domain!r}"
+        )
     return f"identity_hooks/{institution_id}/{basename}"
 
 
@@ -41,9 +43,7 @@ def resolve_hook_module_path(file_relpath: str, *, root: str | Path) -> Path:
     try:
         out.relative_to(base)
     except ValueError as e:
-        raise ValueError(
-            f"hook_spec.file {file_relpath!r} escapes root {base}"
-        ) from e
+        raise ValueError(f"hook_spec.file {file_relpath!r} escapes root {base}") from e
     return out
 
 
@@ -63,4 +63,8 @@ def ensure_hook_spec_file(
     )
 
 
-__all__ = ["default_hook_module_relpath", "ensure_hook_spec_file", "resolve_hook_module_path"]
+__all__ = [
+    "default_hook_module_relpath",
+    "ensure_hook_spec_file",
+    "resolve_hook_module_path",
+]

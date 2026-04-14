@@ -4,7 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookFunctionSpec, HookSpec
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+    HookFunctionSpec,
+    HookSpec,
+)
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
     default_hook_module_relpath,
     ensure_hook_spec_file,
@@ -41,9 +44,7 @@ def test_ensure_hook_spec_file_overwrites_model_path():
 
 
 def test_resolve_hook_module_path(tmp_path: Path) -> None:
-    p = resolve_hook_module_path(
-        "identity_hooks/u1/dedup_hooks.py", root=tmp_path
-    )
+    p = resolve_hook_module_path("identity_hooks/u1/dedup_hooks.py", root=tmp_path)
     assert p == tmp_path / "identity_hooks" / "u1" / "dedup_hooks.py"
 
 

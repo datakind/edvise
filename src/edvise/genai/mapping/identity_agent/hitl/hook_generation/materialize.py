@@ -59,8 +59,7 @@ def merge_hook_specs(
 
     if repo_root is not None:
         roots = {
-            resolve_hook_module_path(s.file, root=repo_root).resolve()
-            for s in specs
+            resolve_hook_module_path(s.file, root=repo_root).resolve() for s in specs
         }
         if len(roots) != 1:
             raise HITLValidationError(
@@ -106,7 +105,9 @@ def materialize_hook_specs_to_file(
     resolutions contribute functions to a single module.
     """
     if not specs:
-        from edvise.genai.mapping.identity_agent.hitl.resolver import HITLValidationError
+        from edvise.genai.mapping.identity_agent.hitl.resolver import (
+            HITLValidationError,
+        )
 
         raise HITLValidationError(
             "materialize_hook_specs_to_file requires at least one HookSpec"

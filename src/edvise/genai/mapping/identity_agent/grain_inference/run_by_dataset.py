@@ -43,7 +43,9 @@ def build_identity_profiling_run_by_dataset(
     results: dict[str, IdentityProfilingDatasetResult] = {}
     for name in school.datasets.keys():
         df = load_school_dataset_dataframe(school, name)
-        kp_result = profile_candidate_keys(df, institution_id=institution_id, dataset=name)
+        kp_result = profile_candidate_keys(
+            df, institution_id=institution_id, dataset=name
+        )
         key_profile = kp_result.key_profile
         user_msg = build_identity_agent_user_message(
             institution_id,

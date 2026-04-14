@@ -83,7 +83,9 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     RunLog,
     TermResolution,
 )
-from edvise.genai.mapping.identity_agent.term_normalization.schemas import SeasonMapEntry
+from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
+    SeasonMapEntry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -450,11 +452,7 @@ def apply_hook_spec(
     )
 
     group_id = anchor.hook_group_id
-    if (
-        anchor.domain == HITLDomain.IDENTITY_TERM
-        and apply_to_group
-        and group_id
-    ):
+    if anchor.domain == HITLDomain.IDENTITY_TERM and apply_to_group and group_id:
         tables = _term_tables_for_hook_group(envelope, group_id)
         if not tables:
             tables = [anchor.table]
@@ -484,7 +482,9 @@ def apply_hook_spec(
                     )
     else:
         target_items = (
-            _group_members(envelope, group_id) if apply_to_group and group_id else [anchor]
+            _group_members(envelope, group_id)
+            if apply_to_group and group_id
+            else [anchor]
         )
 
         for item in target_items:
@@ -511,7 +511,9 @@ def apply_hook_spec(
 
     if materialize:
         if repo_root is None:
-            raise ValueError("apply_hook_spec(..., materialize=True) requires repo_root")
+            raise ValueError(
+                "apply_hook_spec(..., materialize=True) requires repo_root"
+            )
         from edvise.genai.mapping.identity_agent.hitl.hook_generation.materialize import (
             materialize_hook_spec_to_file,
             merge_hook_specs,
@@ -633,9 +635,7 @@ def validate_hook(
             + "\n".join(f"  • {f}" for f in failures)
         )
 
-    print(
-        f"✓ Hook signatures verified for {hook_file} ({item.domain.value})."
-    )
+    print(f"✓ Hook signatures verified for {hook_file} ({item.domain.value}).")
 
 
 # ---------------------------------------------------------------------------
@@ -761,9 +761,7 @@ def _apply_term_resolution(
         for token in resolution.exclude_tokens:
             if token not in existing:
                 existing.append(token)
-        print(
-            f"  → [{tbl}] exclude_tokens appended: {resolution.exclude_tokens}"
-        )
+        print(f"  → [{tbl}] exclude_tokens appended: {resolution.exclude_tokens}")
 
     if resolution.season_map_replace is not None:
         new_map: list[dict] = []
@@ -807,11 +805,16 @@ def _write_hook_spec_to_config(
     table = item.target.table
     if item.domain == HITLDomain.IDENTITY_GRAIN:
         grain_cfg = _get_nested(config, table, "grain_contract", item.item_id)
-        _apply_grain_hook_spec_dict(grain_cfg, hook_spec, institution_id=item.institution_id)
+        _apply_grain_hook_spec_dict(
+            grain_cfg, hook_spec, institution_id=item.institution_id
+        )
     elif item.domain == HITLDomain.IDENTITY_TERM:
         term_cfg = _get_nested(config, table, "term_config", item.item_id)
         _apply_term_hook_spec_dict(
-            term_cfg, hook_spec, item_id=item.item_id, institution_id=item.institution_id
+            term_cfg,
+            hook_spec,
+            item_id=item.item_id,
+            institution_id=item.institution_id,
         )
     else:
         raise HITLValidationError(

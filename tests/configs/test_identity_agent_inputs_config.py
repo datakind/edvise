@@ -56,7 +56,10 @@ def test_identity_agent_inputs_round_trip(tmp_path: Path) -> None:
         "Datakind Student Classes.2014-2025.csv",
     ]
     assert school.datasets["course"].primary_keys is None
-    assert school.bronze_volumes_path == "/Volumes/dev_sst_02/john_jay_col_bronze/bronze_volume"
+    assert (
+        school.bronze_volumes_path
+        == "/Volumes/dev_sst_02/john_jay_col_bronze/bronze_volume"
+    )
 
 
 def test_bronze_volume_path_derived_from_institution_id(tmp_path: Path) -> None:
@@ -76,10 +79,16 @@ def test_bronze_volume_path_derived_from_institution_id(tmp_path: Path) -> None:
 
     raw = IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
     school = raw.to_school_mapping_config(uc_catalog="dev_sst_02")
-    assert school.bronze_volumes_path == "/Volumes/dev_sst_02/john_jay_col_bronze/bronze_volume"
-    assert resolve_genai_data_path(
-        school.bronze_volumes_path, school.datasets["student"].files[0]
-    ) == "/Volumes/dev_sst_02/john_jay_col_bronze/bronze_volume/raw/students.csv"
+    assert (
+        school.bronze_volumes_path
+        == "/Volumes/dev_sst_02/john_jay_col_bronze/bronze_volume"
+    )
+    assert (
+        resolve_genai_data_path(
+            school.bronze_volumes_path, school.datasets["student"].files[0]
+        )
+        == "/Volumes/dev_sst_02/john_jay_col_bronze/bronze_volume/raw/students.csv"
+    )
 
 
 def test_bronze_volume_path_for_institution_empty_id_raises() -> None:

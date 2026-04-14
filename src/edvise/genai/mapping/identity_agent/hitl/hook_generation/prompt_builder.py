@@ -94,6 +94,7 @@ Respond with **one JSON object only** — no markdown fences, no preamble. The o
 
 Rules:
 - **draft** must be a **complete function definition** in one string: from ``def name(...)`` through the body (indented). It must be parseable as part of a Python module. Put any needed imports **inside** the function body unless you emit a second function whose draft is only imports (avoid that — prefer imports inside ``def``).
+- **Annotations vs in-function imports:** The ``def`` line’s parameter and return annotations are evaluated when the function is **defined** (module import time), **before** the body runs. If ``import pandas as pd`` / ``numpy`` / etc. appears only **inside** the body, do **not** write unquoted ``pd.DataFrame``, ``np.ndarray``, … on the ``def`` line — that raises ``NameError`` when the hook module loads. Either use **quoted** annotations (e.g. ``def f(group: "pd.DataFrame") -> "pd.DataFrame":``) and keep imports inside the body, or use built-in types only in annotations (e.g. omit hints or use ``typing.Any``).
 - **name** must exactly match the function name in **draft**.
 - **signature** is optional metadata for reviewers; materialization does not use it.
 - **description** documents intent for reviewers. Materialization validates **draft** with syntax check (``ast.parse``) and optional pyflakes.
@@ -131,6 +132,7 @@ Respond with **one JSON object only** — no markdown fences, no preamble. The o
 
 Rules:
 - **draft** for each function must be the **full** ``def`` block (signature + body), syntactically valid Python, not a bare expression.
+- **Annotations vs in-function imports:** Same as grain hooks: if imports (e.g. ``pandas``) are only inside the function body, use **quoted** annotations for ``pd.`` / ``np.`` types on the ``def`` line, or built-in-only annotations — never unquoted ``pd.DataFrame`` on the signature with ``import pandas`` below it.
 - **name** must match the ``def`` name in **draft**.
 - **signature** is optional display-only metadata.
 - **description** documents intent for reviewers. After materialize, validation is **syntax** (``ast.parse``), optional **pyflakes**, then **signature** comparison in ``validate_hook`` (draft vs imported function) — no execution smoke tests.

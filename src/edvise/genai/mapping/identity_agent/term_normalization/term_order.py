@@ -62,7 +62,9 @@ def _resolve_season_token(t_norm: str | None, norm_keys: list[str]) -> str | Non
     return None
 
 
-def _is_excluded_by_term_prefix(series: pd.Series, exclude_tokens: list[str]) -> pd.Series:
+def _is_excluded_by_term_prefix(
+    series: pd.Series, exclude_tokens: list[str]
+) -> pd.Series:
     """True where the row should be dropped — raw string starts with any exclude prefix (case-insensitive)."""
     if not exclude_tokens:
         return pd.Series(False, index=series.index)
@@ -188,7 +190,9 @@ def add_edvise_term_order(
     out = df.copy()
 
     exclude_tokens = [
-        str(t).strip() for t in (term_config.get("exclude_tokens") or []) if str(t).strip()
+        str(t).strip()
+        for t in (term_config.get("exclude_tokens") or [])
+        if str(t).strip()
     ]
     if exclude_tokens:
         if has_split:
@@ -394,7 +398,9 @@ def _resolve_hook_year_season_callables(
             "Pass both year_extractor and season_extractor, or pass neither to load from hook_spec."
         )
     if config.hook_spec is None:
-        raise ValueError("hook_spec is required when term_extraction is 'hook_required'")
+        raise ValueError(
+            "hook_spec is required when term_extraction is 'hook_required'"
+        )
     if hook_modules_root is None:
         raise ValueError(
             "term_extraction is 'hook_required': pass hook_modules_root= (directory containing "

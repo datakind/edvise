@@ -145,10 +145,14 @@ def load_grain_contracts_from_resolver_config(
     out: dict[str, GrainContract] = {}
     for name, payload in datasets.items():
         if not isinstance(payload, dict):
-            raise TypeError(f"{path.name}: datasets[{name!r}] must be an object, got {type(payload)}")
+            raise TypeError(
+                f"{path.name}: datasets[{name!r}] must be an object, got {type(payload)}"
+            )
         gc_raw = payload.get("grain_contract")
         if gc_raw is None:
-            raise ValueError(f"{path.name}: missing grain_contract for dataset {name!r}")
+            raise ValueError(
+                f"{path.name}: missing grain_contract for dataset {name!r}"
+            )
         out[name] = GrainContract.model_validate(gc_raw)
     return out
 

@@ -26,7 +26,11 @@ from typing import Any, Dict, List, Literal, Optional
 import pandas as pd
 
 from edvise.configs.custom import CleaningConfig
-from edvise.configs.genai import DatasetConfig, SchoolMappingConfig, resolve_genai_data_path
+from edvise.configs.genai import (
+    DatasetConfig,
+    SchoolMappingConfig,
+    resolve_genai_data_path,
+)
 from edvise.data_audit.custom_cleaning import DtypeGenerationOptions, TermOrderFn
 from edvise.genai.mapping.identity_agent.execution.contract_utilities import (
     build_dedupe_fn_from_grain_contract,
@@ -177,9 +181,7 @@ def dedupe_fn_by_dataset_from_grain_contracts(
     """
     out: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {}
     for ds_name, gc in grain_contracts_by_dataset.items():
-        logical = (
-            f"{ds_name}{dataset_name_suffix}" if dataset_name_suffix else ds_name
-        )
+        logical = f"{ds_name}{dataset_name_suffix}" if dataset_name_suffix else ds_name
         out[logical] = build_dedupe_fn_from_grain_contract(
             gc, canonical_learner_column=canonical_learner_column
         )
@@ -626,7 +628,10 @@ def build_enriched_schema_contract_for_institution(
 
         dataset_config = school_config.datasets[dataset_name]
         grain_slice: Optional[dict[str, GrainContract]] = None
-        if grain_contracts_by_dataset is not None and dataset_name in grain_contracts_by_dataset:
+        if (
+            grain_contracts_by_dataset is not None
+            and dataset_name in grain_contracts_by_dataset
+        ):
             grain_slice = {dataset_name: grain_contracts_by_dataset[dataset_name]}
 
         example, schema_contract = process_school_dataset(
@@ -650,7 +655,9 @@ def build_enriched_schema_contract_for_institution(
                 f"{example['error']}"
             )
         if not schema_contract or "datasets" not in schema_contract:
-            raise RuntimeError(f"No schema contract produced for dataset {dataset_name!r}")
+            raise RuntimeError(
+                f"No schema contract produced for dataset {dataset_name!r}"
+            )
 
         for logical_name in schema_contract["datasets"].keys():
             dataset_to_logical_name[dataset_name] = logical_name
@@ -753,9 +760,7 @@ def _build_enriched_schema_contract(
         "notes": school_config.notes,
         "datasets": merged_datasets,
     }
-    lid = base_contract.get("learner_id_alias") or base_contract.get(
-        "student_id_alias"
-    )
+    lid = base_contract.get("learner_id_alias") or base_contract.get("student_id_alias")
     if lid:
         enriched_contract["learner_id_alias"] = lid
     clc = base_contract.get("canonical_learner_column")

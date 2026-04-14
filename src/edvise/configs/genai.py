@@ -37,9 +37,7 @@ def bronze_volume_path_for_institution(
     return f"/Volumes/{cat}/{inst}_bronze/bronze_volume"
 
 
-def resolve_genai_data_path(
-    bronze_volumes_path: Optional[str], file_path: str
-) -> str:
+def resolve_genai_data_path(bronze_volumes_path: Optional[str], file_path: str) -> str:
     """
     Join ``file_path`` to ``bronze_volumes_path`` when the path is relative.
 
@@ -196,7 +194,9 @@ class IdentityAgentInputsConfig(StrictBaseModel):
         for name, spec in ds.files.items():
             paths: List[str] = [spec] if isinstance(spec, str) else list(spec)
             if not paths:
-                raise ValueError(f"datasets.files[{name!r}] must list at least one path")
+                raise ValueError(
+                    f"datasets.files[{name!r}] must list at least one path"
+                )
             datasets[name] = DatasetConfig(files=paths, primary_keys=None)
         return SchoolMappingConfig(
             institution_id=self.institution.id,

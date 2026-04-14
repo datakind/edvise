@@ -5,7 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookFunctionSpec, HookSpec
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+    HookFunctionSpec,
+    HookSpec,
+)
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.materialize import (
     materialize_hook_spec_to_file,
     materialize_hook_specs_to_file,

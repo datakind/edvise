@@ -193,7 +193,9 @@ def _step2a_rules_after_structure(
     institution_name: str,
     *,
     column_aliases_scope: Literal["single_pass", "entity_pass"],
-    term_rules: Literal["cohort_and_course", "cohort_only", "course_only"] = "cohort_and_course",
+    term_rules: Literal[
+        "cohort_and_course", "cohort_only", "course_only"
+    ] = "cohort_and_course",
 ) -> str:
     """Shared rules (SOURCE COLUMNS → TARGET SCHEMA AUTHORITY) for all Step 2a prompt variants.
 
@@ -203,7 +205,9 @@ def _step2a_rules_after_structure(
     """
     alias_bullet = _column_aliases_scope_bullet(column_aliases_scope)
     if term_rules == "cohort_and_course":
-        term_blocks = _step2a_cohort_entry_term_rules() + _step2a_course_academic_term_rules()
+        term_blocks = (
+            _step2a_cohort_entry_term_rules() + _step2a_course_academic_term_rules()
+        )
     elif term_rules == "cohort_only":
         term_blocks = _step2a_cohort_entry_term_rules()
     else:

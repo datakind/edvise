@@ -30,7 +30,9 @@ from edvise.genai.mapping.identity_agent.hitl.resolver import (
     _apply_term_resolution,
 )
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
-from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermOrderConfig
+from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
+    TermOrderConfig,
+)
 
 
 def _hook() -> HookSpec:
@@ -435,7 +437,9 @@ def test_resolve_items_coerces_dict_resolution_for_term(tmp_path):
         {"raw": "2", "canonical": "SPRING"},
         {"raw": "9", "canonical": "FALL"},
     ]
-    assert out["datasets"]["student"]["term_config"]["term_extraction"] == "hook_required"
+    assert (
+        out["datasets"]["student"]["term_config"]["term_extraction"] == "hook_required"
+    )
     assert out["datasets"]["student"]["term_config"]["hook_spec"] is not None
 
 
@@ -475,7 +479,7 @@ def test_resolve_items_generate_hook_still_applies_season_map_replace(tmp_path):
                                             {
                                                 "name": "s",
                                                 "description": "s",
-                                                "draft": "def s(t: str) -> str:\n    return \"9\"\n",
+                                                "draft": 'def s(t: str) -> str:\n    return "9"\n',
                                             },
                                         ],
                                     },
@@ -676,7 +680,7 @@ def test_apply_hook_spec_term_fanout_uses_hook_group_tables(tmp_path):
             {
                 "name": "season_extractor_wrong",
                 "description": "d",
-                "draft": "def season_extractor_wrong(term: str) -> str:\n    return \"9\"\n",
+                "draft": 'def season_extractor_wrong(term: str) -> str:\n    return "9"\n',
             },
         ]
     }
@@ -718,7 +722,7 @@ def test_apply_hook_spec_term_fanout_uses_hook_group_tables(tmp_path):
             HookFunctionSpec(
                 name="season_extractor_shared",
                 description="s",
-                draft="def season_extractor_shared(term: str) -> str:\n    return \"9\"\n",
+                draft='def season_extractor_shared(term: str) -> str:\n    return "9"\n',
             ),
         ],
     )
@@ -732,7 +736,10 @@ def test_apply_hook_spec_term_fanout_uses_hook_group_tables(tmp_path):
     )
     out = json.loads(config_path.read_text())
     for ds in ("student", "course"):
-        fnames = [f["name"] for f in out["datasets"][ds]["term_config"]["hook_spec"]["functions"]]
+        fnames = [
+            f["name"]
+            for f in out["datasets"][ds]["term_config"]["hook_spec"]["functions"]
+        ]
         assert fnames == ["year_extractor_shared", "season_extractor_shared"]
         assert (
             out["datasets"][ds]["term_config"]["hook_spec"]["file"]
@@ -742,7 +749,9 @@ def test_apply_hook_spec_term_fanout_uses_hook_group_tables(tmp_path):
 
 
 def test_hitl_item_hook_group_tables_requires_hook_group_id():
-    with pytest.raises(ValidationError, match="hook_group_tables requires hook_group_id"):
+    with pytest.raises(
+        ValidationError, match="hook_group_tables requires hook_group_id"
+    ):
         HITLItem(
             item_id="x",
             institution_id="u",
@@ -757,7 +766,9 @@ def test_hitl_item_hook_group_tables_requires_hook_group_id():
                     option_id="a",
                     label="l",
                     description="d",
-                    resolution=TermResolution(exclude_tokens=["x"]).model_dump(mode="json"),
+                    resolution=TermResolution(exclude_tokens=["x"]).model_dump(
+                        mode="json"
+                    ),
                     reentry=ReentryDepth.TERMINAL,
                 ),
                 HITLOption(
