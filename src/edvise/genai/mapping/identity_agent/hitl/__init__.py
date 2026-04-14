@@ -11,6 +11,8 @@ from edvise.genai.mapping.identity_agent.hitl.hook_generation import (
     generate_hook_specs_for_hook_items,
     ensure_hook_spec_file,
     materialize_hook_spec_to_file,
+    materialize_hook_specs_to_file,
+    merge_hook_specs,
     parse_hook_spec,
     resolve_hook_module_path,
 )
@@ -70,6 +72,8 @@ __all__ = [
     "load_grain_contracts_from_resolver_config",
     "load_term_contracts_from_resolver_config",
     "materialize_hook_spec_to_file",
+    "materialize_hook_specs_to_file",
+    "merge_hook_specs",
     "resolve_hook_module_path",
     "check_gate",
     "unique_hitl_items_by_item_id",

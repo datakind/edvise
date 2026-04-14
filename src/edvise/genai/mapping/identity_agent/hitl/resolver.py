@@ -16,6 +16,8 @@ Public API:
         — writes a generated HookSpec to the correct config field
         — when apply_to_group=True, fans out to all items sharing the same hook_group_id
         — optional materialize=True + repo_root= writes hook_spec.file as a Python module
+        — optional merge_materialize_with=[...] merges other HookSpecs into one file before write
+          (same path — use when multiple encodings share identity_hooks/.../term_hooks.py)
 
     validate_hook(hitl_path, config_path, item_id, hook_group_id)
         — compares each function's draft (AST) to the imported module's runtime signature
@@ -57,6 +59,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import logging
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -311,6 +314,7 @@ def apply_hook_spec(
     *,
     materialize: bool = False,
     repo_root: str | Path | None = None,
+    merge_materialize_with: Sequence[HookSpec] | None = None,
 ) -> None:
     """
     Writes a generated HookSpec to the correct config field.
@@ -331,6 +335,12 @@ def apply_hook_spec(
     ``repo_root`` = the school's ``bronze_volumes_path`` (Unity Catalog volume root: same base as
     ``cleaned/`` and ``enriched_schema_contracts/``), unless you intentionally use a git checkout
     as the root for relative paths.
+
+    When several HITL resolutions contribute different functions to the **same** module path
+    (e.g. opaque term extractors + date-string extractors both under ``term_hooks.py``), pass
+    ``merge_materialize_with=[HookSpec(...), ...]`` so the written file contains every function.
+    Config fields still receive only ``hook_spec`` (per item); merge applies **only** to the
+    on-disk module. Order: primary ``hook_spec`` first, then ``merge_materialize_with`` in order.
 
     Notebook usage:
         apply_hook_spec(
@@ -401,10 +411,17 @@ def apply_hook_spec(
             raise ValueError("apply_hook_spec(..., materialize=True) requires repo_root")
         from edvise.genai.mapping.identity_agent.hitl.hook_generation.materialize import (
             materialize_hook_spec_to_file,
+            merge_hook_specs,
         )
 
+        spec_to_write = hook_spec
+        if merge_materialize_with:
+            spec_to_write = merge_hook_specs(
+                hook_spec, *merge_materialize_with, repo_root=repo_root
+            )
+
         materialize_hook_spec_to_file(
-            hook_spec,
+            spec_to_write,
             repo_root=repo_root,
             domain=anchor.domain,
         )

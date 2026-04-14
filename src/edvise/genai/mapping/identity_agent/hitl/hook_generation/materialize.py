@@ -8,15 +8,105 @@ from __future__ import annotations
 
 import ast
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+    HookFunctionSpec,
+    HookSpec,
+)
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
     resolve_hook_module_path,
 )
 from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
 
 logger = logging.getLogger(__name__)
+
+
+def merge_hook_specs(
+    *specs: HookSpec,
+    repo_root: str | Path | None = None,
+) -> HookSpec:
+    """
+    Combine multiple :class:`~edvise.genai.mapping.identity_agent.grain_inference.schemas.HookSpec`
+    instances that target the **same** materialized module path.
+
+    Use this when different HITL resolutions (e.g. opaque numeric term + date-string term) each
+    contribute a pair of functions but all use ``identity_hooks/<institution_id>/term_hooks.py``.
+    :func:`materialize_hook_spec_to_file` overwrites the file — merge first, then materialize once.
+
+    All specs must share one output file:
+
+    - With ``repo_root``: resolved paths (via :func:`~edvise.genai.mapping.identity_agent.hitl.hook_generation.paths.resolve_hook_module_path`) must be identical.
+    - Without ``repo_root``: ``hook_spec.file`` strings must be identical and non-null.
+
+    Function ``name`` values must be unique across the merged list (duplicate names raise).
+
+    The first spec's ``file`` is kept on the result.
+    """
+    from edvise.genai.mapping.identity_agent.hitl.resolver import HITLValidationError
+
+    if not specs:
+        raise HITLValidationError("merge_hook_specs requires at least one HookSpec")
+    for s in specs:
+        if not s.file:
+            raise HITLValidationError(
+                "merge_hook_specs: every HookSpec must set file — "
+                "run ensure_hook_spec_file / apply_hook_spec before merge."
+            )
+
+    if repo_root is not None:
+        roots = {
+            resolve_hook_module_path(s.file, root=repo_root).resolve()
+            for s in specs
+        }
+        if len(roots) != 1:
+            raise HITLValidationError(
+                "merge_hook_specs: all HookSpec.file paths must resolve to the same location "
+                f"under repo_root; got {roots!r}"
+            )
+    else:
+        files = {s.file for s in specs}
+        if len(files) != 1:
+            raise HITLValidationError(
+                "merge_hook_specs: all HookSpec.file values must match when repo_root is omitted; "
+                f"got {files!r}"
+            )
+
+    merged_functions: list[HookFunctionSpec] = []
+    seen: set[str] = set()
+    for s in specs:
+        for fn in s.functions:
+            if fn.name in seen:
+                raise HITLValidationError(
+                    f"merge_hook_specs: duplicate function name {fn.name!r} across specs"
+                )
+            seen.add(fn.name)
+            merged_functions.append(fn)
+
+    return HookSpec(file=specs[0].file, functions=merged_functions)
+
+
+def materialize_hook_specs_to_file(
+    specs: Sequence[HookSpec],
+    *,
+    repo_root: str | Path,
+    domain: HITLDomain | None = None,
+) -> Path:
+    """
+    Merge ``specs`` with :func:`merge_hook_specs` (same rules: one file, unique names), then write.
+
+    Equivalent to ``materialize_hook_spec_to_file(merge_hook_specs(...), ...)`` when multiple
+    resolutions contribute functions to a single module.
+    """
+    if not specs:
+        from edvise.genai.mapping.identity_agent.hitl.resolver import HITLValidationError
+
+        raise HITLValidationError(
+            "materialize_hook_specs_to_file requires at least one HookSpec"
+        )
+    merged = merge_hook_specs(*specs, repo_root=repo_root)
+    return materialize_hook_spec_to_file(merged, repo_root=repo_root, domain=domain)
 
 
 def materialize_hook_spec_to_file(
@@ -114,4 +204,8 @@ def _maybe_run_pyflakes(text: str, out_path: Path) -> None:
         logger.warning("pyflakes check skipped for %s: %s", out_path, e)
 
 
-__all__ = ["materialize_hook_spec_to_file"]
+__all__ = [
+    "materialize_hook_spec_to_file",
+    "materialize_hook_specs_to_file",
+    "merge_hook_specs",
+]
