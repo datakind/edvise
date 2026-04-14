@@ -104,7 +104,7 @@ def test_apply_grain_hook_spec_dict_sets_policy_required():
     dp = grain_cfg["dedup_policy"]
     assert dp["strategy"] == "policy_required"
     assert dp["hook_spec"] is not None
-    assert dp["hook_spec"]["file"] == "pipelines/u/helpers/dedup_hooks.py"
+    assert dp["hook_spec"]["file"] == "identity_hooks/u/dedup_hooks.py"
     assert dp["sort_by"] is None
     assert dp["sort_ascending"] is None
     assert dp["keep"] is None

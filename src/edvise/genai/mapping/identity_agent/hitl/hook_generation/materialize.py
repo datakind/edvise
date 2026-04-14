@@ -15,6 +15,9 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.literals import (
     coerce_hook_example_value,
 )
+from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
+    resolve_hook_module_path,
+)
 from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
 
 logger = logging.getLogger(__name__)
@@ -28,6 +31,10 @@ def materialize_hook_spec_to_file(
 ) -> Path:
     """
     Write ``hook_spec.file`` under ``repo_root`` by concatenating each function ``draft`` verbatim.
+
+    ``repo_root`` should be the school's bronze volume root (``bronze_volumes_path`` — the same
+    base used for ``cleaned/`` and ``enriched_schema_contracts/``), or any directory you treat as
+    the root for relative :attr:`~edvise.genai.mapping.identity_agent.grain_inference.schemas.HookSpec.file` paths.
 
     Validates the assembled module with :func:`ast.parse` before writing. Optionally runs pyflakes
     (warning only). When ``domain`` is
@@ -44,17 +51,11 @@ def materialize_hook_spec_to_file(
             "hook_spec.file is null — run ensure_hook_spec_file / apply_hook_spec before materialize."
         )
 
-    repo_root = Path(repo_root).resolve()
-    rel = Path(hook_spec.file)
-    if rel.is_absolute():
-        raise HITLValidationError(f"hook_spec.file must be relative, got {hook_spec.file!r}")
-    out_path = (repo_root / rel).resolve()
     try:
-        out_path.relative_to(repo_root)
+        out_path = resolve_hook_module_path(hook_spec.file, root=repo_root)
     except ValueError as e:
-        raise HITLValidationError(
-            f"hook_spec.file {hook_spec.file!r} escapes repo_root {repo_root}"
-        ) from e
+        raise HITLValidationError(str(e)) from e
+    repo_root = Path(repo_root).resolve()
 
     text = _assemble_module_text(hook_spec, domain=domain)
     _validate_module_ast(text, out_path)

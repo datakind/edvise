@@ -266,7 +266,7 @@ def test_apply_term_order_raises_when_hook_required_hooks_not_wired():
         term_col="term",
         season_map=[],
         term_extraction="hook_required",
-        hook_spec=HookSpec(file="pipelines/x/helpers/term_hooks.py", functions=[]),
+        hook_spec=HookSpec(file="identity_hooks/x/term_hooks.py", functions=[]),
     )
     with pytest.raises(ValueError, match="hook_required"):
         apply_term_order_from_config(df, c)

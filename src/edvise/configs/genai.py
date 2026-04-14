@@ -47,6 +47,9 @@ def resolve_genai_data_path(
     When ``bronze_volumes_path`` is missing or blank, ``file_path`` is returned as-is.
 
     Use this for CSV reads and for writing identity-agent cleaned outputs under the same root.
+    Materialized hook modules (:attr:`HookSpec.file`) use the same relative layout under
+    ``bronze_volumes_path`` (see ``identity_hooks/`` in
+    :mod:`edvise.genai.mapping.identity_agent.hitl.hook_generation.paths`).
     """
     if not bronze_volumes_path or not str(bronze_volumes_path).strip():
         return file_path

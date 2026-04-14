@@ -474,7 +474,7 @@ Apply the same per-table reasoning rules as single-dataset term inference (term 
 
 **Cross-table:** When several tables share the same term encoding, they share the same
 canonical hook module path (assigned by the pipeline — typically
-``pipelines/<institution_id>/helpers/term_hooks.py``); use **distinct function names** inside
+``identity_hooks/<institution_id>/term_hooks.py`` under the bronze volume); use **distinct function names** inside
 ``hook_spec.functions`` per table when the extractors differ. Do not merge distinct encodings.
 
 **Coverage:** Emit exactly one `TermContract`-shaped object per key under `datasets` in the
@@ -558,7 +558,7 @@ Shape:
           "description": "<one sentence — confirm drafted extractors before hook generation>",
           "resolution": {
             "hook_spec": {
-              "file": "<institution_slug>/term_hooks.py",
+              "file": "identity_hooks/<institution_id>/term_hooks.py",
               "functions": [
                 {
                   "name": "year_extractor",
@@ -632,7 +632,7 @@ VALIDITY RULES
 ```json
 "resolution": {
   "hook_spec": {
-    "file": "<institution_id>/term_hooks.py",
+    "file": "identity_hooks/<institution_id>/term_hooks.py",
     "functions": [
       {
         "name": "year_extractor_<table>",

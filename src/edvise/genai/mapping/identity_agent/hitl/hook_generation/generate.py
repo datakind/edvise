@@ -51,7 +51,8 @@ def generate_hook_specs_for_hook_items(
 
     Returns (item_id, HookSpec) pairs. Call
     :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.apply_hook_spec` for each pair;
-    pass ``materialize=True`` and ``repo_root=`` to emit the hook module at ``hook_spec.file``.
+    pass ``materialize=True`` and ``repo_root=`` (typically ``bronze_volumes_path``) to emit the
+    hook module at ``hook_spec.file``.
     """
     # Local import avoids circular imports at package load time.
     from edvise.genai.mapping.identity_agent.hitl.resolver import get_hook_items

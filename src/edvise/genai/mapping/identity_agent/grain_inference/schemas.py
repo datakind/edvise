@@ -68,7 +68,7 @@ class HookSpec(BaseModel):
         default=None,
         description=(
             "Relative path to the materialized module; set by the pipeline, not the LLM "
-            "(e.g. pipelines/<institution_id>/helpers/dedup_hooks.py)."
+            "(e.g. identity_hooks/<institution_id>/dedup_hooks.py under bronze_volumes_path)."
         ),
     )
     functions: list[HookFunctionSpec]

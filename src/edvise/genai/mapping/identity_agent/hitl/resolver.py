@@ -68,6 +68,7 @@ from edvise.genai.mapping.identity_agent.hitl.hook_generation.signature_check im
 )
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
     ensure_hook_spec_file,
+    resolve_hook_module_path,
 )
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
     GrainResolution,
@@ -322,8 +323,10 @@ def apply_hook_spec(
     For IDENTITY_TERM items:  writes hook_spec to term_config.hook_spec
 
     When ``materialize`` is True, also writes a ``.py`` file at ``hook_spec.file``
-    (relative to ``repo_root``) so :func:`validate_hook` can import it. Requires
-    ``repo_root`` (e.g. the git workspace root that contains ``pipelines/``).
+    (relative to ``repo_root``) so :func:`validate_hook` can import it. Pass
+    ``repo_root`` = the school's ``bronze_volumes_path`` (Unity Catalog volume root: same base as
+    ``cleaned/`` and ``enriched_schema_contracts/``), unless you intentionally use a git checkout
+    as the root for relative paths.
 
     Notebook usage:
         apply_hook_spec(
@@ -414,6 +417,7 @@ def validate_hook(
     *,
     item_id: str | None = None,
     hook_group_id: str | None = None,
+    hook_file_root: str | Path | None = None,
 ) -> None:
     """
     For every domain: compares each function's ``draft`` (AST) to the imported function's runtime
@@ -430,6 +434,10 @@ def validate_hook(
 
     Pass either item_id or hook_group_id — hook_group_id uses the first group
     member as the representative (all share the same hook file and functions).
+
+    ``hook_file_root``: when set (typically ``bronze_volumes_path``), ``hook_spec.file`` is
+    resolved under that directory — same as :func:`materialize_hook_spec_to_file` ``repo_root``.
+    When omitted, ``hook_spec.file`` is resolved relative to the process current working directory.
 
     Notebook usage:
         validate_hook(
@@ -471,7 +479,15 @@ def validate_hook(
             f"run apply_hook_spec() before validate_hook()."
         )
 
-    hook_file = Path(hook_spec_dict["file"])
+    if hook_file_root is not None:
+        try:
+            hook_file = resolve_hook_module_path(
+                hook_spec_dict["file"], root=hook_file_root
+            )
+        except ValueError as e:
+            raise HookValidationError(str(e)) from e
+    else:
+        hook_file = Path(hook_spec_dict["file"])
     if not hook_file.exists():
         raise HookValidationError(f"Hook file not found: {hook_file}")
 

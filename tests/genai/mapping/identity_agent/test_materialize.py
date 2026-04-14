@@ -83,7 +83,7 @@ def test_materialize_rejects_path_traversal(tmp_path: Path) -> None:
             )
         ],
     )
-    with pytest.raises(HITLValidationError, match="escapes repo_root"):
+    with pytest.raises(HITLValidationError, match="escapes root"):
         materialize_hook_spec_to_file(
             spec, repo_root=tmp_path, domain=HITLDomain.IDENTITY_GRAIN
         )
