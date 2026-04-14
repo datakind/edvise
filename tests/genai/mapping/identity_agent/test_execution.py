@@ -11,6 +11,7 @@ from edvise.genai.mapping.identity_agent.execution import (
     apply_term_order_from_config,
     build_dedupe_fn_from_grain_contract,
     dedupe_fn_by_dataset_from_grain_contracts,
+    load_grain_dedup_hook_from_hook_spec,
     merge_grain_contracts_into_school_config,
     merge_grain_learner_id_alias_into_school_config,
 )
@@ -247,7 +248,8 @@ def test_apply_grain_dedup_resolves_term_desc_prefix_to_term_descr():
     assert len(out) == 1
 
 
-def test_policy_required_skips_dedup():
+def test_policy_required_without_hook_skips_dedup():
+    """policy_required and no hook_spec — no dedup until HITL fills hook."""
     df = pd.DataFrame({"k": [1, 1], "v": [1, 2]})
     c = _grain(
         dedup_policy=DedupPolicy(
@@ -259,6 +261,84 @@ def test_policy_required_skips_dedup():
     )
     out = apply_grain_dedup(df, c)
     assert len(out) == 2
+
+
+def test_policy_required_with_hook_spec_requires_modules_root():
+    df = pd.DataFrame({"k": [1, 1], "v": [1, 2]})
+    c = _grain(
+        dedup_policy=DedupPolicy(
+            strategy="policy_required",
+            sort_by=None,
+            keep=None,
+            notes="",
+            hook_spec=HookSpec(
+                file="identity_hooks/u1/dedup_hooks.py",
+                functions=[
+                    HookFunctionSpec(name="keep_first", description="d", draft=None),
+                ],
+            ),
+        ),
+    )
+    with pytest.raises(ValueError, match="hook_modules_root"):
+        apply_grain_dedup(df, c)
+
+
+def test_policy_required_with_hook_runs_loaded_hook(tmp_path):
+    hook_dir = tmp_path / "identity_hooks" / "u1"
+    hook_dir.mkdir(parents=True)
+    (hook_dir / "dedup_hooks.py").write_text(
+        """
+def keep_first(group):
+    return group.head(1)
+"""
+    )
+    df = pd.DataFrame({"k": [1, 1, 2], "v": [1, 2, 3]})
+    c = _grain(
+        institution_id="u1",
+        table="t",
+        post_clean_primary_key=["k"],
+        join_keys_for_2a=["k"],
+        dedup_policy=DedupPolicy(
+            strategy="policy_required",
+            sort_by=None,
+            keep=None,
+            notes="",
+            hook_spec=HookSpec(
+                file="identity_hooks/u1/dedup_hooks.py",
+                functions=[
+                    HookFunctionSpec(name="keep_first", description="d", draft=None),
+                ],
+            ),
+        ),
+    )
+    out = apply_grain_dedup(df, c, hook_modules_root=tmp_path)
+    assert len(out) == 2
+    assert set(out["k"]) == {1, 2}
+
+
+def test_load_grain_dedup_hook_selects_by_table_name_when_multiple_fns(tmp_path):
+    hook_dir = tmp_path / "identity_hooks" / "u1"
+    hook_dir.mkdir(parents=True)
+    (hook_dir / "dedup_hooks.py").write_text(
+        """
+def dedup_alpha(group):
+    return group.head(1)
+
+def dedup_beta_tbl(group):
+    return group.head(1)
+"""
+    )
+    hs = HookSpec(
+        file="identity_hooks/u1/dedup_hooks.py",
+        functions=[
+            HookFunctionSpec(name="dedup_alpha", description="a", draft=None),
+            HookFunctionSpec(name="dedup_beta_tbl", description="b", draft=None),
+        ],
+    )
+    fn = load_grain_dedup_hook_from_hook_spec(
+        hs, modules_root=tmp_path, table="beta_tbl"
+    )
+    assert fn.__name__ == "dedup_beta_tbl"
 
 
 def test_apply_term_order_raises_when_hook_required_hooks_not_wired():

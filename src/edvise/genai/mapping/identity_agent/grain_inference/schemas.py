@@ -91,8 +91,8 @@ class DedupPolicy(BaseModel):
         description=(
             "Populated when strategy='policy_required' and a custom hook is needed. "
             "Null at flag time — written by resolver after hook generation call. "
-            "Execution layer infers hook path from hook_spec presence; "
-            "no separate dedup_method field is needed."
+            "Execution (apply_grain_dedup / clean_dataset dedupe_fn) loads hook_spec.file under "
+            "hook_modules_root (e.g. bronze_volumes_path) and runs the dedup callable per key-group."
         ),
     )
 

@@ -166,6 +166,7 @@ def dedupe_fn_by_dataset_from_grain_contracts(
     *,
     dataset_name_suffix: str = "",
     canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
+    hook_modules_root: str | Path | None = None,
 ) -> dict[str, Callable[[pd.DataFrame], pd.DataFrame]]:
     """
     Build ``dedupe_fn_by_dataset`` for :func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`
@@ -176,6 +177,9 @@ def dedupe_fn_by_dataset_from_grain_contracts(
     ``{dataset_name}{dataset_name_suffix}`` when ``dataset_name_suffix`` is non-empty, else
     ``dataset_name``.
 
+    ``hook_modules_root`` is passed through for contracts with ``dedup_policy.hook_spec`` (materialized
+    ``dedup_hooks.py`` under that root).
+
     :func:`build_schema_contract_from_grain_contracts` applies this automatically and merges
     with any explicit ``dedupe_fn_by_dataset`` (explicit entries override auto-built fns).
     """
@@ -183,7 +187,9 @@ def dedupe_fn_by_dataset_from_grain_contracts(
     for ds_name, gc in grain_contracts_by_dataset.items():
         logical = f"{ds_name}{dataset_name_suffix}" if dataset_name_suffix else ds_name
         out[logical] = build_dedupe_fn_from_grain_contract(
-            gc, canonical_learner_column=canonical_learner_column
+            gc,
+            canonical_learner_column=canonical_learner_column,
+            hook_modules_root=hook_modules_root,
         )
     return out
 
@@ -204,6 +210,7 @@ def build_schema_contract_from_grain_contracts(
         dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
     ] = None,
     canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
+    hook_modules_root: str | Path | None = None,
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
     Build cleaned frames and a frozen schema contract (envelope uses ``student_id_alias`` from
@@ -232,9 +239,12 @@ def build_schema_contract_from_grain_contracts(
             for that dataset. Datasets not listed fall back to ``term_order_fn``.
         dedupe_fn_by_dataset: Optional per-logical-name overrides for ``CleanSpec.dedupe_fn``.
             If omitted or empty, fns are **auto-built** from each grain contract’s
-            ``dedup_policy`` (``sort_by`` / ``keep`` / temporal collapse, etc.). Non-empty
+            ``dedup_policy`` (``sort_by`` / ``keep`` / temporal collapse, custom hook, etc.). Non-empty
             ``dedupe_fn_by_dataset`` is merged on top: **explicit keys replace** the auto fn
             for that dataset (e.g. custom school hooks).
+        hook_modules_root: Directory containing ``identity_hooks/`` (e.g. ``school_config.bronze_volumes_path``).
+            Used to import ``dedup_policy.hook_spec.file`` when strategy is ``policy_required`` with
+            a hook. Defaults to ``school_config.bronze_volumes_path`` when omitted and that path is set.
         dtype_opts, spark_session, sample_size, cleaning_cfg: Forwarded
             to :func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`.
 
@@ -252,10 +262,16 @@ def build_schema_contract_from_grain_contracts(
         dataset_name_suffix=dataset_name_suffix,
         canonical_learner_column=canonical_learner_column,
     )
+    resolved_hook_root: str | Path | None = hook_modules_root
+    if resolved_hook_root is None:
+        bv = school_config.bronze_volumes_path
+        if bv and str(bv).strip():
+            resolved_hook_root = bv
     auto_dedupe = dedupe_fn_by_dataset_from_grain_contracts(
         grain_contracts_by_dataset,
         dataset_name_suffix=dataset_name_suffix,
         canonical_learner_column=canonical_learner_column,
+        hook_modules_root=resolved_hook_root,
     )
     merged_dedupe = {**auto_dedupe, **(dedupe_fn_by_dataset or {})}
     return build_schema_contract_from_config(

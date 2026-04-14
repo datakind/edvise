@@ -8,6 +8,7 @@ from .contract_utilities import (
     apply_term_order_from_contract,
     build_dedupe_fn_from_grain_contract,
     canonicalize_grain_contract_learner_id_alias,
+    load_grain_dedup_hook_from_hook_spec,
 )
 from .contract_builder import (
     UNIQUE_VALUES_MAX_CARDINALITY,
@@ -43,6 +44,7 @@ __all__ = [
     "term_order_column_for_clean_dataset",
     "term_order_fn_from_term_order_config",
     "build_dedupe_fn_from_grain_contract",
+    "load_grain_dedup_hook_from_hook_spec",
     "build_enriched_schema_contract_for_institution",
     "build_enriched_schema_contract_for_dataset",
     "build_schema_contract_from_grain_contracts",

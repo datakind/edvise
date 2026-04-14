@@ -7,16 +7,21 @@ Composes :mod:`edvise.genai.mapping.identity_agent.grain_inference` (dedup, keys
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 from collections.abc import Callable
-from typing import Literal
+from pathlib import Path
+from typing import Any, Literal
 
 import pandas as pd
 
 from edvise.genai.mapping.identity_agent.grain_inference.deduplication import (
     drop_duplicate_keys,
 )
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+    GrainContract,
+    HookSpec,
+)
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermContract
 from edvise.genai.mapping.identity_agent.term_normalization.term_order import (
     apply_term_order_from_config,
@@ -209,18 +214,107 @@ def _validate_key_columns(df: pd.DataFrame, keys: list[str], *, label: str) -> N
         raise ValueError(f"{label}: missing columns for grain key: {missing}")
 
 
+def _grain_dedup_function_names(functions: list[Any]) -> list[str]:
+    names: list[str] = []
+    for f in functions:
+        if hasattr(f, "name"):
+            names.append(f.name)
+        else:
+            names.append(str(f["name"]))
+    return names
+
+
+def _select_grain_dedup_function_name(functions: list[Any], table: str) -> str:
+    names = _grain_dedup_function_names(functions)
+    if not names:
+        raise ValueError("hook_spec.functions is empty — cannot load grain dedup hook")
+    if len(names) == 1:
+        return names[0]
+    t = table.lower().replace("-", "_")
+    matches = [n for n in names if t in n.lower()]
+    if len(matches) == 1:
+        return matches[0]
+    raise ValueError(
+        f"hook_spec.functions has {len(names)} entries {names!r}; expected exactly one, or "
+        f"exactly one whose name contains table {table!r}."
+    )
+
+
+def load_grain_dedup_hook_from_hook_spec(
+    hook_spec: HookSpec | dict[str, Any],
+    *,
+    modules_root: str | Path,
+    table: str,
+) -> Callable[[pd.DataFrame], pd.DataFrame]:
+    """
+    Import the materialized grain dedup module and return the single dedup callable.
+
+    The hook is invoked once per key-group: ``df.groupby(keys).apply`` passes each group
+    ``DataFrame`` (same columns as the full frame) to the loaded function, which must return
+    a ``DataFrame`` (typically zero or one row per group).
+    """
+    from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
+        resolve_hook_module_path,
+    )
+
+    hs = (
+        hook_spec.model_dump(mode="json")
+        if isinstance(hook_spec, HookSpec)
+        else dict(hook_spec)
+    )
+    rel = hs.get("file")
+    if not rel:
+        raise ValueError("hook_spec.file is required to load grain dedup hook from disk")
+    funcs = hs.get("functions") or []
+    fn_name = _select_grain_dedup_function_name(funcs, table)
+    path = resolve_hook_module_path(rel, root=modules_root)
+    spec = importlib.util.spec_from_file_location("_ia_grain_dedup_hooks", path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"Could not load hook module spec for {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    fn = getattr(mod, fn_name, None)
+    if not callable(fn):
+        raise ValueError(f"Module {path} missing callable {fn_name!r}")
+    return fn
+
+
+def _apply_grain_hook_dedup_by_key_groups(
+    df: pd.DataFrame,
+    keys: list[str],
+    hook_fn: Callable[[pd.DataFrame], pd.DataFrame],
+) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+    pieces: list[pd.DataFrame] = []
+    for _, group in df.groupby(keys, dropna=False, sort=False):
+        out_g = hook_fn(group)
+        if not isinstance(out_g, pd.DataFrame):
+            raise TypeError(
+                "grain dedup hook must return pandas.DataFrame, "
+                f"got {type(out_g).__name__}"
+            )
+        pieces.append(out_g)
+    return pd.concat(pieces, ignore_index=True)
+
+
 def apply_grain_dedup(
     df: pd.DataFrame,
     contract: GrainContract,
     *,
     canonical_learner_column: str = "learner_id",
+    hook_modules_root: str | Path | None = None,
 ) -> pd.DataFrame:
     """
     Apply ``contract.dedup_policy`` using ``post_clean_primary_key`` as the dedup key columns.
 
     - ``no_dedup``: return a copy unchanged.
-    - ``policy_required``: collapse is needed but the rule is unresolved — do not deduplicate
-      automatically; HITL must update the contract first (same no-op behavior as ``no_dedup`` here).
+    - ``policy_required`` **without** ``dedup_policy.hook_spec``: do not deduplicate automatically
+      (HITL still resolving policy).
+    - ``policy_required`` **with** ``dedup_policy.hook_spec``: load ``hook_spec.file`` under
+      ``hook_modules_root`` (e.g. ``SchoolMappingConfig.bronze_volumes_path``), import the named
+      dedup function, and run it **once per key-group** (``groupby`` on ``post_clean_primary_key``).
+      The callable receives each group's ``DataFrame`` and must return a ``DataFrame``.
     - ``true_duplicate``: ``drop_duplicates`` on the key (optional ``sort_by`` for
       deterministic ordering before ``keep``).
     - ``temporal_collapse``: requires ``sort_by`` for meaningful ordering; if omitted, logs a
@@ -244,11 +338,26 @@ def apply_grain_dedup(
         raise ValueError(f"apply_grain_dedup: {e}") from e
     _validate_key_columns(df, keys, label="apply_grain_dedup")
 
-    if policy.strategy in ("no_dedup", "policy_required"):
-        if policy.strategy == "policy_required":
-            logger.warning(
-                "dedup_policy.strategy=policy_required — skipping automatic dedup until HITL resolves policy"
+    if policy.strategy == "no_dedup":
+        return df.copy()
+
+    if policy.strategy == "policy_required":
+        if policy.hook_spec is not None:
+            if hook_modules_root is None:
+                raise ValueError(
+                    "dedup_policy has hook_spec but hook_modules_root was not passed. "
+                    "Pass hook_modules_root= (e.g. SchoolMappingConfig.bronze_volumes_path) "
+                    "so identity_hooks/.../dedup_hooks.py can be imported."
+                )
+            hook_fn = load_grain_dedup_hook_from_hook_spec(
+                policy.hook_spec,
+                modules_root=hook_modules_root,
+                table=contract.table,
             )
+            return _apply_grain_hook_dedup_by_key_groups(df, keys, hook_fn)
+        logger.warning(
+            "dedup_policy.strategy=policy_required — skipping automatic dedup until HITL resolves policy"
+        )
         return df.copy()
 
     sort_list: list[str] | None = None
@@ -297,10 +406,14 @@ def apply_grain_execution(
     term_pass: TermContract | None = None,
     *,
     canonical_learner_column: str = "learner_id",
+    hook_modules_root: str | Path | None = None,
 ) -> pd.DataFrame:
     """Run :func:`apply_grain_dedup` then :func:`apply_term_order_from_contract` (term contract, if any)."""
     out = apply_grain_dedup(
-        df, grain, canonical_learner_column=canonical_learner_column
+        df,
+        grain,
+        canonical_learner_column=canonical_learner_column,
+        hook_modules_root=hook_modules_root,
     )
     return apply_term_order_from_contract(out, term_pass)
 
@@ -309,6 +422,7 @@ def build_dedupe_fn_from_grain_contract(
     contract: GrainContract,
     *,
     canonical_learner_column: str = "learner_id",
+    hook_modules_root: str | Path | None = None,
 ) -> Callable[[pd.DataFrame], pd.DataFrame]:
     """
     Build a ``dedupe_fn`` for :func:`~edvise.data_audit.custom_cleaning.clean_dataset` /
@@ -318,11 +432,16 @@ def build_dedupe_fn_from_grain_contract(
     Term order still runs later via ``term_order_fn`` / :func:`apply_term_order_from_contract` if needed.
     Pass ``canonical_learner_column=\"student_id\"`` only when the cleaned frame still uses
     :func:`~edvise.data_audit.custom_cleaning.clean_dataset` audit defaults (``student_id``).
+
+    Pass ``hook_modules_root`` when ``dedup_policy.hook_spec`` is set (materialized ``dedup_hooks.py``).
     """
 
     def _dedupe_fn(frame: pd.DataFrame) -> pd.DataFrame:
         return apply_grain_dedup(
-            frame, contract, canonical_learner_column=canonical_learner_column
+            frame,
+            contract,
+            canonical_learner_column=canonical_learner_column,
+            hook_modules_root=hook_modules_root,
         )
 
     return _dedupe_fn
