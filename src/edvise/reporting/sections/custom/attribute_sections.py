@@ -131,8 +131,18 @@ def register_attribute_sections(card, registry):
         """
         Produce a section for the custom checkpoint. Also defines an
         ordinal function.
+
+        If ``optional_desc`` is set on the checkpoint config, it replaces the
+        default unit/value sentence (for models whose feature row is not a
+        single-term or fixed-credit snapshot).
         """
         try:
+            optional_desc = getattr(
+                card.cfg.preprocessing.checkpoint, "optional_desc", None
+            )
+            if optional_desc is not None and str(optional_desc).strip():
+                return str(optional_desc).strip()
+
             unit = card.cfg.preprocessing.checkpoint.unit
             value = card.cfg.preprocessing.checkpoint.value
             base_message = "The model makes this prediction when the student has"

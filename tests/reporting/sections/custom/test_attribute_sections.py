@@ -170,6 +170,22 @@ def test_checkpoint_valid_variants(mock_card, unit, value, expected_snippet):
     assert expected_snippet in result
 
 
+def test_checkpoint_optional_desc_overrides_unit_value(mock_card):
+    mock_card.cfg.preprocessing.checkpoint.unit = "term"
+    mock_card.cfg.preprocessing.checkpoint.value = 1
+    mock_card.cfg.preprocessing.checkpoint.optional_desc = (
+        "Custom checkpoint prose that does not use completed N terms."
+    )
+
+    registry = SectionRegistry()
+    custom_attribute_sections.register_attribute_sections(mock_card, registry)
+    rendered = registry.render_all()
+    result = rendered["checkpoint_section"]
+
+    assert result == "Custom checkpoint prose that does not use completed N terms."
+    assert "completed 1 term" not in result
+
+
 def test_checkpoint_section_missing_config(mock_card, caplog):
     # Simulate exception due to missing checkpoint
     del mock_card.cfg.preprocessing.checkpoint
