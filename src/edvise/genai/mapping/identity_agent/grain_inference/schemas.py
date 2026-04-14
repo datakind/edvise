@@ -32,9 +32,8 @@ class HookFunctionSpec(BaseModel):
 
     ``draft`` is the **full function definition** (``def`` line through body) as one string.
     ``signature`` is optional human/LLM metadata; materialize does not use it.
-    For **term** hooks, prompts require ``example_input`` / ``example_output`` to be
-    literal-evaluable for smoke tests. For **grain** (and similar domains), they are
-    free-form documentation strings only.
+    ``description`` documents intent for reviewers; validation is ``ast.parse`` → optional
+    pyflakes → :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.validate_hook` signature check.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -45,8 +44,6 @@ class HookFunctionSpec(BaseModel):
         description="Optional; not used by materialize (draft carries the full def).",
     )
     description: str
-    example_input: str | None = None
-    example_output: str | int | float | None = None
     draft: str | None = Field(
         default=None,
         description="Complete Python function definition: signature and body as one string.",

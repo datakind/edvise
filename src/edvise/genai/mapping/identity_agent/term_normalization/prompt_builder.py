@@ -638,16 +638,12 @@ VALIDITY RULES
         "name": "year_extractor_<table>",
         "signature": "def year_extractor_<table>(term: str) -> int",
         "description": "Extract year from opaque numeric term code.",
-        "example_input": "1192",
-        "example_output": "2019",
         "draft": "int(str(term)[1:3]) + 2000"
       },
       {
         "name": "season_extractor_<table>",
         "signature": "def season_extractor_<table>(term: str) -> str",
         "description": "Extract raw season token from term code. Returns one of: '9', '2', '6'.",
-        "example_input": "1192",
-        "example_output": "9",
         "draft": "str(term)[3:]"
       }
     ]

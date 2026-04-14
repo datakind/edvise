@@ -17,6 +17,7 @@ from edvise.genai.mapping.identity_agent.execution import (
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     DedupPolicy,
     GrainContract,
+    HookFunctionSpec,
     HookSpec,
 )
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
@@ -268,8 +269,41 @@ def test_apply_term_order_raises_when_hook_required_hooks_not_wired():
         term_extraction="hook_required",
         hook_spec=HookSpec(file="identity_hooks/x/term_hooks.py", functions=[]),
     )
-    with pytest.raises(ValueError, match="hook_required"):
+    with pytest.raises(ValueError, match="hook_modules_root"):
         apply_term_order_from_config(df, c)
+
+
+def test_apply_term_order_hook_required_loads_extractors_from_hook_modules_root(tmp_path):
+    hook_dir = tmp_path / "identity_hooks" / "jj"
+    hook_dir.mkdir(parents=True)
+    (hook_dir / "term_hooks.py").write_text(
+        """
+def year_extractor_enroll(term):
+    return 2020
+
+def season_extractor_enroll(term):
+    return "FA"
+"""
+    )
+    c = TermOrderConfig(
+        term_col="term",
+        season_map=[{"raw": "FA", "canonical": "FALL"}],
+        term_extraction="hook_required",
+        hook_spec=HookSpec(
+            file="identity_hooks/jj/term_hooks.py",
+            functions=[
+                HookFunctionSpec(name="year_extractor_enroll", description="year"),
+                HookFunctionSpec(name="season_extractor_enroll", description="season"),
+            ],
+        ),
+    )
+    df = pd.DataFrame({"term": ["ignored"]})
+    out = apply_term_order_from_config(df, c, hook_modules_root=tmp_path)
+    assert int(out["_year"].iloc[0]) == 2020
+    assert out["_season"].iloc[0] == "fa"
+    fn = term_order_fn_from_term_order_config(c, hook_modules_root=tmp_path)
+    out2 = fn(df, "term")
+    assert int(out2["_year"].iloc[0]) == 2020
 
 
 def test_apply_term_order_split_year_season_columns():

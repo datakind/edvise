@@ -49,6 +49,7 @@ __all__ = [
     "TermContract",
     "TermOrderConfig",
     "apply_term_order_from_config",
+    "load_term_extractors_from_hook_spec",
     "term_order_column_for_clean_dataset",
     "term_order_fn_from_term_order_config",
     "build_term_normalization_batch_system_prompt",
@@ -67,6 +68,10 @@ __all__ = [
 def __getattr__(name: str) -> Any:
     if name == "apply_term_order_from_config":
         from .term_order import apply_term_order_from_config as fn
+
+        return fn
+    if name == "load_term_extractors_from_hook_spec":
+        from .term_order import load_term_extractors_from_hook_spec as fn
 
         return fn
     if name == "term_order_column_for_clean_dataset":

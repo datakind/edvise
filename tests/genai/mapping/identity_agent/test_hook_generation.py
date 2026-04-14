@@ -95,10 +95,10 @@ def test_build_hook_generation_system_prompt_grain_term():
     g = build_hook_generation_system_prompt(HITLDomain.IDENTITY_GRAIN)
     assert "HookSpec" in g and "dedup" in g.lower()
     assert "machine-round-trip" not in g.lower()
-    assert "documentation only" in g.lower()
+    assert "ast.parse" in g
     t = build_hook_generation_system_prompt(HITLDomain.IDENTITY_TERM)
     assert "year_extractor" in t and "season_extractor" in t
-    assert "literal_eval" in t.lower()
+    assert "validate_hook" in t
 
 
 def test_build_hook_generation_system_prompt_rejects_unknown():
@@ -113,8 +113,6 @@ def test_parse_hook_spec_dict_and_fenced_json():
                 "name": "f",
                 "signature": "def f(x: str) -> int",
                 "description": "test",
-                "example_input": "'a'",
-                "example_output": "1",
                 "draft": "def f(x: str) -> int:\n    return 1\n",
             }
         ],

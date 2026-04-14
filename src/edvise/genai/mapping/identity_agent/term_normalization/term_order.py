@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 from collections.abc import Callable
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
 from edvise.utils.data_cleaning import convert_to_snake_case
+
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
 
 from .schemas import TermOrderConfig
 
@@ -171,7 +176,7 @@ def add_edvise_term_order(
         if year_extractor is None or season_extractor is None:
             raise ValueError(
                 "term_extraction is 'hook_required' but year_extractor and/or season_extractor not provided. "
-                "Resolve extractors from institution hook file via resolve_term_extractors()."
+                "Use load_term_extractors_from_hook_spec(hook_spec, modules_root=...) or pass callables."
             )
     elif has_split and (year_extractor is not None or season_extractor is not None):
         raise ValueError(
@@ -320,6 +325,86 @@ def add_edvise_term_labels(
     return out
 
 
+def load_term_extractors_from_hook_spec(
+    hook_spec: HookSpec | dict[str, Any],
+    *,
+    modules_root: str | Path,
+) -> tuple[Callable[..., Any], Callable[..., Any]]:
+    """
+    Import the materialized hook module and return ``(year_extractor, season_extractor)`` callables.
+
+    Chooses functions by name: exactly one ``functions[]`` entry whose ``name`` contains ``year``
+    (case-insensitive) and exactly one whose ``name`` contains ``season``. Typical names are
+    ``year_extractor_<table>`` and ``season_extractor_<table>``.
+    """
+    from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
+        resolve_hook_module_path,
+    )
+
+    hs = (
+        hook_spec.model_dump(mode="json")
+        if isinstance(hook_spec, HookSpec)
+        else dict(hook_spec)
+    )
+    rel = hs.get("file")
+    if not rel:
+        raise ValueError("hook_spec.file is required to load extractors from disk")
+    path = resolve_hook_module_path(rel, root=modules_root)
+    spec = importlib.util.spec_from_file_location("_ia_term_hooks", path)
+    if spec is None or spec.loader is None:
+        raise ValueError(f"Could not load hook module spec for {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    funcs = hs.get("functions") or []
+    year_like = [f["name"] for f in funcs if "year" in f["name"].lower()]
+    season_like = [f["name"] for f in funcs if "season" in f["name"].lower()]
+    # Names containing both substrings are ambiguous (e.g. year_season_hook).
+    year_names = [n for n in year_like if n not in season_like]
+    season_names = [n for n in season_like if n not in year_like]
+    if len(year_names) != 1 or len(season_names) != 1:
+        raise ValueError(
+            "hook_spec.functions must name exactly one function with 'year' and one with 'season' "
+            f"in the identifier (disambiguated when both appear); got year-like {year_names!r}, "
+            f"season-like {season_names!r}"
+        )
+    y = getattr(mod, year_names[0], None)
+    s = getattr(mod, season_names[0], None)
+    if not callable(y) or not callable(s):
+        raise ValueError(
+            f"Module {path} missing callables {year_names[0]!r} / {season_names[0]!r}"
+        )
+    return y, s
+
+
+def _resolve_hook_year_season_callables(
+    config: TermOrderConfig,
+    *,
+    hook_modules_root: str | Path | None,
+    year_extractor: Callable[..., Any] | None,
+    season_extractor: Callable[..., Any] | None,
+) -> tuple[Callable[..., Any] | None, Callable[..., Any] | None]:
+    if config.term_extraction != "hook_required":
+        return None, None
+    if year_extractor is not None and season_extractor is not None:
+        return year_extractor, season_extractor
+    if year_extractor is not None or season_extractor is not None:
+        raise ValueError(
+            "Pass both year_extractor and season_extractor, or pass neither to load from hook_spec."
+        )
+    if config.hook_spec is None:
+        raise ValueError("hook_spec is required when term_extraction is 'hook_required'")
+    if hook_modules_root is None:
+        raise ValueError(
+            "term_extraction is 'hook_required': pass hook_modules_root= (directory containing "
+            "hook_spec.file, e.g. bronze_volumes_path) to load extractors, or pass year_extractor= "
+            "and season_extractor= explicitly."
+        )
+    return load_term_extractors_from_hook_spec(
+        config.hook_spec, modules_root=hook_modules_root
+    )
+
+
 def term_order_column_for_clean_dataset(config: TermOrderConfig) -> str:
     """
     Return the column name to set on ``CleanSpec.term_column`` when using
@@ -343,6 +428,10 @@ def term_order_column_for_clean_dataset(config: TermOrderConfig) -> str:
 
 def term_order_fn_from_term_order_config(
     config: TermOrderConfig,
+    *,
+    hook_modules_root: str | Path | None = None,
+    year_extractor: Callable[..., Any] | None = None,
+    season_extractor: Callable[..., Any] | None = None,
 ) -> Callable[[pd.DataFrame, str], pd.DataFrame]:
     """
     Build a ``(df, term_column) -> df`` hook compatible with
@@ -351,14 +440,16 @@ def term_order_fn_from_term_order_config(
     Pass the result as ``term_order_fn`` and set ``term_column`` to
     :func:`term_order_column_for_clean_dataset`\\(config\\) so the optional term-order step runs.
 
-    Hook-required extraction (``term_extraction == \"hook_required\"``) is not supported here; resolve
-    extractors from ``hook_spec`` and call :func:`add_edvise_term_order` directly instead.
+    When ``term_extraction`` is ``hook_required``, pass ``hook_modules_root`` (same root used when
+    materializing hooks, e.g. ``bronze_volumes_path``) so extractors are imported from
+    ``hook_spec.file``, **or** pass ``year_extractor`` and ``season_extractor`` explicitly.
     """
-    if config.term_extraction == "hook_required":
-        raise ValueError(
-            "term_order_fn_from_term_order_config does not support term_extraction 'hook_required'; "
-            "call add_edvise_term_order with year_extractor and season_extractor from hook_spec."
-        )
+    ye, se = _resolve_hook_year_season_callables(
+        config,
+        hook_modules_root=hook_modules_root,
+        year_extractor=year_extractor,
+        season_extractor=season_extractor,
+    )
     expected_column = term_order_column_for_clean_dataset(config)
     tc = _normalize_term_config_column_names(config.model_dump(mode="json"))
 
@@ -368,27 +459,32 @@ def term_order_fn_from_term_order_config(
                 f"term_column {term_column!r} must be {expected_column!r} for this TermOrderConfig "
                 "(use term_order_column_for_clean_dataset(config) when building CleanSpec)."
             )
-        return add_edvise_term_order(df, tc, year_extractor=None, season_extractor=None)
+        return add_edvise_term_order(df, tc, year_extractor=ye, season_extractor=se)
 
     return _fn
 
 
 def apply_term_order_from_config(
-    df: pd.DataFrame, config: TermOrderConfig
+    df: pd.DataFrame,
+    config: TermOrderConfig,
+    *,
+    hook_modules_root: str | Path | None = None,
+    year_extractor: Callable[..., Any] | None = None,
+    season_extractor: Callable[..., Any] | None = None,
 ) -> pd.DataFrame:
     """
     Apply a validated :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermOrderConfig`
     by calling :func:`add_edvise_term_order` with ``config`` serialized as the JSON-compatible dict
     IdentityAgent emits (including :func:`add_edvise_term_labels`).
 
-    Hook-required extraction (``term_extraction == \"hook_required\"``) requires ``year_extractor`` and
-    ``season_extractor``; resolve those from ``hook_spec`` and call :func:`add_edvise_term_order`
-    directly instead of this helper.
+    When ``term_extraction`` is ``hook_required``, pass ``hook_modules_root`` or explicit extractors
+    (same as :func:`term_order_fn_from_term_order_config`).
     """
-    if config.term_extraction == "hook_required":
-        raise ValueError(
-            "term_config.term_extraction is 'hook_required' — provide year_extractor and season_extractor "
-            "from hook_spec to add_edvise_term_order (or preprocess the term column)."
-        )
+    ye, se = _resolve_hook_year_season_callables(
+        config,
+        hook_modules_root=hook_modules_root,
+        year_extractor=year_extractor,
+        season_extractor=season_extractor,
+    )
     tc = _normalize_term_config_column_names(config.model_dump(mode="json"))
-    return add_edvise_term_order(df, tc, year_extractor=None, season_extractor=None)
+    return add_edvise_term_order(df, tc, year_extractor=ye, season_extractor=se)

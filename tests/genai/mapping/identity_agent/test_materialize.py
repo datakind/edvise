@@ -125,49 +125,6 @@ def test_materialize_rejects_null_draft(tmp_path: Path) -> None:
         )
 
 
-def test_smoke_skipped_for_grain_despite_example_fields(tmp_path: Path) -> None:
-    """Grain does not run literal smoke tests (examples may be non-literals)."""
-    spec = HookSpec(
-        file="helpers/dedup_hooks.py",
-        functions=[
-            HookFunctionSpec(
-                name="f",
-                description="d",
-                draft=_grain_draft(),
-                example_input="not a valid literal",
-                example_output="also not literal-evaluable",
-            )
-        ],
-    )
-    materialize_hook_spec_to_file(
-        spec,
-        repo_root=tmp_path,
-        domain=HITLDomain.IDENTITY_GRAIN,
-    )
-
-
-def test_smoke_term_runs_for_identity_term(tmp_path: Path) -> None:
-    spec = HookSpec(
-        file="helpers/term_hooks.py",
-        functions=[
-            HookFunctionSpec(
-                name="year_extractor",
-                description="d",
-                example_input='"1192"',
-                example_output="2019",
-                draft="""def year_extractor(term: str) -> int:
-    return int(str(term)[1:3]) + 2000
-""",
-            )
-        ],
-    )
-    materialize_hook_spec_to_file(
-        spec,
-        repo_root=tmp_path,
-        domain=HITLDomain.IDENTITY_TERM,
-    )
-
-
 def test_ast_parse_failure_raises(tmp_path: Path) -> None:
     spec = HookSpec(
         file="helpers/bad.py",

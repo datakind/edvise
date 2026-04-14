@@ -219,6 +219,8 @@ def build_schema_contract_from_grain_contracts(
             (same as ``clean_dataset``). For Identity term-stage output, build from
             :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermOrderConfig` via
             :func:`~edvise.genai.mapping.identity_agent.term_normalization.term_order.term_order_fn_from_term_order_config`.
+            When ``term_extraction`` is ``hook_required``, pass ``hook_modules_root=`` (e.g.
+            ``school_config.bronze_volumes_path``) so materialized extractors load from ``hook_spec.file``.
         term_column_by_dataset: Logical dataset name → column name for the term-order step.
             When using ``term_order_fn_from_term_order_config``, set each entry to
             ``term_order_column_for_clean_dataset`` for the matching

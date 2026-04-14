@@ -18,7 +18,7 @@ Public API:
         — optional materialize=True + repo_root= writes hook_spec.file as a Python module
 
     validate_hook(hitl_path, config_path, item_id, hook_group_id)
-        — unit tests a generated hook against example_input/example_output from HookFunctionSpec
+        — compares each function's draft (AST) to the imported module's runtime signature
 
 Notebook usage pattern:
     # Gate check before advancing
@@ -61,9 +61,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
-from edvise.genai.mapping.identity_agent.hitl.hook_generation.literals import (
-    coerce_hook_example_value,
-)
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.signature_check import (
     signature_mismatches,
 )
@@ -323,7 +320,11 @@ def apply_hook_spec(
     share the same term encoding or dedup pattern.
 
     For IDENTITY_GRAIN items: writes hook_spec to dedup_policy.hook_spec
-    For IDENTITY_TERM items:  writes hook_spec to term_config.hook_spec
+    For IDENTITY_TERM items: writes hook_spec to term_config.hook_spec and sets
+    ``term_config.term_extraction`` to ``hook_required``. That value is the **runtime mode**
+    for hook-driven extraction (year/season from the materialized module), not a “todo” flag —
+    it stays ``hook_required`` after hooks are generated and materialized. Only
+    ``standard`` is used for split ``year_col``/``season_col`` extraction without ``hook_spec``.
 
     When ``materialize`` is True, also writes a ``.py`` file at ``hook_spec.file``
     (relative to ``repo_root``) so :func:`validate_hook` can import it. Pass
@@ -425,15 +426,8 @@ def validate_hook(
     """
     For every domain: compares each function's ``draft`` (AST) to the imported function's runtime
     signature — parameter names/order and return annotation when the draft includes ``->``.
-
-    For **identity_term** items only: also runs each function with ``example_input`` /
-    ``example_output`` coerced via :func:`ast.literal_eval`. If the return value does not match
-    ``example_output``, a **warning** is logged (reviewer may fix examples); **execution errors**
-    still fail validation. Same spirit as post-materialize smoke tests in
-    :func:`~edvise.genai.mapping.identity_agent.hitl.hook_generation.materialize.materialize_hook_spec_to_file`.
-
-    For **identity_grain** (and future non-term domains such as transform hooks):
-    ``example_input`` / ``example_output`` are documentation only — no literal_eval or execution.
+    Validation stack aligns with materialization: :func:`ast.parse` and optional pyflakes on the
+    written module, then this signature check after import.
 
     Raises HookValidationError on failure.
 
@@ -501,19 +495,9 @@ def validate_hook(
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    def _call_with_literal_input(fn, parsed_in):
-        if isinstance(parsed_in, tuple):
-            return fn(*parsed_in)
-        return fn(parsed_in)
-
-    run_literal_tests = item.domain == HITLDomain.IDENTITY_TERM
-    term_example_mismatch_logged = False
-
     failures: list[str] = []
     for fn_spec in hook_spec_dict["functions"]:
         name = fn_spec["name"]
-        example_input = fn_spec.get("example_input")
-        example_output = fn_spec.get("example_output")
         draft = fn_spec.get("draft")
 
         fn = getattr(module, name, None)
@@ -523,74 +507,15 @@ def validate_hook(
 
         failures.extend(signature_mismatches(fn, expected_name=name, draft=draft))
 
-        if not run_literal_tests:
-            print(
-                f"  ℹ  [{name}] {item.domain.value} — examples are documentation only; "
-                f"skipping literal smoke test."
-            )
-            continue
-
-        if example_input is None:
-            print(f"  ⚠  [{name}] No example_input — skipping literal test.")
-            continue
-
-        try:
-            parsed_in = coerce_hook_example_value(example_input)
-        except (ValueError, SyntaxError) as e:
-            failures.append(
-                f"[{name}] Could not literal_eval example_input {example_input!r}: {e}"
-            )
-            continue
-
-        try:
-            result = _call_with_literal_input(fn, parsed_in)
-        except Exception as e:
-            failures.append(
-                f"[{name}] Raised exception on input {parsed_in!r}: {e}"
-            )
-            continue
-
-        if example_output is not None:
-            try:
-                expected = coerce_hook_example_value(example_output)
-            except (ValueError, SyntaxError) as e:
-                failures.append(
-                    f"[{name}] Could not literal_eval example_output {example_output!r}: {e}"
-                )
-                continue
-            if result != expected:
-                term_example_mismatch_logged = True
-                logger.warning(
-                    "Hook validate_hook example mismatch for %r: got %r, expected raw "
-                    "example_output %r. Reviewer may fix examples in config — verify manually.",
-                    name,
-                    result,
-                    example_output,
-                )
-            else:
-                print(f"  ✓ [{name}] {parsed_in!r} → {result!r}")
-
     if failures:
         raise HookValidationError(
             f"Hook validation failed for '{hook_file}':\n"
             + "\n".join(f"  • {f}" for f in failures)
         )
 
-    if run_literal_tests:
-        if term_example_mismatch_logged:
-            print(
-                f"✓ Hook signatures verified for {hook_file}; "
-                f"one or more example_input/example_output pairs mismatched execution (see warnings)."
-            )
-        else:
-            print(
-                f"✓ Hook signatures and literal examples validated for {hook_file}."
-            )
-    else:
-        print(
-            f"✓ Hook signatures verified for {hook_file} — "
-            f"{item.domain.value} examples are not executed (documentation only)."
-        )
+    print(
+        f"✓ Hook signatures verified for {hook_file} ({item.domain.value})."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -624,7 +549,11 @@ def _apply_term_hook_spec_dict(
     term_cfg: dict, hook_spec: HookSpec, *, item_id: str, institution_id: str
 ) -> None:
     """
-    Write ``hook_spec``, set ``term_extraction='hook_required'``.
+    Write ``hook_spec`` and set ``term_extraction='hook_required'``.
+
+    ``hook_required`` means “term extraction uses these hook functions” for the combined
+    ``term_col`` path — it remains correct after materialization; it is not upgraded to
+    ``standard`` (``standard`` is for split year/season columns without ``hook_spec``).
 
     TermOrderConfig forbids ``hook_spec`` alongside ``year_col``/``season_col``; when both split
     columns and ``term_col`` are present, split columns are cleared (combined-column hook path).
@@ -732,7 +661,10 @@ def _apply_term_resolution(
             item_id=item.item_id,
             institution_id=item.institution_id,
         )
-        print(f"  → term_config: hook_spec set, term_extraction=hook_required [{item.item_id}]")
+        print(
+            f"  → term_config: hook_spec set; term_extraction=hook_required "
+            f"(runtime mode for hook extractors — unchanged after materialize) [{item.item_id}]"
+        )
 
 
 def _write_hook_spec_to_config(
