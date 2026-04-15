@@ -341,6 +341,9 @@ ROW SELECTION
 - Use "first_by" strategy only when row ordering has semantic meaning — e.g. earliest term, most recent record.
   The sort column must be present in the schema contract and must have a meaningful ordinal interpretation.
   Do not use first_by with an arbitrary column just to resolve grain ambiguity
+- Use "nth" strategy only when you need the Nth matching row after sorting (e.g. 2nd certificate, 3rd award).
+  You MUST set row_selection.n to a positive integer (1 = first row after sort, 2 = second, …) and
+  row_selection.order_by to the contract column used for sorting — never omit n or use null for nth
 - Use "where_not_null" strategy when the field is sparsely populated across rows and you want the most complete record —
   not as a substitute for first_by when ordering matters
 - Use "constant" strategy only for institutionally-derived constant values with no source column

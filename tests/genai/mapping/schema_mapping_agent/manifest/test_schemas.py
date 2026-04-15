@@ -93,6 +93,8 @@ def test_row_selection_nth_requires_n_and_order_by():
         RowSelectionConfig(strategy=RowSelectionStrategy.nth, order_by="dt")
     with pytest.raises(ValidationError, match="order_by"):
         RowSelectionConfig(strategy=RowSelectionStrategy.nth, n=1)
+    with pytest.raises(ValidationError, match="n must be >="):
+        RowSelectionConfig(strategy=RowSelectionStrategy.nth, n=0, order_by="dt")
 
 
 def test_row_selection_fan_out_risk():

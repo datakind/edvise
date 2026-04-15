@@ -158,8 +158,12 @@ class RowSelectionConfig(StrictBaseModel):
                 "condition_col is required when strategy is where_not_null"
             )
         if self.strategy == RowSelectionStrategy.nth:
-            if not self.n:
+            if self.n is None:
                 raise ValueError("n is required when strategy is nth")
+            if self.n < 1:
+                raise ValueError(
+                    "n must be >= 1 (1-based index after sorting) when strategy is nth"
+                )
             if not self.order_by:
                 raise ValueError("order_by is required when strategy is nth")
         return self
@@ -378,9 +382,9 @@ def get_compact_manifest_schema_reference() -> str:
         'RowSelectionStrategy: "any_row"|"first_by"|"where_not_null"|"constant"|"nth"\n'
         "\n"
         "RowSelectionConfig — Strategy-specific args: first_by→order_by!; where_not_null→condition_col!; "
-        "nth→n!+order_by!; constant→no row pick (source_column null); filter pre-filters rows.\n"
+        "nth→n!(int≥1)+order_by!; constant→no row pick (source_column null); filter pre-filters rows.\n"
         "RowSelectionConfig: {strategy: RowSelectionStrategy!, order_by?: str, condition_col?: str, "
-        "filter?: JoinFilter, n?: int}\n"
+        "filter?: JoinFilter, n?: int}; if strategy=nth then n and order_by are REQUIRED\n"
         "\n"
         "FieldMappingRecord — One target field: source, optional join, row_selection, confidence.\n"
         "FieldMappingRecord: {target_field: str!, source_column?: str, source_table?: str, join?: JoinConfig, "
