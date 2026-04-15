@@ -20,7 +20,7 @@ Files are typically named ``{school_id}_schema_contract.json``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -116,6 +116,10 @@ class EnrichedSchemaContractForSMA(BaseFrozenSchemaContract):
 
     Extends :class:`BaseFrozenSchemaContract` with ``school_id`` / ``school_name`` / ``notes``
     and per-dataset :class:`FrozenDatasetSchemaForSMA` (includes ``training``).
+
+    ``canonical_learner_column`` is copied from the frozen base contract by IdentityAgent
+    (:func:`~edvise.genai.mapping.identity_agent.execution.contract_builder.build_enriched_schema_contract`)
+    when present; it names the person-key column after cleaning (``student_id`` vs ``learner_id``).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -123,6 +127,7 @@ class EnrichedSchemaContractForSMA(BaseFrozenSchemaContract):
     school_id: str
     school_name: str
     notes: str | None = None
+    canonical_learner_column: Literal["student_id", "learner_id"] | None = None
     datasets: dict[str, FrozenDatasetSchemaForSMA]
 
 

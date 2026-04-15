@@ -64,6 +64,8 @@ def summarize_schema_contract(
     }
     if parsed.learner_id_alias:
         summary["learner_id_alias"] = parsed.learner_id_alias
+    if parsed.canonical_learner_column:
+        summary["canonical_learner_column"] = parsed.canonical_learner_column
 
     for table_name, table_info in parsed.datasets.items():
         dtypes_map = table_info.dtypes or {}
