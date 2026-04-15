@@ -377,6 +377,48 @@ class TestPDPGetModelName:
         )
         assert result == "retention_into_year_2_associates"
 
+    @pytest.mark.parametrize(
+        "second_credential",
+        [
+            "LESS THAN ONE-YEAR CERTIFICATE, LESS THAN ASSOCIATE DEGREE",
+            "ONE TO TWO YEAR CERTIFICATE, LESS THAN ASSOCIATE DEGREE",
+            "1-2 YEAR CERTIFICATE, LESS THAN ASSOCIATE DEGREE",
+            "2-4 YEAR CERTIFICATE, LESS THAN BACHELOR'S DEGREE",
+            "UNDERGRADUATE CERTIFICATE OR DIPLOMA PROGRAM",
+        ],
+    )
+    def test_retention_with_associates_and_certificate_selection(
+        self, second_credential: str
+    ) -> None:
+        """
+        Multi-select ASSOCIATE'S DEGREE + certificate-type credential → associates_and_cert.
+
+        Raw cohort schema keeps credential_type_sought_year_1 as strings (no remap);
+        configs use uppercase PDP-style values as ingested.
+        """
+        assert "certificate" in normalize_degree(second_credential).lower()
+
+        target = {
+            "type_": "retention",
+            "max_academic_year": "2024",
+        }
+        checkpoint = {
+            "type_": "first_within_cohort",
+        }
+        student_criteria = {
+            "credential_type_sought_year_1": [
+                "ASSOCIATE'S DEGREE",
+                second_credential,
+            ],
+        }
+
+        result = pdp_get_model_name(
+            target=target,
+            checkpoint=checkpoint,
+            student_criteria=student_criteria,
+        )
+        assert result == "retention_into_year_2_associates_and_cert"
+
     def test_retention_with_bachelor_degree(self):
         """Retention with Bachelor's degree variant"""
         target = {
