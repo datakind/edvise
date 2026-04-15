@@ -32,6 +32,7 @@ dependencies = [
     "types-markdown~=3.8",
     "h2o==3.46.0.7",
     "polars~=0.20",
+    "python-dotenv~=1.0",
     "tomlkit==0.13.3",
     "requests==2.32.5",
 ]
