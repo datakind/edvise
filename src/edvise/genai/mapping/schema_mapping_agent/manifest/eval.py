@@ -3,11 +3,14 @@ import json
 import logging
 import os
 from collections import Counter
+from typing import Any, cast
 from copy import deepcopy
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from openai import OpenAI
+from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
+from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
@@ -108,15 +111,16 @@ MODELS_WITH_PREFILL = {
 
 
 # ── inference ─────────────────────────────────────────────────────────────────
-def run_once(model: str, prompt: str, client: OpenAI) -> dict:
+def run_once(model: str, prompt: str, client: OpenAI) -> dict[str, Any]:
     start = time.perf_counter()
     try:
         full_text = ""
 
         # Build messages - only add assistant prefill for models that support it
-        messages = [{"role": "user", "content": prompt}]
+        messages_list: list[dict[str, str]] = [{"role": "user", "content": prompt}]
         if model in MODELS_WITH_PREFILL:
-            messages.append({"role": "assistant", "content": "{"})  # prefill for JSON
+            messages_list.append({"role": "assistant", "content": "{"})  # prefill for JSON
+        messages = cast(list[ChatCompletionMessageParam], messages_list)
 
         resp = client.chat.completions.create(
             model=model,
@@ -127,6 +131,8 @@ def run_once(model: str, prompt: str, client: OpenAI) -> dict:
         for chunk in resp:
             # Safely extract content from chunk - handle cases where choices might be empty
             try:
+                if not isinstance(chunk, ChatCompletionChunk):
+                    continue
                 if not chunk.choices or len(chunk.choices) == 0:
                     continue
                 delta = chunk.choices[0].delta.content or ""
@@ -333,7 +339,10 @@ def _canonicalize_column(
 ) -> str | None:
     if column is None:
         return None
-    return alias_map.get((table, column), column)
+    return cast(
+        str | None,
+        alias_map.get((table, column), column),
+    )
 
 
 def _lookup_table_unique_keys(
@@ -732,7 +741,7 @@ def score_manifest_v2(
     pred_alias_map = _get_alias_map(pred, entity)
     gold_alias_map = _get_alias_map(gold, entity)
 
-    counts = Counter()
+    counts: Counter[str] = Counter()
     field_scores = []
 
     for field, gold_mapping in gold_mappings.items():

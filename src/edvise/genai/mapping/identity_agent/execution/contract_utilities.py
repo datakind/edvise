@@ -11,7 +11,7 @@ import importlib.util
 import logging
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import pandas as pd
 
@@ -127,13 +127,15 @@ def canonicalize_grain_contract_learner_id_alias(
     ]
     dp = contract.dedup_policy
     if dp.sort_by is None:
-        new_sort: str | None = None
+        mapped_sort: str | None = None
     else:
-        new_sort = _map_key_after_canonical_learner_rename(
+        mapped_sort = _map_key_after_canonical_learner_rename(
             dp.sort_by, alias, canonical_column=canonical_column
         )
     new_dp = (
-        dp if new_sort == dp.sort_by else dp.model_copy(update={"sort_by": new_sort})
+        dp
+        if mapped_sort == dp.sort_by
+        else dp.model_copy(update={"sort_by": mapped_sort})
     )
 
     if (
@@ -280,7 +282,7 @@ def load_grain_dedup_hook_from_hook_spec(
     fn = getattr(mod, fn_name, None)
     if not callable(fn):
         raise ValueError(f"Module {path} missing callable {fn_name!r}")
-    return fn
+    return cast(Callable[[pd.DataFrame], pd.DataFrame], fn)
 
 
 def _apply_grain_hook_dedup_by_key_groups(

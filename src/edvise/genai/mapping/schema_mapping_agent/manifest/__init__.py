@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 __all__ = ["eval", "prompt_builder", "schemas"]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     if name == "schemas":
         from . import schemas as m
 

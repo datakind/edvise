@@ -189,6 +189,10 @@ def _resolve_cross_table_series(
         8. Return target column aligned to base_df
     """
     join = record.join
+    if join is None:
+        raise ValueError(
+            f"[{record.target_field}] join is required for cross-table field resolution"
+        )
     _validate_table(join.base_table, dataframes)
     _validate_table(join.lookup_table, dataframes)
 
@@ -196,6 +200,10 @@ def _resolve_cross_table_series(
     base_join_cols = _resolve_join_keys(join.join_keys, join.base_table, alias_map)
 
     value_col = record.source_column
+    if value_col is None:
+        raise ValueError(
+            f"[{record.target_field}] source_column is required for cross-table field resolution"
+        )
     rs = record.row_selection
     extra_cols = [rs.order_by] if rs and rs.order_by else []
     filter_cols = [rs.filter.column] if rs and rs.filter else []

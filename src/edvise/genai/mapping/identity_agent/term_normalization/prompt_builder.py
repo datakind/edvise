@@ -11,7 +11,7 @@ import copy
 import json
 import logging
 from collections.abc import Mapping
-from typing import Any, Union
+from typing import Any, Union, cast
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
@@ -986,7 +986,7 @@ def _term_payload_as_dict(raw: RawTermPassInput) -> dict:
         return copy.deepcopy(raw)
     text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
     text = strip_json_fences(text)
-    return json.loads(text)
+    return cast(dict[str, Any], json.loads(text))
 
 
 def _strip_term_batch_hitl_payload(d: dict) -> tuple[dict, list[HITLItem]]:

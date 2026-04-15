@@ -63,6 +63,7 @@ import logging
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, cast
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.signature_check import (
@@ -128,8 +129,8 @@ def _save_hitl(envelope: InstitutionHITLItems, hitl_path: Path) -> None:
     hitl_path.write_text(envelope.model_dump_json(indent=2))
 
 
-def _load_config(config_path: Path) -> dict:
-    return json.loads(config_path.read_text())
+def _load_config(config_path: Path) -> dict[str, Any]:
+    return cast(dict[str, Any], json.loads(config_path.read_text()))
 
 
 def _save_config(config: dict, config_path: Path) -> None:
@@ -153,6 +154,7 @@ def _append_run_log(
     else:
         run_log = RunLog(institution_id=institution_id)
 
+    assert item.choice is not None
     event = RunEvent(
         timestamp=datetime.now(timezone.utc).isoformat(),
         resolved_by=resolved_by,
@@ -238,13 +240,13 @@ def resolve_items(
             if selected.resolution is not None:
                 coerced_gh = _coerce_resolution(item, selected.resolution)
                 if isinstance(coerced_gh, TermResolution):
-                    deferred = coerced_gh.model_copy(update={"hook_spec": None})
+                    deferred_term = coerced_gh.model_copy(update={"hook_spec": None})
                     _apply_term_resolution_for_hook_group(
-                        config, envelope, item, deferred
+                        config, envelope, item, deferred_term
                     )
                 elif isinstance(coerced_gh, GrainResolution):
-                    deferred = coerced_gh.model_copy(update={"hook_spec": None})
-                    _apply_grain_resolution(config, item, deferred)
+                    deferred_grain = coerced_gh.model_copy(update={"hook_spec": None})
+                    _apply_grain_resolution(config, item, deferred_grain)
             print(
                 f"⚠  [{item.item_id}] Requires hook generation — "
                 f"call get_hook_items() and apply_hook_spec() after hook gen."
@@ -590,6 +592,8 @@ def validate_hook(
             )
         item = members[0]
     else:
+        if item_id is None:
+            raise ValueError("Provide either item_id or hook_group_id.")
         item = _find_item(envelope, item_id)
 
     # Load hook_spec from config
@@ -614,6 +618,8 @@ def validate_hook(
 
     # Dynamically import hook module
     spec = importlib.util.spec_from_file_location("_hook_module", hook_file)
+    if spec is None or spec.loader is None:
+        raise HookValidationError(f"Could not load module spec for {hook_file}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
@@ -827,7 +833,8 @@ def _read_hook_spec_from_config(config: dict, item: HITLItem) -> dict | None:
     table = item.target.table
     if item.domain == HITLDomain.IDENTITY_GRAIN:
         grain_cfg = _get_nested(config, table, "grain_contract", item.item_id)
-        return grain_cfg.get("dedup_policy", {}).get("hook_spec")
+        raw = grain_cfg.get("dedup_policy", {}).get("hook_spec")
+        return cast(dict[str, Any] | None, raw if isinstance(raw, dict) else None)
     elif item.domain == HITLDomain.IDENTITY_TERM:
         term_cfg = _get_nested(config, table, "term_config", item.item_id)
         return term_cfg.get("hook_spec") if term_cfg else None
@@ -904,4 +911,4 @@ def _get_nested(config: dict, table: str, config_key: str, item_id: str) -> dict
             f"[{item_id}] No '{config_key}' found for table '{table}' in config. "
             f"Available tables: {list(config.get('datasets', {}).keys())}"
         )
-    return cfg
+    return cast(dict[str, Any], cfg)

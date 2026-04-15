@@ -84,7 +84,7 @@ def extract_config_snippet_for_hook_item(
     ds = identity_config.get("datasets")
     if not isinstance(ds, dict) or item.table not in ds:
         raise ValueError(
-            f"No datasets[{item.table!r}] in config (have {list(ds or {}).keys()!r})"
+            f"No datasets[{item.table!r}] in config (have {list((ds if isinstance(ds, dict) else {}).keys())!r})"
         )
     row = ds[item.table]
     if not isinstance(row, dict):

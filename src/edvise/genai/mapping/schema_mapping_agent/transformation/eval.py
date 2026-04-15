@@ -15,6 +15,7 @@ import json
 import logging
 import os
 from collections import Counter
+from typing import Any, cast
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -83,11 +84,14 @@ def _sort_mapping(m: dict | None) -> dict | None:
     return dict(sorted(m.items(), key=lambda kv: (str(kv[0]), str(kv[1]))))
 
 
-def _normalize_obj(x):
-    return json.loads(json.dumps(x, sort_keys=True, default=str))
+def _normalize_obj(x: Any) -> dict[str, Any]:
+    return cast(
+        dict[str, Any],
+        json.loads(json.dumps(x, sort_keys=True, default=str)),
+    )
 
 
-def _normalize_step(step: dict | None) -> dict:
+def _normalize_step(step: dict | None) -> dict[str, Any]:
     """Drop rationale/review-only fields; stable ordering for nested dicts."""
     s = {
         k: v
@@ -145,7 +149,12 @@ def _critical_args_for_step(step: dict) -> dict:
 
 
 def _step_chain_names(plan: dict) -> list[str]:
-    return [_normalize_step(s).get("function_name") for s in (plan.get("steps") or [])]
+    names: list[str] = []
+    for s in plan.get("steps") or []:
+        n = _normalize_step(s).get("function_name")
+        if n is not None:
+            names.append(str(n))
+    return names
 
 
 def _multiset_overlap(a: list[str], b: list[str]) -> int:
@@ -462,7 +471,7 @@ def score_transformation_map(pred: dict, gold: dict, entity: str) -> dict:
     pred_plans = _get_plans_by_field(pred, entity)
     gold_plans = _get_plans_by_field(gold, entity)
 
-    counts = Counter()
+    counts: Counter[str] = Counter()
     field_scores = []
 
     for field, gold_plan in gold_plans.items():

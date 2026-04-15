@@ -200,7 +200,7 @@ class GrainContract(BaseModel):
         if isinstance(v, str):
             s = v.strip()
             return s if s else None
-        return v
+        return str(v).strip() or None
 
     @model_validator(mode="after")
     def low_confidence_requires_hitl(self) -> GrainContract:

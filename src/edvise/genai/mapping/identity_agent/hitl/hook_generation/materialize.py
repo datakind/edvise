@@ -58,9 +58,10 @@ def merge_hook_specs(
             )
 
     if repo_root is not None:
-        roots = {
-            resolve_hook_module_path(s.file, root=repo_root).resolve() for s in specs
-        }
+        roots: set[Path] = set()
+        for s in specs:
+            assert s.file is not None
+            roots.add(resolve_hook_module_path(s.file, root=repo_root).resolve())
         if len(roots) != 1:
             raise HITLValidationError(
                 "merge_hook_specs: all HookSpec.file paths must resolve to the same location "

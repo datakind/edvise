@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Union
+from typing import Any, Union, cast
 
 import pandas as pd
 
@@ -524,6 +524,7 @@ def build_identity_agent_user_message(
     if df is None and column_list is None:
         raise ValueError("Provide exactly one of column_list or df")
     resolved_columns = format_column_list(df) if df is not None else column_list
+    assert resolved_columns is not None
     key_profile_json = json.dumps(
         key_profile.model_dump(mode="json"),
         indent=2,
@@ -557,6 +558,7 @@ def audit_identity_agent_prompt(
     if df is None and column_list is None:
         raise ValueError("Provide exactly one of column_list or df")
     resolved_columns = format_column_list(df) if df is not None else column_list
+    assert resolved_columns is not None
     key_profile_json = json.dumps(
         key_profile.model_dump(mode="json"),
         indent=2,
@@ -583,7 +585,7 @@ def _grain_payload_as_dict(raw: RawContractInput) -> dict:
     if isinstance(raw, dict):
         return dict(raw)
     text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
-    return json.loads(strip_json_fences(text))
+    return cast(dict[str, Any], json.loads(strip_json_fences(text)))
 
 
 def parse_grain_contract_with_hitl(

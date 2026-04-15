@@ -4,7 +4,7 @@ Builds the prompt for generating a mapping manifest from a schema contract + ref
 """
 
 import json
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from edvise.genai.prompt_token_audit import audit_prompt_sections
 
@@ -26,7 +26,7 @@ def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
     )
 
 
-def extract_schema_descriptor(schema_class) -> dict:
+def extract_schema_descriptor(schema_class: Any) -> dict[str, Any]:
     """Extract a compact field descriptor from a Pandera DataFrameModel for prompt injection."""
     fields = {}
 
@@ -420,7 +420,7 @@ DATETIME AND DATE TARGET FIELDS
       - Course entity: course_begin_date, course_end_date
 
   (2) OUTCOME CONFERRAL-STYLE — try to map these from the best available timing signal when it is semantically
-      appropriate (including term / cohort fields, coded terms, or other non-datetime contract dtypes). The
+      appropriate (including term fields, coded terms, or other non-datetime contract dtypes). The
       transformation step may coerce to datetime64[ns]; use lower confidence and validation_notes when the source
       is a term proxy rather than a true calendar conferral timestamp.
       - Cohort (student) entity: bachelors_degree_conferral_date, associates_degree_conferral_date,
@@ -486,15 +486,15 @@ def merge_step2a_entity_manifests(
     ``schema_version``); otherwise they are taken from the cohort pass when present.
     """
 
-    def _extract(pass_dict: dict, role: Literal["cohort", "course"]) -> dict:
+    def _extract(pass_dict: dict, role: Literal["cohort", "course"]) -> dict[str, Any]:
         manifests = pass_dict.get("manifests")
         if isinstance(manifests, dict) and role in manifests:
-            return manifests[role]
+            return cast(dict[str, Any], manifests[role])
         if pass_dict.get("entity_type") != role:
             raise ValueError(
                 f"expected entity_type {role!r} for this pass, got {pass_dict.get('entity_type')!r}"
             )
-        return pass_dict
+        return cast(dict[str, Any], pass_dict)
 
     cohort_entity = _extract(cohort_pass, "cohort")
     course_entity = _extract(course_pass, "course")
@@ -533,8 +533,8 @@ def collect_step2a_prompt_sections(
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
-    cohort_schema_class,
-    course_schema_class,
+    cohort_schema_class: Any,
+    course_schema_class: Any,
     reference_institution_names: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
@@ -626,8 +626,8 @@ def collect_step2a_prompt_batched_sections(
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
-    cohort_schema_class,
-    course_schema_class,
+    cohort_schema_class: Any,
+    course_schema_class: Any,
     reference_institution_names: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
@@ -716,7 +716,7 @@ def collect_step2a_prompt_cohort_pass_sections(
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
-    cohort_schema_class,
+    cohort_schema_class: Any,
     reference_institution_names: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
@@ -797,7 +797,7 @@ def collect_step2a_prompt_course_pass_sections(
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
-    course_schema_class,
+    course_schema_class: Any,
     reference_institution_names: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
@@ -879,8 +879,8 @@ def audit_step2a_prompt(
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
-    cohort_schema_class,
-    course_schema_class,
+    cohort_schema_class: Any,
+    course_schema_class: Any,
     reference_institution_names: list[str] | None = None,
     *,
     variant: Literal["single", "cohort_pass", "course_pass"] = "single",
@@ -944,8 +944,8 @@ def audit_step2a_batched_prompt(
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
-    cohort_schema_class,
-    course_schema_class,
+    cohort_schema_class: Any,
+    course_schema_class: Any,
     reference_institution_names: list[str] | None = None,
     *,
     log: bool = True,
@@ -984,8 +984,8 @@ def build_step2a_prompt(
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
-    cohort_schema_class,
-    course_schema_class,
+    cohort_schema_class: Any,
+    course_schema_class: Any,
     reference_institution_names: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
@@ -1026,7 +1026,7 @@ def build_step2a_prompt_cohort_pass(
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
-    cohort_schema_class,
+    cohort_schema_class: Any,
     reference_institution_names: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
@@ -1056,7 +1056,7 @@ def build_step2a_prompt_course_pass(
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
-    course_schema_class,
+    course_schema_class: Any,
     reference_institution_names: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
@@ -1087,8 +1087,8 @@ def build_step2a_batched_prompt(
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
-    cohort_schema_class,
-    course_schema_class,
+    cohort_schema_class: Any,
+    course_schema_class: Any,
     reference_institution_names: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
@@ -1116,9 +1116,9 @@ def build_step2a_batched_prompt(
 # ── Convenience helpers ────────────────────────────────────────────────────────
 
 
-def load_json(path: str) -> dict:
+def load_json(path: str) -> dict[str, Any]:
     with open(path) as f:
-        return json.load(f)
+        return cast(dict[str, Any], json.load(f))
 
 
 def strip_json_fences(text: str) -> str:

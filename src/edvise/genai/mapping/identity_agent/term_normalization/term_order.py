@@ -112,8 +112,8 @@ def _finalize_season_year_order(
 def add_edvise_term_order(
     df: pd.DataFrame,
     term_config: dict,
-    year_extractor: callable | None = None,
-    season_extractor: callable | None = None,
+    year_extractor: Callable[..., Any] | None = None,
+    season_extractor: Callable[..., Any] | None = None,
 ) -> pd.DataFrame:
     """
     Adds _year, _season, _term_order, and standard term label columns to a DataFrame

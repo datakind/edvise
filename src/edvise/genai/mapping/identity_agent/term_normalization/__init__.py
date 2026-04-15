@@ -69,29 +69,29 @@ __all__ = [
 
 def __getattr__(name: str) -> Any:
     if name == "apply_term_order_from_config":
-        from .term_order import apply_term_order_from_config as fn
+        from .term_order import apply_term_order_from_config
 
-        return fn
+        return apply_term_order_from_config
     if name == "load_term_extractors_from_hook_spec":
-        from .term_order import load_term_extractors_from_hook_spec as fn
+        from .term_order import load_term_extractors_from_hook_spec
 
-        return fn
+        return load_term_extractors_from_hook_spec
     if name == "term_order_column_for_clean_dataset":
-        from .term_order import term_order_column_for_clean_dataset as fn
+        from .term_order import term_order_column_for_clean_dataset
 
-        return fn
+        return term_order_column_for_clean_dataset
     if name == "term_order_fn_from_term_order_config":
-        from .term_order import term_order_fn_from_term_order_config as fn
+        from .term_order import term_order_fn_from_term_order_config
 
-        return fn
+        return term_order_fn_from_term_order_config
     if name == "term_components_to_datetime":
-        from .term_datetime import term_components_to_datetime as fn
+        from .term_datetime import term_components_to_datetime
 
-        return fn
+        return term_components_to_datetime
     if name == "term_components_to_datetime_from_series":
-        from .term_datetime import term_components_to_datetime_from_series as fn
+        from .term_datetime import term_components_to_datetime_from_series
 
-        return fn
+        return term_components_to_datetime_from_series
     if name in _PROMPT_EXPORTS:
         from . import prompt_builder as pb
 

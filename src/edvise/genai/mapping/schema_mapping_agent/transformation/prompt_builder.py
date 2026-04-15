@@ -5,7 +5,7 @@ Builds the prompt for generating a transformation map from a mapping manifest + 
 
 import inspect
 import json
-from typing import Any
+from typing import Any, cast
 
 from edvise.genai.prompt_token_audit import audit_prompt_sections
 
@@ -75,8 +75,8 @@ def collect_step2b_prompt_sections(
     output_path: str,
     institution_mapping_manifest: dict,
     institution_schema_contract: dict,
-    cohort_schema_class,
-    course_schema_class,
+    cohort_schema_class: Any,
+    course_schema_class: Any,
     reference_transformation_maps: list[dict],
     reference_institution_names: list[str] | None = None,
 ) -> dict[str, str]:
@@ -284,8 +284,8 @@ def audit_step2b_prompt(
     output_path: str,
     institution_mapping_manifest: dict,
     institution_schema_contract: dict,
-    cohort_schema_class,
-    course_schema_class,
+    cohort_schema_class: Any,
+    course_schema_class: Any,
     reference_transformation_maps: list[dict],
     reference_institution_names: list[str] | None = None,
     *,
@@ -318,8 +318,8 @@ def build_step2b_prompt(
     output_path: str,
     institution_mapping_manifest: dict,
     institution_schema_contract: dict,
-    cohort_schema_class,
-    course_schema_class,
+    cohort_schema_class: Any,
+    course_schema_class: Any,
     reference_transformation_maps: list[dict],
     reference_institution_names: list[str] | None = None,
 ) -> str:
@@ -357,9 +357,9 @@ def build_step2b_prompt(
 # ── Convenience loader ─────────────────────────────────────────────────────────
 
 
-def load_json(path: str) -> dict:
+def load_json(path: str) -> dict[str, Any]:
     with open(path) as f:
-        return json.load(f)
+        return cast(dict[str, Any], json.load(f))
 
 
 def strip_json_fences(text: str) -> str:

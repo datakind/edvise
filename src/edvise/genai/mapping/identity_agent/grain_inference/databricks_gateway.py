@@ -5,8 +5,10 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable
+from typing import cast
 
 from openai import OpenAI
+from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
 
@@ -79,7 +81,10 @@ def make_databricks_gateway_llm_complete(
     resolved_model = model if model is not None else resolve_gateway_model_id()
 
     def complete(system: str, user: str) -> str:
-        messages = [{"role": "user", "content": system + "\n\n---\n\n" + user}]
+        messages = cast(
+            list[ChatCompletionMessageParam],
+            [{"role": "user", "content": system + "\n\n---\n\n" + user}],
+        )
         resp = client.chat.completions.create(
             model=resolved_model,
             messages=messages,

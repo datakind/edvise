@@ -20,6 +20,7 @@ Files are typically named ``{school_id}_schema_contract.json``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -85,7 +86,7 @@ class BaseFrozenSchemaContract(BaseModel):
     created_at: str | None = None
     null_tokens: list[str] = Field(default_factory=list)
     learner_id_alias: str | None = None
-    datasets: dict[str, FrozenDatasetSchemaCore]
+    datasets: Mapping[str, FrozenDatasetSchemaCore]
 
     @model_validator(mode="before")
     @classmethod
@@ -128,7 +129,7 @@ class EnrichedSchemaContractForSMA(BaseFrozenSchemaContract):
     school_name: str
     notes: str | None = None
     canonical_learner_column: Literal["student_id", "learner_id"] | None = None
-    datasets: dict[str, FrozenDatasetSchemaForSMA]
+    datasets: Mapping[str, FrozenDatasetSchemaForSMA]
 
 
 def parse_base_frozen_schema_contract(data: dict[str, Any]) -> BaseFrozenSchemaContract:

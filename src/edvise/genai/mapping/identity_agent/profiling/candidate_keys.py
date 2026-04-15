@@ -128,14 +128,19 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
             )
     tier2_cols = _rank_tier2_pool(stats, tier1_cols, n_rows)
 
-    for c, u, nr, key_ok in stats:
+    for stat_col, u, nr, key_ok in stats:
         if not key_ok:
             continue
-        if c in tier1_cols:
-            logger.debug("  Tier 1 (anchor): %s n_unique=%d null_rate=%.4f", c, u, nr)
-        elif c in tier2_cols:
+        if stat_col in tier1_cols:
             logger.debug(
-                "  Tier 2 (discriminator): %s n_unique=%d null_rate=%.4f", c, u, nr
+                "  Tier 1 (anchor): %s n_unique=%d null_rate=%.4f", stat_col, u, nr
+            )
+        elif stat_col in tier2_cols:
+            logger.debug(
+                "  Tier 2 (discriminator): %s n_unique=%d null_rate=%.4f",
+                stat_col,
+                u,
+                nr,
             )
 
     logger.info("Tier 1 pool: %s", tier1_cols)
@@ -160,12 +165,12 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     def _uniqueness(cols: list[str], source_df: pd.DataFrame) -> float:
         source_n_rows = len(source_df)
         if len(cols) == 1:
-            return source_df[cols[0]].nunique() / source_n_rows
+            return float(source_df[cols[0]].nunique() / source_n_rows)
         compound = sum(
             pd.util.hash_pandas_object(source_df[c], index=False) * (31**i)
             for i, c in enumerate(cols)
         )
-        return compound.nunique() / source_n_rows
+        return float(compound.nunique() / source_n_rows)
 
     def _is_dominated(combo: tuple[str, ...], best_by_subset: set[frozenset]) -> bool:
         for size in range(1, len(combo)):
@@ -174,7 +179,7 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
                     return True
         return False
 
-    candidates = []
+    candidates: list[CandidateKey] = []
     best_by_subset: set[frozenset] = set()
 
     for col in tier1_cols:
@@ -211,7 +216,7 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
             break
         logger.info("  Evaluating size-%d combinations...", size)
         for combo in combinations(all_pool, size):
-            if not any(c in tier1_cols for c in combo):
+            if not any(col in tier1_cols for col in combo):
                 continue
             if _is_dominated(combo, best_by_subset):
                 continue
@@ -231,12 +236,16 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
             if evaluated_combos >= max_combination_evals:
                 stop_enumeration = True
                 break
-            best_so_far = max((c.uniqueness_score for c in candidates), default=0.0)
-            at_best = sum(1 for c in candidates if c.uniqueness_score >= best_so_far)
+            best_so_far = max(
+                (ck.uniqueness_score for ck in candidates), default=0.0
+            )
+            at_best = sum(
+                1 for ck in candidates if ck.uniqueness_score >= best_so_far
+            )
             near_best = sum(
                 1
-                for c in candidates
-                if c.uniqueness_score >= max(0.0, best_so_far - NEAR_BEST_STOP_DELTA)
+                for ck in candidates
+                if ck.uniqueness_score >= max(0.0, best_so_far - NEAR_BEST_STOP_DELTA)
             )
             if best_so_far >= EARLY_STOP_UNIQUENESS and at_best >= top_k_limit:
                 stop_enumeration = True
@@ -252,9 +261,9 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     if anchor_cols:
         before = len(candidates)
         candidates = [
-            c
-            for c in candidates
-            if len(c.columns) == 1 or any(col in anchor_cols for col in c.columns)
+            ck
+            for ck in candidates
+            if len(ck.columns) == 1 or any(col in anchor_cols for col in ck.columns)
         ]
         dropped = before - len(candidates)
         if dropped:
@@ -311,6 +320,7 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
             affected_groups=0,
             group_size_distribution={},
             within_group_variance=[],
+            sampled=False,
         )
 
     non_unique_rows = int(dup_sizes.sum())
@@ -423,6 +433,7 @@ def profile_candidate_keys(
                     affected_groups=0,
                     group_size_distribution={},
                     within_group_variance=[],
+                    sampled=False,
                 )
             )
             continue

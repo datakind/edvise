@@ -14,11 +14,12 @@ import logging
 from dataclasses import replace
 from datetime import datetime, timezone
 from collections.abc import Callable
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, cast
 
 import pandas as pd
 
 from edvise.data_audit.custom_cleaning import (
+    CleanSpec,
     DtypeGenerationOptions,
     SchemaContractMeta,
     SchemaFreezeOptions,
@@ -346,7 +347,7 @@ def build_schema_contract_from_config(
 
     schema_contract = build_schema_contract(
         cleaned_map=cleaned_map,
-        specs=specs,
+        specs=cast(dict[str, dict[str, Any] | CleanSpec], specs),
         meta=meta,
         freeze_opts=freeze_opts,
     )
