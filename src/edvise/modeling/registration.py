@@ -1,13 +1,10 @@
 import logging
 import re
 import typing as t
-from collections.abc import Iterable
 
 import mlflow
 import mlflow.exceptions
 import mlflow.tracking
-
-from edvise.utils import types as edvise_types
 
 from edvise.shared.utils import (
     format_enrollment_intensity_time_limits,
@@ -50,7 +47,7 @@ def _get_attr(obj: t.Any, key: str, default: t.Any = None) -> t.Any:
     return getattr(obj, key, default)
 
 
-def _retention_credential_suffix(raw: object) -> str:
+def _retention_credential_suffix(raw: str | list[str]) -> str:
     """
     Build the lowercase credential segment for retention model names.
 
@@ -60,11 +57,7 @@ def _retention_credential_suffix(raw: object) -> str:
     in config (e.g. ``ASSOCIATE'S DEGREE``, ``1-2 YEAR CERTIFICATE, LESS THAN
     ASSOCIATE DEGREE``); labels may contain the word "certificate".
     """
-    items = (
-        [str(x) for x in t.cast(Iterable[object], raw)]
-        if edvise_types.is_collection_but_not_string(raw)
-        else [str(raw)]
-    )
+    items = [str(x) for x in raw] if isinstance(raw, list) else [str(raw)]
     unique = list(dict.fromkeys(normalize_degree(x) for x in items))
     if len(unique) == 1:
         return unique[0].lower()
@@ -254,7 +247,10 @@ def pdp_get_model_name(
     if target_type == "retention":
         if "credential_type_sought_year_1" in student_criteria:
             credential = _retention_credential_suffix(
-                student_criteria["credential_type_sought_year_1"]
+                t.cast(
+                    str | list[str],
+                    student_criteria["credential_type_sought_year_1"],
+                )
             )
             target_name = f"retention_into_year_2_{credential}"
         else:
