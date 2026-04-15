@@ -119,7 +119,9 @@ def run_once(model: str, prompt: str, client: OpenAI) -> dict[str, Any]:
         # Build messages - only add assistant prefill for models that support it
         messages_list: list[dict[str, str]] = [{"role": "user", "content": prompt}]
         if model in MODELS_WITH_PREFILL:
-            messages_list.append({"role": "assistant", "content": "{"})  # prefill for JSON
+            messages_list.append(
+                {"role": "assistant", "content": "{"}
+            )  # prefill for JSON
         messages = cast(list[ChatCompletionMessageParam], messages_list)
 
         resp = client.chat.completions.create(

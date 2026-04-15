@@ -236,12 +236,8 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
             if evaluated_combos >= max_combination_evals:
                 stop_enumeration = True
                 break
-            best_so_far = max(
-                (ck.uniqueness_score for ck in candidates), default=0.0
-            )
-            at_best = sum(
-                1 for ck in candidates if ck.uniqueness_score >= best_so_far
-            )
+            best_so_far = max((ck.uniqueness_score for ck in candidates), default=0.0)
+            at_best = sum(1 for ck in candidates if ck.uniqueness_score >= best_so_far)
             near_best = sum(
                 1
                 for ck in candidates
