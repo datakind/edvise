@@ -11,7 +11,7 @@ import copy
 import json
 import logging
 from collections.abc import Mapping
-from typing import Union
+from typing import Any, Union
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
@@ -464,20 +464,39 @@ types, and nesting must match; do not add extra keys at validated levels.
 """
 
 
+TERM_NORMALIZATION_SYSTEM_SECTION_KEYS: tuple[str, ...] = (
+    "role_and_inputs",
+    "when_null",
+    "reasoning_steps",
+    "confidence_scoring",
+    "output_format",
+    "pydantic_schema_reference",
+)
+
+
+def get_term_normalization_system_sections() -> dict[str, str]:
+    """Named sections of the single-table term normalization system prompt."""
+    return {
+        "role_and_inputs": _tn_role_and_inputs().strip(),
+        "when_null": _tn_when_null(),
+        "reasoning_steps": _tn_reasoning_steps(),
+        "confidence_scoring": _tn_confidence_scoring(),
+        "output_format": _tn_output_format(),
+        "pydantic_schema_reference": _tn_pydantic_schema_reference(
+            include_institution_envelope=False
+        ).strip(),
+    }
+
+
+def join_term_normalization_system_sections(sections: dict[str, str]) -> str:
+    parts = [sections[k] for k in TERM_NORMALIZATION_SYSTEM_SECTION_KEYS]
+    return parts[0] + "\n\n---\n" + "\n---\n".join(parts[1:])
+
+
 def build_term_normalization_system_prompt() -> str:
     """Full system prompt for IdentityAgent term stage (term normalization / ``TermOrderConfig``)."""
-    return (
-        _tn_role_and_inputs().strip()
-        + "\n\n---\n"
-        + _tn_when_null()
-        + "\n---\n"
-        + _tn_reasoning_steps()
-        + "\n---\n"
-        + _tn_confidence_scoring()
-        + "\n---\n"
-        + _tn_output_format()
-        + "\n---\n"
-        + _tn_pydantic_schema_reference(include_institution_envelope=False).strip()
+    return join_term_normalization_system_sections(
+        get_term_normalization_system_sections()
     )
 
 
@@ -717,20 +736,39 @@ VALIDITY RULES
 """
 
 
+TERM_NORMALIZATION_BATCH_SYSTEM_SECTION_KEYS: tuple[str, ...] = (
+    "batch_role_and_inputs",
+    "when_null",
+    "reasoning_steps_batch",
+    "confidence_scoring",
+    "batch_output_format",
+    "pydantic_schema_reference",
+)
+
+
+def get_term_normalization_batch_system_sections() -> dict[str, str]:
+    """Named sections of the batch term normalization system prompt."""
+    return {
+        "batch_role_and_inputs": _tn_batch_role_and_inputs().strip(),
+        "when_null": _tn_when_null(),
+        "reasoning_steps_batch": _tn_reasoning_steps_batch(),
+        "confidence_scoring": _tn_confidence_scoring(),
+        "batch_output_format": _tn_batch_output_format(),
+        "pydantic_schema_reference": _tn_pydantic_schema_reference(
+            include_institution_envelope=True
+        ).strip(),
+    }
+
+
+def join_term_normalization_batch_system_sections(sections: dict[str, str]) -> str:
+    parts = [sections[k] for k in TERM_NORMALIZATION_BATCH_SYSTEM_SECTION_KEYS]
+    return parts[0] + "\n\n---\n" + "\n---\n".join(parts[1:])
+
+
 def build_term_normalization_batch_system_prompt() -> str:
     """System prompt for the term stage when all datasets are inferred in one LLM call."""
-    return (
-        _tn_batch_role_and_inputs().strip()
-        + "\n\n---\n"
-        + _tn_when_null()
-        + "\n---\n"
-        + _tn_reasoning_steps_batch()
-        + "\n---\n"
-        + _tn_confidence_scoring()
-        + "\n---\n"
-        + _tn_batch_output_format()
-        + "\n---\n"
-        + _tn_pydantic_schema_reference(include_institution_envelope=True).strip()
+    return join_term_normalization_batch_system_sections(
+        get_term_normalization_batch_system_sections()
     )
 
 
@@ -752,6 +790,27 @@ Full column list (for context):
 
 
 TERM_NORMALIZATION_USER_TEMPLATE = _user_message_template()
+
+
+def get_term_normalization_user_sections(
+    institution_id: str,
+    dataset: str,
+    row_selection_required: bool,
+    *,
+    term_candidates_json: str,
+    raw_table_profile_columns_json: str,
+) -> dict[str, str]:
+    """Named sections of the term user message (profile JSON dominates size)."""
+    rs = json.dumps(row_selection_required)
+    return {
+        "header": (
+            f"Institution: {institution_id}\nDataset: {dataset}\n"
+            f"Row selection required: {rs}"
+        ),
+        "term_candidates": "\n\nTerm candidate columns:\n" + term_candidates_json,
+        "full_columns": "\n\nFull column list (for context):\n"
+        + raw_table_profile_columns_json,
+    }
 
 
 def build_term_normalization_user_message(
@@ -779,6 +838,75 @@ def build_term_normalization_user_message(
         row_selection_required=json.dumps(row_selection_required),
         term_candidates_json=term_candidates_json,
         raw_table_profile_columns_json=raw_table_profile_columns_json,
+    )
+
+
+def audit_term_normalization_prompt(
+    institution_id: str,
+    dataset: str,
+    row_selection_required: bool,
+    *,
+    term_candidates_json: str,
+    raw_table_profile_columns_json: str,
+    log: bool = True,
+    batch_system: bool = False,
+) -> dict[str, Any]:
+    """
+    Local estimated token counts for term normalization (single-table user message).
+
+    Set ``batch_system=True`` to measure the **batch** system prompt instead of the single-table one
+    (user message is unchanged).
+    """
+    from edvise.genai.prompt_token_audit import audit_prompt_sections
+
+    if batch_system:
+        sys_sections = get_term_normalization_batch_system_sections()
+    else:
+        sys_sections = get_term_normalization_system_sections()
+    user_sections = get_term_normalization_user_sections(
+        institution_id,
+        dataset,
+        row_selection_required,
+        term_candidates_json=term_candidates_json,
+        raw_table_profile_columns_json=raw_table_profile_columns_json,
+    )
+    combined: dict[str, str] = {f"system.{k}": v for k, v in sys_sections.items()}
+    combined.update({f"user.{k}": v for k, v in user_sections.items()})
+    return audit_prompt_sections(
+        combined,
+        builder="identity_agent.term_normalization"
+        + (".batch_system" if batch_system else ".single_system"),
+        institution_id=institution_id,
+        dataset_name=dataset,
+        log=log,
+    )
+
+
+def audit_term_normalization_batch_user_prompt(
+    institution_id: str,
+    grain_contracts_by_dataset: Mapping[str, GrainContract],
+    run_by_dataset: Mapping[str, Mapping[str, object]],
+    *,
+    log: bool = True,
+) -> dict[str, Any]:
+    """
+    Local estimated token counts for batch term inference (system sections + one user JSON payload).
+
+    Sections: ``system.*`` and ``user.batch_payload``.
+    """
+    from edvise.genai.prompt_token_audit import audit_prompt_sections
+
+    sys_sections = get_term_normalization_batch_system_sections()
+    user_text = build_term_normalization_batch_user_message_from_grain_and_profiles(
+        institution_id, grain_contracts_by_dataset, run_by_dataset
+    )
+    combined = {f"system.{k}": v for k, v in sys_sections.items()}
+    combined["user.batch_payload"] = user_text
+    return audit_prompt_sections(
+        combined,
+        builder="identity_agent.term_normalization.batch_full",
+        institution_id=institution_id,
+        log=log,
     )
 
 

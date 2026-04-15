@@ -5,6 +5,9 @@ Builds the prompt for generating a transformation map from a mapping manifest + 
 
 import inspect
 import json
+from typing import Any
+
+from edvise.genai.prompt_token_audit import audit_prompt_sections
 
 from .schemas import get_transformation_map_schema_context
 
@@ -66,7 +69,7 @@ def get_transformation_utilities_context() -> str:
 # ── Prompt assembly ────────────────────────────────────────────────────────────
 
 
-def build_step2b_prompt(
+def collect_step2b_prompt_sections(
     institution_id: str,
     institution_name: str,
     output_path: str,
@@ -76,29 +79,15 @@ def build_step2b_prompt(
     course_schema_class,
     reference_transformation_maps: list[dict],
     reference_institution_names: list[str] | None = None,
-) -> str:
+) -> dict[str, str]:
     """
-    Build the Step 2b transformation map prompt.
-
-    Args:
-        institution_id:                 e.g. "lee_col"
-        institution_name:               e.g. "Lee College"
-        output_path:                    Destination path for the transformation map
-        institution_mapping_manifest:   Parsed mapping manifest JSON for the target institution
-        institution_schema_contract:    Parsed schema contract JSON for the target institution
-        cohort_schema_class:            RawEdviseStudentDataSchema (Pandera class)
-        course_schema_class:            RawEdviseCourseDataSchema (Pandera class)
-        reference_transformation_maps:  List of parsed transformation map JSONs for reference
-                                        institutions (e.g. [ucf_map, lc_map])
-        reference_institution_names:    Display names for reference institutions, parallel
-                                        to reference_transformation_maps. Defaults to
-                                        institution_id values if not provided.
+    Named sections for Step 2b (reference maps, manifest, contract, schemas, utilities source, rules).
     """
+    _ = institution_id
     contract_summary = summarize_schema_contract(institution_schema_contract)
     cohort_descriptor = extract_schema_descriptor(cohort_schema_class)
     course_descriptor = extract_schema_descriptor(course_schema_class)
 
-    # Build reference transformation map blocks
     if reference_institution_names is None:
         reference_institution_names = [
             m.get("institution_id", f"reference_{i}")
@@ -114,7 +103,7 @@ def build_step2b_prompt(
         )
     )
 
-    prompt = f"""Please act as the SchemaMappingAgent and generate a transformation map for {institution_name} at:
+    preamble = f"""Please act as the SchemaMappingAgent and generate a transformation map for {institution_name} at:
 {output_path}
 
 The transformation map is a pure value transformation specification.
@@ -122,34 +111,39 @@ The field executor has already resolved every source Series from the manifest �
 including cross-table joins.
 Transformation steps receive a plain Series and must only transform values,
 never resolve sources or perform joins.
+"""
 
-{reference_blocks}
-
-<mapping_manifest institution="{institution_name}">
-{json.dumps(institution_mapping_manifest, indent=2)}
-</mapping_manifest>
-
-<schema_contract institution="{institution_name}">
-{json.dumps(contract_summary, indent=2)}
-</schema_contract>
-
-<target_schema name="RawEdviseStudentDataSchema" entity="cohort">
-{json.dumps(cohort_descriptor, indent=2)}
-</target_schema>
-
-<target_schema name="RawEdviseCourseDataSchema" entity="course">
-{json.dumps(course_descriptor, indent=2)}
-</target_schema>
-
-<transformation_map_schema>
-{get_transformation_map_schema_context()}
-</transformation_map_schema>
-
-<transformation_utilities>
-{get_transformation_utilities_context()}
-</transformation_utilities>
-
-<rules>
+    mapping_manifest = (
+        f'<mapping_manifest institution="{institution_name}">\n'
+        f"{json.dumps(institution_mapping_manifest, indent=2)}\n"
+        "</mapping_manifest>"
+    )
+    schema_contract = (
+        f'<schema_contract institution="{institution_name}">\n'
+        f"{json.dumps(contract_summary, indent=2)}\n"
+        "</schema_contract>"
+    )
+    target_cohort = (
+        '<target_schema name="RawEdviseStudentDataSchema" entity="cohort">\n'
+        f"{json.dumps(cohort_descriptor, indent=2)}\n"
+        "</target_schema>"
+    )
+    target_course = (
+        '<target_schema name="RawEdviseCourseDataSchema" entity="course">\n'
+        f"{json.dumps(course_descriptor, indent=2)}\n"
+        "</target_schema>"
+    )
+    tmap_schema = (
+        "<transformation_map_schema>\n"
+        f"{get_transformation_map_schema_context()}\n"
+        "</transformation_map_schema>"
+    )
+    utilities_src = (
+        "<transformation_utilities>\n"
+        f"{get_transformation_utilities_context()}\n"
+        "</transformation_utilities>"
+    )
+    rules = f"""<rules>
 STRUCTURE
 - Match the reference transformation map JSON structure exactly (schema_version, institution_id,
   transformation_maps with cohort + course sections, each containing entity_type, target_schema, plans array)
@@ -255,8 +249,108 @@ JSON OUTPUT (strict, machine-parseable)
 
 Generate the complete transformation map JSON now.
 Output only that object — valid JSON throughout."""
+    return {
+        "preamble": preamble,
+        "reference_transformation_maps": reference_blocks,
+        "mapping_manifest": mapping_manifest,
+        "schema_contract": schema_contract,
+        "target_schema_cohort": target_cohort,
+        "target_schema_course": target_course,
+        "transformation_map_schema": tmap_schema,
+        "transformation_utilities": utilities_src,
+        "rules": rules,
+    }
 
-    return prompt
+
+def assemble_step2b_prompt_from_sections(sections: dict[str, str]) -> str:
+    order = (
+        "preamble",
+        "reference_transformation_maps",
+        "mapping_manifest",
+        "schema_contract",
+        "target_schema_cohort",
+        "target_schema_course",
+        "transformation_map_schema",
+        "transformation_utilities",
+        "rules",
+    )
+    return "\n\n".join(sections[k] for k in order)
+
+
+def audit_step2b_prompt(
+    institution_id: str,
+    institution_name: str,
+    output_path: str,
+    institution_mapping_manifest: dict,
+    institution_schema_contract: dict,
+    cohort_schema_class,
+    course_schema_class,
+    reference_transformation_maps: list[dict],
+    reference_institution_names: list[str] | None = None,
+    *,
+    log: bool = True,
+) -> dict[str, Any]:
+    """Local estimated token counts for Step 2b (single user blob)."""
+    sections = collect_step2b_prompt_sections(
+        institution_id,
+        institution_name,
+        output_path,
+        institution_mapping_manifest,
+        institution_schema_contract,
+        cohort_schema_class,
+        course_schema_class,
+        reference_transformation_maps,
+        reference_institution_names,
+    )
+    return audit_prompt_sections(
+        sections,
+        builder="schema_mapping_agent.step2b",
+        institution_id=institution_id,
+        institution_name=institution_name,
+        log=log,
+    )
+
+
+def build_step2b_prompt(
+    institution_id: str,
+    institution_name: str,
+    output_path: str,
+    institution_mapping_manifest: dict,
+    institution_schema_contract: dict,
+    cohort_schema_class,
+    course_schema_class,
+    reference_transformation_maps: list[dict],
+    reference_institution_names: list[str] | None = None,
+) -> str:
+    """
+    Build the Step 2b transformation map prompt.
+
+    Args:
+        institution_id:                 e.g. "lee_col"
+        institution_name:               e.g. "Lee College"
+        output_path:                    Destination path for the transformation map
+        institution_mapping_manifest:   Parsed mapping manifest JSON for the target institution
+        institution_schema_contract:    Parsed schema contract JSON for the target institution
+        cohort_schema_class:            RawEdviseStudentDataSchema (Pandera class)
+        course_schema_class:            RawEdviseCourseDataSchema (Pandera class)
+        reference_transformation_maps:  List of parsed transformation map JSONs for reference
+                                        institutions (e.g. [ucf_map, lc_map])
+        reference_institution_names:    Display names for reference institutions, parallel
+                                        to reference_transformation_maps. Defaults to
+                                        institution_id values if not provided.
+    """
+    sections = collect_step2b_prompt_sections(
+        institution_id,
+        institution_name,
+        output_path,
+        institution_mapping_manifest,
+        institution_schema_contract,
+        cohort_schema_class,
+        course_schema_class,
+        reference_transformation_maps,
+        reference_institution_names,
+    )
+    return assemble_step2b_prompt_from_sections(sections)
 
 
 # ── Convenience loader ─────────────────────────────────────────────────────────

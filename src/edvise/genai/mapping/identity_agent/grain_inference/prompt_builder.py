@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Union
+from typing import Any, Union
 
 import pandas as pd
 
@@ -425,23 +425,40 @@ types, and nesting must match; do not add extra keys at validated levels.
 """
 
 
+IDENTITY_SYSTEM_SECTION_KEYS: tuple[str, ...] = (
+    "role_and_inputs",
+    "domain_priors",
+    "reasoning_steps",
+    "confidence_scoring",
+    "student_id_and_keys",
+    "output_format",
+    "pydantic_schema_reference",
+)
+
+
+def get_identity_agent_system_sections() -> dict[str, str]:
+    """Named sections of the grain IdentityAgent system prompt (token audit / inspection)."""
+    return {
+        "role_and_inputs": _identity_role_and_inputs().strip(),
+        "domain_priors": _identity_domain_priors(),
+        "reasoning_steps": _identity_reasoning_steps(),
+        "confidence_scoring": _identity_confidence_scoring(),
+        "student_id_and_keys": _identity_student_id_and_keys().strip(),
+        "output_format": _identity_output_format(),
+        "pydantic_schema_reference": _identity_pydantic_schema_reference().strip(),
+    }
+
+
+def join_identity_agent_system_sections(sections: dict[str, str]) -> str:
+    """Join system sections with the same delimiters as the original monolithic builder."""
+    keys = IDENTITY_SYSTEM_SECTION_KEYS
+    parts = [sections[k] for k in keys]
+    return parts[0] + "\n\n---\n" + "\n---\n".join(parts[1:])
+
+
 def build_identity_agent_system_prompt() -> str:
     """Full system prompt for IdentityAgent (grain contract)."""
-    return (
-        _identity_role_and_inputs().strip()
-        + "\n\n---\n"
-        + _identity_domain_priors()
-        + "\n---\n"
-        + _identity_reasoning_steps()
-        + "\n---\n"
-        + _identity_confidence_scoring()
-        + "\n---\n"
-        + _identity_student_id_and_keys().strip()
-        + "\n---\n"
-        + _identity_output_format()
-        + "\n---\n"
-        + _identity_pydantic_schema_reference().strip()
-    )
+    return join_identity_agent_system_sections(get_identity_agent_system_sections())
 
 
 IDENTITY_AGENT_SYSTEM_PROMPT = build_identity_agent_system_prompt()
@@ -467,6 +484,26 @@ def format_column_list(df: pd.DataFrame) -> str:
     """Format columns as `name: dtype` lines for the IdentityAgent user prompt."""
     lines = [f"  {col}: {df[col].dtype}" for col in df.columns]
     return "\n".join(lines)
+
+
+def get_identity_agent_user_sections(
+    institution_id: str,
+    dataset_name: str,
+    *,
+    column_list: str,
+    key_profile_json: str,
+) -> dict[str, str]:
+    """Named sections of the grain user message (variable-size vs static instructions)."""
+    return {
+        "institution_and_dataset": f"Institution ID: {institution_id}\nDataset: {dataset_name}",
+        "column_list_block": (
+            "\n\nColumn list (name: dtype, one per line):\n" f"{column_list}\n"
+        ),
+        "key_profile_json": (
+            "\nKey profile JSON (`RankedCandidateProfiles` — ranked candidate keys, uniqueness, "
+            "within-group variance):\n" + key_profile_json
+        ),
+    }
 
 
 def build_identity_agent_user_message(
@@ -496,6 +533,51 @@ def build_identity_agent_user_message(
         dataset_name=dataset_name,
         column_list=resolved_columns,
         key_profile_json=key_profile_json,
+    )
+
+
+def audit_identity_agent_prompt(
+    institution_id: str,
+    dataset_name: str,
+    key_profile: RankedCandidateProfiles,
+    *,
+    column_list: str | None = None,
+    df: pd.DataFrame | None = None,
+    log: bool = True,
+) -> dict[str, Any]:
+    """
+    Local estimated token counts for grain inference (system + user sections).
+
+    Uses ``len(text) // chars_per_token`` (see :mod:`edvise.genai.prompt_token_audit`).
+    """
+    from edvise.genai.prompt_token_audit import audit_prompt_sections
+
+    if df is not None and column_list is not None:
+        raise ValueError("Pass only one of column_list or df")
+    if df is None and column_list is None:
+        raise ValueError("Provide exactly one of column_list or df")
+    resolved_columns = format_column_list(df) if df is not None else column_list
+    key_profile_json = json.dumps(
+        key_profile.model_dump(mode="json"),
+        indent=2,
+    )
+    sys_sections = get_identity_agent_system_sections()
+    user_sections = get_identity_agent_user_sections(
+        institution_id,
+        dataset_name,
+        column_list=resolved_columns,
+        key_profile_json=key_profile_json,
+    )
+    combined: dict[str, str] = {
+        f"system.{k}": v for k, v in sys_sections.items()
+    }
+    combined.update({f"user.{k}": v for k, v in user_sections.items()})
+    return audit_prompt_sections(
+        combined,
+        builder="identity_agent.grain_inference",
+        institution_id=institution_id,
+        dataset_name=dataset_name,
+        log=log,
     )
 
 

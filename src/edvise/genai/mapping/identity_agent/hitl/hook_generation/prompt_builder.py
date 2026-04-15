@@ -173,7 +173,37 @@ Rules:
 """.strip()
 
 
+def audit_hook_generation_prompt(
+    item: HITLItem,
+    config_snippet: dict[str, Any],
+    *,
+    normalized_columns: list[str] | None = None,
+    log: bool = True,
+) -> dict[str, Any]:
+    """
+    Local estimated token counts for HITL hook generation (system + JSON user message).
+    """
+    from edvise.genai.prompt_token_audit import audit_prompt_sections
+
+    system_text = build_hook_generation_system_prompt(item.domain)
+    user_text = build_hook_generation_user_message(
+        item, config_snippet, normalized_columns=normalized_columns
+    )
+    sections = {
+        "system": system_text,
+        "user_json": user_text,
+    }
+    return audit_prompt_sections(
+        sections,
+        builder=f"identity_agent.hook_generation.{item.domain.value}",
+        institution_id=item.institution_id,
+        dataset_name=item.table,
+        log=log,
+    )
+
+
 __all__ = [
+    "audit_hook_generation_prompt",
     "build_hook_generation_system_prompt",
     "build_hook_generation_user_message",
     "extract_config_snippet_for_hook_item",
