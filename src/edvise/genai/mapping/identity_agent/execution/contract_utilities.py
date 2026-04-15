@@ -266,7 +266,9 @@ def load_grain_dedup_hook_from_hook_spec(
     )
     rel = hs.get("file")
     if not rel:
-        raise ValueError("hook_spec.file is required to load grain dedup hook from disk")
+        raise ValueError(
+            "hook_spec.file is required to load grain dedup hook from disk"
+        )
     funcs = hs.get("functions") or []
     fn_name = _select_grain_dedup_function_name(funcs, table)
     path = resolve_hook_module_path(rel, root=modules_root)

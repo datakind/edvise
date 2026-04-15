@@ -132,9 +132,13 @@ def run_prompt_token_audit_bundle(
 
     if include_identity_grain:
         if grain_key_profile is None:
-            raise ValueError("grain_key_profile is required when include_identity_grain=True")
+            raise ValueError(
+                "grain_key_profile is required when include_identity_grain=True"
+            )
         if grain_column_list is None:
-            raise ValueError("grain_column_list is required when include_identity_grain=True")
+            raise ValueError(
+                "grain_column_list is required when include_identity_grain=True"
+            )
         builders["identity_agent.grain_inference"] = audit_identity_agent_prompt(
             institution_id,
             grain_dataset_name,

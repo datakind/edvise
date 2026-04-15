@@ -497,7 +497,7 @@ def get_identity_agent_user_sections(
     return {
         "institution_and_dataset": f"Institution ID: {institution_id}\nDataset: {dataset_name}",
         "column_list_block": (
-            "\n\nColumn list (name: dtype, one per line):\n" f"{column_list}\n"
+            f"\n\nColumn list (name: dtype, one per line):\n{column_list}\n"
         ),
         "key_profile_json": (
             "\nKey profile JSON (`RankedCandidateProfiles` — ranked candidate keys, uniqueness, "
@@ -568,9 +568,7 @@ def audit_identity_agent_prompt(
         column_list=resolved_columns,
         key_profile_json=key_profile_json,
     )
-    combined: dict[str, str] = {
-        f"system.{k}": v for k, v in sys_sections.items()
-    }
+    combined: dict[str, str] = {f"system.{k}": v for k, v in sys_sections.items()}
     combined.update({f"user.{k}": v for k, v in user_sections.items()})
     return audit_prompt_sections(
         combined,

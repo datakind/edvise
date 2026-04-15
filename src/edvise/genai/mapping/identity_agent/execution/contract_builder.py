@@ -358,8 +358,7 @@ def _column_detail_for_df_column(
     non_null_mask = series.notna()
     if non_null_mask.any():
         col_detail["sample_values"] = [
-            str(v)
-            for v in series[non_null_mask].value_counts().head(5).index.tolist()
+            str(v) for v in series[non_null_mask].value_counts().head(5).index.tolist()
         ]
         if unique_count <= UNIQUE_VALUES_MAX_CARDINALITY:
             unique_values = sorted(df[df_col].dropna().unique().tolist())
