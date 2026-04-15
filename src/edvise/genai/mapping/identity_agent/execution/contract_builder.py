@@ -331,6 +331,43 @@ def _df_column_for_column_details(
     return None
 
 
+def _column_detail_for_df_column(
+    df: pd.DataFrame,
+    df_col: str,
+    *,
+    original_name: str,
+    normalized_name: str,
+    null_counts: pd.Series,
+    total_rows: int,
+) -> Dict[str, Any]:
+    """Build one ``column_details`` row (stats + samples) for a column present on ``df``."""
+    series = df[df_col]
+    null_count = int(null_counts[df_col])
+    null_pct = float(null_count / total_rows * 100) if total_rows > 0 else 0.0
+    unique_count = int(series.nunique())
+
+    col_detail: Dict[str, Any] = {
+        "original_name": original_name,
+        "normalized_name": normalized_name,
+        "null_count": null_count,
+        "null_percentage": null_pct,
+        "unique_count": unique_count,
+        "sample_values": [],
+    }
+
+    non_null_mask = series.notna()
+    if non_null_mask.any():
+        col_detail["sample_values"] = [
+            str(v)
+            for v in series[non_null_mask].value_counts().head(5).index.tolist()
+        ]
+        if unique_count <= UNIQUE_VALUES_MAX_CARDINALITY:
+            unique_values = sorted(df[df_col].dropna().unique().tolist())
+            col_detail["unique_values"] = [str(v) for v in unique_values]
+
+    return col_detail
+
+
 def _build_column_details(
     df: pd.DataFrame,
     original_columns: list[str],
@@ -338,6 +375,7 @@ def _build_column_details(
     *,
     learner_id_alias: str | None = None,
     canonical_learner_column: str = "learner_id",
+    frozen_dtypes: dict[str, str] | None = None,
 ) -> List[Dict[str, Any]]:
     orig_to_norm: dict[str, str] = {}
     for norm_col, orig_list in column_mapping.items():
@@ -348,6 +386,8 @@ def _build_column_details(
     total_rows = len(df)
 
     column_details: List[Dict[str, Any]] = []
+    profiled_df_cols: set[str] = set()
+
     for orig_col in original_columns:
         norm_col = orig_to_norm.get(orig_col, orig_col)
         df_col = _df_column_for_column_details(
@@ -362,36 +402,46 @@ def _build_column_details(
             )
             continue
 
-        series = df[df_col]
-        null_count = int(null_counts[df_col])
-        null_pct = float(null_count / total_rows * 100) if total_rows > 0 else 0.0
-        unique_count = int(series.nunique())
+        profiled_df_cols.add(df_col)
 
         report_norm = _canonical_normalized_column_name(
             norm_col,
             learner_id_alias,
             canonical_learner_column=canonical_learner_column,
         )
-        col_detail: Dict[str, Any] = {
-            "original_name": orig_col,
-            "normalized_name": report_norm,
-            "null_count": null_count,
-            "null_percentage": null_pct,
-            "unique_count": unique_count,
-            "sample_values": [],
-        }
+        column_details.append(
+            _column_detail_for_df_column(
+                df,
+                df_col,
+                original_name=orig_col,
+                normalized_name=report_norm,
+                null_counts=null_counts,
+                total_rows=total_rows,
+            )
+        )
 
-        non_null_mask = series.notna()
-        if non_null_mask.any():
-            col_detail["sample_values"] = [
-                str(v)
-                for v in series[non_null_mask].value_counts().head(5).index.tolist()
-            ]
-            if unique_count <= UNIQUE_VALUES_MAX_CARDINALITY:
-                unique_values = sorted(df[df_col].dropna().unique().tolist())
-                col_detail["unique_values"] = [str(v) for v in unique_values]
-
-        column_details.append(col_detail)
+    # Union: columns on the cleaned frame (and frozen schema dtypes) that are not from the
+    # source file — e.g. IdentityAgent term outputs (_edvise_term_season, …).
+    dtype_keys = set(frozen_dtypes.keys()) if frozen_dtypes is not None else None
+    for df_col in df.columns:
+        if df_col in profiled_df_cols:
+            continue
+        if dtype_keys is not None and df_col not in dtype_keys:
+            continue
+        column_details.append(
+            _column_detail_for_df_column(
+                df,
+                df_col,
+                original_name=df_col,
+                normalized_name=_canonical_normalized_column_name(
+                    df_col,
+                    learner_id_alias,
+                    canonical_learner_column=canonical_learner_column,
+                ),
+                null_counts=null_counts,
+                total_rows=total_rows,
+            )
+        )
 
     return column_details
 
@@ -433,6 +483,7 @@ def build_training_example_from_schema_contract(
         column_mapping=column_mapping,
         learner_id_alias=sid_alias,
         canonical_learner_column=clc,
+        frozen_dtypes=dataset_schema.get("dtypes"),
     )
 
     orig_to_norm: dict[str, str] = {}
@@ -446,7 +497,7 @@ def build_training_example_from_schema_contract(
         "dataset_name": dataset_name,
         "file_path": file_path,
         "num_rows": original_row_count,
-        "num_columns": len(original_columns),
+        "num_columns": len(df.columns),
         "notes": school_config.notes,
         "schema": {
             "normalized_columns": dataset_schema["normalized_columns"],
