@@ -607,6 +607,96 @@ def assemble_step2a_prompt_from_sections(sections: dict[str, str]) -> str:
     return "\n\n".join(sections[k] for k in order)
 
 
+def collect_step2a_prompt_batched_sections(
+    institution_id: str,
+    institution_name: str,
+    output_path: str,
+    institution_schema_contract: dict,
+    reference_manifests: list[dict],
+    cohort_schema_class,
+    course_schema_class,
+    reference_institution_names: list[str] | None = None,
+    *,
+    compact_manifest_schema: bool = True,
+) -> dict[str, str]:
+    """
+    Sections for Step 2a **batched** prompt: one LLM call with both cohort and course manifests.
+
+    Shared blocks (schema contract, rules, reference manifests, manifest schema reference) appear
+    once — same section layout as :func:`collect_step2a_prompt_sections`, with a batched preamble,
+    PART 1 / PART 2 target-schema labels, and a MappingManifestEnvelope-oriented closing line.
+    """
+    _ = institution_id
+    contract_summary = summarize_schema_contract(institution_schema_contract)
+    cohort_descriptor = extract_schema_descriptor(cohort_schema_class)
+    course_descriptor = extract_schema_descriptor(course_schema_class)
+    _, reference_blocks = _step2a_reference_blocks(
+        reference_manifests, reference_institution_names
+    )
+    contract_json = json.dumps(contract_summary, indent=2)
+    cohort_json = json.dumps(cohort_descriptor, indent=2)
+    course_json = json.dumps(course_descriptor, indent=2)
+    manifest_schema = _manifest_schema_for_prompt(compact=compact_manifest_schema)
+    preamble = f"""Please act as the SchemaMappingAgent and generate a single batched mapping manifest for {institution_name} at:
+{output_path}
+
+This replaces separate cohort-only and course-only Step 2a passes: produce the full envelope in one LLM call.
+
+Generate a MappingManifestEnvelope with manifests containing BOTH "cohort" and "course" keys.
+
+The mapping manifest is a machine-consumed specification.
+A deterministic field executor reads each record and resolves the source Series —
+it cannot infer missing join declarations or table relationships.
+Every structural decision (join, row_selection, column_aliases) must be fully and explicitly declared.
+"""
+    rules = f"""<rules>
+STRUCTURE
+- Match the reference manifest JSON structure exactly (schema_version, institution_id,
+  manifests with cohort + course sections; each section: entity_type, target_schema,
+  mappings array, then column_aliases last)
+- Each mapping entry must include: target_field, source_column, source_table,
+  row_selection, confidence, rationale, and a review_status.
+- Set review_status: "pending" on all records — "approved" is only set after human review
+- Do not copy row_selection strategies, filters, or join configurations from the reference manifests —
+  these are institution-specific and must be derived from the {institution_name} schema contract.
+  The reference manifests are structural reference only: use them to understand the expected shape
+  of the output and concise rationale (structural mapping reasoning per RATIONALE rules), not as a source of mapping decisions
+
+{_step2a_rules_after_structure(institution_name, column_aliases_scope="single_pass")}
+{_step2a_json_output_rules()}
+{_step2a_prompt_close(generate_line="Respond with valid JSON matching MappingManifestEnvelope.")}"""
+    return {
+        "preamble": preamble,
+        "reference_manifests": reference_blocks,
+        "schema_contract": (
+            f'<schema_contract institution="{institution_name}">\n'
+            f"{contract_json}\n"
+            f"</schema_contract>"
+        ),
+        "target_schema_cohort": (
+            "PART 1: Cohort (RawEdviseStudentDataSchema)\n\n"
+            '<target_schema name="RawEdviseStudentDataSchema" entity="cohort">\n'
+            f"{cohort_json}\n"
+            "</target_schema>"
+        ),
+        "target_schema_course": (
+            "PART 2: Course (RawEdviseCourseDataSchema)\n\n"
+            '<target_schema name="RawEdviseCourseDataSchema" entity="course">\n'
+            f"{course_json}\n"
+            "</target_schema>"
+        ),
+        "manifest_schema_reference": (
+            f"<manifest_schema_reference>\n{manifest_schema}\n</manifest_schema_reference>"
+        ),
+        "rules": rules,
+    }
+
+
+def assemble_step2a_batched_prompt_from_sections(sections: dict[str, str]) -> str:
+    """Join :func:`collect_step2a_prompt_batched_sections` in the same order as the single-pass prompt."""
+    return assemble_step2a_prompt_from_sections(sections)
+
+
 def collect_step2a_prompt_cohort_pass_sections(
     institution_id: str,
     institution_name: str,
@@ -835,6 +925,46 @@ def audit_step2a_prompt(
     )
 
 
+def audit_step2a_batched_prompt(
+    institution_id: str,
+    institution_name: str,
+    output_path: str,
+    institution_schema_contract: dict,
+    reference_manifests: list[dict],
+    cohort_schema_class,
+    course_schema_class,
+    reference_institution_names: list[str] | None = None,
+    *,
+    log: bool = True,
+    compact_manifest_schema: bool = True,
+) -> dict[str, Any]:
+    """
+    Estimated token counts for the batched Step 2a prompt (one user blob; no system message).
+
+    Section keys match :func:`collect_step2a_prompt_batched_sections`; totals should be far below
+    ``audit_step2a_prompt(..., variant=\"cohort_pass\")`` + ``variant=\"course_pass\"`` because
+    schema contract, rules, references, and manifest schema are not duplicated.
+    """
+    sections = collect_step2a_prompt_batched_sections(
+        institution_id,
+        institution_name,
+        output_path,
+        institution_schema_contract,
+        reference_manifests,
+        cohort_schema_class,
+        course_schema_class,
+        reference_institution_names,
+        compact_manifest_schema=compact_manifest_schema,
+    )
+    return audit_prompt_sections(
+        sections,
+        builder="schema_mapping_agent.step2a.batched",
+        institution_id=institution_id,
+        institution_name=institution_name,
+        log=log,
+    )
+
+
 def build_step2a_prompt(
     institution_id: str,
     institution_name: str,
@@ -936,6 +1066,38 @@ def build_step2a_prompt_course_pass(
         compact_manifest_schema=compact_manifest_schema,
     )
     return assemble_step2a_course_pass_prompt_from_sections(sections)
+
+
+def build_step2a_batched_prompt(
+    institution_id: str,
+    institution_name: str,
+    output_path: str,
+    institution_schema_contract: dict,
+    reference_manifests: list[dict],
+    cohort_schema_class,
+    course_schema_class,
+    reference_institution_names: list[str] | None = None,
+    *,
+    compact_manifest_schema: bool = True,
+) -> str:
+    """
+    Step 2a batched: one LLM call that returns a full :class:`~.schemas.MappingManifestEnvelope`
+    with both ``cohort`` and ``course`` keys (replaces separate ``cohort_pass`` + ``course_pass`` calls).
+
+    Shared prompt blocks are included once; see :func:`collect_step2a_prompt_batched_sections`.
+    """
+    sections = collect_step2a_prompt_batched_sections(
+        institution_id,
+        institution_name,
+        output_path,
+        institution_schema_contract,
+        reference_manifests,
+        cohort_schema_class,
+        course_schema_class,
+        reference_institution_names,
+        compact_manifest_schema=compact_manifest_schema,
+    )
+    return assemble_step2a_batched_prompt_from_sections(sections)
 
 
 # ── Convenience helpers ────────────────────────────────────────────────────────
