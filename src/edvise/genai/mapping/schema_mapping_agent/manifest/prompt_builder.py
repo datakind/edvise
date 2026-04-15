@@ -411,12 +411,25 @@ TARGET SCHEMA AUTHORITY
   or free-text facts about the target field in prose
 
 DATETIME AND DATE TARGET FIELDS
-- For target fields whose Pandera dtype is datetime (e.g. matriculation_date, degree conferral dates), map only when
-  the chosen source column's dtype in the schema contract is already a datetime type (e.g. datetime64[ns]).
-- Do not map free-text or descriptive date strings (e.g. term labels like "Summer 2018") to datetime targets — those
-  are not datetime columns in the contract; leave unmappable with null source_column/source_table/row_selection.
-- Numeric or fixed-format encodings (e.g. YYYYMM integers) may still be mapped if the contract dtype and validation
-  evidence support a reliable interpretation; flag lower confidence and validation_notes when parsing would be required."""
+- Pandera datetime targets fall into two groups; apply the correct rule by target_field name.
+
+  (1) STRICT — source column dtype in the schema contract must already be datetime (e.g. datetime64[ns]). Do not map
+      term codes, term labels, or non-datetime columns to these targets; leave unmappable (null source_column,
+      source_table, row_selection) if no datetime column exists.
+      - Cohort (student) entity: matriculation_date
+      - Course entity: course_begin_date, course_end_date
+
+  (2) OUTCOME CONFERRAL-STYLE — try to map these from the best available timing signal when it is semantically
+      appropriate (including term / cohort fields, coded terms, or other non-datetime contract dtypes). The
+      transformation step may coerce to datetime64[ns]; use lower confidence and validation_notes when the source
+      is a term proxy rather than a true calendar conferral timestamp.
+      - Cohort (student) entity: bachelors_degree_conferral_date, associates_degree_conferral_date,
+        certificate1_date, certificate2_date, certificate3_date
+
+- For STRICT fields, do not treat numeric encodings (e.g. YYYYMM) as sufficient unless the contract lists that column
+  as datetime — unmappable if only integers or strings without a datetime dtype.
+- For OUTCOME CONFERRAL-STYLE fields, numeric or fixed-format encodings (e.g. YYYYMM) may be mapped when interpretation
+  is reliable; flag lower confidence and validation_notes when parsing or term-to-date conversion is required."""
 
 
 def _step2a_json_output_rules() -> str:
