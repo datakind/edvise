@@ -203,6 +203,20 @@ class ConditionalCreditsStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
+class TermComponentsToDatetimeStep(StrictBaseModel):
+    function_name: Literal["term_components_to_datetime"]
+    column: str
+    extra_columns: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Required: season column bound to utility parameter ``season_series``. "
+            "Example: {'season_series': '_edvise_term_season'}. "
+            "``column`` must be the academic year string column (``_edvise_term_academic_year``)."
+        ),
+    )
+    rationale: Optional[str] = None
+
+
 class NewUtilityNeededStep(StrictBaseModel):
     function_name: Literal["NEW_UTILITY_NEEDED"]
     description: str
@@ -243,6 +257,7 @@ TransformationStep = Annotated[
         AcademicTermCategoryFromTermCodeDisplayStep,
         BirthyearToAgeBucketStep,
         ConditionalCreditsStep,
+        TermComponentsToDatetimeStep,
         NewUtilityNeededStep,
     ],
     Field(discriminator="function_name"),
@@ -344,6 +359,7 @@ def get_transformation_map_schema_context() -> str:
         ExtractYearStep,
         BirthyearToAgeBucketStep,
         ConditionalCreditsStep,
+        TermComponentsToDatetimeStep,
         NewUtilityNeededStep,
         FieldTransformationPlan,
         TransformationMap,

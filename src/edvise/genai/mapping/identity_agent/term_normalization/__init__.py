@@ -62,6 +62,8 @@ __all__ = [
     "parse_institution_term_contracts_with_hitl",
     "parse_term_normalization_pass_output",
     "strip_json_fences",
+    "term_components_to_datetime",
+    "term_components_to_datetime_from_series",
 ]
 
 
@@ -80,6 +82,14 @@ def __getattr__(name: str) -> Any:
         return fn
     if name == "term_order_fn_from_term_order_config":
         from .term_order import term_order_fn_from_term_order_config as fn
+
+        return fn
+    if name == "term_components_to_datetime":
+        from .term_datetime import term_components_to_datetime as fn
+
+        return fn
+    if name == "term_components_to_datetime_from_series":
+        from .term_datetime import term_components_to_datetime_from_series as fn
 
         return fn
     if name in _PROMPT_EXPORTS:

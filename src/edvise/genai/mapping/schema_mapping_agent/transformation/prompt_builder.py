@@ -196,7 +196,8 @@ STEP ORDERING
 {_step2b_course_academic_term_transformation_rules()}
 EXTRA COLUMNS
 - Some utilities require extra_columns
-  (e.g., birthyear_to_age_bucket needs reference_year_series, conditional_credits needs grade_series)
+  (e.g., birthyear_to_age_bucket needs reference_year_series, conditional_credits needs grade_series,
+  term_components_to_datetime needs season_series bound to ``_edvise_term_season``)
 - Specify extra_columns as a dict mapping parameter names to source column names: {{"param_name": "column_name"}}
 - These columns are resolved from the base DataFrame before the step runs
 

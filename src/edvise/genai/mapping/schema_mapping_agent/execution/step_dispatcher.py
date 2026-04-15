@@ -8,9 +8,9 @@ All of those concerns live in:
     - manifest.schemas.FieldMappingRecord (sourcing spec)
     - execution.field_executor.execute_transformation_map (orchestration)
 
-The two steps that need a second Series (birthyear_to_age_bucket,
-conditional_credits) are handled in execution.field_executor._execute_step()
-before reaching this dispatcher.
+Steps that need a second Series (birthyear_to_age_bucket,
+conditional_credits, term_components_to_datetime) are handled in
+execution.field_executor._execute_step() before reaching this dispatcher.
 """
 
 from __future__ import annotations
@@ -100,9 +100,9 @@ def dispatch_step(
     Dispatch a single TransformationStep to its utility function.
 
     All steps here are pure Series → Series.
-    birthyear_to_age_bucket and conditional_credits are NOT in this dispatch
-    table — they require a second Series and are handled upstream in
-    execution.field_executor._execute_step().
+    birthyear_to_age_bucket, conditional_credits, and term_components_to_datetime
+    are NOT in this dispatch table — they require a second Series and are handled
+    upstream in execution.field_executor._execute_step().
 
     Args:
         s: Input Series from prior step in the chain
@@ -118,7 +118,11 @@ def dispatch_step(
             f"NEW_UTILITY_NEEDED: {getattr(step, 'description', '(no description)')}"
         )
 
-    if fn in ("birthyear_to_age_bucket", "conditional_credits"):
+    if fn in (
+        "birthyear_to_age_bucket",
+        "conditional_credits",
+        "term_components_to_datetime",
+    ):
         raise ExecutionError(
             f"Step '{fn}' requires a second Series and must be handled by "
             f"execution.field_executor._execute_step() before reaching dispatch_step()."

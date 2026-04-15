@@ -358,3 +358,42 @@ def get_manifest_schema_context() -> str:
         source = inspect.getsource(model)
         sections.append(source)
     return "\n\n".join(sections)
+
+
+def get_compact_manifest_schema_reference() -> str:
+    """
+    Condensed manifest schema for LLM prompts (~600 tokens): field names, types,
+    required (!) / optional (?), no class bodies. For full Pydantic definitions use
+    get_manifest_schema_context().
+    """
+    return (
+        "JoinFilter — Filter rows on lookup/source before join/row selection.\n"
+        'JoinFilter: {column: str!, operator: "contains"|"equals"|"startswith"|"isin"!, '
+        "value: str|List[str]!}\n"
+        "\n"
+        "JoinConfig — Drive base_table ← lookup_table on shared join_keys (canonical names after column_aliases).\n"
+        "JoinConfig: {base_table: str!, lookup_table: str!, join_keys: List[str]!}\n"
+        "\n"
+        "RowSelectionStrategy — Pick one row from multiple candidates.\n"
+        'RowSelectionStrategy: "any_row"|"first_by"|"where_not_null"|"constant"|"nth"\n'
+        "\n"
+        "RowSelectionConfig — Strategy-specific args: first_by→order_by!; where_not_null→condition_col!; "
+        "nth→n!+order_by!; constant→no row pick (source_column null); filter pre-filters rows.\n"
+        "RowSelectionConfig: {strategy: RowSelectionStrategy!, order_by?: str, condition_col?: str, "
+        "filter?: JoinFilter, n?: int}\n"
+        "\n"
+        "FieldMappingRecord — One target field: source, optional join, row_selection, confidence.\n"
+        "FieldMappingRecord: {target_field: str!, source_column?: str, source_table?: str, join?: JoinConfig, "
+        "row_selection?: RowSelectionConfig, confidence: float[0,1]!, rationale?: str, validation_notes?: str}\n"
+        "\n"
+        "ColumnAlias — Map source column name to canonical join key name for a table.\n"
+        "ColumnAlias: {table: str!, source_column: str!, canonical_column: str!, rationale?: str}\n"
+        "\n"
+        "FieldMappingManifest — Per-entity mapping bundle; mappings unique by target_field.\n"
+        'FieldMappingManifest: {entity_type: "cohort"|"course"!, target_schema: str!, '
+        "mappings: List[FieldMappingRecord]!(len≥1), column_aliases?: List[ColumnAlias]}\n"
+        "\n"
+        "MappingManifestEnvelope — Root document; manifests keyed by entity type.\n"
+        'MappingManifestEnvelope: {schema_version: str (default "0.1.0"), institution_id: str!, '
+        'manifests: Record<"cohort"|"course", FieldMappingManifest>!}'
+    )

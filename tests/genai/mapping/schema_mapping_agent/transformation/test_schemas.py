@@ -13,6 +13,7 @@ from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
     FieldTransformationPlan,
     MapValuesStep,
     NewUtilityNeededStep,
+    TermComponentsToDatetimeStep,
     TransformationMap,
     TransformationStep,
 )
@@ -44,6 +45,19 @@ def test_transformation_step_coerce_datetime_optional_fmt():
         {"function_name": "coerce_datetime", "column": "d", "fmt": "%Y-%m-%d"}
     )
     assert step.fmt == "%Y-%m-%d"
+
+
+def test_transformation_step_term_components_to_datetime():
+    adapter = TypeAdapter(TransformationStep)
+    step = adapter.validate_python(
+        {
+            "function_name": "term_components_to_datetime",
+            "column": "_edvise_term_academic_year",
+            "extra_columns": {"season_series": "_edvise_term_season"},
+        }
+    )
+    assert isinstance(step, TermComponentsToDatetimeStep)
+    assert step.extra_columns["season_series"] == "_edvise_term_season"
 
 
 def test_transformation_step_new_utility_needed_gap_property():

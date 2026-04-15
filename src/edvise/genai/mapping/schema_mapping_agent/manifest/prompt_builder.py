@@ -13,8 +13,17 @@ from edvise.genai.mapping.schema_contract import (
     parse_enriched_schema_contract_for_sma,
 )
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
+    get_compact_manifest_schema_reference,
     get_manifest_schema_context,
 )
+
+
+def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
+    return (
+        get_compact_manifest_schema_reference()
+        if compact
+        else get_manifest_schema_context()
+    )
 
 
 def extract_schema_descriptor(schema_class) -> dict:
@@ -511,10 +520,15 @@ def collect_step2a_prompt_sections(
     cohort_schema_class,
     course_schema_class,
     reference_institution_names: list[str] | None = None,
+    *,
+    compact_manifest_schema: bool = True,
 ) -> dict[str, str]:
     """
     Named sections of the Step 2a single-pass prompt (reference manifests, schema contract,
     Pandera descriptors, manifest schema, rules).
+
+    ``compact_manifest_schema`` (default True) injects :func:`get_compact_manifest_schema_reference`;
+    set False for full Pydantic source via :func:`get_manifest_schema_context`.
     """
     _ = institution_id  # envelope only; same args as builders for call-site symmetry
     contract_summary = summarize_schema_contract(institution_schema_contract)
@@ -526,7 +540,7 @@ def collect_step2a_prompt_sections(
     contract_json = json.dumps(contract_summary, indent=2)
     cohort_json = json.dumps(cohort_descriptor, indent=2)
     course_json = json.dumps(course_descriptor, indent=2)
-    manifest_schema = get_manifest_schema_context()
+    manifest_schema = _manifest_schema_for_prompt(compact=compact_manifest_schema)
     preamble = f"""Please act as the SchemaMappingAgent and generate a mapping manifest for {institution_name} at:
 {output_path}
 
@@ -598,6 +612,8 @@ def collect_step2a_prompt_cohort_pass_sections(
     reference_manifests: list[dict],
     cohort_schema_class,
     reference_institution_names: list[str] | None = None,
+    *,
+    compact_manifest_schema: bool = True,
 ) -> dict[str, str]:
     """Sections for Step 2a cohort-only pass."""
     contract_summary = summarize_schema_contract(institution_schema_contract)
@@ -607,7 +623,7 @@ def collect_step2a_prompt_cohort_pass_sections(
     )
     contract_json = json.dumps(contract_summary, indent=2)
     cohort_json = json.dumps(cohort_descriptor, indent=2)
-    manifest_schema = get_manifest_schema_context()
+    manifest_schema = _manifest_schema_for_prompt(compact=compact_manifest_schema)
     preamble = f"""Please act as the SchemaMappingAgent. This is PASS 1 of 2 for {institution_name}.
 Generate only the **cohort** (student) entity mapping manifest. A second pass will produce course.
 Destination path for the combined manifest (for context):
@@ -677,6 +693,8 @@ def collect_step2a_prompt_course_pass_sections(
     reference_manifests: list[dict],
     course_schema_class,
     reference_institution_names: list[str] | None = None,
+    *,
+    compact_manifest_schema: bool = True,
 ) -> dict[str, str]:
     """Sections for Step 2a course-only pass."""
     contract_summary = summarize_schema_contract(institution_schema_contract)
@@ -686,7 +704,7 @@ def collect_step2a_prompt_course_pass_sections(
     )
     contract_json = json.dumps(contract_summary, indent=2)
     course_json = json.dumps(course_descriptor, indent=2)
-    manifest_schema = get_manifest_schema_context()
+    manifest_schema = _manifest_schema_for_prompt(compact=compact_manifest_schema)
     preamble = f"""Please act as the SchemaMappingAgent. This is PASS 2 of 2 for {institution_name}.
 Generate only the **course** entity mapping manifest (pass 1, run separately, covers cohort only).
 Destination path for the combined manifest (for context):
@@ -761,6 +779,7 @@ def audit_step2a_prompt(
     *,
     variant: Literal["single", "cohort_pass", "course_pass"] = "single",
     log: bool = True,
+    compact_manifest_schema: bool = True,
 ) -> dict[str, Any]:
     """
     Local estimated token counts for Step 2a prompts (single user blob; no system message).
@@ -777,6 +796,7 @@ def audit_step2a_prompt(
             cohort_schema_class,
             course_schema_class,
             reference_institution_names,
+            compact_manifest_schema=compact_manifest_schema,
         )
         builder = "schema_mapping_agent.step2a.single"
     elif variant == "cohort_pass":
@@ -788,6 +808,7 @@ def audit_step2a_prompt(
             reference_manifests,
             cohort_schema_class,
             reference_institution_names,
+            compact_manifest_schema=compact_manifest_schema,
         )
         builder = "schema_mapping_agent.step2a.cohort_pass"
     else:
@@ -799,6 +820,7 @@ def audit_step2a_prompt(
             reference_manifests,
             course_schema_class,
             reference_institution_names,
+            compact_manifest_schema=compact_manifest_schema,
         )
         builder = "schema_mapping_agent.step2a.course_pass"
     return audit_prompt_sections(
@@ -819,6 +841,8 @@ def build_step2a_prompt(
     cohort_schema_class,
     course_schema_class,
     reference_institution_names: list[str] | None = None,
+    *,
+    compact_manifest_schema: bool = True,
 ) -> str:
     """
     Build the Step 2a field mapping prompt.
@@ -845,6 +869,7 @@ def build_step2a_prompt(
         cohort_schema_class,
         course_schema_class,
         reference_institution_names,
+        compact_manifest_schema=compact_manifest_schema,
     )
     return assemble_step2a_prompt_from_sections(sections)
 
@@ -857,6 +882,8 @@ def build_step2a_prompt_cohort_pass(
     reference_manifests: list[dict],
     cohort_schema_class,
     reference_institution_names: list[str] | None = None,
+    *,
+    compact_manifest_schema: bool = True,
 ) -> str:
     """
     Step 2a pass 1: cohort (student) entity only.
@@ -872,6 +899,7 @@ def build_step2a_prompt_cohort_pass(
         reference_manifests,
         cohort_schema_class,
         reference_institution_names,
+        compact_manifest_schema=compact_manifest_schema,
     )
     return assemble_step2a_cohort_pass_prompt_from_sections(sections)
 
@@ -884,6 +912,8 @@ def build_step2a_prompt_course_pass(
     reference_manifests: list[dict],
     course_schema_class,
     reference_institution_names: list[str] | None = None,
+    *,
+    compact_manifest_schema: bool = True,
 ) -> str:
     """
     Step 2a pass 2: course entity only.
@@ -900,6 +930,7 @@ def build_step2a_prompt_course_pass(
         reference_manifests,
         course_schema_class,
         reference_institution_names,
+        compact_manifest_schema=compact_manifest_schema,
     )
     return assemble_step2a_course_pass_prompt_from_sections(sections)
 

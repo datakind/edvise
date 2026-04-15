@@ -1,7 +1,9 @@
 """
 Transformation utilities for SchemaMappingAgent transformation maps.
 
-All utilities are pure Series → Series (or scalar → Series for fill_constant).
+Most utilities are pure Series → Series (or scalar → Series for fill_constant).
+``birthyear_to_age_bucket``, ``conditional_credits``, and ``term_components_to_datetime``
+take a second Series resolved from ``extra_columns``; see field_executor._execute_step.
 No DataFrame context, no cross-table joins — those are handled by field_executor.
 
 Removed from previous version:
@@ -517,3 +519,21 @@ def conditional_credits(
         grade_upper.isin(_PASSING_GRADES),
         other=0.0,
     ).astype("Float64")
+
+
+def term_components_to_datetime(
+    s: pd.Series,
+    season_series: pd.Series,
+) -> pd.Series:
+    """
+    SchemaMappingAgent registry entry — delegates to
+    :func:`~edvise.genai.mapping.identity_agent.term_normalization.term_datetime.term_components_to_datetime_from_series`.
+
+    Pass academic year as ``column`` and bind season via ``extra_columns``, e.g.
+    ``{{"season_series": "_edvise_term_season"}}``.
+    """
+    from edvise.genai.mapping.identity_agent.term_normalization.term_datetime import (
+        term_components_to_datetime_from_series,
+    )
+
+    return term_components_to_datetime_from_series(s, season_series)
