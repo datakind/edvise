@@ -3,7 +3,7 @@ Single handoff bundle for IdentityAgent LLM outputs (grain + term stages).
 
 Schema Mapping Agent does **not** consume this type directly; it consumes the frozen
 enriched schema contract validated by
-:class:`~edvise.genai.mapping.schema_contract.EnrichedSchemaContractForSMA`.
+:class:`~edvise.genai.mapping.shared.schema_contract.EnrichedSchemaContractForSMA`.
 """
 
 from __future__ import annotations

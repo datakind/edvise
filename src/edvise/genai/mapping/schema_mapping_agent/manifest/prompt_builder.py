@@ -6,9 +6,8 @@ Builds the prompt for generating a mapping manifest from a schema contract + ref
 import json
 from typing import Any, Literal, cast
 
-from edvise.genai.prompt_token_audit import audit_prompt_sections
-
-from edvise.genai.mapping.schema_contract import (
+from edvise.genai.mapping.shared.token_audit.prompt_token_audit import audit_prompt_sections
+from edvise.genai.mapping.shared.schema_contract import (
     EnrichedSchemaContractForSMA,
     parse_enriched_schema_contract_for_sma,
 )
@@ -54,7 +53,7 @@ def summarize_schema_contract(
     """
     Slim down the schema contract for prompt injection.
 
-    Input is validated/accepted as :class:`~edvise.genai.mapping.schema_contract.EnrichedSchemaContractForSMA`
+    Input is validated/accepted as :class:`~edvise.genai.mapping.shared.schema_contract.EnrichedSchemaContractForSMA`
     (IdentityAgent enriched JSON).
 
     Keeps: column names, dtypes (from each dataset's frozen ``dtypes`` map), null %,

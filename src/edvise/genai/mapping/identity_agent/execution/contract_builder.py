@@ -6,7 +6,7 @@ with helpers that attach historical-example metadata (samples, null stats, low-c
 for Schema Mapping Agent prompts.
 
 The **canonical JSON shape** consumed by Schema Mapping Agent is
-:class:`~edvise.genai.mapping.schema_contract.EnrichedSchemaContractForSMA`
+:class:`~edvise.genai.mapping.shared.schema_contract.EnrichedSchemaContractForSMA`
 (enriched institution file with ``school_id`` and per-dataset ``training``).
 
 Use :func:`build_enriched_schema_contract_for_institution` for one JSON per institution
@@ -169,7 +169,7 @@ def dedupe_fn_by_dataset_from_grain_contracts(
     hook_modules_root: str | Path | None = None,
 ) -> dict[str, Callable[[pd.DataFrame], pd.DataFrame]]:
     """
-    Build ``dedupe_fn_by_dataset`` for :func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`
+    Build ``dedupe_fn_by_dataset`` for :func:`~edvise.genai.mapping.shared.schema_contract.build_from_school_config.build_schema_contract_from_config`
     using :func:`~edvise.genai.mapping.identity_agent.execution.contract_utilities.build_dedupe_fn_from_grain_contract`
     per grain contract.
 
@@ -217,7 +217,7 @@ def build_schema_contract_from_grain_contracts(
     data audit); primary keys and cleaning alias are taken from grain contracts where provided.
 
     Applies :func:`merge_grain_contracts_into_school_config` (primary keys + cleaning alias) then
-    :func:`edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`.
+    :func:`edvise.genai.mapping.shared.schema_contract.build_from_school_config.build_schema_contract_from_config`.
 
     Args:
         school_config: School mapping config (paths, cleaning, baseline primary_keys).
@@ -246,13 +246,13 @@ def build_schema_contract_from_grain_contracts(
             Used to import ``dedup_policy.hook_spec.file`` when strategy is ``policy_required`` with
             a hook. Defaults to ``school_config.bronze_volumes_path`` when omitted and that path is set.
         dtype_opts, spark_session, sample_size, cleaning_cfg: Forwarded
-            to :func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`.
+            to :func:`~edvise.genai.mapping.shared.schema_contract.build_from_school_config.build_schema_contract_from_config`.
 
     Returns:
         ``(cleaned_dataframes_by_logical_name, schema_contract_dict)`` — same as
-        :func:`~edvise.genai.mapping.schema_contract.build_from_school_config.build_schema_contract_from_config`.
+        :func:`~edvise.genai.mapping.shared.schema_contract.build_from_school_config.build_schema_contract_from_config`.
     """
-    from edvise.genai.mapping.schema_contract.build_from_school_config import (
+    from edvise.genai.mapping.shared.schema_contract.build_from_school_config import (
         build_schema_contract_from_config,
     )
 
@@ -300,7 +300,7 @@ def _canonical_normalized_column_name(
     *,
     canonical_learner_column: str = "learner_id",
 ) -> str:
-    """Match :func:`~edvise.genai.mapping.schema_contract.build_from_school_config._canonical_primary_keys_for_contract` naming."""
+    """Match :func:`~edvise.genai.mapping.shared.schema_contract.build_from_school_config._canonical_primary_keys_for_contract` naming."""
     if not learner_id_alias:
         if canonical_learner_column == "learner_id" and norm_col == "student_id":
             return "learner_id"
@@ -545,7 +545,7 @@ def process_school_dataset(
     )
 
     try:
-        from edvise.genai.mapping.schema_contract.build_from_school_config import (
+        from edvise.genai.mapping.shared.schema_contract.build_from_school_config import (
             _load_and_preprocess_dataset,
             build_schema_contract_from_config,
         )
@@ -846,11 +846,11 @@ def save_enriched_schema_contract(
     Write a single enriched schema contract JSON (any filename).
 
     Set ``validate_for_sma=True`` to assert the payload matches
-    :class:`~edvise.genai.mapping.schema_contract.EnrichedSchemaContractForSMA`
+    :class:`~edvise.genai.mapping.shared.schema_contract.EnrichedSchemaContractForSMA`
     before writing.
     """
     if validate_for_sma:
-        from edvise.genai.mapping.schema_contract import (
+        from edvise.genai.mapping.shared.schema_contract import (
             parse_enriched_schema_contract_for_sma,
         )
 

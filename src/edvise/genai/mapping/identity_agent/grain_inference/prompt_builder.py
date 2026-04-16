@@ -549,9 +549,9 @@ def audit_identity_agent_prompt(
     """
     Local estimated token counts for grain inference (system + user sections).
 
-    Uses ``len(text) // chars_per_token`` (see :mod:`edvise.genai.prompt_token_audit`).
+    Uses ``len(text) // chars_per_token`` (see :mod:`edvise.genai.mapping.shared.token_audit.prompt_token_audit`).
     """
-    from edvise.genai.prompt_token_audit import audit_prompt_sections
+    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import audit_prompt_sections
 
     if df is not None and column_list is not None:
         raise ValueError("Pass only one of column_list or df")

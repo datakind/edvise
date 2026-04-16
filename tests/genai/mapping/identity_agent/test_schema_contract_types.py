@@ -15,7 +15,7 @@ from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     InstitutionTermContract,
     TermContract,
 )
-from edvise.genai.mapping.schema_contract import (
+from edvise.genai.mapping.shared.schema_contract import (
     BaseFrozenSchemaContract,
     EnrichedSchemaContractForSMA,
     parse_base_frozen_schema_contract,

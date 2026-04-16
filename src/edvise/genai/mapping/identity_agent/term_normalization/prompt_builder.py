@@ -857,7 +857,7 @@ def audit_term_normalization_prompt(
     Set ``batch_system=True`` to measure the **batch** system prompt instead of the single-table one
     (user message is unchanged).
     """
-    from edvise.genai.prompt_token_audit import audit_prompt_sections
+    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import audit_prompt_sections
 
     if batch_system:
         sys_sections = get_term_normalization_batch_system_sections()
@@ -894,7 +894,7 @@ def audit_term_normalization_batch_user_prompt(
 
     Sections: ``system.*`` and ``user.batch_payload``.
     """
-    from edvise.genai.prompt_token_audit import audit_prompt_sections
+    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import audit_prompt_sections
 
     sys_sections = get_term_normalization_batch_system_sections()
     user_text = build_term_normalization_batch_user_message_from_grain_and_profiles(

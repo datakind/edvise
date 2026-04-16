@@ -7,7 +7,7 @@ import inspect
 import json
 from typing import Any, cast
 
-from edvise.genai.prompt_token_audit import audit_prompt_sections
+from edvise.genai.mapping.shared.token_audit.prompt_token_audit import audit_prompt_sections
 
 from .schemas import get_transformation_map_schema_context
 

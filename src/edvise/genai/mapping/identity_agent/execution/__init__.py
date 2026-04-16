@@ -23,7 +23,7 @@ from .contract_builder import (
     save_enriched_schema_contract,
     save_enriched_schema_contracts,
 )
-from edvise.genai.mapping.schema_contract import (
+from edvise.genai.mapping.shared.schema_contract import (
     EnrichedSchemaContractForSMA,
     FrozenDatasetSchemaForSMA,
     SchemaContractColumnDetail,

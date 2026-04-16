@@ -1,6 +1,6 @@
 """Tests for schema contract primary-key alignment with normalized headers."""
 
-from edvise.genai.mapping.schema_contract.build_from_school_config import (
+from edvise.genai.mapping.shared.schema_contract.build_from_school_config import (
     _canonical_primary_keys_for_contract,
     _resolve_primary_keys_to_normalized,
 )
