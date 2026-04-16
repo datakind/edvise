@@ -13,6 +13,8 @@ from edvise.genai.mapping.identity_agent.hitl.hook_generation import (
     parse_hook_spec,
 )
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
+    GrainAmbiguityHITLContext,
+    GrainCandidateKeyEntry,
     GrainResolution,
     HITLDomain,
     HITLItem,
@@ -110,6 +112,66 @@ def test_normalized_column_names_from_raw_headers_snake_case():
         "major",
         "major_code",
     ]
+
+
+def test_build_hook_generation_user_message_serializes_structured_grain_hitl_context():
+    ctx = GrainAmbiguityHITLContext(
+        candidate_keys=[
+            GrainCandidateKeyEntry(
+                rank=1,
+                columns=["STUDENT_ID", "TERM_DESC"],
+                uniqueness_score=0.85,
+                notes="semantic grain",
+            )
+        ],
+        variance_profile={"COHORT_YEAR": "25%–58.8% within groups"},
+    )
+    item = HITLItem(
+        item_id="uni_of_central_florida_student_grain_ambiguity",
+        institution_id="uni_of_central_florida",
+        table="student",
+        domain=HITLDomain.IDENTITY_GRAIN,
+        hitl_question="Which grain?",
+        hitl_context=ctx,
+        options=[
+            HITLOption(
+                option_id="no_dedup",
+                label="No dedup",
+                description="d",
+                resolution=GrainResolution(dedup_strategy="no_dedup").model_dump(
+                    mode="json"
+                ),
+                reentry=ReentryDepth.TERMINAL,
+            ),
+            HITLOption(
+                option_id="custom",
+                label="Custom",
+                description="c",
+                resolution=None,
+                reentry=ReentryDepth.GENERATE_HOOK,
+            ),
+        ],
+        target=HITLTarget(
+            institution_id="uni_of_central_florida",
+            table="student",
+            config="grain_contract",
+            field="dedup_policy",
+        ),
+    )
+    cfg = {
+        "institution_id": "uni_of_central_florida",
+        "datasets": {
+            "student": {
+                "grain_contract": {"table": "student", "institution_id": "uni_of_central_florida"},
+            }
+        },
+    }
+    sn = extract_config_snippet_for_hook_item(cfg, item)
+    payload = json.loads(build_hook_generation_user_message(item, sn))
+    hc = payload["hitl_context"]
+    assert isinstance(hc, dict)
+    assert hc["candidate_keys"][0]["columns"] == ["STUDENT_ID", "TERM_DESC"]
+    assert hc["variance_profile"]["COHORT_YEAR"] == "25%–58.8% within groups"
 
 
 def test_build_hook_generation_user_message_includes_normalized_columns():

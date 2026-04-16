@@ -382,14 +382,15 @@ Use a **number from 0.0 to 1.0** (same scale as Schema Mapping Agent field mappi
 
 - Prefer round scores when possible (e.g. 0.6, 0.7, 0.8, 0.9, 1.0).
 - **0.85–1.0**: clear term column, format is standard or unambiguous hook-required extractors
-- **{t}–0.85**: workable inference with minor ambiguity
-- **0.0–{t}**: conflicting signals or policy required → always set `hitl_flag` true
+- **above {t} and below 0.85**: workable inference with minor ambiguity
+- **at or below {t}**: conflicting signals or policy required → always set `hitl_flag` true
 
-- `hitl_flag` MUST be true whenever `confidence` < {t}. In the mid band, set `hitl_flag` true when human review is still required (e.g. hook-required extractors).
+- `hitl_flag` MUST be true whenever `confidence` ≤ {t}. In the mid band (above {t} through below 0.85), set `hitl_flag` true when human review is still required (e.g. hook-required extractors).
 """
 
 
 def _tn_output_format() -> str:
+    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
     return """
 ## OUTPUT FORMAT
 
@@ -444,7 +445,7 @@ VALIDITY RULES
 
 - `hitl_flag: true` requires at least one corresponding item in the top-level `hitl_items`.
 - `hitl_flag: false` means no items for this table appear in `hitl_items`.
-- `confidence < 0.5` requires `hitl_flag: true`.
+""" + f"- `confidence` ≤ {t} requires `hitl_flag: true`.\n" + """
 - `confidence` must be a numeric float, never a string.
 """
 
@@ -539,7 +540,9 @@ input. Do not omit datasets.
 
 
 def _tn_batch_output_format() -> str:
-    return """
+    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
+    return (
+        """
 ## OUTPUT FORMAT (batch)
 
 Respond ONLY with one JSON object. No preamble, no markdown, no explanation outside the JSON.
@@ -667,7 +670,7 @@ VALIDITY RULES
   whose `"table"` matches that dataset's key.
 - `hitl_flag: false` for a dataset means no HITLItem in the top-level list has `"table"`
   matching that dataset's key.
-- `confidence < 0.5` requires `hitl_flag: true`.
+- `confidence` ≤ __PIPELINE_HITL_T__ requires `hitl_flag: true`.
 - `term_config: null` requires `reasoning` to explain why.
 - `season_map` must only contain tokens directly observable in the unique values as strings.
   For opaque numeric or date term columns, set `season_map: []` — do not infer or speculate
@@ -753,6 +756,8 @@ VALIDITY RULES
 - `item_id` must be unique across the entire response.
 - Each nested object under `datasets` must set `"table"` to the same string as its key in `datasets`.
 """
+        .replace("__PIPELINE_HITL_T__", f"{t}")
+    )
 
 
 TERM_NORMALIZATION_BATCH_SYSTEM_SECTION_KEYS: tuple[str, ...] = (

@@ -56,7 +56,7 @@ def run_identity_agents_for_institution_with_hitl(
     ``hitl_items`` into one list (for
     :func:`~edvise.genai.mapping.identity_agent.hitl.artifacts.write_identity_grain_artifacts`).
 
-    - If ``contract.hitl_flag`` or ``contract.confidence < confidence_threshold``:
+    - If ``contract.hitl_flag`` or ``contract.confidence <= confidence_threshold``:
       ``queue_for_hitl_review(contract)`` when provided.
     - Else: ``auto_approve_and_apply(contract)`` when provided.
 
@@ -82,7 +82,7 @@ def run_identity_agents_for_institution_with_hitl(
         )
         contracts[dataset_name] = contract
         all_hitl.extend(items)
-        if contract.hitl_flag or contract.confidence < confidence_threshold:
+        if contract.hitl_flag or contract.confidence <= confidence_threshold:
             q(contract)
         else:
             a(contract)

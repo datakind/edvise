@@ -245,9 +245,10 @@ def _identity_reasoning_steps() -> str:
      Two non-custom options for the same sort column should differ only in
      `dedup_sort_ascending` (true vs false), not in `dedup_keep`.
    - Set `hook_group_id` when multiple tables share the same dedup pattern.
-   - `hitl_context` must include the specific raw values, uniqueness scores, or variance
-     patterns that triggered the flag — give the reviewer the evidence they need without
-     requiring them to look at the data.
+   - `hitl_context` must give the reviewer the evidence that triggered the flag: either a short
+     freeform string, **or** a structured object with `candidate_keys` (ranked columns,
+     uniqueness scores, notes) and optional `variance_profile` (column → variance summary).
+     Prefer the structured form when key-profiling output is available.
    - When `hitl_flag` is false, emit `hitl_items: []`.
 """
 
@@ -262,11 +263,11 @@ Use a **number from 0.0 to 1.0** (same scale as Schema Mapping Agent field mappi
 
 - Prefer round scores when possible (e.g. 0.6, 0.7, 0.8, 0.9, 1.0).
 - **0.85–1.0**: all signals agree, domain prior confirms, zero ambiguity
-- **{t}–0.85**: data inference is clear but domain prior doesn't fully apply, or minor variance
-- **0.0–{t}**: conflicting signals, ambiguous grain, or policy decision required → always set
+- **above {t} and below 0.85**: data inference is clear but domain prior doesn't fully apply, or minor variance
+- **at or below {t}**: conflicting signals, ambiguous grain, or policy decision required → always set
   `hitl_flag` true
 
-- `hitl_flag` MUST be true whenever `confidence` < {t}. In the mid band ({t}–0.85), set
+- `hitl_flag` MUST be true whenever `confidence` ≤ {t}. In the mid band (above {t} through below 0.85), set
   `hitl_flag` true when a policy choice is still required.
 """
 
@@ -300,6 +301,7 @@ identifier; set `learner_id_alias` accordingly; emit keys in `post_clean_primary
 
 
 def _identity_output_format() -> str:
+    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
     return """
 ## OUTPUT FORMAT
 
@@ -344,7 +346,7 @@ HITLItem shape for grain:
   "domain": "identity_grain",
   "hook_group_id": null,
   "hitl_question": "<specific, actionable question naming the column, values, and decision needed>",
-  "hitl_context": "<raw values, uniqueness scores, or variance patterns that triggered this flag>",
+  "hitl_context": "<short freeform evidence string>",
   "options": [
     {
       "option_id": "<snake_case_id>",
@@ -393,11 +395,49 @@ HITLItem shape for grain:
 }
 ```
 
+When key-profiling output is available, use structured `hitl_context` instead of a string (same
+options/target shape as above; only `hitl_context` changes):
+
+```json
+{
+  "item_id": "<institution_id>_<table>_<short_descriptor>",
+  "institution_id": "<institution_id>",
+  "table": "<dataset_name>",
+  "domain": "identity_grain",
+  "hook_group_id": null,
+  "hook_group_tables": null,
+  "hitl_question": "<specific question>",
+  "hitl_context": {
+    "candidate_keys": [
+      {
+        "rank": 1,
+        "columns": ["STUDENT_ID", "TERM_DESC"],
+        "uniqueness_score": 0.85,
+        "notes": "<optional caveat>"
+      }
+    ],
+    "variance_profile": {
+      "COHORT_YEAR": "25%–58.8% within groups",
+      "TERM_DESC": "41.2%–62% within groups"
+    }
+  },
+  "options": [ "..." ],
+  "target": {
+    "institution_id": "<institution_id>",
+    "table": "<dataset_name>",
+    "config": "grain_contract",
+    "field": "dedup_policy"
+  },
+  "status": "pending",
+  "resolution": null
+}
+```
+
 VALIDITY RULES
 
 - `hitl_flag: true` requires at least one corresponding item in the top-level `hitl_items`.
 - `hitl_flag: false` means no items for this table appear in `hitl_items`.
-- `confidence < 0.5` requires `hitl_flag: true`.
+""" + f"- `confidence` ≤ {t} requires `hitl_flag: true`.\n" + """
 - Every HITLItem must have 2–5 options. Last option must be `option_id: "custom"`
   with `resolution: null`. Use more options only when the resolution space is
   genuinely wider — avoid padding.

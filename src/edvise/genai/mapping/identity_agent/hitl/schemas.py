@@ -22,6 +22,7 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     HookSpec,
 )
 from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
+from edvise.genai.mapping.shared.hitl.run_log import RunEvent, RunLog
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +127,53 @@ class GrainResolution(BaseModel):
                 "Execution layer infers hook path from hook_spec presence."
             )
         return self
+
+
+# ---------------------------------------------------------------------------
+# GrainAmbiguityHITLContext — structured identity_grain reviewer evidence
+# ---------------------------------------------------------------------------
+
+
+class GrainCandidateKeyEntry(BaseModel):
+    """One ranked candidate key from grain-key profiling (HITL evidence)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rank: int = Field(..., ge=1, description="1 = strongest candidate by profiling heuristics.")
+    columns: list[str] = Field(..., min_length=1)
+    uniqueness_score: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Estimated key uniqueness on the profiled sample.",
+    )
+    notes: str | None = Field(
+        default=None,
+        description="Short human-readable caveat (e.g. measure columns mixed into key).",
+    )
+
+
+class GrainAmbiguityHITLContext(BaseModel):
+    """
+    Structured alternative to a freeform ``hitl_context`` string for ``identity_grain``.
+
+    Use when the pipeline has ranked candidate keys and duplicate-group variance summaries.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_keys: list[GrainCandidateKeyEntry] = Field(
+        ...,
+        min_length=1,
+        description="Ranked candidate primary keys with uniqueness scores.",
+    )
+    variance_profile: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Column name → human-readable variance within duplicate groups "
+            "(e.g. '25%–58.8% within groups')."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -326,11 +374,12 @@ class HITLItem(BaseModel):
         ...,
         description="Specific, actionable question naming the column, values, and decision needed.",
     )
-    hitl_context: str | None = Field(
+    hitl_context: str | GrainAmbiguityHITLContext | None = Field(
         default=None,
         description=(
-            "Raw values or samples the LLM was looking at when it raised the flag. "
-            "Surfaces evidence to the reviewer without them digging into the data."
+            "Evidence for the reviewer: either a short freeform string, or structured "
+            ":class:`GrainAmbiguityHITLContext` (ranked candidate keys and variance_profile) "
+            "for grain ambiguity."
         ),
     )
 
@@ -485,6 +534,8 @@ def get_grain_hitl_item_schema_context() -> str:
             HookFunctionSpec,
             HookSpec,
             GrainResolution,
+            GrainCandidateKeyEntry,
+            GrainAmbiguityHITLContext,
             HITLOption,
             HITLTarget,
             HITLItem,
@@ -515,37 +566,4 @@ def get_term_hitl_item_schema_context() -> str:
     )
 
 
-# ---------------------------------------------------------------------------
-# Run log — append-only audit trail written by hitl_resolver.py
-# ---------------------------------------------------------------------------
-
-
-class RunEvent(BaseModel):
-    """
-    One resolved HITL item event. Written by hitl_resolver on each resolve_items
-    or apply_hook_spec call. Append-only — never mutated after writing.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    timestamp: str  # ISO datetime string
-    resolved_by: str | None  # user identifier passed to resolver
-    agent: str  # e.g. "identity_agent", "schema_mapping_agent"
-    domain: str  # e.g. "grain", "term", "mapping"
-    item_id: str
-    choice: int
-    option_id: str
-    reentry: str  # "terminal" or "generate_hook"
-
-
-class RunLog(BaseModel):
-    """
-    Full audit trail for one institution across all agents and domains.
-    Written to: institutions/<institution_id>/run_log.json
-    One file per institution — all pipeline stages append to the same file.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    institution_id: str
-    events: list[RunEvent] = Field(default_factory=list)
+# Run log models — shared with SMA HITL (:mod:`edvise.genai.mapping.shared.hitl.run_log`).

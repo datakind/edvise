@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import importlib
 from typing import Any
 
-__all__ = ["eval", "hitl_resolver", "prompt_builder", "schemas", "validation"]
+__all__ = ["eval", "hitl", "hitl_resolver", "prompt_builder", "schemas", "validation"]
 
 
 def __getattr__(name: str) -> Any:
@@ -24,8 +25,9 @@ def __getattr__(name: str) -> Any:
         from . import validation as v
 
         return v
+    if name == "hitl":
+        # SMA HITL lives at package level (``schema_mapping_agent.hitl``), not under manifest.
+        return importlib.import_module("edvise.genai.mapping.schema_mapping_agent.hitl")
     if name == "hitl_resolver":
-        from . import hitl_resolver as hr
-
-        return hr
+        return importlib.import_module("edvise.genai.mapping.schema_mapping_agent.hitl.resolver")
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -190,9 +190,9 @@ class TermContract(BaseModel):
             IDENTITY_CONFIDENCE_HITL_THRESHOLD,
         )
 
-        if self.confidence < IDENTITY_CONFIDENCE_HITL_THRESHOLD and not self.hitl_flag:
+        if self.confidence <= IDENTITY_CONFIDENCE_HITL_THRESHOLD and not self.hitl_flag:
             raise ValueError(
-                f"hitl_flag must be true when confidence is below {IDENTITY_CONFIDENCE_HITL_THRESHOLD}"
+                f"hitl_flag must be true when confidence is at or below {IDENTITY_CONFIDENCE_HITL_THRESHOLD}"
             )
         return self
 

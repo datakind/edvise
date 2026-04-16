@@ -15,6 +15,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     get_compact_manifest_schema_reference,
     get_manifest_schema_context,
 )
+from edvise.genai.mapping.shared.hitl.confidence import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 
 
 def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
@@ -146,7 +147,9 @@ def _column_aliases_scope_bullet(scope: Literal["single_pass", "entity_pass"]) -
 
 def _step2a_cohort_entry_term_rules() -> str:
     """Step 2a: mapping rules for cohort entry_year / entry_term (manifest)."""
-    return """
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
+    return (
+        """
 COHORT entry_year AND entry_term — decision hierarchy (apply in order)
 
 **(1) Preferred — IdentityAgent normalized columns on the student (cohort base) table**
@@ -165,8 +168,9 @@ COHORT entry_year AND entry_term — decision hierarchy (apply in order)
 - **Semantic caveat:** this path means **first term in enrollment history** (earliest term row), **not**
   necessarily institutional cohort / starting cohort. State that explicitly in **rationale** and
   **validation_notes**.
-- Use **low confidence** (typically ≤ 0.65) and flag **HITL review** — this is a proxy, not cohort.
-
+"""
+        + f"- Use **low confidence** (typically ≤ {t}) and flag **HITL review** — this is a proxy, not cohort.\n\n"
+        + """
 **(3) Unmapped — upstream IdentityAgent / enrichment gap**
 - If neither **(1)** nor **(2)** is defensible, set `entry_year` / `entry_term` to unmappable
   (`source_column` / `source_table` / `row_selection` null as required by UNMAPPABLE FIELDS).
@@ -174,6 +178,7 @@ COHORT entry_year AND entry_term — decision hierarchy (apply in order)
   student or providing a joinable normalized path — **surface to the human reviewer**; this is not fixable
   by SMA alone.
 """
+    )
 
 
 def _step2a_course_academic_term_rules() -> str:
@@ -212,9 +217,10 @@ def _step2a_rules_after_structure(
     """Shared rules (SOURCE COLUMNS → TARGET SCHEMA AUTHORITY) for all Step 2a prompt variants.
 
     ``term_rules`` controls which term-field hierarchies are injected (cohort entry vs course academic):
-    ``cohort_and_course`` for single-pass prompts; ``cohort_only`` / ``course_only`` for entity passes
+    ``cohort_and_course`` for single-pass prompts;     ``cohort_only`` / ``course_only`` for entity passes
     so each pass only sees instructions for its entity.
     """
+    pipeline_hitl_t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
     alias_bullet = _column_aliases_scope_bullet(column_aliases_scope)
     if term_rules == "cohort_and_course":
         term_blocks = (
@@ -374,6 +380,8 @@ CONFIDENCE SCORING
   or filter applied to resolve ambiguity
 - < 0.6 — ambiguous mapping where the correct source, strategy, or join cannot be determined from the schema contract alone;
   always flag for HITL review
+- **≤ {pipeline_hitl_t}** — pipeline HITL gate (same value as IdentityAgent grain/term): per-field confidence
+  at or below this score is routed to refinement + HITL review
 - CRITICAL: Do not inflate confidence because a mapping is structurally plausible.
   Confidence reflects how certain you are that this mapping produces the correct semantic output
   for every student/course record, not just that it produces valid output

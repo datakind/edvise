@@ -7,11 +7,13 @@ import pytest
 from pydantic import ValidationError
 
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
+    GrainAmbiguityHITLContext,
     GrainResolution,
     HITLDomain,
     HITLItem,
     HITLOption,
     HITLTarget,
+    InstitutionHITLItems,
     ReentryDepth,
     TermResolution,
 )
@@ -891,3 +893,79 @@ def test_hitl_item_hook_group_tables_requires_hook_group_id():
                 field="hook_spec",
             ),
         )
+
+
+def test_institution_hitl_items_accepts_structured_grain_hitl_context():
+    raw = {
+        "institution_id": "uni_of_central_florida",
+        "domain": "grain",
+        "items": [
+            {
+                "item_id": "uni_of_central_florida_student_grain_ambiguity",
+                "institution_id": "uni_of_central_florida",
+                "table": "student",
+                "domain": "identity_grain",
+                "hook_group_id": None,
+                "hook_group_tables": None,
+                "hitl_question": "Which grain defines a row?",
+                "hitl_context": {
+                    "candidate_keys": [
+                        {
+                            "rank": 1,
+                            "columns": [
+                                "STUDENT_ID",
+                                "CREDITS_EARNED_BOT",
+                                "CUM_GPA_END_TERM",
+                            ],
+                            "uniqueness_score": 0.9953,
+                            "notes": "includes measure columns",
+                        },
+                        {
+                            "rank": 2,
+                            "columns": ["STUDENT_ID", "TERM_DESC"],
+                            "uniqueness_score": 0.85,
+                            "notes": "natural semantic grain",
+                        },
+                        {
+                            "rank": 3,
+                            "columns": ["STUDENT_ID"],
+                            "uniqueness_score": 0.42,
+                            "notes": "high duplicate rate",
+                        },
+                    ],
+                    "variance_profile": {
+                        "COHORT_YEAR": "25%–58.8% within groups",
+                        "TERM_DESC": "41.2%–62% within groups",
+                    },
+                },
+                "options": [
+                    {
+                        "option_id": "student_term",
+                        "label": "Student-term grain",
+                        "description": "d",
+                        "resolution": {
+                            "candidate_key_override": ["STUDENT_ID", "TERM_DESC"],
+                            "dedup_strategy": "true_duplicate",
+                        },
+                        "reentry": "terminal",
+                    },
+                    {
+                        "option_id": "custom",
+                        "label": "Custom",
+                        "description": "d",
+                        "resolution": None,
+                        "reentry": "terminal",
+                    },
+                ],
+                "target": {
+                    "institution_id": "uni_of_central_florida",
+                    "table": "student",
+                    "config": "grain_contract",
+                    "field": "dedup_policy",
+                },
+            }
+        ],
+    }
+    env = InstitutionHITLItems.model_validate(raw)
+    assert isinstance(env.items[0].hitl_context, GrainAmbiguityHITLContext)
+    assert env.items[0].hitl_context.candidate_keys[2].uniqueness_score == 0.42

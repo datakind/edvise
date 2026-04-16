@@ -1,7 +1,7 @@
 """
 Schema Mapping Agent (2a) HITL on-disk helpers.
 
-Gate and (future) apply logic live here; Pydantic models are in :mod:`hitl`.
+Gate and (future) apply logic live here; Pydantic models are in :mod:`edvise.genai.mapping.schema_mapping_agent.hitl.schemas`.
 IdentityAgent equivalents: :mod:`edvise.genai.mapping.identity_agent.hitl.resolver`.
 """
 
@@ -9,14 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from edvise.genai.mapping.schema_mapping_agent.manifest.hitl import InstitutionSMAHITLItems, SMAHITLItem
+from edvise.genai.mapping.schema_mapping_agent.hitl.artifacts import load_sma_hitl
+from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import SMAHITLItem
 from edvise.genai.mapping.shared.hitl import raise_if_hitl_pending
-
-
-def _load_sma_hitl(hitl_path: Path) -> InstitutionSMAHITLItems:
-    if not hitl_path.exists():
-        raise FileNotFoundError(f"SMA HITL file not found: {hitl_path}")
-    return InstitutionSMAHITLItems.model_validate_json(hitl_path.read_text())
 
 
 def check_sma_hitl_gate(hitl_path: str | Path) -> None:
@@ -24,10 +19,13 @@ def check_sma_hitl_gate(hitl_path: str | Path) -> None:
     Raises :class:`~edvise.genai.mapping.shared.hitl.HITLBlockingError` if any SMA
     HITL items are still pending (no ``choice``, or ``direct_edit`` without mapping).
 
+    Intended to run before downstream pipeline steps (e.g. Step 2b) on every run;
+    there is no optional or execution-mode bypass for this check.
+
     Prints and returns cleanly when the gate passes. Does not mutate files.
     """
     path = Path(hitl_path)
-    envelope = _load_sma_hitl(path)
+    envelope = load_sma_hitl(path)
 
     if not envelope.items:
         print("✓ No SMA HITL items — pipeline gate clear.")

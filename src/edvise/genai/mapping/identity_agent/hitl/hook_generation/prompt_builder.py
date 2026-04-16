@@ -12,7 +12,22 @@ from collections.abc import Iterable
 from typing import Any
 
 from edvise.data_audit.custom_cleaning import normalize_columns
-from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain, HITLItem
+from edvise.genai.mapping.identity_agent.hitl.schemas import (
+    GrainAmbiguityHITLContext,
+    HITLDomain,
+    HITLItem,
+)
+
+
+def _hitl_context_json_value(
+    ctx: str | GrainAmbiguityHITLContext | None,
+) -> str | dict[str, Any] | None:
+    """JSON-serializable form for hook-generation user payloads."""
+    if ctx is None:
+        return None
+    if isinstance(ctx, GrainAmbiguityHITLContext):
+        return ctx.model_dump(mode="json")
+    return ctx
 
 
 def normalized_column_names_from_raw_headers(cols: Iterable[str]) -> list[str]:
@@ -64,7 +79,7 @@ def build_hook_generation_user_message(
         "hook_group_id": item.hook_group_id,
         "hook_group_tables": item.hook_group_tables,
         "hitl_question": item.hitl_question,
-        "hitl_context": item.hitl_context,
+        "hitl_context": _hitl_context_json_value(item.hitl_context),
         "reviewer_note": item.reviewer_note,
         "target": item.target.model_dump(mode="json"),
         "config_snippet": config_snippet,

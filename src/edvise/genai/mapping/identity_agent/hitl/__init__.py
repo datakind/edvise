@@ -37,6 +37,8 @@ from edvise.genai.mapping.identity_agent.hitl.resolver import (
     validate_hook,
 )
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
+    GrainAmbiguityHITLContext,
+    GrainCandidateKeyEntry,
     GrainResolution,
     HITLDomain,
     HITLItem,
@@ -56,6 +58,8 @@ __all__ = [
     "generate_hook_specs_for_hook_items",
     "normalized_column_names_from_raw_headers",
     "ensure_hook_spec_file",
+    "GrainAmbiguityHITLContext",
+    "GrainCandidateKeyEntry",
     "GrainResolution",
     "HITLBlockingError",
     "HITLDomain",

@@ -239,6 +239,29 @@ def test_low_confidence_requires_hitl():
         parse_grain_contract(raw)
 
 
+def test_confidence_at_threshold_requires_hitl():
+    """At-or-below threshold: hitl_flag must be true (≤ comparison)."""
+    raw = {
+        "institution_id": "x",
+        "table": "t",
+        "post_clean_primary_key": ["a"],
+        "dedup_policy": {
+            "strategy": "no_dedup",
+            "sort_by": None,
+            "keep": None,
+            "notes": "",
+        },
+        "row_selection_required": True,
+        "join_keys_for_2a": ["a", "b"],
+        "confidence": IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+        "hitl_flag": False,
+        "hitl_question": None,
+        "reasoning": "At threshold.",
+    }
+    with pytest.raises(ValueError, match="hitl_flag"):
+        parse_grain_contract(raw)
+
+
 def test_strip_json_fences():
     assert strip_json_fences('```\n{"a": 1}\n```').strip() == '{"a": 1}'
 

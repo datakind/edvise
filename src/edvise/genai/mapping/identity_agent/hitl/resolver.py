@@ -61,7 +61,6 @@ import importlib.util
 import json
 import logging
 from collections.abc import Sequence
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
@@ -80,11 +79,12 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     HITLOption,
     InstitutionHITLItems,
     ReentryDepth,
-    RunEvent,
-    RunLog,
     TermResolution,
 )
 from edvise.genai.mapping.shared.hitl import HITLBlockingError, raise_if_hitl_pending
+from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json, write_pydantic_json
+from edvise.genai.mapping.shared.hitl.run_log import RunEvent, append_run_log_event
+from edvise.genai.mapping.shared.hitl.time import utc_now_iso
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     SeasonMapEntry,
 )
@@ -115,13 +115,11 @@ class HookValidationError(Exception):
 
 
 def _load_hitl(hitl_path: Path) -> InstitutionHITLItems:
-    if not hitl_path.exists():
-        raise FileNotFoundError(f"HITL file not found: {hitl_path}")
-    return InstitutionHITLItems.model_validate_json(hitl_path.read_text())
+    return read_pydantic_json(hitl_path, InstitutionHITLItems)
 
 
 def _save_hitl(envelope: InstitutionHITLItems, hitl_path: Path) -> None:
-    hitl_path.write_text(envelope.model_dump_json(indent=2))
+    write_pydantic_json(hitl_path, envelope)
 
 
 def _load_config(config_path: Path) -> dict[str, Any]:
@@ -144,14 +142,9 @@ def _append_run_log(
     Append one RunEvent to run_log.json for this institution.
     Creates the file if it does not exist. Never overwrites existing events.
     """
-    if run_log_path.exists():
-        run_log = RunLog.model_validate_json(run_log_path.read_text())
-    else:
-        run_log = RunLog(institution_id=institution_id)
-
     assert item.choice is not None
     event = RunEvent(
-        timestamp=datetime.now(timezone.utc).isoformat(),
+        timestamp=utc_now_iso(),
         resolved_by=resolved_by,
         agent="identity_agent",
         domain=envelope.domain,  # "grain" or "term"
@@ -160,8 +153,7 @@ def _append_run_log(
         option_id=selected.option_id,
         reentry=selected.reentry.value,
     )
-    run_log.events.append(event)
-    run_log_path.write_text(run_log.model_dump_json(indent=2))
+    append_run_log_event(run_log_path, institution_id, event)
 
 
 # ---------------------------------------------------------------------------

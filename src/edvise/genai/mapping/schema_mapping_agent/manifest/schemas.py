@@ -260,11 +260,12 @@ class FieldMappingRecord(StrictBaseModel):
             "Null if no validation risk identified."
         ),
     )
-    review_status: Optional[ReviewStatus] = Field(
+    review_status: ReviewStatus | None = Field(
         default=None,
         description=(
-            "Pipeline/HITL telemetry — set after validation and refinement, not by the "
-            "initial mapping LLM. Omit in agent output."
+            "Pipeline-assigned review outcome. Never set by the generating agent. "
+            "Assigned after validation: auto_approved, refined_by_llm, "
+            "proposed_for_hitl, or corrected_by_hitl."
         ),
     )
     reviewer_notes: Optional[str] = Field(
@@ -354,6 +355,44 @@ class MappingManifestEnvelope(StrictBaseModel):
 
 # =============================================================================
 
+_AGENT_EXCLUDED_FMR_SOURCE_FIELDS = frozenset(
+    {"review_status", "reviewer_notes", "corrected_source_column"}
+)
+
+
+def _omit_field_blocks_from_class_source(
+    source: str, field_names: frozenset[str]
+) -> str:
+    """
+    Drop class attribute blocks starting with `    name:` ... closing `    )`
+    from inspect.getsource output. Used to hide pipeline/reviewer-only fields
+    from agent-facing schema dumps.
+    """
+    lines = source.splitlines(keepends=True)
+    out: List[str] = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        line = lines[i]
+        skip = any(line.startswith(f"    {name}:") for name in field_names)
+        if skip:
+            i += 1
+            while i < n:
+                if lines[i].rstrip() == "    )":
+                    i += 1
+                    break
+                i += 1
+            continue
+        out.append(line)
+        i += 1
+    return "".join(out)
+
+
+def _field_mapping_record_source_for_agent_prompt() -> str:
+    return _omit_field_blocks_from_class_source(
+        inspect.getsource(FieldMappingRecord), _AGENT_EXCLUDED_FMR_SOURCE_FIELDS
+    )
+
 
 def get_manifest_schema_context() -> str:
     """
@@ -375,7 +414,10 @@ def get_manifest_schema_context() -> str:
     ]
     sections = []
     for model in models:
-        source = inspect.getsource(model)
+        if model is FieldMappingRecord:
+            source = _field_mapping_record_source_for_agent_prompt()
+        else:
+            source = inspect.getsource(model)
         sections.append(source)
     return "\n\n".join(sections)
 

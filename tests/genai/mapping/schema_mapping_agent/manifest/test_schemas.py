@@ -14,6 +14,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     MappingManifestEnvelope,
     RowSelectionConfig,
     RowSelectionStrategy,
+    get_compact_manifest_schema_reference,
     get_manifest_schema_context,
 )
 
@@ -203,3 +204,14 @@ def test_get_manifest_schema_context_non_empty():
     assert "JoinFilter" in text
     assert "FieldMappingManifest" in text
     assert "MappingManifestEnvelope" in text
+    # Pipeline / reviewer-only fields must not appear in agent prompt context
+    assert "review_status" not in text
+    assert "reviewer_notes" not in text
+    assert "corrected_source_column" not in text
+
+
+def test_get_compact_manifest_schema_reference_excludes_reviewer_fields():
+    text = get_compact_manifest_schema_reference()
+    assert "review_status" not in text
+    assert "reviewer_notes" not in text
+    assert "corrected_source_column" not in text
