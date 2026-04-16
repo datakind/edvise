@@ -324,8 +324,12 @@ Each HITLItem must have:
 - `hitl_context`: the raw values or samples that triggered the flag. Give the reviewer
   the evidence they need without requiring them to look at the data.
 - `options`: 2–5 options. Last option must always be `option_id: "custom"` with
-  `resolution: null` and `reentry: "generate_hook"`. Use more options when the
-  resolution space is genuinely wider — e.g. grain ambiguity cases where
+  `reentry: "generate_hook"`. For `resolution`: use `null` when the reviewer must supply
+  everything out-of-band, **or** (preferred when raw→canonical mapping is already clear from
+  samples but extractors need rewriting) a **partial** `TermResolution` **without** `hook_spec` —
+  e.g. `{"season_map_replace": [...]}` only — so `resolve_items` can persist `season_map` while
+  `reviewer_note` + hook generation supply the code. Never put `hook_spec` on `custom`.
+  Use more options when the resolution space is genuinely wider — e.g. grain ambiguity cases where
   "keep earliest", "keep latest", and "keep as multi-row" are all meaningful
   and distinct choices. Avoid padding with options that are not meaningfully
   different.
@@ -633,7 +637,7 @@ Shape:
         {
           "option_id": "custom",
           "label": "<...>",
-          "description": "Reviewer provides explicit instructions.",
+          "description": "Reviewer provides explicit instructions; optional partial season_map_replace if mapping is known.",
           "resolution": null,
           "reentry": "generate_hook"
         }
@@ -713,6 +717,20 @@ VALIDITY RULES
   The raw values in `season_map_replace` (`"2"`, `"6"`, `"9"`) exactly match what
   `season_extractor` returns. The resolver writes `season_map_replace` to `term_config.season_map`
   and writes `hook_spec` to `term_config.hook_spec` in one atomic operation.
+
+  Optional — `custom` + `generate_hook` with mapping known but extractors disputed (no `hook_spec` on `custom`):
+
+```json
+"option_id": "custom",
+"resolution": {
+  "season_map_replace": [
+    {"raw": "2", "canonical": "SPRING"},
+    {"raw": "6", "canonical": "SUMMER"},
+    {"raw": "9", "canonical": "FALL"}
+  ]
+},
+"reentry": "generate_hook"
+```
 - When `term_extraction` is `"hook_required"`, `term_config.hook_spec` must always be populated
   — it is the draft. Draft the extractor functions inline from observed value patterns; do not
   defer hook drafting to HITL resolution. The HITL item exists to get human confirmation of that
@@ -724,9 +742,10 @@ VALIDITY RULES
   `HITLItem` in the top-level `hitl_items` list. This is unconditional — confidence level does
   not gate HITL emission for hook-required tables.
 - `confidence` must be a numeric float, never a string.
-- Every HITLItem must have 2–5 options. Last option must be `option_id: "custom"`
-  with `resolution: null`. Use more options only when the resolution space is
-  genuinely wider — avoid padding.
+- Every HITLItem must have 2–5 options. Last option must be `option_id: "custom"`.
+  Its `resolution` is `null` **or** a partial `TermResolution` without `hook_spec` (e.g.
+  `season_map_replace` only) when `reentry` is `"generate_hook"` — see Step 5. Use more options
+  only when the resolution space is genuinely wider — avoid padding.
 - Non-custom options (any `option_id` other than `"custom"`) must always carry a non-null
   `resolution` object with concrete field mutations. For hook-confirmation items (`reentry`:
   `"generate_hook"`), the resolution must include the confirmed `hook_spec` inline — do not
