@@ -26,6 +26,12 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.prompt_builder import (
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     MappingManifestEnvelope,
 )
+from edvise.genai.mapping.schema_mapping_agent.manifest.validation import (
+    validate_manifest,
+)
+from edvise.genai.mapping.shared.schema_contract import (
+    parse_enriched_schema_contract_for_sma,
+)
 from edvise.data_audit.schemas.raw_edvise_student import (
     RawEdviseStudentDataSchema,
 )
@@ -777,7 +783,7 @@ def score_result(
         logger.warning(f"JSON parse failed for {result['model']}: {e}")
         return None
 
-    is_valid, validation_error = validate_manifest(pred)
+    is_valid, validation_error = validate_envelope_dict(pred)
     if not is_valid:
         logger.warning(
             f"Pydantic validation failed for {result['model']}: {validation_error}"
@@ -844,7 +850,7 @@ def score_result(
     }
 
 
-def validate_manifest(manifest_dict: dict) -> tuple[bool, str | None]:
+def validate_envelope_dict(manifest_dict: dict) -> tuple[bool, str | None]:
     """
     Attempt to parse a raw manifest dict against MappingManifestEnvelope.
     Returns (is_valid, error_message).
@@ -942,6 +948,7 @@ def run():
         target_contract_path = f"pipelines/gen_ai_cleaning/historical_examples/{target_id}/{target_id}_schema_contract.json"
         target_contract = load_json(target_contract_path)
         logger.info(f"Loaded target schema contract from {target_contract_path}")
+        schema_contract_sma = parse_enriched_schema_contract_for_sma(target_contract)
 
         REFERENCE_MANIFEST_PATH = _resolve_mapping_manifest(reference_id)
         reference_manifest = load_json(str(REFERENCE_MANIFEST_PATH))
@@ -1046,6 +1053,31 @@ def run():
                         envelope.model_dump_json(indent=2, exclude_none=True)
                     )
                     logger.info(f"→ manifest saved → {manifest_path}")
+
+                    structural: dict[str, list[dict[str, Any]]] = {}
+                    for entity_key, entity_manifest in envelope.manifests.items():
+                        ek = (
+                            entity_key.value
+                            if hasattr(entity_key, "value")
+                            else str(entity_key)
+                        )
+                        errs = validate_manifest(
+                            entity_manifest, schema_contract_sma
+                        )
+                        structural[ek] = [
+                            e.model_dump(mode="json") for e in errs
+                        ]
+                    ve_path = manifest_dir / f"{target_id}_validation_errors.json"
+                    ve_path.write_text(json.dumps(structural, indent=2))
+                    total_ve = sum(len(v) for v in structural.values())
+                    if total_ve:
+                        logger.warning(
+                            f"→ structural validation: {total_ve} issue(s) → {ve_path}"
+                        )
+                    else:
+                        logger.info(
+                            f"→ structural validation: 0 issues → {ve_path}"
+                        )
                 except json.JSONDecodeError:
                     manifest_path.write_text(result["response"])
                     logger.warning(
