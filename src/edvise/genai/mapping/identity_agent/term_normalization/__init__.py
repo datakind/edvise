@@ -6,7 +6,7 @@ as ``term_config`` (grain-stage :class:`~edvise.genai.mapping.identity_agent.gra
 :func:`apply_term_order_from_config` is exposed lazily via :func:`__getattr__`
 so importing this package does not load ``edvise.feature_generation``. The implementation lives in
 :mod:`~edvise.genai.mapping.identity_agent.term_normalization.term_order`. Term-stage prompt symbols are also
-lazy-loaded from :mod:`edvise.genai.mapping.identity_agent.term_normalization.prompt_builder`.
+lazy-loaded from :mod:`edvise.genai.mapping.identity_agent.term_normalization.prompt`.
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ def __getattr__(name: str) -> Any:
 
         return term_components_to_datetime_from_series
     if name in _PROMPT_EXPORTS:
-        from . import prompt_builder as pb
+        from . import prompt as prompt_mod
 
-        return getattr(pb, name)
+        return getattr(prompt_mod, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

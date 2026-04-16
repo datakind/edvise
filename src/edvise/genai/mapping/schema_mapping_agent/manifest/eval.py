@@ -14,7 +14,7 @@ from openai.types.chat.chat_completion_message_param import ChatCompletionMessag
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
-from edvise.genai.mapping.schema_mapping_agent.manifest.prompt_builder import (
+from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
     build_step2a_prompt,
     build_step2a_prompt_cohort_pass,
     build_step2a_prompt_course_pass,

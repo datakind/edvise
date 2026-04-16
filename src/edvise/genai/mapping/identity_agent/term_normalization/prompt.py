@@ -2,7 +2,7 @@
 Term — Prompt assembly for IdentityAgent term normalization (``term_config`` / ``TermOrderConfig``).
 
 Composable sections, explicit builders for system vs user content, and JSON fence stripping
-for model output — mirrors :mod:`edvise.genai.mapping.identity_agent.grain_inference.prompt_builder`.
+for model output — mirrors :mod:`edvise.genai.mapping.identity_agent.grain_inference.prompt`.
 """
 
 from __future__ import annotations

@@ -5,7 +5,14 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
-__all__ = ["eval", "hitl", "hitl_resolver", "prompt_builder", "schemas", "validation"]
+__all__ = [
+    "eval",
+    "hitl",
+    "hitl_resolver",
+    "prompts",
+    "schemas",
+    "validation",
+]
 
 
 def __getattr__(name: str) -> Any:
@@ -13,10 +20,10 @@ def __getattr__(name: str) -> Any:
         from . import schemas as m
 
         return m
-    if name == "prompt_builder":
-        from . import prompt_builder as pb
+    if name == "prompts":
+        from . import prompts as p
 
-        return pb
+        return p
     if name == "eval":
         from . import eval as ev
 

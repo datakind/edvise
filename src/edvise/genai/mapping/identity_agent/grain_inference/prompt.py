@@ -1,7 +1,7 @@
 """
 Step 2 — Prompt assembly for IdentityAgent (grain contract inference).
 
-Mirrors the style of ``schema_mapping_agent.manifest.prompt_builder``: composable
+Mirrors the style of ``schema_mapping_agent.manifest.prompts``: composable
 sections, explicit builders for system vs user content, and JSON fence stripping
 for model output.
 """

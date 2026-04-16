@@ -12,22 +12,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from edvise.genai.mapping.identity_agent.grain_inference.prompt_builder import (
+from edvise.genai.mapping.identity_agent.grain_inference.prompt import (
     audit_identity_agent_prompt,
 )
-from edvise.genai.mapping.identity_agent.hitl.hook_generation.prompt_builder import (
+from edvise.genai.mapping.identity_agent.hitl.hook_generation.prompt import (
     audit_hook_generation_prompt,
 )
 from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem
 from edvise.genai.mapping.identity_agent.profiling import RankedCandidateProfiles
-from edvise.genai.mapping.identity_agent.term_normalization.prompt_builder import (
+from edvise.genai.mapping.identity_agent.term_normalization.prompt import (
     audit_term_normalization_batch_user_prompt,
     audit_term_normalization_prompt,
 )
-from edvise.genai.mapping.schema_mapping_agent.manifest.prompt_builder import (
+from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
     audit_step2a_prompt,
 )
-from edvise.genai.mapping.schema_mapping_agent.transformation.prompt_builder import (
+from edvise.genai.mapping.schema_mapping_agent.transformation.prompt import (
     audit_step2b_prompt,
 )
 
@@ -75,7 +75,7 @@ def run_prompt_token_audit_bundle(
         column list text block).
     include_identity_term_batch
         When true, requires ``grain_contracts_by_dataset`` and ``run_by_dataset`` for
-        :func:`~edvise.genai.mapping.identity_agent.term_normalization.prompt_builder.build_term_normalization_batch_user_message_from_grain_and_profiles`.
+        :func:`~edvise.genai.mapping.identity_agent.term_normalization.prompt.build_term_normalization_batch_user_message_from_grain_and_profiles`.
     include_hook_generation_sample
         When true, requires ``hook_audit_item`` and ``hook_config_snippet`` (HITL hook generation).
     """

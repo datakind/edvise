@@ -1,6 +1,10 @@
 """
-Step 2a Prompt Assembly — SchemaMappingAgent Field Mapping
-Builds the prompt for generating a mapping manifest from a schema contract + reference examples.
+Step 2a prompt generation — SchemaMappingAgent field mapping manifest.
+
+Builds prompts for the original 2a LLM call (mapping manifest from schema contract + references).
+
+See :mod:`edvise.genai.mapping.schema_mapping_agent.manifest.prompts.refine` for the
+refinement + HITL pass.
 """
 
 import json

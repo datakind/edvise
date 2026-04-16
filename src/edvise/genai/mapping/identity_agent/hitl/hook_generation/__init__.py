@@ -17,7 +17,7 @@ from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.parse import (
     parse_hook_spec,
 )
-from edvise.genai.mapping.identity_agent.hitl.hook_generation.prompt_builder import (
+from edvise.genai.mapping.identity_agent.hitl.hook_generation.prompt import (
     build_hook_generation_system_prompt,
     build_hook_generation_user_message,
     extract_config_snippet_for_hook_item,

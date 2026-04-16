@@ -11,7 +11,7 @@ from edvise.genai.mapping.shared.token_audit.prompt_token_audit import audit_pro
 
 from .schemas import get_transformation_map_schema_context
 
-from ..manifest.prompt_builder import (
+from ..manifest.prompts import (
     extract_schema_descriptor,
     summarize_schema_contract,
 )

@@ -88,7 +88,7 @@ class RankedCandidateProfiles(BaseModel):
         ...,
         description=(
             "Profile per candidate key, ranked by uniqueness. Pass to "
-            "``edvise.genai.mapping.identity_agent.grain_inference.prompt_builder."
+            "``edvise.genai.mapping.identity_agent.grain_inference.prompt."
             "build_identity_agent_user_message`` (Step 2)."
         ),
     )

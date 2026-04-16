@@ -15,7 +15,7 @@ from edvise.genai.mapping.identity_agent.dataset_io import load_school_dataset_d
 
 from ..profiling.candidate_keys import profile_candidate_keys
 from ..profiling.schemas import RankedCandidateProfiles, RawTableProfile
-from .prompt_builder import build_identity_agent_user_message
+from .prompt import build_identity_agent_user_message
 
 
 class IdentityProfilingDatasetResult(TypedDict):

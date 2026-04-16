@@ -12,7 +12,7 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem
 
 from .parse import parse_hook_spec
 from .paths import ensure_hook_spec_file
-from .prompt_builder import (
+from .prompt import (
     build_hook_generation_system_prompt,
     build_hook_generation_user_message,
     extract_config_snippet_for_hook_item,
@@ -33,7 +33,7 @@ def generate_hook_spec(
 
     ``normalized_columns``: optional list of column names on the cleaned dataframe (after
     ``normalize_columns``). Pass ``normalized_column_names_from_raw_headers`` from
-    ``hook_generation.prompt_builder`` on raw file headers, or omit if unavailable.
+    ``hook_generation.prompt`` on raw file headers, or omit if unavailable.
     """
     snippet = extract_config_snippet_for_hook_item(identity_config, item)
     system = build_hook_generation_system_prompt(item.domain)

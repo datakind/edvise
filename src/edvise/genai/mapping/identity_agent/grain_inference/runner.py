@@ -9,7 +9,7 @@ import pandas as pd
 from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem
 from edvise.genai.mapping.identity_agent.profiling import RankedCandidateProfiles
 
-from .prompt_builder import (
+from .prompt import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
     build_identity_agent_user_message,
     parse_grain_contract_with_hitl,

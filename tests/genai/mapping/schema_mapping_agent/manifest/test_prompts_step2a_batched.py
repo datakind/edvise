@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
 from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
-from edvise.genai.mapping.schema_mapping_agent.manifest.prompt_builder import (
+from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
     audit_step2a_batched_prompt,
     audit_step2a_prompt,
     build_step2a_batched_prompt,

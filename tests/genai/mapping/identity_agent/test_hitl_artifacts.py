@@ -2,7 +2,7 @@
 
 import json
 
-from edvise.genai.mapping.identity_agent.grain_inference.prompt_builder import (
+from edvise.genai.mapping.identity_agent.grain_inference.prompt import (
     parse_grain_contract_with_hitl,
 )
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
@@ -16,7 +16,7 @@ from edvise.genai.mapping.identity_agent.hitl.artifacts import (
     write_identity_grain_artifacts,
     write_identity_term_artifacts,
 )
-from edvise.genai.mapping.identity_agent.term_normalization.prompt_builder import (
+from edvise.genai.mapping.identity_agent.term_normalization.prompt import (
     parse_institution_term_contracts,
 )
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (

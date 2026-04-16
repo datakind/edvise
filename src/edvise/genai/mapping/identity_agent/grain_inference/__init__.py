@@ -19,7 +19,7 @@ from .databricks_gateway import (
     resolve_ai_gateway_base_url,
     resolve_gateway_model_id,
 )
-from .prompt_builder import (
+from .prompt import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
     IDENTITY_AGENT_USER_TEMPLATE,
     build_identity_agent_system_prompt,
