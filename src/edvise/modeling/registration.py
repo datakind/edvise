@@ -1,4 +1,5 @@
 import logging
+import re
 import typing as t
 
 import mlflow
@@ -15,8 +16,6 @@ if t.TYPE_CHECKING:
         CheckpointFirstAtNumCreditsEarnedConfig,
         CheckpointFirstConfig,
         CheckpointFirstWithinCohortConfig,
-        CheckpointLastConfig,
-        CheckpointLastInEnrollmentYearConfig,
         CheckpointNthConfig,
         TargetCreditsEarnedConfig,
         TargetGraduationConfig,
@@ -30,8 +29,6 @@ if t.TYPE_CHECKING:
         CheckpointFirstAtNumCreditsEarnedConfig
         | CheckpointFirstConfig
         | CheckpointFirstWithinCohortConfig
-        | CheckpointLastConfig
-        | CheckpointLastInEnrollmentYearConfig
         | CheckpointNthConfig
     )
 
@@ -48,6 +45,32 @@ def _get_attr(obj: t.Any, key: str, default: t.Any = None) -> t.Any:
     if isinstance(obj, dict):
         return obj.get(key, default)
     return getattr(obj, key, default)
+
+
+def _retention_credential_suffix(raw: str | list[str]) -> str:
+    """
+    Build the lowercase credential segment for retention model names.
+
+    Single value: ``normalize_degree(...).lower()``. Multiple distinct values:
+    short tokens sorted and joined with underscores; associates + certificate
+    becomes ``associates_and_cert``. Credential strings are typically uppercase
+    in config (e.g. ``ASSOCIATE'S DEGREE``, ``1-2 YEAR CERTIFICATE, LESS THAN
+    ASSOCIATE DEGREE``); labels may contain the word "certificate".
+    """
+    items = [str(x) for x in raw] if isinstance(raw, list) else [str(raw)]
+    unique = list(dict.fromkeys(normalize_degree(x) for x in items))
+    if len(unique) == 1:
+        return unique[0].lower()
+
+    def _tok(norm: str) -> str:
+        if re.search(r"\bcertificate\b", norm, re.IGNORECASE):
+            return "cert"
+        return "associates" if norm.lower() == "associates" else norm.lower()
+
+    toks = sorted(_tok(n) for n in unique)
+    if toks == ["associates", "cert"]:
+        return "associates_and_cert"
+    return "_".join(toks)
 
 
 def _checkpoint_suffix(
@@ -223,9 +246,12 @@ def pdp_get_model_name(
     # --- Retention ---
     if target_type == "retention":
         if "credential_type_sought_year_1" in student_criteria:
-            credential = normalize_degree(
-                student_criteria["credential_type_sought_year_1"]
-            ).lower()
+            credential = _retention_credential_suffix(
+                t.cast(
+                    str | list[str],
+                    student_criteria["credential_type_sought_year_1"],
+                )
+            )
             target_name = f"retention_into_year_2_{credential}"
         else:
             target_name = "retention_into_year_2_all_degrees"

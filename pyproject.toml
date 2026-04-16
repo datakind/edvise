@@ -1,6 +1,6 @@
 [project]
 name = "edvise"
-version = "0.1.12"
+version = "0.2.0"
 description = "School-agnostic lib for implementing Student Success Tool workflows."
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
@@ -54,6 +54,14 @@ build-backend = "hatchling.build"
 
 [tool.uv]
 default-groups = ["dev"]
+
+[tool.edvise.requirements]
+streamlit-data-app = [
+    "databricks-sql-connector~=3.4.0",
+    "databricks-sdk~=0.33.0",
+    "pandas~=2.2.3",
+    "streamlit~=1.38.0",
+]
 
 [tool.ruff]
 line-length = 88
