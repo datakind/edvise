@@ -93,6 +93,7 @@ def _normalize_obj(x: Any) -> dict[str, Any]:
 
 def _normalize_step(step: dict | None) -> dict[str, Any]:
     """Drop rationale/review-only fields; stable ordering for nested dicts."""
+    # TODO: review_status is telemetry only — do not use for pipeline routing
     s = {
         k: v
         for k, v in (step or {}).items()

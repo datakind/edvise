@@ -444,6 +444,7 @@ def _normalize_mapping(
     Ignores rationale/confidence/review metadata.
     """
     m = deepcopy(mapping or {})
+    # TODO: review_status is telemetry only — do not use for pipeline routing
     for k in ("confidence", "rationale", "review_status", "validation_notes"):
         m.pop(k, None)
 

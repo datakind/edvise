@@ -84,6 +84,7 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     RunLog,
     TermResolution,
 )
+from edvise.genai.mapping.shared.hitl import HITLBlockingError, raise_if_hitl_pending
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     SeasonMapEntry,
 )
@@ -94,12 +95,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Exceptions
 # ---------------------------------------------------------------------------
-
-
-class HITLBlockingError(Exception):
-    """Raised when unresolved HITL items are blocking pipeline progression."""
-
-    pass
 
 
 class HITLValidationError(Exception):
@@ -191,15 +186,17 @@ def check_gate(hitl_path: str | Path) -> None:
         print(f"✓ HITL gate clear — {len(envelope.items)} item(s) reviewed.")
         return
 
-    summary = "\n".join(
-        f"  [{i.item_id}] {i.table} — {i.hitl_question[:80]}..."
-        for i in envelope.pending
-    )
-    raise HITLBlockingError(
-        f"\n{len(envelope.pending)} unreviewed HITL item(s) blocking pipeline:\n{summary}\n\n"
-        f"To resolve, edit {hitl_path.name}:\n"
-        f"  • Set 'choice' to the 1-based index of your selected option (1 … number of options).\n"
-        f"  • Re-run this cell."
+    raise_if_hitl_pending(
+        envelope.pending,
+        hitl_path=hitl_path,
+        format_item=lambda i: (
+            f"[{i.item_id}] {i.table} — {i.hitl_question[:80]}..."
+        ),
+        instructions=(
+            "  • Set 'choice' to the 1-based index of your selected option "
+            "(1 … number of options).\n"
+            "  • Re-run this cell."
+        ),
     )
 
 

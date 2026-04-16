@@ -29,11 +29,27 @@ class EntityType(str, Enum):
 
 
 class ReviewStatus(str, Enum):
-    proposed = "proposed"
-    pending = "pending"
-    approved = "approved"
-    corrected = "corrected"
-    rejected = "rejected"
+    """
+    Post-hoc pipeline / HITL telemetry for a mapping record or transformation plan.
+
+    Assigned by the pipeline after deterministic validation (and optional refinement),
+    not by the initial Schema Mapping Agent LLM call.
+    """
+
+    auto_approved = "auto_approved"
+    # Passed deterministic validation and confidence threshold.
+    # Set by the pipeline without human involvement.
+
+    refined_by_llm = "refined_by_llm"
+    # Refinement LLM corrected a validation error or low confidence field.
+    # Original agent output was wrong; no human involvement.
+
+    proposed_for_hitl = "proposed_for_hitl"
+    # Refinement LLM could not fix — sent to human reviewer at HITL gate.
+    # Replaces the old "pending" state.
+
+    corrected_by_hitl = "corrected_by_hitl"
+    # Human reviewer made a correction at the HITL gate.
 
 
 # =============================================================================
@@ -244,11 +260,11 @@ class FieldMappingRecord(StrictBaseModel):
             "Null if no validation risk identified."
         ),
     )
-    review_status: ReviewStatus = Field(
-        default=ReviewStatus.pending,
+    review_status: Optional[ReviewStatus] = Field(
+        default=None,
         description=(
-            "Human review outcome. Agent always outputs 'pending'. "
-            "'approved' is only set after human review at the HITL gate."
+            "Pipeline/HITL telemetry — set after validation and refinement, not by the "
+            "initial mapping LLM. Omit in agent output."
         ),
     )
     reviewer_notes: Optional[str] = Field(

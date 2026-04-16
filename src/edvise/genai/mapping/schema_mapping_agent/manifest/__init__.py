@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["eval", "prompt_builder", "schemas", "sma_validation"]
+__all__ = ["eval", "hitl_resolver", "prompt_builder", "schemas", "validation"]
 
 
 def __getattr__(name: str) -> Any:
@@ -20,8 +20,12 @@ def __getattr__(name: str) -> Any:
         from . import eval as ev
 
         return ev
-    if name == "sma_validation":
-        from . import sma_validation as sv
+    if name == "validation":
+        from . import validation as v
 
-        return sv
+        return v
+    if name == "hitl_resolver":
+        from . import hitl_resolver as hr
+
+        return hr
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

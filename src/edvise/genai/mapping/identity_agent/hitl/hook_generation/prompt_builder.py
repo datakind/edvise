@@ -166,7 +166,8 @@ Rules:
 - **When the user message JSON includes ``normalized_columns``:** those are the exact column names on the cleaned frame (after ``normalize_columns``). Use them for any code that references dataframe columns (e.g. if you read auxiliary columns beyond the term string). If absent, align with term_col / year_col / season_col from config_snippet using snake_case names.
 - If reviewer_note is present, treat it as the authoritative instruction and override any draft logic in config_snippet.
 - If reviewer_note is absent, use hitl_context and config_snippet together to infer the correct implementation.
-- season_extractor output must match raw keys in season_map when term_config uses a single term column.
+- **season_extractor vs season_map (single ``term_col``):** Runtime applies **two** steps: (1) your hook returns a **raw** season token (string); (2) ``term_config.season_map`` maps each ``raw`` key to the canonical label (FALL, SPRING, SUMMER, WINTER) for ``_edvise_term_season`` and ordering. The hook must **not** return canonical labels — only values that match ``season_map[].raw`` (after normalization). If ``description`` mentions a canonical season for humans, state clearly that the **return value** is still the raw token (e.g. return ``'9'``, not ``'FALL'``).
+- season_extractor output must match raw keys in ``season_map`` when term_config uses a single term column.
 - If term_config is null, infer requirements from hitl_context only.
 - Do **not** include a ``file`` field; hook module paths are assigned by the pipeline after review.
 - Output must be parseable JSON (double quotes, no trailing commas).

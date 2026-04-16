@@ -537,6 +537,111 @@ def test_resolve_items_generate_hook_still_applies_season_map_replace(tmp_path):
     assert out["datasets"]["student"]["term_config"]["hook_spec"] is None
 
 
+def test_resolve_items_custom_generate_hook_applies_partial_season_map_replace(tmp_path):
+    """custom + generate_hook may carry season_map_replace only; reviewer_note drives hook code."""
+    hitl_path = tmp_path / "identity_term_hitl.json"
+    config_path = tmp_path / "identity_term_output.json"
+    hitl_path.write_text(
+        json.dumps(
+            {
+                "institution_id": "u",
+                "domain": "term",
+                "items": [
+                    {
+                        "item_id": "term_custom_map",
+                        "institution_id": "u",
+                        "table": "student",
+                        "domain": "identity_term",
+                        "hook_group_id": "g",
+                        "hook_group_tables": ["student"],
+                        "hitl_question": "q",
+                        "hitl_context": "c",
+                        "options": [
+                            {
+                                "option_id": "confirm",
+                                "label": "Confirm",
+                                "description": "d",
+                                "resolution": {
+                                    "season_map_replace": [
+                                        {"raw": "9", "canonical": "FALL"},
+                                    ],
+                                    "hook_spec": {
+                                        "functions": [
+                                            {
+                                                "name": "y",
+                                                "description": "y",
+                                                "draft": "def y(t: str) -> int:\n    return 1\n",
+                                            },
+                                            {
+                                                "name": "s",
+                                                "description": "s",
+                                                "draft": 'def s(t: str) -> str:\n    return "9"\n',
+                                            },
+                                        ],
+                                    },
+                                },
+                                "reentry": "generate_hook",
+                            },
+                            {
+                                "option_id": "custom",
+                                "label": "Custom",
+                                "description": "d",
+                                "resolution": {
+                                    "season_map_replace": [
+                                        {"raw": "2", "canonical": "SPRING"},
+                                        {"raw": "6", "canonical": "SUMMER"},
+                                        {"raw": "9", "canonical": "FALL"},
+                                    ],
+                                },
+                                "reentry": "generate_hook",
+                            },
+                        ],
+                        "target": {
+                            "institution_id": "u",
+                            "table": "student",
+                            "config": "term_config",
+                            "field": "hook_spec",
+                        },
+                        "choice": 2,
+                        "reviewer_note": "Last digit encodes season; 2/6/9 only.",
+                    }
+                ],
+            }
+        )
+    )
+    config_path.write_text(
+        json.dumps(
+            {
+                "institution_id": "u",
+                "datasets": {
+                    "student": {
+                        "term_config": {
+                            "term_col": "term",
+                            "year_col": None,
+                            "season_col": None,
+                            "season_map": [],
+                            "exclude_tokens": [],
+                            "term_extraction": "hook_required",
+                            "hook_spec": None,
+                        },
+                        "confidence": 0.9,
+                        "hitl_flag": True,
+                        "reasoning": "r",
+                    }
+                },
+            }
+        )
+    )
+    resolve_items(hitl_path, config_path)
+    out = json.loads(config_path.read_text())
+    assert out["datasets"]["student"]["term_config"]["season_map"] == [
+        {"raw": "2", "canonical": "SPRING"},
+        {"raw": "6", "canonical": "SUMMER"},
+        {"raw": "9", "canonical": "FALL"},
+    ]
+    assert out["datasets"]["student"]["term_config"]["hook_spec"] is None
+
+
 def test_resolve_items_coerces_dict_resolution_for_grain(tmp_path):
     hitl_path = tmp_path / "identity_grain_hitl.json"
     config_path = tmp_path / "identity_grain_output.json"

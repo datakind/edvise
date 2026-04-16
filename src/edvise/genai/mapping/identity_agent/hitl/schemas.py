@@ -202,7 +202,11 @@ class HITLOption(BaseModel):
 
     Rules enforced by HITLItem validator:
     - 2–5 options per item.
-    - Last option must always be option_id='custom' with resolution=None.
+    - Last option must always be option_id='custom'.
+    - ``custom`` normally uses ``resolution=null``; when ``reentry`` is ``generate_hook``,
+      ``custom`` may instead carry a **partial** resolution (e.g. ``season_map_replace`` only)
+      so the resolver can persist the season map while ``reviewer_note`` drives hook code.
+      Partial resolutions must **not** include ``hook_spec`` (that comes from hook generation).
     - Non-custom options must have a non-null resolution unless reentry is
       ``generate_hook`` (resolution may be null until hook generation fills hook_spec).
     """
@@ -222,8 +226,9 @@ class HITLOption(BaseModel):
     resolution: dict | None = Field(
         ...,
         description=(
-            "Mutation applied by resolver on selection. Null for option_id='custom', or for "
-            "non-custom options with reentry='generate_hook' before hook_spec exists."
+            "Mutation applied by resolver on selection. Null for option_id='custom' unless "
+            "reentry='generate_hook' and reviewer supplies a partial resolution (no hook_spec). "
+            "Also null for non-custom options with reentry='generate_hook' before hook_spec exists."
         ),
     )
     reentry: ReentryDepth
@@ -231,7 +236,22 @@ class HITLOption(BaseModel):
     @model_validator(mode="after")
     def validate_resolution(self) -> "HITLOption":
         if self.option_id == "custom" and self.resolution is not None:
-            raise ValueError("option_id='custom' must have resolution=null.")
+            if self.reentry != ReentryDepth.GENERATE_HOOK:
+                raise ValueError(
+                    "option_id='custom' must have resolution=null unless reentry is "
+                    f"'{ReentryDepth.GENERATE_HOOK.value}' "
+                    "(then optional partial resolution without hook_spec, e.g. season_map_replace)."
+                )
+            hs: object | None
+            if isinstance(self.resolution, dict):
+                hs = self.resolution.get("hook_spec")
+            else:
+                hs = getattr(self.resolution, "hook_spec", None)
+            if hs:
+                raise ValueError(
+                    "option_id='custom' cannot include hook_spec in resolution — "
+                    "use reviewer_note + hook generation for hook_spec."
+                )
         if self.option_id != "custom" and self.resolution is None:
             if self.reentry != ReentryDepth.GENERATE_HOOK:
                 raise ValueError(
@@ -330,7 +350,10 @@ class HITLItem(BaseModel):
             "Freetext correction or instruction from the reviewer. "
             "Filled in by the reviewer alongside setting choice when the selected option "
             "is custom (reentry='generate_hook') or when the draft resolution needs correction. "
-            "Passed as authoritative context to the hook generation LLM call by the resolver. "
+            "For identity_term custom + generate_hook, pair this with a partial "
+            "option resolution (e.g. season_map_replace only) so term_config.season_map is "
+            "written before hook generation — reviewer_note alone does not apply structured fields. "
+            "Passed as authoritative context to the hook generation LLM call. "
             "null = no reviewer note provided."
         ),
     )

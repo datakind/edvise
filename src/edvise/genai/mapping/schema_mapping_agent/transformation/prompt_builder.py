@@ -147,8 +147,9 @@ never resolve sources or perform joins.
 STRUCTURE
 - Match the reference transformation map JSON structure exactly (schema_version, institution_id,
   transformation_maps with cohort + course sections, each containing entity_type, target_schema, plans array)
-- Each plan must include: target_field, output_dtype, steps array, review_status
-- Set review_status: "pending" on all records — "approved" is only set after human review
+- Each plan must include: target_field, output_dtype, and steps array
+- Do not include review_status on plans — the pipeline assigns it after validation
+  and optional refinement
 - Generate separate transformation maps for cohort and course entities
 
 TRANSFORMATION STEPS

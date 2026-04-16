@@ -287,9 +287,12 @@ class FieldTransformationPlan(StrictBaseModel):
             "Steps are pure Series → Series — no join or sourcing logic here."
         ),
     )
-    review_status: ReviewStatus = Field(
-        default=ReviewStatus.pending,
-        description="Human review outcome",
+    review_status: Optional[ReviewStatus] = Field(
+        default=None,
+        description=(
+            "Pipeline/HITL telemetry — set after validation and refinement, not by the "
+            "initial transformation LLM. Omit in agent output."
+        ),
     )
     reviewer_notes: Optional[str] = Field(
         default=None,

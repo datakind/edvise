@@ -570,8 +570,9 @@ STRUCTURE
   manifests with cohort + course sections; each section: entity_type, target_schema,
   mappings array, then column_aliases last)
 - Each mapping entry must include: target_field, source_column, source_table,
-  row_selection, confidence, rationale, and a review_status.
-- Set review_status: "pending" on all records — "approved" is only set after human review
+  row_selection, confidence, and rationale.
+- Do not include review_status on mapping records — the pipeline assigns it after
+  deterministic validation and optional refinement.
 - Do not copy row_selection strategies, filters, or join configurations from the reference manifests —
   these are institution-specific and must be derived from the {institution_name} schema contract.
   The reference manifests are structural reference only: use them to understand the expected shape
@@ -667,8 +668,9 @@ STRUCTURE
   manifests with cohort + course sections; each section: entity_type, target_schema,
   mappings array, then column_aliases last)
 - Each mapping entry must include: target_field, source_column, source_table,
-  row_selection, confidence, rationale, and a review_status.
-- Set review_status: "pending" on all records — "approved" is only set after human review
+  row_selection, confidence, and rationale.
+- Do not include review_status on mapping records — the pipeline assigns it after
+  deterministic validation and optional refinement.
 - Do not copy row_selection strategies, filters, or join configurations from the reference manifests —
   these are institution-specific and must be derived from the {institution_name} schema contract.
   The reference manifests are structural reference only: use them to understand the expected shape
@@ -747,8 +749,9 @@ STRUCTURE (cohort pass only)
   target field in the cohort Pandera schema above, and column_aliases (last; [] if none)
 - Set institution_id to \"{institution_id}\" (use this exact value)
 - Each mapping entry must include: target_field, source_column, source_table,
-  row_selection, confidence, rationale, and a review_status.
-- Set review_status: \"pending\" on all records — \"approved\" is only set after human review
+  row_selection, confidence, and rationale.
+- Do not include review_status on mapping records — the pipeline assigns it after
+  deterministic validation and optional refinement.
 - Do not copy row_selection strategies, filters, or join configurations from the reference manifests —
   these are institution-specific and must be derived from the {institution_name} schema contract.
   The reference manifests are structural reference only
@@ -829,8 +832,9 @@ STRUCTURE (course pass only)
 - Set institution_id to \"{institution_id}\" (use this exact value)
 - Set schema_version to match the reference mapping manifests (typically \"0.1.0\")
 - Each mapping entry must include: target_field, source_column, source_table,
-  row_selection, confidence, rationale, and a review_status.
-- Set review_status: \"pending\" on all records — \"approved\" is only set after human review
+  row_selection, confidence, and rationale.
+- Do not include review_status on mapping records — the pipeline assigns it after
+  deterministic validation and optional refinement.
 - Do not copy row_selection strategies, filters, or join configurations from the reference manifests —
   these are institution-specific and must be derived from the {institution_name} schema contract.
   The reference manifests are structural reference only

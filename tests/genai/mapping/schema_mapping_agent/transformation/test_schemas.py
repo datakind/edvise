@@ -88,7 +88,7 @@ def test_field_transformation_plan_steps_typed():
                 mapping={"A": "A"},
             )
         ],
-        review_status=ReviewStatus.approved,
+        review_status=ReviewStatus.auto_approved,
     )
     assert plan.steps[0].function_name == "map_values"
 
