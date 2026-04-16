@@ -182,14 +182,6 @@ class ManifestValidationError(BaseModel):
             "Null if the error is about absence rather than a wrong value."
         ),
     )
-    auto_fixable: bool = Field(
-        default=False,
-        description=(
-            "True when the refinement LLM can likely fix this without human input "
-            "(e.g. MISSING_COLUMN_ALIAS where the alias can be inferred). "
-            "False when human judgment is needed — surfaces as a HITL item."
-        ),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +252,6 @@ def _check_column_existence(
                         f"Available tables: {sorted(schema_contract.datasets.keys())}"
                     ),
                     offending_value=record.source_table,
-                    auto_fixable=False,
                 )
             )
             return  # no point checking column if table is missing
@@ -277,7 +268,6 @@ def _check_column_existence(
                         f"Available columns: {sorted(_observed_columns(schema_contract, record.source_table))}"
                     ),
                     offending_value=record.source_column,
-                    auto_fixable=False,
                 )
             )
 
@@ -320,7 +310,6 @@ def _check_join_structure(
                     "as the same table. Remove the join — source_table is already the base table."
                 ),
                 offending_value=base,
-                auto_fixable=True,
             )
         )
         return
@@ -336,7 +325,6 @@ def _check_join_structure(
                     f"Available tables: {sorted(schema_contract.datasets.keys())}"
                 ),
                 offending_value=base,
-                auto_fixable=False,
             )
         )
 
@@ -351,7 +339,6 @@ def _check_join_structure(
                     f"Available tables: {sorted(schema_contract.datasets.keys())}"
                 ),
                 offending_value=lookup,
-                auto_fixable=False,
             )
         )
 
@@ -378,7 +365,6 @@ def _check_join_structure(
                         f"Available columns: {sorted(base_cols)}"
                     ),
                     offending_value=key,
-                    auto_fixable=False,
                 )
             )
 
@@ -394,7 +380,6 @@ def _check_join_structure(
                         f"Available columns: {sorted(lookup_cols)}"
                     ),
                     offending_value=key,
-                    auto_fixable=False,
                 )
             )
 
@@ -412,7 +397,6 @@ def _check_join_structure(
                             "Add a column_aliases entry to the manifest."
                         ),
                         offending_value=key,
-                        auto_fixable=True,  # LLM can often infer the alias from context
                     )
                 )
 
@@ -455,7 +439,6 @@ def _check_row_selection(
                         f"Available columns: {available}"
                     ),
                     offending_value=rs.order_by,
-                    auto_fixable=False,
                 )
             )
 
@@ -472,7 +455,6 @@ def _check_row_selection(
                         f"Available columns: {available}"
                     ),
                     offending_value=rs.condition_col,
-                    auto_fixable=False,
                 )
             )
 
@@ -489,7 +471,6 @@ def _check_row_selection(
                         f"Available columns: {available}"
                     ),
                     offending_value=rs.filter.column,
-                    auto_fixable=False,
                 )
             )
 
@@ -525,7 +506,6 @@ def _check_map_unmap_consistency(
                         "Either set source_column or clear source_table and join."
                     ),
                     offending_value=None,
-                    auto_fixable=True,
                 )
             )
 
@@ -540,7 +520,6 @@ def _check_map_unmap_consistency(
                     "A cross-table field must specify the source_column in the lookup table."
                 ),
                 offending_value=None,
-                auto_fixable=False,
             )
         )
 
