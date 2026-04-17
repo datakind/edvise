@@ -49,6 +49,7 @@ def _rtp(inst: str, dataset: str) -> RawTableProfile:
         name="term_code",
         dtype="object",
         null_rate=0.0,
+        null_rate_including_tokens=0.0,
         unique_count=2,
         unique_values=["2018FA", "2019SP"],
         sample_values=["2018FA"],

@@ -5,6 +5,8 @@ from itertools import combinations
 
 import pandas as pd
 
+from edvise.configs.custom import CleaningConfig
+
 from .constants import (
     EARLY_STOP_UNIQUENESS,
     INDEX_COLUMN_PATTERNS,
@@ -377,6 +379,8 @@ def profile_candidate_keys(
     df: pd.DataFrame,
     institution_id: str,
     dataset: str,
+    *,
+    cleaning: CleaningConfig | None = None,
 ) -> KeyProfileResult:
     """
     Deterministic key profiler. Runs raw column profiling, then detects candidate
@@ -387,10 +391,15 @@ def profile_candidate_keys(
     intentionally left to the IdentityAgent LLM call (Step 2). This function
     produces facts only.
 
+    ``cleaning`` drives ``RawColumnProfile.null_rate_including_tokens`` (same
+    ``null_tokens`` / empty-string rules as :func:`~edvise.data_audit.custom_cleaning.clean_dataset`).
+    Candidate key detection still uses native pandas nulls only.
+
     Args:
         df: Raw institution DataFrame (pre-normalization)
         institution_id: Institution identifier (passed through to raw table profile)
         dataset: Logical dataset name (e.g. ``student``, ``course``)
+        cleaning: Optional per-school cleaning config (e.g. from ``SchoolMappingConfig.cleaning``).
 
     Returns:
         KeyProfileResult with raw column stats and per-candidate-key stats
@@ -408,7 +417,10 @@ def profile_candidate_keys(
         df = df.drop(columns=index_cols)
 
     raw_table_profile = profile_raw_table(
-        df, institution_id=institution_id, dataset=dataset
+        df,
+        institution_id=institution_id,
+        dataset=dataset,
+        cleaning=cleaning,
     )
 
     candidate_keys = _detect_candidate_keys(df)

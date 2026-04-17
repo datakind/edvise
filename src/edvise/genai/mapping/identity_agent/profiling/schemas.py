@@ -13,7 +13,17 @@ from .constants import (
 class RawColumnProfile(BaseModel):
     name: str
     dtype: str
-    null_rate: float = Field(..., description="Fraction of null values")
+    null_rate: float = Field(
+        ...,
+        description="Fraction of pandas-null values only (native NA/NaN in the loaded frame)",
+    )
+    null_rate_including_tokens: float = Field(
+        ...,
+        description=(
+            "Fraction of values treated as missing after applying the same null_tokens and "
+            "empty-string rules as clean_dataset (aligns with CleaningConfig when profiling passes it)"
+        ),
+    )
     unique_count: int
     unique_values: list | None = Field(
         None,

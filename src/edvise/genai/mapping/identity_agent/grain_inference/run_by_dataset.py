@@ -44,10 +44,15 @@ def build_identity_profiling_run_by_dataset(
     as the ``ia_dev`` notebook ``run_by_dataset``).
     """
     results: dict[str, IdentityProfilingDatasetResult] = {}
+    cleaning = school.cleaning
+
     for name in school.datasets.keys():
         df = load_school_dataset_dataframe(school, name)
         kp_result = profile_candidate_keys(
-            df, institution_id=institution_id, dataset=name
+            df,
+            institution_id=institution_id,
+            dataset=name,
+            cleaning=cleaning,
         )
         key_profile = kp_result.key_profile
         user_msg = build_identity_agent_user_message(

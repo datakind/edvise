@@ -202,6 +202,42 @@ COHORT entry_year AND entry_term — decision hierarchy (apply in order)
     )
 
 
+def _step2a_cohort_degree_conferral_datetime_rules() -> str:
+    """Step 2a: prefer IA term columns on degree/award lookup for conferral-style datetime targets."""
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
+    return (
+        """
+COHORT conferral-style DATETIME targets (student → `degree` or similar award lookup) — decision hierarchy
+
+Targets: `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
+`certificate1_date`, `certificate2_date`, `certificate3_date` (see DATETIME AND DATE TARGET FIELDS).
+
+These are **OUTCOME CONFERRAL-STYLE** in the schema (may be built from non-datetime sources); still apply
+this hierarchy **before** choosing raw term codes.
+
+**(1) Preferred — `_edvise_term_academic_year` on the award / degree lookup row**
+- When the schema contract **dtypes** for the lookup table (e.g. `degree`) include
+  `_edvise_term_academic_year`, set `source_column` to **`_edvise_term_academic_year`** on that lookup table
+  with the appropriate join (typically `student` → `degree` on `learner_id` / `student_id`), plus
+  `row_selection` filters (e.g. `awarded_degree` **isin**) and `first_by` / `nth` on `_term_order` as needed.
+- Do **not** use raw institutional `term` strings on `degree` as the preferred source when
+  `_edvise_term_academic_year` is present on that table — raw `term` is only a fallback proxy.
+
+**(2) Fallback — IA column missing on the lookup table**
+- Map from raw `term` or other coded timing columns on the award row **only** when `_edvise_term_academic_year`
+  is not present in the contract for that table.
+- Use lower confidence (typically ≤ """
+        + f"{t}"
+        + """), **validation_notes** that parsing / coercing to datetime is required, and flag **HITL** when
+  the proxy is weak.
+
+**(3) Unmapped — upstream IdentityAgent gap**
+- If no defensible timing column exists, leave unmappable; **validation_notes** should state that
+  IdentityAgent should materialize `_edvise_term_*` on the degree/award table (or provide a datetime source).
+"""
+    )
+
+
 def _step2a_course_academic_term_rules() -> str:
     """Step 2a: mapping rules for course academic_year / academic_term (manifest)."""
     return """
@@ -245,10 +281,15 @@ def _step2a_rules_after_structure(
     alias_bullet = _column_aliases_scope_bullet(column_aliases_scope)
     if term_rules == "cohort_and_course":
         term_blocks = (
-            _step2a_cohort_entry_term_rules() + _step2a_course_academic_term_rules()
+            _step2a_cohort_entry_term_rules()
+            + _step2a_cohort_degree_conferral_datetime_rules()
+            + _step2a_course_academic_term_rules()
         )
     elif term_rules == "cohort_only":
-        term_blocks = _step2a_cohort_entry_term_rules()
+        term_blocks = (
+            _step2a_cohort_entry_term_rules()
+            + _step2a_cohort_degree_conferral_datetime_rules()
+        )
     else:
         term_blocks = _step2a_course_academic_term_rules()
 
@@ -447,17 +488,19 @@ DATETIME AND DATE TARGET FIELDS
       - Cohort (student) entity: matriculation_date
       - Course entity: course_begin_date, course_end_date
 
-  (2) OUTCOME CONFERRAL-STYLE — try to map these from the best available timing signal when it is semantically
-      appropriate (including term fields, coded terms, or other non-datetime contract dtypes). The
-      transformation step may coerce to datetime64[ns]; use lower confidence and validation_notes when the source
-      is a term proxy rather than a true calendar conferral timestamp.
+  (2) OUTCOME CONFERRAL-STYLE — map from the best available timing signal on the **award / degree lookup row**
+      when semantically appropriate. Follow **COHORT conferral-style DATETIME targets** above: prefer
+      `_edvise_term_academic_year` on the lookup table (e.g. `degree`) when the contract includes it; only then
+      fall back to raw `term` / coded encodings. Step 2b will typically combine year with season via
+      `term_components_to_datetime` when the manifest sources IA columns.
       - Cohort (student) entity: bachelors_degree_conferral_date, associates_degree_conferral_date,
         certificate1_date, certificate2_date, certificate3_date
 
 - For STRICT fields, do not treat numeric encodings (e.g. YYYYMM) as sufficient unless the contract lists that column
   as datetime — unmappable if only integers or strings without a datetime dtype.
-- For OUTCOME CONFERRAL-STYLE fields, numeric or fixed-format encodings (e.g. YYYYMM) may be mapped when interpretation
-  is reliable; flag lower confidence and validation_notes when parsing or term-to-date conversion is required."""
+- For OUTCOME CONFERRAL-STYLE fields, raw `term` or YYYYMM-style encodings are **fallback** sources when
+  `_edvise_term_academic_year` is absent on the lookup table; use lower confidence and validation_notes when the
+  source is a term proxy rather than a true calendar conferral timestamp or when parsing is required."""
 
 
 def _step2a_json_output_rules() -> str:

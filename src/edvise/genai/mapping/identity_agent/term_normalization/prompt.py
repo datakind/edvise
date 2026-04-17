@@ -49,7 +49,7 @@ You will receive:
 
 - The institution ID and dataset name
 - `row_selection_required` from grain inference
-- `term_candidates`: columns flagged as likely term columns, with dtype, unique values, and sample values
+- `term_candidates`: columns flagged as likely term columns, with dtype, `null_rate` (pandas-native missing only), `null_rate_including_tokens` (missing after the same `CleaningConfig.null_tokens` / empty-string rules as `clean_dataset`), unique values, and sample values
 - `raw_table_profile`: all columns in the table, for context when term candidates are ambiguous or missing
 
 Your job is to produce a `TermOrderConfig` that tells the cleaning layer how to derive standardized columns from the raw term identifier:
