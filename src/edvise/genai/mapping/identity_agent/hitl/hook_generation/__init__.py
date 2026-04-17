@@ -12,6 +12,7 @@ from edvise.genai.mapping.identity_agent.hitl.hook_generation.materialize import
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
     default_hook_module_relpath,
     ensure_hook_spec_file,
+    hook_modules_root_from_bronze_volume,
     resolve_hook_module_path,
 )
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.parse import (
@@ -36,6 +37,7 @@ __all__ = [
     "generate_hook_spec",
     "generate_hook_specs_for_hook_items",
     "ensure_hook_spec_file",
+    "hook_modules_root_from_bronze_volume",
     "materialize_hook_spec_to_file",
     "materialize_hook_specs_to_file",
     "merge_hook_specs",

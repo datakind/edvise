@@ -11,6 +11,7 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
     default_hook_module_relpath,
     ensure_hook_spec_file,
+    hook_modules_root_from_bronze_volume,
     resolve_hook_module_path,
 )
 from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
@@ -41,6 +42,15 @@ def test_ensure_hook_spec_file_overwrites_model_path():
         spec, institution_id="u1", domain=HITLDomain.IDENTITY_TERM
     )
     assert out.file == "identity_hooks/u1/term_hooks.py"
+
+
+def test_hook_modules_root_from_bronze_volume_prefers_identity_agent(tmp_path: Path) -> None:
+    (tmp_path / "identity_agent").mkdir()
+    assert hook_modules_root_from_bronze_volume(tmp_path) == tmp_path / "identity_agent"
+
+
+def test_hook_modules_root_from_bronze_volume_fallback_bare_root(tmp_path: Path) -> None:
+    assert hook_modules_root_from_bronze_volume(tmp_path) == tmp_path
 
 
 def test_resolve_hook_module_path(tmp_path: Path) -> None:

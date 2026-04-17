@@ -27,6 +27,22 @@ def default_hook_module_relpath(institution_id: str, domain: HITLDomain) -> str:
     return f"identity_hooks/{institution_id}/{basename}"
 
 
+def hook_modules_root_from_bronze_volume(bronze_volumes_path: str | Path) -> Path:
+    """
+    Resolve the directory that contains ``identity_hooks/<institution_id>/`` for runtime imports.
+
+    Materialized hooks and ``ia_dev`` use ``{bronze_volume}/identity_agent`` as the hook modules
+    root (see :func:`default_hook_module_relpath`). Older layouts may place ``identity_hooks/``
+    directly under the bronze volume root; this function uses ``identity_agent`` when that
+    directory exists, otherwise the bare bronze path.
+    """
+    root = Path(str(bronze_volumes_path).rstrip("/"))
+    ia = root / "identity_agent"
+    if ia.is_dir():
+        return ia
+    return root
+
+
 def resolve_hook_module_path(file_relpath: str, *, root: str | Path) -> Path:
     """
     Resolve :attr:`~edvise.genai.mapping.identity_agent.grain_inference.schemas.HookSpec.file`
@@ -65,5 +81,6 @@ def ensure_hook_spec_file(
 __all__ = [
     "default_hook_module_relpath",
     "ensure_hook_spec_file",
+    "hook_modules_root_from_bronze_volume",
     "resolve_hook_module_path",
 ]

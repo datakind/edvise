@@ -246,9 +246,9 @@ class SMAHITLItem(BaseModel):
     options: list[SMAHITLOption] = Field(
         ...,
         description=(
-            "2-5 options. Each TERMINAL option is a complete FieldMappingRecord "
-            "alternative. Last option is always option_id='direct_edit' with "
-            "reentry=DIRECT_EDIT and field_mapping=None."
+            "2-4 options (max 3 TERMINAL + direct_edit). Each TERMINAL option is a "
+            "complete FieldMappingRecord alternative. Last option is always "
+            "option_id='direct_edit' with reentry=DIRECT_EDIT and field_mapping=None."
         ),
     )
     choice: int | None = Field(
@@ -284,8 +284,8 @@ class SMAHITLItem(BaseModel):
     @model_validator(mode="after")
     def validate_options(self) -> "SMAHITLItem":
         n = len(self.options)
-        if n < 2 or n > 5:
-            raise ValueError(f"SMAHITLItem must have 2-5 options, got {n}.")
+        if n < 2 or n > 4:  # max 3 TERMINAL + direct_edit
+            raise ValueError(f"SMAHITLItem must have 2-4 options, got {n}.")
         last = self.options[-1]
         if last.option_id != "direct_edit":
             raise ValueError(

@@ -34,9 +34,10 @@ def __getattr__(name: str) -> Any:
 
         return v
     if name == "refine":
-        from . import refine as r
-
-        return r
+        # Submodule ``manifest.refine`` was removed; alias ``prompts.refine`` (single source of truth).
+        return importlib.import_module(
+            "edvise.genai.mapping.schema_mapping_agent.manifest.prompts.refine"
+        )
     if name == "hitl":
         # SMA HITL lives at package level (``schema_mapping_agent.hitl``), not under manifest.
         return importlib.import_module("edvise.genai.mapping.schema_mapping_agent.hitl")

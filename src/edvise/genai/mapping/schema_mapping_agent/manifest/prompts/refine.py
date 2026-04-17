@@ -1,59 +1,63 @@
 """
-SMA refinement + HITL prompts.
+SMA refinement + HITL: prompts, orchestration, and post-parse safety nets (single module).
 
-Builds the system and user prompts for the SMA refinement+HITL LLM call.
+**Pass 1** — refinement + HITL flagging (no options): one LLM call per entity
+(cohort and course are separate calls).
 
-This call runs after:
+**Pass 2** — option generation: one LLM call per Pass 1 flag (parallelizable).
+
+Also includes :func:`run_sma_refinement` (two-pass LLM calls) and
+:func:`apply_refinement_review_status_safety_net` (``review_status`` enforcement).
+
+Pass 1 runs after:
   1. Original 2a LLM produces sma_manifest_output.json
   2. Deterministic validation produces list[ManifestValidationError]
   3. Low confidence fields are identified (confidence <= HITL_CONFIDENCE_THRESHOLD)
 
-The LLM receives the manifest, validation errors, low confidence fields, and
-the enriched schema contract. It produces a single JSON output:
-  {
-    "refined_manifest": FieldMappingManifest,
-    "hitl_items": list[SMAHITLItem]
-  }
+Prompt builders:
+    build_refinement_pass1_system_prompt() -> str
+    build_refinement_pass1_user_prompt(...) -> str
+    build_refinement_combined_pass1_system_prompt() -> str
+    build_refinement_combined_pass1_user_prompt(...) -> str
+    build_refinement_pass2_system_prompt() -> str
+    build_refinement_pass2_user_prompt(hitl_flag, schema_contract, max_options=3) -> str
 
-For cohort + course in one gateway call, use the combined helpers — output shape:
-  {
-    "refined_manifests": {"cohort": ..., "course": ...},
-    "hitl_items_by_entity": {"cohort": [...], "course": [...]},
-  }
+Backward-compatible aliases (Pass 1):
+    build_refinement_system_prompt -> build_refinement_pass1_system_prompt
+    build_refinement_user_prompt -> build_refinement_pass1_user_prompt
+    build_refinement_combined_system_prompt -> build_refinement_combined_pass1_system_prompt
+    build_refinement_combined_user_prompt -> build_refinement_combined_pass1_user_prompt
+
+Runtime:
+    run_sma_refinement, apply_refinement_review_status_safety_net, ...
 
 The caller:
   - Writes refined_manifest back to sma_manifest_output.json (in place)
-  - Writes hitl_items to sma_hitl.json as InstitutionSMAHITLItems
+  - Writes Pass 2 output as InstitutionSMAHITLItems to sma_hitl.json
 
-Public API:
-    build_refinement_system_prompt() -> str
-    build_refinement_combined_system_prompt() -> str
-    build_refinement_user_prompt(
-        institution_id,
-        entity_type,
-        manifest,
-        validation_errors,
-        schema_contract,
-    ) -> str
-    build_refinement_combined_user_prompt(
-        institution_id,
-        manifests_by_entity,
-        validation_errors_by_entity,
-        schema_contract,
-    ) -> str
+``hitl`` types are imported lazily inside orchestration helpers so importing this module
+does not require a fully initialized ``hitl`` package (see ``hitl.artifacts``).
 """
 
 from __future__ import annotations
 
-from typing import Mapping
+import json
+from collections.abc import Callable, Mapping
+from typing import Any
 
+from edvise.genai.mapping.shared.hitl.confidence import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.shared.schema_contract.schemas import (
     EnrichedSchemaContractForSMA,
 )
 
-from ...hitl.schemas import HITL_CONFIDENCE_THRESHOLD
-from ..schemas import FieldMappingManifest, get_compact_manifest_schema_reference
+from ..schemas import FieldMappingManifest, ReviewStatus, get_compact_manifest_schema_reference
 from ..validation import ManifestValidationError
+
+from .generate import strip_json_fences
+
+# Same value as ``hitl.schemas.HITL_CONFIDENCE_THRESHOLD`` — defined here so prompt + runtime
+# code share one constant without importing ``hitl`` at module load (circular with ``artifacts``).
+HITL_CONFIDENCE_THRESHOLD = PIPELINE_HITL_CONFIDENCE_THRESHOLD
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +86,7 @@ SMAHITLItem: {
   hitl_context: str | null,  # evidence: sample values, available columns, rationale, error details
   current_field_mapping: FieldMappingRecord,  # ORIGINAL from input manifest, unchanged — options hold fixes
   validation_errors: list[str],              # ManifestValidationError.detail strings, empty if low_confidence only
-  options: list[SMAHITLOption],              # 2-5 options, last always option_id="direct_edit"
+  options: list[SMAHITLOption],              # 2-4 options, last always option_id="direct_edit"
   choice: null,              # always null — reviewer sets this
   reviewer_note: null,       # always null — reviewer sets this
   direct_edit_field_mapping: null  # always null — reviewer sets this
@@ -90,10 +94,70 @@ SMAHITLItem: {
 
 ColumnAlias: {table: str!, source_column: str!, canonical_column: str!, rationale?: str}
 
-ReviewStatus (set by you on each FieldMappingRecord):
+ReviewStatus (set by Pass 1 on each FieldMappingRecord in refined_manifest):
   "auto_approved"    — passed validation + confidence threshold, no changes made
-  "refined_by_llm"   — you corrected a validation error or low confidence field
-  "proposed_for_hitl" — you could not fix, sending to human reviewer
+  "refined_by_llm"   — Pass 1 corrected a validation error or low confidence field
+  "proposed_for_hitl" — Pass 1 could not fix, sending to human reviewer (options from Pass 2)
+"""
+
+_PASS1_OUTPUT_SCHEMA = """
+Pass 1 output — respond with a single JSON object, no preamble, no markdown:
+{
+  "refined_manifest": { ...FieldMappingManifest with review_status set on every record... },
+  "hitl_flags": [
+    {
+      "item_id": "{institution_id}_{entity_type}_{target_field}_{failure_mode}",
+      "institution_id": str,
+      "entity_type": "cohort" | "course",
+      "target_field": str,
+      "failure_mode": "low_confidence" | "column_not_found" | "join_structure" | "row_selection" | "map_unmap",
+      "hitl_question": str,   # specific actionable question
+      "hitl_context": str | null,  # evidence: validation errors, rationale, sample values
+      "current_field_mapping": FieldMappingRecord,  # original generating agent output, unchanged
+      "validation_errors": list[str]  # ValidationError.detail strings, empty if low_confidence only
+    }
+  ]
+}
+
+CRITICAL:
+  - hitl_flags may be empty [] if all fields were auto-corrected or auto-approved.
+  - current_field_mapping is ALWAYS the original generating agent's record, copied unchanged.
+  - Do not generate options in Pass 1 — options are generated in Pass 2.
+  - Every FieldMappingRecord in refined_manifest must have review_status set.
+  - Do not change confidence on any field.
+"""
+
+_PASS2_OUTPUT_SCHEMA = """
+Pass 2 output — respond with a single JSON object, no preamble, no markdown:
+{
+  "item_id": str,
+  "institution_id": str,
+  "entity_type": str,
+  "target_field": str,
+  "failure_mode": str,
+  "hitl_question": str,
+  "hitl_context": str | null,
+  "current_field_mapping": FieldMappingRecord,  # copied from input, unchanged
+  "validation_errors": list[str],
+  "options": [
+    // 1-3 TERMINAL options (complete FieldMappingRecord per option)
+    // + always one final direct_edit option
+    // Maximum 4 options total (3 TERMINAL + direct_edit)
+    // Option 1 is always your recommended fix
+    // Include original mapping as an option if still plausible
+  ],
+  "choice": null,
+  "reviewer_note": null,
+  "direct_edit_field_mapping": null
+}
+
+CRITICAL:
+  - Maximum 3 TERMINAL options + 1 direct_edit = 4 options total.
+  - Minimum 1 TERMINAL option + 1 direct_edit = 2 options total.
+  - Last option ALWAYS option_id="direct_edit", reentry="direct_edit", field_mapping=null.
+  - current_field_mapping copied from input unchanged — never modify it.
+  - Each TERMINAL option is a complete FieldMappingRecord.
+  - column_alias is only set on JOIN_STRUCTURE options that need alias bridging.
 """
 
 _AUTO_FIX_RULES = """
@@ -105,7 +169,7 @@ AUTO-CORRECT (set review_status="refined_by_llm") ONLY when ALL of these are tru
       • Unmapped field has stale source_table or join set (clear them)
       • Missing column_alias where the canonical name is unambiguous from context
 
-ALWAYS flag as proposed_for_hitl + emit a SMAHITLItem when ANY of these are true:
+ALWAYS flag as proposed_for_hitl + emit a hitl_flags entry when ANY of these are true:
   - confidence <= {threshold}  ← no exceptions, even if the mapping looks correct
   - Validation error exists AND the fix requires judgment (not a clear typo/structural fix)
   - Multiple validation errors whose combined fix is ambiguous
@@ -124,23 +188,22 @@ REVIEW STATUS RULES — strictly enforced:
   - Fields you corrected (clear deterministic fix, confidence > {threshold}) must
     have review_status="refined_by_llm".
   - Fields you could not fix OR any field with confidence <= {threshold} must have
-    review_status="proposed_for_hitl" in current_field_mapping AND appear in hitl_items.
-  - There is no fourth option — every field gets exactly one of these three statuses.
+    review_status="proposed_for_hitl" in refined_manifest AND appear in hitl_flags
+    (Pass 2 will attach options).
+  - There is no fourth status — every field gets exactly one of these three statuses.
 """.format(threshold=HITL_CONFIDENCE_THRESHOLD)
 
 _OPTION_GENERATION_RULES = """
-OPTION GENERATION RULES — for each HITLItem:
+OPTION GENERATION RULES — Pass 2 only; for each flag from Pass 1:
 
   CRITICAL — current_field_mapping:
     current_field_mapping must always be the original generating agent's FieldMappingRecord,
-    copied through unchanged from the input manifest. Do not apply your corrections to
-    current_field_mapping. Your recommended fix goes as option 1 in the options list.
+    copied through unchanged from the Pass 1 hitl_flag. Do not modify it.
+    Your recommended fix is option 1 in the options list.
     The reviewer sees the original mapping and chooses from your suggestions.
-    current_field_mapping exists so the Streamlit diff view can show what changed
-    between the original and each option.
 
   General:
-  - Generate 2-4 TERMINAL options + always append a final direct_edit option (total 2-5).
+  - Generate 1-3 TERMINAL options + always append a final direct_edit option (2-4 options total).
   - Each TERMINAL option is a complete FieldMappingRecord — not a delta.
   - Options must be meaningfully distinct. Do not generate near-duplicate options.
   - Option 1 is always your recommended correction — label it "Recommended fix" or
@@ -157,7 +220,7 @@ OPTION GENERATION RULES — for each HITLItem:
     - Option 1 is your recommended source column candidate.
     - Include the original mapping as an option labeled "Keep original mapping"
       if it is still plausible.
-    - Include 1-2 other strong candidates if they exist.
+    - Include other strong candidates if they exist (stay within TERMINAL cap).
     - Include the original rationale in hitl_context.
 
   column_not_found:
@@ -178,86 +241,117 @@ OPTION GENERATION RULES — for each HITLItem:
     - Each option has the corrected row_selection set, all other fields preserved.
 
   map_unmap:
-    - Always exactly two TERMINAL options + direct_edit (total 3).
+    - Use at most two TERMINAL options + direct_edit when the decision is binary;
+      otherwise use up to three TERMINAL options + direct_edit within the global cap.
     - Option 1 is your recommendation (either "Mark unmapped" or "Keep mapped").
-    - Option 2 is the alternative the reviewer might prefer.
-    - If recommending unmapped: Option 1 = mark unmapped (source_column=null,
-      source_table=null, join=null, row_selection=null, confidence=1.0),
-      Option 2 = keep original mapping from current_field_mapping.
+    - If recommending unmapped: include mark unmapped vs keep original as distinct TERMINAL options.
     - If recommending mapped: Option 1 = your corrected FieldMappingRecord,
-      Option 2 = mark unmapped.
+      include mark unmapped as needed within the cap.
 """
 
 _FIELD_COLLAPSE_RULE = """
-MULTIPLE VALIDATION ERRORS ON THE SAME FIELD:
-  Collapse into one HITLItem. Set failure_mode to the most actionable category
+MULTIPLE VALIDATION ERRORS ON THE SAME FIELD (Pass 2):
+  Pass 1 should collapse multiple errors into one hitl_flags entry per target_field when possible.
+  Set failure_mode to the most actionable category
   (join_structure > column_not_found > row_selection > map_unmap > low_confidence).
   List all ManifestValidationError.detail strings in validation_errors.
   Generate options that fix all errors simultaneously — each option is a complete
   FieldMappingRecord that resolves every flagged issue on that field.
 """
 
-_OUTPUT_FORMAT = """
+_PASS1_OUTPUT_FORMAT = """
 OUTPUT FORMAT — respond with a single JSON object, no preamble, no markdown:
 {
   "refined_manifest": { ...FieldMappingManifest with review_status set on every record... },
-  "hitl_items": [ ...list[SMAHITLItem] for fields you could not auto-correct... ]
+  "hitl_flags": [ ...Pass 1 flags for fields you could not auto-correct — no options... ]
 }
 
 CRITICAL:
   - Every FieldMappingRecord in refined_manifest must have review_status set.
-  - hitl_items may be empty [] if you were able to auto-correct all flagged fields.
+  - hitl_flags may be empty [] if you were able to auto-correct all flagged fields.
   - Do not invent columns or tables not present in the schema contract.
   - Do not change auto_approved fields — copy them through unchanged.
-  - All field_mapping entries in options must pass FieldMappingRecord validation
-    (source_table required when source_column set, row_selection required for
-    mappable non-constant fields, join required when source_table != base_table).
+  - Do not emit options in Pass 1.
 """
 
-_OUTPUT_FORMAT_COMBINED = """
+_PASS1_OUTPUT_FORMAT_COMBINED = """
 OUTPUT FORMAT — respond with a single JSON object, no preamble, no markdown:
 {
   "refined_manifests": {
     "<entity_type>": { ...FieldMappingManifest with review_status set on every record... },
     ... one entry per entity_type listed in the user message under "entities" ...
   },
-  "hitl_items_by_entity": {
-    "<entity_type>": [ ...list[SMAHITLItem] for that entity only... ],
+  "hitl_flags_by_entity": {
+    "<entity_type>": [ ...Pass 1 flags for that entity only — no options... ],
     ...
   }
 }
 
 CRITICAL:
-  - refined_manifests and hitl_items_by_entity must contain exactly the same keys,
+  - refined_manifests and hitl_flags_by_entity must contain exactly the same keys,
     matching the entity list in the user message (e.g. cohort and course).
-  - Each SMAHITLItem.entity_type must match the bucket it is placed in.
+  - Each flag's entity_type must match the bucket it is placed in.
   - Every FieldMappingRecord in each refined manifest must have review_status set.
-  - Each hitl_items_by_entity list may be empty [] if you auto-corrected all
+  - Each hitl_flags_by_entity list may be empty [] if you auto-corrected all
     flagged fields for that entity.
   - Do not invent columns or tables not present in the schema contract.
   - Do not change auto_approved fields — copy them through unchanged.
-  - All field_mapping entries in options must pass FieldMappingRecord validation
-    (source_table required when source_column set, row_selection required for
-    mappable non-constant fields, join required when source_table != base_table).
+  - Do not emit options in Pass 1.
 """
 
 
-def _build_refinement_system_prompt(*, output_format: str) -> str:
-    return f"""You are the Schema Mapping Agent refinement step for the Edvise institution onboarding pipeline.
+def _build_pass1_system_prompt(*, output_format: str) -> str:
+    return f"""You are Pass 1 of the Schema Mapping Agent refinement step for the Edvise institution onboarding pipeline.
 
-Your job is to review a field mapping manifest produced by the original 2a LLM, correct errors where possible, and generate structured HITL review items for everything you cannot confidently fix.
+Architecture: Pass 1 refines the manifest and emits hitl_flags (no options). Pass 2 (separate calls)
+generates reviewer options for each flag. You only run Pass 1.
+
+Your job is to review a field mapping manifest produced by the original 2a LLM, correct errors where
+possible, and emit structured hitl_flags for everything you cannot confidently fix — without
+generating options (that is Pass 2).
 
 ## Manifest schema
 
 {_MANIFEST_SCHEMA}
 
-## Output schema
+## Pass 1 output schema
 
-{_HITL_OUTPUT_SCHEMA}
+{_PASS1_OUTPUT_SCHEMA}
 
 ## When to auto-correct vs. escalate
 
 {_AUTO_FIX_RULES}
+
+## Output format
+
+{output_format}
+"""
+
+
+def build_refinement_pass1_system_prompt() -> str:
+    return _build_pass1_system_prompt(output_format=_PASS1_OUTPUT_FORMAT)
+
+
+def build_refinement_combined_pass1_system_prompt() -> str:
+    return _build_pass1_system_prompt(output_format=_PASS1_OUTPUT_FORMAT_COMBINED)
+
+
+def build_refinement_pass2_system_prompt() -> str:
+    return f"""You are Pass 2 of the Schema Mapping Agent refinement for the Edvise institution onboarding pipeline.
+
+Pass 1 already refined the manifest and produced one hitl_flag for this field. Your only job is to
+generate reviewer-facing options (complete FieldMappingRecord per TERMINAL option) plus a final
+direct_edit escape hatch.
+
+## Manifest schema (compact reference)
+
+{_MANIFEST_SCHEMA}
+
+## Output schemas
+
+{_HITL_OUTPUT_SCHEMA}
+
+{_PASS2_OUTPUT_SCHEMA}
 
 ## Option generation rules
 
@@ -267,23 +361,22 @@ Your job is to review a field mapping manifest produced by the original 2a LLM, 
 
 {_FIELD_COLLAPSE_RULE}
 
-## Output format
-
-{output_format}
+CRITICAL — current_field_mapping:
+  current_field_mapping in your output must be copied unchanged from the hitl_flag input.
+  Never modify it. Corrections belong in options (option 1 = recommended).
 """
 
 
 # ---------------------------------------------------------------------------
-# System prompt
+# Backward-compatible aliases (Pass 1)
 # ---------------------------------------------------------------------------
 
-
 def build_refinement_system_prompt() -> str:
-    return _build_refinement_system_prompt(output_format=_OUTPUT_FORMAT)
+    return build_refinement_pass1_system_prompt()
 
 
 def build_refinement_combined_system_prompt() -> str:
-    return _build_refinement_system_prompt(output_format=_OUTPUT_FORMAT_COMBINED)
+    return build_refinement_combined_pass1_system_prompt()
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +505,7 @@ def _format_schema_contract_summary(
     return "\n".join(lines)
 
 
-def build_refinement_user_prompt(
+def build_refinement_pass1_user_prompt(
     institution_id: str,
     entity_type: str,
     manifest: FieldMappingManifest,
@@ -420,7 +513,7 @@ def build_refinement_user_prompt(
     schema_contract: EnrichedSchemaContractForSMA,
 ) -> str:
     """
-    Build the user prompt for the SMA refinement+HITL LLM call.
+    Build the user prompt for SMA refinement Pass 1 (manifest + hitl_flags, no options).
 
     Parameters
     ----------
@@ -430,8 +523,6 @@ def build_refinement_user_prompt(
         "cohort" or "course".
     manifest:
         FieldMappingManifest from the original 2a LLM call.
-        Will be iterated on in place — caller writes refined_manifest
-        back to sma_manifest_output.json.
     validation_errors:
         list[ManifestValidationError] from validate_manifest(). May be empty.
     schema_contract:
@@ -449,35 +540,51 @@ entity_type: {entity_type}
 
 {entity_block}
 
-## Your task
+## Your task (Pass 1 only)
 1. For each flagged field (validation errors or low confidence), attempt to auto-correct.
-   Set review_status="refined_by_llm" on fields you fix.
+   Set review_status="refined_by_llm" on fields you fix (subject to confidence rules).
 
-2. For fields you cannot confidently fix, generate a SMAHITLItem with:
+2. For fields you cannot confidently fix, emit one hitl_flags entry per field with:
    - current_field_mapping = the ORIGINAL field mapping from the input manifest,
-     copied unchanged (review_status="proposed_for_hitl")
-   - Option 1 = your recommended correction as a complete FieldMappingRecord
-   - Additional options covering other plausible corrections
-   - The original mapping as an option if still plausible ("Keep original mapping")
-   - A final direct_edit option
-   - hitl_context that includes validation error details and/or original rationale
+     copied unchanged
+   - hitl_question and hitl_context that explain what failed and what you need from a reviewer
+   - validation_errors populated from ManifestValidationError.detail strings (or empty for low_confidence-only)
+   - Do NOT include options — Pass 2 will generate those.
 
 3. Copy all auto-approved fields through unchanged with review_status="auto_approved".
 
-4. Return the single JSON object described in your instructions.
+4. Return the single Pass 1 JSON object (refined_manifest + hitl_flags) described in your instructions.
 """
 
 
-def build_refinement_combined_user_prompt(
+def build_refinement_user_prompt(
+    institution_id: str,
+    entity_type: str,
+    manifest: FieldMappingManifest,
+    validation_errors: list[ManifestValidationError],
+    schema_contract: EnrichedSchemaContractForSMA,
+) -> str:
+    """Backward-compatible alias for :func:`build_refinement_pass1_user_prompt`."""
+    return build_refinement_pass1_user_prompt(
+        institution_id,
+        entity_type,
+        manifest,
+        validation_errors,
+        schema_contract,
+    )
+
+
+def build_refinement_combined_pass1_user_prompt(
     institution_id: str,
     manifests_by_entity: Mapping[str, FieldMappingManifest],
     validation_errors_by_entity: Mapping[str, list[ManifestValidationError]],
     schema_contract: EnrichedSchemaContractForSMA,
 ) -> str:
     """
-    User prompt for a single refinement LLM call covering multiple entities (e.g. cohort + course).
+    User prompt for Pass 1 covering multiple entities (e.g. cohort + course in one call).
 
-    Expects the same ``schema_contract`` for all entities (typical SMA pipeline).
+    For separate cohort/course gateway calls, use :func:`build_refinement_pass1_user_prompt`
+    once per entity instead.
     """
     entity_keys = _sort_entity_keys(list(manifests_by_entity.keys()))
     schema_summary = _format_schema_contract_summary(schema_contract)
@@ -494,7 +601,7 @@ def build_refinement_combined_user_prompt(
 institution_id: {institution_id}
 entities: {entity_keys}
 
-You must return JSON with ``refined_manifests`` and ``hitl_items_by_entity`` containing
+You must return JSON with ``refined_manifests`` and ``hitl_flags_by_entity`` containing
 exactly these keys: {entity_keys}.
 
 ## Schema contract — available tables and columns (shared)
@@ -502,30 +609,345 @@ exactly these keys: {entity_keys}.
 
 {chr(10).join(blocks)}
 
-## Your task
+## Your task (Pass 1 only)
 For EACH entity section above, apply the refinement rules independently.
 
 1. For each flagged field (validation errors or low confidence), attempt to auto-correct.
-   Set review_status="refined_by_llm" on fields you fix.
+   Set review_status="refined_by_llm" on fields you fix (subject to confidence rules).
 
-2. For fields you cannot confidently fix, generate a SMAHITLItem with:
+2. For fields you cannot confidently fix, emit hitl_flags entries for that entity with:
    - current_field_mapping = the ORIGINAL field mapping from the input manifest,
-     copied unchanged (review_status="proposed_for_hitl")
-   - Option 1 = your recommended correction as a complete FieldMappingRecord
-   - Additional options covering other plausible corrections
-   - The original mapping as an option if still plausible ("Keep original mapping")
-   - A final direct_edit option
-   - hitl_context that includes validation error details and/or original rationale
+     copied unchanged
+   - hitl_question and hitl_context that explain what failed
+   - validation_errors from ManifestValidationError.detail strings (or empty for low_confidence-only)
+   - Do NOT include options — Pass 2 will generate those.
 
 3. Copy all auto-approved fields through unchanged with review_status="auto_approved".
 
-4. Return the single combined JSON object described in your instructions.
+4. Return the single combined Pass 1 JSON object described in your instructions.
 """
 
 
+def build_refinement_combined_user_prompt(
+    institution_id: str,
+    manifests_by_entity: Mapping[str, FieldMappingManifest],
+    validation_errors_by_entity: Mapping[str, list[ManifestValidationError]],
+    schema_contract: EnrichedSchemaContractForSMA,
+) -> str:
+    """Backward-compatible alias for :func:`build_refinement_combined_pass1_user_prompt`."""
+    return build_refinement_combined_pass1_user_prompt(
+        institution_id,
+        manifests_by_entity,
+        validation_errors_by_entity,
+        schema_contract,
+    )
+
+
+def build_refinement_pass2_user_prompt(
+    hitl_flag: dict,
+    schema_contract: EnrichedSchemaContractForSMA,
+    max_options: int = 3,
+) -> str:
+    """
+    Build the user prompt for SMA refinement Pass 2 (options for one Pass 1 flag).
+
+    Parameters
+    ----------
+    hitl_flag:
+        One element from Pass 1 ``hitl_flags`` (dict-shaped).
+    schema_contract:
+        EnrichedSchemaContractForSMA from IdentityAgent output.
+    max_options:
+        Cap TERMINAL options at this value (clamped to 1–3). There is always
+        one additional direct_edit option (2–4 options total).
+    """
+    terminal_cap = max(1, min(3, max_options))
+    schema_summary = _format_schema_contract_summary(schema_contract)
+    flag_json = json.dumps(hitl_flag, indent=2, default=str)
+
+    return f"""## Pass 1 flag (generate options only)
+{flag_json}
+
+## Schema contract — available tables and columns
+{schema_summary}
+
+## Option budget
+- At most {terminal_cap} TERMINAL option(s), plus exactly one final direct_edit option.
+- Total options: between 2 and {terminal_cap + 1} inclusive.
+
+## Your task
+Return the Pass 2 JSON object for this single flag: a complete SMAHITLItem shape with options
+(last option always direct_edit). Option 1 must be your recommended fix.
+"""
+
+
+# ---------------------------------------------------------------------------
+# Orchestration + post-parse safety nets (same module as prompts)
+# ---------------------------------------------------------------------------
+
+
+def _hitl_target_fields(
+    hitl: list[Mapping[str, Any]] | list[Any],
+) -> set[str]:
+    """Target fields covered by Pass 1 flags and/or Pass 2 items."""
+    from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import SMAHITLItem
+
+    out: set[str] = set()
+    for item in hitl:
+        if isinstance(item, SMAHITLItem):
+            out.add(item.target_field)
+            continue
+        tf = item.get("target_field")
+        if isinstance(tf, str):
+            out.add(tf)
+    return out
+
+
+def _enforce_review_status_contract(
+    manifest: FieldMappingManifest,
+    validation_errors: list[ManifestValidationError],
+    hitl_flags: list[Mapping[str, Any]] | list[Any],
+) -> list[str]:
+    """
+    Post-parse safety net: enforce review_status contract the LLM may have violated.
+    Returns list of warning strings for logging — does not raise.
+    Mutations applied in place.
+    """
+    flagged_fields = {e.target_field for e in validation_errors} | _hitl_target_fields(
+        hitl_flags
+    )
+    warnings: list[str] = []
+
+    for record in manifest.mappings:
+        is_low_confidence = record.confidence <= HITL_CONFIDENCE_THRESHOLD
+        is_flagged = record.target_field in flagged_fields
+        is_auto_approved = record.review_status == ReviewStatus.auto_approved
+        is_refined = record.review_status == ReviewStatus.refined_by_llm
+
+        if is_auto_approved and (is_low_confidence or is_flagged):
+            warnings.append(
+                f"[review_status violation] '{record.target_field}' marked "
+                f"auto_approved but confidence={record.confidence} "
+                f"(threshold={HITL_CONFIDENCE_THRESHOLD}) or has validation "
+                f"errors / HITL flags. Forcing to proposed_for_hitl."
+            )
+            record.review_status = ReviewStatus.proposed_for_hitl
+
+        elif is_refined and is_low_confidence:
+            warnings.append(
+                f"[review_status violation] '{record.target_field}' marked "
+                f"refined_by_llm but confidence={record.confidence} <= "
+                f"threshold={HITL_CONFIDENCE_THRESHOLD}. Low confidence fields "
+                f"must always be proposed_for_hitl. Forcing."
+            )
+            record.review_status = ReviewStatus.proposed_for_hitl
+
+    return warnings
+
+
+def log_refinement_contract_warnings_to_mlflow(warnings: list[str]) -> None:
+    """Log refinement contract warnings to MLflow when an active run exists."""
+    if not warnings:
+        return
+    try:
+        import mlflow
+    except ImportError:
+        return
+    try:
+        mlflow.log_param(
+            "sma_refinement_review_status_warning_count",
+            len(warnings),
+        )
+        mlflow.log_text(
+            "\n".join(warnings),
+            "sma_refinement_review_status_warnings.txt",
+        )
+    except Exception:
+        pass
+
+
+def apply_refinement_review_status_safety_net(
+    manifest: FieldMappingManifest,
+    validation_errors: list[ManifestValidationError],
+    hitl_flags: list[Mapping[str, Any]] | list[Any],
+    *,
+    print_warnings: bool = True,
+    log_mlflow: bool = True,
+) -> list[str]:
+    """
+    Run :func:`_enforce_review_status_contract` and optionally print / log warnings.
+
+    ``hitl_flags`` may be Pass 1 dicts or validated :class:`~edvise.genai.mapping.schema_mapping_agent.hitl.schemas.SMAHITLItem` instances.
+    """
+    warnings = _enforce_review_status_contract(
+        manifest, validation_errors, hitl_flags
+    )
+    if print_warnings:
+        for w in warnings:
+            print(f"⚠  {w}")
+    if log_mlflow:
+        log_refinement_contract_warnings_to_mlflow(warnings)
+    return warnings
+
+
+def _default_llm_complete() -> Callable[[str, str], str]:
+    from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
+        create_openai_client_for_databricks_gateway,
+        make_databricks_gateway_llm_complete,
+        resolve_gateway_model_id,
+    )
+
+    client = create_openai_client_for_databricks_gateway()
+    return make_databricks_gateway_llm_complete(
+        client, model=resolve_gateway_model_id()
+    )
+
+
+def _run_pass1(
+    institution_id: str,
+    entity_type: str,
+    manifest: FieldMappingManifest,
+    validation_errors: list[ManifestValidationError],
+    schema_contract: EnrichedSchemaContractForSMA,
+    llm_complete: Callable[[str, str], str],
+) -> dict[str, Any]:
+    system = build_refinement_pass1_system_prompt()
+    user = build_refinement_pass1_user_prompt(
+        institution_id,
+        entity_type,
+        manifest,
+        validation_errors,
+        schema_contract,
+    )
+    raw = llm_complete(system, user)
+    data = json.loads(strip_json_fences(raw))
+    if not isinstance(data, dict):
+        raise ValueError("Pass 1 LLM output must be a JSON object")
+    return data
+
+
+def _run_pass2(
+    hitl_flag: dict[str, Any],
+    schema_contract: EnrichedSchemaContractForSMA,
+    llm_complete: Callable[[str, str], str],
+    *,
+    max_options: int = 3,
+) -> dict[str, Any]:
+    system = build_refinement_pass2_system_prompt()
+    user = build_refinement_pass2_user_prompt(
+        hitl_flag, schema_contract, max_options=max_options
+    )
+    raw = llm_complete(system, user)
+    data = json.loads(strip_json_fences(raw))
+    if not isinstance(data, dict):
+        raise ValueError("Pass 2 LLM output must be a JSON object")
+    return data
+
+
+def run_sma_refinement(
+    institution_id: str,
+    entity_type: str,
+    manifest: FieldMappingManifest,
+    validation_errors: list[ManifestValidationError],
+    schema_contract: EnrichedSchemaContractForSMA,
+    resolved_by: str | None = None,
+    *,
+    llm_complete: Callable[[str, str], str] | None = None,
+    pass2_max_options: int = 3,
+) -> tuple[FieldMappingManifest, "InstitutionSMAHITLItems"]:
+    """
+    Two-pass SMA refinement.
+
+    Pass 1: refine manifest + identify HITL flags (no options).
+    Pass 2: generate options for each flag (one call per flag; parallelizable by caller).
+
+    Parameters
+    ----------
+    resolved_by:
+        Optional audit label (reserved for future logging).
+    llm_complete:
+        Callable ``(system_prompt, user_prompt) -> raw_text`` compatible with the
+        Databricks gateway pattern. If omitted, uses the default gateway client
+        (requires ``DATABRICKS_TOKEN`` and gateway env configuration).
+
+    Returns
+    -------
+    Refined manifest and complete :class:`~edvise.genai.mapping.schema_mapping_agent.hitl.schemas.InstitutionSMAHITLItems`.
+    """
+    from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
+        InstitutionSMAHITLItems,
+        SMAHITLItem,
+    )
+
+    _ = resolved_by
+    complete = llm_complete if llm_complete is not None else _default_llm_complete()
+
+    pass1_result = _run_pass1(
+        institution_id,
+        entity_type,
+        manifest,
+        validation_errors,
+        schema_contract,
+        complete,
+    )
+    refined_raw = pass1_result.get("refined_manifest")
+    if refined_raw is None:
+        raise ValueError("Pass 1 output missing refined_manifest")
+    refined_manifest = FieldMappingManifest.model_validate(refined_raw)
+
+    hitl_raw = pass1_result.get("hitl_flags")
+    if hitl_raw is None:
+        hitl_flags: list[dict[str, Any]] = []
+    elif not isinstance(hitl_raw, list):
+        raise ValueError("Pass 1 hitl_flags must be a list")
+    else:
+        hitl_flags = [h for h in hitl_raw if isinstance(h, dict)]
+
+    warnings = _enforce_review_status_contract(
+        refined_manifest,
+        validation_errors,
+        hitl_flags,
+    )
+    for w in warnings:
+        print(f"⚠  {w}")
+
+    if not hitl_flags:
+        return refined_manifest, InstitutionSMAHITLItems(
+            institution_id=institution_id,
+            entity_type=entity_type,
+            items=[],
+        )
+
+    hitl_items: list[Any] = []
+    for flag in hitl_flags:
+        item = _run_pass2(
+            flag,
+            schema_contract,
+            complete,
+            max_options=pass2_max_options,
+        )
+        hitl_items.append(SMAHITLItem.model_validate(item))
+
+    return refined_manifest, InstitutionSMAHITLItems(
+        institution_id=institution_id,
+        entity_type=entity_type,
+        items=hitl_items,
+    )
+
+
 __all__ = [
+    "_enforce_review_status_contract",
+    "apply_refinement_review_status_safety_net",
+    "build_refinement_combined_pass1_system_prompt",
+    "build_refinement_combined_pass1_user_prompt",
     "build_refinement_combined_system_prompt",
     "build_refinement_combined_user_prompt",
+    "build_refinement_pass1_system_prompt",
+    "build_refinement_pass1_user_prompt",
+    "build_refinement_pass2_system_prompt",
+    "build_refinement_pass2_user_prompt",
     "build_refinement_system_prompt",
     "build_refinement_user_prompt",
+    "log_refinement_contract_warnings_to_mlflow",
+    "run_sma_refinement",
 ]

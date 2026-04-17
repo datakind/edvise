@@ -38,6 +38,9 @@ from edvise.genai.mapping.identity_agent.execution.contract_utilities import (
 )
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermOrderConfig
+from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
+    hook_modules_root_from_bronze_volume,
+)
 from edvise.genai.mapping.identity_agent.term_normalization.term_order import (
     term_normalization_summary_for_enriched_contract,
 )
@@ -247,9 +250,12 @@ def build_schema_contract_from_grain_contracts(
             ``dedupe_fn_by_dataset`` is merged on top: **explicit keys replace** the auto fn
             for that dataset (e.g. custom school hooks).
         hook_modules_root: Directory whose subtree contains ``identity_hooks/<institution_id>/``
-            (e.g. ``{bronze_volumes_path}/identity_agent`` when hooks live under the identity-agent folder).
-            Used to import ``dedup_policy.hook_spec.file`` when strategy is ``policy_required`` with
-            a hook. Defaults to ``school_config.bronze_volumes_path`` when omitted and that path is set.
+            (typically ``{bronze_volumes_path}/identity_agent`` — same as ``IDENTITY_AGENT_ROOT`` in
+            ``ia_dev``). Used to import ``dedup_policy.hook_spec.file`` when strategy is
+            ``policy_required`` with a hook. When omitted, uses
+            :func:`~edvise.genai.mapping.identity_agent.hitl.hook_generation.paths.hook_modules_root_from_bronze_volume`
+            if ``school_config.bronze_volumes_path`` is set (prefers ``identity_agent/`` when that
+            directory exists).
         dtype_opts, spark_session, sample_size, cleaning_cfg: Forwarded
             to :func:`~edvise.genai.mapping.shared.schema_contract.build_from_school_config.build_schema_contract_from_config`.
 
@@ -271,7 +277,7 @@ def build_schema_contract_from_grain_contracts(
     if resolved_hook_root is None:
         bv = school_config.bronze_volumes_path
         if bv and str(bv).strip():
-            resolved_hook_root = bv
+            resolved_hook_root = hook_modules_root_from_bronze_volume(bv)
     auto_dedupe = dedupe_fn_by_dataset_from_grain_contracts(
         grain_contracts_by_dataset,
         dataset_name_suffix=dataset_name_suffix,

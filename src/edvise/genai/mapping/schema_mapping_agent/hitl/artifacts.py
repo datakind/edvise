@@ -9,8 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import InstitutionSMAHITLItems
-from edvise.genai.mapping.schema_mapping_agent.manifest.refine import (
+from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
+    InstitutionSMAHITLItems,
+    SMAHITLItem,
+)
+from edvise.genai.mapping.schema_mapping_agent.manifest.prompts.refine import (
     apply_refinement_review_status_safety_net,
 )
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import FieldMappingManifest
@@ -63,7 +66,7 @@ def write_sma_hitl_and_manifest_artifacts(
     """Write HITL envelope and manifest to the same directory.
 
     When ``validation_errors`` is provided, runs
-    :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.refine.apply_refinement_review_status_safety_net`
+    :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.prompts.refine.apply_refinement_review_status_safety_net`
     on the manifest before writing (post-parse contract enforcement).
     """
     if validation_errors is not None:
