@@ -37,6 +37,10 @@ from edvise.genai.mapping.identity_agent.execution.contract_utilities import (
     canonicalize_grain_contract_learner_id_alias,
 )
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
+from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermOrderConfig
+from edvise.genai.mapping.identity_agent.term_normalization.term_order import (
+    term_normalization_summary_for_enriched_contract,
+)
 from edvise.utils.data_cleaning import convert_to_snake_case
 
 logger = logging.getLogger(__name__)
@@ -457,6 +461,7 @@ def build_training_example_from_schema_contract(
     file_path: str,
     *,
     canonical_learner_column: str | None = None,
+    term_order_config: TermOrderConfig | None = None,
 ) -> Dict[str, Any]:
     if logical_name not in schema_contract["datasets"]:
         raise KeyError(
@@ -490,7 +495,7 @@ def build_training_example_from_schema_contract(
         for orig_col in orig_list:
             orig_to_norm[orig_col] = norm_col
 
-    return {
+    example: Dict[str, Any] = {
         "school_id": school_config.institution_id,
         "school_name": school_config.institution_name or school_config.institution_id,
         "dataset_name": dataset_name,
@@ -521,6 +526,13 @@ def build_training_example_from_schema_contract(
         "inferred_dtypes": dataset_schema["dtypes"],
         "column_details": column_details,
     }
+    if term_order_config is not None:
+        example["term_normalization"] = (
+            term_normalization_summary_for_enriched_contract(
+                term_order_config
+            ).model_dump(mode="json")
+        )
+    return example
 
 
 def process_school_dataset(
@@ -536,6 +548,7 @@ def process_school_dataset(
     term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
     grain_contracts_by_dataset: Optional[dict[str, GrainContract]] = None,
     canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
+    term_order_config_by_dataset: Optional[dict[str, TermOrderConfig | None]] = None,
 ) -> tuple[Dict[str, Any], dict]:
     if dtype_opts is None:
         dtype_opts = DtypeGenerationOptions()
@@ -600,6 +613,10 @@ def process_school_dataset(
             else dataset_name
         )
 
+        term_oc: TermOrderConfig | None = None
+        if term_order_config_by_dataset is not None:
+            term_oc = term_order_config_by_dataset.get(logical_name)
+
         stats_start = time.time()
         example = build_training_example_from_schema_contract(
             school_config=school_config,
@@ -612,6 +629,7 @@ def process_school_dataset(
             original_row_count=original_row_count,
             file_path=file_path,
             canonical_learner_column=canonical_learner_column,
+            term_order_config=term_oc,
         )
 
         logger.debug(
@@ -654,6 +672,7 @@ def build_enriched_schema_contract_for_institution(
     term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
     grain_contracts_by_dataset: Optional[dict[str, GrainContract]] = None,
     canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
+    term_order_config_by_dataset: Optional[dict[str, TermOrderConfig | None]] = None,
 ) -> Dict[str, Any]:
     """
     Build one SMA-style **enriched** institution JSON with **all** requested logical datasets.
@@ -669,6 +688,10 @@ def build_enriched_schema_contract_for_institution(
     uses ``{dataset_name: grain_contract}`` when that key is present. Pass a ``school_config``
     already updated via :func:`merge_grain_learner_id_alias_into_school_config` with the **full**
     grain map so ``cleaning.student_id_alias`` matches §8 / multi-table workflows.
+
+    ``term_order_config_by_dataset`` (logical dataset name → :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermOrderConfig`)
+    is optional; when set, each dataset's ``training.term_normalization`` records which source
+    column(s) IdentityAgent used for term order (single ``term_col`` vs split ``year_col``/``season_col``).
     """
     if dataset_names is None:
         if grain_contracts_by_dataset:
@@ -713,6 +736,7 @@ def build_enriched_schema_contract_for_institution(
             term_order_fn_by_dataset=term_order_fn_by_dataset,
             grain_contracts_by_dataset=grain_slice,
             canonical_learner_column=canonical_learner_column,
+            term_order_config_by_dataset=term_order_config_by_dataset,
         )
 
         if "error" in example:
@@ -753,6 +777,7 @@ def build_enriched_schema_contract_for_dataset(
     term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
     grain_contracts_by_dataset: Optional[dict[str, GrainContract]] = None,
     canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
+    term_order_config_by_dataset: Optional[dict[str, TermOrderConfig | None]] = None,
 ) -> Dict[str, Any]:
     """
     Build one SMA-style **enriched** institution JSON containing a **single** logical dataset.
@@ -772,6 +797,7 @@ def build_enriched_schema_contract_for_dataset(
         term_order_fn_by_dataset=term_order_fn_by_dataset,
         grain_contracts_by_dataset=grain_contracts_by_dataset,
         canonical_learner_column=canonical_learner_column,
+        term_order_config_by_dataset=term_order_config_by_dataset,
     )
 
 
@@ -809,13 +835,17 @@ def _build_enriched_schema_contract(
                     break
 
         if matching_example:
-            merged_datasets[logical_name]["training"] = {
+            training_block: Dict[str, Any] = {
                 "file_path": matching_example["file_path"],
                 "num_rows": matching_example["num_rows"],
                 "num_columns": matching_example["num_columns"],
                 "column_normalization": matching_example["column_normalization"],
                 "column_details": matching_example["column_details"],
             }
+            term_norm = matching_example.get("term_normalization")
+            if term_norm is not None:
+                training_block["term_normalization"] = term_norm
+            merged_datasets[logical_name]["training"] = training_block
 
     base_contract = schema_contracts[0][1]
     enriched_contract: Dict[str, Any] = {

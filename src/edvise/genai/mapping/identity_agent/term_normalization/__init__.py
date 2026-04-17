@@ -50,6 +50,7 @@ __all__ = [
     "TermOrderConfig",
     "apply_term_order_from_config",
     "load_term_extractors_from_hook_spec",
+    "term_normalization_summary_for_enriched_contract",
     "term_order_column_for_clean_dataset",
     "term_order_fn_from_term_order_config",
     "build_term_normalization_batch_system_prompt",
@@ -76,6 +77,10 @@ def __getattr__(name: str) -> Any:
         from .term_order import load_term_extractors_from_hook_spec
 
         return load_term_extractors_from_hook_spec
+    if name == "term_normalization_summary_for_enriched_contract":
+        from .term_order import term_normalization_summary_for_enriched_contract
+
+        return term_normalization_summary_for_enriched_contract
     if name == "term_order_column_for_clean_dataset":
         from .term_order import term_order_column_for_clean_dataset
 

@@ -13,6 +13,7 @@ import pandas as pd
 from edvise.utils.data_cleaning import convert_to_snake_case
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
+from edvise.genai.mapping.shared.schema_contract.schemas import TermNormalizationSummary
 
 from .schemas import TermOrderConfig
 
@@ -409,6 +410,29 @@ def _resolve_hook_year_season_callables(
         )
     return load_term_extractors_from_hook_spec(
         config.hook_spec, modules_root=hook_modules_root
+    )
+
+
+def term_normalization_summary_for_enriched_contract(
+    config: TermOrderConfig,
+) -> TermNormalizationSummary:
+    """
+    Build :class:`~edvise.genai.mapping.shared.schema_contract.schemas.TermNormalizationSummary`
+    for IdentityAgent enriched schema contracts (same column names as after ``clean_dataset``).
+    """
+    d = _normalize_term_config_column_names(config.model_dump(mode="json"))
+    clean_spec_term = term_order_column_for_clean_dataset(config)
+    if config.term_col is not None:
+        mode = "single_column"
+    else:
+        mode = "year_season_columns"
+    return TermNormalizationSummary(
+        mode=mode,
+        term_extraction=config.term_extraction,
+        term_col=d.get("term_col"),
+        year_col=d.get("year_col"),
+        season_col=d.get("season_col"),
+        clean_spec_term_column=clean_spec_term,
     )
 
 

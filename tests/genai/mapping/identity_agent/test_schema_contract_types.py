@@ -13,11 +13,20 @@ from edvise.genai.mapping.identity_agent.identity_bundle import (
 )
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     InstitutionTermContract,
+    SeasonMapEntry,
     TermContract,
+    TermOrderConfig,
+)
+from edvise.genai.mapping.identity_agent.term_normalization.term_order import (
+    term_normalization_summary_for_enriched_contract,
+)
+from edvise.genai.mapping.schema_mapping_agent.manifest.prompts.generate import (
+    summarize_schema_contract,
 )
 from edvise.genai.mapping.shared.schema_contract import (
     BaseFrozenSchemaContract,
     EnrichedSchemaContractForSMA,
+    TermNormalizationSummary,
     parse_base_frozen_schema_contract,
     parse_enriched_schema_contract_for_sma,
 )
@@ -203,3 +212,76 @@ def test_enriched_schema_contract_for_sma_minimal():
     assert m.school_id == "s1"
     assert "students" in m.datasets
     assert m.datasets["students"].training.num_rows == 1
+    assert m.datasets["students"].training.term_normalization is None
+
+
+def test_term_normalization_summary_single_and_split_columns():
+    sm = [SeasonMapEntry(raw="FA", canonical="FALL")]
+    single = TermOrderConfig(
+        term_col="StartingCohortTerm",
+        season_map=sm,
+        term_extraction="standard",
+        hook_spec=None,
+    )
+    s1 = term_normalization_summary_for_enriched_contract(single)
+    assert isinstance(s1, TermNormalizationSummary)
+    assert s1.mode == "single_column"
+    assert s1.term_col == "starting_cohort_term"
+    assert s1.clean_spec_term_column == "starting_cohort_term"
+
+    split = TermOrderConfig(
+        year_col="Acad_Year",
+        season_col="Term_Code",
+        season_map=sm,
+        term_extraction="standard",
+        hook_spec=None,
+    )
+    s2 = term_normalization_summary_for_enriched_contract(split)
+    assert s2.mode == "year_season_columns"
+    assert s2.year_col == "acad_year"
+    assert s2.season_col == "term_code"
+    assert s2.clean_spec_term_column == "acad_year"
+
+
+def test_summarize_schema_contract_includes_term_normalization():
+    raw = {
+        "school_id": "s1",
+        "school_name": "School One",
+        "datasets": {
+            "students": {
+                "normalized_columns": {"A": "a"},
+                "dtypes": {"a": "Int64"},
+                "non_null_columns": [],
+                "unique_keys": ["a"],
+                "null_tokens": ["(Blank)"],
+                "boolean_map": {"true": True, "false": False},
+                "training": {
+                    "file_path": "/x.csv",
+                    "num_rows": 1,
+                    "num_columns": 1,
+                    "column_normalization": {"original_to_normalized": {}},
+                    "column_details": [
+                        {
+                            "original_name": "A",
+                            "normalized_name": "a",
+                            "null_count": 0,
+                            "null_percentage": 0.0,
+                            "unique_count": 1,
+                            "sample_values": ["1"],
+                        }
+                    ],
+                    "term_normalization": {
+                        "mode": "single_column",
+                        "term_extraction": "standard",
+                        "term_col": "entry_term",
+                        "year_col": None,
+                        "season_col": None,
+                        "clean_spec_term_column": "entry_term",
+                    },
+                },
+            }
+        },
+    }
+    summary = summarize_schema_contract(raw)
+    assert summary["datasets"]["students"]["term_normalization"]["mode"] == "single_column"
+    assert summary["datasets"]["students"]["term_normalization"]["term_col"] == "entry_term"

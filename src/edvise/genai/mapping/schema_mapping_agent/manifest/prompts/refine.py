@@ -15,12 +15,19 @@ the enriched schema contract. It produces a single JSON output:
     "hitl_items": list[SMAHITLItem]
   }
 
+For cohort + course in one gateway call, use the combined helpers — output shape:
+  {
+    "refined_manifests": {"cohort": ..., "course": ...},
+    "hitl_items_by_entity": {"cohort": [...], "course": [...]},
+  }
+
 The caller:
   - Writes refined_manifest back to sma_manifest_output.json (in place)
   - Writes hitl_items to sma_hitl.json as InstitutionSMAHITLItems
 
 Public API:
     build_refinement_system_prompt() -> str
+    build_refinement_combined_system_prompt() -> str
     build_refinement_user_prompt(
         institution_id,
         entity_type,
@@ -28,9 +35,17 @@ Public API:
         validation_errors,
         schema_contract,
     ) -> str
+    build_refinement_combined_user_prompt(
+        institution_id,
+        manifests_by_entity,
+        validation_errors_by_entity,
+        schema_contract,
+    ) -> str
 """
 
 from __future__ import annotations
+
+from typing import Mapping
 
 from edvise.genai.mapping.shared.schema_contract.schemas import (
     EnrichedSchemaContractForSMA,
@@ -199,13 +214,35 @@ CRITICAL:
     mappable non-constant fields, join required when source_table != base_table).
 """
 
+_OUTPUT_FORMAT_COMBINED = """
+OUTPUT FORMAT — respond with a single JSON object, no preamble, no markdown:
+{
+  "refined_manifests": {
+    "<entity_type>": { ...FieldMappingManifest with review_status set on every record... },
+    ... one entry per entity_type listed in the user message under "entities" ...
+  },
+  "hitl_items_by_entity": {
+    "<entity_type>": [ ...list[SMAHITLItem] for that entity only... ],
+    ...
+  }
+}
 
-# ---------------------------------------------------------------------------
-# System prompt
-# ---------------------------------------------------------------------------
+CRITICAL:
+  - refined_manifests and hitl_items_by_entity must contain exactly the same keys,
+    matching the entity list in the user message (e.g. cohort and course).
+  - Each SMAHITLItem.entity_type must match the bucket it is placed in.
+  - Every FieldMappingRecord in each refined manifest must have review_status set.
+  - Each hitl_items_by_entity list may be empty [] if you auto-corrected all
+    flagged fields for that entity.
+  - Do not invent columns or tables not present in the schema contract.
+  - Do not change auto_approved fields — copy them through unchanged.
+  - All field_mapping entries in options must pass FieldMappingRecord validation
+    (source_table required when source_column set, row_selection required for
+    mappable non-constant fields, join required when source_table != base_table).
+"""
 
 
-def build_refinement_system_prompt() -> str:
+def _build_refinement_system_prompt(*, output_format: str) -> str:
     return f"""You are the Schema Mapping Agent refinement step for the Edvise institution onboarding pipeline.
 
 Your job is to review a field mapping manifest produced by the original 2a LLM, correct errors where possible, and generate structured HITL review items for everything you cannot confidently fix.
@@ -232,13 +269,73 @@ Your job is to review a field mapping manifest produced by the original 2a LLM, 
 
 ## Output format
 
-{_OUTPUT_FORMAT}
+{output_format}
 """
+
+
+# ---------------------------------------------------------------------------
+# System prompt
+# ---------------------------------------------------------------------------
+
+
+def build_refinement_system_prompt() -> str:
+    return _build_refinement_system_prompt(output_format=_OUTPUT_FORMAT)
+
+
+def build_refinement_combined_system_prompt() -> str:
+    return _build_refinement_system_prompt(output_format=_OUTPUT_FORMAT_COMBINED)
 
 
 # ---------------------------------------------------------------------------
 # User prompt
 # ---------------------------------------------------------------------------
+
+_ENTITY_KEY_ORDER = ("cohort", "course")
+
+
+def _sort_entity_keys(keys: list[str]) -> list[str]:
+    """Stable order: cohort, course, then any other keys alphabetically."""
+    known = [k for k in _ENTITY_KEY_ORDER if k in keys]
+    rest = sorted(k for k in keys if k not in _ENTITY_KEY_ORDER)
+    return known + rest
+
+
+def _refinement_entity_section(
+    entity_type: str,
+    manifest: FieldMappingManifest,
+    validation_errors: list[ManifestValidationError],
+) -> str:
+    """
+    Per-entity manifest, validation context, and auto-approved list for refinement prompts.
+    """
+    manifest_json = manifest.model_dump_json(indent=2)
+    validation_section = _format_validation_errors(validation_errors)
+    low_confidence_section = _format_low_confidence_fields(manifest)
+
+    flagged_fields = {e.target_field for e in validation_errors} | {
+        r.target_field
+        for r in manifest.mappings
+        if r.confidence <= HITL_CONFIDENCE_THRESHOLD
+    }
+    auto_approved_fields = [
+        r.target_field for r in manifest.mappings
+        if r.target_field not in flagged_fields
+    ]
+
+    return f"""### Entity: {entity_type}
+
+## Current manifest (original 2a output)
+{manifest_json}
+
+## Deterministic validation errors
+{validation_section}
+
+## Low confidence fields (confidence ≤ {HITL_CONFIDENCE_THRESHOLD})
+{low_confidence_section}
+
+## Auto-approved fields (no action needed — copy through unchanged)
+{auto_approved_fields}
+"""
 
 
 def _format_validation_errors(

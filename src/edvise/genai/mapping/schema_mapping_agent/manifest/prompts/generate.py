@@ -62,7 +62,8 @@ def summarize_schema_contract(
     (IdentityAgent enriched JSON).
 
     Keeps: column names, dtypes (from each dataset's frozen ``dtypes`` map), null %,
-    unique values (if present), sample values from ``training.column_details``.
+    unique values (if present), sample values from ``training.column_details``,
+    and ``term_normalization`` when IdentityAgent populated it (source term/year/season columns).
     Drops: column_order_hash, normalization maps, file paths, boolean_map, null_tokens.
     """
     parsed = (
@@ -98,11 +99,15 @@ def summarize_schema_contract(
                 col_summary["unique_values"] = col.unique_values
             columns.append(col_summary)
 
-        summary["datasets"][table_name] = {
+        ds_summary: dict[str, Any] = {
             "unique_keys": list(table_info.unique_keys),
             "num_rows": table_info.training.num_rows,
             "columns": columns,
         }
+        tn = table_info.training.term_normalization
+        if tn is not None:
+            ds_summary["term_normalization"] = tn.model_dump(mode="json")
+        summary["datasets"][table_name] = ds_summary
 
     return summary
 

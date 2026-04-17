@@ -44,6 +44,52 @@ class SchemaContractColumnDetail(BaseModel):
     )
 
 
+class TermNormalizationSummary(BaseModel):
+    """
+    How IdentityAgent derived Edvise term columns for this dataset — source column(s) after the same
+    snake_case normalization as ``clean_dataset``, and which column was wired as ``CleanSpec.term_column``.
+
+    SMA uses this for mapping context (e.g. cohort entry_term vs raw institutional codes).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["single_column", "year_season_columns"]
+    term_extraction: Literal["standard", "hook_required"]
+    term_col: str | None = Field(
+        default=None,
+        description="Single source column when mode is single_column (normalized name).",
+    )
+    year_col: str | None = Field(
+        default=None,
+        description="Year column when mode is year_season_columns (normalized name).",
+    )
+    season_col: str | None = Field(
+        default=None,
+        description="Season column when mode is year_season_columns (normalized name).",
+    )
+    clean_spec_term_column: str = Field(
+        description=(
+            "Column name passed to CleanSpec.term_column — same as "
+            "term_order_column_for_clean_dataset (year column for split configs)."
+        )
+    )
+
+    @model_validator(mode="after")
+    def _columns_match_mode(self) -> TermNormalizationSummary:
+        if self.mode == "single_column":
+            if not self.term_col:
+                raise ValueError("single_column requires term_col")
+            if self.year_col is not None or self.season_col is not None:
+                raise ValueError("single_column must not set year_col or season_col")
+        else:
+            if not self.year_col or not self.season_col:
+                raise ValueError("year_season_columns requires year_col and season_col")
+            if self.term_col is not None:
+                raise ValueError("year_season_columns must not set term_col")
+        return self
+
+
 class SchemaContractTrainingBlock(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -52,6 +98,13 @@ class SchemaContractTrainingBlock(BaseModel):
     num_columns: int
     column_normalization: dict[str, Any]
     column_details: list[SchemaContractColumnDetail]
+    term_normalization: TermNormalizationSummary | None = Field(
+        default=None,
+        description=(
+            "IdentityAgent term source columns (normalized) when a TermOrderConfig was supplied "
+            "for enriched contract build; omit or null when term normalization was not configured."
+        ),
+    )
 
 
 class FrozenDatasetSchemaCore(BaseModel):
@@ -167,6 +220,7 @@ __all__ = [
     "FrozenDatasetSchemaForSMA",
     "SchemaContractColumnDetail",
     "SchemaContractTrainingBlock",
+    "TermNormalizationSummary",
     "assert_build_schema_contract_matches_base_model",
     "parse_base_frozen_schema_contract",
     "parse_enriched_schema_contract_for_sma",
