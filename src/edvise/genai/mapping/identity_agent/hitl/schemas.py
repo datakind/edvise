@@ -135,11 +135,19 @@ class GrainResolution(BaseModel):
 
 
 class GrainCandidateKeyEntry(BaseModel):
-    """One ranked candidate key from grain-key profiling (HITL evidence)."""
+    """One candidate key in reviewer-ranked order (IdentityAgent: semantic plausibility)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    rank: int = Field(..., ge=1, description="1 = strongest candidate by profiling heuristics.")
+    rank: int = Field(
+        ...,
+        ge=1,
+        description=(
+            "1 = contract grain for this response (must match post_clean_primary_key columns); "
+            "2+ = alternative override keys. In IdentityAgent output, ordering is semantic, "
+            "not the key profiler's uniqueness-first rank."
+        ),
+    )
     columns: list[str] = Field(..., min_length=1)
     uniqueness_score: float = Field(
         ...,
@@ -165,7 +173,11 @@ class GrainAmbiguityHITLContext(BaseModel):
     candidate_keys: list[GrainCandidateKeyEntry] = Field(
         ...,
         min_length=1,
-        description="Ranked candidate primary keys with uniqueness scores.",
+        description=(
+            "Rank 1 = same columns as post_clean_primary_key in the IdentityAgent response; "
+            "later ranks = alternative grains (option candidate_key_override). uniqueness_score "
+            "is profiling evidence, not the sort key for this list."
+        ),
     )
     variance_profile: dict[str, str] = Field(
         default_factory=dict,

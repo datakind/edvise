@@ -87,7 +87,9 @@ class RankedCandidateProfiles(BaseModel):
     candidate_key_profiles: list[CandidateProfile] = Field(
         ...,
         description=(
-            "Profile per candidate key, ranked by uniqueness. Pass to "
+            "Profile per candidate key, ranked by profiling heuristics (uniqueness-first). "
+            "IdentityAgent re-orders the full ``hitl_context.candidate_keys`` list by semantic-grain "
+            "plausibility (ranks 1..n), not this order, when emitting reviewer JSON. Pass to "
             "``edvise.genai.mapping.identity_agent.grain_inference.prompt."
             "build_identity_agent_user_message`` (Step 2)."
         ),

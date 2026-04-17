@@ -84,6 +84,18 @@ def _identity_domain_priors() -> str:
   dropped — these are system artifacts, not meaningful records.
 - row_selection IS required on semester tables.
 
+### Degree / award / completion tables
+- Expected grain is multi-dimensional: student (or learner) identifier, program context
+  (e.g. major or program) when present, term or completion cohort when present, **and**
+  a column that distinguishes **which credential or degree** when the institution can award
+  more than one per student/program/term (e.g. `awarded_degree`, `degree_type`, certificate
+  vs associate). Do **not** satisfy uniqueness by adding measure or elapsed-time columns
+  to the key when a degree-type or credential column exists or belongs in the grain.
+- If multiple rows per (student, major, term) reflect different awards (AA vs AS, certificate
+  vs degree), the grain is either intentionally multi-row at that key or must include a
+  degree/credential dimension — FLAG for HITL when the collapse policy is unclear.
+- row_selection is often required when the table remains multi-row per student after cleaning.
+
 ### Term dimension columns (course, semester, any grain that includes term)
 Mirror term **batch** normalization when choosing which column is the term dimension
 in `post_clean_primary_key` and `join_keys_for_2a`. Apply these preferences **in order**:
@@ -249,6 +261,21 @@ def _identity_reasoning_steps() -> str:
      freeform string, **or** a structured object with `candidate_keys` (ranked columns,
      uniqueness scores, notes) and optional `variance_profile` (column → variance summary).
      Prefer the structured form when key-profiling output is available.
+   - **Structured `candidate_keys` ordering (reasoning step, not the profiler):** the key
+     profile lists candidates by **profiling heuristics** (uniqueness-first). When you emit
+     `hitl_context.candidate_keys`, **replace that ordering entirely**: sort **every** entry
+     into **descending order of likely semantic grain** (most plausible identifier + temporal
+     grain first, then next-best, and so on). Assign `rank` **1..n** to match that order
+     so **all** ranks reflect semantic likelihood, not the profiler's uniqueness rank.
+     `rank` **1** is your best semantic candidate (identifiers + time dimensions; measure
+     columns in the key only when unavoidable and called out in `notes`). **Its `columns`
+     must match** the grain you already emitted in **`post_clean_primary_key`** for this
+     table in the **same JSON response** (same columns as the contract grain; use the same
+     ordering you used there). **`rank` 2..n** list **alternative** grain keys the reviewer
+     might adopt via `candidate_key_override` on an option — not a second guess of rank 1.
+     Preserve each candidate's `uniqueness_score` from the profile for the same `columns`
+     list. You may mention the profiler's original ordering in `notes` if it helps reviewers
+     (e.g. "Profiler rank was 2").
    - When `hitl_flag` is false, emit `hitl_items: []`.
 """
 
@@ -398,6 +425,10 @@ HITLItem shape for grain:
 When key-profiling output is available, use structured `hitl_context` instead of a string (same
 options/target shape as above; only `hitl_context` changes):
 
+`candidate_keys`: **fully re-ranked** by **semantic grain plausibility** (see **REASONING STEPS**
+and **HITL** bullets above)—`rank` **1** **matches `post_clean_primary_key`** from this response;
+**2..n** are **override** candidates. This is **not** the profiler's uniqueness-first order.
+
 ```json
 {
   "item_id": "<institution_id>_<table>_<short_descriptor>",
@@ -413,7 +444,7 @@ options/target shape as above; only `hitl_context` changes):
         "rank": 1,
         "columns": ["STUDENT_ID", "TERM_DESC"],
         "uniqueness_score": 0.85,
-        "notes": "<optional caveat>"
+        "notes": "<optional caveat — e.g. profiler ranked this #2; semantic grain>"
       }
     ],
     "variance_profile": {
