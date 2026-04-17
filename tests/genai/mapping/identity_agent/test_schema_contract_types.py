@@ -283,5 +283,7 @@ def test_summarize_schema_contract_includes_term_normalization():
         },
     }
     summary = summarize_schema_contract(raw)
-    assert summary["datasets"]["students"]["term_normalization"]["mode"] == "single_column"
-    assert summary["datasets"]["students"]["term_normalization"]["term_col"] == "entry_term"
+    note = summary["datasets"]["students"]["term_normalization_note"]
+    assert "entry_term" in note
+    assert "standard" in note
+    assert "term_normalization" not in summary["datasets"]["students"]

@@ -13,6 +13,7 @@ from typing import Any, Literal, cast
 from edvise.genai.mapping.shared.token_audit.prompt_token_audit import audit_prompt_sections
 from edvise.genai.mapping.shared.schema_contract import (
     EnrichedSchemaContractForSMA,
+    TermNormalizationSummary,
     parse_enriched_schema_contract_for_sma,
 )
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
@@ -52,6 +53,16 @@ def extract_schema_descriptor(schema_class: Any) -> dict[str, Any]:
 # ── Schema contract summarization ─────────────────────────────────────────────
 
 
+def _term_normalization_note_for_prompt(tn: TermNormalizationSummary) -> str:
+    """One line for SMA prompts; full detail stays on the enriched contract JSON."""
+    if tn.mode == "single_column":
+        return f"Term source: `{tn.term_col}` ({tn.term_extraction})."
+    return (
+        f"Term source: year `{tn.year_col}`, season `{tn.season_col}` "
+        f"({tn.term_extraction})."
+    )
+
+
 def summarize_schema_contract(
     contract: dict[str, Any] | EnrichedSchemaContractForSMA,
 ) -> dict:
@@ -63,7 +74,8 @@ def summarize_schema_contract(
 
     Keeps: column names, dtypes (from each dataset's frozen ``dtypes`` map), null %,
     unique values (if present), sample values from ``training.column_details``,
-    and ``term_normalization`` when IdentityAgent populated it (source term/year/season columns).
+    and a one-line ``term_normalization_note`` when IdentityAgent populated
+    ``training.term_normalization`` (not the full struct — that remains on the enriched contract only).
     Drops: column_order_hash, normalization maps, file paths, boolean_map, null_tokens.
     """
     parsed = (
@@ -106,7 +118,7 @@ def summarize_schema_contract(
         }
         tn = table_info.training.term_normalization
         if tn is not None:
-            ds_summary["term_normalization"] = tn.model_dump(mode="json")
+            ds_summary["term_normalization_note"] = _term_normalization_note_for_prompt(tn)
         summary["datasets"][table_name] = ds_summary
 
     return summary

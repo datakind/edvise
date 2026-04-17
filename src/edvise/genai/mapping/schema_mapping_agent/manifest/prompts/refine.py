@@ -437,20 +437,8 @@ def build_refinement_user_prompt(
     schema_contract:
         EnrichedSchemaContractForSMA from IdentityAgent output.
     """
-    manifest_json = manifest.model_dump_json(indent=2)
-    validation_section = _format_validation_errors(validation_errors)
-    low_confidence_section = _format_low_confidence_fields(manifest)
     schema_summary = _format_schema_contract_summary(schema_contract)
-
-    flagged_fields = {e.target_field for e in validation_errors} | {
-        r.target_field
-        for r in manifest.mappings
-        if r.confidence <= HITL_CONFIDENCE_THRESHOLD
-    }
-    auto_approved_fields = [
-        r.target_field for r in manifest.mappings
-        if r.target_field not in flagged_fields
-    ]
+    entity_block = _refinement_entity_section(entity_type, manifest, validation_errors)
 
     return f"""## Institution
 institution_id: {institution_id}
@@ -459,17 +447,7 @@ entity_type: {entity_type}
 ## Schema contract — available tables and columns
 {schema_summary}
 
-## Current manifest (original 2a output)
-{manifest_json}
-
-## Deterministic validation errors
-{validation_section}
-
-## Low confidence fields (confidence ≤ {HITL_CONFIDENCE_THRESHOLD})
-{low_confidence_section}
-
-## Auto-approved fields (no action needed — copy through unchanged)
-{auto_approved_fields}
+{entity_block}
 
 ## Your task
 1. For each flagged field (validation errors or low confidence), attempt to auto-correct.
@@ -490,7 +468,64 @@ entity_type: {entity_type}
 """
 
 
+def build_refinement_combined_user_prompt(
+    institution_id: str,
+    manifests_by_entity: Mapping[str, FieldMappingManifest],
+    validation_errors_by_entity: Mapping[str, list[ManifestValidationError]],
+    schema_contract: EnrichedSchemaContractForSMA,
+) -> str:
+    """
+    User prompt for a single refinement LLM call covering multiple entities (e.g. cohort + course).
+
+    Expects the same ``schema_contract`` for all entities (typical SMA pipeline).
+    """
+    entity_keys = _sort_entity_keys(list(manifests_by_entity.keys()))
+    schema_summary = _format_schema_contract_summary(schema_contract)
+    blocks = [
+        _refinement_entity_section(
+            ek,
+            manifests_by_entity[ek],
+            list(validation_errors_by_entity.get(ek, [])),
+        )
+        for ek in entity_keys
+    ]
+
+    return f"""## Institution
+institution_id: {institution_id}
+entities: {entity_keys}
+
+You must return JSON with ``refined_manifests`` and ``hitl_items_by_entity`` containing
+exactly these keys: {entity_keys}.
+
+## Schema contract — available tables and columns (shared)
+{schema_summary}
+
+{chr(10).join(blocks)}
+
+## Your task
+For EACH entity section above, apply the refinement rules independently.
+
+1. For each flagged field (validation errors or low confidence), attempt to auto-correct.
+   Set review_status="refined_by_llm" on fields you fix.
+
+2. For fields you cannot confidently fix, generate a SMAHITLItem with:
+   - current_field_mapping = the ORIGINAL field mapping from the input manifest,
+     copied unchanged (review_status="proposed_for_hitl")
+   - Option 1 = your recommended correction as a complete FieldMappingRecord
+   - Additional options covering other plausible corrections
+   - The original mapping as an option if still plausible ("Keep original mapping")
+   - A final direct_edit option
+   - hitl_context that includes validation error details and/or original rationale
+
+3. Copy all auto-approved fields through unchanged with review_status="auto_approved".
+
+4. Return the single combined JSON object described in your instructions.
+"""
+
+
 __all__ = [
+    "build_refinement_combined_system_prompt",
+    "build_refinement_combined_user_prompt",
     "build_refinement_system_prompt",
     "build_refinement_user_prompt",
 ]

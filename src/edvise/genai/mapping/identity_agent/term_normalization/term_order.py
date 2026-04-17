@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -458,7 +458,7 @@ def term_order_column_for_clean_dataset(config: TermOrderConfig) -> str:
 
 
 def term_order_fn_from_term_order_config(
-    config: TermOrderConfig,
+    config: TermOrderConfig | Mapping[str, Any],
     *,
     hook_modules_root: str | Path | None = None,
     year_extractor: Callable[..., Any] | None = None,
@@ -474,22 +474,55 @@ def term_order_fn_from_term_order_config(
     When ``term_extraction`` is ``hook_required``, pass ``hook_modules_root`` (same root used when
     materializing hooks, e.g. ``bronze_volumes_path``) so extractors are imported from
     ``hook_spec.file``, **or** pass ``year_extractor`` and ``season_extractor`` explicitly.
+
+    For ``hook_required``, extractors are loaded on the **first** invocation of the returned
+    function (unless explicit extractors are passed), so constructing the callable does not
+    import the hook module; ``standard`` extraction never uses ``hook_modules_root``.
     """
-    ye, se = _resolve_hook_year_season_callables(
-        config,
-        hook_modules_root=hook_modules_root,
-        year_extractor=year_extractor,
-        season_extractor=season_extractor,
-    )
+    if not isinstance(config, TermOrderConfig):
+        config = TermOrderConfig.model_validate(dict(config))
+
+    if config.term_extraction == "hook_required":
+        if year_extractor is not None or season_extractor is not None:
+            if year_extractor is None or season_extractor is None:
+                raise ValueError(
+                    "Pass both year_extractor and season_extractor, or pass neither to load from hook_spec."
+                )
+    elif year_extractor is not None or season_extractor is not None:
+        raise ValueError(
+            "year_extractor and season_extractor are only used when term_extraction is 'hook_required'"
+        )
+
+    explicit_ye = year_extractor
+    explicit_se = season_extractor
+    cached_ye: Callable[..., Any] | None = None
+    cached_se: Callable[..., Any] | None = None
+
     expected_column = term_order_column_for_clean_dataset(config)
     tc = _normalize_term_config_column_names(config.model_dump(mode="json"))
 
     def _fn(df: pd.DataFrame, term_column: str) -> pd.DataFrame:
+        nonlocal cached_ye, cached_se
         if term_column != expected_column:
             raise ValueError(
                 f"term_column {term_column!r} must be {expected_column!r} for this TermOrderConfig "
                 "(use term_order_column_for_clean_dataset(config) when building CleanSpec)."
             )
+        ye: Callable[..., Any] | None
+        se: Callable[..., Any] | None
+        if config.term_extraction != "hook_required":
+            ye, se = None, None
+        elif explicit_ye is not None and explicit_se is not None:
+            ye, se = explicit_ye, explicit_se
+        else:
+            if cached_ye is None:
+                cached_ye, cached_se = _resolve_hook_year_season_callables(
+                    config,
+                    hook_modules_root=hook_modules_root,
+                    year_extractor=None,
+                    season_extractor=None,
+                )
+            ye, se = cached_ye, cached_se
         return add_edvise_term_order(df, tc, year_extractor=ye, season_extractor=se)
 
     return _fn

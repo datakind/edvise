@@ -37,6 +37,8 @@ from .runner import (
 from .run_by_dataset import (
     IdentityProfilingDatasetResult,
     build_identity_profiling_run_by_dataset,
+    identity_profiling_run_to_jsonable,
+    write_identity_profiling_artifacts,
 )
 from .schemas import (
     IDENTITY_CONFIDENCE_HITL_THRESHOLD,
@@ -52,6 +54,8 @@ __all__ = [
     "DEFAULT_GATEWAY_MODEL_ID",
     "IDENTITY_CONFIDENCE_HITL_THRESHOLD",
     "IdentityProfilingDatasetResult",
+    "identity_profiling_run_to_jsonable",
+    "write_identity_profiling_artifacts",
     "DedupPolicy",
     "DedupStrategy",
     "IDENTITY_AGENT_SYSTEM_PROMPT",

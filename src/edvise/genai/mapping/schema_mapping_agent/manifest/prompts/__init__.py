@@ -32,6 +32,8 @@ from .generate import (
     summarize_schema_contract,
 )
 from .refine import (
+    build_refinement_combined_system_prompt,
+    build_refinement_combined_user_prompt,
     build_refinement_system_prompt,
     build_refinement_user_prompt,
 )
@@ -43,6 +45,8 @@ __all__ = [
     "assemble_step2a_prompt_from_sections",
     "audit_step2a_batched_prompt",
     "audit_step2a_prompt",
+    "build_refinement_combined_system_prompt",
+    "build_refinement_combined_user_prompt",
     "build_refinement_system_prompt",
     "build_refinement_user_prompt",
     "build_step2a_batched_prompt",

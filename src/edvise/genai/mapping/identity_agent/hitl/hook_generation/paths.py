@@ -10,9 +10,8 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
 
 def default_hook_module_relpath(institution_id: str, domain: HITLDomain) -> str:
     """
-    Stable path relative to the school's **bronze volume root** (``bronze_volumes_path`` in
-    :class:`~edvise.configs.genai.SchoolMappingConfig`), same base used for ``cleaned/`` and
-    ``enriched_schema_contracts/`` (Unity Catalog: ``/Volumes/<catalog>/<inst>_bronze/bronze_volume``).
+    Stable path relative to the **hook modules root** passed as ``repo_root`` / ``hook_file_root``
+    (in ``ia_dev`` this is ``{bronze_volumes_path}/identity_agent``, not the bare bronze root).
 
     Layout: ``identity_hooks/<institution_id>/dedup_hooks.py`` (grain) or ``term_hooks.py`` (term).
     Grain and term use distinct filenames so one institution can have both modules.

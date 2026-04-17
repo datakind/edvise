@@ -246,7 +246,8 @@ def build_schema_contract_from_grain_contracts(
             ``dedup_policy`` (``sort_by`` / ``keep`` / temporal collapse, custom hook, etc.). Non-empty
             ``dedupe_fn_by_dataset`` is merged on top: **explicit keys replace** the auto fn
             for that dataset (e.g. custom school hooks).
-        hook_modules_root: Directory containing ``identity_hooks/`` (e.g. ``school_config.bronze_volumes_path``).
+        hook_modules_root: Directory whose subtree contains ``identity_hooks/<institution_id>/``
+            (e.g. ``{bronze_volumes_path}/identity_agent`` when hooks live under the identity-agent folder).
             Used to import ``dedup_policy.hook_spec.file`` when strategy is ``policy_required`` with
             a hook. Defaults to ``school_config.bronze_volumes_path`` when omitted and that path is set.
         dtype_opts, spark_session, sample_size, cleaning_cfg: Forwarded

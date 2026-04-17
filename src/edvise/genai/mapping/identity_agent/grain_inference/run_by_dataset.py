@@ -7,6 +7,9 @@ and Pass 1 runners (:mod:`runner`).
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
+from pathlib import Path
 from typing import TypedDict
 
 from edvise.configs.genai import SchoolMappingConfig
@@ -64,7 +67,65 @@ def build_identity_profiling_run_by_dataset(
     return results
 
 
+def identity_profiling_run_to_jsonable(
+    institution_id: str,
+    run_by_dataset: Mapping[str, IdentityProfilingDatasetResult],
+) -> dict[str, object]:
+    """
+    Serialize a profiling run to a JSON-compatible dict: per-dataset ``raw_table_profile``,
+    ``key_profile`` (candidate keys + variance), row/col counts, and the grain ``user_message``.
+    """
+    datasets: dict[str, object] = {}
+    for name, row in run_by_dataset.items():
+        datasets[name] = {
+            "n_rows": row["n_rows"],
+            "n_cols": row["n_cols"],
+            "key_profile": row["key_profile"].model_dump(mode="json"),
+            "raw_table_profile": row["raw_table_profile"].model_dump(mode="json"),
+            "user_message": row["user_message"],
+        }
+    return {"institution_id": institution_id, "datasets": datasets}
+
+
+def write_identity_profiling_artifacts(
+    output_dir: str | Path,
+    institution_id: str,
+    run_by_dataset: Mapping[str, IdentityProfilingDatasetResult],
+    *,
+    filename: str = "identity_profiling_run.json",
+) -> Path:
+    """
+    Write IdentityAgent profiling output to disk (e.g. Unity Catalog
+    ``/Volumes/<catalog>/<inst>_bronze/bronze_volume/identity_agent/identity_profiling/``) for audit and
+    cross-checks against HITL ``hitl_context`` strings.
+
+    Parameters
+    ----------
+    output_dir:
+        Directory to create; typically ``{bronze_volume_root}/identity_agent/identity_profiling``.
+    institution_id:
+        Institution identifier (top-level ``institution_id`` in the JSON).
+    run_by_dataset:
+        Mapping from :func:`build_identity_profiling_run_by_dataset`.
+    filename:
+        Output file name (single JSON envelope with all datasets).
+
+    Returns
+    -------
+    Path
+        Path written.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    payload = identity_profiling_run_to_jsonable(institution_id, run_by_dataset)
+    path = output_dir / filename
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return path
+
+
 __all__ = [
     "IdentityProfilingDatasetResult",
     "build_identity_profiling_run_by_dataset",
+    "identity_profiling_run_to_jsonable",
+    "write_identity_profiling_artifacts",
 ]
