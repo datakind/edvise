@@ -56,6 +56,36 @@ COURSE academic_year AND academic_term — transformation steps (mirror manifest
 """
 
 
+def _step2b_cross_table_degree_datetime_rules() -> str:
+    """Step 2b: degree conferral / certificate dates from joined lookup tables."""
+    return """
+COHORT degree- and certificate-related DATETIME fields (cross-table joins to degree or similar)
+
+These targets include e.g. `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
+`certificate1_date`, `certificate2_date`, `certificate3_date` when the mapping manifest uses a
+lookup table (e.g. `degree`) with filters and `row_selection`.
+
+**(1) Manifest `source_column` is IdentityAgent term metadata — REQUIRED shape**
+- If the manifest's `source_column` for the field is `_edvise_term_academic_year` (or another IA
+  academic-year column on the **lookup** row), the resolved Series is already that column after the join.
+  Use:
+  - `strip_whitespace` then `term_components_to_datetime` with
+    `extra_columns`: `{"season_series": "_edvise_term_season"}`
+  - Do **not** substitute `coerce_datetime` on raw institution `term` / YYYYMM / term-code columns for
+    these targets — even when `schema_contract` sample_values for `term` look easy to parse. Parsing
+    `term` when the manifest sourced `_edvise_term_academic_year` ignores the manifest and breaks
+    alignment with IdentityAgent normalization.
+
+**(2) Manifest `source_column` is a raw code or date column — format-driven**
+- Only if the manifest explicitly maps `source_column` to `term`, a literal date column, or another
+  raw code field (not `_edvise_term_academic_year`), choose utilities from `sample_values` /
+  `unique_values` (e.g. `strip_trailing_decimal` + `coerce_datetime` with `fmt` for YYYYMM).
+
+**(3) Unmappable / non-datetime source in manifest**
+- Empty `steps` and explain in `reviewer_notes`; do not invent a datetime pipeline.
+"""
+
+
 def get_transformation_utilities_context() -> str:
     """
     Extract transformation utilities documentation from transformation_utilities.py.
@@ -173,11 +203,15 @@ MANIFEST ALIGNMENT
   If the manifest is missing a join for a cross-table field, that is a manifest error — do not compensate in the transformation map
 
 SOURCE COLUMN FORMAT AWARENESS
-- Before choosing transformation steps, check the schema_contract for the source column's sample_values and unique_values
+- Before choosing transformation steps, check the schema_contract for **the manifest's source_column**
+  (not a different column that also appears in the contract) — sample_values and unique_values apply to that column
 - If sample_values reveal a specific format
   (e.g. "202301.0" indicates YYYYMM with trailing decimal, "2018-19" indicates already-normalized YYYY-YY),
-  choose the utility that matches that format exactly
+  choose the utility that matches that format exactly **for fields where the manifest sources that column**
 - Do not assume a column's format from its name alone — verify against sample_values in the schema contract
+- For cross-table degree/certificate datetime fields, follow **COHORT degree- and certificate-related DATETIME**
+  rules below: do not pick utilities from raw `term` sample_values when the manifest sourced
+  `_edvise_term_academic_year`
 
 OUTPUT DTYPES
 - Set output_dtype to the RawEdvise / pandas name: "string", "Int64", "Float64" (extension dtypes — not numpy int64/float64), "category" (Pandera categoricals: entry_term, academic_term, pell_recipient_year1, term_pell_recipient), "boolean", "datetime64[ns]".
@@ -195,6 +229,7 @@ STEP ORDERING
 
 {_step2b_cohort_entry_term_transformation_rules()}
 {_step2b_course_academic_term_transformation_rules()}
+{_step2b_cross_table_degree_datetime_rules()}
 EXTRA COLUMNS
 - Some utilities require extra_columns
   (e.g., birthyear_to_age_bucket needs reference_year_series, conditional_credits needs grade_series,
