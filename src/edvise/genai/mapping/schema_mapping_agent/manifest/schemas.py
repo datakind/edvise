@@ -41,8 +41,13 @@ class ReviewStatus(str, Enum):
     # Set by the pipeline without human involvement.
 
     refined_by_llm = "refined_by_llm"
-    # Refinement LLM corrected a validation error or low confidence field.
+    # Refinement LLM corrected a validation error (confidence above threshold).
     # Original agent output was wrong; no human involvement.
+
+    refined_and_proposed_for_hitl = "refined_and_proposed_for_hitl"
+    # Refinement LLM applied a deterministic correction but confidence is at or
+    # below the HITL threshold — correction is merged into the manifest and the
+    # field still goes through HITL (recommended fix as option 1).
 
     proposed_for_hitl = "proposed_for_hitl"
     # Refinement LLM could not fix — sent to human reviewer at HITL gate.
@@ -265,7 +270,7 @@ class FieldMappingRecord(StrictBaseModel):
         description=(
             "Pipeline-assigned review outcome. Never set by the generating agent. "
             "Assigned after validation: auto_approved, refined_by_llm, "
-            "proposed_for_hitl, or corrected_by_hitl."
+            "refined_and_proposed_for_hitl, proposed_for_hitl, or corrected_by_hitl."
         ),
     )
     reviewer_notes: Optional[str] = Field(

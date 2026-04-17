@@ -408,8 +408,8 @@ class InstitutionSMAHITLItems(BaseModel):
     All SMA HITL items for one institution run.
     Written to: institutions/<institution_id>/sma_hitl.json
 
-    Empty items list means all fields either auto-approved or refined_by_llm —
-    no human review needed, gate check passes immediately.
+    Empty items list means there are no pending HITL rows for this entity (e.g. all
+    fields auto-approved or refined_by_llm without a HITL queue) — gate check passes.
     """
 
     model_config = ConfigDict(extra="forbid")
