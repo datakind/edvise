@@ -84,6 +84,23 @@ def _identity_domain_priors() -> str:
   dropped — these are system artifacts, not meaningful records.
 - row_selection IS required on semester tables.
 
+### Multi-column variance (honors, sub_plan, program, etc.)
+
+When two or more non-temporal, non-measure columns have variance within the same candidate key:
+
+- Do NOT use `no_dedup` as a catch-all. You must still choose a collapse strategy or declare
+  the grain is wider.
+- Prioritize **institutional semantic meaning**:
+  - `honors` (Cum Laude, Magna, Summa, etc.) is an **award attribute**, not a grain dimension.
+    Collapse on honors (keep highest distinction) rather than including it in the grain.
+  - `sub_plan` (PADHRMGT, PADMGTOP, etc.) is a **program track or concentration**. If students
+    can be enrolled in multiple tracks per program-term, it belongs in the grain. If it's an
+    attribute of a single enrollment, collapse it.
+  - `program` / `acad_prog_primary` (UGRD, GRAD, MPA) — if duplicates differ on this, decide:
+    is the grain student-term (collapse to one career) or student-term-career (keep multi-row)?
+- When uncertain about a column's semantic role, **collapse via tiebreak on the highest-priority
+  column, flag HITL, and let the reviewer confirm**.
+
 ### Degree / award / completion tables
 - Expected grain is multi-dimensional: student (or learner) identifier, program context
   (e.g. major or program) when present, term or completion cohort when present, **and**
@@ -153,34 +170,67 @@ def _identity_reasoning_steps() -> str:
      columns** in DOMAIN PRIORS (readable / parseable term values over opaque numeric codes).
 
 2. Interpret within-group variance on non-unique rows
-   - High variance on a TEMPORAL column (term, semester, date) → grain is under-specified,
-     that column belongs in the key.
-   - High variance on a NON-TEMPORAL, NON-MEASURE column (program, major, cohort) →
-     grain ambiguity requiring human policy decision. FLAG for HITL.
-   - Zero variance across all columns → true duplicates, safe to drop.
-   - Mixed variance across measure columns only (gpa, credits, grade) → competing values,
-     business rule needed for which row to keep. FLAG for HITL.
+
+   a) **Temporal columns (term, date, semester):**
+      High variance → grain is under-specified, that column belongs in the key.
+      Example: (student, program) with 40% variance on term → grain should be
+      (student, program, term). Update post_clean_primary_key.
+
+   b) **Single non-temporal, non-measure column with variance:**
+      Grain ambiguity. Decide: is this column part of the grain or a tiebreak?
+      Example: (student, program, term) with 60% variance on honors →
+      - Is honors part of the grain? (unlikely; honors describes the award, not the logical row)
+      - Then collapse via honors tiebreak (keep highest distinction)
+      - Or declare grain is intentionally wider at (student, program, term, honors) and flag HITL
+
+   c) **MULTIPLE non-temporal, semi-dimensional columns with variance (e.g., honors AND sub_plan):**
+      This is grain-width ambiguity. You must decide — do NOT use `no_dedup`:
+
+      **Option i) All variance is noise; grain is as identified; collapse via tiebreak on ONE column**
+         - Choose the column with clearest business semantics (e.g., honors over sub_plan
+           if honors is institutional priority).
+         - Accept that you're losing the other column's distinctions.
+         - Example: (sid, plan, term, degree) is the grain; collapse on honors descending
+           (keep Summa > Magna > Cum > none); sub_plan distinctions are dropped.
+         - Use `temporal_collapse` with `sort_by="honors"`, `sort_ascending=false`.
+
+      **Option ii) One or both columns belong in the grain (table is multi-row by design)**
+         - Declare the grain is wider: e.g., (sid, plan, term, degree, sub_plan) where honors
+           is collapsed, or (sid, plan, term, degree, honors) where sub_plan is collapsed.
+         - You're still collapsing one variance column; you're just widening the grain for the other.
+         - Example: grain = (sid, plan, term, degree, honors); collapse on sub_plan ascending.
+
+      **Option iii) Ambiguous; need human review**
+         - Flag HITL with explicit options showing what each choice drops/widens.
+         - Never default to `no_dedup` when multiple columns have variance.
+
+   d) **Zero variance across all columns:**
+      True duplicates, safe to drop.
+
+   e) **Mixed variance across measure columns only (gpa, credits, grade):**
+      Competing values, business rule needed for which row to keep. Flag for HITL.
 
 3. Apply domain priors (see above) — these override data inference when they conflict.
 
-4. Determine dedup policy
+4. Determine dedup policy — PRIORITY: prefer collapse to clean grain over multi-row ambiguity
+
+   **Validity check:** If the candidate key has `non_unique_rows` > 0, you CANNOT use `no_dedup`.
+   Use `temporal_collapse`, `true_duplicate`, or `policy_required` instead.
+
    Use exactly one of these string literals for `dedup_policy.strategy`:
 
-   - `"true_duplicate"`: all non-key columns are identical across duplicate rows — drop all
-     but one (any_row is safe after dedup). Use when within-group variance = 0.
-   - `"temporal_collapse"`: collapse to one row per key by sorting on a column and keeping
-     the first row. Always use `keep="first"` and control direction via `sort_ascending`:
-     - Keep **earliest** value: `sort_by="<col>"`, `sort_ascending=true`,  `keep="first"`
-     - Keep **latest** value:   `sort_by="<col>"`, `sort_ascending=false`, `keep="first"`
-     Never use `keep="last"` — it is ambiguous to reviewers and not a valid resolution target.
-     Use when grain is clear but one row per key is needed.
-   - `"no_dedup"`: table is intentionally multi-row per student — cleaning should not
-     collapse it. Use for course and semester tables.
-   - `"policy_required"`: a collapse is needed but the rule cannot be determined from data
-     alone — a human must specify the policy before cleaning runs. Use when `hitl_flag` is
-     true and the grain ambiguity is in the collapse decision itself (e.g. student-program
-     tables where the cohort base policy is unresolved). The executor will refuse to run
-     cleaning until HITL resolves this and updates the contract.
+   - `"true_duplicate"`: within-group variance = 0 across all columns — drop all but one
+   - `"temporal_collapse"`: collapse to one row per key by sorting on a column and keeping first.
+     Always use `keep="first"` and control direction via `sort_ascending`:
+     - Keep **earliest** value: `sort_by="<col>"`, `sort_ascending=true`, `keep="first"`
+     - Keep **latest** value: `sort_by="<col>"`, `sort_ascending=false`, `keep="first"`
+     Never use `keep="last"`.
+   - `"no_dedup"`: table is intentionally multi-row AND has ZERO duplicates on the semantic grain.
+     This is only valid when `non_unique_rows` = 0 for the candidate key.
+   - `"policy_required"`: grain is ambiguous or collapse rule is unclear; human must decide
+     before cleaning runs. Use when `hitl_flag` is true and the ambiguity is in the collapse
+     decision (e.g. student-program cohort policy). The executor will refuse to run cleaning
+     until HITL resolves this and updates the contract.
 
    For `dedup_policy.keep`, use only `"first"`, `"last"`, or JSON `null`.
    **Never** put `any_row` here — `any_row` is a row_selection strategy in SchemaMappingAgent
@@ -205,25 +255,58 @@ def _identity_reasoning_steps() -> str:
 7. Assign numeric `confidence` and `hitl_flag` per **CONFIDENCE SCORING** (next section).
 
 8. Emit `hitl_items` when `hitl_flag` is true
+
    - Emit one `HITLItem` per distinct ambiguity. A single table may have multiple items
      if independent questions arise (e.g. grain ambiguity + dedup policy).
+
+   **For multi-column variance (honors + sub_plan, etc.):**
+     Do not emit a single `no_dedup` option. Instead, emit 3–4 concrete options:
+
+     Option 1: "Collapse on Column A (keep highest/first); drop Column B distinctions"
+       - `dedup_strategy: "temporal_collapse"`
+       - `dedup_sort_by: "column_A"`
+       - `dedup_sort_ascending: true/false` (based on semantics)
+       - `dedup_keep: "first"`
+       - `candidate_key_override: null` (grain stays as identified)
+
+     Option 2: "Collapse on Column B (keep X); drop Column A distinctions"
+       - `dedup_strategy: "temporal_collapse"`
+       - `dedup_sort_by: "column_B"`
+       - `dedup_sort_ascending` / `dedup_keep: "first"` per semantics
+       - Alternative tiebreak for the ambiguous columns
+
+     Option 3 (if grain-widening is plausible): "Grain includes Column A; collapse Column B"
+       - `candidate_key_override: ["student", "term", ..., "column_A"]` (wider grain)
+       - `dedup_strategy: "temporal_collapse"`
+       - `dedup_sort_by: "column_B"`
+       - `dedup_keep: "first"`
+       - Shows that you're keeping Column A distinctions by widening the grain
+
+     Option 4: "Specify custom handling"
+       - `resolution: null`
+       - `reentry: "generate_hook"`
+
+     Each option's `description` must explicitly state what is **collapsed/dropped** and what
+     is **preserved/widened** (e.g., "Keep highest honors; drop sub_plan distinctions").
+
    - `options`: 2–5 options. Last option must always be `option_id: "custom"` with
      `resolution: null` and `reentry: "generate_hook"`. Use more options when the
      resolution space is genuinely wider — e.g. grain ambiguity cases where
-     "keep earliest", "keep latest", and "keep as multi-row" are all meaningful
-     and distinct choices. Avoid padding with options that are not meaningfully
-     different.
+     "keep earliest", "keep latest", and (when `non_unique_rows` = 0) "keep as multi-row
+     without dedup" are all meaningful and distinct choices. Avoid padding with options
+     that are not meaningfully different.
    - Non-custom options must have a non-null `resolution` with concrete `dedup_strategy`,
      `dedup_sort_by`, `dedup_sort_ascending`, and `dedup_keep` values where applicable.
    - Use `reentry: "terminal"` for parameterized resolutions (true_duplicate, temporal_collapse,
      no_dedup). Use `reentry: "generate_hook"` when a custom hook is required.
    - For `policy_required` dedup patterns, options must cover the full resolution
      spectrum — never jump from "keep all rows" directly to "collapse further" without
-     offering the middle ground. The three options should be:
-       1. Keep as intentionally multi-row (`no_dedup`) — if the table may be a
-          legitimate multi-row-per-student table (e.g. semester summary)
+     offering the middle ground. Typical options:
+       1. Keep as intentionally multi-row (`no_dedup`) — **only** when `non_unique_rows` = 0
+          for the candidate key (no duplicate rows at the semantic grain). If
+          `non_unique_rows` > 0, **do not** offer `no_dedup`; offer collapse strategies instead.
        2. Collapse to the semantic grain with a tiebreak on the ambiguous column
-          (`temporal_collapse` on the variance column, keeping student-term grain)
+          (`temporal_collapse` on the variance column, keeping the proposed grain)
        3. `custom` escape hatch
      Do not offer "collapse to student only" as an option unless the grain contract
      already specifies a student-only key. Collapsing further than the semantic grain
@@ -468,6 +551,9 @@ VALIDITY RULES
 
 - `hitl_flag: true` requires at least one corresponding item in the top-level `hitl_items`.
 - `hitl_flag: false` means no items for this table appear in `hitl_items`.
+- `no_dedup` is only valid when `non_unique_rows` = 0 for the candidate key in the key profile.
+  If any candidate key has `non_unique_rows` > 0, use `temporal_collapse`, `true_duplicate`,
+  or `policy_required` — never `no_dedup`.
 """ + f"- `confidence` ≤ {t} requires `hitl_flag: true`.\n" + """
 - Every HITLItem must have 2–5 options. Last option must be `option_id: "custom"`
   with `resolution: null`. Use more options only when the resolution space is

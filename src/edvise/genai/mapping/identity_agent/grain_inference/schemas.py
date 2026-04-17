@@ -73,9 +73,37 @@ class HookSpec(BaseModel):
 
 
 class DedupPolicy(BaseModel):
+    """
+    Deduplication strategy for the grain contract.
+
+    Attributes:
+        strategy: One of ``true_duplicate``, ``temporal_collapse``, ``no_dedup``, ``policy_required``.
+            ``no_dedup`` is only valid when the table has **zero** duplicate rows on the identified
+            grain (the key profile's ``non_unique_rows`` for that candidate key is 0). If
+            ``non_unique_rows`` > 0, use ``temporal_collapse``, ``true_duplicate``, or
+            ``policy_required`` instead. Cross-checking against profiling is done at inference or
+            execution time; this model does not embed the key profile.
+        sort_by: Column to sort by (required for ``temporal_collapse`` together with
+            ``sort_ascending``).
+        sort_ascending: Direction (``True`` = earliest first, ``False`` = latest first; required
+            for ``temporal_collapse``). Always pair with ``keep='first'``.
+        keep: ``first``, ``last``, or null. For ``temporal_collapse``, use ``first`` with
+            ``sort_ascending``; never ``any_row`` — that is a row_selection strategy in 2a, not a
+            dedup ``keep`` value.
+        hook_spec: Custom hook specification (null for parameterized strategies).
+        notes: Brief explanation of the dedup choice.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    strategy: DedupStrategy
+    strategy: DedupStrategy = Field(
+        ...,
+        description=(
+            "true_duplicate | temporal_collapse | no_dedup | policy_required. "
+            "no_dedup only when there are no duplicate rows at the semantic grain "
+            "(key profile non_unique_rows == 0)."
+        ),
+    )
     sort_by: str | None = None
     sort_ascending: bool | None = Field(
         default=None,
