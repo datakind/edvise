@@ -25,7 +25,7 @@ import logging
 import warnings
 import json
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 
 import numpy as np
@@ -223,7 +223,27 @@ def _cast_series_to_nullable_dtype(
                 return pd.to_datetime(s, errors="coerce")
 
         if dtype_str == "Int64":
-            return pd.to_numeric(s, errors="coerce").astype("Int64")
+            num = pd.to_numeric(s, errors="coerce")
+            # Handle conversion from float64 to Int64 properly
+            # Round non-integer values to nearest integer, then convert to Int64
+            if num.dtype == "float64":
+                num = num.round()
+                # Convert via numpy array to avoid "cannot safely cast" error
+                # This approach: float64 -> numpy int64 array -> Int64 Series
+                # NaN values are explicitly handled and restored as pd.NA
+                # Convert to numpy array, handling NaN
+                values = num.values
+                mask = np.isnan(values)
+                # Fill NaN with 0 temporarily for int64 conversion
+                values_filled = np.where(mask, 0, values).astype("int64")
+                # Create Int64 Series, then restore NaN as pd.NA
+                result = pd.Series(
+                    pd.array(values_filled, dtype="Int64"), index=s.index
+                )
+                result[mask] = pd.NA
+                return result
+            # If already int64 or other integer type, convert directly
+            return pd.Series(pd.array(num, dtype="Int64"), index=s.index)
 
         if dtype_str == "Float64":
             return pd.to_numeric(s, errors="coerce").astype("Float64")
@@ -293,23 +313,29 @@ def generate_column_training_dtype(
         frac = float(count) / len(s) if len(s) else 0.0
         return count >= opts.min_non_null and frac >= opts.dtype_confidence_threshold
 
-    # Try declared date formats with coercion
-    for fmt in opts.date_formats:
-        dt = pd.to_datetime(s, format=fmt, errors="coerce")
-        mask = dt.notna()
-        if _enough_non_null(mask):
-            return dt
+    # Skip datetime inference for CIP code columns (they often look like dates but are classification codes)
+    # Check column name if available (Series.name attribute)
+    col_name = getattr(s, "name", None)
+    skip_datetime_inference = col_name is not None and "cip" in str(col_name).lower()
 
-    # Try inferred datetime (quietly suppress the "could not infer format" warning)
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message="Could not infer format, so each element will be parsed individually",
-            category=UserWarning,
-        )
-        dt_inf = pd.to_datetime(s, errors="coerce")
-    if _enough_non_null(dt_inf.notna()):
-        return dt_inf
+    # Try declared date formats with coercion (skip for CIP columns)
+    if not skip_datetime_inference:
+        for fmt in opts.date_formats:
+            dt = pd.to_datetime(s, format=fmt, errors="coerce")
+            mask = dt.notna()
+            if _enough_non_null(mask):
+                return dt
+
+        # Try inferred datetime (quietly suppress the "could not infer format" warning)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="Could not infer format, so each element will be parsed individually",
+                category=UserWarning,
+            )
+            dt_inf = pd.to_datetime(s, errors="coerce")
+        if _enough_non_null(dt_inf.notna()):
+            return dt_inf
 
     # Try numeric with coercion (nullable pandas dtypes)
     num = pd.to_numeric(s, errors="coerce")
@@ -382,6 +408,70 @@ def generate_training_dtypes(
 # ---------------------------
 # Cleaning
 # ---------------------------
+def rename_student_id_alias_column(
+    df: pd.DataFrame,
+    alias: str,
+    *,
+    dataset_label: str = "",
+) -> tuple[pd.DataFrame, bool]:
+    """
+    If ``alias`` names a column and is not ``student_id``, rename it to ``student_id``
+    when ``student_id`` is not already present. Matches ``clean_dataset`` semantics.
+    """
+    label = dataset_label or "dataset"
+    if not alias or alias == "student_id":
+        return df, False
+    if alias not in df.columns:
+        return df, False
+    if "student_id" not in df.columns:
+        LOGGER.info(
+            "%s - Renaming student ID alias '%s' -> 'student_id'",
+            label,
+            alias,
+        )
+        return df.rename(columns={alias: "student_id"}), True
+    LOGGER.warning(
+        "%s - Found both 'student_id' and alias '%s'; leaving both unchanged.",
+        label,
+        alias,
+    )
+    return df, False
+
+
+def rename_learner_id_alias_column(
+    df: pd.DataFrame,
+    alias: str,
+    *,
+    dataset_label: str = "",
+) -> tuple[pd.DataFrame, bool]:
+    """
+    If ``alias`` names a column and is not ``learner_id``, rename it to ``learner_id``
+    when ``learner_id`` is not already present.
+
+    Used by :func:`clean_dataset` when ``canonical_learner_column`` is ``\"learner_id\"`` (GenAI
+    schema contracts). The default audit path still uses :func:`rename_student_id_alias_column`
+    (``student_id``).
+    """
+    label = dataset_label or "dataset"
+    if not alias or alias == "learner_id":
+        return df, False
+    if alias not in df.columns:
+        return df, False
+    if "learner_id" not in df.columns:
+        LOGGER.info(
+            "%s - Renaming learner ID alias '%s' -> 'learner_id'",
+            label,
+            alias,
+        )
+        return df.rename(columns={alias: "learner_id"}), True
+    LOGGER.warning(
+        "%s - Found both 'learner_id' and alias '%s'; leaving both unchanged.",
+        label,
+        alias,
+    )
+    return df, False
+
+
 @dataclass
 class CleanSpec:
     drop_columns: list[str] | None = None
@@ -405,6 +495,8 @@ def clean_dataset(
     enforce_uniqueness: bool = True,
     generate_dtypes: bool = True,
     cleaning_cfg: "CleaningConfig | None" = None,
+    *,
+    canonical_learner_column: t.Literal["student_id", "learner_id"] = "student_id",
 ) -> pd.DataFrame:
     """
     End-to-end cleaner with robust training-time dtype generation and consistent policies.
@@ -420,9 +512,24 @@ def clean_dataset(
     `generate_dtypes=False` is useful at inference to avoid re-generating dtypes
     and introducing train–inference skew; instead, `enforce_schema` should dictate
     the final dtypes.
+
+    ``canonical_learner_column``:
+      - ``\"student_id\"`` (default): rename alias → ``student_id`` (custom audit behavior).
+      - ``\"learner_id\"``: GenAI schema contracts — rename alias → ``learner_id``, or
+        ``student_id`` → ``learner_id`` if the file already used ``student_id``.
     """
     if cleaning_cfg is not None:
-        inference_opts = dtype_opts_from_cleaning_config(cleaning_cfg)
+        cfg_opts = dtype_opts_from_cleaning_config(cleaning_cfg)
+        if inference_opts is not None:
+            inference_opts = replace(
+                cfg_opts,
+                forced_dtypes={
+                    **cfg_opts.forced_dtypes,
+                    **inference_opts.forced_dtypes,
+                },
+            )
+        else:
+            inference_opts = cfg_opts
     else:
         inference_opts = inference_opts or DtypeGenerationOptions()
 
@@ -454,32 +561,35 @@ def clean_dataset(
         )
     g.columns = norm
 
-    # 2) canonical student_id rename
+    # 2) canonical learner column rename (audit: student_id; GenAI: learner_id)
     alias = spec.student_id_alias or "student_id_randomized_datakind"
-
-    if alias in g.columns:
-        # If alias exists and student_id does NOT already exist
-        if alias != "student_id" and "student_id" not in g.columns:
+    if canonical_learner_column == "student_id":
+        g, renamed = rename_student_id_alias_column(
+            g, alias, dataset_label=dataset_name
+        )
+        canonical_col = "student_id"
+    else:
+        g, renamed = rename_learner_id_alias_column(
+            g, alias, dataset_label=dataset_name
+        )
+        if not renamed and "student_id" in g.columns and "learner_id" not in g.columns:
             LOGGER.info(
-                "%s - Renaming student ID alias '%s' -> 'student_id'",
+                "%s - Renaming student_id -> learner_id (GenAI canonical_learner_column)",
                 dataset_name,
-                alias,
             )
-            g = g.rename(columns={alias: "student_id"})
-
-            # Keep primary-key spec in sync
-            if spec.unique_keys:
-                spec.unique_keys = [
-                    "student_id" if k == alias else k for k in spec.unique_keys
-                ]
-
-        # If both alias and student_id exist → ambiguous
-        elif alias != "student_id" and "student_id" in g.columns:
-            LOGGER.warning(
-                "%s - Found both 'student_id' and alias '%s'; leaving both unchanged.",
-                dataset_name,
-                alias,
-            )
+            g = g.rename(columns={"student_id": "learner_id"})
+            renamed = True
+        canonical_col = "learner_id"
+    if renamed and spec.unique_keys:
+        if canonical_learner_column == "student_id":
+            spec.unique_keys = [
+                "student_id" if k == alias else k for k in spec.unique_keys
+            ]
+        else:
+            spec.unique_keys = [
+                "learner_id" if k in (alias, "student_id") else k
+                for k in spec.unique_keys
+            ]
 
     # 3) normalize null tokens & whitespace
     null_tokens = cleaning_cfg.null_tokens if cleaning_cfg else ["(Blank)"]
@@ -492,9 +602,10 @@ def clean_dataset(
                 lambda s: s.replace(r"^\s*$", pd.NA, regex=True)
             )
 
-    # 4) drop requested columns (never drop student_id)
+    # 4) drop requested columns (never drop canonical learner id column)
     to_drop = set(spec.drop_columns or [])
     to_drop.discard("student_id")
+    to_drop.discard("learner_id")
     if to_drop:
         g = g.drop(columns=list(to_drop), errors="ignore")
         LOGGER.info(
@@ -517,12 +628,20 @@ def clean_dataset(
     # 6) generate dtypes at training-time
     if generate_dtypes:
         g = generate_training_dtypes(g, opts=inference_opts)
-    if "student_id" in g.columns:
-        g["student_id"] = g["student_id"].astype("string")
+    if canonical_col in g.columns:
+        g[canonical_col] = g[canonical_col].astype("string")
 
     # 7) optional dataset-specific dedupe hook (pre-key)
     if spec.dedupe_fn and callable(spec.dedupe_fn):
+        LOGGER.info("%s - Applying dedupe_fn", dataset_name)
+        before_dedupe_fn = len(g)
         g = spec.dedupe_fn(g)
+        LOGGER.info(
+            "%s - After dedupe_fn: %d rows removed | shape=%s",
+            dataset_name,
+            before_dedupe_fn - len(g),
+            g.shape,
+        )
 
     # 8) drop full row duplicates
     before = len(g)
@@ -746,6 +865,28 @@ def enforce_schema(df: pd.DataFrame, schema: dict) -> pd.DataFrame:
     return g
 
 
+def assert_dataframe_unique_keys(
+    df: pd.DataFrame,
+    keys: list[str],
+    *,
+    dataset_name: str,
+) -> None:
+    """Raise if ``keys`` are non-empty, all present in ``df``, and not unique row-wise."""
+    if not keys:
+        return
+    missing = [k for k in keys if k not in df.columns]
+    if missing:
+        raise ValueError(
+            f"{dataset_name}: unique key columns missing from dataframe: {missing}"
+        )
+    dups = df.duplicated(subset=keys)
+    if dups.any():
+        raise ValueError(
+            f"{dataset_name}: duplicate rows on unique keys {keys} "
+            f"(count={int(dups.sum())})"
+        )
+
+
 # ---------------------------
 # Multi-dataset preprocess schema
 # ---------------------------
@@ -755,6 +896,9 @@ class SchemaContractMeta:
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     null_tokens: list[str] = field(default_factory=lambda: ["(Blank)"])
+    student_id_alias: str | None = None
+    #: After cleaning, person-key column name: ``student_id`` (audit default) or ``learner_id`` (GenAI).
+    canonical_learner_column: str = "student_id"
 
 
 def build_schema_contract(
@@ -786,11 +930,16 @@ def build_schema_contract(
 
         datasets[name] = freeze_schema(df, spec_dict, opts=freeze_opts)
 
-    return {
+    out: dict[str, t.Any] = {
         "created_at": meta.created_at,
         "null_tokens": meta.null_tokens,
         "datasets": datasets,
     }
+    if meta.student_id_alias:
+        out["student_id_alias"] = meta.student_id_alias
+    if meta.canonical_learner_column != "student_id":
+        out["canonical_learner_column"] = meta.canonical_learner_column
+    return out
 
 
 def enforce_schema_contract(
@@ -1134,11 +1283,14 @@ __all__ = [
     "DtypeGenerationOptions",
     "generate_column_training_dtype",
     "generate_training_dtypes",
+    "rename_student_id_alias_column",
+    "rename_learner_id_alias_column",
     "CleanSpec",
     "clean_dataset",
     "SchemaFreezeOptions",
     "freeze_schema",
     "enforce_schema",
+    "assert_dataframe_unique_keys",
     "SchemaContractMeta",
     "build_schema_contract",
     "enforce_schema_contract",
