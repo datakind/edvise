@@ -228,10 +228,10 @@ class SMAHITLItem(BaseModel):
     current_field_mapping: FieldMappingRecord = Field(
         ...,
         description=(
-            "The FieldMappingRecord as produced by the refinement LLM — "
-            "its best attempt after trying to auto-correct. "
-            "Stored on the item so the Streamlit diff view can show "
-            "what changed between current and each option."
+            "Original FieldMappingRecord from the generating agent's manifest, "
+            "copied unchanged — corrections appear in options (option 1 is the "
+            "refinement LLM's recommended fix). Used by the Streamlit diff view "
+            "to compare the original mapping to each option."
         ),
     )
     validation_errors: list[str] = Field(

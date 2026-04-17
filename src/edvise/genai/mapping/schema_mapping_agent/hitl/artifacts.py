@@ -9,11 +9,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
-    InstitutionSMAHITLItems,
-    SMAHITLItem,
+from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import InstitutionSMAHITLItems
+from edvise.genai.mapping.schema_mapping_agent.manifest.refine import (
+    apply_refinement_review_status_safety_net,
 )
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import FieldMappingManifest
+from edvise.genai.mapping.schema_mapping_agent.manifest.validation import (
+    ManifestValidationError,
+)
 from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json, write_pydantic_json
 
 SMA_HITL_BASENAME = "sma_hitl.json"
@@ -55,8 +58,18 @@ def write_sma_hitl_and_manifest_artifacts(
     manifest: FieldMappingManifest,
     hitl_basename: str = SMA_HITL_BASENAME,
     manifest_basename: str = SMA_MANIFEST_OUTPUT_BASENAME,
+    validation_errors: list[ManifestValidationError] | None = None,
 ) -> tuple[Path, Path]:
-    """Write HITL envelope and manifest to the same directory."""
+    """Write HITL envelope and manifest to the same directory.
+
+    When ``validation_errors`` is provided, runs
+    :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.refine.apply_refinement_review_status_safety_net`
+    on the manifest before writing (post-parse contract enforcement).
+    """
+    if validation_errors is not None:
+        apply_refinement_review_status_safety_net(
+            manifest, validation_errors, hitl.items
+        )
     h = write_sma_hitl_artifact(output_dir, hitl, basename=hitl_basename)
     m = write_sma_manifest_artifact(output_dir, manifest, basename=manifest_basename)
     return h, m

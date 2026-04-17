@@ -10,6 +10,7 @@ __all__ = [
     "hitl",
     "hitl_resolver",
     "prompts",
+    "refine",
     "schemas",
     "validation",
 ]
@@ -32,6 +33,10 @@ def __getattr__(name: str) -> Any:
         from . import validation as v
 
         return v
+    if name == "refine":
+        from . import refine as r
+
+        return r
     if name == "hitl":
         # SMA HITL lives at package level (``schema_mapping_agent.hitl``), not under manifest.
         return importlib.import_module("edvise.genai.mapping.schema_mapping_agent.hitl")

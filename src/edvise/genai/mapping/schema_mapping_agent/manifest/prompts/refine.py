@@ -65,7 +65,7 @@ SMAHITLItem: {
   failure_mode: "low_confidence" | "column_not_found" | "join_structure" | "row_selection" | "map_unmap",
   hitl_question: str,        # specific actionable question naming field, issue, decision needed
   hitl_context: str | null,  # evidence: sample values, available columns, rationale, error details
-  current_field_mapping: FieldMappingRecord,  # your best refined attempt
+  current_field_mapping: FieldMappingRecord,  # ORIGINAL from input manifest, unchanged — options hold fixes
   validation_errors: list[str],              # ManifestValidationError.detail strings, empty if low_confidence only
   options: list[SMAHITLOption],              # 2-5 options, last always option_id="direct_edit"
   choice: null,              # always null — reviewer sets this
@@ -82,29 +82,56 @@ ReviewStatus (set by you on each FieldMappingRecord):
 """
 
 _AUTO_FIX_RULES = """
-AUTO-CORRECT these without generating a HITLItem:
-  - Column name is a clear typo or truncation with an obvious match in available columns
-    (e.g. "term_desc" when "term_descr" is in the schema contract)
-  - join declared on same table as source_table (remove the join)
-  - Unmapped field has stale source_table or join set (clear them)
-  - Missing column_alias where the canonical name is unambiguous from context
+AUTO-CORRECT (set review_status="refined_by_llm") ONLY when ALL of these are true:
+  - confidence > {threshold}
+  - The fix is unambiguous and deterministic:
+      • Column name is a clear typo/truncation with an obvious match in available columns
+      • join declared on same table as source_table (remove the join)
+      • Unmapped field has stale source_table or join set (clear them)
+      • Missing column_alias where the canonical name is unambiguous from context
 
-ESCALATE to a HITLItem when:
-  - The correct source column is genuinely ambiguous among multiple candidates
-  - A referenced table does not exist and no obvious substitute is present
-  - Row selection strategy is unclear from field semantics alone
-  - Join structure is wrong in a way requiring schema domain knowledge
-  - Model confidence is at or below {threshold} and the mapping is not obviously correct
-  - Multiple validation errors on the same field whose combined fix is ambiguous
+ALWAYS flag as proposed_for_hitl + emit a SMAHITLItem when ANY of these are true:
+  - confidence <= {threshold}  ← no exceptions, even if the mapping looks correct
+  - Validation error exists AND the fix requires judgment (not a clear typo/structural fix)
+  - Multiple validation errors whose combined fix is ambiguous
+
+NOTE: refined_by_llm is ONLY valid when confidence > {threshold} AND you made a
+clear deterministic fix. Never use refined_by_llm for low confidence fields.
+
+REVIEW STATUS RULES — strictly enforced:
+  - NEVER set review_status="auto_approved" on any field where confidence <= {threshold}.
+  - NEVER set review_status="auto_approved" on any field that has a validation error.
+  - NEVER set review_status="refined_by_llm" on any field where confidence <= {threshold}.
+  - Do not change confidence — it reflects the generating agent's uncertainty
+    and is frozen at generation time. review_status communicates what happened.
+  - Fields in the auto_approved_fields list must be copied through with
+    review_status="auto_approved" and NO changes to any other field.
+  - Fields you corrected (clear deterministic fix, confidence > {threshold}) must
+    have review_status="refined_by_llm".
+  - Fields you could not fix OR any field with confidence <= {threshold} must have
+    review_status="proposed_for_hitl" in current_field_mapping AND appear in hitl_items.
+  - There is no fourth option — every field gets exactly one of these three statuses.
 """.format(threshold=HITL_CONFIDENCE_THRESHOLD)
 
 _OPTION_GENERATION_RULES = """
 OPTION GENERATION RULES — for each HITLItem:
 
+  CRITICAL — current_field_mapping:
+    current_field_mapping must always be the original generating agent's FieldMappingRecord,
+    copied through unchanged from the input manifest. Do not apply your corrections to
+    current_field_mapping. Your recommended fix goes as option 1 in the options list.
+    The reviewer sees the original mapping and chooses from your suggestions.
+    current_field_mapping exists so the Streamlit diff view can show what changed
+    between the original and each option.
+
   General:
   - Generate 2-4 TERMINAL options + always append a final direct_edit option (total 2-5).
   - Each TERMINAL option is a complete FieldMappingRecord — not a delta.
   - Options must be meaningfully distinct. Do not generate near-duplicate options.
+  - Option 1 is always your recommended correction — label it "Recommended fix" or
+    a specific label like "Mark unmapped" if your recommendation is clear.
+  - If the original mapping is still plausible despite the flag, include it as an
+    option labeled "Keep original mapping" — never silently discard it.
   - last option is ALWAYS: {option_id: "direct_edit", label: "Edit directly",
     description: "Manually correct this field in the manifest editor.",
     reentry: "direct_edit", field_mapping: null, column_alias: null}
@@ -112,8 +139,10 @@ OPTION GENERATION RULES — for each HITLItem:
   By failure_mode:
 
   low_confidence:
-    - Options are the top 2-3 source column candidates you were choosing between.
-    - Include the original mapping as one option if it's still plausible.
+    - Option 1 is your recommended source column candidate.
+    - Include the original mapping as an option labeled "Keep original mapping"
+      if it is still plausible.
+    - Include 1-2 other strong candidates if they exist.
     - Include the original rationale in hitl_context.
 
   column_not_found:
@@ -134,11 +163,14 @@ OPTION GENERATION RULES — for each HITLItem:
     - Each option has the corrected row_selection set, all other fields preserved.
 
   map_unmap:
-    - Always exactly two TERMINAL options + direct_edit (total 3):
-      Option 1: confirm mapped — preserve source_column, source_table, join, row_selection.
-      Option 2: mark unmapped — source_column=null, source_table=null, join=null,
-                row_selection=null, confidence=1.0, rationale="Field is not mappable
-                for this institution."
+    - Always exactly two TERMINAL options + direct_edit (total 3).
+    - Option 1 is your recommendation (either "Mark unmapped" or "Keep mapped").
+    - Option 2 is the alternative the reviewer might prefer.
+    - If recommending unmapped: Option 1 = mark unmapped (source_column=null,
+      source_table=null, join=null, row_selection=null, confidence=1.0),
+      Option 2 = keep original mapping from current_field_mapping.
+    - If recommending mapped: Option 1 = your corrected FieldMappingRecord,
+      Option 2 = mark unmapped.
 """
 
 _FIELD_COLLAPSE_RULE = """
@@ -347,8 +379,11 @@ entity_type: {entity_type}
    Set review_status="refined_by_llm" on fields you fix.
 
 2. For fields you cannot confidently fix, generate a SMAHITLItem with:
-   - Your best attempt as current_field_mapping (review_status="proposed_for_hitl")
-   - 2-4 complete FieldMappingRecord options covering the most plausible corrections
+   - current_field_mapping = the ORIGINAL field mapping from the input manifest,
+     copied unchanged (review_status="proposed_for_hitl")
+   - Option 1 = your recommended correction as a complete FieldMappingRecord
+   - Additional options covering other plausible corrections
+   - The original mapping as an option if still plausible ("Keep original mapping")
    - A final direct_edit option
    - hitl_context that includes validation error details and/or original rationale
 
