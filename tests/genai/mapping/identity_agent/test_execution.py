@@ -479,6 +479,23 @@ def test_term_order_column_matches_clean_dataset_normalization():
     assert "_term_order" in out.columns
 
 
+def test_apply_term_order_combined_term_col_accepts_string_dtype_pd_na():
+    """StringDtype uses pd.NA for missing cells; season path must not call .lower on NA."""
+    cfg = TermOrderConfig(
+        term_col="term",
+        season_map=[
+            {"raw": "fa", "canonical": "FALL"},
+        ],
+        term_extraction="standard",
+    )
+    fn = term_order_fn_from_term_order_config(cfg)
+    df = pd.DataFrame({"term": pd.array(["Fall 2020", pd.NA], dtype="string")})
+    out = fn(df, "term")
+    assert len(out) == 2
+    assert out["_season"].notna().iloc[0]
+    assert out["_season"].isna().iloc[1]
+
+
 def test_apply_grain_dedup_maps_contract_learner_id_alias_to_learner_id():
     """After clean_dataset rename, the frame has learner_id; keys may still use the pre-rename name."""
     df = pd.DataFrame({"learner_id": ["a", "a"], "x": [1, 2]})

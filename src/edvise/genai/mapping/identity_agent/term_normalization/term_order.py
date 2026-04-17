@@ -44,7 +44,15 @@ _ACADEMIC_YEAR_START_SEASONS = {"FALL", "WINTER"}
 def _norm_token(t: str | None) -> str | None:
     if t is None:
         return None
-    return " ".join(t.lower().split())
+    try:
+        if pd.isna(t):
+            return None
+    except (ValueError, TypeError):
+        pass
+    s = t if isinstance(t, str) else str(t).strip()
+    if s == "":
+        return None
+    return " ".join(s.lower().split())
 
 
 def _resolve_season_token(t_norm: str | None, norm_keys: list[str]) -> str | None:
