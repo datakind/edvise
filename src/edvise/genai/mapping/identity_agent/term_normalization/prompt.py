@@ -64,6 +64,8 @@ Your job is to produce a `TermOrderConfig` that tells the cleaning layer how to 
 
 - `add_edvise_term_order(df, term_config, year_extractor, season_extractor)` — produces `_year`, `_season`, `_term_order`, `_edvise_term_season`, `_edvise_term_academic_year` (it runs term labels automatically)
 - `add_edvise_term_labels(df, term_config)` — use only when `_year` and `_season` already exist; adds `_edvise_term_season`, `_edvise_term_academic_year`
+
+When `term_extraction` is `"hook_required"` and you draft `year_extractor` / `season_extractor`, remember hooks run **after** `clean_dataset` dtype generation: the `term` argument is the column cast to string, and datetime columns are often **ISO-like** (e.g. `2011-04-04`) even when profiling showed `%m/%d/%Y` in the raw file. Draft parsers with `pd.to_datetime(term)` **without** a fixed `format=` unless you have a specific reason (strict validation or ambiguous `dd/mm` vs `mm/dd`).
 """
 
 
@@ -184,9 +186,10 @@ For **opaque numeric codes** (e.g. `"1192"` with no visible year in the string):
 
 For **date columns**:
 
-- `year_extractor`: `pd.to_datetime(term).year`
+- `year_extractor`: `pd.to_datetime(term).year` (prefer **no** `format=` — see role section: at runtime `term` is often ISO after cleaning, not the raw CSV layout)
 - `season_extractor`: infer from month bands — 1-4 → Spring, 5-7 → Summer, 8-11 → Fall, 12 → Winter
 - `season_map` should reflect the canonical mapping for those month-inferred seasons
+- Do **not** draft `pd.to_datetime(term, format="%m/%d/%Y")` (or other fixed layouts) just because samples looked US-slash in the file; that breaks when the column was coerced to datetime then stringified to ISO.
 
 ### Step 5 — Set `hitl_flag`
 
@@ -294,9 +297,10 @@ For **opaque numeric codes** (e.g. `"1192"` with no visible year in the string):
 
 For **date columns**:
 
-- `year_extractor`: `pd.to_datetime(term).year`
+- `year_extractor`: `pd.to_datetime(term).year` (prefer **no** `format=` — at runtime `term` is often ISO after `clean_dataset`, not the raw CSV layout)
 - `season_extractor`: infer from month bands — 1-4 → Spring, 5-7 → Summer, 8-11 → Fall, 12 → Winter
 - `season_map` should reflect the canonical mapping for those month-inferred seasons
+- Do **not** draft `pd.to_datetime(term, format="%m/%d/%Y")` (or other fixed layouts) just because samples looked US-slash in the file; that breaks when the column was coerced to datetime then stringified to ISO.
 
 When drafting `season_extractor` for hook-required tables: the function must return the **raw
 token as a string** — the same value that will appear as a raw key in `season_map_replace`. Do
@@ -523,6 +527,8 @@ You will receive a single JSON object with:
 
 Apply the same per-table reasoning rules as single-dataset term inference (term column selection,
 `season_map`, `term_extraction`, `hook_spec` when hook_required) **independently for each dataset**.
+
+**Hook drafts (`year_extractor` / `season_extractor`):** Hooks run after `clean_dataset` dtype generation; `term` is the column as string and is often **ISO-like** for datetimes even when profiling showed `%m/%d/%Y` in the raw file. Draft with `pd.to_datetime(term)` **without** a fixed `format=` unless you need strict validation or ambiguous-date handling (see **date columns** under REASONING STEPS).
 
 **Cross-table:** When several tables share the same term encoding, set the **same**
 ``hook_group_id`` on the **HITLItem** and set ``hook_group_tables`` to the full list of dataset
