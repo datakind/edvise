@@ -76,6 +76,12 @@ class DedupPolicy(BaseModel):
     """
     Deduplication strategy for the grain contract.
 
+    ``temporal_collapse`` and ``true_duplicate`` collapse **rows** to one per
+    ``GrainContract.post_clean_primary_key``. They do **not** delete columns from the frame;
+    downstream SchemaMappingAgent 2a still sees the full column set and applies
+    ``row_selection`` where needed. Removing a column from the schema is a separate step, not
+    grain dedup.
+
     Attributes:
         strategy: One of ``true_duplicate``, ``temporal_collapse``, ``no_dedup``, ``policy_required``.
             ``no_dedup`` is only valid when the table has **zero** duplicate rows on the identified
@@ -148,6 +154,12 @@ class DedupPolicy(BaseModel):
 class GrainContract(BaseModel):
     """
     Grain contract for one institution dataset from IdentityAgent **grain** stage (grain only).
+
+    **Deduplication (Option B):** When ``dedup_policy.strategy`` is ``temporal_collapse`` or
+    ``true_duplicate``, execution collapses duplicate **rows** to one per
+    ``post_clean_primary_key``. **All columns** are retained in the cleaned dataset; non-key
+    columns then have at most one value per grain key. If a column must be removed from the
+    schema entirely, that is done at schema-narrowing / mapping stages — not during grain dedup.
 
     Term column config is produced in the **term** stage as :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermContract`.
 

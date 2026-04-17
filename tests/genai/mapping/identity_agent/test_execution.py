@@ -15,6 +15,9 @@ from edvise.genai.mapping.identity_agent.execution import (
     merge_grain_contracts_into_school_config,
     merge_grain_learner_id_alias_into_school_config,
 )
+from edvise.genai.mapping.identity_agent.grain_inference.deduplication import (
+    drop_duplicate_keys,
+)
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     DedupPolicy,
     GrainContract,
@@ -110,6 +113,116 @@ def test_temporal_collapse_keep_last():
     out = apply_grain_dedup(df, c)
     assert len(out) == 1
     assert int(out["t"].iloc[0]) == 3
+
+
+def test_drop_duplicate_keys_preserves_all_columns():
+    """Option B: temporal_collapse path must not drop non-key columns."""
+    df = pd.DataFrame(
+        {
+            "sid": [1, 1, 1],
+            "acad_plan": ["MBA", "MBA", "MBA"],
+            "compl_term": ["Fall2023", "Fall2023", "Fall2023"],
+            "acad_org": ["GRAD", "GRAD", "GRAD"],
+            "degree": ["MASTER", "MASTER", "MASTER"],
+            "honors": ["Summa", "Cum Laude", "none"],
+            "sub_plan": ["PADHRMGT", "PADMGTOP", "PADISGORG"],
+            "honors_ord": [3, 2, 1],
+        }
+    )
+    grain_key = ["sid", "acad_plan", "compl_term", "acad_org", "degree"]
+    result = drop_duplicate_keys(
+        df,
+        grain_key,
+        keep="first",
+        sort_by=["honors_ord"],
+        ascending=False,
+    )
+    assert len(result) == 1
+    assert list(result.columns) == list(df.columns)
+    assert result.iloc[0]["sub_plan"] == "PADHRMGT"
+    assert result.iloc[0]["honors"] == "Summa"
+    assert result.iloc[0]["honors_ord"] == 3
+
+
+def test_apply_grain_dedup_temporal_collapse_preserves_all_columns_option_b():
+    """Full contract path: collapse rows, retain every column (Option B)."""
+    df = pd.DataFrame(
+        {
+            "sid": [1, 1, 1],
+            "acad_plan": ["MBA", "MBA", "MBA"],
+            "compl_term": ["Fall2023", "Fall2023", "Fall2023"],
+            "acad_org": ["GRAD", "GRAD", "GRAD"],
+            "degree": ["MASTER", "MASTER", "MASTER"],
+            "honors": ["Summa", "Cum Laude", "none"],
+            "sub_plan": ["PADHRMGT", "PADMGTOP", "PADISGORG"],
+            "honors_ord": [3, 2, 1],
+        }
+    )
+    c = _grain(
+        post_clean_primary_key=[
+            "sid",
+            "acad_plan",
+            "compl_term",
+            "acad_org",
+            "degree",
+        ],
+        join_keys_for_2a=[
+            "sid",
+            "acad_plan",
+            "compl_term",
+            "acad_org",
+            "degree",
+        ],
+        dedup_policy=DedupPolicy(
+            strategy="temporal_collapse",
+            sort_by="honors_ord",
+            sort_ascending=False,
+            keep="first",
+            notes="",
+        ),
+    )
+    out = apply_grain_dedup(df, c)
+    assert len(out) == 1
+    assert list(out.columns) == list(df.columns)
+
+
+def test_apply_grain_dedup_widen_grain_preserves_row_diversity():
+    """Wider grain includes sub_plan: one row per wider key, all columns kept."""
+    df = pd.DataFrame(
+        {
+            "sid": [1, 1, 1],
+            "acad_plan": ["MBA", "MBA", "MBA"],
+            "compl_term": ["Fall2023", "Fall2023", "Fall2023"],
+            "acad_org": ["GRAD", "GRAD", "GRAD"],
+            "degree": ["MASTER", "MASTER", "MASTER"],
+            "honors": ["Summa", "Cum Laude", "none"],
+            "sub_plan": ["PADHRMGT", "PADMGTOP", "PADISGORG"],
+            "honors_ord": [3, 2, 1],
+        }
+    )
+    wider = [
+        "sid",
+        "acad_plan",
+        "compl_term",
+        "acad_org",
+        "degree",
+        "sub_plan",
+    ]
+    c = _grain(
+        post_clean_primary_key=wider,
+        join_keys_for_2a=wider,
+        dedup_policy=DedupPolicy(
+            strategy="temporal_collapse",
+            sort_by="honors_ord",
+            sort_ascending=False,
+            keep="first",
+            notes="",
+        ),
+    )
+    out = apply_grain_dedup(df, c)
+    assert len(out) == 3
+    assert list(out.columns) == list(df.columns)
+    assert out["sub_plan"].nunique() == 3
 
 
 def test_apply_term_order_from_contract_adds_columns():

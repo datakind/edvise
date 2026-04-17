@@ -253,7 +253,8 @@ def load_grain_dedup_hook_from_hook_spec(
 
     The hook is invoked once per key-group: ``df.groupby(keys).apply`` passes each group
     ``DataFrame`` (same columns as the full frame) to the loaded function, which must return
-    a ``DataFrame`` (typically zero or one row per group). Column names are **already
+    a ``DataFrame`` (typically zero or one row per group) with the **same columns** as the
+    input group (Option B: do not drop columns in custom dedup). Column names are **already
     snake_case** — :func:`~edvise.data_audit.custom_cleaning.clean_dataset` runs
     ``normalize_columns`` before ``dedupe_fn``.
     """
@@ -324,8 +325,10 @@ def apply_grain_dedup(
       The callable receives each group's ``DataFrame`` and must return a ``DataFrame``.
     - ``true_duplicate``: ``drop_duplicates`` on the key (optional ``sort_by`` for
       deterministic ordering before ``keep``).
-    - ``temporal_collapse``: requires ``sort_by`` for meaningful ordering; if omitted, logs a
-      warning and behaves like ``true_duplicate``.
+    - ``temporal_collapse``: sort (when ``sort_by`` is set) then dedupe on the key. **Does not
+      remove any columns** — only rows are collapsed; all original columns remain (Option B:
+      "drop distinctions" = one value per grain per non-key column when applicable, not schema
+      deletion). If ``sort_by`` is omitted, logs a warning and behaves like ``true_duplicate``.
 
     When ``dedupe_fn`` runs inside :func:`~edvise.data_audit.custom_cleaning.clean_dataset`,
     the frame already uses the canonical learner column (default ``learner_id`` for GenAI, or

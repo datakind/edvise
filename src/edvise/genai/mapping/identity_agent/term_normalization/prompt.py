@@ -66,6 +66,8 @@ Your job is to produce a `TermOrderConfig` that tells the cleaning layer how to 
 - `add_edvise_term_labels(df, term_config)` — use only when `_year` and `_season` already exist; adds `_edvise_term_season`, `_edvise_term_academic_year`
 
 When `term_extraction` is `"hook_required"` and you draft `year_extractor` / `season_extractor`, remember hooks run **after** `clean_dataset` dtype generation: the `term` argument is the column cast to string, and datetime columns are often **ISO-like** (e.g. `2011-04-04`) even when profiling showed `%m/%d/%Y` in the raw file. Draft parsers with `pd.to_datetime(term)` **without** a fixed `format=` unless you have a specific reason (strict validation or ambiguous `dd/mm` vs `mm/dd`).
+
+For `hook_spec.functions[].draft`, emit **one-line Python expressions** (what a `return` would evaluate), not full `def` blocks — reviewers read them inline; the downstream `generate_hook` step materializes complete functions for the module.
 """
 
 
@@ -186,10 +188,14 @@ For **opaque numeric codes** (e.g. `"1192"` with no visible year in the string):
 
 For **date columns**:
 
-- `year_extractor`: `pd.to_datetime(term).year` (prefer **no** `format=` — see role section: at runtime `term` is often ISO after cleaning, not the raw CSV layout)
-- `season_extractor`: infer from month bands — 1-4 → Spring, 5-7 → Summer, 8-11 → Fall, 12 → Winter
-- `season_map` should reflect the canonical mapping for those month-inferred seasons
+- `year_extractor`: prefer `pd.to_datetime(term).year` with **no** `format=` (see role section: at runtime `term` is often ISO after cleaning, not the raw CSV layout).
+- `season_extractor`: derive season from calendar month. Return a **stable raw string token** that will be a key in `season_map` (same idea as `season_map_replace` in batch HITL):
+  - **Preferred — English month names:** `pd.to_datetime(term).strftime('%B').lower()` and pair with a **12-row** mapping (Jan→Dec in calendar list order), each `raw` → canonical `SPRING` | `SUMMER` | `FALL` | `WINTER` per policy (e.g. Jan–Apr → Spring, May–Jul → Summer, Aug–Nov → Fall, Dec → Winter). Document in `description` that `strftime('%B')` is English.
+  - **Alternative — short codes:** e.g. `'1'`–`'4'` with an **explicit** `if` / `elif` ladder, `dict`, or table over month number — one branch per band — never a "clever" single formula unless verified for **all 12 months**.
+- **Do not** use one arithmetic expression on month (e.g. `(month - 1) // 4 + 1`) for 1–4 / 5–7 / 8–11 / 12-style bands — those buckets are **not** equal-width quarters; such formulas mis-classify months unless re-derived.
+- `season_map` (when not empty) must align with the raw tokens you emit.
 - Do **not** draft `pd.to_datetime(term, format="%m/%d/%Y")` (or other fixed layouts) just because samples looked US-slash in the file; that breaks when the column was coerced to datetime then stringified to ISO.
+- `season_extractor` must return **raw** tokens, not canonical labels (`FALL`, …).
 
 ### Step 5 — Set `hitl_flag`
 
@@ -297,9 +303,11 @@ For **opaque numeric codes** (e.g. `"1192"` with no visible year in the string):
 
 For **date columns**:
 
-- `year_extractor`: `pd.to_datetime(term).year` (prefer **no** `format=` — at runtime `term` is often ISO after `clean_dataset`, not the raw CSV layout)
-- `season_extractor`: infer from month bands — 1-4 → Spring, 5-7 → Summer, 8-11 → Fall, 12 → Winter
-- `season_map` should reflect the canonical mapping for those month-inferred seasons
+- `year_extractor`: prefer `pd.to_datetime(term).year` with **no** `format=` — at runtime `term` is often ISO after `clean_dataset`, not the raw CSV layout.
+- `season_extractor`: derive season from calendar month. Return a **stable raw string token** for `season_map_replace` / `season_map`:
+  - **Preferred — English month names:** `pd.to_datetime(term).strftime('%B').lower()` and, in the `confirm_extraction` resolution, supply **12** `season_map_replace` entries (January→December in calendar order in the list), each `raw` → canonical per your stated policy (e.g. Jan–Apr → `SPRING`, May–Jul → `SUMMER`, Aug–Nov → `FALL`, Dec → `WINTER`). State in `description` that month names are English from `strftime`.
+  - **Alternative — short codes:** e.g. `'1'`–`'4'` with **explicit** `if` / `elif`, `dict`, or table on month number — verify **every** month 1–12 maps as intended.
+- **Do not** encode month→season with one arithmetic expression on `month` unless checked against **all 12 months**; patterns like `(month - 1) // 4 + 1` do **not** match 1–4 / 5–7 / 8–11 / 12 bands.
 - Do **not** draft `pd.to_datetime(term, format="%m/%d/%Y")` (or other fixed layouts) just because samples looked US-slash in the file; that breaks when the column was coerced to datetime then stringified to ISO.
 
 When drafting `season_extractor` for hook-required tables: the function must return the **raw
@@ -325,6 +333,11 @@ Each HITLItem must have:
 
 - `hitl_question`: specific and actionable — name the column, the specific values or
   patterns that are ambiguous, and what the reviewer needs to decide.
+- For **datetime / date** hook-required columns, `hitl_question` must ask the reviewer to confirm the
+  **month→season policy** (or other date rule) before hook generation. `hitl_context` must include
+  sample values and the **proposed** mapping in plain language (e.g. "Jan–Apr → Spring, …").
+  In `confirm_extraction`, `season_map_replace` must list **every** raw token the drafted
+  `season_extractor` can return (e.g. all 12 English month names when using `strftime('%B').lower()`).
 - `hitl_context`: the raw values or samples that triggered the flag. Give the reviewer
   the evidence they need without requiring them to look at the data.
 - `options`: 2–5 options. Last option must always be `option_id: "custom"` with
@@ -364,6 +377,8 @@ Good `hitl_question` examples:
   or mapped to a proxy canonical season?"
 - "`STRM` is an opaque int64 column (e.g. 1700, 1730). Year offset logic was inferred from
   samples. Please confirm the extraction rule before hook generation proceeds."
+- "`term_enrolled_date` parses as dates (e.g. '1-Sep-19'). Confirm Jan–Apr→Spring, May–Jul→Summer,
+  Aug–Nov→Fall, Dec→Winter before hook generation proceeds."
 
 ### ACADEMIC YEAR CONVENTION (do not emit — for your reasoning only)
 
@@ -528,7 +543,7 @@ You will receive a single JSON object with:
 Apply the same per-table reasoning rules as single-dataset term inference (term column selection,
 `season_map`, `term_extraction`, `hook_spec` when hook_required) **independently for each dataset**.
 
-**Hook drafts (`year_extractor` / `season_extractor`):** Hooks run after `clean_dataset` dtype generation; `term` is the column as string and is often **ISO-like** for datetimes even when profiling showed `%m/%d/%Y` in the raw file. Draft with `pd.to_datetime(term)` **without** a fixed `format=` unless you need strict validation or ambiguous-date handling (see **date columns** under REASONING STEPS).
+**Hook drafts (`year_extractor` / `season_extractor`):** Hooks run after `clean_dataset` dtype generation; `term` is the column as string and is often **ISO-like** for datetimes even when profiling showed `%m/%d/%Y` in the raw file. Draft with `pd.to_datetime(term)` **without** a fixed `format=` unless you need strict validation or ambiguous-date handling (see **date columns** under REASONING STEPS). Put **one-line Python expressions** in `functions[].draft` (not full `def` blocks); the downstream `generate_hook` step turns them into complete functions.
 
 **Cross-table:** When several tables share the same term encoding, set the **same**
 ``hook_group_id`` on the **HITLItem** and set ``hook_group_tables`` to the full list of dataset
@@ -630,13 +645,13 @@ Shape:
                   "name": "year_extractor",
                   "signature": "def year_extractor(term: str) -> int",
                   "description": "<...>",
-                  "draft": "<Python expression>"
+                  "draft": "<one-line Python expression — return value; see REASONING STEPS and role section>"
                 },
                 {
                   "name": "season_extractor",
                   "signature": "def season_extractor(term: str) -> str",
                   "description": "<...>",
-                  "draft": "<Python expression>"
+                  "draft": "<one-line Python expression — return value; see REASONING STEPS and role section>"
                 }
               ]
             }
@@ -693,6 +708,10 @@ VALIDITY RULES
     and breaks `add_edvise_term_order`.
   - Both must appear together in every non-custom hook-required resolution. A resolution with
     `hook_spec` but no `season_map_replace` is incomplete.
+  - **Date/datetime columns:** Prefer `strftime('%B').lower()` on `pd.to_datetime(term)` plus **12**
+    `season_map_replace` rows (calendar month order), or an explicit verified month→code mapping.
+    Do not ship a compact `season_extractor` expression that mis-maps any month relative to the
+    stated Jan–Apr / May–Jul / Aug–Nov / Dec bands.
 
   Example (correct — raw tokens in the extractor match `season_map_replace` keys):
 

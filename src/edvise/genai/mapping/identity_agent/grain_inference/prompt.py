@@ -78,6 +78,27 @@ def _identity_domain_priors() -> str:
   does not require it — 2a needs term for longitudinal field resolution and join safety.
 - row_selection IS required on course tables. Do not recommend collapsing to student grain.
 
+### Course repeat / multi-term enrollment
+
+When `(student_id, class_nbr, term)` has high uniqueness (0.999+) and minimal non-unique rows:
+- Grain is correct; multi-term enrollments are expected (not duplicates)
+- Use `dedup_strategy: "true_duplicate"` to drop only system artifact duplicates
+- Do NOT offer "keep earliest vs latest term" options (that collapses the grain without saying so)
+
+If you need HITL because the grain is ambiguous (should it be `(student, class)` or `(student, class, term)`):
+- Offer 2–3 options with **explicit grain changes**
+- Options that collapse on term **must use `candidate_key_override`** to remove term from the grain
+- Example: "Collapse to (student, class) by keeping latest term"
+  ```json
+  {
+    "candidate_key_override": ["student_id", "class_nbr"],
+    "dedup_strategy": "temporal_collapse",
+    "dedup_sort_by": "term",
+    "dedup_sort_ascending": false,
+    "dedup_keep": "first"
+  }
+  ```
+
 ### Semester / term-summary tables
 - Expected grain is (student_id, term).
 - True duplicates on this key (within-group variance = 0 across all columns) should be
@@ -140,6 +161,51 @@ parseable string column is available for the same enrollment rows.
 """
 
 
+def _identity_terminology_drop_distinctions() -> str:
+    return """
+## TERMINOLOGY: "Drop Distinctions" vs. "Delete Column"
+
+When a HITL option says "**drop [column] distinctions**," it means:
+- The table is **collapsed to one row per grain key** (fewer rows).
+- The **[column] still exists** in the final dataset (the column is **not** deleted).
+- Only **one value** of [column] appears per grain key (row-level diversity on that column is lost).
+- Downstream 2a sees that column in the DataFrame and can reference it; it applies
+  `row_selection` when the table is still multi-row per join key.
+
+This is **NOT** the same as **deleting** the column from the schema. Column removal belongs to
+schema-narrowing / mapping stages, not grain dedup.
+
+**Example (degrees-style table):**
+
+  Raw (3 rows per grain):
+
+    (sid=1, plan=MBA, term=Fall2023, honors=Summa,    sub_plan=PADHRMGT)
+    (sid=1, plan=MBA, term=Fall2023, honors=Cum Laude, sub_plan=PADMGTOP)
+    (sid=1, plan=MBA, term=Fall2023, honors=none,      sub_plan=PADISGORG)
+
+  After "collapse on honors (keep highest), drop sub_plan distinctions" at grain
+  (sid, plan, term, degree):
+
+    (sid=1, plan=MBA, term=Fall2023, honors=Summa, sub_plan=PADHRMGT)
+
+  ✓ `sub_plan` column still exists  
+  ✓ 2a can reference it (it appears in the DataFrame)  
+  ✗ Row diversity on `sub_plan` is lost (only PADHRMGT remains — from the kept row)
+
+If the intent were to **remove `sub_plan` from the schema entirely**, the option would say so
+explicitly, e.g. "Collapse to grain (sid, plan, term); **remove sub_plan from schema**" — that is
+a different operation from "drop sub_plan distinctions."
+
+**Templates for HITL `description` fields**
+
+- **Narrow grain + collapse (drop distinctions on a non-grain column):**
+  `Grain = (…). Collapse to one row per grain by [collapse criterion]. [Column] column is retained, but only one value per grain (row diversity on [column] is lost).`
+
+- **Widen grain (keep distinctions by adding a dimension):**
+  `Grain = (…, sub_plan, …). Collapse on [tiebreak column] (e.g. keep highest honors). Sub_plan is preserved as a grain dimension; the table may remain multi-row at (sid, plan, term, degree) with one row per (…, sub_plan).`
+"""
+
+
 def _identity_reasoning_steps() -> str:
     return """
 ## REASONING STEPS
@@ -191,7 +257,9 @@ def _identity_reasoning_steps() -> str:
            if honors is institutional priority).
          - Accept that you're losing the other column's distinctions.
          - Example: (sid, plan, term, degree) is the grain; collapse on honors descending
-           (keep Summa > Magna > Cum > none); sub_plan distinctions are dropped.
+           (keep Summa > Magna > Cum > none); **drop sub_plan distinctions** means one row per grain
+           with **sub_plan still present** as a column (single value per grain from the kept row) — see
+           **TERMINOLOGY: "Drop Distinctions" vs. "Delete Column"**.
          - Use `temporal_collapse` with `sort_by="honors"`, `sort_ascending=false`.
 
       **Option ii) One or both columns belong in the grain (table is multi-row by design)**
@@ -260,34 +328,41 @@ def _identity_reasoning_steps() -> str:
      if independent questions arise (e.g. grain ambiguity + dedup policy).
 
    **For multi-column variance (honors + sub_plan, etc.):**
-     Do not emit a single `no_dedup` option. Instead, emit 3–4 concrete options:
+     Do not emit a single `no_dedup` option. Instead, emit 3–4 concrete options.
 
-     Option 1: "Collapse on Column A (keep highest/first); drop Column B distinctions"
+     Follow **TERMINOLOGY: "Drop Distinctions" vs. "Delete Column"** — "drop distinctions" never
+     means deleting a column; it means collapsing rows so only one value per grain remains **while
+     the column stays in the table**.
+
+     Option 1 — collapse on column A; drop column B distinctions (Option B: column B retained):
+       - `description` example: `Grain = (sid, acad_plan, compl_term, acad_org, degree). Collapse to one row per grain by keeping the row with highest honors distinction. Sub_plan column is retained, but only one value per grain (row diversity on sub_plan is lost).`
        - `dedup_strategy: "temporal_collapse"`
-       - `dedup_sort_by: "column_A"`
+       - `dedup_sort_by: "column_A"` (e.g. honors)
        - `dedup_sort_ascending: true/false` (based on semantics)
        - `dedup_keep: "first"`
        - `candidate_key_override: null` (grain stays as identified)
 
-     Option 2: "Collapse on Column B (keep X); drop Column A distinctions"
+     Option 2 — collapse on column B; drop column A distinctions:
+       - `description` must use the same explicit template: name the **grain columns**, the **collapse
+         criterion**, and that the **dropped-distinctions column is still present** with one value per grain.
        - `dedup_strategy: "temporal_collapse"`
        - `dedup_sort_by: "column_B"`
        - `dedup_sort_ascending` / `dedup_keep: "first"` per semantics
-       - Alternative tiebreak for the ambiguous columns
 
-     Option 3 (if grain-widening is plausible): "Grain includes Column A; collapse Column B"
+     Option 3 (if grain-widening is plausible) — column A is a grain dimension; collapse column B:
+       - `description` example: `Grain = (sid, acad_plan, compl_term, acad_org, degree, sub_plan). Collapse on honors (keep highest distinction). Sub_plan column is preserved as a grain dimension; table remains multi-row with one row per (sid, acad_plan, compl_term, acad_org, degree, sub_plan).`
        - `candidate_key_override: ["student", "term", ..., "column_A"]` (wider grain)
        - `dedup_strategy: "temporal_collapse"`
        - `dedup_sort_by: "column_B"`
        - `dedup_keep: "first"`
-       - Shows that you're keeping Column A distinctions by widening the grain
 
      Option 4: "Specify custom handling"
        - `resolution: null`
        - `reentry: "generate_hook"`
 
-     Each option's `description` must explicitly state what is **collapsed/dropped** and what
-     is **preserved/widened** (e.g., "Keep highest honors; drop sub_plan distinctions").
+     Each option's `description` must explicitly state: **grain columns**, **what row collapse does**,
+     and whether **non-grain columns are retained with one value per grain** vs **widened into the key**.
+     Never phrase "drop distinctions" as if the column were removed from the schema.
 
    - `options`: 2–5 options. Last option must always be `option_id: "custom"` with
      `resolution: null` and `reentry: "generate_hook"`. Use more options when the
@@ -315,6 +390,9 @@ def _identity_reasoning_steps() -> str:
        - `dedup_sort_ascending`: true = keep earliest value, false = keep latest value
        - `dedup_keep`: always "first" — never "last"
      Both fields are required when `dedup_strategy` is `temporal_collapse`.
+     When using `temporal_collapse` to collapse on a grain dimension (e.g. term), always use
+     `candidate_key_override` to remove that dimension from the grain. Do not collapse on a column
+     that remains in the final grain.
      The Pydantic validator will reject the output if either is missing or if
      `dedup_keep` is not "first".
 
@@ -415,6 +493,9 @@ def _identity_output_format() -> str:
     return """
 ## OUTPUT FORMAT
 
+Apply **TERMINOLOGY: "Drop Distinctions" vs. "Delete Column"** when writing HITL option
+`description` strings so reviewers and execution agree on Option B (collapse rows, keep columns).
+
 Respond ONLY with a JSON object. No preamble, no markdown, no explanation outside the JSON.
 
 Follow **LEARNER IDENTIFIER COLUMN** for `learner_id_alias` and for how to name the learner id
@@ -461,7 +542,7 @@ HITLItem shape for grain:
     {
       "option_id": "<snake_case_id>",
       "label": "<short label ~4 words>",
-      "description": "<one sentence consequence>",
+      "description": "<explicit: grain columns + collapse rule + which columns are retained with one value per grain vs widened into the key — never imply a column is deleted from schema>",
       "resolution": {
         "candidate_key_override": null,
         "dedup_strategy": "<true_duplicate | temporal_collapse | no_dedup>",
@@ -585,6 +666,7 @@ types, and nesting must match; do not add extra keys at validated levels.
 IDENTITY_SYSTEM_SECTION_KEYS: tuple[str, ...] = (
     "role_and_inputs",
     "domain_priors",
+    "terminology_drop_distinctions",
     "reasoning_steps",
     "confidence_scoring",
     "student_id_and_keys",
@@ -598,6 +680,7 @@ def get_identity_agent_system_sections() -> dict[str, str]:
     return {
         "role_and_inputs": _identity_role_and_inputs().strip(),
         "domain_priors": _identity_domain_priors(),
+        "terminology_drop_distinctions": _identity_terminology_drop_distinctions().strip(),
         "reasoning_steps": _identity_reasoning_steps(),
         "confidence_scoring": _identity_confidence_scoring(),
         "student_id_and_keys": _identity_student_id_and_keys().strip(),
@@ -750,6 +833,9 @@ def parse_grain_contract_with_hitl(
 ) -> tuple[GrainContract, list[HITLItem]]:
     """
     Parse grain-stage JSON into :class:`GrainContract` plus structured ``hitl_items``.
+
+    Parsed :class:`GrainContract` describes row-level dedup only; execution retains **all
+    columns** after ``temporal_collapse`` / ``true_duplicate`` (Option B — see package docs).
 
     Top-level ``hitl_items`` (if present) is validated as :class:`HITLItem` and removed
     before grain validation. Legacy ``term_config`` is stripped from the payload.
