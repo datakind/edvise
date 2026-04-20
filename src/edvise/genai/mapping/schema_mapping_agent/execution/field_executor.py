@@ -58,6 +58,13 @@ SPARK_THRESHOLD = 500_000
 # =============================================================================
 
 
+def _effective_source_column(record: FieldMappingRecord) -> Optional[str]:
+    """Prefer HITL-corrected column when set; else manifest source_column."""
+    if record.corrected_source_column:
+        return record.corrected_source_column
+    return record.source_column
+
+
 def _derive_entity_keys(
     manifest: FieldMappingManifest,
     schema: Type,
@@ -70,36 +77,48 @@ def _derive_entity_keys(
     source column names is used as the groupby key for all row_selection
     grain reduction strategies.
 
+    If some grain fields are unmapped, logs a warning and uses only the keys
+    that are mapped (may be empty). Full grain compliance is enforced by
+    :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.validation.validate_manifest`.
+
     Args:
         manifest: FieldMappingManifest for this entity type
         schema: Pandera schema class — schema.Config.unique defines target grain
 
     Returns:
-        Source column names in base_df corresponding to schema.Config.unique
+        Source column names in base_df for mapped subset of schema.Config.unique
+        (deduped, order preserved).
 
     Raises:
-        ValueError: If any field in schema.Config.unique has no source column
-                    mapping in the manifest
+        ValueError: If the schema has no Config.unique
     """
     target_to_source = {
-        m.target_field: m.source_column
+        m.target_field: col
         for m in manifest.mappings
-        if m.source_column is not None
+        if (col := _effective_source_column(m)) is not None
     }
 
     target_entity_keys = getattr(getattr(schema, "Config", object), "unique", None)
     if not target_entity_keys:
         raise ValueError(f"Schema '{schema.__name__}' must define Config.unique.")
 
-    entity_keys = []
-    for target_field in target_entity_keys:
-        source_col = target_to_source.get(target_field)
-        if source_col is None:
-            raise ValueError(
-                f"Target entity key '{target_field}' has no source column mapping in the manifest."
-            )
-        entity_keys.append(source_col)
+    missing = [tf for tf in target_entity_keys if target_to_source.get(tf) is None]
+    if missing:
+        logger.warning(
+            "Target entity key(s) %s have no source column mapping in the manifest; "
+            "execution will use a reduced grain (or row fallback). "
+            "Expected keys per %s.Config.unique: %s. "
+            "validate_manifest() should flag missing grain keys before approval.",
+            missing,
+            schema.__name__,
+            list(target_entity_keys),
+        )
 
+    entity_keys = [
+        target_to_source[tf]
+        for tf in target_entity_keys
+        if target_to_source.get(tf) is not None
+    ]
     return list(dict.fromkeys(entity_keys))
 
 
@@ -522,6 +541,15 @@ def execute_transformation_map(
     base_table = _infer_base_table(manifest)
     base_df = dataframes[base_table]
     entity_keys = _derive_entity_keys(manifest, schema)
+    if not entity_keys:
+        logger.warning(
+            "[%s] No entity keys resolved from manifest; using one row per base row "
+            "as the execution grain (_sma_fallback_entity_row).",
+            transformation_map.entity_type,
+        )
+        base_df = base_df.copy()
+        base_df["_sma_fallback_entity_row"] = range(len(base_df))
+        entity_keys = ["_sma_fallback_entity_row"]
 
     # Drop rows with null entity keys and reset index — clean RangeIndex is
     # required since we use .values to align Series during grain reduction.
