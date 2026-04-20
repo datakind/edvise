@@ -543,11 +543,15 @@ def _record_effective_source(record: FieldMappingRecord) -> str | None:
 def _grain_fields_for_target_schema(target_schema: str) -> list[str] | None:
     """Return Pandera Config.unique for known Edvise raw schemas; else None."""
     if target_schema == "RawEdviseStudentDataSchema":
-        from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
+        from edvise.data_audit.schemas.raw_edvise_student import (
+            RawEdviseStudentDataSchema,
+        )
 
         return list(RawEdviseStudentDataSchema.Config.unique)
     if target_schema == "RawEdviseCourseDataSchema":
-        from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
+        from edvise.data_audit.schemas.raw_edvise_course import (
+            RawEdviseCourseDataSchema,
+        )
 
         return list(RawEdviseCourseDataSchema.Config.unique)
     return None
