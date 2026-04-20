@@ -17,6 +17,7 @@ from edvise.genai.mapping.identity_agent.hitl.hook_generation import (
     parse_hook_spec,
     resolve_hook_module_path,
 )
+from edvise.genai.mapping.shared.hitl import HITLBlockingError
 from edvise.genai.mapping.identity_agent.hitl.artifacts import (
     build_grain_config_for_resolver,
     build_term_config_for_resolver,
@@ -27,7 +28,6 @@ from edvise.genai.mapping.identity_agent.hitl.artifacts import (
     write_identity_term_artifacts,
 )
 from edvise.genai.mapping.identity_agent.hitl.resolver import (
-    HITLBlockingError,
     HITLValidationError,
     HookValidationError,
     apply_hook_spec,

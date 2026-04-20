@@ -81,7 +81,7 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     ReentryDepth,
     TermResolution,
 )
-from edvise.genai.mapping.shared.hitl import HITLBlockingError, raise_if_hitl_pending
+from edvise.genai.mapping.shared.hitl import raise_if_hitl_pending
 from edvise.genai.mapping.shared.hitl.json_io import (
     read_pydantic_json,
     write_pydantic_json,
@@ -166,7 +166,7 @@ def _append_run_log(
 
 def check_gate(hitl_path: str | Path) -> None:
     """
-    Raises HITLBlockingError if any items in the HITL file are still pending.
+    Raises :class:`~edvise.genai.mapping.shared.hitl.HITLBlockingError` if any items are still pending.
     Prints a clear summary and returns cleanly if all items have been reviewed.
     Safe to call repeatedly — never mutates.
     """
