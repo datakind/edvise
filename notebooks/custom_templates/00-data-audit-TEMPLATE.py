@@ -10,7 +10,7 @@
 # MAGIC
 # MAGIC **Code layout (``edvise.data_audit``):**
 # MAGIC - ``eda`` — exploratory helpers only (logging, crosstabs, ``analyze_merge``, ``value_counts_*``).
-# MAGIC - ``custom_data_audit`` — structured checks and column inference (``find_dupes``, ``validate_credit_consistency``, ``infer_*``, …).
+# MAGIC - ``custom_data_audit`` — structured checks (``find_dupes``, ``validate_credit_consistency``, ``check_pf_grade_consistency``, …).
 # MAGIC - ``custom_cleaning`` — DataFrame transforms (``order_terms``, ``normalize_student_id_column``, schema cleaning, …).
 
 # COMMAND ----------
@@ -54,14 +54,6 @@ from edvise.data_audit.custom_data_audit import (
     check_earned_vs_attempted,
     check_pf_grade_consistency,
     find_dupes,
-    infer_check_pf_grade_list_kwargs,
-    infer_course_credit_columns,
-    infer_course_grade_pf_columns,
-    infer_inst_tot_credits_columns,
-    infer_semester_credit_aggregate_columns,
-    infer_semester_enrollment_intensity_column,
-    infer_student_audit_columns,
-    infer_term_column,
     validate_credit_consistency,
 )
 from edvise.data_audit.eda import (
@@ -121,13 +113,56 @@ semester_raw_df = dataio.read.from_csv_file(
 
 # COMMAND ----------
 
-# Normalize primary student identifier to ``student_id`` on all bronze tables (inferred column name may vary by SIS).
+# Column names for this school (edit after inspecting head() below). ``None`` = not used / not present.
+# Pass ``source_col`` to ``normalize_student_id_column`` when the roster id is not already named ``student_id``.
+
+STUDENT_ID_SOURCE_STUDENT = None
+STUDENT_ID_SOURCE_COURSE = None
+STUDENT_ID_SOURCE_SEMESTER = None
+
+INST_TOT_CREDITS_ATTEMPTED_COL = None
+INST_TOT_CREDITS_EARNED_COL = None
+
+TERM_COL_STUDENT = None
+TERM_COL_COURSE = None
+TERM_COL_SEMESTER = None
+
+COURSE_CRED_ATTEMPTED_COL = None
+COURSE_CRED_EARNED_COL = None
+
+SEM_CRED_ATTEMPTED_COL = None
+SEM_CRED_EARNED_COL = None
+SEM_COURSE_COUNT_COL = None
+
+ENROLLMENT_INTENSITY_COL_SEMESTER = None
+
+GRADE_COL = None
+PF_COL = None
+CREDITS_COL = None
+
+STUDENT_TYPE_COL_STUDENT = None
+FIRST_GEN_COL_STUDENT = None
+RACE_COL_STUDENT = None
+ETHNICITY_COL_STUDENT = None
+GENDER_COL_STUDENT = None
+AGE_COL_STUDENT = None
+PELL_COL_STUDENT = None
+INCARCERATION_COL_STUDENT = None
+MILITARY_COL_STUDENT = None
+EMPLOYMENT_COL_STUDENT = None
+DISABILITY_COL_STUDENT = None
+
+# COMMAND ----------
+
+# Normalize primary student identifier to ``student_id`` on all bronze tables.
 student_raw_df, STUDENT_ID_RESOLVED_STUDENT = normalize_student_id_column(
-    student_raw_df
+    student_raw_df, source_col=STUDENT_ID_SOURCE_STUDENT
 )
-course_raw_df, STUDENT_ID_RESOLVED_COURSE = normalize_student_id_column(course_raw_df)
+course_raw_df, STUDENT_ID_RESOLVED_COURSE = normalize_student_id_column(
+    course_raw_df, source_col=STUDENT_ID_SOURCE_COURSE
+)
 semester_raw_df, STUDENT_ID_RESOLVED_SEMESTER = normalize_student_id_column(
-    semester_raw_df
+    semester_raw_df, source_col=STUDENT_ID_SOURCE_SEMESTER
 )
 print(
     "student_id column (after normalize_student_id_column):",
@@ -138,88 +173,20 @@ print(
     },
 )
 
-INST_TOT_CREDITS_ATTEMPTED_COL, INST_TOT_CREDITS_EARNED_COL = (
-    infer_inst_tot_credits_columns(student_raw_df)
+print(
+    "Institutional credit total columns (cohort file):",
+    {"attempted": INST_TOT_CREDITS_ATTEMPTED_COL, "earned": INST_TOT_CREDITS_EARNED_COL},
 )
 print(
-    "Inferred institutional total credit columns (cohort file):",
-    {
-        "attempted": INST_TOT_CREDITS_ATTEMPTED_COL,
-        "earned": INST_TOT_CREDITS_EARNED_COL,
-    },
-)
-
-# COMMAND ----------
-
-# Infer term-like columns from values (and name hints). Override printed names if wrong for your school.
-TERM_NAME_HINTS_COHORT = (
-    "entry_term",
-    "admit_term",
-    "cohort_term",
-    "enrollment_term",
-    "first_enrollment_term",
-    "matriculation_term",
-    "start_term",
-    "term",
-)
-TERM_NAME_HINTS_SCHEDULE = (
-    "term",
-    "semester",
-    "academic_term",
-    "acad_term",
-    "strm",
-    "term_id",
-    "semester_term",
-)
-
-TERM_COL_STUDENT = infer_term_column(student_raw_df, name_hints=TERM_NAME_HINTS_COHORT)
-TERM_COL_COURSE = infer_term_column(course_raw_df, name_hints=TERM_NAME_HINTS_SCHEDULE)
-TERM_COL_SEMESTER = infer_term_column(
-    semester_raw_df, name_hints=TERM_NAME_HINTS_SCHEDULE
-)
-
-print(
-    "Inferred term columns (inspect and override if needed):",
+    "Term columns:",
     {
         "student (cohort / entry)": TERM_COL_STUDENT,
         "course (enrollment term)": TERM_COL_COURSE,
         "semester": TERM_COL_SEMESTER,
     },
 )
-
-# COMMAND ----------
-
-# Course / semester columns for validate_credit_consistency and check_pf_grade_consistency (name-based inference).
-COURSE_CRED_ATTEMPTED_COL, COURSE_CRED_EARNED_COL = infer_course_credit_columns(
-    course_raw_df
-)
-SEM_CRED_ATTEMPTED_COL, SEM_CRED_EARNED_COL, SEM_COURSE_COUNT_COL = (
-    infer_semester_credit_aggregate_columns(semester_raw_df)
-)
-_SEM_EI_EXCLUDE = {
-    c
-    for c in (
-        SEM_CRED_ATTEMPTED_COL,
-        SEM_CRED_EARNED_COL,
-        SEM_COURSE_COUNT_COL,
-        TERM_COL_SEMESTER,
-        "student_id",
-    )
-    if c
-}
-ENROLLMENT_INTENSITY_COL_SEMESTER = infer_semester_enrollment_intensity_column(
-    semester_raw_df, exclude_cols=_SEM_EI_EXCLUDE
-)
-_GRADE_PF_EXCLUDE = {
-    c for c in (COURSE_CRED_ATTEMPTED_COL, COURSE_CRED_EARNED_COL) if c
-}
-GRADE_COL, PF_COL = infer_course_grade_pf_columns(
-    course_raw_df, exclude_cols=_GRADE_PF_EXCLUDE
-)
-CREDITS_COL = COURSE_CRED_EARNED_COL
-
 print(
-    "Inferred course/semester validation columns:",
+    "Course / semester validation columns:",
     {
         "course_credits_attempted": COURSE_CRED_ATTEMPTED_COL,
         "course_credits_earned": COURSE_CRED_EARNED_COL,
@@ -232,25 +199,8 @@ print(
         "credits_for_pf_check": CREDITS_COL,
     },
 )
-
-# COMMAND ----------
-
-# Student-type and equity-related columns (see edvise.data_audit.custom_data_audit for helpers).
-_audit_cols = infer_student_audit_columns(student_raw_df, term_col=TERM_COL_STUDENT)
-STUDENT_TYPE_COL_STUDENT = _audit_cols["student_type"]
-FIRST_GEN_COL_STUDENT = _audit_cols["first_gen"]
-RACE_COL_STUDENT = _audit_cols["race"]
-ETHNICITY_COL_STUDENT = _audit_cols["ethnicity"]
-GENDER_COL_STUDENT = _audit_cols["gender"]
-AGE_COL_STUDENT = _audit_cols["age"]
-PELL_COL_STUDENT = _audit_cols["pell"]
-INCARCERATION_COL_STUDENT = _audit_cols["incarceration"]
-MILITARY_COL_STUDENT = _audit_cols["military"]
-EMPLOYMENT_COL_STUDENT = _audit_cols["employment"]
-DISABILITY_COL_STUDENT = _audit_cols["disability"]
-
 print(
-    "Inferred student-type & bias columns (override in notebook if wrong):",
+    "Student-type & bias columns:",
     {
         "STUDENT_TYPE_COL_STUDENT": STUDENT_TYPE_COL_STUDENT,
         "FIRST_GEN_COL_STUDENT": FIRST_GEN_COL_STUDENT,
@@ -269,7 +219,7 @@ print(
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC **Validate inferred terms by looking at head of each DF.**
+# MAGIC **Validate your column choices by looking at head() on each DF.**
 
 # COMMAND ----------
 
@@ -629,24 +579,21 @@ if not semester_dupes.empty:
 if GRADE_COL and GRADE_COL in course_raw_df.columns:
     display(value_counts_percent_df(course_raw_df[GRADE_COL]))
 else:
-    print("Skip grade distribution: no inferred grade column.")
+    print("Skip grade distribution: GRADE_COL not set or not in frame.")
 
 # COMMAND ----------
 
 if GRADE_COL and PF_COL and CREDITS_COL:
-    _pf_kw = infer_check_pf_grade_list_kwargs(course_raw_df, GRADE_COL, PF_COL)
-    print("PF/grade check kwargs (inferred + defaults):", _pf_kw)
     anomalies_pf, summary_pf = check_pf_grade_consistency(
         course_raw_df,
         grade_col=GRADE_COL,
         pf_col=PF_COL,
         credits_col=CREDITS_COL,
-        **_pf_kw,
     )
     display(summary_pf)
 else:
     print(
-        "Skip PF/grade check: could not infer grade, pass/fail (or completion), and credits columns."
+        "Skip PF/grade check: set GRADE_COL, PF_COL, and CREDITS_COL above (or leave None if absent)."
     )
     anomalies_pf = None
     summary_pf = None

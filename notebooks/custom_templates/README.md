@@ -17,7 +17,7 @@ Numbers on files (e.g. `06` before `03`) reflect historical naming; follow the p
 ### `edvise.data_audit` imports
 
 - **`eda`** — exploratory only: logging helpers, `analyze_merge`, `value_counts_*`, summaries. Does not own column inference or cleaning transforms.
-- **`custom_data_audit`** — structured audit: `find_dupes`, `validate_credit_consistency`, `infer_*` column pickers, pass/fail vs grade checks, etc.
+- **`custom_data_audit`** — structured audit: `find_dupes`, `validate_credit_consistency`, pass/fail vs grade checks, cohort credit checks, etc. (no automatic column guessing—set names in the notebook or config).
 - **`custom_cleaning`** — transforms: `order_terms`, `normalize_student_id_column`, `clean_bronze_datasets`, schema contract helpers, etc.
 
-`eda` still re-exports many `custom_data_audit` / `custom_cleaning` names for older notebooks; new code should import from the submodule directly (as in templates 00 and 01).
+`eda` re-exports selected `custom_data_audit` / `custom_cleaning` names for older notebooks; new code should import from the submodule directly (as in templates 00 and 01).

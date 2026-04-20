@@ -1650,40 +1650,16 @@ class EdaSummary:
 from . import custom_cleaning as _cc
 from . import custom_data_audit as _cda
 
-age_single_value_plausible = _cda.age_single_value_plausible
-audit_demographic_column_name_blocked = _cda.audit_demographic_column_name_blocked
-audit_value_substring_match_rate = _cda.audit_value_substring_match_rate
 bias_variable_codebook_line = _cda.bias_variable_codebook_line
 check_earned_vs_attempted = _cda.check_earned_vs_attempted
 check_pf_grade_consistency = _cda.check_pf_grade_consistency
-credit_column_name_has_attempt_marker = _cda.credit_column_name_has_attempt_marker
 duplicate_conflict_columns = _cda.duplicate_conflict_columns
 find_dupes = _cda.find_dupes
 format_credit_consistency_institution_report = (
     _cda.format_credit_consistency_institution_report
 )
-infer_age_column = _cda.infer_age_column
-infer_check_pf_grade_list_kwargs = _cda.infer_check_pf_grade_list_kwargs
-infer_course_credit_columns = _cda.infer_course_credit_columns
-infer_course_grade_pf_columns = _cda.infer_course_grade_pf_columns
-infer_inst_tot_credits_columns = _cda.infer_inst_tot_credits_columns
-infer_pass_fail_flag_tuples = _cda.infer_pass_fail_flag_tuples
-infer_semester_credit_aggregate_columns = _cda.infer_semester_credit_aggregate_columns
-infer_semester_enrollment_intensity_column = (
-    _cda.infer_semester_enrollment_intensity_column
-)
-infer_student_audit_columns = _cda.infer_student_audit_columns
-infer_student_file_categorical = _cda.infer_student_file_categorical
-infer_student_id_column = _cda.infer_student_id_column
-infer_term_column = _cda.infer_term_column
-semester_enrollment_intensity_column_name_score = (
-    _cda.semester_enrollment_intensity_column_name_score
-)
-string_looks_like_age_bucket = _cda.string_looks_like_age_bucket
-term_column_name_hint_score = _cda.term_column_name_hint_score
 validate_credit_consistency = _cda.validate_credit_consistency
 validate_ids_terms_consistency = _cda.validate_ids_terms_consistency
-value_looks_like_term = _cda.value_looks_like_term
 convert_numeric_columns = _cc.convert_numeric_columns
 normalize_student_id_column = _cc.normalize_student_id_column
 order_terms = _cc.order_terms

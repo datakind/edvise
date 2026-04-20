@@ -36,8 +36,6 @@ from edvise.utils.data_cleaning import convert_to_snake_case
 from edvise.feature_generation.term import add_term_order
 from edvise.configs.custom import CustomProjectConfig, CleaningConfig
 
-from .custom_data_audit import infer_student_id_column
-
 LOGGER = logging.getLogger(__name__)
 
 
@@ -1052,15 +1050,16 @@ def normalize_student_id_column(
     source_col: str | None = None,
 ) -> tuple[pd.DataFrame, str | None]:
     """
-    Return a copy of *df* with the inferred (or provided) id column renamed to *target_name*.
+    Return a copy of *df* with *source_col* renamed to *target_name*.
 
     If *target_name* already exists, returns ``(df.copy(), target_name)`` without renaming.
-    If no id column can be resolved, returns ``(df.copy(), None)``.
+    If *source_col* is missing and *target_name* is not present, returns ``(df.copy(), None)``
+    (callers must pass the source column name explicitly—there is no automatic guessing).
     """
     out = df.copy()
     if target_name in out.columns:
         return out, target_name
-    src = source_col if source_col is not None else infer_student_id_column(out)
+    src = source_col
     if src is None:
         return out, None
     if src == target_name:

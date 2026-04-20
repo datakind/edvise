@@ -6,10 +6,7 @@ import pytest
 from edvise import data_audit, dataio
 from edvise.data_audit.eda import (
     EdaSummary,
-    infer_term_column,
     log_grade_distribution,
-    term_column_name_hint_score,
-    value_looks_like_term,
 )
 
 
@@ -688,107 +685,14 @@ class TestValidateCreditConsistencyPercent:
         assert result["course_anomalies_summary"] is None
 
 
-def test_value_looks_like_term_accepts_common_formats():
-    assert value_looks_like_term("Spring 2024") is True
-    assert value_looks_like_term("2024 spring") is True
-    assert value_looks_like_term("not a term") is False
-
-
-def test_term_column_name_hint_score():
-    hints = ("entry_term", "term")
-    assert term_column_name_hint_score("entry_term", hints) == 0.15
-    assert term_column_name_hint_score("foo_entry_term_bar", hints) == 0.08
-    assert term_column_name_hint_score("other", hints) == 0.0
-
-
-def test_infer_term_column_picks_term_like_column():
-    df = pd.DataFrame(
-        {
-            "student_id": [1, 2],
-            "entry_term": ["Fall 2023", "Spring 2024"],
-            "notes": ["x", "y"],
-        }
-    )
-    col = infer_term_column(
-        df,
-        name_hints=("entry_term",),
-    )
-    assert col == "entry_term"
-
-
-def test_infer_student_id_column_prefers_named_id():
-    from edvise.data_audit import eda as data_audit_eda
-
-    df = pd.DataFrame(
-        {
-            "emplid": ["A1", "A2", "A3"],
-            "student_id": [1, 2, 3],
-            "x": [1, 1, 1],
-        }
-    )
-    col = data_audit_eda.infer_student_id_column(df)
-    assert col == "student_id"
-
-
-def test_normalize_student_id_column_renames():
+def test_normalize_student_id_column_renames_when_source_provided():
     from edvise.data_audit import eda as data_audit_eda
 
     df = pd.DataFrame({"emplid": ["A1", "A2"], "y": [1, 2]})
-    out, name = data_audit_eda.normalize_student_id_column(df)
+    out, name = data_audit_eda.normalize_student_id_column(df, source_col="emplid")
     assert name == "student_id"
     assert "student_id" in out.columns
     assert list(out["student_id"]) == ["A1", "A2"]
-
-
-def test_infer_inst_tot_credits_columns_distinct():
-    from edvise.data_audit import eda as data_audit_eda
-
-    df = pd.DataFrame(
-        {
-            "student_id": [1, 2],
-            "inst_tot_credits_attempted": [120.0, 90.0],
-            "inst_tot_credits_earned": [118.0, 88.0],
-        }
-    )
-    a, e = data_audit_eda.infer_inst_tot_credits_columns(df)
-    assert a == "inst_tot_credits_attempted"
-    assert e == "inst_tot_credits_earned"
-
-
-def test_infer_inst_tot_credits_columns_semester_style_names():
-    from edvise.data_audit import eda as data_audit_eda
-
-    df = pd.DataFrame(
-        {
-            "student_id": [1, 2],
-            "term": ["Fall 2023", "Fall 2023"],
-            "Cumulative Credits Attempted": [15.0, 18.0],
-            "credits earned semester": [15.0, 17.0],
-        }
-    )
-    a, e = data_audit_eda.infer_inst_tot_credits_columns(df)
-    assert a == "Cumulative Credits Attempted"
-    assert e == "credits earned semester"
-
-
-def test_infer_student_audit_columns_includes_age():
-    from edvise.data_audit import eda as data_audit_eda
-
-    df = pd.DataFrame(
-        {
-            "student_id": [1, 2, 3],
-            "entry_term": ["Fall 2023", "Fall 2023", "Spring 2024"],
-            "entry_type": ["Transfer", "FTIC", "Transfer"],
-            "student_age": [19, 20, 22],
-            "first_gen": ["Y", "N", "Y"],
-        }
-    )
-    term = data_audit_eda.infer_term_column(df, name_hints=("entry_term",))
-    out = data_audit_eda.infer_student_audit_columns(df, term_col=term)
-    assert out["age"] == "student_age"
-    assert out["student_type"] == "entry_type"
-    assert "incarceration" in out and "military" in out
-    assert "employment" in out and "disability" in out
 
 
 def test_bias_variable_codebook_line_known_roles():
@@ -798,53 +702,6 @@ def test_bias_variable_codebook_line_known_roles():
         data_audit_eda.bias_variable_codebook_line("military") or ""
     )
     assert data_audit_eda.bias_variable_codebook_line("nope") is None
-
-
-def test_string_looks_like_age_bucket_common_labels():
-    from edvise.data_audit import eda as data_audit_eda
-
-    assert data_audit_eda.string_looks_like_age_bucket("<24")
-    assert data_audit_eda.string_looks_like_age_bucket("20-24")
-    assert data_audit_eda.string_looks_like_age_bucket("older than 24")
-    assert data_audit_eda.string_looks_like_age_bucket("24+")
-    assert data_audit_eda.string_looks_like_age_bucket("under 18") is True
-    assert data_audit_eda.string_looks_like_age_bucket("random notes") is False
-
-
-def test_infer_age_column_categorical_bands():
-    from edvise.data_audit import eda as data_audit_eda
-
-    df = pd.DataFrame(
-        {
-            "student_id": [1, 2, 3, 4],
-            "age_band": ["<24", "20-24", "Older Than 24", "20-24"],
-        }
-    )
-    col = data_audit_eda.infer_age_column(df, exclude_cols={"student_id"})
-    assert col == "age_band"
-
-
-def test_infer_course_credit_and_grade_pf_user_style_columns():
-    from edvise.data_audit import eda as data_audit_eda
-
-    course_df = pd.DataFrame(
-        {
-            "student_id": [1, 1],
-            "term": ["Fall 2023", "Fall 2023"],
-            "Credit Hours": [3.0, 4.0],
-            "No. of Credits Earned": [3.0, 4.0],
-            "Class Class Grade": ["A", "B"],
-            "Class Completion Status": ["Y", "Y"],
-        }
-    )
-    att, earn = data_audit_eda.infer_course_credit_columns(course_df)
-    assert att == "Credit Hours"
-    assert earn == "No. of Credits Earned"
-    g, p = data_audit_eda.infer_course_grade_pf_columns(
-        course_df, exclude_cols={c for c in (att, earn) if c}
-    )
-    assert g == "Class Class Grade"
-    assert p == "Class Completion Status"
 
 
 def test_percent_of_rows_helpers():
@@ -863,119 +720,3 @@ def test_value_counts_percent_df_named_series():
     assert out["pct_of_rows"].sum() == 100.0
 
 
-def test_infer_pass_fail_flag_tuples_yn():
-    from edvise.data_audit import eda as data_audit_eda
-
-    s = pd.Series(["Y", "N", "Y", None])
-    p, f = data_audit_eda.infer_pass_fail_flag_tuples(s)
-    assert p == ("Y",) and f == ("N",)
-
-
-def test_infer_check_pf_grade_list_kwargs_merges_observed_grade():
-    from edvise.data_audit import eda as data_audit_eda
-
-    df = pd.DataFrame(
-        {
-            "grade": ["A", "A+"],
-            "pf": ["Y", "N"],
-        }
-    )
-    kw = data_audit_eda.infer_check_pf_grade_list_kwargs(df, "grade", "pf")
-    assert kw["pass_flags"] == ("Y",) and kw["fail_flags"] == ("N",)
-    assert "A+" in kw["passing_grades"]
-
-
-def test_infer_semester_credit_aggregate_user_style_columns():
-    from edvise.data_audit import eda as data_audit_eda
-
-    sem = pd.DataFrame(
-        {
-            "student_id": [1],
-            "term": ["Fall 2023"],
-            "credit_hours": [15.0],
-            "no_of_credits_earned": [15.0],
-            "no_of_classes": [4],
-        }
-    )
-    a, e, c = data_audit_eda.infer_semester_credit_aggregate_columns(sem)
-    assert a == "credit_hours"
-    assert e == "no_of_credits_earned"
-    assert c == "no_of_classes"
-
-
-def test_infer_semester_enrollment_intensity_prefers_ftpt():
-    from edvise.data_audit import eda as data_audit_eda
-
-    sem = pd.DataFrame(
-        {
-            "student_id": [1, 2],
-            "term": ["T1", "T2"],
-            "ftpt": ["FULL-TIME", "PART-TIME"],
-            "credit_hours": [12.0, 6.0],
-        }
-    )
-    col = data_audit_eda.infer_semester_enrollment_intensity_column(
-        sem,
-        exclude_cols={"student_id", "term", "credit_hours"},
-    )
-    assert col == "ftpt"
-
-
-def test_infer_semester_enrollment_intensity_skips_instructor_ft_pt():
-    from edvise.data_audit import eda as data_audit_eda
-
-    sem = pd.DataFrame(
-        {
-            "student_id": [1],
-            "strm": ["12023"],
-            "frac_courses_instructor_ft": [0.5],
-            "enrollment_intensity": ["PART-TIME"],
-        }
-    )
-    col = data_audit_eda.infer_semester_enrollment_intensity_column(
-        sem, exclude_cols={"student_id", "strm"}
-    )
-    assert col == "enrollment_intensity"
-
-
-def test_infer_inst_tot_credits_typo_cumulative_column_is_earned():
-    """Misspelled cumulative total without 'attempt' → earned, not attempted."""
-    from edvise.data_audit import eda as data_audit_eda
-
-    df = pd.DataFrame(
-        {
-            "student_id": [1, 2],
-            "total_cumlative_credits": [90.0, 120.0],
-        }
-    )
-    att, earn = data_audit_eda.infer_inst_tot_credits_columns(df)
-    assert att is None
-    assert earn == "total_cumlative_credits"
-
-
-def test_infer_inst_tot_credits_attempt_vs_typo_cumulative():
-    from edvise.data_audit import eda as data_audit_eda
-
-    df = pd.DataFrame(
-        {
-            "student_id": [1, 2],
-            "total_credits_attempted": [100.0, 130.0],
-            "total_cumlative_credits": [90.0, 120.0],
-        }
-    )
-    att, earn = data_audit_eda.infer_inst_tot_credits_columns(df)
-    assert att == "total_credits_attempted"
-    assert earn == "total_cumlative_credits"
-
-
-def test_credit_column_name_has_attempt_marker():
-    from edvise.data_audit import eda as data_audit_eda
-
-    assert data_audit_eda.credit_column_name_has_attempt_marker(
-        "total_credits_attempted"
-    )
-    assert data_audit_eda.credit_column_name_has_attempt_marker("sem_att_credits")
-    assert not data_audit_eda.credit_column_name_has_attempt_marker(
-        "total_cumlative_credits"
-    )
-    assert not data_audit_eda.credit_column_name_has_attempt_marker("matter_score")
