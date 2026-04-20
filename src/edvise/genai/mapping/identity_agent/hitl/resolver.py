@@ -81,7 +81,7 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     ReentryDepth,
     TermResolution,
 )
-from edvise.genai.mapping.shared.hitl import raise_if_hitl_pending
+from edvise.genai.mapping.shared.hitl import HITLBlockingError, raise_if_hitl_pending
 from edvise.genai.mapping.shared.hitl.json_io import (
     read_pydantic_json,
     write_pydantic_json,
