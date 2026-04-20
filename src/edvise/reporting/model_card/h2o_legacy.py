@@ -1,14 +1,14 @@
 import typing as t
 from mlflow.tracking import MlflowClient
 
-from edvise.configs.custom import CustomProjectConfig
+from edvise.configs.legacy import LegacyProjectConfig
 from edvise.reporting.model_card.h2o_base import H2OModelCard
-from edvise.reporting.sections.custom import (
-    register_sections as register_custom_sections,
+from edvise.reporting.sections.legacy import (
+    register_sections as register_legacy_sections,
 )
 
 
-class H2OCustomModelCard(H2OModelCard[CustomProjectConfig]):
+class H2OLegacyModelCard(H2OModelCard[LegacyProjectConfig]):
     REQUIRED_PLOT_ARTIFACTS = [
         "model_comparison.png",
         "test_calibration_curve.png",
@@ -20,20 +20,20 @@ class H2OCustomModelCard(H2OModelCard[CustomProjectConfig]):
 
     def __init__(
         self,
-        config: CustomProjectConfig,
+        config: LegacyProjectConfig,
         catalog: str,
         model_name: str,
         assets_path: t.Optional[str] = None,
         mlflow_client: t.Optional[MlflowClient] = None,
     ):
         """
-        Initializes custom model card with a custom project config.
+        Initializes legacy model card with a legacy project config.
         """
         super().__init__(config, catalog, model_name, assets_path, mlflow_client)
 
     def _get_plot_config(self) -> dict[str, tuple[str, str, str, str]]:
         """
-        Returns Custom project-specific plot configuration.
+        Returns legacy project-specific plot configuration.
         """
         return {
             "model_comparison_plot": (
@@ -76,10 +76,10 @@ class H2OCustomModelCard(H2OModelCard[CustomProjectConfig]):
 
     def _register_sections(self):
         """
-        Register cusom-specific sections.
+        Register legacy-specific sections.
         """
         # Clearing registry for overrides
         self.section_registry.clear()
 
-        # Register custom-specific sections
-        register_custom_sections(self, self.section_registry)
+        # Register legacy-specific sections
+        register_legacy_sections(self, self.section_registry)

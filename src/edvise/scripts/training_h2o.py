@@ -29,7 +29,7 @@ from edvise import modeling, dataio, configs
 from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
-from edvise.reporting.model_card.h2o_custom import H2OCustomModelCard
+from edvise.reporting.model_card.h2o_legacy import H2OLegacyModelCard
 
 from edvise import utils as edvise_utils
 from edvise.shared.logger import (
@@ -55,7 +55,7 @@ from edvise.scripts.predictions_h2o import (
 
 @dataclass(frozen=True)
 class SchemaSpec:
-    schema_type: t.Literal["pdp", "custom"]
+    schema_type: t.Literal["pdp", "legacy"]
     cfg_schema: type[t.Any]
     model_card_cls: type["ModelCard[t.Any]"]
     features_table_path: str
@@ -71,14 +71,14 @@ def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
             features_table_path="shared/assets/pdp_features_table.toml",
         )
 
-    # custom
+    # legacy (non-PDP)
     if not args.features_table_path:
-        raise ValueError("--features_table_path required when --schema_type=custom")
+        raise ValueError("--features_table_path required when --schema_type=legacy")
 
     return SchemaSpec(
-        schema_type="custom",
-        cfg_schema=configs.custom.CustomProjectConfig,
-        model_card_cls=H2OCustomModelCard,
+        schema_type="legacy",
+        cfg_schema=configs.legacy.LegacyProjectConfig,
+        model_card_cls=H2OLegacyModelCard,
         features_table_path=args.features_table_path,
     )
 
@@ -158,16 +158,16 @@ class TrainingTask:
           - prefer modeling.parquet if present
           - else read preprocessed.parquet -> feature selection -> write modeling.parquet
 
-        Custom:
+        Legacy:
           - read from cfg.datasets.silver.modeling (table_path or file_path)
           - do NOT run feature selection here
         """
-        # Custom: use config-specified path
-        if self.spec.schema_type == "custom":
+        # Legacy: use config-specified path
+        if self.spec.schema_type == "legacy":
             modeling_dataset = self.cfg.datasets.silver.modeling
             if not modeling_dataset:
                 raise ValueError(
-                    "Custom training requires cfg.datasets.silver.modeling to be configured"
+                    "Legacy training requires cfg.datasets.silver.modeling to be configured"
                 )
 
             # Try table paths first (Delta table), then file paths (parquet)
@@ -177,7 +177,7 @@ class TrainingTask:
                     modeling_dataset.train_table_path or modeling_dataset.table_path
                 )
                 logging.info(
-                    "Custom: loading modeling dataset from Delta table: %s", table_path
+                    "Legacy: loading modeling dataset from Delta table: %s", table_path
                 )
                 df_modeling = dataio.read.from_delta_table(
                     table_path,
@@ -188,12 +188,12 @@ class TrainingTask:
                     modeling_dataset.train_file_path or modeling_dataset.file_path
                 )
                 logging.info(
-                    "Custom: loading modeling dataset from file: %s", file_path
+                    "Legacy: loading modeling dataset from file: %s", file_path
                 )
                 df_modeling = dataio.read.read_parquet(file_path)
             else:
                 raise ValueError(
-                    "Custom training requires either table_path/train_table_path or "
+                    "Legacy training requires either table_path/train_table_path or "
                     "file_path/train_file_path in cfg.datasets.silver.modeling"
                 )
 
@@ -263,7 +263,7 @@ class TrainingTask:
             "No feature columns found after excluding non_feature_cols",
         )
 
-        if self.spec.schema_type == "custom":
+        if self.spec.schema_type == "legacy":
             forbidden = set(self.cfg.student_group_cols or [])
             leak = sorted([c for c in feature_cols if c in forbidden])
             require(not leak, f"Student-group columns leaked into features: {leak}")
@@ -316,10 +316,10 @@ class TrainingTask:
             raise ValueError(
                 "FEATURE SELECTION SECTION OF MODELING DOES NOT EXIST IN THE CONFIG, PLEASE ADD"
             )
-        if self.spec.schema_type == "custom":
+        if self.spec.schema_type == "legacy":
             raise RuntimeError(
-                "feature_selection() should not run for custom schools in this job. "
-                "Custom training must provide modeling.parquet."
+                "feature_selection() should not run for legacy schools in this job. "
+                "Legacy training must provide modeling.parquet."
             )
         modeling_cfg = self.cfg.modeling
         fs = modeling_cfg.feature_selection
@@ -728,8 +728,8 @@ class TrainingTask:
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
 
-        # Copy features_table file to run folder for custom schools
-        if self.spec.schema_type == "custom":
+        # Copy features_table file to run folder for legacy schools
+        if self.spec.schema_type == "legacy":
             import shutil
 
             features_table_src = local_fs_path(self.spec.features_table_path)
@@ -823,7 +823,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--config_file_name", type=str, required=True)
     parser.add_argument("--job_type", type=str, choices=["training"], required=False)
     parser.add_argument(
-        "--schema_type", type=str, choices=["pdp", "custom"], required=True
+        "--schema_type", type=str, choices=["pdp", "legacy"], required=True
     )
     parser.add_argument("--features_table_path", type=str, required=False)
 
@@ -836,10 +836,10 @@ if __name__ == "__main__":
         args.job_type = "training"
         logging.info("No --job_type passed; defaulting to job_type='training'.")
     # try:
-    #     if args.custom_schemas_path:
-    #         sys.path.append(args.custom_schemas_path)
+    #     if args.legacy_schemas_path:
+    #         sys.path.append(args.legacy_schemas_path)
     #         schemas = importlib.import_module("schemas")
-    #         logging.info("Using custom schemas")
+    #         logging.info("Using legacy schemas")
     # except Exception:
     #     logging.info("Using default schemas")
 

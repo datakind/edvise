@@ -52,11 +52,6 @@ from edvise.shared.validation import (
     validate_tables_exist,
     ExpectedTable,
 )
-from edvise.utils.api_requests import (
-    validate_custom_institution_exist,
-    validate_custom_model_exist,
-    log_custom_job,
-)
 
 # Shared predictions pipeline (your extracted module)
 from edvise.scripts.predictions_h2o import (
@@ -76,7 +71,7 @@ logging.getLogger("py4j").setLevel(logging.WARNING)
 
 @dataclass(frozen=True)
 class SchemaSpec:
-    schema_type: t.Literal["pdp", "custom"]
+    schema_type: t.Literal["pdp", "legacy"]
     cfg_schema: type[t.Any]
     features_table_path: str
 
@@ -90,13 +85,13 @@ def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
             features_table_path="shared/assets/pdp_features_table.toml",
         )
 
-    # custom
+    # legacy (non-PDP)
     if not args.features_table_path:
-        raise ValueError("--features_table_path required when --schema_type=custom")
+        raise ValueError("--features_table_path required when --schema_type=legacy")
 
     return SchemaSpec(
-        schema_type="custom",
-        cfg_schema=configs.custom.CustomProjectConfig,
+        schema_type="legacy",
+        cfg_schema=configs.legacy.LegacyProjectConfig,
         features_table_path=args.features_table_path,
     )
 
@@ -197,7 +192,7 @@ class ModelInferenceTask:
         """
         Retrieve SST API key from Databricks Secrets.
 
-        This is required for custom-school inference runs that interact with FE APIs.
+        This is required for legacy-school inference runs that interact with FE APIs.
         """
         w = WorkspaceClient()
         api_key = w.dbutils.secrets.get(scope=scope, key=key).strip()
@@ -246,12 +241,12 @@ class ModelInferenceTask:
 
         logging.info("Reading the processed dataset")
 
-        # Custom: read from config-specified path
-        if self.spec.schema_type == "custom":
+        # Legacy: read from config-specified path
+        if self.spec.schema_type == "legacy":
             model_features_dataset = self.cfg.datasets.silver.model_features
             if not model_features_dataset:
                 raise ValueError(
-                    "Custom inference requires cfg.datasets.silver.model_features to be configured"
+                    "Legacy inference requires cfg.datasets.silver.model_features to be configured"
                 )
 
             # Try table paths first (Delta table), then file paths (parquet)
@@ -265,7 +260,7 @@ class ModelInferenceTask:
                     or model_features_dataset.table_path
                 )
                 logging.info(
-                    "Custom: loading model_features dataset from Delta table: %s",
+                    "Legacy: loading model_features dataset from Delta table: %s",
                     table_path,
                 )
                 df_processed = dataio.read.from_delta_table(
@@ -281,12 +276,12 @@ class ModelInferenceTask:
                     or model_features_dataset.file_path
                 )
                 logging.info(
-                    "Custom: loading model_features dataset from file: %s", file_path
+                    "Legacy: loading model_features dataset from file: %s", file_path
                 )
                 df_processed = dataio.read.read_parquet(file_path)
             else:
                 raise ValueError(
-                    "Custom inference requires either table_path or predict_table_path / "
+                    "Legacy inference requires either table_path or predict_table_path / "
                     "file_path or predict_file_path in cfg.datasets.silver.model_features"
                 )
         else:
@@ -467,7 +462,7 @@ def parse_arguments() -> argparse.Namespace:
         "--job_type", type=str, choices=["inference"], default="inference"
     )
     parser.add_argument(
-        "--schema_type", type=str, choices=["pdp", "custom"], required=True
+        "--schema_type", type=str, choices=["pdp", "legacy"], required=True
     )
     return parser.parse_args()
 
@@ -477,12 +472,12 @@ if __name__ == "__main__":
 
     # # Optional schema hook (kept from your original)
     # try:
-    #     if args.custom_schemas_path:
-    #         sys.path.append(args.custom_schemas_path)
+    #     if args.legacy_schemas_path:
+    #         sys.path.append(args.legacy_schemas_path)
     #         import importlib
 
     #         _ = importlib.import_module(f"{args.databricks_institution_name}.schemas")
-    #         logging.info("Running task with custom schema")
+    #         logging.info("Running task with legacy schema")
     # except Exception:
     #     logging.info("Running task with default schema")
 

@@ -123,7 +123,7 @@ def register_bias_sections(card, registry):
     @registry.register("bias_groups_section")
     def bias_groups_section():
         """
-        Returns bias groups for custom schools using aliases.
+        Returns bias groups for legacy schools using aliases.
         """
         intro = f"{card.format.indent_level(1)}- Our assessment for FNR Parity was conducted across the following student groups.\n"
 

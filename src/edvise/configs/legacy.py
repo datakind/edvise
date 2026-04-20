@@ -14,8 +14,8 @@ _ALLOWED_PRIMARY_METRICS = {
 }
 
 
-class CustomProjectConfig(pyd.BaseModel):
-    """Configuration schema for SST Custom projects."""
+class LegacyProjectConfig(pyd.BaseModel):
+    """Configuration schema for SST legacy (non-PDP) projects."""
 
     institution_id: str = pyd.Field(
         ...,
@@ -105,7 +105,7 @@ class CustomProjectConfig(pyd.BaseModel):
         return self
 
     @pyd.model_validator(mode="after")
-    def validate_student_group_aliases(self) -> "CustomProjectConfig":
+    def validate_student_group_aliases(self) -> "LegacyProjectConfig":
         missing = [
             col
             for col in (self.student_group_cols or [])
@@ -116,7 +116,7 @@ class CustomProjectConfig(pyd.BaseModel):
         return self
 
     @pyd.model_validator(mode="after")
-    def _normalize_and_validate_primary_metric(self) -> "CustomProjectConfig":
+    def _normalize_and_validate_primary_metric(self) -> "LegacyProjectConfig":
         if (
             self.modeling
             and self.modeling.training
@@ -138,7 +138,7 @@ class CustomProjectConfig(pyd.BaseModel):
         return self
 
     @pyd.model_validator(mode="after")
-    def _validate_inference_background_sample(self) -> "CustomProjectConfig":
+    def _validate_inference_background_sample(self) -> "LegacyProjectConfig":
         if self.inference and self.inference.background_data_sample is not None:
             n = self.inference.background_data_sample
             if not (500 <= n <= 2000):
@@ -282,7 +282,7 @@ class SilverDatasetConfig(pyd.BaseModel):
         description="Inference dataset with features only, ready for model predictions"
     )
 
-    # Allow additional custom datasets beyond the two required ones
+    # Allow additional legacy datasets beyond the two required ones
     model_config = pyd.ConfigDict(extra="allow")
 
 
@@ -343,7 +343,7 @@ class CleaningConfig(pyd.BaseModel):
         description=(
             "Absolute path on volumes to the schema_contract.json file. "
             "This file contains the frozen multi-dataset schema contract "
-            "used for schema enforcement for custom schools. This is needed "
+            "used for schema enforcement for legacy schools. This is needed "
             "for data reliability and to ensure minimal training–inference skew."
         ),
     )

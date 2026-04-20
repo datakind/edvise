@@ -1,8 +1,8 @@
 import pytest
 from unittest.mock import MagicMock
 from edvise.reporting.sections.registry import SectionRegistry
-from edvise.reporting.sections.custom import (
-    attribute_sections as custom_attribute_sections,
+from edvise.reporting.sections.legacy import (
+    attribute_sections as legacy_attribute_sections,
 )
 from edvise.reporting.utils.formatting import Formatting
 
@@ -18,7 +18,7 @@ def mock_card():
 def test_development_note_with_version(mock_card):
     mock_card.context["version_number"] = "1.2.3"
     registry = SectionRegistry()
-    custom_attribute_sections.register_attribute_sections(mock_card, registry)
+    legacy_attribute_sections.register_attribute_sections(mock_card, registry)
     rendered = registry.render_all()
     result = rendered["development_note_section"]
 
@@ -29,7 +29,7 @@ def test_development_note_with_version(mock_card):
 def test_development_note_without_version(mock_card):
     mock_card.context = {}  # no version_number
     registry = SectionRegistry()
-    custom_attribute_sections.register_attribute_sections(mock_card, registry)
+    legacy_attribute_sections.register_attribute_sections(mock_card, registry)
     rendered = registry.render_all()
     result = rendered["development_note_section"]
 
@@ -63,9 +63,9 @@ def test_development_note_without_version(mock_card):
         ),
         (
             "graduation",
-            "custom_metric",
+            "legacy_metric",
             5,
-            "not graduating on time within 5 custom_metric",
+            "not graduating on time within 5 legacy_metric",
         ),  # fallback
     ],
 )
@@ -77,7 +77,7 @@ def test_outcome_section_variants(mock_card, category, unit, value, expected_sni
         mock_card.cfg.preprocessing.target.value = value
 
     registry = SectionRegistry()
-    custom_attribute_sections.register_attribute_sections(mock_card, registry)
+    legacy_attribute_sections.register_attribute_sections(mock_card, registry)
 
     rendered = registry.render_all()
     result = rendered["outcome_section"]
@@ -89,7 +89,7 @@ def test_outcome_section_fallback_on_missing_config(mock_card, caplog):
     del mock_card.cfg.preprocessing.target
 
     registry = SectionRegistry()
-    custom_attribute_sections.register_attribute_sections(mock_card, registry)
+    legacy_attribute_sections.register_attribute_sections(mock_card, registry)
 
     with caplog.at_level("WARNING"):
         rendered = registry.render_all()
@@ -111,7 +111,7 @@ def test_target_population_valid_dict(mock_card):
     }
 
     registry = SectionRegistry()
-    custom_attribute_sections.register_attribute_sections(mock_card, registry)
+    legacy_attribute_sections.register_attribute_sections(mock_card, registry)
     rendered = registry.render_all()
     result = rendered["target_population_section"]
 
@@ -128,7 +128,7 @@ def test_target_population_empty(mock_card, caplog):
 
     registry = SectionRegistry()
     with caplog.at_level("WARNING"):
-        custom_attribute_sections.register_attribute_sections(mock_card, registry)
+        legacy_attribute_sections.register_attribute_sections(mock_card, registry)
         result = registry.render_all()["target_population_section"]
 
     assert "No specific student criteria were applied." in result
@@ -142,7 +142,7 @@ def test_target_population_non_dict(mock_card):
     ]
 
     registry = SectionRegistry()
-    custom_attribute_sections.register_attribute_sections(mock_card, registry)
+    legacy_attribute_sections.register_attribute_sections(mock_card, registry)
     rendered = registry.render_all()
     result = rendered["target_population_section"]
 
@@ -163,7 +163,7 @@ def test_checkpoint_valid_variants(mock_card, unit, value, expected_snippet):
     mock_card.cfg.preprocessing.checkpoint.value = value
 
     registry = SectionRegistry()
-    custom_attribute_sections.register_attribute_sections(mock_card, registry)
+    legacy_attribute_sections.register_attribute_sections(mock_card, registry)
     rendered = registry.render_all()
     result = rendered["checkpoint_section"]
 
@@ -175,7 +175,7 @@ def test_checkpoint_section_missing_config(mock_card, caplog):
     del mock_card.cfg.preprocessing.checkpoint
 
     registry = SectionRegistry()
-    custom_attribute_sections.register_attribute_sections(mock_card, registry)
+    legacy_attribute_sections.register_attribute_sections(mock_card, registry)
 
     with caplog.at_level("WARNING"):
         rendered = registry.render_all()

@@ -2,8 +2,8 @@ import pytest
 import pandas as pd
 import re
 from unittest.mock import patch
-from edvise.reporting.model_card.h2o_custom import H2OCustomModelCard
-from edvise.configs.custom import CustomProjectConfig
+from edvise.reporting.model_card.h2o_legacy import H2OLegacyModelCard
+from edvise.configs.legacy import LegacyProjectConfig
 
 
 class DummyTrainingConfig:
@@ -85,8 +85,8 @@ class DummyDatasetsConfig:
         }
 
 
-def make_custom_project_config():
-    return CustomProjectConfig(
+def make_legacy_project_config():
+    return LegacyProjectConfig(
         institution_id="custom_inst_id",
         institution_name="Custom Institution",
         student_id_col="student_id",
@@ -164,27 +164,27 @@ def make_custom_project_config():
 
 
 @pytest.fixture
-def dummy_custom_config():
-    return make_custom_project_config()
+def dummy_legacy_config():
+    return make_legacy_project_config()
 
 
 @patch("edvise.reporting.sections.registry.SectionRegistry.render_all")
-@patch("edvise.reporting.model_card.h2o_custom.H2OCustomModelCard.collect_metadata")
-@patch("edvise.reporting.model_card.h2o_custom.H2OCustomModelCard.load_model")
+@patch("edvise.reporting.model_card.h2o_legacy.H2OLegacyModelCard.collect_metadata")
+@patch("edvise.reporting.model_card.h2o_legacy.H2OLegacyModelCard.load_model")
 @patch(
-    "edvise.reporting.model_card.h2o_custom.H2OCustomModelCard.extract_training_data"
+    "edvise.reporting.model_card.h2o_legacy.H2OLegacyModelCard.extract_training_data"
 )
-@patch("edvise.reporting.model_card.h2o_custom.H2OCustomModelCard.find_model_version")
-def test_custom_school_model_card_template_placeholders_filled(
+@patch("edvise.reporting.model_card.h2o_legacy.H2OLegacyModelCard.find_model_version")
+def test_legacy_school_model_card_template_placeholders_filled(
     mock_find_version,
     mock_extract_data,
     mock_load_model,
     mock_collect_metadata,
     mock_render_all,
-    dummy_custom_config,
+    dummy_legacy_config,
 ):
-    card = H2OCustomModelCard(
-        config=dummy_custom_config, catalog="demo", model_name="custom_model"
+    card = H2OLegacyModelCard(
+        config=dummy_legacy_config, catalog="demo", model_name="legacy_model"
     )
 
     mock_load_model.side_effect = lambda: (

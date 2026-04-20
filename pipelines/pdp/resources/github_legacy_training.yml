@@ -1,7 +1,7 @@
 resources:
   jobs:
-    edvise_github_sourced_custom_training_pipeline:
-      name: edvise_github_sourced_custom_training_pipeline
+    edvise_github_sourced_legacy_training_pipeline:
+      name: edvise_github_sourced_legacy_training_pipeline
       max_concurrent_runs: 5
       tasks:
         - task_key: training_h2o
@@ -26,10 +26,10 @@ resources:
               - --gold_table_path
               - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
               - --schema_type
-              - "custom"
+              - "legacy"
               - --features_table_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.features_table_name}}"
-          job_cluster_key: edvise-custom-training-pipeline-cluster
+          job_cluster_key: edvise-legacy-training-pipeline-cluster
           libraries:
             - pypi:
                 package: pandera==0.23.0
@@ -68,7 +68,7 @@ resources:
             - pypi:
                 package: polars~=0.20
       job_clusters:
-        - job_cluster_key: edvise-custom-training-pipeline-cluster
+        - job_cluster_key: edvise-legacy-training-pipeline-cluster
           new_cluster:
             cluster_name: ""
             spark_version: 15.4.x-cpu-ml-scala2.12

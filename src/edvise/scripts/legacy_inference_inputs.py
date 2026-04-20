@@ -20,7 +20,7 @@ def get_dbutils():
         return None
 
 
-class CustomInferenceInputs:
+class LegacyInferenceInputs:
     """
     Retrieves inference inputs by looking up the trained model and finding paths
     to config and features_table that were used during training. This ensures
@@ -270,5 +270,5 @@ if __name__ == "__main__":
     )
     args = parse_arguments()
 
-    task = CustomInferenceInputs(args)
+    task = LegacyInferenceInputs(args)
     task.run()
