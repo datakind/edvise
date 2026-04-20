@@ -2229,27 +2229,27 @@ class EdaSummary:
         """
         Compute Pell recipient status without first generation split.
 
+        Only ``Y`` / ``YES`` (case-insensitive, trimmed) count as recipients; every other
+        value, including missing, ``N``, and unknown codes, is counted as non-recipient (No).
+
         Returns:
             Dictionary with keys:
                 - series: Single series with counts per Pell status
         """
-        if "pell_status_first_year" not in self.df_cohort.columns:
-            return None
-        if self.df_cohort["pell_status_first_year"].dropna().empty:
-            return None
-
+        s = (
+            self.df_cohort["pell_status_first_year"]
+            .astype("string")
+            .fillna("")
+            .str.strip()
+            .str.upper()
+        )
         data = (
-            self.df_cohort.assign(
-                pell_status_first_year=self.df_cohort["pell_status_first_year"]
-                .astype(str)
-                .str.strip()
-                .str.title()
-            )
-            .dropna(subset=["pell_status_first_year"])
-            .groupby("pell_status_first_year", observed=True)
-            .size()
+            pd.Series(np.where(s.isin(("Y", "YES")), "Yes", "No"), index=s.index)
+            .value_counts()
             .to_dict()
         )
+        if not data:
+            return None
         return {
             "series": [{"name": "All Students", "data": data}],
         }
