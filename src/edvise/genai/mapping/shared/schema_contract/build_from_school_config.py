@@ -111,24 +111,36 @@ def _resolve_primary_keys_to_normalized(
         for orig_col in orig_list:
             orig_to_norm[orig_col] = norm_col
 
+    def _resolve_one(uk: str) -> str | None:
+        if uk in normalized_columns:
+            return uk
+        if uk in orig_to_norm:
+            return orig_to_norm[uk]
+        normalized_uk = convert_to_snake_case(uk)
+        if normalized_uk in normalized_columns:
+            return normalized_uk
+        # Grain / SMA configs often say learner_id; normalize_columns often emits student_id
+        # pre-clean (clean_dataset renames to learner_id). Accept either spelling.
+        if uk == "learner_id" and "student_id" in normalized_columns:
+            return "student_id"
+        if uk == "student_id" and "learner_id" in normalized_columns:
+            return "learner_id"
+        return None
+
     normalized_uks: list[str] = []
     for uk in unique_keys:
-        if uk in normalized_columns:
-            normalized_uks.append(uk)
-        elif uk in orig_to_norm:
-            normalized_uks.append(orig_to_norm[uk])
-        else:
-            normalized_uk = convert_to_snake_case(uk)
-            if normalized_uk in normalized_columns:
-                normalized_uks.append(normalized_uk)
-            else:
-                logger.warning(
-                    "  Unique key '%s' (normalized: '%s') not found in normalized "
-                    "columns for %s, skipping",
-                    uk,
-                    normalized_uk,
-                    logical_name,
-                )
+        resolved = _resolve_one(uk)
+        if resolved is not None:
+            normalized_uks.append(resolved)
+            continue
+        normalized_uk = convert_to_snake_case(uk)
+        logger.warning(
+            "  Unique key '%s' (normalized: '%s') not found in normalized "
+            "columns for %s, skipping",
+            uk,
+            normalized_uk,
+            logical_name,
+        )
     return normalized_uks
 
 

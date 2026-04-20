@@ -24,3 +24,17 @@ def test_unique_keys_for_contract_follow_resolved_normalized_columns():
         canonical_learner_column="learner_id",
     )
     assert unique_keys_for_contract == ["learner_id", "term_descr"]
+
+
+def test_resolve_primary_keys_learner_id_falls_back_to_student_id():
+    """Grain may list learner_id while normalize_columns keys are student_id pre-clean."""
+    column_mapping = {
+        "student_id": ["SID"],
+        "course_name": ["COURSE_NAME"],
+    }
+    normalized_uks = _resolve_primary_keys_to_normalized(
+        column_mapping,
+        ["learner_id", "course_name"],
+        "course",
+    )
+    assert normalized_uks == ["student_id", "course_name"]
