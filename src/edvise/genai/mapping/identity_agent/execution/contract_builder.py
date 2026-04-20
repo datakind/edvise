@@ -60,6 +60,25 @@ from edvise.utils.data_cleaning import convert_to_snake_case
 logger = logging.getLogger(__name__)
 
 
+def _reject_legacy_enriched_sampling_kwargs(kwargs: dict[str, Any]) -> None:
+    """Clear errors for removed ``contract_sample_size`` / mistaken ``sample_size`` kwargs."""
+    contract = kwargs.pop("contract_sample_size", None)
+    sample = kwargs.pop("sample_size", None)
+    if kwargs:
+        raise TypeError(
+            "build_enriched_schema_contract_for_*() got unexpected keyword argument(s): "
+            f"{sorted(kwargs)!r}"
+        )
+    if contract is not None or sample is not None:
+        raise ValueError(
+            "Removed unsupported kwargs `contract_sample_size` and `sample_size`. "
+            "Enriched builds always load and clean full tables; the returned `cleaned_map` "
+            "is never row-capped by those parameters. "
+            "Use `training_sample_size` only to cap rows for `training.column_details` stats. "
+            f"Got contract_sample_size={contract!r}, sample_size={sample!r}."
+        )
+
+
 def merge_grain_learner_id_alias_into_school_config(
     school_config: SchoolMappingConfig,
     grain_contracts_by_dataset: dict[str, GrainContract],
@@ -806,6 +825,7 @@ def build_enriched_schema_contract_for_institution(
         dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
     ] = None,
     hook_modules_root: str | Path | None = None,
+    **kwargs: Any,
 ) -> tuple[Dict[str, Any], dict[str, pd.DataFrame]]:
     """
     Build one SMA-style **enriched** institution JSON with **all** requested logical datasets.
@@ -835,6 +855,7 @@ def build_enriched_schema_contract_for_institution(
         ``(enriched_contract_dict, cleaned_dataframes_by_logical_name)`` — use the latter to
         write Parquet without a second cleaning pass.
     """
+    _reject_legacy_enriched_sampling_kwargs(kwargs)
     if dataset_names is None:
         if grain_contracts_by_dataset:
             names = sorted(grain_contracts_by_dataset.keys())
@@ -911,6 +932,7 @@ def build_enriched_schema_contract_for_dataset(
         dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
     ] = None,
     hook_modules_root: str | Path | None = None,
+    **kwargs: Any,
 ) -> tuple[Dict[str, Any], dict[str, pd.DataFrame]]:
     """
     Build one SMA-style **enriched** institution JSON containing a **single** logical dataset.
@@ -918,6 +940,7 @@ def build_enriched_schema_contract_for_dataset(
     Equivalent to :func:`build_enriched_schema_contract_for_institution` with
     ``dataset_names=[dataset_name]``.
     """
+    _reject_legacy_enriched_sampling_kwargs(kwargs)
     return build_enriched_schema_contract_for_institution(
         school_config,
         dataset_names=[dataset_name],
