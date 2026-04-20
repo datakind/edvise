@@ -44,12 +44,16 @@ def test_ensure_hook_spec_file_overwrites_model_path():
     assert out.file == "identity_hooks/u1/term_hooks.py"
 
 
-def test_hook_modules_root_from_bronze_volume_prefers_identity_agent(tmp_path: Path) -> None:
+def test_hook_modules_root_from_bronze_volume_prefers_identity_agent(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "identity_agent").mkdir()
     assert hook_modules_root_from_bronze_volume(tmp_path) == tmp_path / "identity_agent"
 
 
-def test_hook_modules_root_from_bronze_volume_fallback_bare_root(tmp_path: Path) -> None:
+def test_hook_modules_root_from_bronze_volume_fallback_bare_root(
+    tmp_path: Path,
+) -> None:
     assert hook_modules_root_from_bronze_volume(tmp_path) == tmp_path
 
 

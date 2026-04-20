@@ -48,9 +48,16 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from edvise.genai.mapping.shared.hitl.confidence import PIPELINE_HITL_CONFIDENCE_THRESHOLD
+if TYPE_CHECKING:
+    from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
+        InstitutionSMAHITLItems,
+    )
+
+from edvise.genai.mapping.shared.hitl.confidence import (
+    PIPELINE_HITL_CONFIDENCE_THRESHOLD,
+)
 from edvise.genai.mapping.shared.schema_contract.schemas import (
     EnrichedSchemaContractForSMA,
 )
@@ -420,6 +427,7 @@ CRITICAL — current_field_mapping:
 # Backward-compatible aliases (Pass 1)
 # ---------------------------------------------------------------------------
 
+
 def build_refinement_system_prompt() -> str:
     return build_refinement_pass1_system_prompt()
 
@@ -460,7 +468,8 @@ def _refinement_entity_section(
         if r.confidence <= HITL_CONFIDENCE_THRESHOLD
     }
     auto_approved_fields = [
-        r.target_field for r in manifest.mappings
+        r.target_field
+        for r in manifest.mappings
         if r.target_field not in flagged_fields
     ]
 
@@ -514,10 +523,7 @@ def _format_low_confidence_fields(
     List fields below HITL_CONFIDENCE_THRESHOLD with their confidence and rationale.
     Returns 'None' if no low confidence fields.
     """
-    low = [
-        r for r in manifest.mappings
-        if r.confidence <= HITL_CONFIDENCE_THRESHOLD
-    ]
+    low = [r for r in manifest.mappings if r.confidence <= HITL_CONFIDENCE_THRESHOLD]
     if not low:
         return "None"
 
@@ -768,18 +774,16 @@ def _apply_pass1_result(
         hitl_flags = [h for h in hitl_raw if isinstance(h, dict)]
 
     entity_type = input_manifest.entity_type
-    et_str = (
-        entity_type.value
-        if hasattr(entity_type, "value")
-        else str(entity_type)
-    )
+    et_str = entity_type.value if hasattr(entity_type, "value") else str(entity_type)
 
     updated_mappings: list[FieldMappingRecord] = []
     for record in input_manifest.mappings:
         tf = record.target_field
         status = field_statuses.get(tf)
         if status is None:
-            print(f"⚠  Pass 1 missing status for '{tf}' — defaulting to proposed_for_hitl")
+            print(
+                f"⚠  Pass 1 missing status for '{tf}' — defaulting to proposed_for_hitl"
+            )
             status = "proposed_for_hitl"
             hitl_flags.append(
                 {
@@ -960,7 +964,7 @@ def _default_llm_complete() -> Callable[[str, str], str]:
 
 def _run_pass1_llm_call(
     institution_id: str,
-    entity_type: str,
+    entity_type: Literal["cohort", "course"],
     manifest: FieldMappingManifest,
     validation_errors: list[ManifestValidationError],
     schema_contract: EnrichedSchemaContractForSMA,
@@ -983,7 +987,7 @@ def _run_pass1_llm_call(
 
 def _run_pass2_llm_call(
     institution_id: str,
-    entity_type: str,
+    entity_type: Literal["cohort", "course"],
     hitl_flags: list[dict[str, Any]],
     schema_contract: EnrichedSchemaContractForSMA,
     llm_complete: Callable[[str, str], str],
@@ -1004,14 +1008,14 @@ def _run_pass2_llm_call(
 
 def run_sma_refinement(
     institution_id: str,
-    entity_type: str,
+    entity_type: Literal["cohort", "course"],
     manifest: FieldMappingManifest,
     validation_errors: list[ManifestValidationError],
     schema_contract: EnrichedSchemaContractForSMA,
     resolved_by: str | None = None,
     *,
     llm_complete: Callable[[str, str], str] | None = None,
-) -> tuple[FieldMappingManifest, "InstitutionSMAHITLItems"]:
+) -> tuple[FieldMappingManifest, InstitutionSMAHITLItems]:
     """
     Two-pass SMA refinement for one entity (cohort or course).
     Call once for cohort, once for course — 2 calls per entity = 4 total per institution.
@@ -1053,9 +1057,7 @@ def run_sma_refinement(
     )
 
     _rc = pass1_raw.get("refined_corrections") or {}
-    refined_corrections_pass1: dict[str, Any] = (
-        _rc if isinstance(_rc, dict) else {}
-    )
+    refined_corrections_pass1: dict[str, Any] = _rc if isinstance(_rc, dict) else {}
     warnings = _enforce_review_status_contract(
         refined_manifest,
         validation_errors,

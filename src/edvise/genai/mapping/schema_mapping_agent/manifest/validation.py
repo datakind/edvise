@@ -36,7 +36,7 @@ from edvise.genai.mapping.shared.schema_contract.schemas import (
     EnrichedSchemaContractForSMA,
 )
 
-from .schemas import FieldMappingManifest, FieldMappingRecord
+from .schemas import ColumnAlias, FieldMappingManifest, FieldMappingRecord
 
 # ---------------------------------------------------------------------------
 # Schema contract helpers
@@ -192,7 +192,7 @@ class ManifestValidationError(BaseModel):
 def _resolve_column_via_aliases(
     table: str,
     column: str,
-    column_aliases: list,
+    column_aliases: list[ColumnAlias],
 ) -> str:
     """
     Return canonical_column if a ColumnAlias entry exists for (table, column),
@@ -208,14 +208,16 @@ def _alias_bridges_join(
     base_table: str,
     lookup_table: str,
     join_key: str,
-    column_aliases: list,
+    column_aliases: list[ColumnAlias],
 ) -> bool:
     """
     Returns True if column_aliases resolves join_key to the same canonical name
     across base_table and lookup_table.
     """
     base_resolved = _resolve_column_via_aliases(base_table, join_key, column_aliases)
-    lookup_resolved = _resolve_column_via_aliases(lookup_table, join_key, column_aliases)
+    lookup_resolved = _resolve_column_via_aliases(
+        lookup_table, join_key, column_aliases
+    )
     return base_resolved == lookup_resolved
 
 

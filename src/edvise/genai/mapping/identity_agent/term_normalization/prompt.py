@@ -410,7 +410,8 @@ Use a **number from 0.0 to 1.0** (same scale as Schema Mapping Agent field mappi
 
 def _tn_output_format() -> str:
     t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
-    return """
+    return (
+        """
 ## OUTPUT FORMAT
 
 Respond ONLY with a JSON object. No preamble, no markdown, no explanation outside the JSON.
@@ -464,9 +465,12 @@ VALIDITY RULES
 
 - `hitl_flag: true` requires at least one corresponding item in the top-level `hitl_items`.
 - `hitl_flag: false` means no items for this table appear in `hitl_items`.
-""" + f"- `confidence` ≤ {t} requires `hitl_flag: true`.\n" + """
+"""
+        + f"- `confidence` ≤ {t} requires `hitl_flag: true`.\n"
+        + """
 - `confidence` must be a numeric float, never a string.
 """
+    )
 
 
 def _tn_pydantic_schema_reference(*, include_institution_envelope: bool) -> str:
@@ -562,8 +566,7 @@ input. Do not omit datasets.
 
 def _tn_batch_output_format() -> str:
     t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
-    return (
-        """
+    return """
 ## OUTPUT FORMAT (batch)
 
 Respond ONLY with one JSON object. No preamble, no markdown, no explanation outside the JSON.
@@ -780,9 +783,7 @@ VALIDITY RULES
   leave `resolution: null` on a non-custom option.
 - `item_id` must be unique across the entire response.
 - Each nested object under `datasets` must set `"table"` to the same string as its key in `datasets`.
-"""
-        .replace("__PIPELINE_HITL_T__", f"{t}")
-    )
+""".replace("__PIPELINE_HITL_T__", f"{t}")
 
 
 TERM_NORMALIZATION_BATCH_SYSTEM_SECTION_KEYS: tuple[str, ...] = (
@@ -906,7 +907,9 @@ def audit_term_normalization_prompt(
     Set ``batch_system=True`` to measure the **batch** system prompt instead of the single-table one
     (user message is unchanged).
     """
-    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import audit_prompt_sections
+    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import (
+        audit_prompt_sections,
+    )
 
     if batch_system:
         sys_sections = get_term_normalization_batch_system_sections()
@@ -943,7 +946,9 @@ def audit_term_normalization_batch_user_prompt(
 
     Sections: ``system.*`` and ``user.batch_payload``.
     """
-    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import audit_prompt_sections
+    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import (
+        audit_prompt_sections,
+    )
 
     sys_sections = get_term_normalization_batch_system_sections()
     user_text = build_term_normalization_batch_user_message_from_grain_and_profiles(

@@ -6,7 +6,7 @@ import importlib.util
 import logging
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 
@@ -431,7 +431,7 @@ def term_normalization_summary_for_enriched_contract(
     d = _normalize_term_config_column_names(config.model_dump(mode="json"))
     clean_spec_term = term_order_column_for_clean_dataset(config)
     if config.term_col is not None:
-        mode = "single_column"
+        mode: Literal["single_column", "year_season_columns"] = "single_column"
     else:
         mode = "year_season_columns"
     return TermNormalizationSummary(

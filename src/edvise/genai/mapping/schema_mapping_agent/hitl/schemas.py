@@ -37,7 +37,9 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from edvise.genai.mapping.shared.hitl.confidence import PIPELINE_HITL_CONFIDENCE_THRESHOLD
+from edvise.genai.mapping.shared.hitl.confidence import (
+    PIPELINE_HITL_CONFIDENCE_THRESHOLD,
+)
 from edvise.genai.mapping.shared.hitl.run_log import SMARRunEvent
 
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
@@ -163,7 +165,10 @@ class SMAHITLOption(BaseModel):
                 "TERMINAL options must provide a complete field_mapping. "
                 "field_mapping is only None for the direct_edit escape hatch."
             )
-        if self.reentry == SMAReentryDepth.DIRECT_EDIT and self.field_mapping is not None:
+        if (
+            self.reentry == SMAReentryDepth.DIRECT_EDIT
+            and self.field_mapping is not None
+        ):
             raise ValueError(
                 "direct_edit option must have field_mapping=None — "
                 "reviewer authors the correction in the UI."
@@ -452,7 +457,8 @@ class InstitutionSMAHITLItems(BaseModel):
         populated direct_edit_field_mapping. Blocks resolution.
         """
         return [
-            i for i in self.items
+            i
+            for i in self.items
             if i.is_direct_edit and i.direct_edit_field_mapping is None
         ]
 

@@ -162,7 +162,10 @@ def test_build_hook_generation_user_message_serializes_structured_grain_hitl_con
         "institution_id": "uni_of_central_florida",
         "datasets": {
             "student": {
-                "grain_contract": {"table": "student", "institution_id": "uni_of_central_florida"},
+                "grain_contract": {
+                    "table": "student",
+                    "institution_id": "uni_of_central_florida",
+                },
             }
         },
     }

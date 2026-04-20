@@ -490,7 +490,8 @@ identifier; set `learner_id_alias` accordingly; emit keys in `post_clean_primary
 
 def _identity_output_format() -> str:
     t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
-    return """
+    return (
+        """
 ## OUTPUT FORMAT
 
 Apply **TERMINOLOGY: "Drop Distinctions" vs. "Delete Column"** when writing HITL option
@@ -635,13 +636,16 @@ VALIDITY RULES
 - `no_dedup` is only valid when `non_unique_rows` = 0 for the candidate key in the key profile.
   If any candidate key has `non_unique_rows` > 0, use `temporal_collapse`, `true_duplicate`,
   or `policy_required` — never `no_dedup`.
-""" + f"- `confidence` ≤ {t} requires `hitl_flag: true`.\n" + """
+"""
+        + f"- `confidence` ≤ {t} requires `hitl_flag: true`.\n"
+        + """
 - Every HITLItem must have 2–5 options. Last option must be `option_id: "custom"`
   with `resolution: null`. Use more options only when the resolution space is
   genuinely wider — avoid padding.
 - Non-custom options must have a non-null `resolution`.
 - `item_id` must be unique — use `<institution_id>_<table>_<descriptor>`.
 """
+    )
 
 
 def _identity_pydantic_schema_reference() -> str:
@@ -791,7 +795,9 @@ def audit_identity_agent_prompt(
 
     Uses ``len(text) // chars_per_token`` (see :mod:`edvise.genai.mapping.shared.token_audit.prompt_token_audit`).
     """
-    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import audit_prompt_sections
+    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import (
+        audit_prompt_sections,
+    )
 
     if df is not None and column_list is not None:
         raise ValueError("Pass only one of column_list or df")

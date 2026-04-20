@@ -39,7 +39,9 @@ from edvise.genai.mapping.identity_agent.execution.contract_utilities import (
     canonicalize_grain_contract_learner_id_alias,
 )
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
-from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermOrderConfig
+from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
+    TermOrderConfig,
+)
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
     hook_modules_root_from_bronze_volume,
 )
@@ -603,9 +605,7 @@ def _build_cleaned_and_frozen_contract(
             dedupe_fn_by_dataset=dedupe_fn_by_dataset,
             canonical_learner_column=canonical_learner_column,
         )
-    grain_subset = {
-        k: v for k, v in grain_contracts_by_dataset.items() if k in names
-    }
+    grain_subset = {k: v for k, v in grain_contracts_by_dataset.items() if k in names}
     return build_schema_contract_from_grain_contracts(
         subset_sc,
         grain_subset,

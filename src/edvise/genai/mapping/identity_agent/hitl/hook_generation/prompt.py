@@ -202,7 +202,9 @@ def audit_hook_generation_prompt(
     """
     Local estimated token counts for HITL hook generation (system + JSON user message).
     """
-    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import audit_prompt_sections
+    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import (
+        audit_prompt_sections,
+    )
 
     system_text = build_hook_generation_system_prompt(item.domain)
     user_text = build_hook_generation_user_message(

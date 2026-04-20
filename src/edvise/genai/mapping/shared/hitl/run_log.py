@@ -11,7 +11,10 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json, write_pydantic_json
+from edvise.genai.mapping.shared.hitl.json_io import (
+    read_pydantic_json,
+    write_pydantic_json,
+)
 
 
 class RunEvent(BaseModel):

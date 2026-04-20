@@ -13,7 +13,9 @@ from pydantic import (
 )
 
 from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
-from edvise.genai.mapping.shared.hitl.confidence import PIPELINE_HITL_CONFIDENCE_THRESHOLD
+from edvise.genai.mapping.shared.hitl.confidence import (
+    PIPELINE_HITL_CONFIDENCE_THRESHOLD,
+)
 
 # Same numeric default as SMA (:data:`PIPELINE_HITL_CONFIDENCE_THRESHOLD`); compared with ``<=``.
 IDENTITY_CONFIDENCE_HITL_THRESHOLD: float = PIPELINE_HITL_CONFIDENCE_THRESHOLD

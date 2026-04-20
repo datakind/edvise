@@ -81,8 +81,11 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     ReentryDepth,
     TermResolution,
 )
-from edvise.genai.mapping.shared.hitl import HITLBlockingError, raise_if_hitl_pending
-from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json, write_pydantic_json
+from edvise.genai.mapping.shared.hitl import raise_if_hitl_pending
+from edvise.genai.mapping.shared.hitl.json_io import (
+    read_pydantic_json,
+    write_pydantic_json,
+)
 from edvise.genai.mapping.shared.hitl.run_log import RunEvent, append_run_log_event
 from edvise.genai.mapping.shared.hitl.time import utc_now_iso
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
@@ -181,9 +184,7 @@ def check_gate(hitl_path: str | Path) -> None:
     raise_if_hitl_pending(
         envelope.pending,
         hitl_path=hitl_path,
-        format_item=lambda i: (
-            f"[{i.item_id}] {i.table} — {i.hitl_question[:80]}..."
-        ),
+        format_item=lambda i: (f"[{i.item_id}] {i.table} — {i.hitl_question[:80]}..."),
         instructions=(
             "  • Set 'choice' to the 1-based index of your selected option "
             "(1 … number of options).\n"

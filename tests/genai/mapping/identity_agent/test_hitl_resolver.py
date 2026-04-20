@@ -539,7 +539,9 @@ def test_resolve_items_generate_hook_still_applies_season_map_replace(tmp_path):
     assert out["datasets"]["student"]["term_config"]["hook_spec"] is None
 
 
-def test_resolve_items_custom_generate_hook_applies_partial_season_map_replace(tmp_path):
+def test_resolve_items_custom_generate_hook_applies_partial_season_map_replace(
+    tmp_path,
+):
     """custom + generate_hook may carry season_map_replace only; reviewer_note drives hook code."""
     hitl_path = tmp_path / "identity_term_hitl.json"
     config_path = tmp_path / "identity_term_output.json"

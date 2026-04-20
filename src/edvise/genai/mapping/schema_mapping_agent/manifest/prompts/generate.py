@@ -10,7 +10,9 @@ refinement + HITL pass.
 import json
 from typing import Any, Literal, cast
 
-from edvise.genai.mapping.shared.token_audit.prompt_token_audit import audit_prompt_sections
+from edvise.genai.mapping.shared.token_audit.prompt_token_audit import (
+    audit_prompt_sections,
+)
 from edvise.genai.mapping.shared.schema_contract import (
     EnrichedSchemaContractForSMA,
     TermNormalizationSummary,
@@ -20,7 +22,9 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     get_compact_manifest_schema_reference,
     get_manifest_schema_context,
 )
-from edvise.genai.mapping.shared.hitl.confidence import PIPELINE_HITL_CONFIDENCE_THRESHOLD
+from edvise.genai.mapping.shared.hitl.confidence import (
+    PIPELINE_HITL_CONFIDENCE_THRESHOLD,
+)
 
 
 def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
@@ -118,7 +122,9 @@ def summarize_schema_contract(
         }
         tn = table_info.training.term_normalization
         if tn is not None:
-            ds_summary["term_normalization_note"] = _term_normalization_note_for_prompt(tn)
+            ds_summary["term_normalization_note"] = _term_normalization_note_for_prompt(
+                tn
+            )
         summary["datasets"][table_name] = ds_summary
 
     return summary

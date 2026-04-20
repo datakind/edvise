@@ -1062,12 +1062,8 @@ def run():
                             if hasattr(entity_key, "value")
                             else str(entity_key)
                         )
-                        errs = validate_manifest(
-                            entity_manifest, schema_contract_sma
-                        )
-                        structural[ek] = [
-                            e.model_dump(mode="json") for e in errs
-                        ]
+                        errs = validate_manifest(entity_manifest, schema_contract_sma)
+                        structural[ek] = [e.model_dump(mode="json") for e in errs]
                     ve_path = manifest_dir / f"{target_id}_validation_errors.json"
                     ve_path.write_text(json.dumps(structural, indent=2))
                     total_ve = sum(len(v) for v in structural.values())
@@ -1076,9 +1072,7 @@ def run():
                             f"→ structural validation: {total_ve} issue(s) → {ve_path}"
                         )
                     else:
-                        logger.info(
-                            f"→ structural validation: 0 issues → {ve_path}"
-                        )
+                        logger.info(f"→ structural validation: 0 issues → {ve_path}")
                 except json.JSONDecodeError:
                     manifest_path.write_text(result["response"])
                     logger.warning(

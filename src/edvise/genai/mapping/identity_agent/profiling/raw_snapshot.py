@@ -126,9 +126,7 @@ def profile_raw_table(
         RawTableProfile with per-column profiles and term candidate flags
     """
     null_tokens = list(cleaning.null_tokens) if cleaning else ["(Blank)"]
-    treat_empty = (
-        cleaning.treat_empty_strings_as_null if cleaning else True
-    )
+    treat_empty = cleaning.treat_empty_strings_as_null if cleaning else True
     logger.info(
         "=== RawProfiler start — %s/%s: %d rows, %d columns ===",
         institution_id,

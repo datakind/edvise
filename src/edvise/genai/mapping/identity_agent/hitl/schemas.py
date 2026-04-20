@@ -22,7 +22,6 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     HookSpec,
 )
 from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
-from edvise.genai.mapping.shared.hitl.run_log import RunEvent, RunLog
 
 
 # ---------------------------------------------------------------------------
