@@ -66,10 +66,13 @@ def get_students_with_max_target_term_in_dataset(
     intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
         "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
     )
+    # ``intensity_num_terms`` counts terms from the checkpoint term *inclusive* through
+    # the last term we must observe to know the outcome; the last rank is therefore
+    # checkpoint_rank + num_terms - 1 (not + num_terms, which required one extra term).
     if "*" in intensity_num_terms:
         df_ckpt = df_ckpt.assign(
             student_max_term_rank=lambda df: (
-                df[term_rank_col] + intensity_num_terms["*"]
+                df[term_rank_col] + intensity_num_terms["*"] - 1.0
             )
         )
     else:
@@ -77,6 +80,7 @@ def get_students_with_max_target_term_in_dataset(
             student_max_term_rank=lambda df: (
                 df[term_rank_col]
                 + df[enrollment_intensity_col].map(intensity_num_terms)
+                - 1.0
             )
         )
     df_out = (

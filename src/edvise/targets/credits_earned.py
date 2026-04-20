@@ -46,6 +46,8 @@ def compute_target(
         num_terms_in_year: Number of academic terms in one academic year,
             used to convert from year-based time limits to term-based time limits;
             default value assumes FALL, WINTER, SPRING, and SUMMER terms.
+            When this is 4, the same fall-to-spring term budget adjustment as
+            :func:`graduation.compute_target` is applied after conversion (see there).
         max_term_rank: Maximum term rank value in the full dataset ``df`` , either inferred
             from ``df[term_rank_col]`` itself or as a manually specified value which
             may be different from the actual max value in ``df`` , depending on use case.
@@ -96,6 +98,13 @@ def compute_target(
     intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
         "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
     )
+    # Match :func:`graduation.compute_target`: four terms per year only, fall-to-spring
+    # paths span one fewer term than ``years * 4`` (see graduation for rationale).
+    if num_terms_in_year == 4:
+        intensity_num_terms = {
+            intensity: max(num_terms - 1.0, 1.0)
+            for intensity, num_terms in intensity_num_terms.items()
+        }
 
     # 6. Apply intensity-specific time limits and select at-risk student IDs
     # Check if student took more terms than allowed (e.g., full-time students get 12 terms, part-time get 16)
@@ -123,16 +132,12 @@ def compute_target(
         .astype({"target": "boolean"})
     )
 
-    # 7. Eligibility:
-    intensity_num_terms_minus_1 = {
-        intensity: max(num_terms - 1, 0)
-        for intensity, num_terms in intensity_num_terms.items()
-    }
+    # 7. Eligibility (see :func:`shared.get_students_with_max_target_term_in_dataset`):
     intensity_time_limits_for_eligibility = t.cast(
         utils.types.IntensityTimeLimitsType,
         {
             intensity: (float(num_terms), "term")
-            for intensity, num_terms in intensity_num_terms_minus_1.items()
+            for intensity, num_terms in intensity_num_terms.items()
         },
     )
 
