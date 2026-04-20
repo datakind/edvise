@@ -14,11 +14,12 @@ The last option is always option_id='direct_edit' with field_mapping=None, allow
 the reviewer to manually author a correction in the Streamlit UI.
 
 Resolver contract:
-    resolve_sma_items(hitl_path, manifest_path, resolved_by)
+    :func:`~edvise.genai.mapping.schema_mapping_agent.hitl.resolver.resolve_sma_items`
+    (``hitl_path``, ``manifest_path``, ``resolved_by``, optional ``run_log_path``)
         — for each resolved item, swaps manifest.mappings[target_field] with
           selected option's field_mapping (or direct_edit_field_mapping if direct edit).
-        — updates review_status on the resolved record.
-        — appends to run_log.json.
+        — sets review_status on the resolved record.
+        — optionally appends to run_log.json.
 
 File layout per institution:
     institutions/<institution_id>/
