@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import importlib.metadata
+
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
@@ -113,5 +115,18 @@ def test_transformation_map_minimal_valid():
         target_schema="RawEdviseStudentDataSchema",
         plans=[FieldTransformationPlan(target_field="learner_id", steps=[])],
     )
-    assert tm.schema_version == "0.1.0"
+    assert tm.pipeline_version == importlib.metadata.version("edvise")
     assert len(tm.plans) == 1
+
+
+def test_transformation_map_legacy_schema_version_key():
+    tm = TransformationMap.model_validate(
+        {
+            "schema_version": "9.9.9",
+            "institution_id": "x",
+            "entity_type": "cohort",
+            "target_schema": "RawEdviseStudentDataSchema",
+            "plans": [{"target_field": "learner_id", "steps": []}],
+        }
+    )
+    assert tm.pipeline_version == "9.9.9"

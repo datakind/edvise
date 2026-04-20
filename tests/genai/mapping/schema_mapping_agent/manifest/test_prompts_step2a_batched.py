@@ -46,7 +46,7 @@ def _minimal_institution_schema_contract() -> dict:
 
 def _minimal_reference_manifest() -> dict:
     return {
-        "schema_version": "0.1.0",
+        "pipeline_version": "0.2.0",
         "institution_id": "ref",
         "manifests": {
             "cohort": {
@@ -102,7 +102,7 @@ def test_build_step2a_batched_prompt_includes_envelope_and_part_labels():
     assert "MappingManifestEnvelope" in text
     assert "PART 1: Cohort (RawEdviseStudentDataSchema)" in text
     assert "PART 2: Course (RawEdviseCourseDataSchema)" in text
-    assert "Respond with valid JSON matching MappingManifestEnvelope." in text
+    assert "omit release/institution envelope fields" in text
 
 
 def test_audit_step2a_batched_prompt_section_breakdown():

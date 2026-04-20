@@ -1,0 +1,70 @@
+bundle:
+  name: edvise_genai_artifacts_ui
+
+sync:
+  include:
+    - requirements.txt
+
+artifacts:
+  generate_requirements:
+    build: python generate_requirements.py
+
+variables:
+  app_name:
+    description: Databricks app name for the GenAI artifacts browser
+  sql_warehouse_id:
+    description: SQL warehouse ID used by the app
+  datakind_group_to_manage_workflow:
+    description: Group with permissions to manage the app
+  DB_workspace:
+    description: Unity Catalog name (catalog) for artifact tables
+
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      app_name: edvise-genai-artifacts-dev
+      DB_workspace: dev_sst_02
+
+  prod:
+    mode: production
+    variables:
+      app_name: edvise-genai-artifacts-staging
+      DB_workspace: staging_sst_01
+    workspace:
+      root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
+
+resources:
+  apps:
+    genai_pipeline_artifacts_ui:
+      name: ${var.app_name}
+      source_code_path: .
+      description: Streamlit app for GenAI pipeline artifact paths (Unity Catalog registry)
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.sql_warehouse_id}
+            permission: CAN_USE
+        - name: genai-pipeline-artifacts-table
+          uc_securable:
+            securable_type: TABLE
+            securable_full_name: ${var.DB_workspace}.genai.genai_pipeline_artifacts
+            permission: SELECT
+      config:
+        command:
+          - streamlit
+          - run
+          - app.py
+        env:
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: DB_workspace
+            value: ${var.DB_workspace}
+          - name: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+            value: "false"
+      permissions:
+        - group_name: ${var.datakind_group_to_manage_workflow}
+          level: CAN_MANAGE
+        - group_name: users
+          level: CAN_USE

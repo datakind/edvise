@@ -25,6 +25,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
 from edvise.genai.mapping.shared.hitl.confidence import (
     PIPELINE_HITL_CONFIDENCE_THRESHOLD,
 )
+from edvise.genai.mapping.shared.pipeline_artifacts import resolve_pipeline_version
 
 
 def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
@@ -144,7 +145,10 @@ def slim_reference_manifest(manifest: dict) -> dict:
         "review_status",
     }
 
-    slimmed = {k: v for k, v in manifest.items() if k != "manifests"}
+    _omit_top = frozenset(
+        {"manifests", "schema_version", "pipeline_version", "institution_id"}
+    )
+    slimmed = {k: v for k, v in manifest.items() if k not in _omit_top}
     slimmed["manifests"] = {}
 
     for entity, entity_manifest in manifest.get("manifests", {}).items():
@@ -550,7 +554,7 @@ def merge_step2a_entity_manifests(
     course_pass: dict,
     *,
     institution_id: str | None = None,
-    schema_version: str = "0.1.0",
+    pipeline_version: str | None = None,
 ) -> dict:
     """
     Merge cohort-only and course-only Step 2a JSON objects into one full manifest envelope.
@@ -559,8 +563,7 @@ def merge_step2a_entity_manifests(
     single entity key, or a partial ``FieldMappingManifest``-shaped object (keys
     ``entity_type``, ``target_schema``, ``mappings``, ``column_aliases`` only).
 
-    When passes omit envelope-level fields, supply ``institution_id`` (and optionally
-    ``schema_version``); otherwise they are taken from the cohort pass when present.
+    Supplies ``institution_id`` and ``pipeline_version`` (Edvise/git release) — not from the LLM.
     """
 
     def _extract(pass_dict: dict, role: Literal["cohort", "course"]) -> dict[str, Any]:
@@ -585,14 +588,18 @@ def merge_step2a_entity_manifests(
             "(pass institution_id=... to merge_step2a_entity_manifests)"
         )
 
-    sv = schema_version
-    if "schema_version" in cohort_pass:
-        sv = cohort_pass.get("schema_version", sv)
+    pv = resolve_pipeline_version(pipeline_version)
+    if "pipeline_version" in cohort_pass:
+        pv = str(cohort_pass.get("pipeline_version", pv))
+    elif "pipeline_version" in course_pass:
+        pv = str(course_pass.get("pipeline_version", pv))
+    elif "schema_version" in cohort_pass:
+        pv = str(cohort_pass.get("schema_version", pv))
     elif "schema_version" in course_pass:
-        sv = course_pass.get("schema_version", sv)
+        pv = str(course_pass.get("schema_version", pv))
 
     return {
-        "schema_version": sv,
+        "pipeline_version": pv,
         "institution_id": inst_id,
         "manifests": {
             "cohort": cohort_entity,
@@ -644,9 +651,9 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 """
     rules = f"""<rules>
 STRUCTURE
-- Match the reference manifest JSON structure exactly (schema_version, institution_id,
-  manifests with cohort + course sections; each section: entity_type, target_schema,
-  mappings array, then column_aliases last)
+- Top-level ``manifests`` with cohort + course sections; each section: entity_type, target_schema,
+  mappings array, then column_aliases last. Do not output top-level release or institution fields —
+  the pipeline adds them when saving.
 - Each mapping entry must include: target_field, source_column, source_table,
   row_selection, confidence, and rationale.
 - Do not include review_status on mapping records — the pipeline assigns it after
@@ -733,7 +740,7 @@ def collect_step2a_prompt_batched_sections(
 
 This replaces separate cohort-only and course-only Step 2a passes: produce the full envelope in one LLM call.
 
-Generate a MappingManifestEnvelope with manifests containing BOTH "cohort" and "course" keys.
+Return JSON whose top-level ``manifests`` contains BOTH "cohort" and "course" keys. The pipeline fills release and institution metadata when saving — do not output those top-level fields.
 
 The mapping manifest is a machine-consumed specification.
 A deterministic field executor reads each record and resolves the source Series —
@@ -742,9 +749,9 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 """
     rules = f"""<rules>
 STRUCTURE
-- Match the reference manifest JSON structure exactly (schema_version, institution_id,
-  manifests with cohort + course sections; each section: entity_type, target_schema,
-  mappings array, then column_aliases last)
+- Top-level ``manifests`` with cohort + course sections; each section: entity_type, target_schema,
+  mappings array, then column_aliases last. Do not output top-level release or institution fields —
+  the pipeline adds them when saving.
 - Each mapping entry must include: target_field, source_column, source_table,
   row_selection, confidence, and rationale.
 - Do not include review_status on mapping records — the pipeline assigns it after
@@ -756,7 +763,7 @@ STRUCTURE
 
 {_step2a_rules_after_structure(institution_name, column_aliases_scope="single_pass")}
 {_step2a_json_output_rules()}
-{_step2a_prompt_close(generate_line="Respond with valid JSON matching MappingManifestEnvelope.")}"""
+{_step2a_prompt_close(generate_line="Respond with valid JSON: top-level manifests with cohort and course only (omit release/institution envelope fields — the pipeline adds them).")}"""
     return {
         "preamble": preamble,
         "reference_manifests": reference_blocks,
@@ -821,11 +828,12 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 """
     rules = f"""<rules>
 STRUCTURE (cohort pass only)
-- Output one JSON object with: schema_version, institution_id, and manifests
+- Output either: (A) `{{\"manifests\": {{\"cohort\": {{...}}}}}}` with only the cohort key, or
+  (B) a single FieldMappingManifest-shaped object (entity_type, target_schema, mappings, column_aliases) for cohort.
+  Do not include top-level release or institution fields — the pipeline adds them when merging passes.
 - manifests MUST contain exactly one key: \"cohort\" — do not include \"course\" or any course mappings
 - manifests.cohort must include entity_type, target_schema, mappings for every
   target field in the cohort Pandera schema above, and column_aliases (last; [] if none)
-- Set institution_id to \"{institution_id}\" (use this exact value)
 - Each mapping entry must include: target_field, source_column, source_table,
   row_selection, confidence, and rationale.
 - Do not include review_status on mapping records — the pipeline assigns it after
@@ -836,7 +844,6 @@ STRUCTURE (cohort pass only)
 
 {_step2a_rules_after_structure(institution_name, column_aliases_scope="entity_pass", term_rules="cohort_only")}
 {_step2a_json_output_rules()}
-- Output only the entity manifest object — a JSON object with keys entity_type, target_schema, mappings, and column_aliases. Do not include institution_id, schema_version, or any envelope-level fields. These are added by the calling code.
 - The manifests object MUST contain only the \"cohort\" key; omit \"course\" entirely
 {_step2a_prompt_close(generate_line="Generate the cohort-only mapping manifest JSON now.")}"""
     return {
@@ -903,12 +910,12 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 """
     rules = f"""<rules>
 STRUCTURE (course pass only)
-- Output one JSON object with: schema_version, institution_id, and manifests
+- Output either: (A) `{{\"manifests\": {{\"course\": {{...}}}}}}` with only the course key, or
+  (B) a single FieldMappingManifest-shaped object for course.
+  Do not include top-level release or institution fields — the pipeline adds them when merging passes.
 - manifests MUST contain exactly one key: \"course\" — do not include \"cohort\" or duplicate cohort mappings
 - manifests.course must include entity_type, target_schema, mappings for every
   target field in the course Pandera schema above, and column_aliases (last; [] if none)
-- Set institution_id to \"{institution_id}\" (use this exact value)
-- Set schema_version to match the reference mapping manifests (typically \"0.1.0\")
 - Each mapping entry must include: target_field, source_column, source_table,
   row_selection, confidence, and rationale.
 - Do not include review_status on mapping records — the pipeline assigns it after
@@ -919,7 +926,6 @@ STRUCTURE (course pass only)
 
 {_step2a_rules_after_structure(institution_name, column_aliases_scope="entity_pass", term_rules="course_only")}
 {_step2a_json_output_rules()}
-- Output only the entity manifest object — a JSON object with keys entity_type, target_schema, mappings, and column_aliases. Do not include institution_id, schema_version, or any envelope-level fields. These are added by the calling code.
 - The manifests object MUST contain only the \"course\" key; omit \"cohort\" entirely
 {_step2a_prompt_close(generate_line="Generate the course-only mapping manifest JSON now.")}"""
     return {
@@ -1115,8 +1121,8 @@ def build_step2a_prompt_cohort_pass(
     """
     Step 2a pass 1: cohort (student) entity only.
 
-    The model must return JSON with top-level schema_version, institution_id, and
-    manifests containing only the \"cohort\" key (no \"course\" section).
+    The model returns only cohort manifest content (see cohort-pass STRUCTURE rules);
+    the pipeline fills envelope metadata when merging passes.
     """
     sections = collect_step2a_prompt_cohort_pass_sections(
         institution_id,

@@ -43,7 +43,7 @@ def _minimal_manifest(**overrides) -> dict:
 
 def _minimal_envelope(**overrides) -> dict:
     base = {
-        "schema_version": "0.1.0",
+        "pipeline_version": "0.2.0",
         "institution_id": "test_cc",
         "manifests": {
             "cohort": _minimal_manifest(),
@@ -194,9 +194,18 @@ def test_field_mapping_manifest_round_trip_minimal():
 def test_mapping_manifest_envelope_round_trip_minimal():
     data = _minimal_envelope()
     env = MappingManifestEnvelope.model_validate(data)
+    assert env.pipeline_version == "0.2.0"
     assert env.institution_id == "test_cc"
     assert env.manifests["cohort"].entity_type == "cohort"
     assert env.manifests["course"].entity_type == "course"
+
+
+def test_mapping_manifest_envelope_legacy_schema_version_key():
+    raw = _minimal_envelope()
+    raw.pop("pipeline_version")
+    raw["schema_version"] = "1.0.0"
+    env = MappingManifestEnvelope.model_validate(raw)
+    assert env.pipeline_version == "1.0.0"
 
 
 def test_get_manifest_schema_context_non_empty():

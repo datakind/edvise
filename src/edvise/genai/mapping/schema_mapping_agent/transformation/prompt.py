@@ -177,8 +177,9 @@ never resolve sources or perform joins.
     )
     rules = f"""<rules>
 STRUCTURE
-- Match the reference transformation map JSON structure exactly (schema_version, institution_id,
-  transformation_maps with cohort + course sections, each containing entity_type, target_schema, plans array)
+- Match the reference transformation map shape: transformation_maps with cohort + course sections,
+  each containing entity_type, target_schema, plans array.
+  Do not output top-level release or institution fields — the pipeline adds them when saving.
 - Each plan must include: target_field, output_dtype, and steps array
 - Do not include review_status on plans — the pipeline assigns it after validation
   and optional refinement

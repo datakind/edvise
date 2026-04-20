@@ -14,6 +14,7 @@ from edvise.configs.genai import (
     bronze_volume_path_for_institution,
     resolve_genai_data_path,
 )
+from edvise.genai.mapping.shared.pipeline_artifacts import resolve_pipeline_version
 from edvise.dataio.read import from_toml_file
 
 
@@ -46,6 +47,8 @@ def test_identity_agent_inputs_round_trip(tmp_path: Path) -> None:
     ]
 
     school = raw.to_school_mapping_config(uc_catalog="dev_sst_02")
+    assert school.pipeline_run_id is None
+    assert school.pipeline_version == resolve_pipeline_version()
     assert school.institution_id == "john_jay_col"
     assert school.datasets["student"] == DatasetConfig(
         files=["Datakind Students.1994-2025.csv"],
@@ -130,3 +133,56 @@ def test_files_rejects_non_string_list() -> None:
 def test_dataset_config_rejects_empty_primary_keys_when_set() -> None:
     with pytest.raises(ValueError, match="primary_keys"):
         DatasetConfig(files=["/a.csv"], primary_keys=[])
+
+
+def test_to_school_mapping_config_pipeline_run_id_kwarg(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("GENAI_PIPELINE_RUN_ID", raising=False)
+    monkeypatch.delenv("DATABRICKS_JOB_RUN_ID", raising=False)
+    p = tmp_path / "inputs.toml"
+    p.write_text(
+        textwrap.dedent(
+            """
+            [institution]
+            id = "john_jay_col"
+
+            [datasets.files]
+            student = "a.csv"
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    raw = IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
+    school = raw.to_school_mapping_config(
+        uc_catalog="dev_sst_02", pipeline_run_id="run_xyz"
+    )
+    assert school.pipeline_run_id == "run_xyz"
+    assert school.pipeline_version == resolve_pipeline_version()
+    root = school.genai_versioned_run_root()
+    assert root is not None
+    assert "run_xyz" in root
+    assert root.endswith("/genai_pipeline/run_xyz")
+
+
+def test_to_school_mapping_config_pipeline_run_id_from_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GENAI_PIPELINE_RUN_ID", "from_env")
+    monkeypatch.delenv("DATABRICKS_JOB_RUN_ID", raising=False)
+    p = tmp_path / "inputs.toml"
+    p.write_text(
+        textwrap.dedent(
+            """
+            [institution]
+            id = "john_jay_col"
+
+            [datasets.files]
+            student = "a.csv"
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    raw = IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
+    school = raw.to_school_mapping_config(uc_catalog="dev_sst_02")
+    assert school.pipeline_run_id == "from_env"

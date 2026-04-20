@@ -489,14 +489,14 @@ def validate_transformation_wrapper(m: dict) -> tuple[bool, str | None]:
     """Validate full JSON with cohort + course sections."""
     try:
         inst = m.get("institution_id")
-        sv = m.get("schema_version", "0.1.0")
+        pv = m.get("pipeline_version") or m.get("schema_version", "0.1.0")
         for entity in ("cohort", "course"):
             sec = m.get("transformation_maps", {}).get(entity)
             if not sec:
                 return False, f"Missing transformation_maps.{entity}"
             TransformationMap.model_validate(
                 {
-                    "schema_version": sv,
+                    "pipeline_version": pv,
                     "institution_id": inst,
                     "entity_type": sec["entity_type"],
                     "target_schema": sec["target_schema"],
