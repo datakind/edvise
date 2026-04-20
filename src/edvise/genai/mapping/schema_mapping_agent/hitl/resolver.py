@@ -185,7 +185,10 @@ def resolve_sma_items(
         if env_wrapper is not None
         else hitl_envelope.institution_id
     )
-    if env_wrapper is not None and env_wrapper.institution_id != hitl_envelope.institution_id:
+    if (
+        env_wrapper is not None
+        and env_wrapper.institution_id != hitl_envelope.institution_id
+    ):
         raise SMAHITLResolverError(
             f"HITL institution_id {hitl_envelope.institution_id!r} does not match "
             f"manifest institution_id {env_wrapper.institution_id!r}"
@@ -218,7 +221,10 @@ def resolve_sma_items(
         )
         fm.mappings[idx] = updated
 
-        if selected.reentry == SMAReentryDepth.TERMINAL and selected.column_alias is not None:
+        if (
+            selected.reentry == SMAReentryDepth.TERMINAL
+            and selected.column_alias is not None
+        ):
             add_alias_if_missing(fm, selected.column_alias)
 
         if run_log_path is not None:

@@ -75,7 +75,9 @@ def test_resolve_sma_items_single_manifest(tmp_path):
         choice=1,
         reviewer_note="picked option 1",
     )
-    hitl = InstitutionSMAHITLItems(institution_id="u1", entity_type="cohort", items=[item])
+    hitl = InstitutionSMAHITLItems(
+        institution_id="u1", entity_type="cohort", items=[item]
+    )
 
     fm = FieldMappingManifest(
         entity_type="cohort",
@@ -140,7 +142,9 @@ def test_resolve_sma_items_envelope(tmp_path):
         options=[opt_a, opt_de],
         choice=1,
     )
-    hitl = InstitutionSMAHITLItems(institution_id="u1", entity_type="cohort", items=[item])
+    hitl = InstitutionSMAHITLItems(
+        institution_id="u1", entity_type="cohort", items=[item]
+    )
     hitl_path = write_sma_hitl_artifact(tmp_path, hitl)
 
     course_fm = FieldMappingManifest(
@@ -209,7 +213,9 @@ def test_resolve_sma_items_institution_mismatch(tmp_path):
         options=[opt_a, opt_de],
         choice=1,
     )
-    hitl = InstitutionSMAHITLItems(institution_id="u1", entity_type="cohort", items=[item])
+    hitl = InstitutionSMAHITLItems(
+        institution_id="u1", entity_type="cohort", items=[item]
+    )
     hitl_path = write_sma_hitl_artifact(tmp_path, hitl)
 
     cohort_fm = FieldMappingManifest(
