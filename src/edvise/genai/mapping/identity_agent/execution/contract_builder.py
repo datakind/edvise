@@ -11,8 +11,10 @@ The **canonical JSON shape** consumed by Schema Mapping Agent is
 
 Use :func:`build_enriched_schema_contract_for_institution` for one JSON per institution
 (all logical datasets under ``datasets``), or :func:`build_enriched_schema_contract_for_dataset`
-for a single-dataset slice. Each runs **one** load/clean pass (frozen contract + ``training``
-metadata); then :func:`save_enriched_schema_contract`. Returns ``(enriched_dict, cleaned_map)``
+for a single-dataset slice. Each runs **one** full-data clean/freeze by default
+(``contract_sample_size=None``), then builds ``training`` metadata from at most
+``training_sample_size`` cleaned rows per dataset (default ``10_000``) for ``column_details``
+only. Then :func:`save_enriched_schema_contract`. Returns ``(enriched_dict, cleaned_map)``
 so callers can persist Parquet from the same frames.
 """
 
@@ -565,6 +567,16 @@ def _school_config_subset_for_names(
     return school_config.model_copy(update={"datasets": datasets})
 
 
+def _cleaned_frame_for_training_column_details(
+    df: pd.DataFrame,
+    training_sample_size: Optional[int],
+) -> pd.DataFrame:
+    """Subset cleaned rows used only for ``training.column_details`` (stats / samples)."""
+    if training_sample_size is None or len(df) <= training_sample_size:
+        return df
+    return df.sample(n=training_sample_size, random_state=42).reset_index(drop=True)
+
+
 def _build_cleaned_and_frozen_contract(
     school_config: SchoolMappingConfig,
     names: Sequence[str],
@@ -630,12 +642,17 @@ def _collect_training_examples(
     schema_contract: dict,
     *,
     spark_session: Optional[Any],
-    sample_size: Optional[int],
+    training_sample_size: Optional[int],
     dataset_name_suffix: str,
     term_order_config_by_dataset: Optional[dict[str, TermOrderConfig | None]],
     canonical_learner_column: Literal["student_id", "learner_id"],
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
-    """Load column metadata per dataset (same sampling as the frozen build) and build training dicts."""
+    """Load full-file column metadata and build per-dataset training dicts.
+
+    Raw loads use ``sample_size=None`` so ``original_row_count`` and column names match the full
+    source. ``training_sample_size`` only caps rows used for ``column_details`` statistics
+    (via a slice of the **already-cleaned** frame); it does not change ``cleaned_map``.
+    """
     school_examples: list[dict[str, Any]] = []
     dataset_to_logical_name: dict[str, str] = {}
 
@@ -645,7 +662,7 @@ def _collect_training_examples(
             _load_and_preprocess_dataset(
                 dataset_config=dataset_config,
                 spark_session=spark_session,
-                sample_size=sample_size,
+                sample_size=None,
                 bronze_volumes_path=school_config.bronze_volumes_path,
             )
         )
@@ -661,12 +678,15 @@ def _collect_training_examples(
         file_path = resolve_genai_data_path(
             school_config.bronze_volumes_path, dataset_config.files[0]
         )
+        df_for_details = _cleaned_frame_for_training_column_details(
+            cleaned_map[logical_name], training_sample_size
+        )
         example = build_training_example_from_schema_contract(
             school_config=school_config,
             dataset_name=dataset_name,
             logical_name=logical_name,
             schema_contract=schema_contract,
-            cleaned_dataframes=cleaned_map,
+            cleaned_dataframes={logical_name: df_for_details},
             original_columns=original_columns,
             column_mapping=column_mapping,
             original_row_count=original_row_count,
@@ -685,7 +705,8 @@ def process_school_dataset(
     dataset_config: DatasetConfig,
     dtype_opts: Optional[DtypeGenerationOptions] = None,
     spark_session: Optional[Any] = None,
-    sample_size: int = 10000,
+    contract_sample_size: Optional[int] = None,
+    training_sample_size: Optional[int] = 10_000,
     dataset_name_suffix: str = "",
     term_order_fn: Optional[TermOrderFn] = None,
     term_column_by_dataset: Optional[dict[str, str]] = None,
@@ -713,7 +734,7 @@ def process_school_dataset(
             grain_for_build,
             dtype_opts=dtype_opts,
             spark_session=spark_session,
-            sample_size=sample_size,
+            sample_size=contract_sample_size,
             dataset_name_suffix=dataset_name_suffix,
             term_order_fn=term_order_fn,
             term_column_by_dataset=term_column_by_dataset,
@@ -731,7 +752,7 @@ def process_school_dataset(
             cleaned_dataframes,
             schema_contract,
             spark_session=spark_session,
-            sample_size=sample_size,
+            training_sample_size=training_sample_size,
             dataset_name_suffix=dataset_name_suffix,
             term_order_config_by_dataset=term_order_config_by_dataset,
             canonical_learner_column=canonical_learner_column,
@@ -770,7 +791,8 @@ def build_enriched_schema_contract_for_institution(
     dataset_names: Optional[Sequence[str]] = None,
     dtype_opts: Optional[DtypeGenerationOptions] = None,
     spark_session: Optional[Any] = None,
-    sample_size: int = 10_000,
+    contract_sample_size: Optional[int] = None,
+    training_sample_size: Optional[int] = 10_000,
     dataset_name_suffix: str = "",
     term_order_fn: Optional[TermOrderFn] = None,
     term_column_by_dataset: Optional[dict[str, str]] = None,
@@ -803,6 +825,11 @@ def build_enriched_schema_contract_for_institution(
     is optional; when set, each dataset's ``training.term_normalization`` records which source
     column(s) IdentityAgent used for term order (single ``term_col`` vs split ``year_col``/``season_col``).
 
+    ``contract_sample_size`` is passed to the frozen contract build (``None`` = all rows in each
+    CSV load). ``training_sample_size`` caps rows used only for ``training.column_details``
+    statistics (sample of the cleaned frame); default ``10_000``. Pass ``None`` for training
+    stats over the full cleaned table.
+
     Returns:
         ``(enriched_contract_dict, cleaned_dataframes_by_logical_name)`` — use the latter to
         write Parquet without a second cleaning pass.
@@ -833,7 +860,7 @@ def build_enriched_schema_contract_for_institution(
         grain_for_build,
         dtype_opts=dtype_opts,
         spark_session=spark_session,
-        sample_size=sample_size,
+        sample_size=contract_sample_size,
         cleaning_cfg=cleaning_cfg,
         dataset_name_suffix=dataset_name_suffix,
         term_order_fn=term_order_fn,
@@ -850,7 +877,7 @@ def build_enriched_schema_contract_for_institution(
         cleaned_map,
         schema_contract,
         spark_session=spark_session,
-        sample_size=sample_size,
+        training_sample_size=training_sample_size,
         dataset_name_suffix=dataset_name_suffix,
         term_order_config_by_dataset=term_order_config_by_dataset,
         canonical_learner_column=canonical_learner_column,
@@ -871,7 +898,8 @@ def build_enriched_schema_contract_for_dataset(
     *,
     dtype_opts: Optional[DtypeGenerationOptions] = None,
     spark_session: Optional[Any] = None,
-    sample_size: int = 10_000,
+    contract_sample_size: Optional[int] = None,
+    training_sample_size: Optional[int] = 10_000,
     dataset_name_suffix: str = "",
     term_order_fn: Optional[TermOrderFn] = None,
     term_column_by_dataset: Optional[dict[str, str]] = None,
@@ -896,7 +924,8 @@ def build_enriched_schema_contract_for_dataset(
         dataset_names=[dataset_name],
         dtype_opts=dtype_opts,
         spark_session=spark_session,
-        sample_size=sample_size,
+        contract_sample_size=contract_sample_size,
+        training_sample_size=training_sample_size,
         dataset_name_suffix=dataset_name_suffix,
         term_order_fn=term_order_fn,
         term_column_by_dataset=term_column_by_dataset,
