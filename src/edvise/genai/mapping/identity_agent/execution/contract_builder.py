@@ -11,10 +11,11 @@ The **canonical JSON shape** consumed by Schema Mapping Agent is
 
 Use :func:`build_enriched_schema_contract_for_institution` for one JSON per institution
 (all logical datasets under ``datasets``), or :func:`build_enriched_schema_contract_for_dataset`
-for a single-dataset slice. Each runs **one** full-data clean/freeze by default
-(``contract_sample_size=None``), then builds ``training`` metadata from at most
-``training_sample_size`` cleaned rows per dataset (default ``10_000``) for ``column_details``
-only. Then :func:`save_enriched_schema_contract`. Returns ``(enriched_dict, cleaned_map)``
+for a single-dataset slice. Each runs **one** full-data load, clean, and freeze (the returned
+``cleaned_map`` is always the full cleaned table). Optional ``training_sample_size`` caps rows
+used only for ``training.column_details`` statistics (faster on huge tables; does not shrink
+``cleaned_map``).
+Then :func:`save_enriched_schema_contract`. Returns ``(enriched_dict, cleaned_map)``
 so callers can persist Parquet from the same frames.
 """
 
@@ -584,7 +585,6 @@ def _build_cleaned_and_frozen_contract(
     *,
     dtype_opts: Optional[DtypeGenerationOptions] = None,
     spark_session: Optional[Any] = None,
-    sample_size: Optional[int] = None,
     cleaning_cfg: Optional[CleaningConfig] = None,
     dataset_name_suffix: str = "",
     term_order_fn: Optional[TermOrderFn] = None,
@@ -599,6 +599,10 @@ def _build_cleaned_and_frozen_contract(
     """
     One combined pass: merge grain (when provided), clean all ``names``, freeze schema contract.
 
+    Always loads and cleans **all** rows per dataset so ``cleaned_map`` matches full outputs.
+    (Row caps for enrichment belong on ``training_sample_size`` in
+    :func:`_collect_training_examples` only.)
+
     When ``grain_contracts_by_dataset`` is ``None``, grain merge and grain-based dedupe hooks
     are skipped (same as calling :func:`build_schema_contract_from_config` on the subset config).
     """
@@ -609,7 +613,7 @@ def _build_cleaned_and_frozen_contract(
             dtype_opts=dtype_opts,
             spark_session=spark_session,
             dataset_name_suffix=dataset_name_suffix,
-            sample_size=sample_size,
+            sample_size=None,
             cleaning_cfg=cleaning_cfg,
             term_order_fn=term_order_fn,
             term_column_by_dataset=term_column_by_dataset,
@@ -624,7 +628,7 @@ def _build_cleaned_and_frozen_contract(
         dtype_opts=dtype_opts,
         spark_session=spark_session,
         dataset_name_suffix=dataset_name_suffix,
-        sample_size=sample_size,
+        sample_size=None,
         cleaning_cfg=cleaning_cfg,
         term_order_fn=term_order_fn,
         term_column_by_dataset=term_column_by_dataset,
@@ -705,8 +709,7 @@ def process_school_dataset(
     dataset_config: DatasetConfig,
     dtype_opts: Optional[DtypeGenerationOptions] = None,
     spark_session: Optional[Any] = None,
-    contract_sample_size: Optional[int] = None,
-    training_sample_size: Optional[int] = 10_000,
+    training_sample_size: Optional[int] = None,
     dataset_name_suffix: str = "",
     term_order_fn: Optional[TermOrderFn] = None,
     term_column_by_dataset: Optional[dict[str, str]] = None,
@@ -734,7 +737,6 @@ def process_school_dataset(
             grain_for_build,
             dtype_opts=dtype_opts,
             spark_session=spark_session,
-            sample_size=contract_sample_size,
             dataset_name_suffix=dataset_name_suffix,
             term_order_fn=term_order_fn,
             term_column_by_dataset=term_column_by_dataset,
@@ -791,8 +793,7 @@ def build_enriched_schema_contract_for_institution(
     dataset_names: Optional[Sequence[str]] = None,
     dtype_opts: Optional[DtypeGenerationOptions] = None,
     spark_session: Optional[Any] = None,
-    contract_sample_size: Optional[int] = None,
-    training_sample_size: Optional[int] = 10_000,
+    training_sample_size: Optional[int] = None,
     dataset_name_suffix: str = "",
     term_order_fn: Optional[TermOrderFn] = None,
     term_column_by_dataset: Optional[dict[str, str]] = None,
@@ -825,10 +826,10 @@ def build_enriched_schema_contract_for_institution(
     is optional; when set, each dataset's ``training.term_normalization`` records which source
     column(s) IdentityAgent used for term order (single ``term_col`` vs split ``year_col``/``season_col``).
 
-    ``contract_sample_size`` is passed to the frozen contract build (``None`` = all rows in each
-    CSV load). ``training_sample_size`` caps rows used only for ``training.column_details``
-    statistics (sample of the cleaned frame); default ``10_000``. Pass ``None`` for training
-    stats over the full cleaned table.
+    ``training_sample_size`` optionally caps rows used only for ``training.column_details``
+    statistics; default ``None`` uses the full cleaned frame. Set e.g. ``10_000`` for faster runs on
+    very large tables. The frozen contract and returned ``cleaned_map`` always use a full load and
+    clean.
 
     Returns:
         ``(enriched_contract_dict, cleaned_dataframes_by_logical_name)`` — use the latter to
@@ -860,7 +861,6 @@ def build_enriched_schema_contract_for_institution(
         grain_for_build,
         dtype_opts=dtype_opts,
         spark_session=spark_session,
-        sample_size=contract_sample_size,
         cleaning_cfg=cleaning_cfg,
         dataset_name_suffix=dataset_name_suffix,
         term_order_fn=term_order_fn,
@@ -898,8 +898,7 @@ def build_enriched_schema_contract_for_dataset(
     *,
     dtype_opts: Optional[DtypeGenerationOptions] = None,
     spark_session: Optional[Any] = None,
-    contract_sample_size: Optional[int] = None,
-    training_sample_size: Optional[int] = 10_000,
+    training_sample_size: Optional[int] = None,
     dataset_name_suffix: str = "",
     term_order_fn: Optional[TermOrderFn] = None,
     term_column_by_dataset: Optional[dict[str, str]] = None,
@@ -924,7 +923,6 @@ def build_enriched_schema_contract_for_dataset(
         dataset_names=[dataset_name],
         dtype_opts=dtype_opts,
         spark_session=spark_session,
-        contract_sample_size=contract_sample_size,
         training_sample_size=training_sample_size,
         dataset_name_suffix=dataset_name_suffix,
         term_order_fn=term_order_fn,
