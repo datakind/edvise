@@ -172,7 +172,7 @@ class EnrichedSchemaContractForSMA(BaseFrozenSchemaContract):
     and per-dataset :class:`FrozenDatasetSchemaForSMA` (includes ``training``).
 
     ``canonical_learner_column`` is copied from the frozen base contract by IdentityAgent
-    (:func:`~edvise.genai.mapping.identity_agent.execution.contract_builder.build_enriched_schema_contract`)
+    (:func:`~edvise.genai.mapping.identity_agent.execution.contract_builder.build_enriched_schema_contract_for_institution`)
     when present; it names the person-key column after cleaning (``student_id`` vs ``learner_id``).
     """
 

@@ -11,7 +11,9 @@ The **canonical JSON shape** consumed by Schema Mapping Agent is
 
 Use :func:`build_enriched_schema_contract_for_institution` for one JSON per institution
 (all logical datasets under ``datasets``), or :func:`build_enriched_schema_contract_for_dataset`
-for a single-dataset slice. Then :func:`save_enriched_schema_contract`.
+for a single-dataset slice. Each runs **one** load/clean pass (frozen contract + ``training``
+metadata); then :func:`save_enriched_schema_contract`. Returns ``(enriched_dict, cleaned_map)``
+so callers can persist Parquet from the same frames.
 """
 
 from __future__ import annotations
@@ -43,6 +45,10 @@ from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
 )
 from edvise.genai.mapping.identity_agent.term_normalization.term_order import (
     term_normalization_summary_for_enriched_contract,
+)
+from edvise.genai.mapping.shared.schema_contract.build_from_school_config import (
+    _load_and_preprocess_dataset,
+    build_schema_contract_from_config,
 )
 from edvise.utils.data_cleaning import convert_to_snake_case
 
@@ -542,6 +548,137 @@ def build_training_example_from_schema_contract(
     return example
 
 
+def _school_config_subset_for_names(
+    school_config: SchoolMappingConfig,
+    names: Sequence[str],
+) -> SchoolMappingConfig:
+    """Restrict ``school_config`` to the listed dataset names."""
+    missing = set(names) - set(school_config.datasets)
+    if missing:
+        raise KeyError(
+            "dataset name(s) not in school_config.datasets: "
+            f"{sorted(missing)} (have {list(school_config.datasets)})"
+        )
+    datasets = {n: school_config.datasets[n] for n in names}
+    return school_config.model_copy(update={"datasets": datasets})
+
+
+def _build_cleaned_and_frozen_contract(
+    school_config: SchoolMappingConfig,
+    names: Sequence[str],
+    grain_contracts_by_dataset: Optional[dict[str, GrainContract]],
+    *,
+    dtype_opts: Optional[DtypeGenerationOptions] = None,
+    spark_session: Optional[Any] = None,
+    sample_size: Optional[int] = None,
+    cleaning_cfg: Optional[CleaningConfig] = None,
+    dataset_name_suffix: str = "",
+    term_order_fn: Optional[TermOrderFn] = None,
+    term_column_by_dataset: Optional[dict[str, str]] = None,
+    term_order_fn_by_dataset: Optional[dict[str, Optional[TermOrderFn]]] = None,
+    dedupe_fn_by_dataset: Optional[
+        dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
+    ] = None,
+    canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
+    hook_modules_root: str | Path | None = None,
+) -> tuple[dict[str, pd.DataFrame], dict]:
+    """
+    One combined pass: merge grain (when provided), clean all ``names``, freeze schema contract.
+
+    When ``grain_contracts_by_dataset`` is ``None``, grain merge and grain-based dedupe hooks
+    are skipped (same as calling :func:`build_schema_contract_from_config` on the subset config).
+    """
+    subset_sc = _school_config_subset_for_names(school_config, names)
+    if grain_contracts_by_dataset is None:
+        return build_schema_contract_from_config(
+            subset_sc,
+            dtype_opts=dtype_opts,
+            spark_session=spark_session,
+            dataset_name_suffix=dataset_name_suffix,
+            sample_size=sample_size,
+            cleaning_cfg=cleaning_cfg,
+            term_order_fn=term_order_fn,
+            term_column_by_dataset=term_column_by_dataset,
+            term_order_fn_by_dataset=term_order_fn_by_dataset,
+            dedupe_fn_by_dataset=dedupe_fn_by_dataset,
+            canonical_learner_column=canonical_learner_column,
+        )
+    grain_subset = {
+        k: v for k, v in grain_contracts_by_dataset.items() if k in names
+    }
+    return build_schema_contract_from_grain_contracts(
+        subset_sc,
+        grain_subset,
+        dtype_opts=dtype_opts,
+        spark_session=spark_session,
+        dataset_name_suffix=dataset_name_suffix,
+        sample_size=sample_size,
+        cleaning_cfg=cleaning_cfg,
+        term_order_fn=term_order_fn,
+        term_column_by_dataset=term_column_by_dataset,
+        term_order_fn_by_dataset=term_order_fn_by_dataset,
+        dedupe_fn_by_dataset=dedupe_fn_by_dataset,
+        canonical_learner_column=canonical_learner_column,
+        hook_modules_root=hook_modules_root,
+    )
+
+
+def _collect_training_examples(
+    school_config: SchoolMappingConfig,
+    names: Sequence[str],
+    cleaned_map: dict[str, pd.DataFrame],
+    schema_contract: dict,
+    *,
+    spark_session: Optional[Any],
+    sample_size: Optional[int],
+    dataset_name_suffix: str,
+    term_order_config_by_dataset: Optional[dict[str, TermOrderConfig | None]],
+    canonical_learner_column: Literal["student_id", "learner_id"],
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Load column metadata per dataset (same sampling as the frozen build) and build training dicts."""
+    school_examples: list[dict[str, Any]] = []
+    dataset_to_logical_name: dict[str, str] = {}
+
+    for dataset_name in names:
+        dataset_config = school_config.datasets[dataset_name]
+        _, original_columns, column_mapping, original_row_count = (
+            _load_and_preprocess_dataset(
+                dataset_config=dataset_config,
+                spark_session=spark_session,
+                sample_size=sample_size,
+                bronze_volumes_path=school_config.bronze_volumes_path,
+            )
+        )
+        logical_name = (
+            f"{dataset_name}{dataset_name_suffix}"
+            if dataset_name_suffix
+            else dataset_name
+        )
+        dataset_to_logical_name[dataset_name] = logical_name
+        term_oc: TermOrderConfig | None = None
+        if term_order_config_by_dataset is not None:
+            term_oc = term_order_config_by_dataset.get(logical_name)
+        file_path = resolve_genai_data_path(
+            school_config.bronze_volumes_path, dataset_config.files[0]
+        )
+        example = build_training_example_from_schema_contract(
+            school_config=school_config,
+            dataset_name=dataset_name,
+            logical_name=logical_name,
+            schema_contract=schema_contract,
+            cleaned_dataframes=cleaned_map,
+            original_columns=original_columns,
+            column_mapping=column_mapping,
+            original_row_count=original_row_count,
+            file_path=file_path,
+            canonical_learner_column=canonical_learner_column,
+            term_order_config=term_oc,
+        )
+        school_examples.append(example)
+
+    return school_examples, dataset_to_logical_name
+
+
 def process_school_dataset(
     school_config: SchoolMappingConfig,
     dataset_name: str,
@@ -564,81 +701,42 @@ def process_school_dataset(
         school_config.bronze_volumes_path, dataset_config.files[0]
     )
 
+    grain_for_build: Optional[dict[str, GrainContract]] = None
+    if grain_contracts_by_dataset and dataset_name in grain_contracts_by_dataset:
+        grain_for_build = {dataset_name: grain_contracts_by_dataset[dataset_name]}
+
     try:
-        from edvise.genai.mapping.shared.schema_contract.build_from_school_config import (
-            _load_and_preprocess_dataset,
-            build_schema_contract_from_config,
-        )
-
-        _, original_columns, column_mapping, original_row_count = (
-            _load_and_preprocess_dataset(
-                dataset_config=dataset_config,
-                spark_session=spark_session,
-                sample_size=None,
-                bronze_volumes_path=school_config.bronze_volumes_path,
-            )
-        )
-
         load_start = time.time()
-        partial_school_config = school_config.model_copy(
-            update={"datasets": {dataset_name: dataset_config}},
+        cleaned_dataframes, schema_contract = _build_cleaned_and_frozen_contract(
+            school_config,
+            [dataset_name],
+            grain_for_build,
+            dtype_opts=dtype_opts,
+            spark_session=spark_session,
+            sample_size=sample_size,
+            dataset_name_suffix=dataset_name_suffix,
+            term_order_fn=term_order_fn,
+            term_column_by_dataset=term_column_by_dataset,
+            term_order_fn_by_dataset=term_order_fn_by_dataset,
+            canonical_learner_column=canonical_learner_column,
         )
-        if grain_contracts_by_dataset:
-            cleaned_dataframes, schema_contract = (
-                build_schema_contract_from_grain_contracts(
-                    school_config=partial_school_config,
-                    grain_contracts_by_dataset=grain_contracts_by_dataset,
-                    dtype_opts=dtype_opts,
-                    spark_session=spark_session,
-                    dataset_name_suffix=dataset_name_suffix,
-                    sample_size=sample_size,
-                    term_order_fn=term_order_fn,
-                    term_column_by_dataset=term_column_by_dataset,
-                    term_order_fn_by_dataset=term_order_fn_by_dataset,
-                    canonical_learner_column=canonical_learner_column,
-                )
-            )
-        else:
-            cleaned_dataframes, schema_contract = build_schema_contract_from_config(
-                school_config=partial_school_config,
-                dtype_opts=dtype_opts,
-                spark_session=spark_session,
-                dataset_name_suffix=dataset_name_suffix,
-                sample_size=sample_size,
-                term_order_fn=term_order_fn,
-                term_column_by_dataset=term_column_by_dataset,
-                term_order_fn_by_dataset=term_order_fn_by_dataset,
-                canonical_learner_column=canonical_learner_column,
-            )
         logger.debug(
             "  Built schema contract in %.2f seconds", time.time() - load_start
         )
 
-        logical_name = (
-            f"{dataset_name}{dataset_name_suffix}"
-            if dataset_name_suffix
-            else dataset_name
-        )
-
-        term_oc: TermOrderConfig | None = None
-        if term_order_config_by_dataset is not None:
-            term_oc = term_order_config_by_dataset.get(logical_name)
-
         stats_start = time.time()
-        example = build_training_example_from_schema_contract(
-            school_config=school_config,
-            dataset_name=dataset_name,
-            logical_name=logical_name,
-            schema_contract=schema_contract,
-            cleaned_dataframes=cleaned_dataframes,
-            original_columns=original_columns,
-            column_mapping=column_mapping,
-            original_row_count=original_row_count,
-            file_path=file_path,
+        examples, _ = _collect_training_examples(
+            school_config,
+            [dataset_name],
+            cleaned_dataframes,
+            schema_contract,
+            spark_session=spark_session,
+            sample_size=sample_size,
+            dataset_name_suffix=dataset_name_suffix,
+            term_order_config_by_dataset=term_order_config_by_dataset,
             canonical_learner_column=canonical_learner_column,
-            term_order_config=term_oc,
         )
-
+        example = examples[0]
         logger.debug(
             "  Collected column stats in %.2f seconds", time.time() - stats_start
         )
@@ -680,25 +778,34 @@ def build_enriched_schema_contract_for_institution(
     grain_contracts_by_dataset: Optional[dict[str, GrainContract]] = None,
     canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
     term_order_config_by_dataset: Optional[dict[str, TermOrderConfig | None]] = None,
-) -> Dict[str, Any]:
+    cleaning_cfg: Optional[CleaningConfig] = None,
+    dedupe_fn_by_dataset: Optional[
+        dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
+    ] = None,
+    hook_modules_root: str | Path | None = None,
+) -> tuple[Dict[str, Any], dict[str, pd.DataFrame]]:
     """
     Build one SMA-style **enriched** institution JSON with **all** requested logical datasets.
 
-    Runs :func:`process_school_dataset` for each name in ``dataset_names`` (or the default set
-    described below), then merges schema + per-dataset ``training`` metadata into a single
-    institution-style JSON.
+    Runs a **single** :func:`_build_cleaned_and_frozen_contract` pass (same work as
+    :func:`build_schema_contract_from_grain_contracts` when grain is provided), then attaches
+    per-dataset ``training`` metadata via :func:`_collect_training_examples`. This replaces the
+    previous per-dataset loop that re-cleaned each table.
 
     **Default ``dataset_names``:** if ``None``, uses ``sorted(grain_contracts_by_dataset)``
     when ``grain_contracts_by_dataset`` is provided; otherwise ``sorted(school_config.datasets)``.
 
-    For grain-driven primary keys, pass ``grain_contracts_by_dataset``; each dataset processed
-    uses ``{dataset_name: grain_contract}`` when that key is present. Pass a ``school_config``
+    For grain-driven primary keys, pass ``grain_contracts_by_dataset``. Pass a ``school_config``
     already updated via :func:`merge_grain_learner_id_alias_into_school_config` with the **full**
-    grain map so ``cleaning.student_id_alias`` matches §8 / multi-table workflows.
+    grain map so ``cleaning.student_id_alias`` matches multi-table workflows.
 
     ``term_order_config_by_dataset`` (logical dataset name → :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermOrderConfig`)
     is optional; when set, each dataset's ``training.term_normalization`` records which source
     column(s) IdentityAgent used for term order (single ``term_col`` vs split ``year_col``/``season_col``).
+
+    Returns:
+        ``(enriched_contract_dict, cleaned_dataframes_by_logical_name)`` — use the latter to
+        write Parquet without a second cleaning pass.
     """
     if dataset_names is None:
         if grain_contracts_by_dataset:
@@ -711,10 +818,6 @@ def build_enriched_schema_contract_for_institution(
     if not names:
         raise ValueError("dataset_names is empty (nothing to enrich)")
 
-    school_examples: List[Dict[str, Any]] = []
-    schema_contracts: List[tuple[str, dict]] = []
-    dataset_to_logical_name: Dict[str, str] = {}
-
     for dataset_name in names:
         if dataset_name not in school_config.datasets:
             raise KeyError(
@@ -722,53 +825,44 @@ def build_enriched_schema_contract_for_institution(
                 f"({list(school_config.datasets)})"
             )
 
-        dataset_config = school_config.datasets[dataset_name]
-        grain_slice: Optional[dict[str, GrainContract]] = None
-        if (
-            grain_contracts_by_dataset is not None
-            and dataset_name in grain_contracts_by_dataset
-        ):
-            grain_slice = {dataset_name: grain_contracts_by_dataset[dataset_name]}
+    grain_for_build: Optional[dict[str, GrainContract]] = grain_contracts_by_dataset
 
-        example, schema_contract = process_school_dataset(
-            school_config=school_config,
-            dataset_name=dataset_name,
-            dataset_config=dataset_config,
-            dtype_opts=dtype_opts,
-            spark_session=spark_session,
-            sample_size=sample_size,
-            dataset_name_suffix=dataset_name_suffix,
-            term_order_fn=term_order_fn,
-            term_column_by_dataset=term_column_by_dataset,
-            term_order_fn_by_dataset=term_order_fn_by_dataset,
-            grain_contracts_by_dataset=grain_slice,
-            canonical_learner_column=canonical_learner_column,
-            term_order_config_by_dataset=term_order_config_by_dataset,
-        )
+    cleaned_map, schema_contract = _build_cleaned_and_frozen_contract(
+        school_config,
+        names,
+        grain_for_build,
+        dtype_opts=dtype_opts,
+        spark_session=spark_session,
+        sample_size=sample_size,
+        cleaning_cfg=cleaning_cfg,
+        dataset_name_suffix=dataset_name_suffix,
+        term_order_fn=term_order_fn,
+        term_column_by_dataset=term_column_by_dataset,
+        term_order_fn_by_dataset=term_order_fn_by_dataset,
+        dedupe_fn_by_dataset=dedupe_fn_by_dataset,
+        canonical_learner_column=canonical_learner_column,
+        hook_modules_root=hook_modules_root,
+    )
 
-        if "error" in example:
-            raise RuntimeError(
-                f"Failed to build schema contract for dataset {dataset_name!r}: "
-                f"{example['error']}"
-            )
-        if not schema_contract or "datasets" not in schema_contract:
-            raise RuntimeError(
-                f"No schema contract produced for dataset {dataset_name!r}"
-            )
+    school_examples, dataset_to_logical_name = _collect_training_examples(
+        school_config,
+        names,
+        cleaned_map,
+        schema_contract,
+        spark_session=spark_session,
+        sample_size=sample_size,
+        dataset_name_suffix=dataset_name_suffix,
+        term_order_config_by_dataset=term_order_config_by_dataset,
+        canonical_learner_column=canonical_learner_column,
+    )
 
-        for logical_name in schema_contract["datasets"].keys():
-            dataset_to_logical_name[dataset_name] = logical_name
-            break
-
-        school_examples.append(example)
-        schema_contracts.append((dataset_name, schema_contract))
-
-    return _build_enriched_schema_contract(
+    enriched = _build_enriched_schema_contract(
         school_config=school_config,
         school_examples=school_examples,
-        schema_contracts=schema_contracts,
+        schema_contracts=[(names[0], schema_contract)],
         dataset_to_logical_name=dataset_to_logical_name,
     )
+    return enriched, cleaned_map
 
 
 def build_enriched_schema_contract_for_dataset(
@@ -785,7 +879,12 @@ def build_enriched_schema_contract_for_dataset(
     grain_contracts_by_dataset: Optional[dict[str, GrainContract]] = None,
     canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
     term_order_config_by_dataset: Optional[dict[str, TermOrderConfig | None]] = None,
-) -> Dict[str, Any]:
+    cleaning_cfg: Optional[CleaningConfig] = None,
+    dedupe_fn_by_dataset: Optional[
+        dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
+    ] = None,
+    hook_modules_root: str | Path | None = None,
+) -> tuple[Dict[str, Any], dict[str, pd.DataFrame]]:
     """
     Build one SMA-style **enriched** institution JSON containing a **single** logical dataset.
 
@@ -805,6 +904,9 @@ def build_enriched_schema_contract_for_dataset(
         grain_contracts_by_dataset=grain_contracts_by_dataset,
         canonical_learner_column=canonical_learner_column,
         term_order_config_by_dataset=term_order_config_by_dataset,
+        cleaning_cfg=cleaning_cfg,
+        dedupe_fn_by_dataset=dedupe_fn_by_dataset,
+        hook_modules_root=hook_modules_root,
     )
 
 
