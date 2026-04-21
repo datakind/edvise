@@ -36,6 +36,12 @@ variables:
   features_table_name:
     description: "Name of the features table file to use for legacy training (unused for PDP)"
     default: "features_table.toml"
+  preprocessing_module:
+    description: "Import path for legacy preprocessing (e.g. JJC); package must be on the cluster as a UC wheel / job library"
+    default: "pipelines.john_jay_col_transfer.preprocessing"
+  legacy_preprocessing_enabled:
+    description: "If true, run legacy_preprocessing before training_h2o; set false if modeling tables are pre-built"
+    default: "true"
   datakind_group_to_manage_workflow:
     description: "Group with permissions to manage the job"
   model_name:
