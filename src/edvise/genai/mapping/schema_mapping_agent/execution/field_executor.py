@@ -77,16 +77,22 @@ def _derive_entity_keys(
     source column names is used as the groupby key for all row_selection
     grain reduction strategies.
 
-    If some grain fields are unmapped, logs a warning and uses only the keys
-    that are mapped (may be empty). Full grain compliance is enforced by
+    Course schema may define module-level ``COURSE_OPTIONAL_GRAIN_TARGETS`` (see
+    ``raw_edvise_course``): those target fields are appended when they have a manifest
+    mapping — used for optional disambiguators (e.g. ``source_term_key``) that direct
+    Edvise uploads omit.
+
+    If required ``Config.unique`` fields are unmapped, logs a warning and uses only the
+    keys that are mapped (may be empty). Unmapped optional grain targets are omitted
+    without warning. Full required-grain compliance is enforced by
     :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.validation.validate_manifest`.
 
     Args:
         manifest: FieldMappingManifest for this entity type
-        schema: Pandera schema class — schema.Config.unique defines target grain
+        schema: Pandera schema class — schema.Config.unique defines required target grain
 
     Returns:
-        Source column names in base_df for mapped subset of schema.Config.unique
+        Source column names in base_df for mapped subset of required + optional grain
         (deduped, order preserved).
 
     Raises:
@@ -98,25 +104,38 @@ def _derive_entity_keys(
         if (col := _effective_source_column(m)) is not None
     }
 
-    target_entity_keys = getattr(getattr(schema, "Config", object), "unique", None)
-    if not target_entity_keys:
+    cfg = getattr(schema, "Config", object)
+    required_keys = getattr(cfg, "unique", None)
+    if not required_keys:
         raise ValueError(f"Schema '{schema.__name__}' must define Config.unique.")
 
-    missing = [tf for tf in target_entity_keys if target_to_source.get(tf) is None]
-    if missing:
+    optional_extra: tuple[str, ...] = ()
+    if schema.__name__ == "RawEdviseCourseDataSchema":
+        from edvise.data_audit.schemas.raw_edvise_course import (
+            COURSE_OPTIONAL_GRAIN_TARGETS,
+        )
+
+        optional_extra = COURSE_OPTIONAL_GRAIN_TARGETS
+    combined: list[str] = list(required_keys)
+    for tf in optional_extra:
+        if tf not in combined:
+            combined.append(tf)
+
+    missing_required = [tf for tf in required_keys if target_to_source.get(tf) is None]
+    if missing_required:
         logger.warning(
             "Target entity key(s) %s have no source column mapping in the manifest; "
             "execution will use a reduced grain (or row fallback). "
             "Expected keys per %s.Config.unique: %s. "
             "validate_manifest() should flag missing grain keys before approval.",
-            missing,
+            missing_required,
             schema.__name__,
-            list(target_entity_keys),
+            list(required_keys),
         )
 
     entity_keys = [
         target_to_source[tf]
-        for tf in target_entity_keys
+        for tf in combined
         if target_to_source.get(tf) is not None
     ]
     return list(dict.fromkeys(entity_keys))
