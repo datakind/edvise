@@ -254,7 +254,8 @@ COURSE academic_year AND academic_term — decision hierarchy (apply in order)
   and `_edvise_term_season`, map `academic_year` and `academic_term` to those columns with
   `source_table` = that base table and `row_selection.strategy`: `"any_row"`.
 - Do **not** map from raw `term` code strings on the course row when `_edvise_term_*` are present.
-- When `_term_grain` is on that same base table, map `source_term_key` → `_term_grain` with `row_selection.strategy`: `"any_row"` (keeps distinct enrollments when canonical `academic_year` / `academic_term` collapse source terms).
+- When `_term_grain` is on that same base table, map `source_term_key` → `_term_grain` with 
+`row_selection.strategy`: `"any_row"` (keeps distinct enrollments when canonical `academic_year` / `academic_term` collapse source terms).
 
 **(2) Missing `_edvise_*` on course — do not join to the `term` table**
 - Each course row already carries the term identifier (e.g. `term`). Joining course → `term` only to copy
