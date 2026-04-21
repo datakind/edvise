@@ -351,7 +351,7 @@ class TestEdaSummary:
         }
 
     def test_pell_recipient_status_handles_nulls(self, sample_cohort_data):
-        """Missing pell status is imputed to No (same as N); series keys stay Yes/No."""
+        """Missing pell status is imputed to No (same as N)"""
         sample_cohort_data.loc[0:2, "pell_status_first_year"] = pd.NA
         eda = EdaSummary(sample_cohort_data)
         result = eda.pell_recipient_status
