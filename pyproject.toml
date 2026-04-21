@@ -65,6 +65,11 @@ streamlit-data-app = [
     "streamlit~=1.38.0",
 ]
 
+streamlit-genai-hitl-app = [
+    "databricks-sdk~=0.33.0",
+    "streamlit~=1.38.0",
+]
+
 [tool.ruff]
 line-length = 88
 indent-width = 4

@@ -7,7 +7,7 @@ from pathlib import Path
 import tomllib
 
 
-DEPENDENCY_GROUP = "streamlit-data-app"
+DEPENDENCY_GROUP = "streamlit-genai-hitl-app"
 
 
 def find_repo_root(start_path: Path) -> Path:
@@ -36,7 +36,7 @@ def write_requirements(output_path: Path, dependencies: list[str]) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate requirements.txt for the GenAI artifacts Streamlit app."
+        description="Generate requirements.txt for the GenAI HITL Streamlit app."
     )
     parser.add_argument(
         "--output",

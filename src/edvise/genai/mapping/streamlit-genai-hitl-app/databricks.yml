@@ -13,7 +13,7 @@ variables:
   app_name:
     description: Databricks app name for the GenAI artifacts browser
   sql_warehouse_id:
-    description: SQL warehouse ID used by the app
+    description: Optional SQL warehouse (unused by HITL review UI; reserved for future registry)
   datakind_group_to_manage_workflow:
     description: Group with permissions to manage the app
   DB_workspace:
@@ -40,7 +40,7 @@ resources:
     genai_pipeline_artifacts_ui:
       name: ${var.app_name}
       source_code_path: .
-      description: Streamlit app for GenAI pipeline artifact paths (Unity Catalog registry)
+      description: Streamlit app to review GenAI HITL JSON on Unity Catalog volumes
       resources:
         - name: sql-warehouse
           sql_warehouse:
