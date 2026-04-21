@@ -387,6 +387,10 @@ def profile_candidate_keys(
     keys and profiles each for group size distribution and per-column within-group
     variance.
 
+    **Full-row duplicates** are dropped in-memory before any profiling so column
+    stats and key uniqueness reflect distinct rows (same as post-clean full-row
+    dedupe, without writing data). Logged when any rows are removed.
+
     Interpretation (grain inference, dedup policy, cleaning hooks) is
     intentionally left to the IdentityAgent LLM call (Step 2). This function
     produces facts only.
@@ -415,6 +419,17 @@ def profile_candidate_keys(
     if index_cols:
         logger.warning("Stripping synthetic index columns: %s", index_cols)
         df = df.drop(columns=index_cols)
+
+    n_before_dedup = len(df)
+    df = df.drop_duplicates().reset_index(drop=True)
+    n_dropped_full_row = n_before_dedup - len(df)
+    if n_dropped_full_row:
+        logger.info(
+            "KeyProfiler: profiling after full-row dedupe (%d duplicate rows removed, %d -> %d rows)",
+            n_dropped_full_row,
+            n_before_dedup,
+            len(df),
+        )
 
     raw_table_profile = profile_raw_table(
         df,
