@@ -34,7 +34,7 @@ COURSE_REQUIRED_COLUMNS = [
     "academic_term",
     "course_prefix",
     "course_number",
-    "course_section_id",
+    "source_term_key",
     "grade",
     "course_credits_attempted",
     "course_credits_earned",
@@ -81,6 +81,7 @@ def _minimal_valid_course_row() -> dict[str, Any]:
         "academic_term": "Fall",
         "course_prefix": "MATH",
         "course_number": "101",
+        "source_term_key": "2024-25|FALL|1",
         "course_title": "Calculus I",
         "course_section_id": "001",
         "grade": "B",
@@ -458,7 +459,7 @@ def test_raw_edvise_course_schema_required_columns_only_passes() -> None:
         "academic_term": "Fall",
         "course_prefix": "MATH",
         "course_number": "101",
-        "course_section_id": "001",
+        "source_term_key": "2024-25|FALL|1",
         "grade": "B",
         "course_credits_attempted": 3.0,
         "course_credits_earned": 3.0,
@@ -531,6 +532,7 @@ def test_raw_edvise_course_schema_multiple_rows() -> None:
     rows[1]["learner_id"] = "s2"
     rows[1]["course_prefix"] = "ENGL"
     rows[1]["course_number"] = "101"
+    rows[1]["source_term_key"] = "2024-25|FALL|2"
     rows[1]["course_section_id"] = "002"
     df = pd.DataFrame(rows).reindex(columns=COURSE_COLUMNS)
     validated_df = RawEdviseCourseDataSchema.validate(df, lazy=True)
@@ -538,7 +540,7 @@ def test_raw_edvise_course_schema_multiple_rows() -> None:
 
 
 def test_raw_edvise_course_schema_duplicate_composite_key_fails() -> None:
-    """Duplicate (learner_id, academic_year, academic_term, course_prefix, course_number, course_section_id) fails."""
+    """Duplicate (learner_id, academic_year, academic_term, course_prefix, course_number, source_term_key) fails."""
     row = _minimal_valid_course_row()
     df = pd.DataFrame([row, row]).reindex(columns=COURSE_COLUMNS)
     with pytest.raises((SchemaError, SchemaErrors)):

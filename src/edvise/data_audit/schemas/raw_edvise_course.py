@@ -76,10 +76,13 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
 
     Required (must be present, non-null, format-checked): learner_id,
     academic_year, academic_term, course_prefix, course_number,
-    course_section_id, grade, course_credits_attempted, course_credits_earned.
-    Optional columns (e.g. course_title) may be missing from the DataFrame or
-    contain nulls; when present they are validated. Rows must be unique on (learner_id,
-    academic_year, academic_term, course_prefix, course_number, section_id).
+    source_term_key, grade, course_credits_attempted, course_credits_earned.
+    Optional columns (e.g. course_title, course_section_id) may be missing from the
+    DataFrame or contain nulls; when present they are validated. Rows must be unique on
+    (learner_id, academic_year, academic_term, course_prefix, course_number,
+    source_term_key). source_term_key preserves the institution's term instance (e.g.
+    raw year/season/term order) when canonical academic_year/academic_term collapse
+    multiple source terms.
     """
 
     # ------------------------------------------------------------------ #
@@ -97,7 +100,19 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     )
     course_prefix: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
     course_number: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
-    course_section_id: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
+    source_term_key: pt.Series[pd.StringDtype] = pda.Field(
+        nullable=False,
+        str_length={"min_value": 1},
+        description=(
+            "Stable key for the source term instance (e.g. concat of raw year, season, "
+            "and term order). Used in the uniqueness grain so enrollments stay distinct "
+            "when academic_year/academic_term are canonicalized."
+        ),
+    )
+    course_section_id: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True,
+        description="Catalog section when available; optional when not provided by the institution.",
+    )
     grade: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
     course_credits_attempted: pt.Series[pd.Float64Dtype] = CreditsField
     course_credits_earned: pt.Series[pd.Float64Dtype] = CreditsField
@@ -193,5 +208,5 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
             "academic_term",
             "course_prefix",
             "course_number",
-            "course_section_id",
+            "source_term_key",
         ]

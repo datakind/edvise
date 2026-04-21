@@ -92,6 +92,24 @@ def _season_map_lookups(season_map: list) -> tuple[dict[str, int], list[str]]:
     return raw_to_rank, norm_keys
 
 
+def _add_term_grain(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Stable source-term key from calendar year, raw season token, and sort key.
+
+    Used downstream for PDP ``source_term_key`` / SMA mapping so enrollments stay
+    distinct when ``_edvise_term_*`` canonical labels collapse multiple source terms.
+    """
+    out = df.copy()
+    out["_term_grain"] = (
+        out["_year"].astype("string")
+        + "|"
+        + out["_season"].astype("string")
+        + "|"
+        + out["_term_order"].astype("string")
+    )
+    return out
+
+
 def _finalize_season_year_order(
     out: pd.DataFrame,
     season_norm: pd.Series,
@@ -153,6 +171,7 @@ def add_edvise_term_order(
         _year                     : Int64  — extracted calendar year
         _season                   : string — raw season token (e.g. "FA", "9", "Spring")
         _term_order               : Int64  — chronological sort key (year * 100 + season_rank)
+        _term_grain               : string — ``_year|_season|_term_order`` for source-term uniqueness
         _edvise_term_season       : string — canonical season (FALL, SPRING, SUMMER, WINTER)
         _edvise_term_academic_year: string — e.g. "2017-18"
     """
@@ -232,6 +251,7 @@ def add_edvise_term_order(
 
         season_norm = s_season.map(_cell_to_season_norm)
         ordered = _finalize_season_year_order(out, season_norm, raw_to_rank)
+        ordered = _add_term_grain(ordered)
         return add_edvise_term_labels(ordered, term_config)
 
     # --- Combined term_col path ---
@@ -260,6 +280,7 @@ def add_edvise_term_order(
         season_norm = s.apply(_extract_season)
 
     ordered = _finalize_season_year_order(out, season_norm, raw_to_rank)
+    ordered = _add_term_grain(ordered)
     return add_edvise_term_labels(ordered, term_config)
 
 
