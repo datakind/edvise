@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable
-from typing import cast
+from typing import Final, cast
 
 from openai import OpenAI
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
@@ -22,7 +22,16 @@ DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL: str = (
 
 DEFAULT_GATEWAY_MODEL_ID: str = "claude-sonnet-test-genai-ai-data-cleaning"
 
+# System + user are concatenated into one role=user message (IA / SMA).
+LLM_COMPLETE_SYSTEM_USER_SEP: Final[str] = "\n\n---\n\n"
+DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS: Final[int] = 16_000
+
 _LOG = logging.getLogger(__name__)
+
+
+def llm_complete_combined_message_content(system: str, user: str) -> str:
+    """Exact ``content`` string sent to the gateway for ``llm_complete(system, user)``."""
+    return system + LLM_COMPLETE_SYSTEM_USER_SEP + user
 
 
 def disable_mlflow_tracing_for_openai_gateway_client() -> None:
@@ -119,7 +128,7 @@ def make_databricks_gateway_llm_complete(
     client: OpenAI,
     *,
     model: str | None = None,
-    max_tokens: int = 16_000,
+    max_tokens: int = DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
 ) -> Callable[[str, str], str]:
     """
     Return ``llm_complete(system, user)`` for :mod:`~edvise.genai.mapping.identity_agent.grain_inference.runner`.
@@ -132,7 +141,7 @@ def make_databricks_gateway_llm_complete(
     def complete(system: str, user: str) -> str:
         messages = cast(
             list[ChatCompletionMessageParam],
-            [{"role": "user", "content": system + "\n\n---\n\n" + user}],
+            [{"role": "user", "content": llm_complete_combined_message_content(system, user)}],
         )
         resp = client.chat.completions.create(
             model=resolved_model,

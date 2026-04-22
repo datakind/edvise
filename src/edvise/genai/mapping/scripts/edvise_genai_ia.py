@@ -192,6 +192,27 @@ def run_onboard_start(
         contracts_by_dataset,
         run_by_dataset,
     )
+    from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
+        DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
+        llm_complete_combined_message_content,
+    )
+    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import estimate_tokens
+
+    _term_combined = llm_complete_combined_message_content(
+        TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT,
+        term_batch_user,
+    )
+    _term_est_in = estimate_tokens(_term_combined)
+    LOGGER.info(
+        "[onboard/start] Pass 2 gateway request (same message shape as chat.completions): "
+        "chars=%d est_input_tokens~=%d (len/4 heuristic) max_output_tokens=%d est_total~=%d "
+        "(if est_total exceeds the route's context window, some gateways return 403 "
+        "PERMISSION_DENIED; confirm with workspace model limits)",
+        len(_term_combined),
+        _term_est_in,
+        DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
+        _term_est_in + DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
+    )
     raw_term_batch = llm_complete(TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT, term_batch_user)
     _institution_term, term_hitl_items = parse_institution_term_contracts_with_hitl(
         raw_term_batch
