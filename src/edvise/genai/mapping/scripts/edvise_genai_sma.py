@@ -8,7 +8,7 @@ Usage (Databricks job parameters):
     --mode              onboard | execute
     --resume_from       start | gate_2  (onboard only)
     --reference_id      required for onboard; few-shot from that school's
-                        ``.../<ref_id>_silver/silver_volume/genai_mapping/active/{mapping_manifest,transformation_map}.json``
+                        ``.../<ref_id>_silver/silver_volume/genai_mapping/active/{manifest_map,transformation_map}.json``
                         (same ``--catalog`` as the reference institution's volumes).
 """
 
@@ -59,7 +59,7 @@ LOGGER = logging.getLogger("edvise_sma")
 class SMAPaths:
     # Run folder (working artifacts, keyed by pipeline_run_id)
     run_root: Path
-    mapping_manifest: Path
+    manifest_map: Path
     mapping_validation_manifest: Path
     cohort_hitl_manifest: Path
     course_hitl_manifest: Path
@@ -73,7 +73,7 @@ class SMAPaths:
 
     # Active folder (promoted artifacts, what execute mode reads from)
     active_root: Path
-    active_mapping_manifest: Path
+    active_manifest_map: Path
     active_transformation_map: Path
     active_transform_hooks: Path
     active_enriched_schema_contract: Path
@@ -97,7 +97,7 @@ def resolve_run_paths(
 
     return SMAPaths(
         run_root=run_root,
-        mapping_manifest=run_root / "mapping_manifest.json",
+        manifest_map=run_root / "manifest_map.json",
         mapping_validation_manifest=run_root / "mapping_validation_manifest.json",
         cohort_hitl_manifest=run_root / "cohort_hitl_manifest.json",
         course_hitl_manifest=run_root / "course_hitl_manifest.json",
@@ -109,7 +109,7 @@ def resolve_run_paths(
         ia_cleaned_datasets=ia_run_root / "cleaned_datasets",
         # Active folder (flat under genai_mapping)
         active_root=active_root,
-        active_mapping_manifest=active_root / "mapping_manifest.json",
+        active_manifest_map=active_root / "manifest_map.json",
         active_transformation_map=active_root / "transformation_map.json",
         active_transform_hooks=active_root / "transform_hooks.py",
         active_enriched_schema_contract=active_root / "enriched_schema_contract.json",
@@ -125,7 +125,7 @@ def resolve_reference_sma_active_paths(
     """Few-shot reference: promoted SMA artifacts under the reference school's ``genai_mapping/active/``."""
     active = Path(genai_cfg.silver_genai_mapping_root(reference_id, catalog=catalog)) / "active"
     return (
-        active / "mapping_manifest.json",
+        active / "manifest_map.json",
         active / "transformation_map.json",
     )
 
@@ -305,7 +305,7 @@ def run_onboard_start(
     LOGGER.info("[onboard/start] Step 2a — mapping manifest LLM")
     prompt_2a = build_step2a_batched_prompt(
         institution_id=institution_id,
-        output_path=str(paths.mapping_manifest),
+        output_path=str(paths.manifest_map),
         institution_schema_contract=enriched_contract,
         reference_manifests=[reference_manifest],
         reference_institution_ids=[reference_id],
@@ -379,8 +379,8 @@ def run_onboard_start(
 
     # Update manifest after refinement
     manifest_2a = envelope_2a.model_dump(mode="json", exclude_none=True)
-    paths.mapping_manifest.write_text(json.dumps(manifest_2a, indent=2))
-    LOGGER.info("[onboard/start] Wrote mapping manifest -> %s", paths.mapping_manifest)
+    paths.manifest_map.write_text(json.dumps(manifest_2a, indent=2))
+    LOGGER.info("[onboard/start] Wrote mapping manifest -> %s", paths.manifest_map)
 
     # Seed empty HITL envelopes if refinement produced none
     for hitl_path, entity_type in [
@@ -442,13 +442,13 @@ def run_onboard_gate_2(
     for hitl_path in (paths.cohort_hitl_manifest, paths.course_hitl_manifest):
         resolve_sma_items(
             hitl_path,
-            paths.mapping_manifest,
+            paths.manifest_map,
             resolved_by="pipeline",
             run_log_path=paths.run_log,
         )
 
     # Reload manifest after resolution
-    manifest_2a = json.loads(paths.mapping_manifest.read_text())
+    manifest_2a = json.loads(paths.manifest_map.read_text())
     envelope_2a = MappingManifestEnvelope.model_validate(manifest_2a)
 
     # Gate check — raises HITLBlockingError if any items still pending
@@ -472,7 +472,7 @@ def run_onboard_gate_2(
     prompt_2b = build_step2b_prompt(
         institution_id=institution_id,
         output_path=str(paths.transformation_map),
-        institution_mapping_manifest=manifest_2a,
+        institution_manifest_map=manifest_2a,
         institution_schema_contract=enriched_contract,
         cohort_schema_class=RawEdviseStudentDataSchema,
         course_schema_class=RawEdviseCourseDataSchema,
@@ -562,7 +562,7 @@ def run_execute(
     LOGGER.info("[execute] Loading approved artifacts from active/ for %s", institution_id)
 
     # Validate active artifacts exist
-    for p in (paths.active_mapping_manifest, paths.active_transformation_map, paths.active_enriched_schema_contract):
+    for p in (paths.active_manifest_map, paths.active_transformation_map, paths.active_enriched_schema_contract):
         if not p.is_file():
             raise FileNotFoundError(
                 f"Missing active artifact: {p}. "
@@ -570,7 +570,7 @@ def run_execute(
             )
 
     # Load approved artifacts
-    manifest_data = json.loads(paths.active_mapping_manifest.read_text())
+    manifest_data = json.loads(paths.active_manifest_map.read_text())
     transformation_data = json.loads(paths.active_transformation_map.read_text())
     enriched_contract = _load_enriched_contract(paths.active_enriched_schema_contract)
 
