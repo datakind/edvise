@@ -8,7 +8,8 @@ Usage (Databricks job parameters):
     --mode              onboard | execute
     --resume_from       start | gate_2  (onboard only)
     --reference_id      required for onboard; few-shot from that school's
-                        ``.../silver/genai_mapping/active/{mapping_manifest,transformation_map}.json``
+                        ``.../<ref_id>_silver/silver_volume/genai_mapping/active/{mapping_manifest,transformation_map}.json``
+                        (same ``--catalog`` as the reference institution's volumes).
 """
 
 import os
@@ -87,10 +88,9 @@ class SMAPaths:
 def resolve_run_paths(
     institution_id: str,
     pipeline_run_id: str,
-    _catalog: str,
+    catalog: str,
 ) -> SMAPaths:
-    # _catalog: retained for job/CLI compatibility; volume paths use institution_volume_root layout only.
-    genai = Path(genai_cfg.silver_genai_mapping_root(institution_id))
+    genai = Path(genai_cfg.silver_genai_mapping_root(institution_id, catalog=catalog))
     run_root = genai / "runs" / pipeline_run_id / "schema_mapping_agent"
     ia_run_root = genai / "runs" / pipeline_run_id / "identity_agent"
     active_root = genai / "active"
@@ -119,9 +119,11 @@ def resolve_run_paths(
     )
 
 
-def resolve_reference_sma_active_paths(reference_id: str) -> tuple[Path, Path]:
+def resolve_reference_sma_active_paths(
+    reference_id: str, *, catalog: str
+) -> tuple[Path, Path]:
     """Few-shot reference: promoted SMA artifacts under the reference school's ``genai_mapping/active/``."""
-    active = Path(genai_cfg.silver_genai_mapping_root(reference_id)) / "active"
+    active = Path(genai_cfg.silver_genai_mapping_root(reference_id, catalog=catalog)) / "active"
     return (
         active / "mapping_manifest.json",
         active / "transformation_map.json",
@@ -255,6 +257,7 @@ def _run_once(model_id: str, prompt: str, client) -> dict:
 def run_onboard_start(
     institution_id: str,
     reference_id: str,
+    catalog: str,
     model_id: str,
     paths: SMAPaths,
     client,
@@ -288,7 +291,9 @@ def run_onboard_start(
     enriched_contract = _load_enriched_contract(paths.ia_enriched_schema_contract)
 
     # Load reference institution few-shot manifest from reference school's promoted SMA folder
-    ref_manifest_path, _ = resolve_reference_sma_active_paths(reference_id)
+    ref_manifest_path, _ = resolve_reference_sma_active_paths(
+        reference_id, catalog=catalog
+    )
     if not ref_manifest_path.exists():
         raise FileNotFoundError(
             f"Reference mapping manifest not found (expected promoted SMA active/): {ref_manifest_path}"
@@ -401,6 +406,7 @@ def run_onboard_start(
 def run_onboard_gate_2(
     institution_id: str,
     reference_id: str,
+    catalog: str,
     model_id: str,
     paths: SMAPaths,
     client,
@@ -451,7 +457,7 @@ def run_onboard_gate_2(
         check_sma_hitl_gate(hitl_path)
 
     # Load reference transformation map for 2b few-shot from reference school's promoted SMA folder
-    _, ref_tm_path = resolve_reference_sma_active_paths(reference_id)
+    _, ref_tm_path = resolve_reference_sma_active_paths(reference_id, catalog=catalog)
     if not ref_tm_path.exists():
         raise FileNotFoundError(
             f"Reference transformation map not found (expected promoted SMA active/): {ref_tm_path}"
@@ -663,6 +669,7 @@ def run(
             run_onboard_start(
                 institution_id=institution_id,
                 reference_id=reference_id,
+                catalog=catalog,
                 model_id=model_id,
                 paths=paths,
                 client=client,
@@ -672,6 +679,7 @@ def run(
             run_onboard_gate_2(
                 institution_id=institution_id,
                 reference_id=reference_id,
+                catalog=catalog,
                 model_id=model_id,
                 paths=paths,
                 client=client,

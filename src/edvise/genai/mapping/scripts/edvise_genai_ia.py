@@ -9,8 +9,8 @@ Usage (Databricks job parameters):
     --resume_from       start | gate_1  (onboard only)
     --inputs_toml       Path to per-school ``inputs.toml`` (Unity Catalog volume path).
                         If omitted or empty, uses default under
-                        ``/Volumes/edvise/institutions/<id>/bronze/genai_mapping/inputs/``
-                        (see ``ia_inputs_toml_under_bronze``).
+                        ``/Volumes/<catalog>/<id>_bronze/bronze_volume/genai_mapping/inputs/``
+                        (see ``ia_inputs_toml_under_bronze``; ``--catalog`` sets ``<catalog>``).
 """
 import os
 import sys
@@ -83,10 +83,9 @@ class IAPaths:
 def resolve_run_paths(
     institution_id: str,
     pipeline_run_id: str,
-    _catalog: str,
+    catalog: str,
 ) -> IAPaths:
-    # _catalog: retained for job/CLI compatibility; volume paths use institution_volume_root layout only.
-    genai = Path(genai_cfg.silver_genai_mapping_root(institution_id))
+    genai = Path(genai_cfg.silver_genai_mapping_root(institution_id, catalog=catalog))
     run_root = genai / "runs" / pipeline_run_id / "identity_agent"
     active_root = genai / "active"
 
@@ -573,8 +572,9 @@ if __name__ == "__main__":
         "--inputs_toml",
         default="",
         help=(
-            "Path to inputs.toml (e.g. under /Volumes/edvise/institutions/<id>/bronze/...). "
-            "If omitted or empty, uses the default under that institution bronze volume."
+            "Path to inputs.toml (e.g. under /Volumes/<catalog>/<id>_bronze/bronze_volume/...). "
+            "If omitted or empty, uses the default under that institution bronze volume "
+            "(requires --catalog)."
         ),
     )
     args = parser.parse_args()
