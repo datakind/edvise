@@ -1,0 +1,500 @@
+import re
+import typing as t
+import warnings
+
+import pydantic as pyd
+
+# TODO: set field defaults using literals here instead?
+from edvise.feature_generation import constants
+from edvise.utils import types
+
+
+# allowed primary metrics by framework
+_ALLOWED_PRIMARY_METRICS = {
+    "logloss",
+    "auc",
+    "aucpr",
+    "rmse",
+    "mae",
+    "mean_per_class_error",
+}
+
+
+class ESProjectConfig(pyd.BaseModel):
+    """Configuration schema for SST PDP projects."""
+
+    institution_id: str = pyd.Field(
+        ...,
+        description=(
+            "Unique (ASCII-only) identifier for institution; used in naming things "
+            "such as source directories, catalog schemas, keys in shared configs, etc."
+        ),
+    )
+    institution_name: str = pyd.Field(
+        ...,
+        description=(
+            "Readable 'display' name for institution, distinct from the 'id'; "
+            "probably just the school's 'official', public name"
+        ),
+    )
+
+    # shared parameters
+    student_id_col: str = "student_id"
+    target_col: str = "target"
+    split_col: t.Optional[str] = "split"
+    sample_weight_col: t.Optional[str] = "sample_weight"
+    student_group_cols: t.Optional[list[str]] = pyd.Field(
+        default=["student_age", "race", "ethnicity", "gender", "first_gen"],
+        description=(
+            "One or more column names in datasets containing student 'groups' "
+            "to use for model bias assessment, but *not* as model features"
+        ),
+    )
+    pred_col: str = "pred"
+    pred_prob_col: str = "pred_prob"
+    pos_label: t.Optional[bool | str] = True
+    random_state: t.Optional[int] = None
+    pipeline_version: str = "v0.1.2"
+
+    # key input datasets
+    datasets: "DatasetsConfig" = pyd.Field(
+        description=("Input filenames"),
+    )
+    model: t.Optional["ModelConfig"] = pyd.Field(
+        default=None,
+        description=(
+            "Essential metadata for identifying and loading trained model artifacts, "
+            "as produced by the pipeline represented here in this config"
+        ),
+    )
+
+    # key steps in project pipeline
+    preprocessing: t.Optional["PreprocessingConfig"] = None
+    modeling: t.Optional["ModelingConfig"] = None
+    inference: t.Optional["InferenceConfig"] = None
+
+    @pyd.computed_field  # type: ignore[misc]
+    @property
+    def non_feature_cols(self) -> list[str]:
+        return (
+            [self.student_id_col, self.target_col]
+            + ([self.split_col] if self.split_col else [])
+            + ([self.sample_weight_col] if self.sample_weight_col else [])
+            + (self.student_group_cols or [])
+        )
+
+    @pyd.field_validator("institution_id", mode="after")
+    @classmethod
+    def check_institution_id_isascii(cls, value: str) -> str:
+        if not re.search(r"^\w+$", value, flags=re.ASCII):
+            raise ValueError(f"institution_id='{value}' is not ASCII-only")
+        return value
+
+    # NOTE: this is for *pydantic* model -- not ML model -- configuration
+    model_config = pyd.ConfigDict(extra="forbid", strict=True)
+
+    @pyd.model_validator(mode="after")
+    def _normalize_and_validate_primary_metric(self) -> "PDPProjectConfig":
+        if (
+            self.modeling
+            and self.modeling.training
+            and self.modeling.training.primary_metric
+        ):
+            pm = self.modeling.training.primary_metric
+
+            # Normalize legacy spelling to H2O spelling
+            if pm in {"logloss", "log_loss"}:
+                pm = "logloss"
+
+            if pm not in _ALLOWED_PRIMARY_METRICS:
+                raise ValueError(
+                    f"Unsupported primary_metric '{pm}' for H2O. "
+                    f"Allowed: {sorted(_ALLOWED_PRIMARY_METRICS)}"
+                )
+
+            self.modeling.training.primary_metric = pm
+        return self
+
+    @pyd.model_validator(mode="after")
+    def _validate_inference_background_sample(self) -> "PDPProjectConfig":
+        if self.inference and self.inference.background_data_sample is not None:
+            n = self.inference.background_data_sample
+            if not (500 <= n <= 2000):
+                raise ValueError(
+                    "For H2O, inference.background_data_sample must be between 500 and 2000."
+                )
+        return self
+
+
+class DatasetsConfig(pyd.BaseModel):
+    raw_course: str
+    raw_cohort: str
+
+
+class ModelConfig(pyd.BaseModel):
+    experiment_id: str
+    run_id: str
+    calibrate_underpred: t.Optional[bool] = False
+
+    @pyd.computed_field  # type: ignore[misc]
+    @property
+    def mlflow_model_uri(self) -> str:
+        return f"runs:/{self.run_id}/model"
+
+
+class PreprocessingConfig(pyd.BaseModel):
+    features: "FeaturesConfig"
+    selection: "SelectionConfig"
+    checkpoint: "CheckpointNthConfig | CheckpointFirstConfig | CheckpointFirstAtNumCreditsEarnedConfig | CheckpointFirstWithinCohortConfig"
+    target: "TargetGraduationConfig | TargetRetentionConfig | TargetCreditsEarnedConfig"
+    splits: dict[t.Literal["train", "test", "validate"], float] = pyd.Field(
+        default={"train": 0.6, "test": 0.2, "validate": 0.2},
+        description=(
+            "Mapping of name to fraction of the full datset belonging to a given 'split', "
+            "which is a randomized subset used for different parts of the modeling process"
+        ),
+    )
+    sample_class_weight: t.Optional[t.Literal["balanced"] | dict[object, int]] = (
+        pyd.Field(
+            default=None,
+            description=(
+                "Weights associated with classes in the form ``{class_label: weight}`` "
+                "or 'balanced' to automatically adjust weights inversely proportional "
+                "to class frequencies in the input data. "
+                "If null (default), then sample weights are not computed."
+            ),
+        )
+    )
+    include_pre_cohort_courses: bool = pyd.Field(
+        default=False,
+        description=(
+            "Whether to include course records that occurred before the student's cohort term. Usually, we do end up excluding these so the default will always be False unless set otherwise."
+        ),
+    )
+
+    @pyd.field_validator("splits", mode="after")
+    @classmethod
+    def check_split_fractions(cls, value: dict) -> dict:
+        if (sum_fracs := sum(value.values())) != 1.0:
+            raise pyd.ValidationError(
+                f"split fractions must sum up to 1.0, but input sums up to {sum_fracs}"
+            )
+        return value
+
+
+class FeaturesConfig(pyd.BaseModel):
+    min_passing_grade: float = pyd.Field(
+        default=constants.DEFAULT_MIN_PASSING_GRADE,
+        description="Minimum numeric grade considered by institution as 'passing'",
+        gt=0.0,
+        lt=4.0,
+    )
+    min_num_credits_full_time: float = pyd.Field(
+        default=constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
+        description=(
+            "Minimum number of credits *attempted* per term for a student's "
+            "enrollment intensity to be considered 'full-time'."
+        ),
+        gt=0.0,
+        lt=20.0,
+    )
+    course_level_pattern: str = pyd.Field(
+        default=constants.DEFAULT_COURSE_LEVEL_PATTERN,
+        description=(
+            "Regular expression patttern that extracts a course's 'level' "
+            "from a PDP course_number field"
+        ),
+    )
+    core_terms: set[str] = pyd.Field(
+        default=constants.DEFAULT_CORE_TERMS,
+        description=(
+            "Set of terms that together comprise the 'core' of the academic year, "
+            "in contrast with additional, usually shorter terms that may take place "
+            "between core terms"
+        ),
+    )
+    peak_covid_terms: set[tuple[str, str]] = pyd.Field(
+        default=constants.DEFAULT_PEAK_COVID_TERMS,
+        description=(
+            "Set of (academic year, academic term) pairs considered by institution "
+            "as 'peak' COVID, for use in control variables to account for pandemic effects"
+        ),
+    )
+    key_course_subject_areas: t.Optional[t.List[t.Union[str, t.List[str]]]] = pyd.Field(
+        default=None,
+        description=(
+            "One or more course subject areas (formatted as 2-digit CIP codes) "
+            "for which custom features should be computed, can be a list or include a nested list"
+            "Example: ['51', ['27', '48']], so you would get features for 51 alone and features for 27 and 48 combined."
+        ),
+    )
+    key_course_ids: t.Optional[t.List[t.Union[str, t.List[str]]]] = pyd.Field(
+        default=None,
+        description=(
+            "One or more course ids (formatted as '[COURSE_PREFIX][COURSE_NUMBER]') "
+            "for which custom features should be computed, can be a list or include nested lists"
+        ),
+    )
+
+
+class SelectionConfig(pyd.BaseModel):
+    student_criteria: dict[str, object] = pyd.Field(
+        default_factory=dict,
+        description=(
+            "Column name in modeling dataset mapped to one or more values that it must equal "
+            "in order for the corresponding student to be considered 'eligible'. "
+            "Multiple criteria are combined with a logical 'AND'."
+        ),
+    )
+    intensity_time_limits: t.Optional[types.IntensityTimeLimitsType] = pyd.Field(
+        default=None,
+        description=(
+            "Mapping of enrollment intensity value (e.g. 'FULL-TIME') to the max number "
+            "years or terms (e.g. [4.0, 'year'], [12.0, 'term']) considered to be 'on-time' "
+            "for a given target (e.g. graduation, credits earned), "
+            "where the numeric values are for the time between 'checkpoint' and 'target' "
+            "terms. Passing special '*' as the only key applies the corresponding time limits "
+            "to all students, regardless of intensity."
+        ),
+    )
+    params: dict[str, object] = pyd.Field(
+        default_factory=dict,
+        description="Any additional parameters needed to configure student selection",
+    )
+
+
+class CheckpointBaseConfig(pyd.BaseModel):
+    name: str = pyd.Field(
+        default=...,
+        description="Descriptive name for checkpoint, used as a component in model name",
+    )
+    type_: types.CheckpointTypeType = pyd.Field(
+        default=..., description="Type of checkpoint to which config is applied"
+    )
+    sort_cols: str | list[str] = pyd.Field(
+        default="term_rank",
+        description="Column(s) used to sort students' terms, typically chronologically.",
+    )
+    include_cols: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="Optional subset of columns to include in checkpoint student-terms.",
+    )
+
+    @pyd.field_validator("name", mode="after")
+    @classmethod
+    def check_name_is_lowercase(cls, value: str) -> str:
+        if value != value.lower():
+            raise ValueError(
+                f"checkpoint.name='{value}' must be lowercase. "
+                "Unity Catalog will lowercase model names automatically. "
+                "To ensure consistency across our codebase, we require lowercase names."
+            )
+        return value
+
+
+class CheckpointNthConfig(CheckpointBaseConfig):
+    type_: types.CheckpointTypeType = "nth"
+    n: int = pyd.Field(default=...)
+    term_is_pre_cohort_col: t.Optional[str] = pyd.Field(default="term_is_pre_cohort")
+    exclude_pre_cohort_terms: t.Optional[bool] = pyd.Field(default=True)
+    term_is_core_col: t.Optional[str] = pyd.Field(default="term_is_core")
+    exclude_non_core_terms: t.Optional[bool] = pyd.Field(default=True)
+    enrollment_year_col: t.Optional[str] = pyd.Field(default=None)
+    valid_enrollment_year: t.Optional[int] = pyd.Field(default=None)
+
+
+class CheckpointFirstConfig(CheckpointBaseConfig):
+    type_: types.CheckpointTypeType = "first"
+
+
+class CheckpointFirstAtNumCreditsEarnedConfig(CheckpointBaseConfig):
+    type_: types.CheckpointTypeType = "first_at_num_credits_earned"
+    min_num_credits: float = pyd.Field(default=...)
+    num_credits_col: str = pyd.Field(default="num_credits_earned_cumsum")
+
+
+class CheckpointFirstWithinCohortConfig(CheckpointBaseConfig):
+    type_: types.CheckpointTypeType = "first_within_cohort"
+    term_is_pre_cohort_col: str = pyd.Field(default="term_is_pre_cohort")
+
+
+class TargetBaseConfig(pyd.BaseModel):
+    name: str = pyd.Field(
+        default=...,
+        description="Descriptive name for target, used as a component in model name",
+    )
+    type_: types.TargetTypeType = pyd.Field(
+        default=..., description="Type of target to which config is applied"
+    )
+
+    @pyd.field_validator("name", mode="after")
+    @classmethod
+    def check_name_is_lowercase(cls, value: str) -> str:
+        if value != value.lower():
+            raise ValueError(
+                f"target.name='{value}' must be lowercase. "
+                "Unity Catalog will lowercase model names automatically. "
+                "To ensure consistency across our codebase, we require lowercase names."
+            )
+        return value
+
+
+class TargetGraduationConfig(TargetBaseConfig):
+    type_: types.TargetTypeType = "graduation"
+    intensity_time_limits: types.IntensityTimeLimitsType
+    years_to_degree_col: str
+    num_terms_in_year: int = pyd.Field(default=4)
+    max_term_rank: int | t.Literal["infer"]
+
+
+class TargetRetentionConfig(TargetBaseConfig):
+    type_: types.TargetTypeType = "retention"
+    max_academic_year: str | t.Literal["infer"]
+
+
+class TargetCreditsEarnedConfig(TargetBaseConfig):
+    type_: types.TargetTypeType = "credits_earned"
+    min_num_credits: float
+    # TODO: is there any way to represent checkpoint arg in toml, given its dtype?
+    intensity_time_limits: types.IntensityTimeLimitsType
+    num_terms_in_year: int = pyd.Field(default=4)
+    max_term_rank: int | t.Literal["infer"]
+
+
+class ModelingConfig(pyd.BaseModel):
+    feature_selection: t.Optional["FeatureSelectionConfig"] = None
+    training: "TrainingConfig"
+    evaluation: t.Optional["EvaluationConfig"] = None
+
+
+class FeatureSelectionConfig(pyd.BaseModel):
+    """
+    See Also:
+        - :func:`modeling.feature_selection.select_features()`
+    """
+
+    force_include_cols: t.Optional[list[str]] = None
+    incomplete_threshold: float = 0.5
+    low_variance_threshold: float = 0.0
+    collinear_threshold: t.Optional[float] = 10.0
+
+
+class TrainingConfig(pyd.BaseModel):
+    """
+    References:
+        - https://docs.h2o.ai/h2o/latest-stable/h2o-docs/automl.html
+    """
+
+    exclude_cols: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="One or more column names in dataset to exclude from training.",
+    )
+    time_col: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Column name in dataset used to split train/test/validate sets chronologically, "
+            "as an alternative to the randomized assignment in ``split_col`` ."
+        ),
+    )
+    exclude_frameworks: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="List of algorithm frameworks that H2O AutoML excludes from training.",
+    )
+    primary_metric: str = pyd.Field(
+        default="logloss",
+        description="Metric used to evaluate and rank model performance.",
+    )
+    timeout_minutes: t.Optional[int] = pyd.Field(
+        default=None,
+        description="Maximum time to wait for H2O AutoML trials to complete.",
+    )
+    cohort: t.Optional[list[str]] = pyd.Field(
+        default=[],
+        description="List of cohorts used in training. e.g. ['Fall 2024-25']",
+    )
+    classification_threshold: float = pyd.Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Classification threshold for converting probabilities to binary predictions. "
+            "Must be a multiple of 0.05 (e.g., 0.40, 0.45, 0.50). "
+            "This constraint ensures easier interpretation for institutional stakeholders and simplifies implementation. "
+            "Lower thresholds (e.g., 0.4) increase recall and sensitivity to the positive class (students needing support), "
+            "resulting in more students identified for intervention. Higher thresholds (e.g., 0.6) increase precision "
+            "and reduce false positives. Default is 0.5."
+        ),
+    )
+
+    @pyd.field_validator("classification_threshold", mode="after")
+    @classmethod
+    def validate_classification_threshold_multiple_of_5(cls, v: float) -> float:
+        """Ensure classification_threshold is a multiple of 0.05 (5%)."""
+        # Check if v is a multiple of 0.05 by checking if (v * 20) is an integer
+        # This avoids floating point precision issues with modulo
+        if abs(v * 20 - round(v * 20)) > 1e-10:
+            raise ValueError(
+                f"classification_threshold must be a multiple of 0.05 (5%) for easier interpretation "
+                f"by institutional stakeholders and simplified implementation. Got {v}. "
+                f"Valid values: 0.00, 0.05, 0.10, ..., 0.95, 1.00"
+            )
+        return v
+
+
+class EvaluationConfig(pyd.BaseModel):
+    topn_runs_included: int = pyd.Field(
+        default=3,
+        description="Number of top-scoring mlflow runs to include for detailed evaluation",
+    )
+
+
+class InferenceConfig(pyd.BaseModel):
+    num_top_features: int = pyd.Field(default=5)
+    min_prob_pos_label: t.Optional[float] = 0.5
+    background_data_sample: t.Optional[int] = 500
+
+    term: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="List of terms to use for inference. Students will be selected if they meet the checkpoint in one of these terms. "
+        "Typically most often the most recent term. e.g. ['fall 2024-25', 'spring 2024-25']",
+    )
+
+    cohort: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="DEPRECATED: Use 'term' instead. This field will be removed in a future version.",
+    )
+
+    @pyd.model_validator(mode="after")
+    def migrate_cohort_to_term(self) -> "InferenceConfig":
+        """Migrate deprecated cohort field to term and ensure one is provided."""
+        # Case 1: Both provided - term takes precedence
+        if self.cohort is not None and self.term is not None:
+            warnings.warn(
+                "Both 'cohort' and 'term' are provided. 'cohort' is deprecated and will be ignored. "
+                "Please use only 'term' in your configuration.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            # term already has the right value, cohort will be ignored
+            return self
+
+        # Case 2: Only cohort provided - migrate to term
+        if self.cohort is not None and self.term is None:
+            warnings.warn(
+                "The 'cohort' field is deprecated and will be removed in a future version. "
+                "Please update your configuration to use 'term' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.term = self.cohort
+            return self
+
+        # Case 3: Only term provided - all good, no warning needed
+        if self.term is not None:
+            return self
+
+        # Case 4: Neither provided - error
+        raise ValueError(
+            "Either 'term' or 'cohort' must be provided in the inference configuration. "
+            "Note: 'cohort' is deprecated, please use 'term'."
+        )
