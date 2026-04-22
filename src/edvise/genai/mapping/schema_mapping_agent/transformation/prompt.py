@@ -103,39 +103,40 @@ def get_transformation_utilities_context() -> str:
 
 def collect_step2b_prompt_sections(
     institution_id: str,
-    institution_name: str,
     output_path: str,
     institution_mapping_manifest: dict,
     institution_schema_contract: dict,
     cohort_schema_class: Any,
     course_schema_class: Any,
     reference_transformation_maps: list[dict],
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
 ) -> dict[str, str]:
     """
     Named sections for Step 2b (reference maps, manifest, contract, schemas, utilities source, rules).
+
+    ``reference_institution_ids`` labels each reference block (parallel to ``reference_transformation_maps``);
+    defaults to each map's top-level ``institution_id`` when omitted.
     """
-    _ = institution_id
     contract_summary = summarize_schema_contract(institution_schema_contract)
     cohort_descriptor = extract_schema_descriptor(cohort_schema_class)
     course_descriptor = extract_schema_descriptor(course_schema_class)
 
-    if reference_institution_names is None:
-        reference_institution_names = [
+    if reference_institution_ids is None:
+        reference_institution_ids = [
             m.get("institution_id", f"reference_{i}")
             for i, m in enumerate(reference_transformation_maps)
         ]
 
     reference_blocks = "\n\n".join(
-        f'<reference_transformation_map institution="{name}" role="structural_reference_only">\n'
+        f'<reference_transformation_map institution="{ref_id}" role="structural_reference_only">\n'
         f"{json.dumps(tmap, indent=2)}\n"
         f"</reference_transformation_map>"
-        for name, tmap in zip(
-            reference_institution_names, reference_transformation_maps
+        for ref_id, tmap in zip(
+            reference_institution_ids, reference_transformation_maps
         )
     )
 
-    preamble = f"""Please act as the SchemaMappingAgent and generate a transformation map for {institution_name} at:
+    preamble = f"""Please act as the SchemaMappingAgent and generate a transformation map for institution_id={institution_id} at:
 {output_path}
 
 The transformation map is a pure value transformation specification.
@@ -146,12 +147,12 @@ never resolve sources or perform joins.
 """
 
     mapping_manifest = (
-        f'<mapping_manifest institution="{institution_name}">\n'
+        f'<mapping_manifest institution="{institution_id}">\n'
         f"{json.dumps(institution_mapping_manifest, indent=2)}\n"
         "</mapping_manifest>"
     )
     schema_contract = (
-        f'<schema_contract institution="{institution_name}">\n'
+        f'<schema_contract institution="{institution_id}">\n'
         f"{json.dumps(contract_summary, indent=2)}\n"
         "</schema_contract>"
     )
@@ -319,55 +320,50 @@ def assemble_step2b_prompt_from_sections(sections: dict[str, str]) -> str:
 
 def audit_step2b_prompt(
     institution_id: str,
-    institution_name: str,
     output_path: str,
     institution_mapping_manifest: dict,
     institution_schema_contract: dict,
     cohort_schema_class: Any,
     course_schema_class: Any,
     reference_transformation_maps: list[dict],
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
     *,
     log: bool = True,
 ) -> dict[str, Any]:
     """Local estimated token counts for Step 2b (single user blob)."""
     sections = collect_step2b_prompt_sections(
         institution_id,
-        institution_name,
         output_path,
         institution_mapping_manifest,
         institution_schema_contract,
         cohort_schema_class,
         course_schema_class,
         reference_transformation_maps,
-        reference_institution_names,
+        reference_institution_ids,
     )
     return audit_prompt_sections(
         sections,
         builder="schema_mapping_agent.step2b",
         institution_id=institution_id,
-        institution_name=institution_name,
         log=log,
     )
 
 
 def build_step2b_prompt(
     institution_id: str,
-    institution_name: str,
     output_path: str,
     institution_mapping_manifest: dict,
     institution_schema_contract: dict,
     cohort_schema_class: Any,
     course_schema_class: Any,
     reference_transformation_maps: list[dict],
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
 ) -> str:
     """
     Build the Step 2b transformation map prompt.
 
     Args:
         institution_id:                 e.g. "lee_col"
-        institution_name:               e.g. "Lee College"
         output_path:                    Destination path for the transformation map
         institution_mapping_manifest:   Parsed mapping manifest JSON for the target institution
         institution_schema_contract:    Parsed schema contract JSON for the target institution
@@ -375,20 +371,19 @@ def build_step2b_prompt(
         course_schema_class:            RawEdviseCourseDataSchema (Pandera class)
         reference_transformation_maps:  List of parsed transformation map JSONs for reference
                                         institutions (e.g. [ucf_map, lc_map])
-        reference_institution_names:    Display names for reference institutions, parallel
-                                        to reference_transformation_maps. Defaults to
-                                        institution_id values if not provided.
+        reference_institution_ids:      Labels for reference XML blocks, parallel to
+                                        reference_transformation_maps. Defaults to each map's
+                                        ``institution_id`` if not provided.
     """
     sections = collect_step2b_prompt_sections(
         institution_id,
-        institution_name,
         output_path,
         institution_mapping_manifest,
         institution_schema_contract,
         cohort_schema_class,
         course_schema_class,
         reference_transformation_maps,
-        reference_institution_names,
+        reference_institution_ids,
     )
     return assemble_step2b_prompt_from_sections(sections)
 

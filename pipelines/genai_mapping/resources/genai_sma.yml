@@ -25,12 +25,8 @@ resources:
               - "{{job.parameters.mode}}"
               - --resume_from
               - "{{job.parameters.resume_from}}"
-              - --institution_name
-              - "{{job.parameters.institution_name}}"
               - --reference_id
               - "{{job.parameters.reference_id}}"
-              - --reference_name
-              - "{{job.parameters.reference_name}}"
           job_cluster_key: edvise-genai-mapping-cluster
           libraries:
             - pypi:
@@ -86,11 +82,7 @@ resources:
           default: "onboard"
         - name: resume_from
           default: "start"
-        - name: institution_name
-          default: ""
         - name: reference_id
-          default: ""
-        - name: reference_name
           default: ""
 
       permissions:

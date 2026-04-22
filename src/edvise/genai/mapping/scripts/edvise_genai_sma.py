@@ -244,9 +244,7 @@ def _run_once(model_id: str, prompt: str, client) -> dict:
 
 def run_onboard_start(
     institution_id: str,
-    institution_name: str,
     reference_id: str,
-    reference_name: str,
     model_id: str,
     paths: SMAPaths,
     client,
@@ -294,11 +292,10 @@ def run_onboard_start(
     LOGGER.info("[onboard/start] Step 2a — mapping manifest LLM")
     prompt_2a = build_step2a_batched_prompt(
         institution_id=institution_id,
-        institution_name=institution_name,
         output_path=str(paths.mapping_manifest),
         institution_schema_contract=enriched_contract,
         reference_manifests=[reference_manifest],
-        reference_institution_names=[reference_name],
+        reference_institution_ids=[reference_id],
         cohort_schema_class=RawEdviseStudentDataSchema,
         course_schema_class=RawEdviseCourseDataSchema,
     )
@@ -395,9 +392,7 @@ def run_onboard_start(
 
 def run_onboard_gate_2(
     institution_id: str,
-    institution_name: str,
     reference_id: str,
-    reference_name: str,
     model_id: str,
     paths: SMAPaths,
     client,
@@ -463,14 +458,13 @@ def run_onboard_gate_2(
     LOGGER.info("[onboard/gate_2] Step 2b — transformation map LLM")
     prompt_2b = build_step2b_prompt(
         institution_id=institution_id,
-        institution_name=institution_name,
         output_path=str(paths.transformation_map),
         institution_mapping_manifest=manifest_2a,
         institution_schema_contract=enriched_contract,
         cohort_schema_class=RawEdviseStudentDataSchema,
         course_schema_class=RawEdviseCourseDataSchema,
         reference_transformation_maps=[reference_tm],
-        reference_institution_names=[reference_name],
+        reference_institution_ids=[reference_id],
     )
     result_2b = _run_once(model_id, prompt_2b, client)
     if not result_2b["success"]:
@@ -623,9 +617,7 @@ def run(
     catalog: str,
     mode: str,
     resume_from: str = "start",
-    institution_name: str = "",
     reference_id: str = "",
-    reference_name: str = "",
     model_id: str = "claude-sonnet-test-genai-ai-data-cleaning",
 ):
     paths = resolve_run_paths(institution_id, pipeline_run_id, catalog)
@@ -655,19 +647,15 @@ def run(
             raise ValueError(
                 f"Invalid resume_from={resume_from!r} for mode='onboard'. Must be 'start' or 'gate_2'."
             )
-        if not institution_name:
-            raise ValueError("--institution_name is required for onboard mode.")
-        if not reference_id or not reference_name:
-            raise ValueError("--reference_id and --reference_name are required for onboard mode.")
+        if not reference_id:
+            raise ValueError("--reference_id is required for onboard mode.")
 
         client = _build_openai_client(catalog)
 
         if resume_from == "start":
             run_onboard_start(
                 institution_id=institution_id,
-                institution_name=institution_name,
                 reference_id=reference_id,
-                reference_name=reference_name,
                 model_id=model_id,
                 paths=paths,
                 client=client,
@@ -676,9 +664,7 @@ def run(
         elif resume_from == "gate_2":
             run_onboard_gate_2(
                 institution_id=institution_id,
-                institution_name=institution_name,
                 reference_id=reference_id,
-                reference_name=reference_name,
                 model_id=model_id,
                 paths=paths,
                 client=client,
@@ -696,9 +682,7 @@ if __name__ == "__main__":
     parser.add_argument("--catalog", required=True)
     parser.add_argument("--mode", required=True, choices=["onboard", "execute"])
     parser.add_argument("--resume_from", default="start", choices=["start", "gate_2"])
-    parser.add_argument("--institution_name", default="")
     parser.add_argument("--reference_id", default="")
-    parser.add_argument("--reference_name", default="")
     parser.add_argument("--model_id", default="claude-sonnet-test-genai-ai-data-cleaning")
     args = parser.parse_args()
 
@@ -708,8 +692,6 @@ if __name__ == "__main__":
         catalog=args.catalog,
         mode=args.mode,
         resume_from=args.resume_from,
-        institution_name=args.institution_name,
         reference_id=args.reference_id,
-        reference_name=args.reference_name,
         model_id=args.model_id,
     )
