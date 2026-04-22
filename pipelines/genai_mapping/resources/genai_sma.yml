@@ -2,9 +2,9 @@ resources:
   jobs:
     edvise_genai_sma:
       name: edvise_genai_sma
-      webhook_notifications:
-        on_failure:
-          - id: ${var.genai_slack_webhook_id}
+      # webhook_notifications:
+      #   on_failure:
+      #     - id: ${var.genai_slack_webhook_id}
       max_concurrent_runs: 5
       queue:
         enabled: true
@@ -12,7 +12,7 @@ resources:
       tasks:
         - task_key: run_sma
           spark_python_task:
-            python_file: src/edvise/genai/mapping/scripts/edvise_sma.py
+            python_file: src/edvise/genai/mapping/scripts/edvise_genai_sma.py
             source: GIT
             parameters:
               - --institution_id
@@ -31,8 +31,6 @@ resources:
               - "{{job.parameters.reference_id}}"
               - --reference_name
               - "{{job.parameters.reference_name}}"
-              - --model_id
-              - "{{job.parameters.model_id}}"
           job_cluster_key: edvise-genai-mapping-cluster
           libraries:
             - pypi:
@@ -92,8 +90,6 @@ resources:
           default: ""
         - name: reference_name
           default: ""
-        - name: model_id
-          default: "claude-sonnet-test-genai-ai-data-cleaning"
 
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
