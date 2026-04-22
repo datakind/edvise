@@ -317,6 +317,9 @@ def run_onboard_start(
         raise RuntimeError(result_2a.get("error") or "Step 2a LLM failed")
 
     manifest_2a = json.loads(result_2a["response"])
+    # Step 2a agent schema omits envelope-only fields (see MappingManifestEnvelope).
+    if isinstance(manifest_2a, dict):
+        manifest_2a["institution_id"] = institution_id
     ok, err = validate_envelope_dict(manifest_2a)
     if not ok:
         LOGGER.warning("[onboard/start] Manifest Pydantic validation warning: %s", err)
