@@ -9,6 +9,7 @@ import argparse
 import logging
 import os
 import typing as t
+from typing import Literal
 
 import pandas as pd
 
@@ -16,7 +17,11 @@ from edvise import feature_generation, utils
 from edvise.dataio.read import read_config
 from edvise.feature_generation.cohort_columns import StudentCohortColumns
 from edvise.feature_generation.course_columns import CourseStandardizedColumns
-from edvise.feature_generation.pipeline_columns import FeaturePipelineColumns
+from edvise.feature_generation.pipeline_columns import (
+    FeaturePipelineColumns,
+    es_feature_pipeline_columns,
+    pdp_feature_pipeline_columns,
+)
 from edvise.shared.logger import local_fs_path, resolve_run_path
 from edvise.shared.validation import require, require_cols, require_no_nulls, warn_if
 
@@ -30,7 +35,18 @@ class FeatureGenerationBackend(t.NamedTuple):
     log_file_name: str
     student_cohort_columns: StudentCohortColumns
     course_standardized_columns: CourseStandardizedColumns
-    feature_pipeline_columns: FeaturePipelineColumns
+    pipeline_flavor: Literal["pdp", "es"]
+
+
+def _feature_pipeline_columns_for_config(
+    *,
+    student_id_col: str,
+    pipeline_flavor: Literal["pdp", "es"],
+) -> FeaturePipelineColumns:
+    """Build term/course/student-term/cumulative key layout from project config."""
+    if pipeline_flavor == "es":
+        return es_feature_pipeline_columns(student_id_col)
+    return pdp_feature_pipeline_columns(student_id_col)
 
 
 class FeatureGenerationTask:
@@ -41,6 +57,12 @@ class FeatureGenerationTask:
         self._backend = backend
         self.cfg = read_config(
             self.args.config_file_path, schema=backend.config_schema
+        )
+
+    def _feature_pipeline(self) -> FeaturePipelineColumns:
+        return _feature_pipeline_columns_for_config(
+            student_id_col=self.cfg.student_id_col,
+            pipeline_flavor=self._backend.pipeline_flavor,
         )
 
     def run(self) -> None:
@@ -78,33 +100,34 @@ class FeatureGenerationTask:
         df_course = pd.read_parquet(course_path_local)
         df_cohort = pd.read_parquet(cohort_path_local)
 
-        pc = self._backend.feature_pipeline_columns
+        sid = self.cfg.student_id_col
+        pc = self._feature_pipeline()
         require_cols(
             df_course,
             [
                 "institution_id",
-                "student_id",
+                sid,
                 pc.term.academic_year_col,
                 pc.term.academic_term_col,
             ],
             "Course standardized",
         )
-        require_cols(df_cohort, ["institution_id", "student_id"], "Cohort standardized")
+        require_cols(df_cohort, ["institution_id", sid], "Cohort standardized")
 
         require_no_nulls(
             df_course,
-            ["institution_id", "student_id"],
+            ["institution_id", sid],
             "Course standardized",
         )
         require_no_nulls(
-            df_cohort, ["institution_id", "student_id"], "Cohort standardized"
+            df_cohort, ["institution_id", sid], "Cohort standardized"
         )
 
-        cohort_pairs = set(zip(df_cohort["institution_id"], df_cohort["student_id"]))
-        course_pairs = set(zip(df_course["institution_id"], df_course["student_id"]))
+        cohort_pairs = set(zip(df_cohort["institution_id"], df_cohort[sid]))
+        course_pairs = set(zip(df_course["institution_id"], df_course[sid]))
         require(
             cohort_pairs and course_pairs,
-            "No valid (institution_id, student_id) pairs found in cohort/course.",
+            f"No valid (institution_id, {sid}) pairs found in cohort/course.",
         )
 
         overlap = len(cohort_pairs & course_pairs) / min(
@@ -146,8 +169,8 @@ class FeatureGenerationTask:
         key_course_subject_areas: t.Optional[list[str]] = None,
         key_course_ids: t.Optional[list[str]] = None,
     ) -> pd.DataFrame:
-        """Main feature generation pipeline (PDP column layout)."""
-        pc = self._backend.feature_pipeline_columns
+        """Run term → course → section → student-term → cumulative using config keys."""
+        pc = self._feature_pipeline()
         first_term = utils.infer_data_terms.infer_first_term_of_year(
             df_course[pc.term.academic_term_col]
         )
@@ -195,6 +218,7 @@ class FeatureGenerationTask:
                 feature_generation.student_term.add_features,
                 min_num_credits_full_time=min_num_credits_full_time,
                 columns=pc.student_term_features,
+                group_by_for_prev_term=pc.student_term_agg.merge_student_on,
             )
         )
 

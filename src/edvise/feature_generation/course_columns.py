@@ -1,8 +1,9 @@
 """
 Standardized **course** column names for :func:`~edvise.feature_generation.course.add_features`.
 
-PDP uses Clearinghouse-style ``course_prefix`` / ``course_number``; Edvise Schema
-often uses ``course_subject`` / ``course_num`` on the standardized course frame.
+PDP uses Clearinghouse-style ``course_prefix`` / ``course_number``. Edvise raw course
+schema uses the same identifiers (see :mod:`edvise.data_audit.schemas.raw_edvise_course`);
+silver ES rows keep those names, so ES uses the same bundle as PDP here.
 """
 
 from __future__ import annotations
@@ -27,10 +28,9 @@ PDP_COURSE_STANDARDIZED_COLUMNS = CourseStandardizedColumns(
     grade_col="grade",
 )
 
-# Typical ES standardized identifiers (see ESCourseStandardizer primary keys).
 ES_COURSE_STANDARDIZED_COLUMNS = CourseStandardizedColumns(
-    course_prefix_col="course_subject",
-    course_number_col="course_num",
+    course_prefix_col="course_prefix",
+    course_number_col="course_number",
     course_cip_col="course_cip",
     grade_col="grade",
 )

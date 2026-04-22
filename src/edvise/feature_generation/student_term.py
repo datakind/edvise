@@ -132,33 +132,42 @@ def aggregate_from_course_level_features(
         sections_num_students_passed=sections_num_students_passed_col_agg(),
         sections_num_students_completed=sections_num_students_completed_col_agg(),
     )
+    _dummy_col_candidates = [
+        "course_type",
+        "delivery_method",
+        "math_or_english_gateway",
+        "co_requisite_course",
+        "course_instructor_employment_status",
+        "course_instructor_rank",
+        "course_level",
+        "course_grade",
+    ]
+    dummy_agg_cols = [c for c in _dummy_col_candidates if c in df.columns]
     df_dummies = sum_dummy_cols_by_group(
         df,
         grp_cols=student_term_id_cols,
-        agg_cols=[
-            "course_type",
-            "delivery_method",
-            "math_or_english_gateway",
-            "co_requisite_course",
-            "course_instructor_employment_status",
-            "course_instructor_rank",
-            "course_level",
-            "course_grade",
-        ],
+        agg_cols=dummy_agg_cols,
     )
 
-    agg_col_vals: list[tuple[str, t.Any | list[t.Any]]] = [
+    _base_val_equals: list[tuple[str, t.Any | list[t.Any]]] = [
         ("core_course", "Y"),
         ("course_type", ["CC", "CD"]),
         ("course_level", [0, 1]),
         ("enrolled_at_other_institution_s", "Y"),
     ]
+    agg_col_vals: list[tuple[str, t.Any | list[t.Any]]] = [
+        pair for pair in _base_val_equals if pair[0] in df.columns
+    ]
     if key_course_subject_areas is not None:
         agg_col_vals.extend(
-            ("course_subject_area", kcsa) for kcsa in key_course_subject_areas
+            ("course_subject_area", kcsa)
+            for kcsa in key_course_subject_areas
+            if "course_subject_area" in df.columns
         )
     if key_course_ids is not None:
-        agg_col_vals.extend(("course_id", kc) for kc in key_course_ids)
+        agg_col_vals.extend(
+            ("course_id", kc) for kc in key_course_ids if "course_id" in df.columns
+        )
     df_val_equals = sum_val_equal_cols_by_group(
         df, grp_cols=student_term_id_cols, agg_col_vals=agg_col_vals
     )
@@ -191,6 +200,7 @@ def add_features(
     *,
     min_num_credits_full_time: float = constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
     columns: StudentTermFeatureColumns = _DEFAULT_STUDENT_TERM_FEATURE_COLS,
+    group_by_for_prev_term: tuple[str, ...] = ("institution_id", "student_id"),
 ) -> pd.DataFrame:
     """
     Compute various student-term-level features from aggregated course-level features
@@ -202,6 +212,8 @@ def add_features(
             for a student's enrollment intensity to be considered "full-time".
             Default value is 12.0.
         columns: Physical column names on this frame (post-merge, post-aggregation).
+        group_by_for_prev_term: Group keys (e.g. ``(institution_id, student_id)`` or
+            ``(institution_id, learner_id)``) for term-over-term change features.
 
     See Also:
         - :func:`aggregate_from_course_level_features()`
@@ -310,9 +322,14 @@ def add_features(
             ),
         }
     )
+    prev_keys = list(group_by_for_prev_term)
     return df.assign(**feature_name_funcs).assign(
-        term_program_of_study_changed_prev_term=term_program_of_study_changed_prev_term,
-        term_program_of_study_area_changed_prev_term=term_program_of_study_area_changed_prev_term,
+        term_program_of_study_changed_prev_term=ft.partial(
+            term_program_of_study_changed_prev_term, student_id_cols=prev_keys
+        ),
+        term_program_of_study_area_changed_prev_term=ft.partial(
+            term_program_of_study_area_changed_prev_term, student_id_cols=prev_keys
+        ),
     )
 
 
@@ -535,6 +552,8 @@ def sum_dummy_cols_by_group(
         grp_cols
         agg_cols
     """
+    if not agg_cols:
+        return df.loc[:, grp_cols].drop_duplicates().reset_index(drop=True)
     return (
         pd.get_dummies(
             df[grp_cols + agg_cols],
@@ -594,6 +613,8 @@ def sum_val_equal_cols_by_group(
         grp_cols
         agg_col_vals
     """
+    if not agg_col_vals:
+        return df.loc[:, grp_cols].drop_duplicates().reset_index(drop=True)
     temp_col_series = {}
     for col, val in agg_col_vals:
         # make multi-value col names nicer to read

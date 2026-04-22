@@ -499,9 +499,14 @@ def log_pre_cohort_courses(df_course: pd.DataFrame, student_id_col: str) -> None
 
 
 def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
-    pell_col = validate_optional_column(
-        df_cohort, "pell_status_first_year", "Pell status", logger=LOGGER
-    )
+    pell_col = None
+    for candidate in ("pell_status_first_year", "pell_recipient_year1"):
+        resolved = validate_optional_column(
+            df_cohort, candidate, "Pell status", logger=LOGGER
+        )
+        if resolved is not None:
+            pell_col = resolved
+            break
     if pell_col is not None:
         LOGGER.info(
             " Before replacing 'pell_status_first_year':\n%s",
@@ -518,9 +523,14 @@ def replace_na_firstgen_and_pell(df_cohort: pd.DataFrame) -> pd.DataFrame:
             df_cohort[pell_col].value_counts(dropna=False),
         )
 
-    first_gen_col = validate_optional_column(
-        df_cohort, "first_gen", "first-gen", logger=LOGGER
-    )
+    first_gen_col = None
+    for candidate in ("first_gen", "first_generation_status"):
+        resolved = validate_optional_column(
+            df_cohort, candidate, "first-gen", logger=LOGGER
+        )
+        if resolved is not None:
+            first_gen_col = resolved
+            break
     if first_gen_col is not None:
         LOGGER.info(
             " Before filling 'first_gen':\n%s",

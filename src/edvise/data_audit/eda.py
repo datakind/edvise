@@ -720,11 +720,25 @@ def pct_breakdown(series: pd.Series) -> pd.Series:
 def print_credential_and_enrollment_types_and_intensities(
     df_cohort: pd.DataFrame,
 ) -> None:
-    pct_credentials = pct_breakdown(df_cohort["credential_type_sought_year_1"])
+    cred_col = (
+        "credential_type_sought_year_1"
+        if "credential_type_sought_year_1" in df_cohort.columns
+        else "intended_program_type"
+    )
+    pct_credentials = pct_breakdown(df_cohort[cred_col])
 
     pct_enroll_types = pct_breakdown(df_cohort["enrollment_type"])
 
-    pct_enroll_intensity = pct_breakdown(df_cohort["enrollment_intensity_first_term"])
+    if "enrollment_intensity_first_term" in df_cohort.columns:
+        pct_enroll_intensity = pct_breakdown(df_cohort["enrollment_intensity_first_term"])
+        LOGGER.info(
+            "Percent breakdown for enrollment intensities:\n%s",
+            pct_enroll_intensity.to_string(),
+        )
+    else:
+        LOGGER.info(
+            "Enrollment intensity column not present; skipping intensity breakdown."
+        )
 
     LOGGER.info(
         "Percent breakdown for credential types:\n%s",
@@ -733,10 +747,6 @@ def print_credential_and_enrollment_types_and_intensities(
     LOGGER.info(
         "Percent breakdown for enrollment types:\n%s",
         pct_enroll_types.to_string(),
-    )
-    LOGGER.info(
-        "Percent breakdown for enrollment intensities:\n%s",
-        pct_enroll_intensity.to_string(),
     )
 
 
@@ -751,12 +761,23 @@ def print_retention(df_cohort: pd.DataFrame) -> None:
     )
 
 
-def log_top_majors(df_cohort: pd.DataFrame) -> None:
+def log_top_majors(
+    df_cohort: pd.DataFrame,
+    *,
+    major_col: str = "program_of_study_term_1",
+) -> None:
     """
     Logs the top majors by program of study for the first term.
+
+    Args:
+        df_cohort: Cohort-level dataframe.
+        major_col: Column holding declared major / program of study labels.
     """
+    if major_col not in df_cohort.columns:
+        LOGGER.info("Top majors: column %r not found; skipping.", major_col)
+        return
     top_majors = (
-        df_cohort["program_of_study_term_1"]
+        df_cohort[major_col]
         .value_counts(dropna=False)
         .sort_values(ascending=False)
         .head(10)

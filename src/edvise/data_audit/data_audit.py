@@ -180,7 +180,9 @@ class DataAuditTask:
         )
 
         LOGGER.info(" Standardizing cohort data:")
-        df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
+        df_cohort_standardized = self.cohort_std.standardize(
+            df_cohort_validated, self.cfg
+        )
         LOGGER.info(" Cohort data standardized.")
 
         student_id_col = getattr(self.cfg, "student_id_col", None) or "student_id"
@@ -224,7 +226,9 @@ class DataAuditTask:
             log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
         LOGGER.info(" Standardizing course data:")
-        df_course_standardized = self.course_std.standardize(df_course_validated)
+        df_course_standardized = self.course_std.standardize(
+            df_course_validated, self.cfg
+        )
         LOGGER.info(" Course data standardized.")
 
         for label, df in [
@@ -241,7 +245,8 @@ class DataAuditTask:
                 f"{label} contains {nulls} null {student_id_col} values.",
             )
         LOGGER.info(
-            " Validated that cohort and course files both have a 'student_id' column with no nulls."
+            " Validated that cohort and course files both have %r with no nulls.",
+            student_id_col,
         )
 
         ids, cips, has_upper_level, lower_ids, lower_cips = (

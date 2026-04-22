@@ -338,3 +338,218 @@ def _maybe_convert_maybe_validate_data(
         except SchemaErrors:
             LOGGER.error("unable to parse/validate raw data")
             raise
+
+
+def _prepare_edvise_cohort_after_validation(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Minimal cohort prep after Edvise schema validation.
+
+    Keeps native Edvise column names (including ``learner_id``). Adds ``study_id``
+    when missing and ``entry_type`` (for readmit logic). ``institution_id`` and
+    joins use :attr:`student_id_col` from the project config (see
+    :class:`edvise.configs.es.ESProjectConfig`). No synthetic ``student_id``
+    column is created.
+    """
+    out = df.copy()
+    out["learner_id"] = out["learner_id"].astype("string")
+    if "study_id" not in out.columns:
+        out["study_id"] = out["learner_id"]
+    if "enrollment_type" in out.columns:
+        out["entry_type"] = (
+            out["enrollment_type"].astype("string").str.strip().str.lower()
+        )
+    return out
+
+
+def _load_cohort_lookup_next_to_course(course_file_path: str) -> pd.DataFrame:
+    """Load a student CSV beside the course file (for cohort / cohort_term on course rows)."""
+    parent = pathlib.Path(course_file_path).resolve().parent
+    for name in ("edvise_students_full.csv", "edvise_students.csv"):
+        p = parent / name
+        if p.is_file():
+            raw = from_csv_file(str(p), None)
+            return raw.rename(columns=utils.data_cleaning.convert_to_snake_case)
+    raise FileNotFoundError(
+        f"No edvise_students_full.csv or edvise_students.csv next to {course_file_path!r}"
+    )
+
+
+def _prepare_edvise_course_after_validation(
+    df: pd.DataFrame, *, cohort_lookup: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Merge cohort entry keys onto Edvise course rows for pre-cohort filtering.
+
+    Adds ``cohort`` / ``cohort_term`` (Clearinghouse-style names) because
+    :func:`~edvise.utils.data_cleaning.remove_pre_cohort_courses` expects them on
+    the course frame. Native Edvise course field names are otherwise preserved;
+    PDP-only feature columns are added in ``ESCourseStandardizer``.
+    """
+    sub = cohort_lookup[["learner_id", "entry_year", "entry_term"]].copy()
+    sub["learner_id"] = sub["learner_id"].astype("string")
+    sub["entry_year"] = sub["entry_year"].astype("string")
+    if "entry_term" in sub.columns:
+        sub["entry_term"] = utils.data_cleaning.uppercase_string_values(
+            sub, col="entry_term"
+        )
+    sub = sub.rename(columns={"entry_year": "cohort", "entry_term": "cohort_term"})
+    out = df.copy()
+    out["learner_id"] = out["learner_id"].astype("string")
+    out = out.merge(sub, on="learner_id", how="left", validate="m:1")
+    out["cohort_term"] = pd.Categorical(
+        out["cohort_term"].astype("string"),
+        categories=["FALL", "WINTER", "SPRING", "SUMMER"],
+        ordered=True,
+    )
+    if "study_id" not in out.columns:
+        out["study_id"] = out["learner_id"]
+    if "course_credits_attempted" not in out.columns:
+        out["course_credits_attempted"] = out["course_credits_earned"]
+    else:
+        missing_att = out["course_credits_attempted"].isna()
+        if bool(missing_att.all()) or (
+            out["course_credits_attempted"].notna().sum() == 0
+        ):
+            out["course_credits_attempted"] = out["course_credits_earned"]
+        else:
+            out.loc[missing_att, "course_credits_attempted"] = out.loc[
+                missing_att, "course_credits_earned"
+            ]
+    return out
+
+
+def _read_and_prepare_es_cohort(
+    *,
+    file_path: t.Optional[str],
+    table_path: t.Optional[str],
+    spark_session: t.Optional[pyspark.sql.SparkSession],
+    schema: t.Optional[type[pda.DataFrameModel]],
+    converter_func: t.Optional[t.Callable[[pd.DataFrame], pd.DataFrame]],
+    **kwargs: object,
+) -> pd.DataFrame:
+    if not bool(table_path) ^ bool(file_path):
+        raise ValueError("exactly one of table_path or file_path must be specified")
+    if table_path and not spark_session:
+        raise ValueError("spark session must be given when reading data from table")
+
+    df = (
+        from_csv_file(file_path, spark_session, **kwargs)  # type: ignore
+        if file_path
+        else from_delta_table(table_path, spark_session)  # type: ignore
+    )
+    df = df.rename(columns=utils.data_cleaning.convert_to_snake_case)
+
+    transformations: dict[str, pd.Series] = {}
+    if "entry_term" in df.columns:
+        transformations["entry_term"] = utils.data_cleaning.uppercase_string_values(
+            df, col="entry_term"
+        )
+    for col in (
+        "matriculation_date",
+        "bachelors_degree_conferral_date",
+        "associates_degree_conferral_date",
+        "certificate1_date",
+        "certificate2_date",
+        "certificate3_date",
+    ):
+        if col in df.columns:
+            transformations[col] = pd.to_datetime(df[col], errors="coerce")
+    if transformations:
+        df = df.assign(**transformations)
+
+    if schema is None:
+        if "learner_id" in df.columns:
+            df = df.assign(study_id=df["learner_id"].astype("string"))
+        return df
+
+    df = _maybe_convert_maybe_validate_data(df, converter_func, schema)
+    assert isinstance(df, pd.DataFrame)
+    return _prepare_edvise_cohort_after_validation(df)
+
+
+def read_raw_es_cohort_data(
+    *,
+    table_path: t.Optional[str] = None,
+    file_path: t.Optional[str] = None,
+    schema: t.Optional[type[pda.DataFrameModel]] = None,
+    converter_func: t.Optional[t.Callable[[pd.DataFrame], pd.DataFrame]] = None,
+    spark_session: t.Optional[pyspark.sql.SparkSession] = None,
+    **kwargs: object,
+) -> pd.DataFrame:
+    """Read Edvise-format cohort (student) CSV or Delta; validate then map for ES audit."""
+    return _read_and_prepare_es_cohort(
+        file_path=file_path,
+        table_path=table_path,
+        spark_session=spark_session,
+        schema=schema,
+        converter_func=converter_func,
+        **kwargs,
+    )
+
+
+def _read_and_prepare_es_course(
+    *,
+    file_path: t.Optional[str],
+    table_path: t.Optional[str],
+    spark_session: t.Optional[pyspark.sql.SparkSession],
+    schema: t.Optional[type[pda.DataFrameModel]],
+    converter_func: t.Optional[t.Callable[[pd.DataFrame], pd.DataFrame]],
+    dttm_format: t.Optional[str] = None,
+    **kwargs: object,
+) -> pd.DataFrame:
+    del dttm_format  # always flexible-parse below (avoids ValueError on empty/ISO cells)
+    if not bool(table_path) ^ bool(file_path):
+        raise ValueError("exactly one of table_path or file_path must be specified")
+    if table_path and not spark_session:
+        raise ValueError("spark session must be given when reading data from table")
+
+    df = (
+        from_csv_file(file_path, spark_session, **kwargs)  # type: ignore
+        if file_path
+        else from_delta_table(table_path, spark_session)  # type: ignore
+    )
+    df = df.rename(columns=utils.data_cleaning.convert_to_snake_case)
+
+    transformations: dict[str, pd.Series] = {}
+    if "academic_term" in df.columns:
+        transformations["academic_term"] = utils.data_cleaning.uppercase_string_values(
+            df, col="academic_term"
+        )
+    for col in ("course_begin_date", "course_end_date"):
+        if col in df.columns:
+            transformations[col] = pd.to_datetime(df[col], errors="coerce")
+    if transformations:
+        df = df.assign(**transformations)
+
+    if schema is None:
+        if "learner_id" in df.columns:
+            df = df.assign(study_id=df["learner_id"].astype("string"))
+        return df
+
+    assert file_path is not None
+    cohort_lookup = _load_cohort_lookup_next_to_course(file_path)
+    df = _maybe_convert_maybe_validate_data(df, converter_func, schema)
+    assert isinstance(df, pd.DataFrame)
+    return _prepare_edvise_course_after_validation(df, cohort_lookup=cohort_lookup)
+
+
+def read_raw_es_course_data(
+    *,
+    table_path: t.Optional[str] = None,
+    file_path: t.Optional[str] = None,
+    schema: t.Optional[type[pda.DataFrameModel]] = None,
+    dttm_format: str = "%Y%m%d",
+    converter_func: t.Optional[t.Callable[[pd.DataFrame], pd.DataFrame]] = None,
+    spark_session: t.Optional[pyspark.sql.SparkSession] = None,
+    **kwargs: object,
+) -> pd.DataFrame:
+    """Read Edvise-format course CSV or Delta; validate, merge cohort keys, map for ES audit."""
+    return _read_and_prepare_es_course(
+        file_path=file_path,
+        table_path=table_path,
+        spark_session=spark_session,
+        schema=schema,
+        converter_func=converter_func,
+        dttm_format=dttm_format,
+        **kwargs,
+    )

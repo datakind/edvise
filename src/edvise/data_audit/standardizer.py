@@ -32,6 +32,15 @@ from .eda import (
 # TODO think of a better name than standardizer
 
 
+def _student_id_col_from_config(cfg: t.Any, *, default: str) -> str:
+    """Person-level id column from project config; ``default`` when ``cfg`` is None."""
+    if cfg is not None:
+        col = getattr(cfg, "student_id_col", None)
+        if col:
+            return str(col)
+    return default
+
+
 class BaseStandardizer:
     "This preps data for feature gen by"
 
@@ -54,13 +63,15 @@ class BaseStandardizer:
 
 
 class PDPCohortStandardizer(BaseStandardizer):
-    def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
+    def standardize(self, df: pd.DataFrame, cfg: t.Any = None) -> pd.DataFrame:
         """
         Drop some columns from raw cohort dataset.
 
         Args:
             df: As output by :func:`dataio.read_raw_pdp_cohort_data_from_file()` .
+            cfg: Optional project config (unused for PDP).
         """
+        del cfg  # PDP path does not use config in standardization
         log_high_null_columns(df)
         print_credential_and_enrollment_types_and_intensities(df)
         print_retention(df)
@@ -126,13 +137,15 @@ class PDPCohortStandardizer(BaseStandardizer):
 
 
 class PDPCourseStandardizer(BaseStandardizer):
-    def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
+    def standardize(self, df: pd.DataFrame, cfg: t.Any = None) -> pd.DataFrame:
         """
         Drop some columns and anomalous rows from raw course dataset.
 
         Args:
             df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
+            cfg: Optional project config (unused for PDP).
         """
+        del cfg  # PDP path does not use config in standardization
         df = strip_trailing_decimal_strings(df, cols=["course_number", "course_cip"])
         df = drop_course_rows_missing_identifiers(df)
         log_high_null_columns(df)
@@ -163,42 +176,70 @@ class PDPCourseStandardizer(BaseStandardizer):
         return df
 
 
+def _assign_institution_id_from_config(df: pd.DataFrame, cfg: t.Any) -> pd.DataFrame:
+    """Set ``institution_id`` on every row from ``cfg.institution_id`` when config is given."""
+    if cfg is None:
+        return df
+    iid = getattr(cfg, "institution_id", None)
+    if iid is None:
+        return df
+    return df.assign(
+        institution_id=pd.Series(str(iid), index=df.index, dtype="string")
+    )
+
+
 class ESCohortStandardizer(BaseStandardizer):
     """
     Custom Cohort Standardizer. Operates similarly to PDP's cohort standardizer.
     """
 
-    def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
+    def standardize(self, df: pd.DataFrame, cfg: t.Any = None) -> pd.DataFrame:
         """
         Clean up and drop some columns from raw cohort dataset.
 
         Args:
             df: cohort dataframe
+            cfg: Project config; when set, ``institution_id`` is assigned from
+                ``cfg.institution_id`` for downstream feature generation.
         """
         # Log credential types and enrollment types
         print_credential_and_enrollment_types_and_intensities(df)
         # Log high values of NAs
         log_high_null_columns(df)
-        # Logs missing bias variables
-        check_bias_variables(df)
+        # Logs missing bias variables (Edvise native column names on cohort rows)
+        _es_bias_vars = [
+            "first_generation_status",
+            "gender",
+            "race",
+            "ethnicity",
+            "learner_age",
+        ]
+        check_bias_variables(df, bias_vars=_es_bias_vars)
         # Logs top majors
-        log_top_majors(df)
+        log_top_majors(df, major_col="declared_major_at_entry")
+
+        # GPA placeholders for shared student feature pipe (Edvise student file has no GPA)
+        df = self.add_empty_columns_if_missing(
+            df,
+            {"gpa_group_term_1": (None, "Float32"), "gpa_group_year_1": (None, "Float32")},
+        )
 
         # Replaces NA fields with "N" in pell and first_gen columns (standardizes to Y/N)
         df = replace_na_firstgen_and_pell(df)
 
         # Finds and logs duplicates on primary keys; runs drop_readmits, then keep_earlier_record if needed
-        primary_keys = ["student_id", "cohort_term"]
+        sid = _student_id_col_from_config(cfg, default="learner_id")
+        primary_keys = [sid, "entry_term"]
         LOGGER.info("Checking for cohort file duplicates on %s...", primary_keys)
         find_dupes(df, primary_keys)
         LOGGER.info("Dropping readmits")
-        df = drop_readmits(df)
+        df = drop_readmits(df, student_col=sid)
         LOGGER.info("Dropped readmits: checking again for duplicates...")
         dupes = find_dupes(df, primary_keys)
         if len(dupes) == 0:
             LOGGER.info("No duplicates found after dropping readmits.")
         else:
-            df = keep_earlier_record(df)
+            df = keep_earlier_record(df, id_col=sid, term_col="entry_term")
             LOGGER.info(
                 "Duplicates still found; running keep_earlier_record; checking again for duplicates..."
             )
@@ -211,8 +252,8 @@ class ESCohortStandardizer(BaseStandardizer):
                 )
 
         # Drops unused, unpopulated bias columns
-        df = drop_unpopulated_bias_columns(df)
-        return df
+        df = drop_unpopulated_bias_columns(df, bias_vars=_es_bias_vars)
+        return _assign_institution_id_from_config(df, cfg)
 
 
 class ESCourseStandardizer(BaseStandardizer):
@@ -220,36 +261,57 @@ class ESCourseStandardizer(BaseStandardizer):
     Custom Course Standardizer. Operates similarly to PDP's course standardizer.
     """
 
-    def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
+    def standardize(self, df: pd.DataFrame, cfg: t.Any = None) -> pd.DataFrame:
         """
         Drop some columns and anomalous rows from raw course dataset.
 
         Args:
             df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
+            cfg: Project config; when set, ``institution_id`` is assigned from
+                ``cfg.institution_id`` for downstream feature generation.
         """
-        df = strip_trailing_decimal_strings(
-            df, cols=["course_number", "course_num", "course_cip"]
+        # Only columns the shared feature pipe expects but Edvise often omits: same
+        # role as :class:`PDPCourseStandardizer` adding ``term_program_of_study``; CIP
+        # for :func:`course.add_features` subject-area extraction.
+        df = self.add_empty_columns_if_missing(
+            df,
+            {
+                "term_program_of_study": (None, "string"),
+                "course_cip": (None, "string"),
+            },
         )
+        strip_cols = [
+            c for c in ("course_number", "course_num", "course_cip") if c in df.columns
+        ]
+        if strip_cols:
+            df = strip_trailing_decimal_strings(df, cols=strip_cols)
         # Log high values of NAs
         log_high_null_columns(df)
         log_grade_distribution(df)
 
-        # Must match ``handling_duplicates(..., schema_type="es")`` defaults (prefix/number/term).
-        primary_keys = [
-            "student_id",
-            "academic_term",
-            "course_prefix",
-            "course_number",
-        ]
+        # Must match ``handling_duplicates(..., schema_type="es")`` (prefix/number/term + person id).
+        sid = _student_id_col_from_config(cfg, default="learner_id")
+        primary_keys = [sid, "academic_term", "course_prefix", "course_number"]
         LOGGER.info("Checking for course file duplicates on %s...", primary_keys)
         find_dupes(df, primary_keys)
         df = handling_duplicates(df, schema_type="es", unique_cols=primary_keys)
 
-        # Runs check_pf_grade_consistency func
-        check_pf_grade_consistency(df)
+        if "pass_fail_flag" in df.columns:
+            if "credits_earned" in df.columns:
+                check_pf_grade_consistency(df, credits_col="credits_earned")
+            elif "course_credits_earned" in df.columns:
+                check_pf_grade_consistency(df, credits_col="course_credits_earned")
+            else:
+                LOGGER.info(
+                    "Skipping PF/grade check: pass_fail_flag present but no earned-credits column."
+                )
+        else:
+            LOGGER.info(
+                "Skipping pass/fail vs grade check (no pass_fail_flag; optional for Edvise)."
+            )
         # Runs validate_credit_consistency func
         validate_credit_consistency(df, None, None)
         # Runs assign_numeric_grade func
         df = assign_numeric_grade(df)
         df = self.add_empty_columns_if_missing(df, {})
-        return df
+        return _assign_institution_id_from_config(df, cfg)

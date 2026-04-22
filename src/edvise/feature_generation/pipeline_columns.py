@@ -109,7 +109,7 @@ class CumulativePipelineColumns:
 
 @dataclass(frozen=True, slots=True)
 class FeaturePipelineColumns:
-    """Bundle of pipeline column maps (one object on ``FeatureGenerationBackend``)."""
+    """Bundle of pipeline column maps (from :func:`pdp_feature_pipeline_columns` / :func:`es_feature_pipeline_columns`)."""
 
     term: TermStandardizedColumns
     section: SectionPipelineColumns
@@ -193,16 +193,66 @@ def build_backend_pipeline_columns(
     )
 
 
-PDP_FEATURE_PIPELINE_COLUMNS = build_backend_pipeline_columns(
-    term=_pdp_term(),
-    section=SectionPipelineColumns(
-        section_id_cols=("term_id", "course_id", "section_id"),
-    ),
-)
+def pdp_feature_pipeline_columns(
+    student_id_col: str = "student_id",
+) -> FeaturePipelineColumns:
+    """
+    PDP (Clearinghouse) pipeline key layout.
 
-ES_FEATURE_PIPELINE_COLUMNS = build_backend_pipeline_columns(
-    term=_es_term(),
-    section=SectionPipelineColumns(
+    ``student_id_col`` matches :attr:`edvise.configs.pdp.PDPProjectConfig.student_id_col`
+    (e.g. ``student_id`` or a school-specific GUID column).
+    """
+    term = _pdp_term()
+    section = SectionPipelineColumns(
         section_id_cols=("term_id", "course_id", "section_id"),
-    ),
-)
+        student_id_col=student_id_col,
+    )
+    student_term_agg = StudentTermAggregationColumns(
+        student_term_id_cols=(student_id_col, "term_id"),
+        merge_student_on=("institution_id", student_id_col),
+    )
+    cumulative = CumulativePipelineColumns(
+        student_id_cols=("institution_id", student_id_col),
+    )
+    return build_backend_pipeline_columns(
+        term=term,
+        section=section,
+        student_term_agg=student_term_agg,
+        cumulative=cumulative,
+    )
+
+
+def es_feature_pipeline_columns(
+    student_id_col: str = "learner_id",
+) -> FeaturePipelineColumns:
+    """
+    Edvise-schema pipeline key layout.
+
+    ``student_id_col`` matches :attr:`edvise.configs.es.ESProjectConfig.student_id_col`
+    (default ``learner_id`` for native Edvise uploads).
+    """
+    term = _es_term()
+    section = SectionPipelineColumns(
+        section_id_cols=("term_id", "course_id", "course_section_id"),
+        student_id_col=student_id_col,
+    )
+    student_term_agg = StudentTermAggregationColumns(
+        student_term_id_cols=(student_id_col, "term_id"),
+        merge_student_on=("institution_id", student_id_col),
+        num_credits_attempted_col="course_credits_attempted",
+        num_credits_earned_col="course_credits_earned",
+    )
+    cumulative = CumulativePipelineColumns(
+        student_id_cols=("institution_id", student_id_col),
+    )
+    return build_backend_pipeline_columns(
+        term=term,
+        section=section,
+        student_term_agg=student_term_agg,
+        cumulative=cumulative,
+    )
+
+
+# Module defaults (``student_id_col`` = PDP "student_id" / Edvise "learner_id").
+PDP_FEATURE_PIPELINE_COLUMNS = pdp_feature_pipeline_columns()
+ES_FEATURE_PIPELINE_COLUMNS = es_feature_pipeline_columns()
