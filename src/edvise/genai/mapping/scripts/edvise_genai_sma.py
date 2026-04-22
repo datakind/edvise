@@ -2,8 +2,8 @@
 edvise_sma.py — SchemaMappingAgent pipeline job entry point.
 
 Usage (Databricks job parameters):
-    --institution_id    ucf
-    --pipeline_run_id   ucf_20260420_001
+    --institution_id    synthetic_edvise
+    --pipeline_run_id   synthetic_edvise_20260420_001
     --catalog           dev_sst_02
     --mode              onboard | execute
     --resume_from       start | gate_2  (onboard only)

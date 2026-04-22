@@ -271,7 +271,7 @@ def normalize_enrollment(s: pd.Series) -> pd.Series:
     Unmapped values → pd.NA.
 
     Use this when the source enrollment_type values already approximate PDP
-    language. For institutions with bespoke codes (e.g. UCF's "Beginner - FTIC"),
+    language. For institutions with bespoke codes (e.g. a custom "Beginner - FTIC" label),
     use map_values instead.
     """
     return enrollment_series_to_pdp(s)
@@ -379,7 +379,7 @@ def fill_constant(s: pd.Series, value: str) -> pd.Series:
     Fill all rows with a constant string value, ignoring existing content.
 
     Used for fields derivable as an institutional constant — e.g.
-    credential_type_sought_year_1 at UCF where all students are Bachelor's seekers.
+    credential_type_sought_year_1 when all students share the same credential type.
 
     Args:
         s: Input Series — used only for length

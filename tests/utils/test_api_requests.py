@@ -328,7 +328,7 @@ class TestGetInstitutionIdByName:
         mock_response = Mock()
         mock_response.json.return_value = {
             "inst_id": "abc123-def456-ghi789",
-            "name": "Motlow State Community College",
+            "name": "Fixture Alpha State Community College",
         }
         mock_response.raise_for_status = Mock()
 
@@ -338,7 +338,7 @@ class TestGetInstitutionIdByName:
 
         # Execute with databricks name
         result = api_requests.get_institution_id_by_name(
-            "motlow_state_cc", "test-api-key", is_databricks_name=True
+            "fixture_alpha_state_cc", "test-api-key", is_databricks_name=True
         )
 
         # Assert
@@ -346,7 +346,8 @@ class TestGetInstitutionIdByName:
         # Verify the URL contains the reversed name (normalized to lowercase)
         call_url = mock_session.get.call_args[0][0]
         assert (
-            "institutions/name/motlow%20state%20community%20college" in call_url.lower()
+            "institutions/name/fixture%20alpha%20state%20community%20college"
+            in call_url.lower()
         )
 
     @patch("edvise.utils.api_requests.get_access_tokens")

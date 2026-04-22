@@ -129,7 +129,7 @@ class RowSelectionStrategy(str, Enum):
     constant = "constant"
     # No row selection — field is derived as a constant value for all rows.
     # source_column must be null.
-    # Examples: credential_type_sought_year_1 at UCF
+    # Examples: credential_type_sought_year_1 (constant field on cohort)
 
     nth = "nth"
     # Take nth matching row ordered by order_by (1-based).

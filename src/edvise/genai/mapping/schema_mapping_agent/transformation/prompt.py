@@ -363,14 +363,14 @@ def build_step2b_prompt(
     Build the Step 2b transformation map prompt.
 
     Args:
-        institution_id:                 e.g. "lee_col"
+        institution_id:                 e.g. "synthetic_coastal_cc"
         output_path:                    Destination path for the transformation map
         institution_mapping_manifest:   Parsed mapping manifest JSON for the target institution
         institution_schema_contract:    Parsed schema contract JSON for the target institution
         cohort_schema_class:            RawEdviseStudentDataSchema (Pandera class)
         course_schema_class:            RawEdviseCourseDataSchema (Pandera class)
         reference_transformation_maps:  List of parsed transformation map JSONs for reference
-                                        institutions (e.g. [ucf_map, lc_map])
+                                        institutions (e.g. [ref_a_map, ref_b_map])
         reference_institution_ids:      Labels for reference XML blocks, parallel to
                                         reference_transformation_maps. Defaults to each map's
                                         ``institution_id`` if not provided.

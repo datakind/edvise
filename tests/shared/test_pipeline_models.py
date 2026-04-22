@@ -72,13 +72,13 @@ def test_upsert_pipeline_model_writes_row_append_fallback(monkeypatch):
 
     ok = pipeline_models.upsert_pipeline_model(
         catalog="my_catalog",
-        institution_id="motlow_state_cc",
+        institution_id="fixture_alpha_state_cc",
         model_name="retention_into_year_2_associates",
         model_run_id="mlflow_run_123",
         training_run_id="db_run_456",
         training_cohort_dataset_name="cohort_20250723040724.csv",
         training_course_dataset_name="course_20250723040724.csv",
-        model_card_path="/Volumes/my_catalog/motlow_state_cc_gold/gold_volume/model_cards/mlflow_run_123/model-card-retention_into_year_2_associates.pdf",
+        model_card_path="/Volumes/my_catalog/fixture_alpha_state_cc_gold/gold_volume/model_cards/mlflow_run_123/model-card-retention_into_year_2_associates.pdf",
         payload={"x": 1},
     )
 
@@ -94,7 +94,7 @@ def test_upsert_pipeline_model_writes_row_append_fallback(monkeypatch):
 
     assert isinstance(row["logged_ts"], datetime)
 
-    assert row["institution_id"] == "motlow_state_cc"
+    assert row["institution_id"] == "fixture_alpha_state_cc"
     assert row["model_name"] == "retention_into_year_2_associates"
     assert row["model_version"] is None
     assert row["model_run_id"] == "mlflow_run_123"

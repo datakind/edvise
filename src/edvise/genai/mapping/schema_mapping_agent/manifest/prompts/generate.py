@@ -1066,11 +1066,11 @@ def build_step2a_prompt(
     Build the Step 2a field mapping prompt.
 
     Args:
-        institution_id:               e.g. "lee_col"
+        institution_id:               e.g. "synthetic_coastal_cc"
         output_path:                  Destination path for the manifest (for prompt header)
         institution_schema_contract:  Parsed schema contract JSON for the target institution
         reference_manifests:          List of parsed mapping manifest JSONs for reference
-                                      institutions (e.g. [ucf_manifest, lc_manifest])
+                                      institutions (e.g. [ref_a_manifest, ref_b_manifest])
         cohort_schema_class:          RawEdviseStudentDataSchema (Pandera class)
         course_schema_class:          RawEdviseCourseDataSchema (Pandera class)
         reference_institution_ids:    Labels for reference XML blocks, parallel to reference_manifests.

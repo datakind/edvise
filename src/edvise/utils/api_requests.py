@@ -332,7 +332,7 @@ def get_institution_id_by_name(
 
     Args:
         institution_name: The name of the institution to look up. If is_databricks_name
-            is True, this should be the databricks-transformed name (e.g., "motlow_state_cc").
+            is True, this should be the databricks-transformed name (e.g., "fixture_alpha_state_cc").
             Otherwise, it should be the original institution name. Case is normalized
             to lowercase before querying (the API endpoint is case-insensitive).
         api_key: API key required for authentication

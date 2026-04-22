@@ -573,7 +573,7 @@ def build_refinement_pass1_user_prompt(
     Parameters
     ----------
     institution_id:
-        Institution identifier e.g. "ucf".
+        Institution identifier e.g. "synthetic_coastal_cc".
     entity_type:
         "cohort" or "course".
     manifest:
@@ -721,7 +721,7 @@ def build_refinement_pass2_user_prompt(
     Parameters
     ----------
     institution_id:
-        Institution identifier e.g. ``"ucf"``.
+        Institution identifier e.g. ``"synthetic_coastal_cc"``.
     entity_type:
         ``"cohort"`` or ``"course"``.
     hitl_flags:

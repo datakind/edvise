@@ -51,23 +51,23 @@ logger = logging.getLogger(__name__)
 # ── config ───────────────────────────────────────────────────────────────────
 # Institution configuration - swap these to change target/reference roles
 TARGET_INSTITUTION = {
-    "id": "lee_col",
-    "name": "Lee College",
+    "id": "synthetic_coastal_cc",
+    "name": "Synthetic Coastal Community College",
 }
 
 REFERENCE_INSTITUTION = {
-    "id": "uni_of_central_florida",
-    "name": "University of Central Florida",
+    "id": "synthetic_metro_research_uni",
+    "name": "Synthetic Metro Research University",
 }
 
-# To swap roles (e.g., evaluate UCF using LC as reference), swap the above:
+# To swap roles (e.g., evaluate reference as target), swap the above:
 # TARGET_INSTITUTION = {
-#     "id": "uni_of_central_florida",
-#     "name": "University of Central Florida",
+#     "id": "synthetic_metro_research_uni",
+#     "name": "Synthetic Metro Research University",
 # }
 # REFERENCE_INSTITUTION = {
-#     "id": "lee_col",
-#     "name": "Lee College",
+#     "id": "synthetic_coastal_cc",
+#     "name": "Synthetic Coastal Community College",
 # }
 
 MODELS = [

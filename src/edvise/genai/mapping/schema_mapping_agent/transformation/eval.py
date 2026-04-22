@@ -47,13 +47,13 @@ IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING = True
 
 # Institution configuration — keep in sync with manifest.eval defaults unless testing 2b only
 TARGET_INSTITUTION = {
-    "id": "lee_col",
-    "name": "Lee College",
+    "id": "synthetic_coastal_cc",
+    "name": "Synthetic Coastal Community College",
 }
 
 REFERENCE_INSTITUTION = {
-    "id": "uni_of_central_florida",
-    "name": "University of Central Florida",
+    "id": "synthetic_metro_research_uni",
+    "name": "Synthetic Metro Research University",
 }
 
 

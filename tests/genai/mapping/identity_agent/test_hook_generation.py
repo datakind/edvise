@@ -127,8 +127,8 @@ def test_build_hook_generation_user_message_serializes_structured_grain_hitl_con
         variance_profile={"COHORT_YEAR": "25%–58.8% within groups"},
     )
     item = HITLItem(
-        item_id="uni_of_central_florida_student_grain_ambiguity",
-        institution_id="uni_of_central_florida",
+        item_id="synthetic_metro_research_uni_student_grain_ambiguity",
+        institution_id="synthetic_metro_research_uni",
         table="student",
         domain=HITLDomain.IDENTITY_GRAIN,
         hitl_question="Which grain?",
@@ -152,19 +152,19 @@ def test_build_hook_generation_user_message_serializes_structured_grain_hitl_con
             ),
         ],
         target=HITLTarget(
-            institution_id="uni_of_central_florida",
+            institution_id="synthetic_metro_research_uni",
             table="student",
             config="grain_contract",
             field="dedup_policy",
         ),
     )
     cfg = {
-        "institution_id": "uni_of_central_florida",
+        "institution_id": "synthetic_metro_research_uni",
         "datasets": {
             "student": {
                 "grain_contract": {
                     "table": "student",
-                    "institution_id": "uni_of_central_florida",
+                    "institution_id": "synthetic_metro_research_uni",
                 },
             }
         },

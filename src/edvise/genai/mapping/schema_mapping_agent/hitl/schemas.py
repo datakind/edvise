@@ -201,7 +201,7 @@ class SMAHITLItem(BaseModel):
         description=(
             "Unique identifier for this HITL item. "
             "Convention: '{institution_id}_{entity_type}_{target_field}_{failure_mode}' "
-            "e.g. 'ucf_course_term_degree_join_structure'."
+            "e.g. 'synthetic_univ_course_term_degree_join_structure'."
         ),
     )
     institution_id: str

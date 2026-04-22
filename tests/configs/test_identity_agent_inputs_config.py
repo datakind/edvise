@@ -25,44 +25,44 @@ def test_identity_agent_inputs_round_trip(tmp_path: Path) -> None:
         textwrap.dedent(
             """
             [institution]
-            id = "john_jay_col"
+            id = "synthetic_univ_alpha"
 
             [datasets.files]
-            student = "Datakind Students.1994-2025.csv"
+            student = "fixture_students.csv"
             course = [
-              "Datakind Student Classes.2005-2013.csv",
-              "Datakind Student Classes.2014-2025.csv",
+              "fixture_classes_2005_2013.csv",
+              "fixture_classes_2014_2025.csv",
             ]
-            semester = "Datakind Student Terms-2015 Fall-2025 Summer II.csv"
+            semester = "fixture_terms.csv"
             """
         ).strip(),
         encoding="utf-8",
     )
 
     raw = IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
-    assert raw.institution.id == "john_jay_col"
-    assert raw.datasets.files["student"] == "Datakind Students.1994-2025.csv"
+    assert raw.institution.id == "synthetic_univ_alpha"
+    assert raw.datasets.files["student"] == "fixture_students.csv"
     assert raw.datasets.files["course"] == [
-        "Datakind Student Classes.2005-2013.csv",
-        "Datakind Student Classes.2014-2025.csv",
+        "fixture_classes_2005_2013.csv",
+        "fixture_classes_2014_2025.csv",
     ]
 
     school = raw.to_school_mapping_config(uc_catalog="dev_sst_02")
     assert school.pipeline_run_id is None
     assert school.pipeline_version == resolve_pipeline_version()
-    assert school.institution_id == "john_jay_col"
+    assert school.institution_id == "synthetic_univ_alpha"
     assert school.datasets["student"] == DatasetConfig(
-        files=["Datakind Students.1994-2025.csv"],
+        files=["fixture_students.csv"],
         primary_keys=None,
     )
     assert school.datasets["course"].files == [
-        "Datakind Student Classes.2005-2013.csv",
-        "Datakind Student Classes.2014-2025.csv",
+        "fixture_classes_2005_2013.csv",
+        "fixture_classes_2014_2025.csv",
     ]
     assert school.datasets["course"].primary_keys is None
     assert (
         school.bronze_volumes_path
-        == "/Volumes/dev_sst_02/john_jay_col_bronze/bronze_volume"
+        == "/Volumes/dev_sst_02/synthetic_univ_alpha_bronze/bronze_volume"
     )
 
 
@@ -72,7 +72,7 @@ def test_bronze_volume_path_derived_from_institution_id(tmp_path: Path) -> None:
         textwrap.dedent(
             """
             [institution]
-            id = "john_jay_col"
+            id = "synthetic_univ_alpha"
 
             [datasets.files]
             student = "raw/students.csv"
@@ -85,13 +85,13 @@ def test_bronze_volume_path_derived_from_institution_id(tmp_path: Path) -> None:
     school = raw.to_school_mapping_config(uc_catalog="dev_sst_02")
     assert (
         school.bronze_volumes_path
-        == "/Volumes/dev_sst_02/john_jay_col_bronze/bronze_volume"
+        == "/Volumes/dev_sst_02/synthetic_univ_alpha_bronze/bronze_volume"
     )
     assert (
         resolve_genai_data_path(
             school.bronze_volumes_path, school.datasets["student"].files[0]
         )
-        == "/Volumes/dev_sst_02/john_jay_col_bronze/bronze_volume/raw/students.csv"
+        == "/Volumes/dev_sst_02/synthetic_univ_alpha_bronze/bronze_volume/raw/students.csv"
     )
 
 
@@ -102,18 +102,18 @@ def test_bronze_volume_path_for_institution_empty_id_raises() -> None:
 
 def test_bronze_volume_path_for_institution_empty_catalog_raises() -> None:
     with pytest.raises(ValueError, match="catalog"):
-        bronze_volume_path_for_institution("lee_col", catalog="  ")
+        bronze_volume_path_for_institution("synthetic_univ_beta", catalog="  ")
 
 
 def test_bronze_volume_path_for_institution_with_catalog() -> None:
-    assert bronze_volume_path_for_institution("lee_col", catalog="my_cat") == (
-        "/Volumes/my_cat/lee_col_bronze/bronze_volume"
+    assert bronze_volume_path_for_institution("synthetic_univ_beta", catalog="my_cat") == (
+        "/Volumes/my_cat/synthetic_univ_beta_bronze/bronze_volume"
     )
 
 
 def test_ia_inputs_toml_under_bronze() -> None:
-    assert ia_inputs_toml_under_bronze("lee_col", catalog="my_cat") == (
-        "/Volumes/my_cat/lee_col_bronze/bronze_volume/genai_mapping/inputs/inputs.toml"
+    assert ia_inputs_toml_under_bronze("synthetic_univ_beta", catalog="my_cat") == (
+        "/Volumes/my_cat/synthetic_univ_beta_bronze/bronze_volume/genai_mapping/inputs/inputs.toml"
     )
 
 
@@ -151,7 +151,7 @@ def test_to_school_mapping_config_pipeline_run_id_kwarg(
         textwrap.dedent(
             """
             [institution]
-            id = "john_jay_col"
+            id = "synthetic_univ_alpha"
 
             [datasets.files]
             student = "a.csv"
@@ -181,7 +181,7 @@ def test_to_school_mapping_config_pipeline_run_id_from_env(
         textwrap.dedent(
             """
             [institution]
-            id = "john_jay_col"
+            id = "synthetic_univ_alpha"
 
             [datasets.files]
             student = "a.csv"
