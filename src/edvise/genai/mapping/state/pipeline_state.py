@@ -7,9 +7,8 @@ All DML uses :meth:`pyspark.sql.SparkSession.sql` (no Delta Python API, no panda
 
 from __future__ import annotations
 
-import logging
 from datetime import date, datetime
-from typing import Any, Mapping, Optional
+from typing import Any, Optional
 
 from edvise.genai.mapping.state._sql import (
     HITL_REVIEWS,
@@ -20,12 +19,7 @@ from edvise.genai.mapping.state._sql import (
     qualified_table,
 )
 
-LOGGER = logging.getLogger(__name__)
-
 _INITIAL_RUN_STATUS: str = "running"
-_TERMINAL_PHASE_STATUSES: frozenset[str] = frozenset(
-    ("approved", "rejected", "complete"),
-)
 
 
 def _spark() -> Any:
@@ -36,19 +30,12 @@ def _spark() -> Any:
 
 
 def _row_to_plain_dict(row: Any) -> dict[str, Any]:
-    """Coerce a Spark Row / Row-like to JSON-friendly dicts."""
-    if row is None:
-        return {}
-    d = row.asDict(recursive=True) if hasattr(row, "asDict") else dict(row)  # type: ignore[call-overload]
-    out: dict[str, Any] = {}
-    for k, v in d.items():
-        if isinstance(v, (datetime, date)):
-            out[k] = v.isoformat() if hasattr(v, "isoformat") else v
-        elif isinstance(v, dict):
-            out[k] = {ik: (iv.isoformat() if isinstance(iv, (datetime, date)) else iv) for ik, iv in v.items()}  # type: ignore[union-attr]
-        else:
-            out[k] = v
-    return out
+    """Coerce a Spark Row to JSON-friendly scalar dict (timestamps as ISO strings)."""
+    d: dict[str, Any] = row.asDict() if hasattr(row, "asDict") else {}
+    return {
+        k: (v.isoformat() if isinstance(v, (datetime, date)) else v)
+        for k, v in d.items()
+    }
 
 
 def create_pipeline_run(
@@ -210,7 +197,7 @@ def register_hitl_artifacts(
     catalog: str,
     pipeline_run_id: str,
     phase: str,
-    artifacts: list[dict],
+    artifacts: list[dict[str, Any]],
 ) -> None:
     """
     For each item in ``artifacts`` (``artifact_type`` and ``artifact_path``), ensure a
@@ -226,8 +213,8 @@ def register_hitl_artifacts(
 
     rows: list[tuple[str, str]] = []
     for i, a in enumerate(artifacts):
-        if not isinstance(a, Mapping):
-            raise TypeError(f"artifacts[{i}] must be a mapping, got {type(a).__name__!r}")
+        if not isinstance(a, dict):
+            raise TypeError(f"artifacts[{i}] must be a dict, got {type(a).__name__!r}")
         at = a.get("artifact_type")
         ap = a.get("artifact_path")
         if at is None or ap is None:
@@ -285,13 +272,16 @@ def check_hitl_resolution(
     q = f"""
     SELECT
       COUNT(1) AS n_total,
-      COUNT_IF(status = 'approved') AS n_approved
+      COALESCE(
+        SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END),
+        0
+      ) AS n_approved
     FROM {t}
     WHERE pipeline_run_id = {lit(rid)} AND phase = {lit(ph)}
     """
-    row = _spark().sql(q).collect()[0]
-    n_total = int(row["n_total"] if "n_total" in row else row[0])
-    n_approved = int(row["n_approved"] if "n_approved" in row else row[1])
+    d = _spark().sql(q).collect()[0].asDict()
+    n_total = int(d["n_total"])
+    n_approved = int(d["n_approved"])
     if n_total == 0:
         return False
     return n_approved == n_total
@@ -322,17 +312,16 @@ def resolve_hitl(
         raise ValueError("status must be 'approved' or 'rejected'")
 
     t = qualified_table(c, HITL_REVIEWS)
-    rev_sql = f"{lit(rev)}" if rev is not None and rev else "NULL"
-    if rev is not None and rev:
-        set_reviewer = f"reviewer = {lit(rev)}"
+    if rev:
+        reviewer_set = f"reviewer = {lit(rev)}"
     else:
-        set_reviewer = "reviewer = NULL"
+        reviewer_set = "reviewer = NULL"
 
     q = f"""
     UPDATE {t}
     SET
       status = {lit(st)},
-      {set_reviewer},
+      {reviewer_set},
       reviewed_at = current_timestamp()
     WHERE pipeline_run_id = {lit(rid)}
       AND phase = {lit(ph)}

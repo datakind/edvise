@@ -181,6 +181,9 @@ STRUCTURE
 - Match the reference transformation map shape: transformation_maps with cohort + course sections,
   each containing entity_type, target_schema, plans array.
   Do not output top-level release or institution fields — the pipeline adds them when saving.
+- **Uniqueness:** In each `plans` array (cohort and course separately), every `target_field` value must
+  appear **at most once**. Never emit two plan objects for the same `target_field`; merge steps and
+  any reviewer notes into a single plan. The executor rejects duplicate `target_field` entries.
 - Each plan must include: target_field, output_dtype, and steps array
 - Do not include review_status on plans — the pipeline assigns it after validation
   and optional refinement
