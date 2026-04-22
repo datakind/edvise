@@ -1,0 +1,68 @@
+bundle:
+  name: Edvise genai mapping pipeline
+  uuid: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+
+include:
+  - resources/genai_ia.yml
+  - resources/genai_sma.yml
+
+variables:
+  git_commit:
+    description: "Commit SHA to fetch (dev/CI)"
+    default: ""
+  git_tag:
+    description: "Release tag to fetch for deployment (prod)"
+    default: ""
+  DB_workspace:
+    description: "Databricks workspace (Unity Catalog name)"
+  ds_run_as:
+    description: "Account to run the pipeline (Databricks SP client/app ID)"
+  service_account_executer:
+    description: "Service account to execute the pipeline"
+  datakind_group_to_manage_workflow:
+    description: "Group with permissions to manage the job"
+  genai_slack_webhook_id:
+    description: "Slack webhook ID for genai mapping pipeline failure notifications"
+
+run_as:
+  service_principal_name: ${var.ds_run_as}
+
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      DB_workspace: "dev_sst_02"
+      genai_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"  # edvise-data-crew channel on dev_sst_02
+    resources:
+      jobs:
+        edvise_genai_ia:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
+        edvise_genai_sma:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
+
+  prod:
+    mode: production
+    variables:
+      DB_workspace: "staging_sst_01"
+      genai_slack_webhook_id: "0fb252f8-f343-4be7-91de-b55f5408a031"  # edvise-data-crew channel on staging_sst_01
+    resources:
+      jobs:
+        edvise_genai_ia:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}
+        edvise_genai_sma:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}
+    workspace:
+      root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
