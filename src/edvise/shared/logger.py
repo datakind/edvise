@@ -135,6 +135,47 @@ def resolve_run_path(
     return os.path.join(silver_volume_path, run_id, subdir)
 
 
+def init_file_logging_at_path(
+    log_file_path: str | os.PathLike[str],
+    logger_name: str = __name__,
+) -> str:
+    """
+    Configure root logging with console + file handlers at a fixed path (Databricks-safe).
+
+    Use when the run directory is known without PDPProjectConfig (e.g. genai mapping jobs).
+
+    Returns:
+        str: local filesystem path to the log file.
+    """
+    log_file_path = os.fspath(log_file_path)
+    local_path = local_fs_path(log_file_path)
+    log_dir = os.path.dirname(local_path)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    for h in list(root.handlers):
+        root.removeHandler(h)
+
+    console = logging.StreamHandler(stream=sys.__stdout__)
+    console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    root.addHandler(console)
+
+    fh = logging.FileHandler(local_path, mode="w", encoding="utf-8", delay=True)
+    fh.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+    root.addHandler(fh)
+
+    logging.getLogger("py4j").setLevel(logging.WARNING)
+
+    logging.getLogger(logger_name).info("File logging initialized → %s", local_path)
+
+    return local_path
+
+
 def init_file_logging(
     args: argparse.Namespace,
     cfg: Any,
@@ -156,40 +197,12 @@ def init_file_logging(
     Returns:
         str: local filesystem path to the log file.
     """
-    # Compute local run directory
     current_run_path = resolve_run_path(args, cfg, args.silver_volume_path)
     local_run_path = local_fs_path(current_run_path)
     os.makedirs(local_run_path, exist_ok=True)
 
-    # Choose log filename (default = job_type.log or generic.log)
     job_type = getattr(args, "job_type", None) or "generic"
     log_file_name = log_file_name or f"{job_type}.log"
     log_file_path = os.path.join(local_run_path, log_file_name)
 
-    # Configure root logger
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-
-    # Remove problematic handlers (Databricks attaches an IPython OutStream)
-    for h in list(root.handlers):
-        root.removeHandler(h)
-
-    # Console handler using real stdout (avoids OSError 95 in Databricks)
-    console = logging.StreamHandler(stream=sys.__stdout__)
-    console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-    root.addHandler(console)
-
-    # File handler (create once, safe append)
-    fh = logging.FileHandler(log_file_path, mode="w", encoding="utf-8", delay=True)
-    fh.setFormatter(
-        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    )
-    root.addHandler(fh)
-
-    # Quiet noisy libraries
-    logging.getLogger("py4j").setLevel(logging.WARNING)
-
-    # Log the initialization
-    logging.getLogger(logger_name).info("File logging initialized → %s", log_file_path)
-
-    return log_file_path
+    return init_file_logging_at_path(log_file_path, logger_name)

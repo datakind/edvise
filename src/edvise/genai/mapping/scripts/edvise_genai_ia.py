@@ -1,0 +1,512 @@
+"""
+edvise_ia.py — IdentityAgent pipeline job entry point.
+
+Usage (Databricks job parameters):
+    --institution_id    synthetic_edvise
+    --pipeline_run_id   synthetic_edvise_20260420_001
+    --catalog           dev_sst_02
+    --mode              onboard | execute
+    --resume_from       start | gate_1  (onboard only)
+"""
+
+import argparse
+import logging
+import json
+from pathlib import Path
+from dataclasses import dataclass
+
+from edvise.shared.logger import init_file_logging_at_path
+
+LOGGER = logging.getLogger("edvise_ia")
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+
+SILVER_VOLUME_BASE = "/Volumes/{catalog}/{institution_id}_silver/silver_volume"
+
+
+@dataclass
+class IAPaths:
+    # Run folder (working artifacts, keyed by pipeline_run_id)
+    run_root: Path
+    grain_output: Path
+    grain_hitl: Path
+    term_output: Path
+    term_hitl: Path
+    term_hooks: Path
+    grain_hooks: Path
+    enriched_schema_contract: Path
+    profiling_output: Path
+    cleaned_datasets: Path          # directory, one .parquet per logical dataset
+    run_log: Path
+
+    # Active folder (promoted artifacts, what execute mode reads from)
+    active_root: Path
+    active_grain_output: Path
+    active_term_output: Path
+    active_term_hooks: Path
+    active_grain_hooks: Path
+    active_enriched_schema_contract: Path
+    active_cleaned_datasets: Path   # directory
+
+
+def resolve_run_paths(
+    institution_id: str,
+    pipeline_run_id: str,
+    catalog: str,
+) -> IAPaths:
+    silver = Path(
+        SILVER_VOLUME_BASE.format(catalog=catalog, institution_id=institution_id)
+    )
+    genai = silver / "genai_mapping"
+    run_root = genai / "runs" / pipeline_run_id / "identity_agent"
+    active_root = genai / "active" / "identity_agent"
+
+    return IAPaths(
+        run_root=run_root,
+        grain_output=run_root / "grain_output.json",
+        grain_hitl=run_root / "grain_hitl.json",
+        term_output=run_root / "term_output.json",
+        term_hitl=run_root / "term_hitl.json",
+        term_hooks=run_root / "term_hooks.py",
+        grain_hooks=run_root / "grain_hooks.py",
+        enriched_schema_contract=run_root / "enriched_schema_contract.json",
+        profiling_output=run_root / "profiling_output.json",
+        cleaned_datasets=run_root / "cleaned_datasets",
+        run_log=run_root / "run_log.json",
+        active_root=active_root,
+        active_grain_output=active_root / "grain_output.json",
+        active_term_output=active_root / "term_output.json",
+        active_term_hooks=active_root / "term_hooks.py",
+        active_grain_hooks=active_root / "grain_hooks.py",
+        active_enriched_schema_contract=active_root / "enriched_schema_contract.json",
+        active_cleaned_datasets=active_root / "cleaned_datasets",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Onboard — resume_from="start"
+# Profile -> Pass 1 grain LLM -> Pass 2 term LLM -> write HITL -> exit
+# ---------------------------------------------------------------------------
+
+def run_onboard_start(
+    institution_id: str,
+    paths: IAPaths,
+    school_config,
+    llm_complete,
+):
+    from edvise.genai.mapping.identity_agent.grain_inference import (
+        build_identity_profiling_run_by_dataset,
+        write_identity_profiling_artifacts,
+    )
+    from edvise.genai.mapping.identity_agent.grain_inference.runner import (
+        run_identity_agents_for_institution_with_hitl,
+    )
+    from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+        IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+    )
+    from edvise.genai.mapping.identity_agent.grain_inference import (
+        log_grain_auto_approve,
+        log_grain_hitl_queue,
+    )
+    from edvise.genai.mapping.identity_agent.term_normalization.prompt import (
+        TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT,
+        build_term_normalization_batch_user_message_from_grain_and_profiles,
+        parse_institution_term_contracts_with_hitl,
+    )
+    from edvise.genai.mapping.identity_agent.hitl import (
+        write_identity_grain_artifacts,
+        write_identity_term_artifacts,
+    )
+    from edvise.genai.mapping.identity_agent.grain_inference import (
+        load_school_dataset_dataframe,
+    )
+
+    LOGGER.info("[onboard/start] Profiling datasets for %s", institution_id)
+    paths.run_root.mkdir(parents=True, exist_ok=True)
+    paths.cleaned_datasets.mkdir(parents=True, exist_ok=True)
+
+    # §3 — Profile
+    run_by_dataset = build_identity_profiling_run_by_dataset(
+        institution_id=institution_id,
+        school=school_config,
+    )
+    write_identity_profiling_artifacts(
+        paths.profiling_output.parent,
+        institution_id,
+        run_by_dataset,
+    )
+    LOGGER.info("[onboard/start] Profiled datasets: %s", list(run_by_dataset.keys()))
+
+    # §4 — Pass 1: Grain LLM
+    LOGGER.info("[onboard/start] Pass 1 — Grain LLM")
+    institution_profiles = {
+        name: run_by_dataset[name]["key_profile"] for name in run_by_dataset
+    }
+    dfs = {
+        name: load_school_dataset_dataframe(school_config, name)
+        for name in run_by_dataset
+    }
+    contracts_by_dataset, grain_hitl_items = run_identity_agents_for_institution_with_hitl(
+        institution_id=institution_id,
+        institution_profiles=institution_profiles,
+        dfs=dfs,
+        llm_complete=llm_complete,
+        confidence_threshold=IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+        queue_for_hitl_review=lambda c: log_grain_hitl_queue(c, logger=LOGGER),
+        auto_approve_and_apply=lambda c: log_grain_auto_approve(c, logger=LOGGER),
+    )
+
+    # §5 — Pass 2: Term batch LLM
+    LOGGER.info("[onboard/start] Pass 2 — Term batch LLM")
+    term_batch_user = build_term_normalization_batch_user_message_from_grain_and_profiles(
+        institution_id,
+        contracts_by_dataset,
+        run_by_dataset,
+    )
+    raw_term_batch = llm_complete(TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT, term_batch_user)
+    _institution_term, term_hitl_items = parse_institution_term_contracts_with_hitl(
+        raw_term_batch
+    )
+    term_contract_by_dataset = _institution_term.contracts_by_dataset()
+
+    # Write HITL artifacts to run folder
+    write_identity_grain_artifacts(
+        paths.run_root,
+        institution_id,
+        contracts_by_dataset,
+        grain_hitl_items,
+    )
+    write_identity_term_artifacts(
+        paths.run_root,
+        institution_id,
+        term_contract_by_dataset,
+        term_hitl_items,
+    )
+    LOGGER.info(
+        "[onboard/start] Wrote grain HITL (%d item(s)) and term HITL (%d item(s)). Exiting.",
+        len(grain_hitl_items),
+        len(term_hitl_items),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Onboard — resume_from="gate_1"
+# Gate check -> resolve HITL -> hook gen LLM -> schema contract + cleaned Parquet -> exit
+# ---------------------------------------------------------------------------
+
+def run_onboard_gate_1(
+    institution_id: str,
+    paths: IAPaths,
+    school_config,
+    llm_complete,
+):
+    from collections import defaultdict
+
+    from edvise.genai.mapping.identity_agent.hitl import (
+        HITLBlockingError,
+        check_gate,
+        load_grain_contracts_from_resolver_config,
+        load_term_contracts_from_resolver_config,
+        resolve_items,
+        apply_hook_spec,
+        generate_hook_specs_for_hook_items,
+        materialize_hook_specs_to_file,
+        normalized_column_names_from_raw_headers,
+        validate_hook,
+    )
+    from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
+        ensure_hook_spec_file,
+    )
+    from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
+    from edvise.genai.mapping.identity_agent.execution.contract_builder import (
+        build_enriched_schema_contract_for_institution,
+        merge_grain_learner_id_alias_into_school_config,
+        save_enriched_schema_contract,
+    )
+    from edvise.genai.mapping.identity_agent.term_normalization import (
+        term_order_column_for_clean_dataset,
+        term_order_fn_from_term_order_config,
+    )
+    from edvise.configs.genai import resolve_genai_data_path
+    import pandas as pd
+
+    LOGGER.info("[onboard/gate_1] Checking HITL gates for %s", institution_id)
+
+    # Gate check — raises HITLBlockingError if any items still pending
+    try:
+        check_gate(paths.grain_hitl)
+        check_gate(paths.term_hitl)
+    except HITLBlockingError as e:
+        LOGGER.error("[onboard/gate_1] HITL gate blocked: %s", e)
+        raise
+
+    # Resolve HITL items into output configs
+    resolve_items(paths.grain_hitl, paths.grain_output, resolved_by="pipeline", run_log_path=paths.run_log)
+    resolve_items(paths.term_hitl, paths.term_output, resolved_by="pipeline", run_log_path=paths.run_log)
+
+    # Reload resolved contracts
+    contracts_by_dataset = load_grain_contracts_from_resolver_config(
+        paths.grain_output, expected_institution_id=institution_id
+    )
+    term_contract_by_dataset = load_term_contracts_from_resolver_config(
+        paths.term_output, expected_institution_id=institution_id
+    )
+    grain_map = dict(contracts_by_dataset)
+
+    # §6b — Hook generation LLM (grain + term)
+    LOGGER.info("[onboard/gate_1] Hook generation")
+    norm_cols_by_table: dict[str, list[str]] = {}
+    for ds_name, dc in school_config.datasets.items():
+        csv_path = resolve_genai_data_path(school_config.bronze_volumes_path, dc.files[0])
+        hdr = pd.read_csv(csv_path, nrows=0)
+        norm_cols_by_table[ds_name] = normalized_column_names_from_raw_headers(hdr.columns)
+
+    # Grain hooks
+    grain_pairs = generate_hook_specs_for_hook_items(
+        hitl_path=paths.grain_hitl,
+        config_path=paths.grain_output,
+        llm_complete=llm_complete,
+        normalized_columns_by_table=norm_cols_by_table,
+    )
+    for item_id, spec in grain_pairs:
+        apply_hook_spec(
+            paths.grain_hitl,
+            paths.grain_output,
+            item_id=item_id,
+            hook_spec=spec,
+            apply_to_group=True,
+            resolved_by="pipeline",
+            run_log_path=paths.run_log,
+            materialize=True,
+            repo_root=paths.run_root,
+        )
+        validate_hook(paths.grain_output, paths.grain_hitl, item_id=item_id, hook_file_root=paths.run_root)
+
+    # Term hooks — merge-materialize per shared term_hooks.py
+    term_pairs = generate_hook_specs_for_hook_items(
+        hitl_path=paths.term_hitl,
+        config_path=paths.term_output,
+        llm_complete=llm_complete,
+        normalized_columns_by_table=norm_cols_by_table,
+    )
+    term_specs_by_file: dict[str, list] = defaultdict(list)
+    for item_id, spec in term_pairs:
+        canonical = ensure_hook_spec_file(spec, institution_id=institution_id, domain=HITLDomain.IDENTITY_TERM)
+        term_specs_by_file[canonical.file].append(canonical)
+    for item_id, spec in term_pairs:
+        apply_hook_spec(
+            paths.term_hitl,
+            paths.term_output,
+            item_id=item_id,
+            hook_spec=spec,
+            apply_to_group=True,
+            resolved_by="pipeline",
+            run_log_path=paths.run_log,
+            materialize=False,
+        )
+    for specs in term_specs_by_file.values():
+        materialize_hook_specs_to_file(specs, repo_root=paths.run_root, domain=HITLDomain.IDENTITY_TERM)
+    for item_id, _ in term_pairs:
+        validate_hook(paths.term_output, paths.term_hitl, item_id=item_id, hook_file_root=paths.run_root)
+
+    # §7 — Build enriched schema contract + cleaned Parquet
+    LOGGER.info("[onboard/gate_1] Building enriched schema contract")
+    term_column_by_dataset: dict[str, str] = {}
+    term_order_fn_by_dataset: dict[str, object] = {}
+    for ds, tp in term_contract_by_dataset.items():
+        if ds not in grain_map:
+            continue
+        tcfg = tp.term_config
+        if tcfg is None:
+            continue
+        term_column_by_dataset[ds] = term_order_column_for_clean_dataset(tcfg)
+        fn_kw = (
+            {"hook_modules_root": paths.run_root}
+            if tcfg.term_extraction == "hook_required"
+            else {}
+        )
+        term_order_fn_by_dataset[ds] = term_order_fn_from_term_order_config(tcfg, **fn_kw)
+
+    school_effective = merge_grain_learner_id_alias_into_school_config(school_config, grain_map)
+    enc, cleaned = build_enriched_schema_contract_for_institution(
+        school_effective,
+        grain_contracts_by_dataset=grain_map,
+        term_column_by_dataset=term_column_by_dataset or None,
+        term_order_fn_by_dataset=term_order_fn_by_dataset or None,
+    )
+
+    # Write cleaned Parquet
+    paths.cleaned_datasets.mkdir(parents=True, exist_ok=True)
+    for logical_name, df in cleaned.items():
+        pq_path = paths.cleaned_datasets / f"{logical_name}.parquet"
+        df.to_parquet(pq_path, index=False)
+        LOGGER.info("[onboard/gate_1] Wrote cleaned %s -> %s", logical_name, pq_path)
+
+    # Write enriched schema contract
+    save_enriched_schema_contract(enc, paths.enriched_schema_contract)
+    LOGGER.info("[onboard/gate_1] Wrote enriched schema contract -> %s", paths.enriched_schema_contract)
+    LOGGER.info("[onboard/gate_1] Complete. Exiting.")
+
+
+# ---------------------------------------------------------------------------
+# Execute
+# Drift check -> enforce schema -> write cleaned Parquet -> exit
+# ---------------------------------------------------------------------------
+
+def run_execute(
+    institution_id: str,
+    paths: IAPaths,
+    school_config,
+):
+    import pandas as pd
+    from edvise.data_audit.custom_cleaning import (
+        enforce_schema_contract,
+        load_schema_contract,
+        normalize_columns,
+    )
+    from edvise.genai.mapping.identity_agent.grain_inference import (
+        load_school_dataset_dataframe,
+    )
+
+    LOGGER.info("[execute] Loading approved artifacts from active/ for %s", institution_id)
+
+    if not paths.active_enriched_schema_contract.is_file():
+        raise FileNotFoundError(
+            f"No active schema contract found at {paths.active_enriched_schema_contract}. "
+            "Has this institution been onboarded and activated?"
+        )
+
+    schema_contract = load_schema_contract(paths.active_enriched_schema_contract)
+    expected_datasets = set(schema_contract.get("datasets", {}).keys())
+
+    # Load raw data
+    raw_dfs: dict[str, object] = {}
+    for ds_name in school_config.datasets:
+        raw_dfs[ds_name] = load_school_dataset_dataframe(school_config, ds_name)
+
+    # Drift check — surface mismatches before enforcement
+    LOGGER.info("[execute] Running schema drift check")
+    drift_issues: list[str] = []
+    incoming_datasets = set(raw_dfs.keys())
+
+    missing_datasets = expected_datasets - incoming_datasets
+    extra_datasets = incoming_datasets - expected_datasets
+    if missing_datasets:
+        drift_issues.append(f"Missing datasets: {sorted(missing_datasets)}")
+    if extra_datasets:
+        drift_issues.append(f"Unexpected datasets: {sorted(extra_datasets)}")
+
+    for ds_name, df in raw_dfs.items():
+        if ds_name not in schema_contract.get("datasets", {}):
+            continue
+        expected_cols = set(schema_contract["datasets"][ds_name].get("dtypes", {}).keys())
+        norm_cols, _ = normalize_columns(df.columns)
+        incoming_cols = set(norm_cols)
+        missing_cols = expected_cols - incoming_cols
+        extra_cols = incoming_cols - expected_cols
+        if missing_cols:
+            drift_issues.append(f"{ds_name}: missing columns {sorted(missing_cols)}")
+        if extra_cols:
+            LOGGER.warning("[execute] %s: extra columns (will drop): %s", ds_name, sorted(extra_cols))
+
+    if drift_issues:
+        LOGGER.warning("[execute] Schema drift detected for %s:\n%s", institution_id, "\n".join(f"  - {i}" for i in drift_issues))
+        # Write drift report to run folder
+        paths.run_root.mkdir(parents=True, exist_ok=True)
+        drift_report_path = paths.run_root / "schema_drift_report.json"
+        import json
+        drift_report_path.write_text(json.dumps({"institution_id": institution_id, "issues": drift_issues}, indent=2))
+        LOGGER.warning("[execute] Schema drift report written to %s", drift_report_path)
+        if missing_datasets or missing_cols:
+            raise RuntimeError(
+                f"Schema drift check failed for {institution_id} — missing datasets or columns. "
+                "Review schema_drift_report.json. Trigger onboard if re-mapping is needed."
+            )
+
+    # Enforce schema and write cleaned Parquet
+    LOGGER.info("[execute] Enforcing schema contract")
+    cleaned = enforce_schema_contract(raw_dfs, schema_contract)
+    paths.cleaned_datasets.mkdir(parents=True, exist_ok=True)
+    for logical_name, df in cleaned.items():
+        pq_path = paths.cleaned_datasets / f"{logical_name}.parquet"
+        df.to_parquet(pq_path, index=False)
+        LOGGER.info("[execute] Wrote cleaned %s -> %s", logical_name, pq_path)
+
+    LOGGER.info("[execute] Complete. Exiting.")
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+def run(
+    institution_id: str,
+    pipeline_run_id: str,
+    catalog: str,
+    mode: str,
+    resume_from: str = "start",
+):
+    paths = resolve_run_paths(institution_id, pipeline_run_id, catalog)
+    init_file_logging_at_path(
+        paths.run_root / "ia_pipeline.log",
+        logger_name="edvise_ia",
+    )
+    LOGGER.info(
+        "edvise_ia | institution=%s | run=%s | mode=%s | resume_from=%s",
+        institution_id, pipeline_run_id, mode, resume_from,
+    )
+
+    # Load school config (shared across all modes)
+    from edvise import configs, dataio
+    from edvise.genai.mapping.identity_agent.grain_inference import (
+        create_openai_client_for_databricks_gateway,
+        make_databricks_gateway_llm_complete,
+    )
+
+    institution_inputs_toml = (
+        Path("pipelines/gen_ai_cleaning/inputs") / institution_id / "inputs.toml"
+    )
+    _ia = dataio.read.read_config(
+        str(institution_inputs_toml),
+        schema=configs.genai.IdentityAgentInputsConfig,
+    )
+    school_config = _ia.to_school_mapping_config(uc_catalog=catalog)
+
+    if mode == "execute":
+        run_execute(institution_id, paths, school_config)
+
+    elif mode == "onboard":
+        if resume_from not in ("start", "gate_1"):
+            raise ValueError(f"Invalid resume_from={resume_from!r} for mode='onboard'. Must be 'start' or 'gate_1'.")
+
+        # LLM client only needed for onboard
+        gateway_client = create_openai_client_for_databricks_gateway()
+        llm_complete = make_databricks_gateway_llm_complete(gateway_client)
+
+        if resume_from == "start":
+            run_onboard_start(institution_id, paths, school_config, llm_complete)
+        elif resume_from == "gate_1":
+            run_onboard_gate_1(institution_id, paths, school_config, llm_complete)
+
+    else:
+        raise ValueError(f"Invalid mode={mode!r}. Must be 'onboard' or 'execute'.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="IdentityAgent pipeline job")
+    parser.add_argument("--institution_id", required=True)
+    parser.add_argument("--pipeline_run_id", required=True)
+    parser.add_argument("--catalog", required=True)
+    parser.add_argument("--mode", required=True, choices=["onboard", "execute"])
+    parser.add_argument("--resume_from", default="start", choices=["start", "gate_1"])
+    args = parser.parse_args()
+
+    run(
+        institution_id=args.institution_id,
+        pipeline_run_id=args.pipeline_run_id,
+        catalog=args.catalog,
+        mode=args.mode,
+        resume_from=args.resume_from,
+    )
