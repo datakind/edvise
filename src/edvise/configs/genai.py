@@ -42,6 +42,16 @@ def bronze_volume_path_for_institution(
     return f"/Volumes/{cat}/{inst}_bronze/bronze_volume"
 
 
+def ia_inputs_toml_under_bronze(institution_id: str, *, catalog: str) -> str:
+    """
+    Default IdentityAgent ``inputs.toml`` path on the institution bronze volume.
+
+    Layout: ``<bronze_volume_path_for_institution>/genai_mapping/inputs/inputs.toml``.
+    """
+    base = Path(bronze_volume_path_for_institution(institution_id, catalog=catalog))
+    return str(base / "genai_mapping" / "inputs" / "inputs.toml")
+
+
 def resolve_genai_data_path(bronze_volumes_path: Optional[str], file_path: str) -> str:
     """
     Join ``file_path`` to ``bronze_volumes_path`` when the path is relative.

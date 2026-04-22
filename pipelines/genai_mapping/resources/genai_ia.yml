@@ -25,6 +25,8 @@ resources:
               - "{{job.parameters.mode}}"
               - --resume_from
               - "{{job.parameters.resume_from}}"
+              - --inputs_toml
+              - "{{job.parameters.inputs_toml}}"
           job_cluster_key: edvise-genai-mapping-cluster
           libraries:
             - pypi:
@@ -76,6 +78,9 @@ resources:
           default: "onboard"
         - name: resume_from
           default: "start"
+        # Empty => script uses …/<institution_id>_bronze/bronze_volume/genai_mapping/inputs/inputs.toml
+        - name: inputs_toml
+          default: ""
 
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}

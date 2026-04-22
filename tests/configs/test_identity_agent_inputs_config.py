@@ -12,6 +12,7 @@ from edvise.configs.genai import (
     DatasetConfig,
     IdentityAgentInputsConfig,
     bronze_volume_path_for_institution,
+    ia_inputs_toml_under_bronze,
     resolve_genai_data_path,
 )
 from edvise.genai.mapping.shared.pipeline_artifacts import resolve_pipeline_version
@@ -108,6 +109,12 @@ def test_bronze_volume_path_for_institution_with_catalog() -> None:
     assert (
         bronze_volume_path_for_institution("lee_col", catalog="my_cat")
         == "/Volumes/my_cat/lee_col_bronze/bronze_volume"
+    )
+
+
+def test_ia_inputs_toml_under_bronze() -> None:
+    assert ia_inputs_toml_under_bronze("lee_col", catalog="my_cat") == (
+        "/Volumes/my_cat/lee_col_bronze/bronze_volume/genai_mapping/inputs/inputs.toml"
     )
 
 

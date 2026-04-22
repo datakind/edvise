@@ -7,6 +7,9 @@ Usage (Databricks job parameters):
     --catalog           dev_sst_02
     --mode              onboard | execute
     --resume_from       start | gate_1  (onboard only)
+    --inputs_toml       Path to per-school ``inputs.toml`` (Unity Catalog volume path).
+                        If omitted or empty, uses ``genai_mapping/inputs/inputs.toml`` under
+                        the institution bronze volume (see ``ia_inputs_toml_under_bronze``).
 """
 import os
 import sys
@@ -464,6 +467,7 @@ def run(
     catalog: str,
     mode: str,
     resume_from: str = "start",
+    inputs_toml: str | None = None,
 ):
     paths = resolve_run_paths(institution_id, pipeline_run_id, catalog)
     init_file_logging_at_path(
@@ -483,9 +487,23 @@ def run(
         make_databricks_gateway_llm_complete,
     )
 
-    institution_inputs_toml = (
-        Path("pipelines/gen_ai_cleaning/inputs") / institution_id / "inputs.toml"
-    )
+    raw_inputs = (inputs_toml or "").strip()
+    if raw_inputs:
+        institution_inputs_toml = Path(raw_inputs).expanduser()
+    else:
+        institution_inputs_toml = Path(
+            configs.genai.ia_inputs_toml_under_bronze(institution_id, catalog=catalog)
+        )
+    if not institution_inputs_toml.is_file():
+        default_bronze = configs.genai.ia_inputs_toml_under_bronze(
+            institution_id, catalog=catalog
+        )
+        raise FileNotFoundError(
+            f"IdentityAgent inputs.toml not found: {institution_inputs_toml}. "
+            "Pass --inputs_toml with a full /Volumes/... path, or place the file at "
+            f"{default_bronze!r}."
+        )
+    LOGGER.info("Loading IA school config from %s", institution_inputs_toml)
     _ia = dataio.read.read_config(
         str(institution_inputs_toml),
         schema=configs.genai.IdentityAgentInputsConfig,
@@ -519,6 +537,14 @@ if __name__ == "__main__":
     parser.add_argument("--catalog", required=True)
     parser.add_argument("--mode", required=True, choices=["onboard", "execute"])
     parser.add_argument("--resume_from", default="start", choices=["start", "gate_1"])
+    parser.add_argument(
+        "--inputs_toml",
+        default="",
+        help=(
+            "Path to inputs.toml (e.g. under /Volumes/<catalog>/...). "
+            "If omitted or empty, uses genai_mapping/inputs/inputs.toml under the institution bronze volume."
+        ),
+    )
     args = parser.parse_args()
 
     run(
@@ -527,4 +553,5 @@ if __name__ == "__main__":
         catalog=args.catalog,
         mode=args.mode,
         resume_from=args.resume_from,
+        inputs_toml=args.inputs_toml or None,
     )
