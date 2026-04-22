@@ -80,7 +80,7 @@ resources:
           default: "onboard"
         - name: resume_from
           default: "start"
-        # Empty => script uses …/<institution_id>_bronze/bronze_volume/genai_mapping/inputs/inputs.toml
+        # Empty => …/Volumes/edvise/institutions/<institution_id>/bronze/genai_mapping/inputs/inputs.toml
         - name: inputs_toml
           default: ""
 

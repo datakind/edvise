@@ -8,8 +8,9 @@ Usage (Databricks job parameters):
     --mode              onboard | execute
     --resume_from       start | gate_1  (onboard only)
     --inputs_toml       Path to per-school ``inputs.toml`` (Unity Catalog volume path).
-                        If omitted or empty, uses ``genai_mapping/inputs/inputs.toml`` under
-                        the institution bronze volume (see ``ia_inputs_toml_under_bronze``).
+                        If omitted or empty, uses default under
+                        ``/Volumes/edvise/institutions/<id>/bronze/genai_mapping/inputs/``
+                        (see ``ia_inputs_toml_under_bronze``).
 """
 import os
 import sys
@@ -42,6 +43,7 @@ from edvise.genai.mapping.shared.mlflow_gateway_bootstrap import (
 
 disable_mlflow_side_effects_for_openai_gateway()
 
+from edvise.configs import genai as genai_cfg
 from edvise.shared.logger import init_file_logging_at_path
 
 LOGGER = logging.getLogger("edvise_ia")
@@ -49,8 +51,6 @@ LOGGER = logging.getLogger("edvise_ia")
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-
-SILVER_VOLUME_BASE = "/Volumes/{catalog}/{institution_id}_silver/silver_volume"
 
 
 @dataclass
@@ -75,20 +75,20 @@ class IAPaths:
     active_term_hooks: Path
     active_grain_hooks: Path
     active_enriched_schema_contract: Path
-    active_cleaned_datasets: Path   # directory
+
+    # Optional upstream cleaned inputs (volume layout)
+    genai_data: Path
 
 
 def resolve_run_paths(
     institution_id: str,
     pipeline_run_id: str,
-    catalog: str,
+    _catalog: str,
 ) -> IAPaths:
-    silver = Path(
-        SILVER_VOLUME_BASE.format(catalog=catalog, institution_id=institution_id)
-    )
-    genai = silver / "genai_mapping"
+    # _catalog: retained for job/CLI compatibility; volume paths use institution_volume_root layout only.
+    genai = Path(genai_cfg.silver_genai_mapping_root(institution_id))
     run_root = genai / "runs" / pipeline_run_id / "identity_agent"
-    active_root = genai / "active" / "identity_agent"
+    active_root = genai / "active"
 
     return IAPaths(
         run_root=run_root,
@@ -103,12 +103,12 @@ def resolve_run_paths(
         cleaned_datasets=run_root / "cleaned_datasets",
         run_log=run_root / "run_log.json",
         active_root=active_root,
-        active_grain_output=active_root / "identity_grain_output.json",
-        active_term_output=active_root / "identity_term_output.json",
+        active_grain_output=active_root / "grain_output.json",
+        active_term_output=active_root / "term_output.json",
         active_term_hooks=active_root / "term_hooks.py",
         active_grain_hooks=active_root / "grain_hooks.py",
         active_enriched_schema_contract=active_root / "enriched_schema_contract.json",
-        active_cleaned_datasets=active_root / "cleaned_datasets",
+        genai_data=genai / "data",
     )
 
 
@@ -573,8 +573,8 @@ if __name__ == "__main__":
         "--inputs_toml",
         default="",
         help=(
-            "Path to inputs.toml (e.g. under /Volumes/<catalog>/...). "
-            "If omitted or empty, uses genai_mapping/inputs/inputs.toml under the institution bronze volume."
+            "Path to inputs.toml (e.g. under /Volumes/edvise/institutions/<id>/bronze/...). "
+            "If omitted or empty, uses the default under that institution bronze volume."
         ),
     )
     args = parser.parse_args()

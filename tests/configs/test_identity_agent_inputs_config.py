@@ -62,7 +62,7 @@ def test_identity_agent_inputs_round_trip(tmp_path: Path) -> None:
     assert school.datasets["course"].primary_keys is None
     assert (
         school.bronze_volumes_path
-        == "/Volumes/dev_sst_02/john_jay_col_bronze/bronze_volume"
+        == "/Volumes/edvise/institutions/john_jay_col/bronze"
     )
 
 
@@ -85,13 +85,13 @@ def test_bronze_volume_path_derived_from_institution_id(tmp_path: Path) -> None:
     school = raw.to_school_mapping_config(uc_catalog="dev_sst_02")
     assert (
         school.bronze_volumes_path
-        == "/Volumes/dev_sst_02/john_jay_col_bronze/bronze_volume"
+        == "/Volumes/edvise/institutions/john_jay_col/bronze"
     )
     assert (
         resolve_genai_data_path(
             school.bronze_volumes_path, school.datasets["student"].files[0]
         )
-        == "/Volumes/dev_sst_02/john_jay_col_bronze/bronze_volume/raw/students.csv"
+        == "/Volumes/edvise/institutions/john_jay_col/bronze/raw/students.csv"
     )
 
 
@@ -100,21 +100,21 @@ def test_bronze_volume_path_for_institution_empty_id_raises() -> None:
         bronze_volume_path_for_institution("  ", catalog="dev_sst_02")
 
 
-def test_bronze_volume_path_for_institution_empty_catalog_raises() -> None:
-    with pytest.raises(ValueError, match="catalog"):
-        bronze_volume_path_for_institution("lee_col", catalog="  ")
+def test_bronze_volume_path_for_institution_ignores_empty_catalog() -> None:
+    assert bronze_volume_path_for_institution("lee_col", catalog="  ") == (
+        "/Volumes/edvise/institutions/lee_col/bronze"
+    )
 
 
 def test_bronze_volume_path_for_institution_with_catalog() -> None:
-    assert (
-        bronze_volume_path_for_institution("lee_col", catalog="my_cat")
-        == "/Volumes/my_cat/lee_col_bronze/bronze_volume"
+    assert bronze_volume_path_for_institution("lee_col", catalog="my_cat") == (
+        "/Volumes/edvise/institutions/lee_col/bronze"
     )
 
 
 def test_ia_inputs_toml_under_bronze() -> None:
     assert ia_inputs_toml_under_bronze("lee_col", catalog="my_cat") == (
-        "/Volumes/my_cat/lee_col_bronze/bronze_volume/genai_mapping/inputs/inputs.toml"
+        "/Volumes/edvise/institutions/lee_col/bronze/genai_mapping/inputs/inputs.toml"
     )
 
 

@@ -7,6 +7,8 @@ Usage (Databricks job parameters):
     --catalog           dev_sst_02
     --mode              onboard | execute
     --resume_from       start | gate_2  (onboard only)
+    --reference_id      required for onboard; few-shot from that school's
+                        ``.../silver/genai_mapping/active/{mapping_manifest,transformation_map}.json``
 """
 
 import os
@@ -42,6 +44,7 @@ from edvise.genai.mapping.shared.mlflow_gateway_bootstrap import (
 
 disable_mlflow_side_effects_for_openai_gateway()
 
+from edvise.configs import genai as genai_cfg
 from edvise.shared.logger import init_file_logging_at_path
 
 LOGGER = logging.getLogger("edvise_sma")
@@ -49,8 +52,6 @@ LOGGER = logging.getLogger("edvise_sma")
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-
-SILVER_VOLUME_BASE = "/Volumes/{catalog}/{institution_id}_silver/silver_volume"
 
 
 @dataclass
@@ -75,7 +76,9 @@ class SMAPaths:
     active_transformation_map: Path
     active_transform_hooks: Path
     active_enriched_schema_contract: Path
-    active_cleaned_datasets: Path   # directory
+
+    # Optional upstream cleaned inputs (volume layout)
+    genai_data: Path
 
     # Output data (written after execution)
     output_data: Path               # directory, one .parquet per entity
@@ -84,15 +87,13 @@ class SMAPaths:
 def resolve_run_paths(
     institution_id: str,
     pipeline_run_id: str,
-    catalog: str,
+    _catalog: str,
 ) -> SMAPaths:
-    silver = Path(
-        SILVER_VOLUME_BASE.format(catalog=catalog, institution_id=institution_id)
-    )
-    genai = silver / "genai_mapping"
+    # _catalog: retained for job/CLI compatibility; volume paths use institution_volume_root layout only.
+    genai = Path(genai_cfg.silver_genai_mapping_root(institution_id))
     run_root = genai / "runs" / pipeline_run_id / "schema_mapping_agent"
     ia_run_root = genai / "runs" / pipeline_run_id / "identity_agent"
-    active_root = genai / "active" / "schema_mapping_agent"
+    active_root = genai / "active"
 
     return SMAPaths(
         run_root=run_root,
@@ -106,15 +107,24 @@ def resolve_run_paths(
         # IA outputs — same run_id, identity_agent folder
         ia_enriched_schema_contract=ia_run_root / "enriched_schema_contract.json",
         ia_cleaned_datasets=ia_run_root / "cleaned_datasets",
-        # Active folder
+        # Active folder (flat under genai_mapping)
         active_root=active_root,
         active_mapping_manifest=active_root / "mapping_manifest.json",
         active_transformation_map=active_root / "transformation_map.json",
         active_transform_hooks=active_root / "transform_hooks.py",
         active_enriched_schema_contract=active_root / "enriched_schema_contract.json",
-        active_cleaned_datasets=active_root / "cleaned_datasets",
+        genai_data=genai / "data",
         # Output data
         output_data=run_root / "data",
+    )
+
+
+def resolve_reference_sma_active_paths(reference_id: str) -> tuple[Path, Path]:
+    """Few-shot reference: promoted SMA artifacts under the reference school's ``genai_mapping/active/``."""
+    active = Path(genai_cfg.silver_genai_mapping_root(reference_id)) / "active"
+    return (
+        active / "mapping_manifest.json",
+        active / "transformation_map.json",
     )
 
 
@@ -277,15 +287,13 @@ def run_onboard_start(
 
     enriched_contract = _load_enriched_contract(paths.ia_enriched_schema_contract)
 
-    # Load reference institution few-shot manifest
-    # Reference manifests live in the silver volume under a shared examples folder
-    silver = paths.run_root.parents[3]  # .../genai_mapping/runs/{run_id}/sma -> .../silver/genai_mapping
-    ref_manifest_path = (
-        silver / "genai_mapping" / "schema_mapping_agent_examples" / reference_id / "final_hitl"
-        / f"{reference_id}_mapping_manifest.json"
-    )
+    # Load reference institution few-shot manifest from reference school's promoted SMA folder
+    ref_manifest_path, _ = resolve_reference_sma_active_paths(reference_id)
     if not ref_manifest_path.exists():
-        raise FileNotFoundError(f"Reference HITL manifest not found: {ref_manifest_path}")
+        raise FileNotFoundError(
+            f"Reference mapping manifest not found (expected promoted SMA active/): {ref_manifest_path}"
+        )
+    LOGGER.info("[onboard/start] Reference manifest (active): %s", ref_manifest_path)
     reference_manifest = load_json(str(ref_manifest_path))
 
     # Step 2a — mapping manifest LLM
@@ -442,14 +450,13 @@ def run_onboard_gate_2(
     for hitl_path in (paths.cohort_hitl_manifest, paths.course_hitl_manifest):
         check_sma_hitl_gate(hitl_path)
 
-    # Load reference transformation map for 2b few-shot
-    silver = paths.run_root.parents[3]
-    ref_tm_path = (
-        silver / "genai_mapping" / "schema_mapping_agent_examples" / reference_id / "final_hitl"
-        / f"{reference_id}_transformation_map.json"
-    )
+    # Load reference transformation map for 2b few-shot from reference school's promoted SMA folder
+    _, ref_tm_path = resolve_reference_sma_active_paths(reference_id)
     if not ref_tm_path.exists():
-        raise FileNotFoundError(f"Reference transformation map not found: {ref_tm_path}")
+        raise FileNotFoundError(
+            f"Reference transformation map not found (expected promoted SMA active/): {ref_tm_path}"
+        )
+    LOGGER.info("[onboard/gate_2] Reference transformation map (active): %s", ref_tm_path)
     reference_tm = load_json(str(ref_tm_path))
 
     enriched_contract = _load_enriched_contract(paths.ia_enriched_schema_contract)

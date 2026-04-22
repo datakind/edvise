@@ -21,28 +21,36 @@ class StrictBaseModel(BaseModel):
     )
 
 
-def bronze_volume_path_for_institution(
-    institution_id: str,
-    *,
-    catalog: str,
-) -> str:
-    """
-    Databricks Unity Catalog bronze volume path for an institution.
-
-    Returns ``/Volumes/<catalog>/<institution_id>_bronze/bronze_volume``.
-    The UC *catalog* is supplied by the caller (e.g. a notebook variable or job parameter),
-    not by edvise defaults.
-    """
-    cat = catalog.strip()
-    if not cat:
-        raise ValueError("catalog must be non-empty")
+def institution_volume_root(institution_id: str) -> str:
+    """``/Volumes/edvise/institutions/<institution_id>`` (bronze/silver live beneath)."""
     inst = institution_id.strip()
     if not inst:
         raise ValueError("institution_id must be non-empty")
-    return f"/Volumes/{cat}/{inst}_bronze/bronze_volume"
+    return f"/Volumes/edvise/institutions/{inst}"
 
 
-def ia_inputs_toml_under_bronze(institution_id: str, *, catalog: str) -> str:
+def bronze_volume_path_for_institution(
+    institution_id: str,
+    *,
+    catalog: str = "",
+) -> str:
+    """
+    Institution bronze root used to resolve relative dataset paths.
+
+    Returns ``/Volumes/edvise/institutions/<institution_id>/bronze``.
+
+    The ``catalog`` parameter is kept for call-site compatibility (e.g. ``to_school_mapping_config``)
+    but is not part of this path layout.
+    """
+    return f"{institution_volume_root(institution_id)}/bronze"
+
+
+def silver_genai_mapping_root(institution_id: str) -> str:
+    """``…/silver/genai_mapping`` under :func:`institution_volume_root`."""
+    return f"{institution_volume_root(institution_id)}/silver/genai_mapping"
+
+
+def ia_inputs_toml_under_bronze(institution_id: str, *, catalog: str = "") -> str:
     """
     Default IdentityAgent ``inputs.toml`` path on the institution bronze volume.
 
@@ -228,8 +236,9 @@ class IdentityAgentInputsConfig(StrictBaseModel):
     Per-institution config: ``[institution]`` and ``[datasets.files]``.
 
     File values may be a single string or a list of strings (e.g. multiple course files).
-    Relative paths resolve against :func:`bronze_volume_path_for_institution` once you pass the
-    Unity Catalog name to :meth:`to_school_mapping_config`.
+    Relative paths resolve against :func:`bronze_volume_path_for_institution` for the institution
+    (see :func:`institution_volume_root`). The ``uc_catalog`` argument to :meth:`to_school_mapping_config`
+    is still required for other consumers (e.g. gateway configuration) but does not change the bronze path.
     Use absolute paths in ``files`` when reading from outside that layout.
 
     Load with :func:`edvise.dataio.read.read_config` and ``schema=IdentityAgentInputsConfig``,
