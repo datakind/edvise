@@ -3,4 +3,7 @@ from .raw_cohort import RawPDPCohortDataSchema
 from .raw_course import RawPDPCourseDataSchema
 from .raw_edvise_course import RawEdviseCourseDataSchema
 from .raw_edvise_student import RawEdviseStudentDataSchema
+
+RawESCohortDataSchema = RawEdviseStudentDataSchema
+RawESCourseDataSchema = RawEdviseCourseDataSchema
 from .student_term import PDPStudentTermsDataSchema

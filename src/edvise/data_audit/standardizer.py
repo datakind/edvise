@@ -234,8 +234,13 @@ class ESCourseStandardizer(BaseStandardizer):
         log_high_null_columns(df)
         log_grade_distribution(df)
 
-        # Finds and logs duplicates on primary keys; runs handling_duplicates
-        primary_keys = ["student_id", "term", "course_subject", "course_num"]
+        # Must match ``handling_duplicates(..., schema_type="es")`` defaults (prefix/number/term).
+        primary_keys = [
+            "student_id",
+            "academic_term",
+            "course_prefix",
+            "course_number",
+        ]
         LOGGER.info("Checking for course file duplicates on %s...", primary_keys)
         find_dupes(df, primary_keys)
         df = handling_duplicates(df, schema_type="es", unique_cols=primary_keys)

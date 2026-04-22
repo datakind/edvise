@@ -551,9 +551,10 @@ def strip_trailing_decimal_strings(df: pd.DataFrame, cols: list[str]) -> pd.Data
             df[col] = df[col].str.replace(r"\.0$", "", regex=True)
 
             truncated = (pre_truncated != df[col]).sum(min_count=1)
+            n_stripped = 0 if pd.isna(truncated) else int(truncated)
             LOGGER.info(
                 ' Stripped trailing ".0" in %s rows for column "%s".',
-                int(truncated or 0),
+                n_stripped,
                 col,
             )
         else:
