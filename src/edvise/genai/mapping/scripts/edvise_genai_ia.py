@@ -18,7 +18,16 @@ from dataclasses import dataclass
 
 # Layout: <git_root>/src/edvise/genai/mapping/scripts/<this_file>
 # `import edvise` needs <git_root>/src on sys.path (package is <git_root>/src/edvise/).
-_script_dir = os.path.dirname(os.path.abspath(__file__))
+# Databricks spark_python_task often exec()s this file without defining __file__.
+_here = globals().get("__file__")
+if _here:
+    _script_dir = os.path.dirname(os.path.abspath(_here))
+else:
+    _argv0 = os.path.abspath(sys.argv[0]) if sys.argv else ""
+    if _argv0.endswith(".py") and os.path.isfile(_argv0):
+        _script_dir = os.path.dirname(_argv0)
+    else:
+        _script_dir = os.path.abspath(os.getcwd())
 _src_root = os.path.abspath(os.path.join(_script_dir, "..", "..", "..", ".."))
 if os.path.isdir(_src_root) and _src_root not in sys.path:
     sys.path.insert(0, _src_root)
