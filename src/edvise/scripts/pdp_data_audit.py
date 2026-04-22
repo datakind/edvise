@@ -51,7 +51,7 @@ from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
     log_pre_cohort_courses,
 )
-from edvise.shared.logger import resolve_run_path, local_fs_path
+from edvise.shared.logger import init_file_logging, resolve_run_path
 from edvise.shared.validation import require
 from edvise.shared.dashboard_metadata.pipeline_runs import append_pipeline_run_event
 
@@ -99,52 +99,16 @@ class PDPDataAuditTask:
         )
         os.makedirs(current_run_path, exist_ok=True)
 
-        # Convert to local filesystem path if using DBFS
-        local_run_path = local_fs_path(current_run_path)
-
-        # Make sure the folder exists on the local FS
-        os.makedirs(local_run_path, exist_ok=True)
-
-        # Build full path (local FS form)
-        log_file_path = os.path.join(local_run_path, "pdp_data_audit.log")
-
-        # Build full path (local FS form)
-        log_file_path = os.path.join(local_run_path, "pdp_data_audit.log")
-        abs_log_file_path = os.path.abspath(log_file_path)
-
+        # Root logger: Databricks-safe console + per-run file (replaces all handlers)
         try:
-            root_logger = logging.getLogger()
-
-            # --- IMPORTANT PART 1: remove any existing handlers for this file ---
-            for h in list(root_logger.handlers):
-                if (
-                    isinstance(h, logging.FileHandler)
-                    and getattr(h, "baseFilename", None) == abs_log_file_path
-                ):
-                    root_logger.removeHandler(h)
-                    try:
-                        h.close()
-                    except Exception:
-                        pass
-
-            # --- IMPORTANT PART 2: open in write mode so we overwrite each run ---
-            file_handler = logging.FileHandler(abs_log_file_path, mode="w")
-            file_handler.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
+            init_file_logging(
+                self.args,
+                self.cfg,
+                logger_name=__name__,
+                log_file_name="pdp_data_audit.log",
             )
-
-            root_logger.addHandler(file_handler)
-            LOGGER.info(
-                "File logging initialized. Logs will be overwritten at: %s",
-                log_file_path,
-            )
-
         except Exception as e:
-            LOGGER.exception(
-                "Failed to initialize file logging at %s: %s", log_file_path, e
-            )
+            LOGGER.exception("Failed to initialize file logging: %s", e)
 
         # Determine file paths
         cohort_dataset_raw_path = pick_existing_path(
