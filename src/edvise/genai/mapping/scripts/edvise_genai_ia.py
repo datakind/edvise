@@ -426,7 +426,7 @@ def run_execute(
             )
 
     # Enforce schema and write cleaned Parquet
-    LOGGER.info("[execute] Enforcing schema contract")
+    LOGGER.info("[execute] Enforcing schema contract and writing cleaned Parquet files")
     cleaned = enforce_schema_contract(raw_dfs, schema_contract)
     paths.cleaned_datasets.mkdir(parents=True, exist_ok=True)
     for logical_name, df in cleaned.items():
@@ -452,6 +452,7 @@ def run(
     init_file_logging_at_path(
         paths.run_root / "ia_pipeline.log",
         logger_name="edvise_ia",
+        append=True,
     )
     LOGGER.info(
         "edvise_ia | institution=%s | run=%s | mode=%s | resume_from=%s",

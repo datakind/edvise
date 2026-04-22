@@ -572,8 +572,9 @@ def run(
 ):
     paths = resolve_run_paths(institution_id, pipeline_run_id, catalog)
     init_file_logging_at_path(
-        paths.run_root / "schema_mapping_agent_pipeline.log",
+        paths.run_root / "sma_pipeline.log",
         logger_name="edvise_sma",
+        append=True,
     )
     LOGGER.info(
         "edvise_sma | institution=%s | run=%s | mode=%s | resume_from=%s",

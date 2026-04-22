@@ -138,11 +138,17 @@ def resolve_run_path(
 def init_file_logging_at_path(
     log_file_path: str | os.PathLike[str],
     logger_name: str = __name__,
+    *,
+    append: bool = False,
 ) -> str:
     """
     Configure root logging with console + file handlers at a fixed path (Databricks-safe).
 
     Use when the run directory is known without PDPProjectConfig (e.g. genai mapping jobs).
+
+    Args:
+        append: If True, new log lines are appended to the file (e.g. resume gate_1 after
+            start with the same pipeline_run_id). If False, the file is truncated on open.
 
     Returns:
         str: local filesystem path to the log file.
@@ -152,6 +158,12 @@ def init_file_logging_at_path(
     log_dir = os.path.dirname(local_path)
     if log_dir:
         os.makedirs(log_dir, exist_ok=True)
+
+    prior_size = (
+        os.path.getsize(local_path)
+        if append and os.path.isfile(local_path)
+        else 0
+    )
 
     root = logging.getLogger()
     root.setLevel(logging.INFO)
@@ -163,7 +175,8 @@ def init_file_logging_at_path(
     console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
     root.addHandler(console)
 
-    fh = logging.FileHandler(local_path, mode="w", encoding="utf-8", delay=True)
+    file_mode = "a" if append else "w"
+    fh = logging.FileHandler(local_path, mode=file_mode, encoding="utf-8", delay=True)
     fh.setFormatter(
         logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     )
@@ -171,7 +184,17 @@ def init_file_logging_at_path(
 
     logging.getLogger("py4j").setLevel(logging.WARNING)
 
-    logging.getLogger(logger_name).info("File logging initialized → %s", local_path)
+    log = logging.getLogger(logger_name)
+    log.info(
+        "File logging initialized → %s (mode=%s)",
+        local_path,
+        "append" if append else "overwrite",
+    )
+    if append and prior_size > 0:
+        log.info(
+            "---------- log continues below (prior file size was %d bytes) ----------",
+            prior_size,
+        )
 
     return local_path
 
