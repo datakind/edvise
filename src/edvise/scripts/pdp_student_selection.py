@@ -22,8 +22,8 @@ from edvise import student_selection
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.shared.logger import (
-    resolve_run_path,
     local_fs_path,
+    resolve_run_path,
     init_file_logging,
 )
 from edvise.shared.validation import (

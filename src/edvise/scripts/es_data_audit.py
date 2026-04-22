@@ -50,10 +50,7 @@ from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
     log_pre_cohort_courses,
 )
-from edvise.shared.logger import (
-    resolve_run_path,
-    local_fs_path,
-)
+from edvise.shared.logger import resolve_run_path, local_fs_path
 from edvise.shared.validation import require
 from edvise.shared.dashboard_metadata.pipeline_runs import append_pipeline_run_event
 

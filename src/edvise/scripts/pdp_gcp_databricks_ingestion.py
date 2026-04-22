@@ -24,12 +24,9 @@ from edvise.shared.dashboard_metadata.pipeline_runs import (
     parse_timestamp_from_filename,
 )
 from edvise.utils.databricks import in_databricks
+from edvise.shared.logger import local_fs_path
 
 # Model names from get_model_name() are already UC-compatible
-
-
-def local_fs_path(p: str) -> str:
-    return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
 
 def get_dbutils():
