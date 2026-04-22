@@ -28,9 +28,10 @@ from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
-from edvise.utils.databricks import get_spark_session, in_databricks
+from edvise.utils.databricks import get_spark_session
 from edvise.utils.data_cleaning import handling_duplicates
 
+from edvise.dataio.path_management import pick_existing_path
 from edvise.dataio.read import (
     read_config,
     read_raw_pdp_cohort_data,
@@ -90,61 +91,6 @@ class PDPDataAuditTask:
         )
         self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
-    def _path_exists(self, p: str) -> bool:
-        if not p:
-            return False
-        # DBFS scheme
-        if p.startswith("dbfs:/"):
-            try:
-                from databricks.sdk.runtime import dbutils  # lazy import
-
-                dbutils.fs.ls(p)  # will raise if not found
-                return True
-            except Exception:
-                return False
-        # Local Posix path (Vols are mounted here)
-        return pathlib.Path(p).exists()
-
-    def _pick_existing_path(
-        self,
-        prefer_path: t.Optional[str],
-        fallback_path: str,
-        label: str,
-        use_fallback_on_dbx: bool = True,
-    ) -> str:
-        """
-        prefer_path: inference-provided path (may be None or empty)
-        fallback_path: config path
-        label: 'course' or 'cohort'
-        use_fallback_on_dbx: only fallback to config automatically when on Databricks
-        """
-        prefer = (prefer_path or "").strip()
-        if prefer and self._path_exists(prefer):
-            LOGGER.info("%s: using inference-provided path: %s", label, prefer)
-            return prefer
-
-        if prefer and not self._path_exists(prefer):
-            LOGGER.warning("%s: inference-provided path not found: %s", label, prefer)
-
-        if (
-            use_fallback_on_dbx
-            and in_databricks()
-            and self._path_exists(fallback_path)
-        ):
-            LOGGER.info(
-                "%s: utilizing training-config path on Databricks: %s",
-                label,
-                fallback_path,
-            )
-            return fallback_path
-
-        # If we get here, we couldn't find a usable path
-        tried = [p for p in [prefer, fallback_path] if p]
-        raise FileNotFoundError(
-            f"{label}: none of the candidate paths exist. Tried: {tried}. "
-            f"Environment: {'Databricks' if in_databricks() else 'non-Databricks'}"
-        )
-
     def run(self):
         """Executes the data preprocessing pipeline."""
         # Ensure correct folder: training or inference
@@ -201,12 +147,12 @@ class PDPDataAuditTask:
             )
 
         # Determine file paths
-        cohort_dataset_raw_path = self._pick_existing_path(
+        cohort_dataset_raw_path = pick_existing_path(
             self.args.cohort_dataset_validated_path,
             f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
             "cohort",
         )
-        course_dataset_raw_path = self._pick_existing_path(
+        course_dataset_raw_path = pick_existing_path(
             self.args.course_dataset_validated_path,
             f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
             "course",
