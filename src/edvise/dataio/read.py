@@ -315,6 +315,32 @@ def read_raw_pdp_cohort_data(
     )
 
 
+def read_raw_es_cohort_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Prepare raw Edvise learner (student/cohort) data.
+
+    Args:
+        df: Raw learner-level dataframe.
+
+    Returns:
+        The same dataframe (passthrough for now).
+    """
+    return df
+
+
+def read_raw_es_course_data(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Prepare raw Edvise course data.
+
+    Args:
+        df: Raw course-level dataframe.
+
+    Returns:
+        The same dataframe (passthrough for now).
+    """
+    return df
+
+
 def _maybe_convert_maybe_validate_data(
     df: pd.DataFrame,
     converter_func: t.Optional[t.Callable[[pd.DataFrame], pd.DataFrame]] = None,
