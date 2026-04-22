@@ -33,6 +33,13 @@ _src_root = os.path.abspath(os.path.join(_script_dir, "..", "..", "..", ".."))
 if os.path.isdir(_src_root) and _src_root not in sys.path:
     sys.path.insert(0, _src_root)
 
+# Before any import that loads ``openai`` (Databricks may autolog it otherwise).
+from edvise.genai.mapping.shared.mlflow_gateway_bootstrap import (
+    disable_mlflow_side_effects_for_openai_gateway,
+)
+
+disable_mlflow_side_effects_for_openai_gateway()
+
 from edvise.shared.logger import init_file_logging_at_path
 
 LOGGER = logging.getLogger("edvise_sma")
@@ -179,10 +186,12 @@ def _build_openai_client(catalog: str):
     from openai import OpenAI
 
     from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
+        disable_mlflow_tracing_for_openai_gateway_client,
         require_databricks_token,
         resolve_ai_gateway_base_url,
     )
 
+    disable_mlflow_tracing_for_openai_gateway_client()
     return OpenAI(
         api_key=require_databricks_token(),
         base_url=resolve_ai_gateway_base_url(),

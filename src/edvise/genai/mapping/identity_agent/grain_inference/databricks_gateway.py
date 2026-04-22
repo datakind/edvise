@@ -11,6 +11,9 @@ from openai import OpenAI
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
+from edvise.genai.mapping.shared.mlflow_gateway_bootstrap import (
+    disable_mlflow_side_effects_for_openai_gateway,
+)
 
 # Same default endpoint as ``schema_mapping_agent.manifest.eval`` (MLflow serving / gateway).
 DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL: str = (
@@ -20,6 +23,16 @@ DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL: str = (
 DEFAULT_GATEWAY_MODEL_ID: str = "claude-sonnet-test-genai-ai-data-cleaning"
 
 _LOG = logging.getLogger(__name__)
+
+
+def disable_mlflow_tracing_for_openai_gateway_client() -> None:
+    """
+    Turn off MLflow tracing / OpenAI autolog for gateway calls (see module docstring).
+
+    Job scripts should also call :func:`~edvise.genai.mapping.shared.mlflow_gateway_bootstrap.disable_mlflow_side_effects_for_openai_gateway`
+    at import time **before** loading packages that import ``openai``.
+    """
+    disable_mlflow_side_effects_for_openai_gateway()
 
 
 def resolve_ai_gateway_base_url() -> str:
@@ -96,6 +109,7 @@ def create_openai_client_for_databricks_gateway(
     If ``api_key`` is omitted, :func:`require_databricks_token` is used.
     If ``base_url`` is omitted, :func:`resolve_ai_gateway_base_url` is used.
     """
+    disable_mlflow_tracing_for_openai_gateway_client()
     key = api_key if api_key is not None else require_databricks_token()
     url = base_url if base_url is not None else resolve_ai_gateway_base_url()
     return OpenAI(api_key=key, base_url=url)
