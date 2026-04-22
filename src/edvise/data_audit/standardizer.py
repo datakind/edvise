@@ -145,3 +145,24 @@ class PDPCourseStandardizer(BaseStandardizer):
             df, {"term_program_of_study": (None, "string")}
         )
         return df
+
+
+class ESCourseStandardizer(BaseStandardizer):
+    def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        FILL IN
+
+        Args:
+            df: As output by :func:`dataio.read_raw_edvise_course_data_from_file()` .
+        """
+        return df
+
+class ESCohortStandardizer(BaseStandardizer):
+    def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        FILL IN
+
+        Args:
+            df: As output by :func:`dataio.read_raw_edvise_cohort_data_from_file()` .
+        """
+        return df
