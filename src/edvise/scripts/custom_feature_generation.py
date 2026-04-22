@@ -100,16 +100,12 @@ class CustomFeatureGenerationTask:
                 core_terms=core_terms,
                 peak_covid_terms=peak_covid_terms,
             )
-            .pipe(
-                feature_generation.section.add_features,
-                section_id_cols=["term_id", "course_id", "section_id"],
-            )
+            .pipe(feature_generation.section.add_features)
         )
 
         df_student_terms = (
             feature_generation.student_term.aggregate_from_course_level_features(
                 df_courses_plus,
-                student_term_id_cols=["student_id", "term_id"],
                 min_passing_grade=min_passing_grade,
                 key_course_subject_areas=key_course_subject_areas,
                 key_course_ids=key_course_ids,
@@ -123,8 +119,6 @@ class CustomFeatureGenerationTask:
 
         df_student_terms_plus = feature_generation.cumulative.add_features(
             df_student_terms,
-            student_id_cols=["institution_id", "student_id"],
-            sort_cols=["academic_year", "academic_term"],
         ).rename(columns=edvise_utils.data_cleaning.convert_to_snake_case)
 
         return df_student_terms_plus

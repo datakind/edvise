@@ -2,6 +2,7 @@ import pandas as pd
 import pytest
 
 from edvise.feature_generation import section
+from edvise.feature_generation.pipeline_columns import SectionPipelineColumns
 
 
 @pytest.mark.parametrize(
@@ -47,6 +48,9 @@ from edvise.feature_generation import section
     ],
 )
 def test_add_section_features(df, section_id_cols, exp):
-    obs = section.add_features(df, section_id_cols=section_id_cols)
+    obs = section.add_features(
+        df,
+        columns=SectionPipelineColumns(section_id_cols=tuple(section_id_cols)),
+    )
     assert isinstance(obs, pd.DataFrame) and not obs.empty
     assert obs.equals(exp) or obs.compare(exp).empty

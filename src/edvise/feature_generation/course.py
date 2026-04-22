@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 
 from . import constants, shared
+from .course_columns import CourseStandardizedColumns, PDP_COURSE_STANDARDIZED_COLUMNS
 
 LOGGER = logging.getLogger(__name__)
 
@@ -19,31 +20,48 @@ def add_features(
     *,
     min_passing_grade: float = constants.DEFAULT_MIN_PASSING_GRADE,
     course_level_pattern: str = constants.DEFAULT_COURSE_LEVEL_PATTERN,
+    columns: CourseStandardizedColumns = PDP_COURSE_STANDARDIZED_COLUMNS,
 ) -> pd.DataFrame:
     """
-    Compute course-level features from a pdp course dataset,
-    and add as columns to ``df`` .
+    Compute course-level features from a standardized course dataset,
+    and add as columns to ``df``.
 
     Args:
-        df
-        min_passing_grade: Minimum numeric grade considered by institution as "passing".
-            Note that this is represented as a float, while grades are strings
-            since the values include both numeric and alpha-categorical values.
-            This value is only compared against numeric grades; relevant categoricals
-            are handled appropriately, e.g. "P" => "Pass" is always considered "passing".
-        course_level_pattern: Regex string that extracts a course's level from its number
-            (e.g. 1 from "101"). *Must* include exactly one capture group,
-            which is taken to be the course level.
+        df: Standardized course-level rows.
+        min_passing_grade: Minimum numeric grade considered passing (float); letter
+            categoricals handled in ``course_passed``.
+        course_level_pattern: Regex with one capture group for course level.
+        columns: Physical column names for this schema (PDP vs ES, etc.).
     """
     LOGGER.info("adding course features ...")
     return df.assign(
-        course_id=course_id,
-        course_subject_area=course_subject_area,
-        course_passed=ft.partial(course_passed, min_passing_grade=min_passing_grade),
-        course_completed=course_completed,
-        course_level=ft.partial(course_level, pattern=course_level_pattern),
-        course_grade_numeric=course_grade_numeric,
-        course_grade=course_grade,
+        course_id=ft.partial(
+            course_id,
+            prefix_col=columns.course_prefix_col,
+            number_col=columns.course_number_col,
+        ),
+        course_subject_area=ft.partial(
+            course_subject_area, col=columns.course_cip_col
+        ),
+        course_passed=ft.partial(
+            course_passed,
+            col=columns.grade_col,
+            min_passing_grade=min_passing_grade,
+        ),
+        course_completed=ft.partial(course_completed, col=columns.grade_col),
+        course_level=ft.partial(
+            course_level,
+            col=columns.course_number_col,
+            pattern=course_level_pattern,
+        ),
+        course_grade_numeric=ft.partial(
+            course_grade_numeric, col=columns.grade_col
+        ),
+        course_grade=ft.partial(
+            course_grade,
+            grade_col=columns.grade_col,
+            grade_num_col="course_grade_numeric",
+        ),
     )
 
 

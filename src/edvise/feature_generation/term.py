@@ -9,8 +9,14 @@ import re
 
 from edvise.utils import types
 from . import constants, shared
+from .pipeline_columns import TermStandardizedColumns
 
 LOGGER = logging.getLogger(__name__)
+
+_DEFAULT_TERM_COLS = TermStandardizedColumns(
+    academic_year_col="academic_year",
+    academic_term_col="academic_term",
+)
 
 
 def add_features(
@@ -19,8 +25,7 @@ def add_features(
     first_term_of_year: types.TermType = constants.DEFAULT_FIRST_TERM_OF_YEAR,  # type: ignore
     core_terms: set[types.TermType] = constants.DEFAULT_CORE_TERMS,  # type: ignore
     peak_covid_terms: set[tuple[str, str]] = constants.DEFAULT_PEAK_COVID_TERMS,
-    year_col: str = "academic_year",
-    term_col: str = "academic_term",
+    columns: TermStandardizedColumns = _DEFAULT_TERM_COLS,
 ) -> pd.DataFrame:
     """
     Compute term-level features from pdp course dataset,
@@ -36,8 +41,11 @@ def add_features(
             {"FALL", "WINTER", "SPRING"} is probably what you want.
         peak_covid_terms: Set of (year, term) pairs considered by the institution as
             occurring during "peak" COVID; for example, ``("2020-21", "SPRING")`` .
+        columns: Physical academic year / term column names on the course frame.
     """
     LOGGER.info("adding term features ...")
+    year_col = columns.academic_year_col
+    term_col = columns.academic_term_col
     noncore_terms: set[types.TermType] = set(df[term_col].unique()) - set(core_terms)
     df_term = (
         _get_unique_sorted_terms_df(df, year_col=year_col, term_col=term_col)

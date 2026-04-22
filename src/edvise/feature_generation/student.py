@@ -5,6 +5,7 @@ import pandas as pd
 
 from edvise.utils import types
 from . import constants, shared
+from .cohort_columns import PDP_STUDENT_COHORT_COLUMNS, StudentCohortColumns
 
 LOGGER = logging.getLogger(__name__)
 
@@ -13,23 +14,28 @@ def add_features(
     df: pd.DataFrame,
     *,
     first_term_of_year: types.TermType = constants.DEFAULT_FIRST_TERM_OF_YEAR,  # type: ignore
+    columns: StudentCohortColumns = PDP_STUDENT_COHORT_COLUMNS,
 ) -> pd.DataFrame:
     """
     Compute student-level features from a standardized cohort dataset,
-    and add as columns to ``df`` .
+    and add as columns to ``df``.
 
     Args:
-        df
-        first_term_of_year
+        df: Standardized cohort data.
+        first_term_of_year: First term label in the academic year cycle.
+        columns: Physical column names for this schema (PDP vs ES, etc.).
     """
     LOGGER.info("adding student features ...")
-    # in case somebody drops some/all years, check for which years are present in df
     credits_years = [
-        yr for yr in (1, 2, 3, 4) if f"number_of_credits_earned_year_{yr}" in df.columns
+        yr
+        for yr in (1, 2, 3, 4)
+        if f"{columns.credit_earned_prefix}{yr}" in df.columns
     ]
     return df.assign(
         cohort_id=ft.partial(
-            shared.year_term, year_col="cohort", term_col="cohort_term"
+            shared.year_term,
+            year_col=columns.cohort_year_col,
+            term_col=columns.cohort_term_col,
         ),
         cohort_start_dt=ft.partial(
             shared.year_term_dt,
@@ -37,13 +43,38 @@ def add_features(
             bound="start",
             first_term_of_year=first_term_of_year,
         ),
-        student_is_pell_recipient_first_year=student_is_pell_recipient_first_year,
-        diff_gpa_term_1_to_year_1=diff_gpa_term_1_to_year_1,
+        student_program_of_study_area_term_1=ft.partial(
+            student_program_of_study_area,
+            col=columns.program_of_study_term_1_col,
+        ),
+        student_program_of_study_area_year_1=ft.partial(
+            student_program_of_study_area,
+            col=columns.program_of_study_year_1_col,
+        ),
+        student_program_of_study_changed_term_1_to_year_1=ft.partial(
+            student_program_of_study_changed_term_1_to_year_1,
+            term_col=columns.program_of_study_term_1_col,
+            year_col=columns.program_of_study_year_1_col,
+        ),
+        student_program_of_study_area_changed_term_1_to_year_1=ft.partial(
+            student_program_of_study_changed_term_1_to_year_1,
+            term_col="student_program_of_study_area_term_1",
+            year_col="student_program_of_study_area_year_1",
+        ),
+        student_is_pell_recipient_first_year=ft.partial(
+            student_is_pell_recipient_first_year,
+            pell_col=columns.pell_col,
+        ),
+        diff_gpa_term_1_to_year_1=ft.partial(
+            diff_gpa_term_1_to_year_1,
+            term_col=columns.gpa_term_1_col,
+            year_col=columns.gpa_year_1_col,
+        ),
         **{
             f"frac_credits_earned_year_{yr}": ft.partial(
                 shared.frac_credits_earned,
-                earned_col=f"number_of_credits_earned_year_{yr}",
-                attempted_col=f"number_of_credits_attempted_year_{yr}",
+                earned_col=f"{columns.credit_earned_prefix}{yr}",
+                attempted_col=f"{columns.credit_attempted_prefix}{yr}",
             )
             for yr in credits_years
         },
