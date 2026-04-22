@@ -10,7 +10,6 @@ import sys
 from mlflow.tracking import MlflowClient
 from google.cloud import storage
 from google.api_core.exceptions import Forbidden, NotFound
-import google.auth
 
 # Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
 script_dir = os.getcwd()
@@ -23,38 +22,11 @@ from edvise.shared.dashboard_metadata.pipeline_runs import (
     append_pipeline_run_event,
     parse_timestamp_from_filename,
 )
-from edvise.utils.databricks import get_dbutils, in_databricks
+from edvise.utils.databricks import get_dbutils, get_spark_session_or_none, in_databricks
+from edvise.utils.gcs import active_gcp_identity
 from edvise.shared.logger import local_fs_path
 
 # Model names from get_model_name() are already UC-compatible
-
-
-def active_gcp_identity() -> str:
-    try:
-        creds, _ = google.auth.default()
-        # Best-effort extraction of a principal
-        for attr in (
-            "service_account_email",
-            "service_account_email_address",
-            "service_account",
-        ):
-            if hasattr(creds, attr):
-                return str(getattr(creds, attr))
-        return str(type(creds))
-    except Exception:
-        return "unknown"
-
-
-def get_spark_session_or_none():
-    if not in_databricks():
-        return None
-    try:
-        from pyspark.sql import SparkSession
-
-        return SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
-    except Exception as e:
-        logging.warning("Spark not available: %s", e)
-        return None
 
 
 ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]

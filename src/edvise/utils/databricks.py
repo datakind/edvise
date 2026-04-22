@@ -57,10 +57,18 @@ def get_dbutils() -> t.Optional[Any]:
         return None
 
 
-import logging
-import typing as t
-
-LOGGER = logging.getLogger(__name__)
+def get_spark_session_or_none() -> t.Optional[Any]:
+    """
+    Return an active or new :class:`pyspark.sql.SparkSession` on Databricks; ``None``
+    when not in a DBR context or Spark is unavailable.
+    """
+    if not in_databricks():
+        return None
+    try:
+        return SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
+    except Exception as e:
+        logging.warning("Spark not available: %s", e)
+        return None
 
 
 def get_db_widget_param(name: str, *, default: t.Optional[object] = None) -> object:
