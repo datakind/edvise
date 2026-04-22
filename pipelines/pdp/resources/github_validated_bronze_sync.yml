@@ -1,0 +1,72 @@
+resources:
+  jobs:
+    edvise_validated_gcs_to_bronze_sync:
+      name: edvise_validated_gcs_to_bronze_sync
+      webhook_notifications:
+        on_failure:
+          - id: ${var.inference_slack_webhook_id}
+      max_concurrent_runs: 10
+      tasks:
+        - task_key: sync_validated_to_bronze
+          spark_python_task:
+            python_file: src/edvise/scripts/gcs_validated_to_bronze_sync.py
+            source: GIT
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --sync_run_id
+              - "{{job.parameters.sync_run_id}}"
+              - --gcs_source_prefix
+              - "{{job.parameters.gcs_source_prefix}}"
+              - --bronze_subdir
+              - "{{job.parameters.bronze_subdir}}"
+          job_cluster_key: edvise-validated-bronze-sync-cluster
+          libraries:
+            - pypi:
+                package: google-cloud-storage==2.19.0
+      job_clusters:
+        - job_cluster_key: edvise-validated-bronze-sync-cluster
+          new_cluster:
+            cluster_name: ""
+            spark_version: 15.4.x-cpu-ml-scala2.12
+            spark_conf:
+              spark.master: local[*, 4]
+              spark.databricks.cluster.profile: singleNode
+            gcp_attributes:
+              use_preemptible_executors: false
+              availability: ON_DEMAND_GCP
+              zone_id: HA
+            node_type_id: n2-standard-8
+            custom_tags:
+              ResourceClass: SingleNode
+              x-databricks-nextgen-cluster: "true"
+            enable_elastic_disk: true
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            num_workers: 0
+      queue:
+        enabled: true
+      parameters:
+        - name: DB_workspace
+          default: ${var.DB_workspace}
+        - name: databricks_institution_name
+          default: ${var.databricks_institution_name}
+        - name: gcp_bucket_name
+          default: ""
+        - name: sync_run_id
+          default: "{{job.run_id}}"
+        - name: gcs_source_prefix
+          default: validated/
+        - name: bronze_subdir
+          default: gcs_validated_sync
+      permissions:
+        - group_name: ${var.datakind_group_to_manage_workflow}
+          level: CAN_MANAGE
+        - service_principal_name: ${var.ds_run_as}
+          level: CAN_MANAGE
+        - user_name: ${var.service_account_executer}
+          level: CAN_MANAGE
