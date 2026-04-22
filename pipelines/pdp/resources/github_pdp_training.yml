@@ -97,7 +97,9 @@ resources:
               - --job_type
               - "{{job.parameters.job_type}}"
               - --db_run_id
-              - "{{job.parameters.db_run_id}}"          
+              - "{{job.parameters.db_run_id}}"
+              - --inst_schema
+              - "{{job.parameters.inst_schema}}"
           job_cluster_key: edvise-pdp-training-pipeline-cluster
           libraries:
             - pypi:
@@ -135,6 +137,8 @@ resources:
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
+              - --inst_schema
+              - "{{job.parameters.inst_schema}}"
           job_cluster_key: edvise-pdp-training-pipeline-cluster
           libraries:
             - pypi:
@@ -170,6 +174,8 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
+              - --inst_schema
+              - "{{job.parameters.inst_schema}}"
           job_cluster_key: edvise-pdp-training-pipeline-cluster
           libraries:
             - pypi:
@@ -208,6 +214,8 @@ resources:
               - "{{job.parameters.db_run_id}}"
               - --config_file_name
               - "{{job.parameters.config_file_name}}"
+              - --inst_schema
+              - "{{job.parameters.inst_schema}}"
           job_cluster_key: edvise-pdp-training-pipeline-cluster
           libraries:
             - pypi:
@@ -332,6 +340,8 @@ resources:
           default: ${var.service_account_executer}
         - name: job_type
           default: training
+        - name: inst_schema
+          default: ${var.inst_schema}
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
