@@ -889,7 +889,7 @@ def validate_ids_terms_consistency(
     }
 
 
-def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
+def find_dupes(df: pd.DataFrame, primary_keys: list[str]) -> pd.DataFrame:
     """
     Find duplicate rows by key columns and print a summary of column-level conflicts
     within duplicate groups.
@@ -899,7 +899,7 @@ def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
     dupes : pd.DataFrame
         All rows involved in duplicate key groups (sorted by student_id)
     """
-    dupes = df[df.duplicated(subset=key_cols, keep=False)].copy()
+    dupes = df[df.duplicated(subset=primary_keys, keep=False)].copy()
 
     # Always sort by student_id (guard in case column missing)
     if "student_id" in dupes.columns:
@@ -910,7 +910,7 @@ def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
     pct_dupes = (dupe_rows / total_rows * 100) if total_rows > 0 else 0.0
 
     print(
-        f"{dupe_rows} duplicate rows based on {key_cols} "
+        f"{dupe_rows} duplicate rows based on {primary_keys} "
         f"({pct_dupes:.2f}% of {total_rows} total rows)"
     )
 
@@ -919,7 +919,7 @@ def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
         print(conflicts)
         return dupes
 
-    grp = dupes.groupby(key_cols, dropna=False)
+    grp = dupes.groupby(primary_keys, dropna=False)
 
     # does each column conflict within each dup group?
     conflict = grp.nunique(dropna=False) > 1
@@ -970,11 +970,24 @@ def check_earned_vs_attempted(
     anomalies["earned_gt_attempted"] = earned_gt_attempted[mask]
     anomalies["earned_when_no_attempt"] = earned_when_no_attempt[mask]
 
+    total_rows = len(df)
+    n_earned_gt = int(earned_gt_attempted.sum())
+    n_earned_no_attempt = int(earned_when_no_attempt.sum())
+    n_total = int(mask.sum())
     summary = pd.DataFrame(
         {
-            "earned_gt_attempted": [int(earned_gt_attempted.sum())],
-            "earned_when_no_attempt": [int(earned_when_no_attempt.sum())],
-            "total_anomalous_rows": [int(mask.sum())],
+            "earned_gt_attempted": [n_earned_gt],
+            "earned_gt_attempted_pct": [
+                round(100 * n_earned_gt / total_rows, 2) if total_rows else 0
+            ],
+            "earned_when_no_attempt": [n_earned_no_attempt],
+            "earned_when_no_attempt_pct": [
+                round(100 * n_earned_no_attempt / total_rows, 2) if total_rows else 0
+            ],
+            "total_anomalous_rows": [n_total],
+            "total_anomalous_rows_pct": [
+                round(100 * n_total / total_rows, 2) if total_rows else 0
+            ],
         }
     )
 
@@ -1140,13 +1153,22 @@ def validate_credit_consistency(
             | cchk["earned_negative"]
         ]
 
+        total_course_rows = len(cchk)
+        n_anomalies = int(len(course_anomalies))
         course_anomalies_summary = {
-            "rows_checked": int(len(cchk)),
-            "rows_with_anomalies": int(len(course_anomalies)),
+            "rows_checked": total_course_rows,
+            "rows_with_anomalies": n_anomalies,
+            "pct_of_data": round(100 * n_anomalies / total_course_rows, 2)
+            if total_course_rows
+            else 0,
         }
 
         if len(course_anomalies) > 0:
-            LOGGER.warning("Detected %d course-level anomalies", len(course_anomalies))
+            LOGGER.warning(
+                "Detected %d course-level anomalies (%.2f%% of course data)",
+                len(course_anomalies),
+                course_anomalies_summary["pct_of_data"],
+            )
         else:
             LOGGER.info("No course-level credit anomalies detected")
 
@@ -1218,9 +1240,12 @@ def validate_credit_consistency(
 
         mismatches = merged.loc[mismatch_mask]
 
+        total_sem = int(len(s))
+        n_mismatched = int(len(mismatches))
         reconciliation_summary = {
-            "total_semester_rows": int(len(s)),
-            "mismatched_rows": int(len(mismatches)),
+            "total_semester_rows": total_sem,
+            "mismatched_rows": n_mismatched,
+            "pct_of_data": round(100 * n_mismatched / total_sem, 2) if total_sem else 0,
         }
 
         # 🔹 Clean summary logging
@@ -1258,7 +1283,23 @@ def validate_credit_consistency(
         cohort_anomalies_summary = cohort_checks.get("summary")
 
         if isinstance(cohort_anomalies, pd.DataFrame) and len(cohort_anomalies) > 0:
-            LOGGER.warning("Detected %d cohort-level anomalies", len(cohort_anomalies))
+            pct = None
+            if (
+                cohort_anomalies_summary is not None
+                and isinstance(cohort_anomalies_summary, pd.DataFrame)
+                and "total_anomalous_rows_pct" in cohort_anomalies_summary.columns
+            ):
+                pct = cohort_anomalies_summary["total_anomalous_rows_pct"].iloc[0]
+            if pct is not None:
+                LOGGER.warning(
+                    "Detected %d cohort-level anomalies (%.2f%% of cohort data)",
+                    len(cohort_anomalies),
+                    pct,
+                )
+            else:
+                LOGGER.warning(
+                    "Detected %d cohort-level anomalies", len(cohort_anomalies)
+                )
         else:
             LOGGER.info("No cohort-level credit anomalies detected")
 
@@ -1413,21 +1454,37 @@ def check_pf_grade_consistency(
     anomalies["grade_pf_disagree"] = rows_with_grade_pf_disagree.loc[anomalies.index]
 
     # Summary
+    total_rows = len(df)
+    n_earned_failing = int(rows_with_earned_with_failing_pf.sum())
+    n_no_credits_passing = int(rows_with_no_credits_with_passing.sum())
+    n_grade_pf_disagree = int(rows_with_grade_pf_disagree.sum())
+    n_total = int(mask.sum())
     summary = pd.DataFrame(
         {
-            "earned_with_failing_grade": [int(rows_with_earned_with_failing_pf.sum())],
-            "no_credits_with_passing_grade": [
-                int(rows_with_no_credits_with_passing.sum())
+            "earned_with_failing_grade": [n_earned_failing],
+            "earned_with_failing_grade_pct": [
+                round(100 * n_earned_failing / total_rows, 2) if total_rows else 0
             ],
-            "grade_pf_disagree": [int(rows_with_grade_pf_disagree.sum())],
-            "total_anomalous_rows": [int(mask.sum())],
+            "no_credits_with_passing_grade": [n_no_credits_passing],
+            "no_credits_with_passing_grade_pct": [
+                round(100 * n_no_credits_passing / total_rows, 2) if total_rows else 0
+            ],
+            "grade_pf_disagree": [n_grade_pf_disagree],
+            "grade_pf_disagree_pct": [
+                round(100 * n_grade_pf_disagree / total_rows, 2) if total_rows else 0
+            ],
+            "total_anomalous_rows": [n_total],
+            "total_anomalous_rows_pct": [
+                round(100 * n_total / total_rows, 2) if total_rows else 0
+            ],
         }
     )
 
     if summary["total_anomalous_rows"].iloc[0] > 0:
         LOGGER.warning(
-            "Detected %d PF/grade consistency anomalies",
+            "Detected %d PF/grade consistency anomalies (%.2f%% of data)",
             summary["total_anomalous_rows"].iloc[0],
+            summary["total_anomalous_rows_pct"].iloc[0],
         )
     else:
         LOGGER.info("No PF/grade consistency anomalies detected")
@@ -1439,6 +1496,7 @@ def check_pf_grade_consistency(
 def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") -> None:
     """
     Logs value counts of the 'grade' column and flags if 'M' grades exceed 5%.
+    Also flags when grades contain only status codes (P, F, I, W, A, M, O) and no numeric grades.
 
     Args:
         df (pd.DataFrame): The course or student dataset.
@@ -1448,13 +1506,38 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
         - Value counts for all grades
         - Percentage of 'M' grades
         - Warning if 'M' grades exceed 5% of all non-null grades
+        - Warning if no numeric grades exist (only status-only grades like P, F, I, W, A, M, O)
     """
-    grade_col = validate_optional_column(df_course, grade_col, "grade", logger=LOGGER)
-    if grade_col is None:
+    # Status-only grades: P=Pass, F=Fail, I=Incomplete, W=Withdraw, A=Audit, M=Missing, O=Other.
+    status_only_grades = frozenset({"P", "F", "I", "W", "A", "M", "O"})
+    gpa_letter_grades = frozenset(
+        {"A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-"}
+    )
+
+    def grade_is_numeric(val: t.Any) -> bool:
+        """True if grade has a numeric GPA equivalent (float or GPA letter)."""
+        if pd.isna(val):
+            return False
+        s = str(val).strip().upper()
+        if not s:
+            return False
+        if s in status_only_grades:
+            return False
+        coerced = pd.to_numeric(s, errors="coerce")
+        if not pd.isna(coerced):
+            return True
+        if s in gpa_letter_grades:
+            return True
+        return False
+
+    resolved_grade_col = validate_optional_column(
+        df_course, grade_col, "grade", logger=LOGGER
+    )
+    if resolved_grade_col is None:
         return
 
-    grade_counts = df_course[grade_col].value_counts(dropna=False).sort_index()
-    total_grades = df_course[grade_col].notna().sum()
+    grade_counts = df_course[resolved_grade_col].value_counts(dropna=False).sort_index()
+    total_grades = df_course[resolved_grade_col].notna().sum()
 
     LOGGER.info("Grade value counts:\n%s", grade_counts.to_string())
 
@@ -1472,6 +1555,20 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
             LOGGER.info("'M' grades: %d (%.1f%% of non-null grades).", m_count, m_pct)
     else:
         LOGGER.info("'M' grade not found or no valid grade data available.")
+
+    if total_grades > 0:
+        grades_series = (
+            df_course[resolved_grade_col].astype("string").str.strip().str.upper()
+        )
+        any_numeric = grades_series.apply(grade_is_numeric).any()
+        if not any_numeric:
+            unique_vals = sorted(grades_series.dropna().unique())
+            LOGGER.warning(
+                "No numeric grades detected. Grades are only status codes (e.g. P=Pass, F=Fail, "
+                "I=Incomplete, W=Withdraw, A=Audit, M=Missing, O=Other). Unique values: %s. "
+                "Analytics that depend on numeric course grades (e.g. GPA, mean grade) will be unusable.",
+                unique_vals,
+            )
 
 
 def order_terms(
@@ -1664,13 +1761,15 @@ def drop_unpopulated_bias_columns(
     return out
 
 
-def duplicate_conflict_columns(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
-    dup = df[df.duplicated(subset=key_cols, keep=False)]
+def duplicate_conflict_columns(
+    df: pd.DataFrame, primary_keys: list[str]
+) -> pd.DataFrame:
+    dup = df[df.duplicated(subset=primary_keys, keep=False)]
 
     if dup.empty:
         return pd.DataFrame(columns=["column", "pct_conflicting_groups"])
 
-    grp = dup.groupby(key_cols, dropna=False)
+    grp = dup.groupby(primary_keys, dropna=False)
 
     # For each group + column: does this column conflict?
     conflict = grp.nunique(dropna=False) > 1

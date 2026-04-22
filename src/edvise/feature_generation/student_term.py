@@ -19,6 +19,43 @@ _DEFAULT_STUDENT_TERM_AGG_COLS = StudentTermAggregationColumns()
 _DEFAULT_STUDENT_TERM_FEATURE_COLS = StudentTermFeatureColumns()
 
 
+def _changed_prev_term(
+    df: pd.DataFrame,
+    *,
+    col: str,
+    student_id_cols: list[str] = ["institution_id", "student_id"],
+    term_rank_col: str = "term_rank",
+) -> pd.Series:
+    """
+    For each student-term row, True if value changed from the previous term;
+    False for first term or if unchanged.
+    """
+    df_sorted = df.sort_values(student_id_cols + [term_rank_col])
+    prev_val = df_sorted.groupby(student_id_cols, observed=True)[col].shift(1)
+    changed = prev_val.notna() & df_sorted[col].ne(prev_val)
+    return changed.reindex(df.index).fillna(False).astype("boolean")
+
+
+def term_program_of_study_changed_prev_term(
+    df: pd.DataFrame,
+    *,
+    col: str = "term_program_of_study",
+    **kwargs: t.Any,
+) -> pd.Series:
+    """True if program of study (full CIP) changed from previous term."""
+    return _changed_prev_term(df, col=col, **kwargs)
+
+
+def term_program_of_study_area_changed_prev_term(
+    df: pd.DataFrame,
+    *,
+    area_col: str = "term_program_of_study_area",
+    **kwargs: t.Any,
+) -> pd.Series:
+    """True if program of study area changed from previous term."""
+    return _changed_prev_term(df, col=area_col, **kwargs)
+
+
 def aggregate_from_course_level_features(
     df: pd.DataFrame,
     *,
@@ -177,11 +214,7 @@ def add_features(
         [col for col in df.columns if col.startswith(f"{nc_prefix}_")]
         +
         # also include num-course cols to be added below
-        [
-            "num_courses_in_program_of_study_area_term_1",
-            "num_courses_in_program_of_study_area_year_1",
-            "num_courses_in_term_program_of_study_area",
-        ]
+        ["num_courses_in_term_program_of_study_area"]
     )
     num_frac_courses_cols = [
         (col, col.replace(f"{nc_prefix}_", f"{fc_prefix}_")) for col in _num_course_cols
@@ -277,7 +310,10 @@ def add_features(
             ),
         }
     )
-    return df.assign(**feature_name_funcs)
+    return df.assign(**feature_name_funcs).assign(
+        term_program_of_study_changed_prev_term=term_program_of_study_changed_prev_term,
+        term_program_of_study_area_changed_prev_term=term_program_of_study_area_changed_prev_term,
+    )
 
 
 def year_of_enrollment_at_cohort_inst(

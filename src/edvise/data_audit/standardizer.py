@@ -75,8 +75,10 @@ class PDPCohortStandardizer(BaseStandardizer):
             "employment_status",
             "disability_status",
             "naspa_first_generation",
-            # redundant
+            # redundant; we have course dataset fields/features for these i.e "program_of_study"
             "attendance_status_term_1",
+            "program_of_study_year_1",
+            "program_of_study_term_1",
             # covered indirectly by course dataset fields/features
             "gateway_math_status",
             "gateway_english_status",
@@ -188,11 +190,11 @@ class ESCohortStandardizer(BaseStandardizer):
         # Finds and logs duplicates on primary keys; runs drop_readmits, then keep_earlier_record if needed
         primary_keys = ["student_id", "cohort_term"]
         LOGGER.info("Checking for cohort file duplicates on %s...", primary_keys)
-        find_dupes(df, key_cols=primary_keys)
+        find_dupes(df, primary_keys)
         LOGGER.info("Dropping readmits")
         df = drop_readmits(df)
         LOGGER.info("Dropped readmits: checking again for duplicates...")
-        dupes = find_dupes(df, key_cols=primary_keys)
+        dupes = find_dupes(df, primary_keys)
         if len(dupes) == 0:
             LOGGER.info("No duplicates found after dropping readmits.")
         else:
@@ -200,7 +202,7 @@ class ESCohortStandardizer(BaseStandardizer):
             LOGGER.info(
                 "Duplicates still found; running keep_earlier_record; checking again for duplicates..."
             )
-            dupes = find_dupes(df, key_cols=primary_keys)
+            dupes = find_dupes(df, primary_keys)
             if len(dupes) == 0:
                 LOGGER.info("No duplicates found after keep_earlier_record.")
             else:
@@ -235,7 +237,7 @@ class ESCourseStandardizer(BaseStandardizer):
         # Finds and logs duplicates on primary keys; runs handling_duplicates
         primary_keys = ["student_id", "term", "course_subject", "course_num"]
         LOGGER.info("Checking for course file duplicates on %s...", primary_keys)
-        find_dupes(df, key_cols=primary_keys)
+        find_dupes(df, primary_keys)
         df = handling_duplicates(df, schema_type="es", unique_cols=primary_keys)
 
         # Runs check_pf_grade_consistency func

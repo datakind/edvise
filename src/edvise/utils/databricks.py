@@ -112,8 +112,15 @@ def mock_pandera():
     m1.check = check  # type: ignore
     m2.Series = Series  # type: ignore
 
+    m3 = types.ModuleType("pandera.errors")
+
+    class SchemaErrors(Exception): ...
+
+    m3.SchemaErrors = SchemaErrors  # type: ignore
+
     sys.modules[m1.__name__] = m1
     sys.modules[m2.__name__] = m2
+    sys.modules[m3.__name__] = m3
 
 
 def in_databricks() -> bool:

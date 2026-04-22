@@ -81,16 +81,6 @@ def add_features(
     )
 
 
-def student_program_of_study_area(df: pd.DataFrame, *, col: str) -> pd.Series:
-    return shared.extract_short_cip_code(df[col])
-
-
-def student_program_of_study_changed_term_1_to_year_1(
-    df: pd.DataFrame, *, term_col: str, year_col: str
-) -> pd.Series:
-    return df[term_col].ne(df[year_col]).astype("boolean")
-
-
 def student_is_pell_recipient_first_year(
     df: pd.DataFrame,
     *,

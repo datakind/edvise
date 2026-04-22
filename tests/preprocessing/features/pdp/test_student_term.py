@@ -372,6 +372,21 @@ def test_term_is_pre_cohort(df, ccol, tcol, exp):
             "study_area_year_1",
             pd.Series([3, 0, 0, 0], dtype="Int8"),
         ),
+        (
+            pd.DataFrame(
+                {
+                    "term_program_of_study_area": ["24", "27", "24", "51"],
+                    "course_subject_areas": [
+                        ["24", "24", "27"],
+                        ["27", "51"],
+                        ["24", "24", "24"],
+                        ["51", "51", "24"],
+                    ],
+                }
+            ).astype({"term_program_of_study_area": "string"}),
+            "term_program_of_study_area",
+            pd.Series([2, 1, 3, 2], dtype="Int8"),
+        ),
     ],
 )
 def test_num_courses_in_study_area(df, study_area_col, exp):
@@ -616,3 +631,57 @@ def test_cumulative_list_aggregation():
     student_term_ranks_enrolled = [1, 2, 4, 5, 10]
     result = student_term._cumulative_list_aggregation(student_term_ranks_enrolled)
     assert result == [[1], [1, 2], [1, 2, 4], [1, 2, 4, 5], [1, 2, 4, 5, 10]]
+
+
+@pytest.mark.parametrize(
+    ["df", "exp"],
+    [
+        (
+            pd.DataFrame(
+                {
+                    "student_guid": ["123", "123", "123", "456", "456"],
+                    "term_rank": [0, 1, 2, 0, 1],
+                    "term_program_of_study_area": ["24", "24", "27", "51", "51"],
+                }
+            ),
+            pd.Series([False, False, True, False, False], dtype="boolean"),
+        ),
+        (
+            pd.DataFrame(
+                {
+                    "student_guid": ["123", "123"],
+                    "term_rank": [0, 1],
+                    "term_program_of_study_area": ["24", "27"],
+                }
+            ),
+            pd.Series([False, True], dtype="boolean"),
+        ),
+    ],
+)
+def test_term_program_of_study_area_changed_prev_term(df, exp):
+    obs = student_term.term_program_of_study_area_changed_prev_term(
+        df, student_id_cols=["student_guid"]
+    )
+    pd.testing.assert_series_equal(obs, exp, check_names=False)
+
+
+@pytest.mark.parametrize(
+    ["df", "exp"],
+    [
+        (
+            pd.DataFrame(
+                {
+                    "student_guid": ["123", "123", "123"],
+                    "term_rank": [0, 1, 2],
+                    "term_program_of_study": ["24.0101", "24.0101", "27.0501"],
+                }
+            ),
+            pd.Series([False, False, True], dtype="boolean"),
+        ),
+    ],
+)
+def test_term_program_of_study_changed_prev_term(df, exp):
+    obs = student_term.term_program_of_study_changed_prev_term(
+        df, student_id_cols=["student_guid"]
+    )
+    pd.testing.assert_series_equal(obs, exp, check_names=False)
