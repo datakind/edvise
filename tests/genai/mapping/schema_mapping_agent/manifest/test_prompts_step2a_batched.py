@@ -46,7 +46,7 @@ def _minimal_institution_schema_contract() -> dict:
 
 def _minimal_reference_manifest() -> dict:
     return {
-        "schema_version": "0.1.0",
+        "pipeline_version": "0.2.0",
         "institution_id": "ref",
         "manifests": {
             "cohort": {
@@ -67,7 +67,6 @@ def test_step2a_batched_token_total_below_two_entity_passes():
     """Shared blocks are duplicated across cohort_pass + course_pass; batched sends them once."""
     kwargs = dict(
         institution_id="test_cc",
-        institution_name="Test College",
         output_path="s3://bucket/manifest.json",
         institution_schema_contract=_minimal_institution_schema_contract(),
         reference_manifests=[_minimal_reference_manifest()],
@@ -92,7 +91,6 @@ def test_step2a_batched_token_total_below_two_entity_passes():
 def test_build_step2a_batched_prompt_includes_envelope_and_part_labels():
     text = build_step2a_batched_prompt(
         institution_id="test_cc",
-        institution_name="Test College",
         output_path="s3://bucket/manifest.json",
         institution_schema_contract=_minimal_institution_schema_contract(),
         reference_manifests=[_minimal_reference_manifest()],
@@ -102,13 +100,13 @@ def test_build_step2a_batched_prompt_includes_envelope_and_part_labels():
     assert "MappingManifestEnvelope" in text
     assert "PART 1: Cohort (RawEdviseStudentDataSchema)" in text
     assert "PART 2: Course (RawEdviseCourseDataSchema)" in text
-    assert "Respond with valid JSON matching MappingManifestEnvelope." in text
+    assert "omit release/institution envelope fields" in text
+    assert "institution_id=test_cc" in text
 
 
 def test_audit_step2a_batched_prompt_section_breakdown():
     out = audit_step2a_batched_prompt(
         institution_id="test_cc",
-        institution_name="Test College",
         output_path="s3://bucket/manifest.json",
         institution_schema_contract=_minimal_institution_schema_contract(),
         reference_manifests=[_minimal_reference_manifest()],

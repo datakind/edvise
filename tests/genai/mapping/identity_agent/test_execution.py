@@ -339,7 +339,7 @@ def test_missing_key_columns_raises():
 
 
 def test_apply_grain_dedup_resolves_term_desc_prefix_to_term_descr():
-    """Grain contract typo / abbreviation vs normalized header (e.g. UCF TERM_DESCR)."""
+    """Grain contract typo / abbreviation vs normalized header (e.g. TERM_DESCR vs term_descr)."""
     df = pd.DataFrame(
         {
             "learner_id": ["a", "a"],

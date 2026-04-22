@@ -47,13 +47,13 @@ IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING = True
 
 # Institution configuration — keep in sync with manifest.eval defaults unless testing 2b only
 TARGET_INSTITUTION = {
-    "id": "lee_col",
-    "name": "Lee College",
+    "id": "synthetic_coastal_cc",
+    "name": "Synthetic Coastal Community College",
 }
 
 REFERENCE_INSTITUTION = {
-    "id": "uni_of_central_florida",
-    "name": "University of Central Florida",
+    "id": "synthetic_metro_research_uni",
+    "name": "Synthetic Metro Research University",
 }
 
 
@@ -489,14 +489,14 @@ def validate_transformation_wrapper(m: dict) -> tuple[bool, str | None]:
     """Validate full JSON with cohort + course sections."""
     try:
         inst = m.get("institution_id")
-        sv = m.get("schema_version", "0.1.0")
+        pv = m.get("pipeline_version") or m.get("schema_version", "0.1.0")
         for entity in ("cohort", "course"):
             sec = m.get("transformation_maps", {}).get(entity)
             if not sec:
                 return False, f"Missing transformation_maps.{entity}"
             TransformationMap.model_validate(
                 {
-                    "schema_version": sv,
+                    "pipeline_version": pv,
                     "institution_id": inst,
                     "entity_type": sec["entity_type"],
                     "target_schema": sec["target_schema"],
@@ -609,15 +609,13 @@ def run():
     try:
         RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
         target_id = TARGET_INSTITUTION["id"]
-        target_name = TARGET_INSTITUTION["name"]
         reference_id = REFERENCE_INSTITUTION["id"]
-        reference_name = REFERENCE_INSTITUTION["name"]
 
         logger.info("=" * 80)
         logger.info("2b TRANSFORMATION MAP EVALUATION")
         logger.info("=" * 80)
-        logger.info(f"Target: {target_name} ({target_id})")
-        logger.info(f"Reference: {reference_name} ({reference_id})")
+        logger.info(f"Target institution_id: {target_id}")
+        logger.info(f"Reference institution_id: {reference_id}")
         logger.info(f"Project root (eval cwd): {project_root}")
 
         HISTORICAL_BASE = Path(
@@ -663,14 +661,13 @@ def run():
 
         PROMPT = build_step2b_prompt(
             institution_id=target_id,
-            institution_name=target_name,
             output_path=f"pipelines/gen_ai_cleaning/historical_examples/{target_id}/v0/{target_id}_transformation_map.json",
             institution_mapping_manifest=institution_mapping_manifest,
             institution_schema_contract=target_contract,
             cohort_schema_class=RawEdviseStudentDataSchema,
             course_schema_class=RawEdviseCourseDataSchema,
             reference_transformation_maps=[reference_transformation_map],
-            reference_institution_names=[reference_name],
+            reference_institution_ids=[reference_id],
         )
 
         TOKEN = os.environ.get("DATABRICKS_TOKEN")

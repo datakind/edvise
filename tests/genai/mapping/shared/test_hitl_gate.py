@@ -19,7 +19,7 @@ def test_raise_if_hitl_pending_noop_when_empty(tmp_path: Path) -> None:
 
 
 def test_raise_if_hitl_pending_raises(tmp_path: Path) -> None:
-    p = tmp_path / "grain_hitl.json"
+    p = tmp_path / "identity_grain_hitl.json"
     with pytest.raises(HITLBlockingError) as excinfo:
         raise_if_hitl_pending(
             ["a"],
@@ -29,5 +29,5 @@ def test_raise_if_hitl_pending_raises(tmp_path: Path) -> None:
         )
     msg = str(excinfo.value)
     assert "1 unreviewed" in msg
-    assert "grain_hitl.json" in msg
+    assert "identity_grain_hitl.json" in msg
     assert "[a] blocked" in msg

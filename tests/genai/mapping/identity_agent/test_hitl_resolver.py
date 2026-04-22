@@ -899,12 +899,12 @@ def test_hitl_item_hook_group_tables_requires_hook_group_id():
 
 def test_institution_hitl_items_accepts_structured_grain_hitl_context():
     raw = {
-        "institution_id": "uni_of_central_florida",
+        "institution_id": "synthetic_metro_research_uni",
         "domain": "grain",
         "items": [
             {
-                "item_id": "uni_of_central_florida_student_grain_ambiguity",
-                "institution_id": "uni_of_central_florida",
+                "item_id": "synthetic_metro_research_uni_student_grain_ambiguity",
+                "institution_id": "synthetic_metro_research_uni",
                 "table": "student",
                 "domain": "identity_grain",
                 "hook_group_id": None,
@@ -960,7 +960,7 @@ def test_institution_hitl_items_accepts_structured_grain_hitl_context():
                     },
                 ],
                 "target": {
-                    "institution_id": "uni_of_central_florida",
+                    "institution_id": "synthetic_metro_research_uni",
                     "table": "student",
                     "config": "grain_contract",
                     "field": "dedup_policy",

@@ -5,9 +5,16 @@ from __future__ import annotations
 import inspect
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
-from ..manifest.schemas import EntityType, ReviewStatus, StrictBaseModel
+from edvise.genai.mapping.shared.pipeline_artifacts import resolve_pipeline_version
+
+from ..manifest.schemas import (
+    EntityType,
+    ReviewStatus,
+    StrictBaseModel,
+    _omit_field_blocks_from_class_source,
+)
 
 
 class CastNullableIntStep(StrictBaseModel):
@@ -305,7 +312,15 @@ class FieldTransformationPlan(StrictBaseModel):
 
 
 class TransformationMap(StrictBaseModel):
-    schema_version: str = Field(default="0.1.0")
+    """
+    Per-entity transformation map. Release and institution identifiers are injected by the
+    pipeline after the Step 2b LLM; the model authors entity_type, target_schema, and plans.
+    """
+
+    pipeline_version: str = Field(
+        default_factory=resolve_pipeline_version,
+        description="Edvise/git release — set by the pipeline, not the LLM.",
+    )
     institution_id: str = Field(..., description="Institution identifier")
     entity_type: EntityType = Field(..., description="cohort or course")
     target_schema: str = Field(..., description="Target schema name")
@@ -319,6 +334,17 @@ class TransformationMap(StrictBaseModel):
         ),
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_schema_version_key(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        d = dict(data)
+        legacy, current = "schema_version", "pipeline_version"
+        if legacy in d and current not in d:
+            d[current] = d.pop(legacy)
+        return d
+
     @field_validator("plans")
     @classmethod
     def target_fields_must_be_unique(
@@ -330,6 +356,17 @@ class TransformationMap(StrictBaseModel):
                 "Each target_field must appear only once in the transformation map"
             )
         return v
+
+
+_AGENT_EXCLUDED_TM_TOP_FIELDS = frozenset({"pipeline_version", "institution_id"})
+
+
+def _transformation_map_source_for_agent_prompt() -> str:
+    """Hide pipeline-injected fields so Step 2b prompts do not show them to the LLM."""
+    return _omit_field_blocks_from_class_source(
+        inspect.getsource(TransformationMap),
+        _AGENT_EXCLUDED_TM_TOP_FIELDS,
+    )
 
 
 def get_transformation_map_schema_context() -> str:
@@ -370,7 +407,10 @@ def get_transformation_map_schema_context() -> str:
     sections = []
     for model in models:
         try:
-            source = inspect.getsource(model)
+            if model is TransformationMap:
+                source = _transformation_map_source_for_agent_prompt()
+            else:
+                source = inspect.getsource(model)
             sections.append(source)
         except (OSError, TypeError):
             pass

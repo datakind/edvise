@@ -25,6 +25,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
 from edvise.genai.mapping.shared.hitl.confidence import (
     PIPELINE_HITL_CONFIDENCE_THRESHOLD,
 )
+from edvise.genai.mapping.shared.pipeline_artifacts import resolve_pipeline_version
 
 
 def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
@@ -144,7 +145,10 @@ def slim_reference_manifest(manifest: dict) -> dict:
         "review_status",
     }
 
-    slimmed = {k: v for k, v in manifest.items() if k != "manifests"}
+    _omit_top = frozenset(
+        {"manifests", "schema_version", "pipeline_version", "institution_id"}
+    )
+    slimmed = {k: v for k, v in manifest.items() if k not in _omit_top}
     slimmed["manifests"] = {}
 
     for entity, entity_manifest in manifest.get("manifests", {}).items():
@@ -272,7 +276,7 @@ COURSE academic_year AND academic_term — decision hierarchy (apply in order)
 
 
 def _step2a_rules_after_structure(
-    institution_name: str,
+    institution_id: str,
     *,
     column_aliases_scope: Literal["single_pass", "entity_pass"],
     term_rules: Literal[
@@ -302,8 +306,8 @@ def _step2a_rules_after_structure(
         term_blocks = _step2a_course_academic_term_rules()
 
     return f"""SOURCE COLUMNS
-- Use only source columns and tables present in the {institution_name} schema contract
-- Do not use any {institution_name} codebase or prior cleaning scripts as a reference
+- Use only source columns and tables present in the {institution_id} schema contract
+- Do not use any {institution_id} codebase or prior cleaning scripts as a reference
 - Flag unmappable fields with source_column: null, source_table: null, row_selection: null
 
 
@@ -531,20 +535,20 @@ Output only that object — valid JSON throughout."""
 
 def _step2a_reference_blocks(
     reference_manifests: list[dict],
-    reference_institution_names: list[str] | None,
+    reference_institution_ids: list[str] | None,
 ) -> tuple[list[str], str]:
-    if reference_institution_names is None:
-        reference_institution_names = [
+    if reference_institution_ids is None:
+        reference_institution_ids = [
             m.get("institution_id", f"reference_{i}")
             for i, m in enumerate(reference_manifests)
         ]
     blocks = "\n\n".join(
-        f'<reference_manifest institution="{name}" role="structural_reference_only">\n'
+        f'<reference_manifest institution="{ref_id}" role="structural_reference_only">\n'
         f"{json.dumps(slim_reference_manifest(manifest), indent=2)}\n"
         f"</reference_manifest>"
-        for name, manifest in zip(reference_institution_names, reference_manifests)
+        for ref_id, manifest in zip(reference_institution_ids, reference_manifests)
     )
-    return reference_institution_names, blocks
+    return reference_institution_ids, blocks
 
 
 def merge_step2a_entity_manifests(
@@ -552,7 +556,7 @@ def merge_step2a_entity_manifests(
     course_pass: dict,
     *,
     institution_id: str | None = None,
-    schema_version: str = "0.1.0",
+    pipeline_version: str | None = None,
 ) -> dict:
     """
     Merge cohort-only and course-only Step 2a JSON objects into one full manifest envelope.
@@ -561,8 +565,7 @@ def merge_step2a_entity_manifests(
     single entity key, or a partial ``FieldMappingManifest``-shaped object (keys
     ``entity_type``, ``target_schema``, ``mappings``, ``column_aliases`` only).
 
-    When passes omit envelope-level fields, supply ``institution_id`` (and optionally
-    ``schema_version``); otherwise they are taken from the cohort pass when present.
+    Supplies ``institution_id`` and ``pipeline_version`` (Edvise/git release) — not from the LLM.
     """
 
     def _extract(pass_dict: dict, role: Literal["cohort", "course"]) -> dict[str, Any]:
@@ -587,14 +590,18 @@ def merge_step2a_entity_manifests(
             "(pass institution_id=... to merge_step2a_entity_manifests)"
         )
 
-    sv = schema_version
-    if "schema_version" in cohort_pass:
-        sv = cohort_pass.get("schema_version", sv)
+    pv = resolve_pipeline_version(pipeline_version)
+    if "pipeline_version" in cohort_pass:
+        pv = str(cohort_pass.get("pipeline_version", pv))
+    elif "pipeline_version" in course_pass:
+        pv = str(course_pass.get("pipeline_version", pv))
+    elif "schema_version" in cohort_pass:
+        pv = str(cohort_pass.get("schema_version", pv))
     elif "schema_version" in course_pass:
-        sv = course_pass.get("schema_version", sv)
+        pv = str(course_pass.get("schema_version", pv))
 
     return {
-        "schema_version": sv,
+        "pipeline_version": pv,
         "institution_id": inst_id,
         "manifests": {
             "cohort": cohort_entity,
@@ -608,13 +615,12 @@ def merge_step2a_entity_manifests(
 
 def collect_step2a_prompt_sections(
     institution_id: str,
-    institution_name: str,
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
     cohort_schema_class: Any,
     course_schema_class: Any,
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
 ) -> dict[str, str]:
@@ -625,18 +631,17 @@ def collect_step2a_prompt_sections(
     ``compact_manifest_schema`` (default True) injects :func:`get_compact_manifest_schema_reference`;
     set False for full Pydantic source via :func:`get_manifest_schema_context`.
     """
-    _ = institution_id  # envelope only; same args as builders for call-site symmetry
     contract_summary = summarize_schema_contract(institution_schema_contract)
     cohort_descriptor = extract_schema_descriptor(cohort_schema_class)
     course_descriptor = extract_schema_descriptor(course_schema_class)
     _, reference_blocks = _step2a_reference_blocks(
-        reference_manifests, reference_institution_names
+        reference_manifests, reference_institution_ids
     )
     contract_json = json.dumps(contract_summary, indent=2)
     cohort_json = json.dumps(cohort_descriptor, indent=2)
     course_json = json.dumps(course_descriptor, indent=2)
     manifest_schema = _manifest_schema_for_prompt(compact=compact_manifest_schema)
-    preamble = f"""Please act as the SchemaMappingAgent and generate a mapping manifest for {institution_name} at:
+    preamble = f"""Please act as the SchemaMappingAgent and generate a mapping manifest for institution_id={institution_id} at:
 {output_path}
 
 The mapping manifest is a machine-consumed specification.
@@ -646,26 +651,26 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 """
     rules = f"""<rules>
 STRUCTURE
-- Match the reference manifest JSON structure exactly (schema_version, institution_id,
-  manifests with cohort + course sections; each section: entity_type, target_schema,
-  mappings array, then column_aliases last)
+- Top-level ``manifests`` with cohort + course sections; each section: entity_type, target_schema,
+  mappings array, then column_aliases last. Do not output top-level release or institution fields —
+  the pipeline adds them when saving.
 - Each mapping entry must include: target_field, source_column, source_table,
   row_selection, confidence, and rationale.
 - Do not include review_status on mapping records — the pipeline assigns it after
   deterministic validation and optional refinement.
 - Do not copy row_selection strategies, filters, or join configurations from the reference manifests —
-  these are institution-specific and must be derived from the {institution_name} schema contract.
+  these are institution-specific and must be derived from the {institution_id} schema contract.
   The reference manifests are structural reference only: use them to understand the expected shape
   of the output and concise rationale (structural mapping reasoning per RATIONALE rules), not as a source of mapping decisions
 
-{_step2a_rules_after_structure(institution_name, column_aliases_scope="single_pass")}
+{_step2a_rules_after_structure(institution_id, column_aliases_scope="single_pass")}
 {_step2a_json_output_rules()}
 {_step2a_prompt_close(generate_line="Generate the complete mapping manifest JSON now.")}"""
     return {
         "preamble": preamble,
         "reference_manifests": reference_blocks,
         "schema_contract": (
-            f'<schema_contract institution="{institution_name}">\n'
+            f'<schema_contract institution="{institution_id}">\n'
             f"{contract_json}\n"
             f"</schema_contract>"
         ),
@@ -702,13 +707,12 @@ def assemble_step2a_prompt_from_sections(sections: dict[str, str]) -> str:
 
 def collect_step2a_prompt_batched_sections(
     institution_id: str,
-    institution_name: str,
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
     cohort_schema_class: Any,
     course_schema_class: Any,
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
 ) -> dict[str, str]:
@@ -719,23 +723,22 @@ def collect_step2a_prompt_batched_sections(
     once — same section layout as :func:`collect_step2a_prompt_sections`, with a batched preamble,
     PART 1 / PART 2 target-schema labels, and a MappingManifestEnvelope-oriented closing line.
     """
-    _ = institution_id
     contract_summary = summarize_schema_contract(institution_schema_contract)
     cohort_descriptor = extract_schema_descriptor(cohort_schema_class)
     course_descriptor = extract_schema_descriptor(course_schema_class)
     _, reference_blocks = _step2a_reference_blocks(
-        reference_manifests, reference_institution_names
+        reference_manifests, reference_institution_ids
     )
     contract_json = json.dumps(contract_summary, indent=2)
     cohort_json = json.dumps(cohort_descriptor, indent=2)
     course_json = json.dumps(course_descriptor, indent=2)
     manifest_schema = _manifest_schema_for_prompt(compact=compact_manifest_schema)
-    preamble = f"""Please act as the SchemaMappingAgent and generate a single batched mapping manifest for {institution_name} at:
+    preamble = f"""Please act as the SchemaMappingAgent and generate a single batched mapping manifest for institution_id={institution_id} at:
 {output_path}
 
 This replaces separate cohort-only and course-only Step 2a passes: produce the full envelope in one LLM call.
 
-Generate a MappingManifestEnvelope with manifests containing BOTH "cohort" and "course" keys.
+Return JSON whose top-level ``manifests`` contains BOTH "cohort" and "course" keys. The pipeline fills release and institution metadata when saving — do not output those top-level fields.
 
 The mapping manifest is a machine-consumed specification.
 A deterministic field executor reads each record and resolves the source Series —
@@ -744,26 +747,26 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 """
     rules = f"""<rules>
 STRUCTURE
-- Match the reference manifest JSON structure exactly (schema_version, institution_id,
-  manifests with cohort + course sections; each section: entity_type, target_schema,
-  mappings array, then column_aliases last)
+- Top-level ``manifests`` with cohort + course sections; each section: entity_type, target_schema,
+  mappings array, then column_aliases last. Do not output top-level release or institution fields —
+  the pipeline adds them when saving.
 - Each mapping entry must include: target_field, source_column, source_table,
   row_selection, confidence, and rationale.
 - Do not include review_status on mapping records — the pipeline assigns it after
   deterministic validation and optional refinement.
 - Do not copy row_selection strategies, filters, or join configurations from the reference manifests —
-  these are institution-specific and must be derived from the {institution_name} schema contract.
+  these are institution-specific and must be derived from the {institution_id} schema contract.
   The reference manifests are structural reference only: use them to understand the expected shape
   of the output and concise rationale (structural mapping reasoning per RATIONALE rules), not as a source of mapping decisions
 
-{_step2a_rules_after_structure(institution_name, column_aliases_scope="single_pass")}
+{_step2a_rules_after_structure(institution_id, column_aliases_scope="single_pass")}
 {_step2a_json_output_rules()}
-{_step2a_prompt_close(generate_line="Respond with valid JSON matching MappingManifestEnvelope.")}"""
+{_step2a_prompt_close(generate_line="Respond with valid JSON: top-level manifests with cohort and course only (omit release/institution envelope fields — the pipeline adds them).")}"""
     return {
         "preamble": preamble,
         "reference_manifests": reference_blocks,
         "schema_contract": (
-            f'<schema_contract institution="{institution_name}">\n'
+            f'<schema_contract institution="{institution_id}">\n'
             f"{contract_json}\n"
             f"</schema_contract>"
         ),
@@ -793,12 +796,11 @@ def assemble_step2a_batched_prompt_from_sections(sections: dict[str, str]) -> st
 
 def collect_step2a_prompt_cohort_pass_sections(
     institution_id: str,
-    institution_name: str,
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
     cohort_schema_class: Any,
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
 ) -> dict[str, str]:
@@ -806,12 +808,12 @@ def collect_step2a_prompt_cohort_pass_sections(
     contract_summary = summarize_schema_contract(institution_schema_contract)
     cohort_descriptor = extract_schema_descriptor(cohort_schema_class)
     _, reference_blocks = _step2a_reference_blocks(
-        reference_manifests, reference_institution_names
+        reference_manifests, reference_institution_ids
     )
     contract_json = json.dumps(contract_summary, indent=2)
     cohort_json = json.dumps(cohort_descriptor, indent=2)
     manifest_schema = _manifest_schema_for_prompt(compact=compact_manifest_schema)
-    preamble = f"""Please act as the SchemaMappingAgent. This is PASS 1 of 2 for {institution_name}.
+    preamble = f"""Please act as the SchemaMappingAgent. This is PASS 1 of 2 for institution_id={institution_id}.
 Generate only the **cohort** (student) entity mapping manifest. A second pass will produce course.
 Destination path for the combined manifest (for context):
 {output_path}
@@ -823,29 +825,29 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 """
     rules = f"""<rules>
 STRUCTURE (cohort pass only)
-- Output one JSON object with: schema_version, institution_id, and manifests
+- Output either: (A) `{{\"manifests\": {{\"cohort\": {{...}}}}}}` with only the cohort key, or
+  (B) a single FieldMappingManifest-shaped object (entity_type, target_schema, mappings, column_aliases) for cohort.
+  Do not include top-level release or institution fields — the pipeline adds them when merging passes.
 - manifests MUST contain exactly one key: \"cohort\" — do not include \"course\" or any course mappings
 - manifests.cohort must include entity_type, target_schema, mappings for every
   target field in the cohort Pandera schema above, and column_aliases (last; [] if none)
-- Set institution_id to \"{institution_id}\" (use this exact value)
 - Each mapping entry must include: target_field, source_column, source_table,
   row_selection, confidence, and rationale.
 - Do not include review_status on mapping records — the pipeline assigns it after
   deterministic validation and optional refinement.
 - Do not copy row_selection strategies, filters, or join configurations from the reference manifests —
-  these are institution-specific and must be derived from the {institution_name} schema contract.
+  these are institution-specific and must be derived from the {institution_id} schema contract.
   The reference manifests are structural reference only
 
-{_step2a_rules_after_structure(institution_name, column_aliases_scope="entity_pass", term_rules="cohort_only")}
+{_step2a_rules_after_structure(institution_id, column_aliases_scope="entity_pass", term_rules="cohort_only")}
 {_step2a_json_output_rules()}
-- Output only the entity manifest object — a JSON object with keys entity_type, target_schema, mappings, and column_aliases. Do not include institution_id, schema_version, or any envelope-level fields. These are added by the calling code.
 - The manifests object MUST contain only the \"cohort\" key; omit \"course\" entirely
 {_step2a_prompt_close(generate_line="Generate the cohort-only mapping manifest JSON now.")}"""
     return {
         "preamble": preamble,
         "reference_manifests": reference_blocks,
         "schema_contract": (
-            f'<schema_contract institution="{institution_name}">\n'
+            f'<schema_contract institution="{institution_id}">\n'
             f"{contract_json}\n"
             "</schema_contract>"
         ),
@@ -875,12 +877,11 @@ def assemble_step2a_cohort_pass_prompt_from_sections(sections: dict[str, str]) -
 
 def collect_step2a_prompt_course_pass_sections(
     institution_id: str,
-    institution_name: str,
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
     course_schema_class: Any,
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
 ) -> dict[str, str]:
@@ -888,12 +889,12 @@ def collect_step2a_prompt_course_pass_sections(
     contract_summary = summarize_schema_contract(institution_schema_contract)
     course_descriptor = extract_schema_descriptor(course_schema_class)
     _, reference_blocks = _step2a_reference_blocks(
-        reference_manifests, reference_institution_names
+        reference_manifests, reference_institution_ids
     )
     contract_json = json.dumps(contract_summary, indent=2)
     course_json = json.dumps(course_descriptor, indent=2)
     manifest_schema = _manifest_schema_for_prompt(compact=compact_manifest_schema)
-    preamble = f"""Please act as the SchemaMappingAgent. This is PASS 2 of 2 for {institution_name}.
+    preamble = f"""Please act as the SchemaMappingAgent. This is PASS 2 of 2 for institution_id={institution_id}.
 Generate only the **course** entity mapping manifest (pass 1, run separately, covers cohort only).
 Destination path for the combined manifest (for context):
 {output_path}
@@ -905,30 +906,29 @@ Every structural decision (join, row_selection, column_aliases) must be fully an
 """
     rules = f"""<rules>
 STRUCTURE (course pass only)
-- Output one JSON object with: schema_version, institution_id, and manifests
+- Output either: (A) `{{\"manifests\": {{\"course\": {{...}}}}}}` with only the course key, or
+  (B) a single FieldMappingManifest-shaped object for course.
+  Do not include top-level release or institution fields — the pipeline adds them when merging passes.
 - manifests MUST contain exactly one key: \"course\" — do not include \"cohort\" or duplicate cohort mappings
 - manifests.course must include entity_type, target_schema, mappings for every
   target field in the course Pandera schema above, and column_aliases (last; [] if none)
-- Set institution_id to \"{institution_id}\" (use this exact value)
-- Set schema_version to match the reference mapping manifests (typically \"0.1.0\")
 - Each mapping entry must include: target_field, source_column, source_table,
   row_selection, confidence, and rationale.
 - Do not include review_status on mapping records — the pipeline assigns it after
   deterministic validation and optional refinement.
 - Do not copy row_selection strategies, filters, or join configurations from the reference manifests —
-  these are institution-specific and must be derived from the {institution_name} schema contract.
+  these are institution-specific and must be derived from the {institution_id} schema contract.
   The reference manifests are structural reference only
 
-{_step2a_rules_after_structure(institution_name, column_aliases_scope="entity_pass", term_rules="course_only")}
+{_step2a_rules_after_structure(institution_id, column_aliases_scope="entity_pass", term_rules="course_only")}
 {_step2a_json_output_rules()}
-- Output only the entity manifest object — a JSON object with keys entity_type, target_schema, mappings, and column_aliases. Do not include institution_id, schema_version, or any envelope-level fields. These are added by the calling code.
 - The manifests object MUST contain only the \"course\" key; omit \"cohort\" entirely
 {_step2a_prompt_close(generate_line="Generate the course-only mapping manifest JSON now.")}"""
     return {
         "preamble": preamble,
         "reference_manifests": reference_blocks,
         "schema_contract": (
-            f'<schema_contract institution="{institution_name}">\n'
+            f'<schema_contract institution="{institution_id}">\n'
             f"{contract_json}\n"
             "</schema_contract>"
         ),
@@ -958,13 +958,12 @@ def assemble_step2a_course_pass_prompt_from_sections(sections: dict[str, str]) -
 
 def audit_step2a_prompt(
     institution_id: str,
-    institution_name: str,
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
     cohort_schema_class: Any,
     course_schema_class: Any,
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
     *,
     variant: Literal["single", "cohort_pass", "course_pass"] = "single",
     log: bool = True,
@@ -978,37 +977,34 @@ def audit_step2a_prompt(
     if variant == "single":
         sections = collect_step2a_prompt_sections(
             institution_id,
-            institution_name,
             output_path,
             institution_schema_contract,
             reference_manifests,
             cohort_schema_class,
             course_schema_class,
-            reference_institution_names,
+            reference_institution_ids,
             compact_manifest_schema=compact_manifest_schema,
         )
         builder = "schema_mapping_agent.step2a.single"
     elif variant == "cohort_pass":
         sections = collect_step2a_prompt_cohort_pass_sections(
             institution_id,
-            institution_name,
             output_path,
             institution_schema_contract,
             reference_manifests,
             cohort_schema_class,
-            reference_institution_names,
+            reference_institution_ids,
             compact_manifest_schema=compact_manifest_schema,
         )
         builder = "schema_mapping_agent.step2a.cohort_pass"
     else:
         sections = collect_step2a_prompt_course_pass_sections(
             institution_id,
-            institution_name,
             output_path,
             institution_schema_contract,
             reference_manifests,
             course_schema_class,
-            reference_institution_names,
+            reference_institution_ids,
             compact_manifest_schema=compact_manifest_schema,
         )
         builder = "schema_mapping_agent.step2a.course_pass"
@@ -1016,20 +1012,18 @@ def audit_step2a_prompt(
         sections,
         builder=builder,
         institution_id=institution_id,
-        institution_name=institution_name,
         log=log,
     )
 
 
 def audit_step2a_batched_prompt(
     institution_id: str,
-    institution_name: str,
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
     cohort_schema_class: Any,
     course_schema_class: Any,
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
     *,
     log: bool = True,
     compact_manifest_schema: bool = True,
@@ -1043,33 +1037,30 @@ def audit_step2a_batched_prompt(
     """
     sections = collect_step2a_prompt_batched_sections(
         institution_id,
-        institution_name,
         output_path,
         institution_schema_contract,
         reference_manifests,
         cohort_schema_class,
         course_schema_class,
-        reference_institution_names,
+        reference_institution_ids,
         compact_manifest_schema=compact_manifest_schema,
     )
     return audit_prompt_sections(
         sections,
         builder="schema_mapping_agent.step2a.batched",
         institution_id=institution_id,
-        institution_name=institution_name,
         log=log,
     )
 
 
 def build_step2a_prompt(
     institution_id: str,
-    institution_name: str,
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
     cohort_schema_class: Any,
     course_schema_class: Any,
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
 ) -> str:
@@ -1077,27 +1068,24 @@ def build_step2a_prompt(
     Build the Step 2a field mapping prompt.
 
     Args:
-        institution_id:               e.g. "lee_col"
-        institution_name:             e.g. "Lee College"
+        institution_id:               e.g. "synthetic_coastal_cc"
         output_path:                  Destination path for the manifest (for prompt header)
         institution_schema_contract:  Parsed schema contract JSON for the target institution
         reference_manifests:          List of parsed mapping manifest JSONs for reference
-                                      institutions (e.g. [ucf_manifest, lc_manifest])
+                                      institutions (e.g. [ref_a_manifest, ref_b_manifest])
         cohort_schema_class:          RawEdviseStudentDataSchema (Pandera class)
         course_schema_class:          RawEdviseCourseDataSchema (Pandera class)
-        reference_institution_names:  Display names for reference institutions, parallel
-                                      to reference_manifests. Defaults to manifest
-                                      institution_id values if not provided.
+        reference_institution_ids:    Labels for reference XML blocks, parallel to reference_manifests.
+                                      Defaults to each manifest's ``institution_id`` if omitted.
     """
     sections = collect_step2a_prompt_sections(
         institution_id,
-        institution_name,
         output_path,
         institution_schema_contract,
         reference_manifests,
         cohort_schema_class,
         course_schema_class,
-        reference_institution_names,
+        reference_institution_ids,
         compact_manifest_schema=compact_manifest_schema,
     )
     return assemble_step2a_prompt_from_sections(sections)
@@ -1105,29 +1093,27 @@ def build_step2a_prompt(
 
 def build_step2a_prompt_cohort_pass(
     institution_id: str,
-    institution_name: str,
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
     cohort_schema_class: Any,
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
 ) -> str:
     """
     Step 2a pass 1: cohort (student) entity only.
 
-    The model must return JSON with top-level schema_version, institution_id, and
-    manifests containing only the \"cohort\" key (no \"course\" section).
+    The model returns only cohort manifest content (see cohort-pass STRUCTURE rules);
+    the pipeline fills envelope metadata when merging passes.
     """
     sections = collect_step2a_prompt_cohort_pass_sections(
         institution_id,
-        institution_name,
         output_path,
         institution_schema_contract,
         reference_manifests,
         cohort_schema_class,
-        reference_institution_names,
+        reference_institution_ids,
         compact_manifest_schema=compact_manifest_schema,
     )
     return assemble_step2a_cohort_pass_prompt_from_sections(sections)
@@ -1135,12 +1121,11 @@ def build_step2a_prompt_cohort_pass(
 
 def build_step2a_prompt_course_pass(
     institution_id: str,
-    institution_name: str,
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
     course_schema_class: Any,
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
 ) -> str:
@@ -1153,12 +1138,11 @@ def build_step2a_prompt_course_pass(
     """
     sections = collect_step2a_prompt_course_pass_sections(
         institution_id,
-        institution_name,
         output_path,
         institution_schema_contract,
         reference_manifests,
         course_schema_class,
-        reference_institution_names,
+        reference_institution_ids,
         compact_manifest_schema=compact_manifest_schema,
     )
     return assemble_step2a_course_pass_prompt_from_sections(sections)
@@ -1166,13 +1150,12 @@ def build_step2a_prompt_course_pass(
 
 def build_step2a_batched_prompt(
     institution_id: str,
-    institution_name: str,
     output_path: str,
     institution_schema_contract: dict,
     reference_manifests: list[dict],
     cohort_schema_class: Any,
     course_schema_class: Any,
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
     *,
     compact_manifest_schema: bool = True,
 ) -> str:
@@ -1184,13 +1167,12 @@ def build_step2a_batched_prompt(
     """
     sections = collect_step2a_prompt_batched_sections(
         institution_id,
-        institution_name,
         output_path,
         institution_schema_contract,
         reference_manifests,
         cohort_schema_class,
         course_schema_class,
-        reference_institution_names,
+        reference_institution_ids,
         compact_manifest_schema=compact_manifest_schema,
     )
     return assemble_step2a_batched_prompt_from_sections(sections)

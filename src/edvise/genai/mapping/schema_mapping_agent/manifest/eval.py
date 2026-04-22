@@ -51,23 +51,23 @@ logger = logging.getLogger(__name__)
 # ── config ───────────────────────────────────────────────────────────────────
 # Institution configuration - swap these to change target/reference roles
 TARGET_INSTITUTION = {
-    "id": "lee_col",
-    "name": "Lee College",
+    "id": "synthetic_coastal_cc",
+    "name": "Synthetic Coastal Community College",
 }
 
 REFERENCE_INSTITUTION = {
-    "id": "uni_of_central_florida",
-    "name": "University of Central Florida",
+    "id": "synthetic_metro_research_uni",
+    "name": "Synthetic Metro Research University",
 }
 
-# To swap roles (e.g., evaluate UCF using LC as reference), swap the above:
+# To swap roles (e.g., evaluate reference as target), swap the above:
 # TARGET_INSTITUTION = {
-#     "id": "uni_of_central_florida",
-#     "name": "University of Central Florida",
+#     "id": "synthetic_metro_research_uni",
+#     "name": "Synthetic Metro Research University",
 # }
 # REFERENCE_INSTITUTION = {
-#     "id": "lee_col",
-#     "name": "Lee College",
+#     "id": "synthetic_coastal_cc",
+#     "name": "Synthetic Coastal Community College",
 # }
 
 MODELS = [
@@ -922,15 +922,13 @@ def run():
         # ── paths ─────────────────────────────────────────────────────────────
         RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
         target_id = TARGET_INSTITUTION["id"]
-        target_name = TARGET_INSTITUTION["name"]
         reference_id = REFERENCE_INSTITUTION["id"]
-        reference_name = REFERENCE_INSTITUTION["name"]
 
         logger.info("=" * 80)
         logger.info("EVALUATION CONFIGURATION")
         logger.info("=" * 80)
-        logger.info(f"Target Institution: {target_name} ({target_id})")
-        logger.info(f"Reference Institution: {reference_name} ({reference_id})")
+        logger.info(f"Target institution_id: {target_id}")
+        logger.info(f"Reference institution_id: {reference_id}")
         logger.info(f"Project root (eval cwd): {project_root}")
         logger.info("=" * 80)
 
@@ -965,7 +963,7 @@ def run():
             )
 
         logger.info(f"Loaded reference manifest from {reference_manifest_path}")
-        logger.info(f"  Reference institution: {reference_name} (id: {reference_id})")
+        logger.info(f"  Reference institution_id: {reference_id}")
         logger.info(f"  Manifest institution_id: {manifest_institution_id} ✓")
 
         output_path = (
@@ -975,30 +973,27 @@ def run():
         if STEP2A_TWO_PASS:
             PROMPT_COHORT = build_step2a_prompt_cohort_pass(
                 institution_id=target_id,
-                institution_name=target_name,
                 output_path=output_path,
                 institution_schema_contract=target_contract,
                 reference_manifests=[reference_manifest],
-                reference_institution_names=[reference_name],
+                reference_institution_ids=[reference_id],
                 cohort_schema_class=RawEdviseStudentDataSchema,
             )
             PROMPT_COURSE = build_step2a_prompt_course_pass(
                 institution_id=target_id,
-                institution_name=target_name,
                 output_path=output_path,
                 institution_schema_contract=target_contract,
                 reference_manifests=[reference_manifest],
-                reference_institution_names=[reference_name],
+                reference_institution_ids=[reference_id],
                 course_schema_class=RawEdviseCourseDataSchema,
             )
         else:
             PROMPT_SINGLE = build_step2a_prompt(
                 institution_id=target_id,
-                institution_name=target_name,
                 output_path=output_path,
                 institution_schema_contract=target_contract,
                 reference_manifests=[reference_manifest],
-                reference_institution_names=[reference_name],
+                reference_institution_ids=[reference_id],
                 cohort_schema_class=RawEdviseStudentDataSchema,
                 course_schema_class=RawEdviseCourseDataSchema,
             )

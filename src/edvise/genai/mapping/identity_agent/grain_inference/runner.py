@@ -2,19 +2,24 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping
 
 import pandas as pd
 
 from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem
 from edvise.genai.mapping.identity_agent.profiling import RankedCandidateProfiles
+from edvise.genai.mapping.shared.token_audit.prompt_token_audit import estimate_tokens
 
 from .prompt import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
     build_identity_agent_user_message,
     parse_grain_contract_with_hitl,
 )
+from .databricks_gateway import llm_complete_combined_message_content
 from .schemas import IDENTITY_CONFIDENCE_HITL_THRESHOLD, GrainContract
+
+_LOG = logging.getLogger(__name__)
 
 
 def run_identity_agent_with_hitl(
@@ -35,6 +40,15 @@ def run_identity_agent_with_hitl(
     """
     user = build_identity_agent_user_message(
         institution_id, dataset_name, key_profile, df=df
+    )
+    _combined = llm_complete_combined_message_content(
+        IDENTITY_AGENT_SYSTEM_PROMPT, user
+    )
+    _LOG.info(
+        "[ia grain] dataset=%s gateway_input_chars=%d est_input_tokens~=%d",
+        dataset_name,
+        len(_combined),
+        estimate_tokens(_combined),
     )
     raw = llm_complete(IDENTITY_AGENT_SYSTEM_PROMPT, user)
     return parse_grain_contract_with_hitl(raw)

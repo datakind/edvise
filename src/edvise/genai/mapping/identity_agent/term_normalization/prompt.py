@@ -1028,11 +1028,17 @@ def build_term_normalization_batch_user_message_from_grain_and_profiles(
     grain_contracts_by_dataset: Mapping[str, GrainContract],
     run_by_dataset: Mapping[str, Mapping[str, object]],
 ) -> str:
-    """Serialize :func:`build_term_normalization_batch_user_payload` for the LLM user message."""
+    """
+    Serialize :func:`build_term_normalization_batch_user_payload` for the LLM user message.
+
+    Uses compact JSON (no whitespace) so the batch stays smaller: pretty-printed payloads
+    for multi-dataset + full column profiles can exceed AI Gateway limits and surface as 403
+    ``PERMISSION_DENIED`` even when per-dataset grain calls succeed.
+    """
     payload = build_term_normalization_batch_user_payload(
         institution_id, grain_contracts_by_dataset, run_by_dataset
     )
-    return json.dumps(payload, indent=2)
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 def _term_payload_as_dict(raw: RawTermPassInput) -> dict:

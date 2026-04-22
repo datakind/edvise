@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import inspect
 from enum import Enum
-from typing import Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from edvise.genai.mapping.shared.pipeline_artifacts import resolve_pipeline_version
 
 
 # =============================================================================
@@ -127,7 +129,7 @@ class RowSelectionStrategy(str, Enum):
     constant = "constant"
     # No row selection — field is derived as a constant value for all rows.
     # source_column must be null.
-    # Examples: credential_type_sought_year_1 at UCF
+    # Examples: credential_type_sought_year_1 (constant field on cohort)
 
     nth = "nth"
     # Take nth matching row ordered by order_by (1-based).
@@ -350,11 +352,42 @@ class FieldMappingManifest(StrictBaseModel):
 
 
 class MappingManifestEnvelope(StrictBaseModel):
-    schema_version: str = Field(default="0.1.0")
+    """
+    Saved manifest envelope. Top-level release and institution fields are injected by the
+    pipeline after the Step 2a LLM; the model only supplies ``manifests`` content.
+    """
+
+    pipeline_version: str = Field(
+        default_factory=resolve_pipeline_version,
+        description="Edvise/git release — set by the pipeline, not the LLM.",
+    )
     institution_id: str = Field(..., description="Institution identifier")
     manifests: Dict[EntityType, FieldMappingManifest] = Field(
         ...,
         description="Per-entity field mapping manifests (cohort and/or course).",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_schema_version_key(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        d = dict(data)
+        legacy = "schema_version"
+        current = "pipeline_version"
+        if legacy in d and current not in d:
+            d[current] = d.pop(legacy)
+        return d
+
+
+_AGENT_EXCLUDED_ENVELOPE_FIELDS = frozenset({"pipeline_version", "institution_id"})
+
+
+def _mapping_manifest_envelope_source_for_agent_prompt() -> str:
+    """Hide envelope fields the pipeline injects so Step 2a prompts do not show them to the LLM."""
+    return _omit_field_blocks_from_class_source(
+        inspect.getsource(MappingManifestEnvelope),
+        _AGENT_EXCLUDED_ENVELOPE_FIELDS,
     )
 
 
@@ -421,6 +454,8 @@ def get_manifest_schema_context() -> str:
     for model in models:
         if model is FieldMappingRecord:
             source = _field_mapping_record_source_for_agent_prompt()
+        elif model is MappingManifestEnvelope:
+            source = _mapping_manifest_envelope_source_for_agent_prompt()
         else:
             source = inspect.getsource(model)
         sections.append(source)
@@ -460,7 +495,7 @@ def get_compact_manifest_schema_reference() -> str:
         'FieldMappingManifest: {entity_type: "cohort"|"course"!, target_schema: str!, '
         "mappings: List[FieldMappingRecord]!(len≥1), column_aliases?: List[ColumnAlias]}\n"
         "\n"
-        "MappingManifestEnvelope — Root document; manifests keyed by entity type.\n"
-        'MappingManifestEnvelope: {schema_version: str (default "0.1.0"), institution_id: str!, '
-        'manifests: Record<"cohort"|"course", FieldMappingManifest>!}'
+        "MappingManifestEnvelope — LLM outputs only `manifests`; the pipeline adds "
+        "release metadata when saving.\n"
+        'LLM JSON: {manifests: Record<"cohort"|"course", FieldMappingManifest>!}'
     )

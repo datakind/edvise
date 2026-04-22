@@ -101,8 +101,8 @@ def test_append_pipeline_run_event_success_writes_to_uc_table(monkeypatch):
         run_id="r1",
         run_type="training",
         event="completed",
-        institution_id="motlow_state_cc",
-        databricks_institution_name="motlow_state_cc",
+        institution_id="fixture_alpha_state_cc",
+        databricks_institution_name="fixture_alpha_state_cc",
         cohort_dataset_name="cohort_20250723040724.csv",
         course_dataset_name="course_20250723040724.csv",
         dataset_ts=datetime(2025, 7, 23, 4, 7, 24),
@@ -122,7 +122,7 @@ def test_append_pipeline_run_event_success_writes_to_uc_table(monkeypatch):
     assert row["run_id"] == "r1"
     assert row["run_url"] is None
     assert row["run_type"] == "training"
-    assert row["institution_id"] == "motlow_state_cc"
+    assert row["institution_id"] == "fixture_alpha_state_cc"
     assert "databricks_institution_name" not in row
     assert row["status"] == "completed"
     assert row["started_at"] is None

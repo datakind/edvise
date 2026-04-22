@@ -35,7 +35,6 @@ from edvise.genai.mapping.schema_mapping_agent.transformation.prompt import (
 def run_prompt_token_audit_bundle(
     *,
     institution_id: str,
-    institution_name: str,
     institution_schema_contract: dict,
     institution_mapping_manifest: dict,
     cohort_schema_class: type,
@@ -44,7 +43,7 @@ def run_prompt_token_audit_bundle(
     reference_transformation_maps: list[dict],
     output_path_manifest: str = "/tmp/edvise_field_mapping_manifest.json",
     output_path_transformation: str = "/tmp/edvise_transformation_map.json",
-    reference_institution_names: list[str] | None = None,
+    reference_institution_ids: list[str] | None = None,
     log: bool = True,
     include_identity_grain: bool = False,
     grain_key_profile: RankedCandidateProfiles | None = None,
@@ -83,50 +82,46 @@ def run_prompt_token_audit_bundle(
 
     builders["schema_mapping_agent.step2a.single"] = audit_step2a_prompt(
         institution_id,
-        institution_name,
         output_path_manifest,
         institution_schema_contract,
         reference_manifests,
         cohort_schema_class,
         course_schema_class,
-        reference_institution_names,
+        reference_institution_ids,
         variant="single",
         log=log,
     )
     builders["schema_mapping_agent.step2a.cohort_pass"] = audit_step2a_prompt(
         institution_id,
-        institution_name,
         output_path_manifest,
         institution_schema_contract,
         reference_manifests,
         cohort_schema_class,
         course_schema_class,
-        reference_institution_names,
+        reference_institution_ids,
         variant="cohort_pass",
         log=log,
     )
     builders["schema_mapping_agent.step2a.course_pass"] = audit_step2a_prompt(
         institution_id,
-        institution_name,
         output_path_manifest,
         institution_schema_contract,
         reference_manifests,
         cohort_schema_class,
         course_schema_class,
-        reference_institution_names,
+        reference_institution_ids,
         variant="course_pass",
         log=log,
     )
     builders["schema_mapping_agent.step2b"] = audit_step2b_prompt(
         institution_id,
-        institution_name,
         output_path_transformation,
         institution_mapping_manifest,
         institution_schema_contract,
         cohort_schema_class,
         course_schema_class,
         reference_transformation_maps,
-        reference_institution_names,
+        reference_institution_ids,
         log=log,
     )
 
@@ -191,6 +186,5 @@ def run_prompt_token_audit_bundle(
 
     return {
         "institution_id": institution_id,
-        "institution_name": institution_name,
         "builders": builders,
     }
