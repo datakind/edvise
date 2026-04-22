@@ -45,6 +45,8 @@ resources:
                 package: python-dotenv==1.0.1
             - pypi:
                 package: openai>=1.0.0
+            - pypi:
+                package: databricks-sdk~=0.38.0
 
       job_clusters:
         - job_cluster_key: edvise-genai-mapping-cluster

@@ -176,15 +176,16 @@ def _run_pandera_validation(cohort_result, course_result) -> None:
 
 def _build_openai_client(catalog: str):
     """Build OpenAI-compatible client for Databricks AI Gateway."""
-    import os
     from openai import OpenAI
 
+    from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
+        require_databricks_token,
+        resolve_ai_gateway_base_url,
+    )
+
     return OpenAI(
-        api_key=os.environ["DATABRICKS_TOKEN"],
-        base_url=os.environ.get(
-            "AI_GATEWAY_BASE_URL",
-            "https://4437281602191762.ai-gateway.gcp.databricks.com/mlflow/v1",
-        ),
+        api_key=require_databricks_token(),
+        base_url=resolve_ai_gateway_base_url(),
     )
 
 

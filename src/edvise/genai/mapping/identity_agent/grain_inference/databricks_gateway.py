@@ -34,20 +34,55 @@ def resolve_gateway_model_id() -> str:
     return os.environ.get("GATEWAY_MODEL_ID", DEFAULT_GATEWAY_MODEL_ID)
 
 
+def _token_from_authorization_header(headers: dict[str, str]) -> str | None:
+    auth = headers.get("Authorization") or headers.get("authorization")
+    if not auth or not isinstance(auth, str):
+        return None
+    parts = auth.split(None, 1)
+    if len(parts) == 2 and parts[0].lower() == "bearer":
+        return parts[1].strip()
+    return None
+
+
+def _token_from_databricks_sdk_default_auth() -> str | None:
+    """
+    On Databricks compute, ``Config().authenticate()`` often works when ``DATABRICKS_TOKEN``
+    is unset (metadata service / OAuth for the job or notebook identity).
+    """
+    try:
+        from databricks.sdk.core import Config
+    except ImportError:
+        _LOG.debug("databricks-sdk not installed; cannot resolve runtime workspace token")
+        return None
+    try:
+        headers = Config().authenticate()
+    except Exception as e:
+        _LOG.debug("Databricks SDK default auth unavailable (%s)", e)
+        return None
+    return _token_from_authorization_header(headers)
+
+
 def require_databricks_token() -> str:
     """
-    Return ``DATABRICKS_TOKEN`` for the gateway ``api_key``.
+    Return a workspace token for the gateway ``api_key`` (PAT or OAuth bearer from the SDK).
 
-    Raises ``ValueError`` if unset (``OPENAI_API_KEY`` is not used for this gateway).
+    Order: ``DATABRICKS_TOKEN`` env, then :func:`_token_from_databricks_sdk_default_auth`
+    (Databricks jobs / Repos when the env var is not injected).
+
+    ``OPENAI_API_KEY`` is not used for this gateway.
     """
-    token = os.environ.get("DATABRICKS_TOKEN")
-    if not token:
-        msg = (
-            "DATABRICKS_TOKEN is required for the Databricks MLflow AI gateway (same as SMA). "
-            "Bare OpenAI() uses OPENAI_API_KEY and is the wrong token for this gateway."
-        )
-        raise ValueError(msg)
-    return token
+    token = (os.environ.get("DATABRICKS_TOKEN") or "").strip()
+    if token:
+        return token
+    from_sdk = _token_from_databricks_sdk_default_auth()
+    if from_sdk:
+        return from_sdk
+    msg = (
+        "No Databricks workspace token for the MLflow AI gateway: set DATABRICKS_TOKEN "
+        "(e.g. PAT or secret-backed env) or run on Databricks with databricks-sdk default "
+        "credentials so Config().authenticate() succeeds. OPENAI_API_KEY is not used here."
+    )
+    raise ValueError(msg)
 
 
 def create_openai_client_for_databricks_gateway(

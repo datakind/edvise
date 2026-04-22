@@ -50,6 +50,8 @@ resources:
             - pypi:
                 package: openai>=1.0.0
             - pypi:
+                package: databricks-sdk~=0.38.0
+            - pypi:
                 package: pyarrow>=14.0.0
 
       job_clusters:
