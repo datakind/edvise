@@ -9,11 +9,27 @@ Usage (Databricks job parameters):
     --resume_from       start | gate_2  (onboard only)
 """
 
+import os
+import sys
 import argparse
 import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+
+# Go up 3 levels from the current file's directory to reach repo root
+script_dir = os.getcwd()
+repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
+src_path = os.path.join(repo_root, "src")
+
+if os.path.isdir(src_path) and src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+# Debug info
+print("Script dir:", script_dir)
+print("Repo root:", repo_root)
+print("src_path:", src_path)
+print("sys.path:", sys.path)
 
 from edvise.shared.logger import init_file_logging_at_path
 
