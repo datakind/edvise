@@ -19,20 +19,10 @@ print("sys.path:", sys.path)
 
 from edvise.utils.gcs import publish_inference_output_files
 from edvise.utils.emails import send_inference_completion_email
-from edvise.utils.databricks import in_databricks
+from edvise.utils.databricks import get_dbutils, in_databricks
 
 # GCS error classes for precise handling
 from google.api_core.exceptions import Forbidden, NotFound
-
-
-def get_dbutils():
-    """Lazy import: only available on Databricks."""
-    try:
-        from databricks.sdk.runtime import dbutils  # type: ignore
-
-        return dbutils
-    except Exception:
-        return None
 
 
 def _logging(code: str, message: str, extra: dict | None = None) -> None:

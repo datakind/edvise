@@ -23,19 +23,10 @@ from edvise.shared.dashboard_metadata.pipeline_runs import (
     append_pipeline_run_event,
     parse_timestamp_from_filename,
 )
-from edvise.utils.databricks import in_databricks
+from edvise.utils.databricks import get_dbutils, in_databricks
 from edvise.shared.logger import local_fs_path
 
 # Model names from get_model_name() are already UC-compatible
-
-
-def get_dbutils():
-    try:
-        from databricks.sdk.runtime import dbutils  # type: ignore
-
-        return dbutils
-    except Exception:
-        return None
 
 
 def active_gcp_identity() -> str:

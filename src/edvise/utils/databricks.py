@@ -44,6 +44,19 @@ def in_databricks() -> bool:
     return bool(os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER"))
 
 
+def get_dbutils() -> t.Optional[Any]:
+    """
+    Lazy import of Databricks ``dbutils``; only available on Databricks runtimes.
+    Returns ``None`` when the import fails (e.g. local development).
+    """
+    try:
+        from databricks.sdk.runtime import dbutils  # type: ignore
+
+        return dbutils
+    except Exception:
+        return None
+
+
 import logging
 import typing as t
 
