@@ -475,7 +475,7 @@ def run_onboard_gate_2(
     prompt_2b = build_step2b_prompt(
         institution_id=institution_id,
         output_path=str(paths.transformation_map),
-        institution_manifest_map=manifest_2a,
+        institution_mapping_manifest=manifest_2a,
         institution_schema_contract=enriched_contract,
         cohort_schema_class=RawEdviseStudentDataSchema,
         course_schema_class=RawEdviseCourseDataSchema,
