@@ -40,6 +40,9 @@ variables:
     description: "Slack webhook ID for training pipeline failure notifications"
   inference_slack_webhook_id:
     description: "Slack webhook ID for inference pipeline failure notifications"
+  inst_schema:
+    description: "Project config schema for pipeline scripts (pdp or es)"
+    default: "pdp"
 
 run_as:
   service_principal_name: ${var.ds_run_as}

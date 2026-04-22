@@ -24,7 +24,8 @@ from edvise.model_prep import cleanup_features as cleanup
 from edvise.dataio.read import read_parquet, read_config
 from edvise.student_selection.filter_inference import filter_inference_term
 from edvise.dataio.write import write_parquet
-from edvise.configs.pdp import PDPProjectConfig, InferenceConfig
+from edvise.configs.pdp import InferenceConfig
+from edvise.shared.inst_schema import add_inst_schema_argument, project_config_schema
 from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
 from edvise.shared.validation import (
     require,
@@ -63,7 +64,8 @@ def parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
 class InferencePrepTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(args.config_file_path, schema=PDPProjectConfig)
+        schema_cls = project_config_schema(args.inst_schema)
+        self.cfg = read_config(args.config_file_path, schema=schema_cls)
 
         # Resolve inference cohort from job param or config (term_filter is generic for cohort/graduation)
         if getattr(self.args, "job_type", None) == "inference":
@@ -140,7 +142,7 @@ class InferencePrepTask:
             self.args,
             self.cfg,
             logger_name=__name__,
-            log_file_name="pdp_inference_prep.log",
+            log_file_name=f"{self.args.inst_schema}_inference_prep.log",
         )
         LOGGER.info("Per-run log file initialized at %s", log_path)
 
@@ -238,6 +240,7 @@ def parse_arguments() -> argparse.Namespace:
         required=False,
         default="inference",
     )
+    add_inst_schema_argument(parser)
     return parser.parse_args()
 
 

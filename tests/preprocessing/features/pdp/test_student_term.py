@@ -264,7 +264,7 @@ def test_year_of_enrollment_at_cohort_inst(df, ccol, tcol, exp):
 
 
 @pytest.mark.parametrize(
-    ["df", "inst", "exp"],
+    ["df", "exp"],
     [
         (
             pd.DataFrame(
@@ -297,13 +297,17 @@ def test_year_of_enrollment_at_cohort_inst(df, ccol, tcol, exp):
                 },
                 dtype="Int8",
             ),
-            "cohort",
             pd.Series([False, False, True, True], dtype="boolean"),
         ),
     ],
 )
-def test_student_earned_certificate(df, inst, exp):
-    obs = student_term.student_earned_certificate(df, inst=inst)
+def test_student_earned_certificate(df, exp):
+    obs = student_term.student_earned_certificate(
+        df,
+        enrollment_year_col="year_of_enrollment_at_cohort_inst",
+        first_year_certificate_col="first_year_to_certificate_at_cohort_inst",
+        years_latest_certificate_col="years_to_latest_certificate_at_cohort_inst",
+    )
     assert isinstance(obs, pd.Series) and not obs.empty
     assert pd.testing.assert_series_equal(obs, exp) is None
 

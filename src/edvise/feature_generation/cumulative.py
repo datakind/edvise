@@ -9,14 +9,28 @@ from pandas.core.groupby import DataFrameGroupBy
 
 import edvise.utils as utils
 from . import constants
+from .pipeline_columns import CumulativePipelineColumns
 
 LOGGER = logging.getLogger(__name__)
 
+_DEFAULT_CUMULATIVE_COLS = CumulativePipelineColumns()
+
 
 def add_features(
-    df: pd.DataFrame, *, student_id_cols: list[str], sort_cols: list[str]
+    df: pd.DataFrame,
+    *,
+    columns: CumulativePipelineColumns = _DEFAULT_CUMULATIVE_COLS,
 ) -> pd.DataFrame:
+    """
+    Cumulative / expanding features over each student's term history.
+
+    Args:
+        df: Student-term feature rows (post-aggregation and student merge).
+        columns: Student grouping keys and chronological sort column names.
+    """
     LOGGER.info("adding student-term cumulative features ...")
+    student_id_cols = list(columns.student_id_cols)
+    sort_cols = list(columns.sort_cols)
     # sort so that student-terms are ordered chronologically
     df = df.sort_values(by=student_id_cols + sort_cols, ignore_index=True)
     # specifically *don't* re-sort when grouping
