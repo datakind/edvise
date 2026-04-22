@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
+import random
+import time
 from collections.abc import Callable
-from typing import Final, cast
+from typing import Final, TypeVar, cast
 
 from openai import OpenAI
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
@@ -151,6 +153,112 @@ def make_databricks_gateway_llm_complete(
         return resp.choices[0].message.content or ""
 
     return complete
+
+
+_T = TypeVar("_T")
+
+
+def is_retryable_openai_gateway_error(exc: BaseException) -> bool:
+    """
+    Whether to retry a failed OpenAI client call to the Databricks MLflow AI Gateway.
+
+    Includes **403** because the gateway sometimes returns it for transient / policy blips;
+    persistent ACL failures will exhaust :func:`wrap_llm_complete_with_retries` and still fail.
+    """
+    try:
+        import openai
+    except ImportError:
+        return False
+    if isinstance(exc, (openai.APIConnectionError, openai.APITimeoutError)):
+        return True
+    if isinstance(exc, openai.RateLimitError):
+        return True
+    if isinstance(exc, openai.APIStatusError):
+        code = exc.status_code
+        if code == 401:
+            return False
+        return code in (403, 408, 429, 500, 502, 503, 504)
+    return False
+
+
+def gateway_run_once_error_text_is_retryable(error_text: str) -> bool:
+    """
+    Best-effort match for :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.eval.run_once`
+    failure strings (``HTTP 403: ...``) when exceptions are swallowed into a dict.
+    """
+    if not error_text:
+        return False
+    lower = error_text.lower()
+    for code in ("403", "408", "429", "500", "502", "503", "504"):
+        if f"http {code}" in lower:
+            return True
+    if any(
+        s in lower
+        for s in (
+            "connection error",
+            "connecttimeout",
+            "read timed out",
+            "timeout",
+            "temporarily unavailable",
+        )
+    ):
+        return True
+    return False
+
+
+def invoke_with_openai_retries(
+    fn: Callable[[], _T],
+    *,
+    max_attempts: int = 5,
+    initial_backoff_s: float = 2.0,
+    max_backoff_s: float = 60.0,
+    log: logging.Logger | None = None,
+) -> _T:
+    """Run ``fn`` until success or non-retryable failure / attempts exhausted."""
+    log = log if log is not None else _LOG
+    for attempt in range(max_attempts):
+        try:
+            return fn()
+        except BaseException as exc:
+            if not is_retryable_openai_gateway_error(exc) or attempt >= max_attempts - 1:
+                raise
+            delay = min(
+                max_backoff_s,
+                initial_backoff_s * (2**attempt),
+            )
+            delay *= 0.5 + random.random() * 0.5
+            log.warning(
+                "OpenAI gateway call failed (%s); retry %d/%d after %.1fs",
+                type(exc).__name__,
+                attempt + 1,
+                max_attempts - 1,
+                delay,
+            )
+            time.sleep(delay)
+    raise RuntimeError("invoke_with_openai_retries: unreachable")  # pragma: no cover
+
+
+def wrap_llm_complete_with_retries(
+    llm_complete: Callable[[str, str], str],
+    *,
+    max_attempts: int = 5,
+    initial_backoff_s: float = 2.0,
+    max_backoff_s: float = 60.0,
+    log: logging.Logger | None = None,
+) -> Callable[[str, str], str]:
+    """Wrap ``llm_complete(system, user)`` with :func:`invoke_with_openai_retries` semantics."""
+    log = log if log is not None else _LOG
+
+    def wrapped(system: str, user: str) -> str:
+        return invoke_with_openai_retries(
+            lambda: llm_complete(system, user),
+            max_attempts=max_attempts,
+            initial_backoff_s=initial_backoff_s,
+            max_backoff_s=max_backoff_s,
+            log=log,
+        )
+
+    return wrapped
 
 
 def log_grain_hitl_queue(

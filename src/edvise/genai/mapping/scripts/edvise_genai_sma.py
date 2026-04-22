@@ -10,7 +10,9 @@ Usage (Databricks job parameters):
 """
 
 import os
+import random
 import sys
+import time
 import argparse
 import json
 import logging
@@ -199,8 +201,40 @@ def _build_openai_client(catalog: str):
 
 
 def _run_once(model_id: str, prompt: str, client) -> dict:
+    """
+    Call :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.eval.run_once` with
+    retries for transient gateway / transport failures (same policy as IA ``llm_complete``).
+    """
+    from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
+        gateway_run_once_error_text_is_retryable,
+    )
     from edvise.genai.mapping.schema_mapping_agent.manifest.eval import run_once
-    return run_once(model_id, prompt, client)
+
+    max_attempts = 5
+    initial_backoff_s = 2.0
+    max_backoff_s = 60.0
+    last: dict = {}
+    for attempt in range(max_attempts):
+        last = run_once(model_id, prompt, client)
+        if last.get("success"):
+            return last
+        if attempt >= max_attempts - 1:
+            return last
+        err = last.get("error") or ""
+        if not gateway_run_once_error_text_is_retryable(err):
+            return last
+        delay = min(max_backoff_s, initial_backoff_s * (2**attempt)) * (
+            0.5 + random.random() * 0.5
+        )
+        LOGGER.warning(
+            "SMA run_once non-success (attempt %d/%d); retry in %.1fs — %s",
+            attempt + 1,
+            max_attempts,
+            delay,
+            err[:300].replace("\n", " "),
+        )
+        time.sleep(delay)
+    return last
 
 
 # ---------------------------------------------------------------------------
@@ -223,10 +257,7 @@ def run_onboard_start(
         load_json,
         run_sma_refinement,
     )
-    from edvise.genai.mapping.schema_mapping_agent.manifest.eval import (
-        run_once,
-        validate_envelope_dict,
-    )
+    from edvise.genai.mapping.schema_mapping_agent.manifest.eval import validate_envelope_dict
     from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
         MappingManifestEnvelope,
     )
@@ -271,7 +302,7 @@ def run_onboard_start(
         cohort_schema_class=RawEdviseStudentDataSchema,
         course_schema_class=RawEdviseCourseDataSchema,
     )
-    result_2a = run_once(model_id, prompt_2a, client)
+    result_2a = _run_once(model_id, prompt_2a, client)
     if not result_2a["success"]:
         raise RuntimeError(result_2a.get("error") or "Step 2a LLM failed")
 
@@ -306,7 +337,7 @@ def run_onboard_start(
 
     def _refinement_llm_complete(system: str, user: str) -> str:
         combined = system + "\n\n---\n\n" + user
-        r = run_once(model_id, combined, client)
+        r = _run_once(model_id, combined, client)
         if not r.get("success"):
             raise RuntimeError(r.get("error") or "SMA refinement LLM call failed")
         return r["response"]
@@ -389,7 +420,6 @@ def run_onboard_gate_2(
     from edvise.genai.mapping.schema_mapping_agent.transformation.eval import (
         validate_transformation_wrapper,
     )
-    from edvise.genai.mapping.schema_mapping_agent.manifest.eval import run_once
     from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import load_json
     from edvise.genai.mapping.schema_mapping_agent.execution.field_executor import (
         execute_transformation_map,
@@ -442,7 +472,7 @@ def run_onboard_gate_2(
         reference_transformation_maps=[reference_tm],
         reference_institution_names=[reference_name],
     )
-    result_2b = run_once(model_id, prompt_2b, client)
+    result_2b = _run_once(model_id, prompt_2b, client)
     if not result_2b["success"]:
         raise RuntimeError(result_2b.get("error") or "Step 2b LLM failed")
 

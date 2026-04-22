@@ -92,10 +92,10 @@ def resolve_run_paths(
 
     return IAPaths(
         run_root=run_root,
-        grain_output=run_root / "grain_output.json",
-        grain_hitl=run_root / "grain_hitl.json",
-        term_output=run_root / "term_output.json",
-        term_hitl=run_root / "term_hitl.json",
+        grain_output=run_root / "identity_grain_output.json",
+        grain_hitl=run_root / "identity_grain_hitl.json",
+        term_output=run_root / "identity_term_output.json",
+        term_hitl=run_root / "identity_term_hitl.json",
         term_hooks=run_root / "term_hooks.py",
         grain_hooks=run_root / "grain_hooks.py",
         enriched_schema_contract=run_root / "enriched_schema_contract.json",
@@ -103,8 +103,8 @@ def resolve_run_paths(
         cleaned_datasets=run_root / "cleaned_datasets",
         run_log=run_root / "run_log.json",
         active_root=active_root,
-        active_grain_output=active_root / "grain_output.json",
-        active_term_output=active_root / "term_output.json",
+        active_grain_output=active_root / "identity_grain_output.json",
+        active_term_output=active_root / "identity_term_output.json",
         active_term_hooks=active_root / "term_hooks.py",
         active_grain_hooks=active_root / "grain_hooks.py",
         active_enriched_schema_contract=active_root / "enriched_schema_contract.json",
@@ -513,6 +513,7 @@ def run(
     from edvise.genai.mapping.identity_agent.grain_inference import (
         create_openai_client_for_databricks_gateway,
         make_databricks_gateway_llm_complete,
+        wrap_llm_complete_with_retries,
     )
 
     raw_inputs = (inputs_toml or "").strip()
@@ -547,7 +548,10 @@ def run(
 
         # LLM client only needed for onboard
         gateway_client = create_openai_client_for_databricks_gateway()
-        llm_complete = make_databricks_gateway_llm_complete(gateway_client)
+        llm_complete = wrap_llm_complete_with_retries(
+            make_databricks_gateway_llm_complete(gateway_client),
+            log=LOGGER,
+        )
 
         if resume_from == "start":
             run_onboard_start(institution_id, paths, school_config, llm_complete)

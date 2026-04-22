@@ -16,6 +16,7 @@ from .databricks_gateway import (
     log_grain_hitl_queue,
     make_databricks_gateway_llm_complete,
     require_databricks_token,
+    wrap_llm_complete_with_retries,
     resolve_ai_gateway_base_url,
     resolve_gateway_model_id,
 )
@@ -73,6 +74,7 @@ __all__ = [
     "log_grain_auto_approve",
     "log_grain_hitl_queue",
     "make_databricks_gateway_llm_complete",
+    "wrap_llm_complete_with_retries",
     "parse_grain_contract",
     "parse_grain_contract_with_hitl",
     "parse_institution_grain_contracts",
