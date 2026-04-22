@@ -19,14 +19,10 @@ print("sys.path:", sys.path)
 
 from edvise.utils.gcs import publish_inference_output_files
 from edvise.utils.emails import send_inference_completion_email
+from edvise.utils.databricks import in_databricks
 
 # GCS error classes for precise handling
 from google.api_core.exceptions import Forbidden, NotFound
-
-
-def in_databricks() -> bool:
-    """Best-effort detection of a DBR environment."""
-    return bool(os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER"))
 
 
 def get_dbutils():

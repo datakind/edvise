@@ -28,7 +28,7 @@ from edvise.data_audit.standardizer import (
     ESCohortStandardizer,
     ESCourseStandardizer,
 )
-from edvise.utils.databricks import get_spark_session
+from edvise.utils.databricks import get_spark_session, in_databricks
 from edvise.utils.data_cleaning import handling_duplicates
 
 from edvise.dataio.read import (
@@ -83,18 +83,6 @@ class ESDataAuditTask:
         self.spark = get_spark_session()
         self.cohort_std = ESCohortStandardizer()
         self.course_std = ESCourseStandardizer()
-        # Use default converter to handle duplicates if none provided
-        self.course_converter_func: ConverterFunc = (
-            partial(handling_duplicates, schema_type="pdp")
-            if course_converter_func is None
-            else course_converter_func
-        )
-        self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
-
-    def in_databricks(self) -> bool:
-        return bool(
-            os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER")
-        )
 
     def _path_exists(self, p: str) -> bool:
         if not p:
@@ -134,7 +122,7 @@ class ESDataAuditTask:
 
         if (
             use_fallback_on_dbx
-            and self.in_databricks()
+            and in_databricks()
             and self._path_exists(fallback_path)
         ):
             LOGGER.info(
@@ -148,7 +136,7 @@ class ESDataAuditTask:
         tried = [p for p in [prefer, fallback_path] if p]
         raise FileNotFoundError(
             f"{label}: none of the candidate paths exist. Tried: {tried}. "
-            f"Environment: {'Databricks' if self.in_databricks() else 'non-Databricks'}"
+            f"Environment: {'Databricks' if in_databricks() else 'non-Databricks'}"
         )
 
     def run(self):

@@ -28,7 +28,7 @@ from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
-from edvise.utils.databricks import get_spark_session
+from edvise.utils.databricks import get_spark_session, in_databricks
 from edvise.utils.data_cleaning import handling_duplicates
 
 from edvise.dataio.read import (
@@ -93,11 +93,6 @@ class PDPDataAuditTask:
         )
         self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
-    def in_databricks(self) -> bool:
-        return bool(
-            os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER")
-        )
-
     def _path_exists(self, p: str) -> bool:
         if not p:
             return False
@@ -136,7 +131,7 @@ class PDPDataAuditTask:
 
         if (
             use_fallback_on_dbx
-            and self.in_databricks()
+            and in_databricks()
             and self._path_exists(fallback_path)
         ):
             LOGGER.info(
@@ -150,7 +145,7 @@ class PDPDataAuditTask:
         tried = [p for p in [prefer, fallback_path] if p]
         raise FileNotFoundError(
             f"{label}: none of the candidate paths exist. Tried: {tried}. "
-            f"Environment: {'Databricks' if self.in_databricks() else 'non-Databricks'}"
+            f"Environment: {'Databricks' if in_databricks() else 'non-Databricks'}"
         )
 
     def run(self):

@@ -1,4 +1,5 @@
 import logging
+import os
 import mlflow
 import typing as t
 from typing import Any
@@ -33,6 +34,14 @@ def get_spark_session() -> SparkSession:
     except Exception:
         logging.error("Unable to create Spark session.")
         raise
+
+
+def in_databricks() -> bool:
+    """
+    Return True when running in a Databricks runtime (``DATABRICKS_RUNTIME_VERSION``)
+    or driver context (``DB_IS_DRIVER``).
+    """
+    return bool(os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER"))
 
 
 import logging

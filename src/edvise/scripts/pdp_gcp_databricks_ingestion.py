@@ -23,17 +23,13 @@ from edvise.shared.dashboard_metadata.pipeline_runs import (
     append_pipeline_run_event,
     parse_timestamp_from_filename,
 )
+from edvise.utils.databricks import in_databricks
 
 # Model names from get_model_name() are already UC-compatible
 
 
 def local_fs_path(p: str) -> str:
     return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
-
-
-def in_databricks() -> bool:
-    # Both of these are present on DBR clusters
-    return bool(os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER"))
 
 
 def get_dbutils():
