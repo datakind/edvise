@@ -8,6 +8,7 @@ bundle:
 sync:
   include:
     - requirements.txt
+    - "**/*.py"
 
 artifacts:
   generate_requirements:
@@ -44,7 +45,11 @@ resources:
     genai_hitl:
       name: ${var.app_name}
       source_code_path: .
-      description: Streamlit app — approve GenAI mapping HITL rows in Unity Catalog
+      description: |
+        Streamlit app — UC hitl_reviews (approve/reject) and edit HITL JSON on
+        silver /Volumes/.../..._silver/.../genai_mapping/.../runs/... paths
+        (same as edvise_genai_ia / edvise_genai_sma and hitl_reviews.artifact_path).
+        The app’s identity must have read/write on those volume files.
       resources:
         - name: sql-warehouse
           sql_warehouse:
