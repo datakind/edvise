@@ -72,6 +72,17 @@ def test_create_pipeline_run_sql(monkeypatch) -> None:
     assert "`c1`" in q
     assert "'run-1'" in q
     assert "running" in q
+    assert "db_run_id" in q
+    assert "NULL" in q
+
+
+def test_create_pipeline_run_sql_db_run_id(monkeypatch) -> None:
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    pipeline_state.create_pipeline_run("c1", "inst1", "run-1", db_run_id="job-999")
+    q = fake.statements[0]
+    assert "db_run_id" in q
+    assert "'job-999'" in q
 
 
 def test_get_latest_converts_row(monkeypatch) -> None:
@@ -117,7 +128,9 @@ def test_table_setup_runs_ddl(monkeypatch) -> None:
     monkeypatch.setattr(table_setup, "get_spark_session", lambda: fake)
     table_setup.create_state_tables("my_cat")
     assert any("CREATE SCHEMA" in s for s in fake.statements)
-    assert any("CREATE TABLE" in s and "pipeline_runs" in s for s in fake.statements)
+    pr_create = next(s for s in fake.statements if "CREATE TABLE" in s and "pipeline_runs" in s)
+    assert "db_run_id" in pr_create
+    assert any("ALTER TABLE" in s and "db_run_id" in s for s in fake.statements)
     assert any("hitl_reviews" in s for s in fake.statements)
 
 

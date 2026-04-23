@@ -129,3 +129,51 @@ def poll_for_hitl_resolution(
             elapsed,
         )
         time.sleep(float(poll_interval_seconds))
+
+
+def record_pipeline_run_timed_out_after_hitl_wait(
+    catalog: str,
+    institution_id: str,
+    pipeline_run_id: str,
+) -> None:
+    """
+    Best-effort ``timed_out`` on ``pipeline_runs`` when :class:`HITLTimeoutError` propagates
+    (``poll_for_hitl_resolution`` already writes ``timed_out`` when ``institution_id`` is set;
+    this repeats the merge for durability).
+    """
+    try:
+        update_pipeline_run_status(catalog, institution_id, pipeline_run_id, "timed_out")
+    except Exception as e:  # noqa: BLE001
+        LOGGER.warning(
+            "Could not write timed_out to pipeline_runs after HITL timeout: catalog=%s run=%s (%s)",
+            catalog,
+            pipeline_run_id,
+            e,
+        )
+
+
+def poll_uc_hitl_until_approved_or_timeout(
+    catalog: str,
+    institution_id: str,
+    pipeline_run_id: str,
+    phase: str,
+    *,
+    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+) -> bool:
+    """
+    Wrap :func:`poll_for_hitl_resolution`; on :class:`HITLTimeoutError`, ensure ``timed_out`` on
+    ``pipeline_runs`` then re-raise.
+    """
+    try:
+        return poll_for_hitl_resolution(
+            catalog,
+            pipeline_run_id,
+            phase,
+            poll_interval_seconds=poll_interval_seconds,
+            timeout_seconds=timeout_seconds,
+            institution_id=institution_id,
+        )
+    except HITLTimeoutError:
+        record_pipeline_run_timed_out_after_hitl_wait(catalog, institution_id, pipeline_run_id)
+        raise

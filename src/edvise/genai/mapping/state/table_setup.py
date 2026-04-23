@@ -53,11 +53,14 @@ def create_state_tables(catalog: str) -> None:
           pipeline_run_id STRING,
           `catalog` STRING,
           status STRING,
+          db_run_id STRING,
           created_at TIMESTAMP,
           updated_at TIMESTAMP
         ) USING DELTA
         """
     )
+    # Existing deployments created before ``db_run_id`` — add column idempotently.
+    spark.sql(f"ALTER TABLE {pr} ADD COLUMN IF NOT EXISTS db_run_id STRING")
     spark.sql(
         f"""
         CREATE TABLE IF NOT EXISTS {pp} (

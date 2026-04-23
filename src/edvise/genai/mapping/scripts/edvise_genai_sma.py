@@ -3,12 +3,9 @@ edvise_sma.py — SchemaMappingAgent pipeline job entry point.
 
 Usage (Databricks job parameters):
     --institution_id    synthetic_edvise
-    --pipeline_run_id   synthetic_edvise_20260420_001  (optional for onboard: auto-resolve / resume)
     --catalog           dev_sst_02
     --mode              onboard | execute
     --resume_from       start | gate_2  (onboard only)
-    --hitl_poll_interval_seconds   UC HITL poll interval for gate_2 (default: 30)
-    --hitl_timeout_seconds         UC HITL poll timeout for gate_2 (default: 1200, 20 min)
     --reference_id      required for onboard; few-shot from that school's
                         ``.../<ref_id>_silver/silver_volume/genai_mapping/active/{manifest_map,transformation_map}.json``
                         (same ``--catalog`` as the reference institution's volumes).
@@ -53,6 +50,7 @@ disable_mlflow_side_effects_for_openai_gateway()
 from edvise.configs import genai as genai_cfg
 from edvise.genai.mapping.shared.active_promotion import promote_genai_mapping_to_active
 from edvise.genai.mapping.state import job_state as _pipeline_job_state
+from edvise.genai.mapping.state import pipeline_state as _pipeline_state
 from edvise.genai.mapping.state.hitl_poller import (
     DEFAULT_HITL_POLL_INTERVAL_SECONDS,
     DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
@@ -61,6 +59,9 @@ from edvise.genai.mapping.state.hitl_poller import (
 from edvise.shared.logger import init_file_logging_at_path
 
 LOGGER = logging.getLogger("edvise_sma")
+
+# AI Gateway route for SMA onboard LLM steps (2a / refinement / 2b). Not a CLI flag.
+_DEFAULT_SMA_GATEWAY_MODEL_ID = "claude-sonnet-test-genai-ai-data-cleaning"
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -270,7 +271,6 @@ def run_onboard_start(
     institution_id: str,
     reference_id: str,
     catalog: str,
-    model_id: str,
     paths: SMAPaths,
     client,
     spark_session,
@@ -326,7 +326,7 @@ def run_onboard_start(
         cohort_schema_class=RawEdviseStudentDataSchema,
         course_schema_class=RawEdviseCourseDataSchema,
     )
-    result_2a = _run_once(model_id, prompt_2a, client)
+    result_2a = _run_once(_DEFAULT_SMA_GATEWAY_MODEL_ID, prompt_2a, client)
     if not result_2a["success"]:
         raise RuntimeError(result_2a.get("error") or "Step 2a LLM failed")
 
@@ -364,7 +364,7 @@ def run_onboard_start(
 
     def _refinement_llm_complete(system: str, user: str) -> str:
         combined = system + "\n\n---\n\n" + user
-        r = _run_once(model_id, combined, client)
+        r = _run_once(_DEFAULT_SMA_GATEWAY_MODEL_ID, combined, client)
         if not r.get("success"):
             raise RuntimeError(r.get("error") or "SMA refinement LLM call failed")
         return r["response"]
@@ -431,14 +431,11 @@ def run_onboard_gate_2(
     institution_id: str,
     reference_id: str,
     catalog: str,
-    model_id: str,
     paths: SMAPaths,
     client,
     spark_session,
     *,
     pipeline_run_id: str,
-    hitl_poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
-    hitl_timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
 ):
     from edvise.genai.mapping.schema_mapping_agent.hitl import (
         check_sma_hitl_gate,
@@ -471,8 +468,8 @@ def run_onboard_gate_2(
         catalog,
         pipeline_run_id,
         institution_id=institution_id,
-        poll_interval_seconds=hitl_poll_interval_seconds,
-        timeout_seconds=hitl_timeout_seconds,
+        poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+        timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
     )
 
     # Resolve HITL into mapping manifest
@@ -516,7 +513,7 @@ def run_onboard_gate_2(
         reference_transformation_maps=[reference_tm],
         reference_institution_ids=[reference_id],
     )
-    result_2b = _run_once(model_id, prompt_2b, client)
+    result_2b = _run_once(_DEFAULT_SMA_GATEWAY_MODEL_ID, prompt_2b, client)
     if not result_2b["success"]:
         raise RuntimeError(result_2b.get("error") or "Step 2b LLM failed")
 
@@ -673,10 +670,6 @@ def run(
     mode: str,
     resume_from: str = "start",
     reference_id: str = "",
-    model_id: str = "claude-sonnet-test-genai-ai-data-cleaning",
-    *,
-    hitl_poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
-    hitl_timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
 ):
     paths = resolve_run_paths(institution_id, pipeline_run_id, catalog)
     init_file_logging_at_path(
@@ -699,6 +692,17 @@ def run(
 
     if mode == "execute":
         run_execute(institution_id, paths, spark_session)
+        try:
+            _pipeline_state.update_pipeline_run_status(
+                catalog, institution_id, pipeline_run_id, "complete"
+            )
+        except Exception as e:  # noqa: BLE001
+            LOGGER.warning(
+                "Could not mark pipeline_runs complete after execute: catalog=%s run=%s (%s)",
+                catalog,
+                pipeline_run_id,
+                e,
+            )
 
     elif mode == "onboard":
         if resume_from not in ("start", "gate_2"):
@@ -720,7 +724,6 @@ def run(
                     institution_id=institution_id,
                     reference_id=reference_id,
                     catalog=catalog,
-                    model_id=model_id,
                     paths=paths,
                     client=client,
                     spark_session=spark_session,
@@ -731,13 +734,10 @@ def run(
                     institution_id=institution_id,
                     reference_id=reference_id,
                     catalog=catalog,
-                    model_id=model_id,
                     paths=paths,
                     client=client,
                     spark_session=spark_session,
                     pipeline_run_id=pipeline_run_id,
-                    hitl_poll_interval_seconds=hitl_poll_interval_seconds,
-                    hitl_timeout_seconds=hitl_timeout_seconds,
                 )
         except HITLTimeoutError:
             raise
@@ -752,57 +752,51 @@ def run(
 
 
 if __name__ == "__main__":
-    from edvise.genai.mapping.scripts import edvise_genai_pipeline as genai_pl
+    from edvise.genai.mapping.state import pipeline_state
 
     parser = argparse.ArgumentParser(description="SchemaMappingAgent pipeline job")
     parser.add_argument("--institution_id", required=True)
-    parser.add_argument(
-        "--pipeline_run_id",
-        default="",
-        help=(
-            "Run folder id. Leave empty to auto-resolve (same-day resume of running / awaiting_hitl / "
-            "timed_out, or a new suffixed id after complete / failed)."
-        ),
-    )
     parser.add_argument("--catalog", required=True)
     parser.add_argument("--mode", required=True, choices=["onboard", "execute"])
     parser.add_argument("--resume_from", default="start", choices=["start", "gate_2"])
     parser.add_argument("--reference_id", default="")
-    parser.add_argument("--model_id", default="claude-sonnet-test-genai-ai-data-cleaning")
     parser.add_argument(
-        "--hitl_poll_interval_seconds",
-        type=int,
-        default=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
-        help="Seconds between Unity Catalog hitl_reviews checks when resume_from=gate_2.",
-    )
-    parser.add_argument(
-        "--hitl_timeout_seconds",
-        type=int,
-        default=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
-        help="Max seconds to wait for UC HITL approval before failing gate_2 (default 20 min).",
+        "--db_run_id",
+        default="",
+        help="Databricks job run id (orchestration id) stored on pipeline_runs.db_run_id; empty omits.",
     )
     args = parser.parse_args()
 
-    _raw_run_id = (args.pipeline_run_id or "").strip()
-    if args.mode == "execute" and not _raw_run_id:
-        parser.error("--pipeline_run_id is required for mode=execute")
+    _db_run_id = (args.db_run_id or "").strip() or None
+
     if args.mode == "execute":
-        _resolved = _raw_run_id
-    else:
-        _resolved = genai_pl.bootstrap_resolved_pipeline_run_id(
+        _resolved = pipeline_state.bootstrap_resolved_pipeline_run_id_for_execute(
             args.catalog,
             args.institution_id,
-            _raw_run_id or None,
+            db_run_id=_db_run_id,
+        )
+    else:
+        _resolved = pipeline_state.bootstrap_resolved_pipeline_run_id(
+            args.catalog,
+            args.institution_id,
+            None,
         )
 
-    run(
-        institution_id=args.institution_id,
-        pipeline_run_id=_resolved,
-        catalog=args.catalog,
-        mode=args.mode,
-        resume_from=args.resume_from,
-        reference_id=args.reference_id,
-        model_id=args.model_id,
-        hitl_poll_interval_seconds=args.hitl_poll_interval_seconds,
-        hitl_timeout_seconds=args.hitl_timeout_seconds,
-    )
+    try:
+        run(
+            institution_id=args.institution_id,
+            pipeline_run_id=_resolved,
+            catalog=args.catalog,
+            mode=args.mode,
+            resume_from=args.resume_from,
+            reference_id=args.reference_id,
+        )
+    except BaseException:
+        if args.mode == "execute":
+            pipeline_state.mark_execute_pipeline_run_status(
+                args.catalog,
+                args.institution_id,
+                _resolved,
+                "failed",
+            )
+        raise

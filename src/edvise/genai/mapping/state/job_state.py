@@ -18,6 +18,7 @@ from edvise.genai.mapping.state import pipeline_state
 from edvise.genai.mapping.state.hitl_poller import (
     DEFAULT_HITL_POLL_INTERVAL_SECONDS,
     DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+    poll_uc_hitl_until_approved_or_timeout,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -114,9 +115,7 @@ def wait_for_ia_gate_1_hitl(
 
     Used at the beginning of IA onboard ``resume_from=gate_1`` before local JSON HITL gates.
     """
-    from edvise.genai.mapping.scripts import edvise_genai_pipeline as genai_pipeline
-
-    return genai_pipeline.poll_uc_hitl_until_approved_or_timeout(
+    return poll_uc_hitl_until_approved_or_timeout(
         catalog,
         institution_id,
         pipeline_run_id,
@@ -140,9 +139,7 @@ def wait_for_sma_gate_1_hitl(
     Used at the beginning of SMA onboard ``resume_from=gate_2`` (second step) before resolving
     manifest HITL JSON on disk.
     """
-    from edvise.genai.mapping.scripts import edvise_genai_pipeline as genai_pipeline
-
-    return genai_pipeline.poll_uc_hitl_until_approved_or_timeout(
+    return poll_uc_hitl_until_approved_or_timeout(
         catalog,
         institution_id,
         pipeline_run_id,
@@ -172,7 +169,12 @@ def after_ia_onboard_gate_1_success(catalog: str, institution_id: str, pipeline_
 
 
 def ensure_ia_run_row(
-    catalog: str, institution_id: str, pipeline_run_id: str, *, create_run: bool
+    catalog: str,
+    institution_id: str,
+    pipeline_run_id: str,
+    *,
+    create_run: bool,
+    db_run_id: str | None = None,
 ) -> None:
     if not create_run:
         return
@@ -182,6 +184,7 @@ def ensure_ia_run_row(
         catalog,
         institution_id,
         pipeline_run_id,
+        db_run_id,
     )
 
 

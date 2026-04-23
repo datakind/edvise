@@ -1,12 +1,15 @@
 """
 Unity Catalog / Delta state for the GenAI mapping pipeline (infrastructure only).
 
-State tables: ``{catalog}.genai_mapping.pipeline_runs|pipeline_phases|hitl_reviews``.
+State tables: ``{catalog}.genai_mapping.pipeline_runs`` (includes ``db_run_id`` for Databricks job
+correlation), ``pipeline_phases``, ``hitl_reviews``.
 All DML uses :meth:`pyspark.sql.SparkSession.sql` (no Delta Python API, no pandas).
 """
 
 from __future__ import annotations
 
+import logging
+import uuid
 from datetime import date, datetime
 from typing import Any, Optional
 
@@ -18,6 +21,8 @@ from edvise.genai.mapping.state._sql import (
     lit,
     qualified_table,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 _INITIAL_RUN_STATUS: str = "running"
 
@@ -33,6 +38,14 @@ def _spark() -> Any:
     return spark
 
 
+def _sql_db_run_id(db_run_id: str | None) -> str:
+    """SQL expression for ``db_run_id`` column (NULL or string literal)."""
+    s = (db_run_id or "").strip()
+    if not s:
+        return "NULL"
+    return lit(s)
+
+
 def _row_to_plain_dict(row: Any) -> dict[str, Any]:
     """Coerce a Spark Row to JSON-friendly scalar dict (timestamps as ISO strings)."""
     d: dict[str, Any] = row.asDict() if hasattr(row, "asDict") else {}
@@ -46,6 +59,7 @@ def create_pipeline_run(
     catalog: str,
     institution_id: str,
     pipeline_run_id: str,
+    db_run_id: str | None = None,
 ) -> None:
     """
     Insert a new row into ``pipeline_runs`` with status ``running``.
@@ -53,6 +67,8 @@ def create_pipeline_run(
     The table records which UC ``catalog`` the run belongs to. The operational convention
     is at most one *active* (non-terminal) run per ``institution_id``; that is not enforced
     in SQL and should be applied by the caller if needed.
+
+    ``db_run_id`` stores the Databricks job run id (or other orchestration id) when provided.
     """
     c = str(catalog).strip()
     inst = str(institution_id).strip()
@@ -61,13 +77,15 @@ def create_pipeline_run(
         raise ValueError("institution_id and pipeline_run_id must be non-empty")
 
     t = qualified_table(c, PIPELINE_RUNS)
+    db_sql = _sql_db_run_id(db_run_id)
     q = f"""
-    INSERT INTO {t} (institution_id, pipeline_run_id, `catalog`, status, created_at, updated_at)
+    INSERT INTO {t} (institution_id, pipeline_run_id, `catalog`, status, db_run_id, created_at, updated_at)
     VALUES (
       {lit(inst)},
       {lit(rid)},
       {lit(c)},
       {lit(_INITIAL_RUN_STATUS)},
+      {db_sql},
       current_timestamp(),
       current_timestamp()
     )
@@ -80,6 +98,7 @@ def update_pipeline_run_status(
     institution_id: str,
     pipeline_run_id: str,
     status: str,
+    db_run_id: str | None = None,
 ) -> None:
     """
     Set ``status`` and ``updated_at`` for the run keyed by
@@ -87,6 +106,8 @@ def update_pipeline_run_status(
 
     If no row matches, a new row is inserted (merge upsert) so a status update
     can follow a hand-created run id.
+
+    On insert-only paths, ``db_run_id`` is set when non-empty; matched rows keep existing ``db_run_id``.
     """
     c = str(catalog).strip()
     inst = str(institution_id).strip()
@@ -96,6 +117,7 @@ def update_pipeline_run_status(
         raise ValueError("institution_id, pipeline_run_id, and status must be non-empty")
 
     t = qualified_table(c, PIPELINE_RUNS)
+    db_sql = _sql_db_run_id(db_run_id)
     q = f"""
     MERGE INTO {t} t
     USING (
@@ -103,7 +125,8 @@ def update_pipeline_run_status(
         {lit(inst)} AS institution_id,
         {lit(rid)} AS pipeline_run_id,
         {lit(c)} AS ccat,
-        {lit(st)} AS status
+        {lit(st)} AS status,
+        {db_sql} AS db_run_id
     ) s
     ON t.institution_id = s.institution_id
        AND t.pipeline_run_id = s.pipeline_run_id
@@ -113,8 +136,8 @@ def update_pipeline_run_status(
         t.status = s.status,
         t.updated_at = current_timestamp()
     WHEN NOT MATCHED THEN
-      INSERT (institution_id, pipeline_run_id, `catalog`, status, created_at, updated_at)
-      VALUES (s.institution_id, s.pipeline_run_id, s.ccat, s.status, current_timestamp(), current_timestamp())
+      INSERT (institution_id, pipeline_run_id, `catalog`, status, db_run_id, created_at, updated_at)
+      VALUES (s.institution_id, s.pipeline_run_id, s.ccat, s.status, s.db_run_id, current_timestamp(), current_timestamp())
     """
     _spark().sql(q)
 
@@ -229,6 +252,19 @@ def resolve_pipeline_run_id(
     # Unknown legacy status: start a fresh suffixed id rather than reusing ambiguous rows.
     n = count_pipeline_runs_created_today(catalog, inst)
     return f"{base_id}_{n + 1}"
+
+
+def new_execute_pipeline_run_id(institution_id: str) -> str:
+    """
+    Fresh ``pipeline_run_id`` for execute-mode jobs (distinct from onboard ids).
+
+    Uses ``_exec_`` in the string so execute-mode bootstrap can resume the same id across
+    multi-task jobs without colliding with onboard runs.
+    """
+    inst = str(institution_id).strip()
+    if not inst:
+        raise ValueError("institution_id must be non-empty")
+    return f"{inst}_{date.today().strftime('%Y%m%d')}_exec_{uuid.uuid4().hex[:12]}"
 
 
 def reconcile_stale_nonterminal_pipeline_runs(
@@ -471,3 +507,98 @@ def resolve_hitl(
       AND artifact_type = {lit(at)}
     """
     _spark().sql(q)
+
+
+def bootstrap_resolved_pipeline_run_id(
+    catalog: str,
+    institution_id: str,
+    pipeline_run_id_arg: str | None,
+    *,
+    stale_idle_minutes: int | None = None,
+) -> str:
+    """
+    Reconcile stale ``running`` / ``awaiting_hitl`` rows, then resolve the active run id.
+
+    Pass ``pipeline_run_id_arg`` as empty/None to use :func:`resolve_pipeline_run_id`
+    (implicit resume of ``running`` / ``awaiting_hitl`` / ``timed_out``, or a new suffixed id after
+    ``complete`` / ``failed``).
+    """
+    idle = (
+        stale_idle_minutes
+        if stale_idle_minutes is not None
+        else STALE_PIPELINE_RUN_IDLE_MINUTES
+    )
+    reconcile_stale_nonterminal_pipeline_runs(catalog, institution_id, idle)
+    resolved = resolve_pipeline_run_id(catalog, institution_id, pipeline_run_id_arg)
+    LOGGER.info(
+        "Resolved GenAI pipeline_run_id=%r (catalog=%r institution_id=%r stale_idle_minutes=%s)",
+        resolved,
+        catalog,
+        institution_id,
+        idle,
+    )
+    return resolved
+
+
+def bootstrap_resolved_pipeline_run_id_for_execute(
+    catalog: str,
+    institution_id: str,
+    *,
+    db_run_id: str | None = None,
+    stale_idle_minutes: int | None = None,
+) -> str:
+    """
+    Reconcile stale rows, then return an execute ``pipeline_run_id``.
+
+    If today's latest run for this institution is a non-terminal ``*_exec_*`` row (same multi-task
+    job: IA then SMA), that id is reused. Otherwise a new id is minted and inserted into
+    ``pipeline_runs`` so downstream tasks can resolve it the same way onboard does.
+    """
+    idle = (
+        stale_idle_minutes
+        if stale_idle_minutes is not None
+        else STALE_PIPELINE_RUN_IDLE_MINUTES
+    )
+    reconcile_stale_nonterminal_pipeline_runs(catalog, institution_id, idle)
+    latest = get_latest_pipeline_run_created_today(catalog, institution_id)
+    if latest:
+        st = str(latest.get("status") or "").strip()
+        rid = str(latest.get("pipeline_run_id") or "").strip()
+        if rid and "_exec_" in rid and st in ("running", "awaiting_hitl", "timed_out"):
+            LOGGER.info(
+                "Resuming GenAI execute pipeline_run_id=%r (catalog=%r institution_id=%r)",
+                rid,
+                catalog,
+                institution_id,
+            )
+            return rid
+
+    rid = new_execute_pipeline_run_id(institution_id)
+    create_pipeline_run(catalog, institution_id, rid, db_run_id=db_run_id)
+    LOGGER.info(
+        "Resolved GenAI execute pipeline_run_id=%r (catalog=%r institution_id=%r stale_idle_minutes=%s)",
+        rid,
+        catalog,
+        institution_id,
+        idle,
+    )
+    return rid
+
+
+def mark_execute_pipeline_run_status(
+    catalog: str,
+    institution_id: str,
+    pipeline_run_id: str,
+    status: str,
+) -> None:
+    """Best-effort ``pipeline_runs`` status for execute jobs (failure / ignored errors)."""
+    try:
+        update_pipeline_run_status(catalog, institution_id, pipeline_run_id, status)
+    except Exception as e:  # noqa: BLE001
+        LOGGER.warning(
+            "Could not write execute pipeline_runs status=%s catalog=%s run=%s (%s)",
+            status,
+            catalog,
+            pipeline_run_id,
+            e,
+        )
