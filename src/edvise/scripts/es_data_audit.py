@@ -37,15 +37,12 @@ from edvise.dataio.read import (
 from edvise.dataio.write import write_parquet
 from edvise.configs.es import ESProjectConfig
 from edvise.data_audit.eda import (
+    log_high_null_columns,
     log_record_drops,
     log_terms,
     log_misjoined_records,
 )
 
-from edvise.utils.data_cleaning import (
-    remove_pre_cohort_courses,
-    log_pre_cohort_courses,
-)
 from edvise.shared.logger import init_file_logging, resolve_run_path
 from edvise.shared.validation import require
 from edvise.shared.dashboard_metadata.pipeline_runs import append_pipeline_run_event
@@ -202,8 +199,11 @@ class ESDataAuditTask:
                 " Failed to parse cohort data with all known datetime formats (validated pass)."
             )
 
+        # Log high null columns
+        log_high_null_columns(df_cohort_validated)
         # Standardize cohort data
         LOGGER.info(" Standardizing cohort data:")
+        
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
 
         LOGGER.info(" Cohort data standardized.")
@@ -252,8 +252,11 @@ class ESDataAuditTask:
         # else:
         #     log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
+        # Log high null columns
+        log_high_null_columns(df_course_validated)
         # Standardize course data
         LOGGER.info(" Standardizing course data:")
+
         df_course_standardized = self.course_std.standardize(df_course_validated)
 
         LOGGER.info(" Course data standardized.")

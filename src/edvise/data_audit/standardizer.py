@@ -11,7 +11,6 @@ from edvise.utils.data_cleaning import (
     replace_na_firstgen_and_pell,
 )
 from .eda import (
-    log_high_null_columns,
     print_credential_and_enrollment_types_and_intensities,
     print_retention,
     log_grade_distribution,
@@ -60,7 +59,6 @@ class PDPCohortStandardizer:
         Args:
             df: As output by :func:`dataio.read_raw_pdp_cohort_data_from_file()` .
         """
-        log_high_null_columns(df)
         print_credential_and_enrollment_types_and_intensities(df)
         print_retention(df)
         log_top_majors(df)
@@ -133,7 +131,6 @@ class PDPCourseStandardizer:
         """
         df = strip_trailing_decimal_strings(df)
         df = drop_course_rows_missing_identifiers(df)
-        log_high_null_columns(df)
         log_grade_distribution(df)
         cols_to_drop = [
             # student demographics found in raw cohort dataset
