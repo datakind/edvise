@@ -172,10 +172,8 @@ class PDPDataAuditTask:
         LOGGER.info(
             " Listing grouped cohort year and terms and academic year and terms for raw cohort and course data files: "
         )
-        log_terms(
-            df_course_raw,
-            df_cohort_raw,
-        )
+        log_terms(df_cohort_raw, "cohort", "cohort_term")
+        log_terms(df_course_raw, "academic_year", "academic_term")
 
         # TODO: we may want to add checks here for expected columns, rows, etc. that could break the schemas
 
@@ -363,10 +361,8 @@ class PDPDataAuditTask:
         )
 
         # Logs cohort year and terms and academic year and terms, grouped and sorted
-        log_terms(
-            df_course_standardized,
-            df_cohort_standardized,
-        )
+        log_terms(df_cohort_standardized, "cohort", "cohort_term")
+        log_terms(df_course_standardized, "academic_year", "academic_term")
 
         # --- Check that standardized cohort/course files aren't empty ---
         require(len(df_cohort_standardized) > 0, "df_cohort_standardized is empty.")

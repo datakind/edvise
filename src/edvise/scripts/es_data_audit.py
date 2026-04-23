@@ -173,15 +173,13 @@ class ESDataAuditTask:
             ],
         )
 
-        # Logs cohort year and terms and academic year and terms, grouped and sorted
+        # Logs entry and academic year/term pairs, grouped and sorted (Edvise column names)
 
         LOGGER.info(
-            " Listing grouped cohort year and terms and academic year and terms for raw cohort and course data files: "
+            " Listing grouped entry year/term and academic year/term for raw cohort and course data files: "
         )
-        log_terms(
-            df_course_raw,
-            df_cohort_raw,
-        )
+        log_terms(df_cohort_raw, "entry_year", "entry_term")
+        log_terms(df_course_raw, "academic_year", "academic_term")
 
         # TODO: we may want to add checks here for expected columns, rows, etc. that could break the schemas
 
@@ -375,14 +373,12 @@ class ESDataAuditTask:
         )
 
         LOGGER.info(
-            " Listing grouped cohort year and terms and academic year and terms for *standardized* cohort and course data files: "
+            " Listing grouped entry year/term and academic year/term for *standardized* cohort and course data files: "
         )
 
-        # Logs cohort year and terms and academic year and terms, grouped and sorted
-        log_terms(
-            df_course_standardized,
-            df_cohort_standardized,
-        )
+        # Logs entry and academic year/term pairs, grouped and sorted (Edvise column names)
+        log_terms(df_cohort_standardized, "entry_year", "entry_term")
+        log_terms(df_course_standardized, "academic_year", "academic_term")
 
         # --- Check that standardized cohort/course files aren't empty ---
         require(len(df_cohort_standardized) > 0, "df_cohort_standardized is empty.")

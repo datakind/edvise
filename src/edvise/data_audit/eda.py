@@ -541,47 +541,30 @@ def log_record_drops(
     )
 
 
-def log_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
+def log_terms(df: pd.DataFrame, col_a: str, col_b: str) -> None:
     """
-    Logs ALL cohort year/term pairs and ALL academic year/term pairs,
-    each sorted by year then term, including value counts.
+    Log value counts for every non-null (``col_a``, ``col_b``) pair, sorted by both columns.
     """
-
-    # --- Cohort year/term pairs ---
-    if {"cohort", "cohort_term"}.issubset(df_cohort.columns):
-        cohort_terms_counts = (
-            df_cohort[["cohort", "cohort_term"]]
-            .dropna()
-            .value_counts()
-            .reset_index(name="count")
-            .sort_values(by=["cohort", "cohort_term"])
-        )
-        LOGGER.info(
-            "All cohort year/term pairs with counts:\n%s",
-            cohort_terms_counts.to_string(index=False),
-        )
-    else:
+    if not {col_a, col_b}.issubset(df.columns):
         LOGGER.warning(
-            " ⚠️ Missing fields: 'cohort' or 'cohort_term' in cohort dataframe."
+            " ⚠️ Missing fields: '%s' or '%s' in dataframe.",
+            col_a,
+            col_b,
         )
-
-    # --- Academic year/term pairs ---
-    if {"academic_year", "academic_term"}.issubset(df_course.columns):
-        academic_terms_counts = (
-            df_course[["academic_year", "academic_term"]]
-            .dropna()
-            .value_counts()
-            .reset_index(name="count")
-            .sort_values(by=["academic_year", "academic_term"])
-        )
-        LOGGER.info(
-            "All academic year/term pairs with counts:\n%s",
-            academic_terms_counts.to_string(index=False),
-        )
-    else:
-        LOGGER.warning(
-            " ⚠️ Missing fields: 'academic_year' or 'academic_term' in course dataframe."
-        )
+        return
+    pair_counts = (
+        df[[col_a, col_b]]
+        .dropna()
+        .value_counts()
+        .reset_index(name="count")
+        .sort_values(by=[col_a, col_b])
+    )
+    LOGGER.info(
+        "All %s / %s pairs with counts:\n%s",
+        col_a,
+        col_b,
+        pair_counts.to_string(index=False),
+    )
 
 
 def _log_misjoined_value_counts(df: pd.DataFrame, columns: list[str]) -> None:
