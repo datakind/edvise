@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Union
+from typing import Annotated, Dict, List, Literal, Optional, Union
 
 from pydantic import (
     AliasChoices,
@@ -272,7 +272,9 @@ class IdentityAgentDatasets(StrictBaseModel):
     * ``onboard_files`` — logical dataset → CSV path(s) used when the mapping pipeline runs in
       **onboard** mode (:meth:`IdentityAgentInputsConfig.to_school_mapping_config` with
       ``pipeline_mode='onboard'``).
-    * ``execute_files`` — same for **execute** mode (``pipeline_mode='execute'``).
+    * ``execute_files`` — same for **execute** mode (``pipeline_mode='execute'``). May be omitted
+      for onboard-only institutions; :meth:`IdentityAgentInputsConfig.to_school_mapping_config` then
+      requires this table when ``pipeline_mode='execute'``.
 
     The bronze volume root is not stored here; :meth:`IdentityAgentInputsConfig.to_school_mapping_config`
     sets :attr:`SchoolMappingConfig.bronze_volumes_path` via :func:`bronze_volume_path_for_institution`
@@ -287,6 +289,9 @@ class IdentityAgentDatasets(StrictBaseModel):
         [datasets.execute_files]
         student = "current/roster.csv"
         course = "current/classes.csv"
+
+    Omit ``[datasets.execute_files]`` until execute paths are known; it is required when the
+    pipeline runs in execute mode.
     """
 
     onboard_files: Dict[str, Union[str, List[str]]] = Field(
@@ -297,25 +302,29 @@ class IdentityAgentDatasets(StrictBaseModel):
             "bronze volume root when that root is set."
         ),
     )
-    execute_files: Dict[str, Union[str, List[str]]] = Field(
-        ...,
-        min_length=1,
+    execute_files: Optional[
+        Annotated[Dict[str, Union[str, List[str]]], Field(min_length=1)]
+    ] = Field(
+        default=None,
         description=(
             "Logical dataset name → CSV path(s) for recurring execute runs, relative to the "
-            "resolved bronze volume root when that root is set."
+            "resolved bronze volume root when that root is set. Optional for onboard-only configs; "
+            "required (non-empty) when ``pipeline_mode='execute'``."
         ),
     )
 
     @field_validator("onboard_files", "execute_files", mode="before")
     @classmethod
     def _files_values_are_str_or_list(cls, v: object, info: ValidationInfo) -> object:
+        if info.field_name == "execute_files" and v is None:
+            return None
         return _validate_dataset_files_table(str(info.field_name), v)
 
 
 class IdentityAgentInputsConfig(StrictBaseModel):
     """
     Per-institution config: ``[institution]`` and ``[datasets]`` with ``onboard_files`` and
-    ``execute_files`` only (no shared ``files`` table).
+    optional ``execute_files`` (no shared ``files`` table).
 
     File values may be a single string or a list of strings (e.g. multiple course files).
     Relative paths resolve against :func:`bronze_volume_path_for_institution` for the institution
@@ -342,11 +351,18 @@ class IdentityAgentInputsConfig(StrictBaseModel):
         Build :class:`SchoolMappingConfig` with ``DatasetConfig`` entries (files only, no PKs).
 
         ``pipeline_mode`` selects ``datasets.onboard_files`` vs ``datasets.execute_files``.
+        ``execute_files`` must be set when ``pipeline_mode='execute'``.
         """
         ds = self.datasets
         if pipeline_mode == "onboard":
             merged_files = dict(ds.onboard_files)
         else:
+            if not ds.execute_files:
+                raise ValueError(
+                    "datasets.execute_files is required when pipeline_mode is 'execute'. "
+                    "Add a non-empty [datasets.execute_files] table to inputs.toml (logical "
+                    "dataset name → CSV path), or run in onboard mode."
+                )
             merged_files = dict(ds.execute_files)
 
         datasets: Dict[str, DatasetConfig] = {}

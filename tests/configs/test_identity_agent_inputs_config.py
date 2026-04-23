@@ -239,6 +239,52 @@ def test_to_school_mapping_config_onboard_run_id_kwarg(
     assert root.endswith("/genai_pipeline/run_xyz")
 
 
+def test_onboard_without_execute_files_validates_and_maps(
+    tmp_path: Path,
+) -> None:
+    """Execute file table may be omitted for onboard-only institutions."""
+    p = tmp_path / "inputs.toml"
+    p.write_text(
+        textwrap.dedent(
+            """
+            [institution]
+            id = "synthetic_univ_alpha"
+
+            [datasets.onboard_files]
+            student = "onboard_students.csv"
+            course = "onboard_course.csv"
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    raw = IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
+    assert raw.datasets.execute_files is None
+    onboard_school = raw.to_school_mapping_config(
+        uc_catalog="dev_sst_02", pipeline_mode="onboard"
+    )
+    assert onboard_school.datasets["student"].files == ["onboard_students.csv"]
+    assert onboard_school.datasets["course"].files == ["onboard_course.csv"]
+
+
+def test_execute_without_execute_files_raises(tmp_path: Path) -> None:
+    p = tmp_path / "inputs.toml"
+    p.write_text(
+        textwrap.dedent(
+            """
+            [institution]
+            id = "synthetic_univ_alpha"
+
+            [datasets.onboard_files]
+            student = "onboard_students.csv"
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    raw = IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
+    with pytest.raises(ValueError, match="datasets.execute_files is required"):
+        raw.to_school_mapping_config(uc_catalog="dev_sst_02", pipeline_mode="execute")
+
+
 def test_to_school_mapping_config_onboard_execute_files_are_separate_tables(
     tmp_path: Path,
 ) -> None:
