@@ -517,6 +517,10 @@ def clean_dataset(
       - ``\"student_id\"`` (default): rename alias → ``student_id`` (custom audit behavior).
       - ``\"learner_id\"``: GenAI schema contracts — rename alias → ``learner_id``, or
         ``student_id`` → ``learner_id`` if the file already used ``student_id``.
+
+    Deduplication order: full-row ``drop_duplicates`` first (artifact copies), then
+    ``dedupe_fn`` when set, then full-row again only if ``dedupe_fn`` ran, then
+    primary-key dedupe when ``enforce_uniqueness`` is true.
     """
     if cleaning_cfg is not None:
         cfg_opts = dtype_opts_from_cleaning_config(cleaning_cfg)
@@ -631,8 +635,19 @@ def clean_dataset(
     if canonical_col in g.columns:
         g[canonical_col] = g[canonical_col].astype("string")
 
-    # 7) optional dataset-specific dedupe hook (pre-key)
-    if spec.dedupe_fn and callable(spec.dedupe_fn):
+    # 7) drop full row duplicates before dedupe hooks (artifact copies; same order as IA profiling)
+    before = len(g)
+    g = g.drop_duplicates().reset_index(drop=True)
+    LOGGER.info(
+        "%s - Removed full row duplicates (before dedupe_fn): %d removed | shape=%s",
+        dataset_name,
+        before - len(g),
+        g.shape,
+    )
+
+    # 8) optional dataset-specific dedupe hook (semantic / policy dedup)
+    dedupe_hook_ran = bool(spec.dedupe_fn and callable(spec.dedupe_fn))
+    if dedupe_hook_ran:
         LOGGER.info("%s - Applying dedupe_fn", dataset_name)
         before_dedupe_fn = len(g)
         g = spec.dedupe_fn(g)
@@ -643,18 +658,19 @@ def clean_dataset(
             g.shape,
         )
 
-    # 8) drop full row duplicates
-    before = len(g)
-    g = g.drop_duplicates().reset_index(drop=True)
-    LOGGER.info(
-        "%s - Removed full row duplicates: %d removed | shape=%s",
-        dataset_name,
-        before - len(g),
-        g.shape,
-    )
+    # 9) full row duplicates again only after hook (hook may produce identical rows)
+    if dedupe_hook_ran:
+        before = len(g)
+        g = g.drop_duplicates().reset_index(drop=True)
+        LOGGER.info(
+            "%s - Removed full row duplicates (after dedupe_fn): %d removed | shape=%s",
+            dataset_name,
+            before - len(g),
+            g.shape,
+        )
 
     if enforce_uniqueness:
-        # 9) deduplicate rows based on primary keys
+        # 10) deduplicate rows based on primary keys
         before = len(g)
         if spec.unique_keys:
             g = g.drop_duplicates(subset=spec.unique_keys, keep="first").reset_index(
@@ -668,7 +684,7 @@ def clean_dataset(
             g.shape,
         )
 
-        # 10) enforce uniqueness by primary keys
+        # 11) enforce uniqueness by primary keys
         if spec.unique_keys:
             dups = g.duplicated(subset=spec.unique_keys)
             if dups.any():
@@ -676,7 +692,7 @@ def clean_dataset(
                     f"{dataset_name} - Duplicate rows detected on primary keys {spec.unique_keys}. Count={int(dups.sum())}"
                 )
 
-    # 11) optional term order
+    # 12) optional term order
     if (
         spec.term_order_fn
         and callable(spec.term_order_fn)

@@ -43,7 +43,10 @@ dataset. You will receive:
   - The dataset name and institution ID
   - The full column list with dtypes (one column per line: `name: dtype`)
   - A key profile: JSON from `RankedCandidateProfiles` — ranked `candidate_key_profiles` with uniqueness
-    scores and, for each candidate key, within-group variance for non-key columns on non-unique rows
+    scores and, for each candidate key, within-group variance for non-key columns on non-unique rows.
+    **Profiling uses an in-memory full-row deduplicated copy of the table** (identical rows are dropped
+    before stats). Uniqueness scores and `non_unique_rows` therefore describe key-level behavior on
+    distinct rows, not literal duplicate full rows still present in the raw extract.
 
 Your job is to produce a grain contract that downstream agents (SchemaMappingAgent Step 2a)
 will use to understand:

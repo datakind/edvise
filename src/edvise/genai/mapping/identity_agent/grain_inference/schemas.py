@@ -13,12 +13,9 @@ from pydantic import (
 )
 
 from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
-from edvise.genai.mapping.shared.hitl.confidence import (
-    PIPELINE_HITL_CONFIDENCE_THRESHOLD,
-)
 
-# Same numeric default as SMA (:data:`PIPELINE_HITL_CONFIDENCE_THRESHOLD`); compared with ``<=``.
-IDENTITY_CONFIDENCE_HITL_THRESHOLD: float = PIPELINE_HITL_CONFIDENCE_THRESHOLD
+# Below this confidence score, `hitl_flag` must be true (ambiguous grain / policy required).
+IDENTITY_CONFIDENCE_HITL_THRESHOLD: float = 0.5
 
 # Valid `dedup_policy.strategy` values (JSON must use these exact strings).
 DedupStrategy = Literal[
@@ -35,8 +32,9 @@ class HookFunctionSpec(BaseModel):
 
     ``draft`` is the **full function definition** (``def`` line through body) as one string.
     ``signature`` is optional human/LLM metadata; materialize does not use it.
-    ``description`` documents intent for reviewers; validation is ``ast.parse`` → optional
-    pyflakes → :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.validate_hook` signature check.
+    For **term** hooks, prompts require ``example_input`` / ``example_output`` to be
+    literal-evaluable for smoke tests. For **grain** (and similar domains), they are
+    free-form documentation strings only.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -47,6 +45,8 @@ class HookFunctionSpec(BaseModel):
         description="Optional; not used by materialize (draft carries the full def).",
     )
     description: str
+    example_input: str | None = None
+    example_output: str | int | float | None = None
     draft: str | None = Field(
         default=None,
         description="Complete Python function definition: signature and body as one string.",
@@ -75,43 +75,9 @@ class HookSpec(BaseModel):
 
 
 class DedupPolicy(BaseModel):
-    """
-    Deduplication strategy for the grain contract.
-
-    ``temporal_collapse`` and ``true_duplicate`` collapse **rows** to one per
-    ``GrainContract.post_clean_primary_key``. They do **not** delete columns from the frame;
-    downstream SchemaMappingAgent 2a still sees the full column set and applies
-    ``row_selection`` where needed. Removing a column from the schema is a separate step, not
-    grain dedup.
-
-    Attributes:
-        strategy: One of ``true_duplicate``, ``temporal_collapse``, ``no_dedup``, ``policy_required``.
-            ``no_dedup`` is only valid when the table has **zero** duplicate rows on the identified
-            grain (the key profile's ``non_unique_rows`` for that candidate key is 0). If
-            ``non_unique_rows`` > 0, use ``temporal_collapse``, ``true_duplicate``, or
-            ``policy_required`` instead. Cross-checking against profiling is done at inference or
-            execution time; this model does not embed the key profile.
-        sort_by: Column to sort by (required for ``temporal_collapse`` together with
-            ``sort_ascending``).
-        sort_ascending: Direction (``True`` = earliest first, ``False`` = latest first; required
-            for ``temporal_collapse``). Always pair with ``keep='first'``.
-        keep: ``first``, ``last``, or null. For ``temporal_collapse``, use ``first`` with
-            ``sort_ascending``; never ``any_row`` — that is a row_selection strategy in 2a, not a
-            dedup ``keep`` value.
-        hook_spec: Custom hook specification (null for parameterized strategies).
-        notes: Brief explanation of the dedup choice.
-    """
-
     model_config = ConfigDict(extra="forbid")
 
-    strategy: DedupStrategy = Field(
-        ...,
-        description=(
-            "true_duplicate | temporal_collapse | no_dedup | policy_required. "
-            "no_dedup only when there are no duplicate rows at the semantic grain "
-            "(key profile non_unique_rows == 0)."
-        ),
-    )
+    strategy: DedupStrategy
     sort_by: str | None = None
     sort_ascending: bool | None = Field(
         default=None,
@@ -128,8 +94,8 @@ class DedupPolicy(BaseModel):
         description=(
             "Populated when strategy='policy_required' and a custom hook is needed. "
             "Null at flag time — written by resolver after hook generation call. "
-            "Execution (apply_grain_dedup / clean_dataset dedupe_fn) loads hook_spec.file under "
-            "hook_modules_root (e.g. bronze_volumes_path) and runs the dedup callable per key-group."
+            "Execution layer infers hook path from hook_spec presence; "
+            "no separate dedup_method field is needed."
         ),
     )
 
@@ -156,12 +122,6 @@ class DedupPolicy(BaseModel):
 class GrainContract(BaseModel):
     """
     Grain contract for one institution dataset from IdentityAgent **grain** stage (grain only).
-
-    **Deduplication (Option B):** When ``dedup_policy.strategy`` is ``temporal_collapse`` or
-    ``true_duplicate``, execution collapses duplicate **rows** to one per
-    ``post_clean_primary_key``. **All columns** are retained in the cleaned dataset; non-key
-    columns then have at most one value per grain key. If a column must be removed from the
-    schema entirely, that is done at schema-narrowing / mapping stages — not during grain dedup.
 
     Term column config is produced in the **term** stage as :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermContract`.
 
@@ -210,7 +170,7 @@ class GrainContract(BaseModel):
         le=1.0,
         description=(
             "Agent confidence in the proposed grain and dedup policy (same 0.0–1.0 scale as "
-            "Schema Mapping Agent). Drives HITL — at or below the documented threshold requires "
+            "Schema Mapping Agent). Drives HITL — scores below the documented threshold require "
             "hitl_flag true."
         ),
     )
@@ -243,13 +203,13 @@ class GrainContract(BaseModel):
         if isinstance(v, str):
             s = v.strip()
             return s if s else None
-        return str(v).strip() or None
+        return v
 
     @model_validator(mode="after")
     def low_confidence_requires_hitl(self) -> GrainContract:
-        if self.confidence <= IDENTITY_CONFIDENCE_HITL_THRESHOLD and not self.hitl_flag:
+        if self.confidence < IDENTITY_CONFIDENCE_HITL_THRESHOLD and not self.hitl_flag:
             raise ValueError(
-                f"hitl_flag must be true when confidence is at or below {IDENTITY_CONFIDENCE_HITL_THRESHOLD}"
+                f"hitl_flag must be true when confidence is below {IDENTITY_CONFIDENCE_HITL_THRESHOLD}"
             )
         return self
 
@@ -288,7 +248,7 @@ class InstitutionGrainContract(BaseModel):
         return self
 
     def contracts_by_dataset(self) -> dict[str, GrainContract]:
-        """Return the same mapping as institution grain runners / schema merge APIs expect."""
+        """Return the same mapping as :func:`run_identity_agents_for_institution` / schema merge APIs expect."""
         return dict(self.datasets)
 
 
