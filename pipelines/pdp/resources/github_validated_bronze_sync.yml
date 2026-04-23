@@ -24,6 +24,12 @@ resources:
               - "{{job.parameters.gcs_source_prefix}}"
               - --bronze_subdir
               - "{{job.parameters.bronze_subdir}}"
+              - --max_objects
+              - "{{job.parameters.max_objects}}"
+              - --require_at_least_one_file
+              - "{{job.parameters.require_at_least_one_file}}"
+              - --strict_mode
+              - "{{job.parameters.strict_mode}}"
           job_cluster_key: edvise-validated-bronze-sync-cluster
           libraries:
             - pypi:
@@ -63,6 +69,12 @@ resources:
           default: validated/
         - name: bronze_subdir
           default: gcs_validated_sync
+        - name: max_objects
+          default: "1000"
+        - name: require_at_least_one_file
+          default: "true"
+        - name: strict_mode
+          default: auto
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
           level: CAN_MANAGE
