@@ -9,7 +9,6 @@ import typing as t
 
 from edvise import utils as edvise_utils
 from edvise import feature_generation
-from edvise.data_audit.standardizer import BaseStandardizer
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
 
@@ -25,7 +24,6 @@ class CustomFeatureGenerationTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.cfg = read_config(self.args.toml_file_path, schema=PDPProjectConfig)
-        self.base_std = BaseStandardizer()
 
     def run(self):
         """Executes the data preprocessing pipeline."""

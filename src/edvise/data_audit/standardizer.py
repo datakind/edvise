@@ -19,25 +19,40 @@ from .eda import (
     log_top_majors,
 )
 
-# TODO think of a better name than standardizer
+
+def add_empty_columns_if_missing(
+    df: pd.DataFrame,
+    col_val_dtypes: dict[str, tuple[t.Optional[t.Any], str]],
+) -> pd.DataFrame:
+    return df.assign(
+        **{
+            col: pd.Series(data=val, index=df.index, dtype=dtype)
+            for col, (val, dtype) in col_val_dtypes.items()
+            if col not in df.columns
+        }
+    )
 
 
-class BaseStandardizer:
-    def add_empty_columns_if_missing(
-        self,
-        df: pd.DataFrame,
-        col_val_dtypes: dict[str, tuple[t.Optional[t.Any], str]],
-    ) -> pd.DataFrame:
-        return df.assign(
-            **{
-                col: pd.Series(data=val, index=df.index, dtype=dtype)
-                for col, (val, dtype) in col_val_dtypes.items()
-                if col not in df.columns
-            }
-        )
+def drop_and_fill_columns(
+    df: pd.DataFrame,
+    cols_to_drop: t.Sequence[str],
+    col_val_dtypes: dict[str, tuple[t.Optional[t.Any], str]],
+    *,
+    after_drop: t.Callable[[pd.DataFrame], pd.DataFrame] | None = None,
+) -> pd.DataFrame:
+    """
+    :func:`drop_columns_safely` on ``cols_to_drop``, optionally run ``after_drop`` (e.g. PDP
+    first-gen / Pell NA handling), then :func:`add_empty_columns_if_missing`.
+    """
+    df = drop_columns_safely(df, list(cols_to_drop))
+    if after_drop is not None:
+        df = after_drop(df)
+    if col_val_dtypes:
+        df = add_empty_columns_if_missing(df, col_val_dtypes)
+    return df
 
 
-class PDPCohortStandardizer(BaseStandardizer):
+class PDPCohortStandardizer:
     def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Drop some columns from raw cohort dataset.
@@ -103,13 +118,12 @@ class PDPCohortStandardizer(BaseStandardizer):
             "first_year_to_associates_at_other_inst": (None, "Int8"),
             "first_year_to_certificate_at_other_inst": (None, "Int8"),
         }
-        df = drop_columns_safely(df, cols_to_drop)
-        df = replace_na_firstgen_and_pell(df)
-        df = self.add_empty_columns_if_missing(df, col_val_dtypes)
-        return df
+        return drop_and_fill_columns(
+            df, cols_to_drop, col_val_dtypes, after_drop=replace_na_firstgen_and_pell
+        )
 
 
-class PDPCourseStandardizer(BaseStandardizer):
+class PDPCourseStandardizer:
     def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Drop some columns and anomalous rows from raw course dataset.
@@ -140,29 +154,20 @@ class PDPCourseStandardizer(BaseStandardizer):
             "enrollment_record_at_other_institution_s_locale_s",
         ]
 
-        df = drop_columns_safely(df, cols_to_drop)
-        df = self.add_empty_columns_if_missing(
-            df, {"term_program_of_study": (None, "string")}
+        return drop_and_fill_columns(
+            df, cols_to_drop, {"term_program_of_study": (None, "string")}
         )
+
+
+class ESCourseStandardizer:
+    """Edvise course rows: no extra standardization until school-specific steps exist."""
+
+    def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
         return df
 
 
-class ESCourseStandardizer(BaseStandardizer):
+class ESCohortStandardizer:
+    """Edvise learner (cohort) rows: no extra standardization until school-specific steps exist."""
+
     def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        FILL IN
-
-        Args:
-            df: As output by :func:`dataio.read_raw_edvise_course_data_from_file()` .
-        """
-        return df
-
-class ESCohortStandardizer(BaseStandardizer):
-    def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
-        """
-        FILL IN
-
-        Args:
-            df: As output by :func:`dataio.read_raw_edvise_cohort_data_from_file()` .
-        """
         return df
