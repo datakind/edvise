@@ -5,7 +5,8 @@ resources:
       webhook_notifications:
         on_failure:
           - id: ${var.inference_slack_webhook_id}
-      max_concurrent_runs: 10
+      # One writer per institution landing path; avoid concurrent rmtree/copy races.
+      max_concurrent_runs: 1
       tasks:
         - task_key: sync_validated_to_bronze
           spark_python_task:
@@ -30,6 +31,8 @@ resources:
               - "{{job.parameters.require_at_least_one_file}}"
               - --strict_mode
               - "{{job.parameters.strict_mode}}"
+              - --clear_destination
+              - "{{job.parameters.clear_destination}}"
           job_cluster_key: edvise-validated-bronze-sync-cluster
           libraries:
             - pypi:
@@ -63,12 +66,15 @@ resources:
           default: ${var.databricks_institution_name}
         - name: gcp_bucket_name
           default: ""
+        # Empty = mirror flat under bronze_subdir (canonical path for notebooks).
         - name: sync_run_id
-          default: "{{job.run_id}}"
+          default: ""
         - name: gcs_source_prefix
           default: validated/
         - name: bronze_subdir
-          default: gcs_validated_sync
+          default: validated_mirror
+        - name: clear_destination
+          default: "true"
         - name: max_objects
           default: "1000"
         - name: require_at_least_one_file

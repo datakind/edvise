@@ -2,6 +2,10 @@
 Copy objects from an institution GCS prefix (default: validated/) into the
 institution's Unity Catalog managed bronze_volume for downstream Databricks work.
 
+Default layout is a single canonical mirror (no per-run subfolder): files land under
+``bronze_volume/<bronze_subdir>/`` mirroring keys under the GCS prefix. Optional
+``--sync_run_id`` adds one extra subfolder when you explicitly want run-scoped copies.
+
 Intended to run as a single-task Databricks job (see pipelines/pdp/resources).
 """
 
@@ -12,6 +16,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
 from datetime import datetime, timezone
 from typing import Iterator, Literal, Optional, Tuple
@@ -107,6 +112,7 @@ def _write_success_marker(
     copied: int,
     bucket_name: str,
     gcs_prefix: str,
+    layout: str,
 ) -> None:
     payload = {
         "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -114,6 +120,7 @@ def _write_success_marker(
         "gcs_uri": f"gs://{bucket_name}/{gcs_prefix}",
         "gcs_prefix": gcs_prefix,
         "marker": SUCCESS_FILENAME,
+        "layout": layout,
     }
     marker_path = os.path.join(landing_dir, SUCCESS_FILENAME)
     marker_local = _dest_local_under_landing(landing_dir, SUCCESS_FILENAME)
@@ -167,14 +174,26 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
         gcs_prefix = "validated/"
 
     bronze_sub = _assert_safe_volume_segment("bronze_subdir", args.bronze_subdir)
-    sync_id = _assert_safe_volume_segment("sync_run_id", args.sync_run_id)
+    sync_id_raw = (args.sync_run_id or "").strip()
+    if sync_id_raw:
+        sync_id = _assert_safe_volume_segment("sync_run_id", sync_id_raw)
+    else:
+        sync_id = ""
 
     bronze_root = (
         f"/Volumes/{args.DB_workspace}/"
         f"{args.databricks_institution_name}_bronze/bronze_volume"
     )
-    landing_dir = os.path.join(bronze_root, bronze_sub, sync_id)
-    os.makedirs(local_fs_path(landing_dir), exist_ok=True)
+    landing_dir = (
+        os.path.join(bronze_root, bronze_sub, sync_id)
+        if sync_id
+        else os.path.join(bronze_root, bronze_sub)
+    )
+    landing_local = local_fs_path(landing_dir)
+    if args.clear_destination and os.path.isdir(landing_local):
+        shutil.rmtree(landing_local)
+        logging.info("Removed previous mirror at %s (clear_destination=true)", landing_dir)
+    os.makedirs(landing_local, exist_ok=True)
 
     strict = _resolve_strict_mode(args.strict_mode)
     client = storage.Client()
@@ -224,6 +243,7 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
         copied=copied,
         bucket_name=args.gcp_bucket_name,
         gcs_prefix=gcs_prefix,
+        layout="run_scoped_subdir" if sync_id else "flat_mirror",
     )
 
     dbutils = get_dbutils()
@@ -254,8 +274,12 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--sync_run_id",
-        required=True,
-        help="Subfolder under bronze landing (e.g. batch id or Databricks job run id)",
+        default="",
+        help=(
+            "Optional single path segment under bronze_subdir (e.g. job run id). "
+            "Leave empty (default) to mirror into bronze_subdir only — one canonical "
+            "folder for notebooks."
+        ),
     )
     parser.add_argument(
         "--gcs_source_prefix",
@@ -264,8 +288,17 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--bronze_subdir",
-        default="gcs_validated_sync",
-        help="Directory under bronze_volume before sync_run_id (default: gcs_validated_sync)",
+        default="validated_mirror",
+        help="Directory under bronze_volume for the mirror (default: validated_mirror)",
+    )
+    parser.add_argument(
+        "--clear_destination",
+        choices=("true", "false"),
+        default="true",
+        help=(
+            "If true, delete the landing directory before copy so bronze matches GCS "
+            "(no orphan files). Default: true. Set false to only overwrite matching paths."
+        ),
     )
     parser.add_argument(
         "--max_objects",
@@ -293,6 +326,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     args = parse_arguments()
     args.require_at_least_one_file = args.require_at_least_one_file == "true"
+    args.clear_destination = args.clear_destination == "true"
 
     copied, swallowed = sync_validated_to_bronze(args)
 
