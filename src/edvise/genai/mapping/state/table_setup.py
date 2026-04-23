@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import sys
 from typing import Any
+from uuid import uuid4
 
 from edvise.genai.mapping.state._sql import (
     HITL_REVIEWS,
@@ -22,12 +23,104 @@ from edvise.genai.mapping.state._sql import (
 LOGGER = logging.getLogger(__name__)
 
 
-def _rename_legacy_pipeline_run_id_column(spark: Any, table_fqn: str) -> None:
-    """Older deployments used ``pipeline_run_id``; normalize to ``onboard_run_id`` idempotently."""
+def _describe_table_col_names(spark: Any, table_fqn: str) -> list[str]:
+    """Return base column names from ``DESCRIBE TABLE`` (stops at partition / metadata section)."""
+    out: list[str] = []
+    for row in spark.sql(f"DESCRIBE TABLE {table_fqn}").collect():
+        name: str
+        try:
+            name = str(row["col_name"]).strip()
+        except Exception:
+            try:
+                name = str(row.col_name).strip()  # type: ignore[attr-defined]
+            except Exception:
+                name = str(row[0]).strip()
+        if not name:
+            continue
+        if name.startswith("#"):
+            break
+        out.append(name)
+    return out
+
+
+def _rebuild_table_pipeline_run_id_to_onboard(
+    spark: Any,
+    catalog: str,
+    table_short: str,
+    fqn: str,
+) -> None:
+    """
+    Replace a table that still has ``pipeline_run_id`` when ``RENAME COLUMN`` is unsupported
+    (e.g. legacy Parquet) with a Delta table using ``onboard_run_id``, preserving rows.
+    """
+    mig = f"{table_short}__edvise_mig_{uuid4().hex[:12]}"
+    tmp = qualified_table(catalog, mig)
+    spark.sql(f"DROP TABLE IF EXISTS {tmp}")
+    if table_short == PIPELINE_RUNS:
+        ctas = f"""
+        CREATE TABLE {tmp} USING DELTA AS
+        SELECT
+          institution_id,
+          pipeline_run_id AS onboard_run_id,
+          `catalog`,
+          status,
+          db_run_id,
+          execute_run_id,
+          input_file_paths,
+          created_at,
+          updated_at
+        FROM {fqn}
+        """
+    elif table_short == PIPELINE_PHASES:
+        ctas = f"""
+        CREATE TABLE {tmp} USING DELTA AS
+        SELECT
+          pipeline_run_id AS onboard_run_id,
+          phase,
+          status,
+          started_at,
+          completed_at
+        FROM {fqn}
+        """
+    elif table_short == HITL_REVIEWS:
+        ctas = f"""
+        CREATE TABLE {tmp} USING DELTA AS
+        SELECT
+          pipeline_run_id AS onboard_run_id,
+          phase,
+          artifact_type,
+          artifact_path,
+          status,
+          reviewer,
+          reviewed_at
+        FROM {fqn}
+        """
+    else:
+        raise ValueError(f"unknown state table {table_short!r}")
+    spark.sql(ctas)
+    spark.sql(f"DROP TABLE {fqn}")
+    spark.sql(f"ALTER TABLE {tmp} RENAME TO {fqn}")
+
+
+def _ensure_onboard_run_id_column(spark: Any, catalog: str, table_short: str) -> None:
+    """Older deployments used ``pipeline_run_id``; normalize to ``onboard_run_id`` (rename or rebuild)."""
+    fqn = qualified_table(catalog, table_short)
+    cols = set(_describe_table_col_names(spark, fqn))
+    if "onboard_run_id" in cols:
+        return
+    # Empty ``cols`` (e.g. test doubles): still attempt rename so behavior matches unknown schemas.
+    if cols and "pipeline_run_id" not in cols:
+        return
     try:
-        spark.sql(f"ALTER TABLE {table_fqn} RENAME COLUMN pipeline_run_id TO onboard_run_id")
-    except Exception:  # noqa: BLE001 — ok if column already named onboard_run_id
-        LOGGER.debug("Skipped pipeline_run_id -> onboard_run_id rename for %s", table_fqn)
+        spark.sql(f"ALTER TABLE {fqn} RENAME COLUMN pipeline_run_id TO onboard_run_id")
+        LOGGER.info("Renamed pipeline_run_id -> onboard_run_id on %s", fqn)
+    except Exception as e:  # noqa: BLE001 — Parquet / older catalogs often reject RENAME COLUMN
+        LOGGER.warning(
+            "ALTER RENAME COLUMN failed for %s (%s); rebuilding as Delta with onboard_run_id",
+            fqn,
+            e,
+        )
+        _rebuild_table_pipeline_run_id_to_onboard(spark, catalog, table_short, fqn)
 
 
 def _add_column_if_missing(spark: Any, table_fqn: str, col_name: str, col_type: str) -> None:
@@ -111,8 +204,8 @@ def create_state_tables(catalog: str, spark: Any | None = None) -> None:
         ) USING DELTA
         """
     )
-    for tbl in (pr, pp, hr):
-        _rename_legacy_pipeline_run_id_column(spark, tbl)
+    for short in (PIPELINE_RUNS, PIPELINE_PHASES, HITL_REVIEWS):
+        _ensure_onboard_run_id_column(spark, c, short)
     LOGGER.info("genai state tables ensured under %s", qualified_schema(c))
 
 
