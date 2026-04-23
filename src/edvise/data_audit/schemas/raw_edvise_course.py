@@ -65,6 +65,10 @@ ALLOWED_LETTER_GRADES = {
 
 CreditsField = pda.Field(nullable=False, ge=0.0)
 
+# SMA execution grain: target fields merged when mapped (not in Pandera Config.unique).
+# See field_executor._derive_entity_keys.
+COURSE_OPTIONAL_GRAIN_TARGETS: tuple[str, ...] = ("source_term_key",)
+
 
 class RawEdviseCourseDataSchema(pda.DataFrameModel):
     """
@@ -76,10 +80,13 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
 
     Required (must be present, non-null, format-checked): learner_id,
     academic_year, academic_term, course_prefix, course_number,
-    course_section_id, grade, course_credits_attempted, course_credits_earned.
-    Optional columns (e.g. course_title) may be missing from the DataFrame or
-    contain nulls; when present they are validated. Rows must be unique on (learner_id,
-    academic_year, academic_term, course_prefix, course_number, section_id).
+    grade, course_credits_attempted, course_credits_earned.
+    Optional columns (e.g. course_title, course_section_id, source_term_key) may be
+    missing from the DataFrame or contain nulls; when present they are validated.
+    Rows must be unique on (learner_id, academic_year, academic_term, course_prefix,
+    course_number). When ``source_term_key`` is supplied (e.g. after IdentityAgent term
+    normalization), SMA may include it in the execution grain via
+    :data:`COURSE_OPTIONAL_GRAIN_TARGETS` (see field_executor._derive_entity_keys).
     """
 
     # ------------------------------------------------------------------ #
@@ -97,7 +104,19 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     )
     course_prefix: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
     course_number: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
-    course_section_id: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
+    source_term_key: pt.Series[pd.StringDtype] = pda.Field(
+        nullable=False,
+        str_length={"min_value": 1},
+        description=(
+            "Stable key for the source term instance (e.g. concat of raw year, season, "
+            "and term order). Used in the uniqueness grain so enrollments stay distinct "
+            "when academic_year/academic_term are canonicalized."
+        ),
+    )
+    course_section_id: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True,
+        description="Catalog section when available; optional when not provided by the institution.",
+    )
     grade: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
     course_credits_attempted: pt.Series[pd.Float64Dtype] = CreditsField
     course_credits_earned: pt.Series[pd.Float64Dtype] = CreditsField
@@ -105,6 +124,15 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     # ------------------------------------------------------------------ #
     # Optional (column may be missing; when present, validated)
     # ------------------------------------------------------------------ #
+    source_term_key: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
+        nullable=True,
+        str_length={"min_value": 1},
+        description=(
+            "Stable key for the source term instance (e.g. _term_grain from term "
+            "normalization). Optional for direct Edvise uploads; when present and mapped "
+            "in SMA, included in execution entity grain (see COURSE_OPTIONAL_GRAIN_TARGETS)."
+        ),
+    )
     course_title: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     department: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(nullable=True)
     instructional_format: t.Optional[pt.Series[pd.StringDtype]] = pda.Field(
@@ -193,5 +221,4 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
             "academic_term",
             "course_prefix",
             "course_number",
-            "course_section_id",
         ]

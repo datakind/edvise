@@ -34,7 +34,6 @@ COURSE_REQUIRED_COLUMNS = [
     "academic_term",
     "course_prefix",
     "course_number",
-    "course_section_id",
     "grade",
     "course_credits_attempted",
     "course_credits_earned",
@@ -458,7 +457,6 @@ def test_raw_edvise_course_schema_required_columns_only_passes() -> None:
         "academic_term": "Fall",
         "course_prefix": "MATH",
         "course_number": "101",
-        "course_section_id": "001",
         "grade": "B",
         "course_credits_attempted": 3.0,
         "course_credits_earned": 3.0,
@@ -538,7 +536,7 @@ def test_raw_edvise_course_schema_multiple_rows() -> None:
 
 
 def test_raw_edvise_course_schema_duplicate_composite_key_fails() -> None:
-    """Duplicate (learner_id, academic_year, academic_term, course_prefix, course_number, course_section_id) fails."""
+    """Duplicate (learner_id, academic_year, academic_term, course_prefix, course_number) fails."""
     row = _minimal_valid_course_row()
     df = pd.DataFrame([row, row]).reindex(columns=COURSE_COLUMNS)
     with pytest.raises((SchemaError, SchemaErrors)):

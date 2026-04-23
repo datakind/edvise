@@ -164,10 +164,10 @@ def find_bronze_schema(spark: SparkSession, catalog: str, inst_prefix: str) -> s
     Args:
         spark: Spark session
         catalog: Catalog name
-        inst_prefix: Institution prefix (e.g., "motlow_state_cc")
+        inst_prefix: Institution prefix (e.g., "fixture_alpha_state_cc")
 
     Returns:
-        Bronze schema name (e.g., "motlow_state_cc_bronze")
+        Bronze schema name (e.g., "fixture_alpha_state_cc_bronze")
 
     Raises:
         ValueError: If bronze schema not found
@@ -308,17 +308,17 @@ def databricksify_inst_name(inst_name: str) -> str:
     - Validates final format contains only lowercase letters, numbers, and underscores
 
     Args:
-        inst_name: Original institution name (e.g., "Motlow State Community College")
+        inst_name: Original institution name (e.g., "Fixture Alpha State Community College")
 
     Returns:
-        Databricks-compatible name (e.g., "motlow_state_cc")
+        Databricks-compatible name (e.g., "fixture_alpha_state_cc")
 
     Raises:
         ValueError: If the resulting name contains invalid characters
 
     Example:
-        >>> databricksify_inst_name("Motlow State Community College")
-        'motlow_state_cc'
+        >>> databricksify_inst_name("Fixture Alpha State Community College")
+        'fixture_alpha_state_cc'
         >>> databricksify_inst_name("University of Science & Technology")
         'uni_of_st_technology'
     """
@@ -363,11 +363,11 @@ def reverse_databricksify_inst_name(databricks_name: str) -> str:
     databricks name), this function produces the most likely original name.
 
     Args:
-        databricks_name: The databricks-transformed institution name (e.g., "motlow_state_cc")
+        databricks_name: The databricks-transformed institution name (e.g., "fixture_alpha_state_cc")
             Case inconsistencies are normalized (input is lowercased before processing).
 
     Returns:
-        The reversed institution name with proper capitalization (e.g., "Motlow State Community College")
+        The reversed institution name with proper capitalization (e.g., "Fixture Alpha State Community College")
 
     Raises:
         ValueError: If the databricks name contains invalid characters
