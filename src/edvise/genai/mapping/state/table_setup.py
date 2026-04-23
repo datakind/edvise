@@ -30,6 +30,14 @@ def _rename_legacy_pipeline_run_id_column(spark: Any, table_fqn: str) -> None:
         LOGGER.debug("Skipped pipeline_run_id -> onboard_run_id rename for %s", table_fqn)
 
 
+def _add_column_if_missing(spark: Any, table_fqn: str, col_name: str, col_type: str) -> None:
+    """Add a column when missing; older runtimes reject ``ADD COLUMN IF NOT EXISTS`` syntax."""
+    try:
+        spark.sql(f"ALTER TABLE {table_fqn} ADD COLUMN {col_name} {col_type}")
+    except Exception:  # noqa: BLE001 — ok if column already exists (e.g. new CREATE TABLE)
+        LOGGER.debug("Skipped ADD COLUMN %s on %s (likely already present)", col_name, table_fqn)
+
+
 def create_state_tables(catalog: str, spark: Any | None = None) -> None:
     """
     Create the ``genai_mapping`` schema and all state tables if they do not exist.
@@ -73,9 +81,12 @@ def create_state_tables(catalog: str, spark: Any | None = None) -> None:
         """
     )
     # Existing deployments created before ``db_run_id`` / ``execute_run_id`` — add idempotently.
-    spark.sql(f"ALTER TABLE {pr} ADD COLUMN IF NOT EXISTS db_run_id STRING")
-    spark.sql(f"ALTER TABLE {pr} ADD COLUMN IF NOT EXISTS execute_run_id STRING")
-    spark.sql(f"ALTER TABLE {pr} ADD COLUMN IF NOT EXISTS input_file_paths STRING")
+    for _col, _typ in (
+        ("db_run_id", "STRING"),
+        ("execute_run_id", "STRING"),
+        ("input_file_paths", "STRING"),
+    ):
+        _add_column_if_missing(spark, pr, _col, _typ)
     spark.sql(
         f"""
         CREATE TABLE IF NOT EXISTS {pp} (
