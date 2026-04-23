@@ -63,7 +63,7 @@ LOGGER = logging.getLogger("edvise_ia")
 
 @dataclass
 class IAPaths:
-    # Run folder (working artifacts, keyed by onboard_run_id)
+    # Run folder: ``runs/onboard/{onboard_run_id}/`` or ``runs/execute/{execute_run_id}/``
     run_root: Path
     grain_output: Path
     grain_hitl: Path
@@ -90,11 +90,25 @@ class IAPaths:
 
 def resolve_run_paths(
     institution_id: str,
-    onboard_run_id: str,
     catalog: str,
+    *,
+    mode: str,
+    onboard_run_id: str | None = None,
+    execute_run_id: str | None = None,
 ) -> IAPaths:
     genai = Path(genai_cfg.silver_genai_mapping_root(institution_id, catalog=catalog))
-    run_root = genai / "runs" / onboard_run_id / "identity_agent"
+    if mode == "onboard":
+        rid = (onboard_run_id or "").strip()
+        if not rid:
+            raise ValueError("onboard_run_id is required when mode='onboard'")
+        run_root = genai / "runs" / "onboard" / rid / "identity_agent"
+    elif mode == "execute":
+        rid = (execute_run_id or "").strip()
+        if not rid:
+            raise ValueError("execute_run_id is required when mode='execute'")
+        run_root = genai / "runs" / "execute" / rid / "identity_agent"
+    else:
+        raise ValueError(f"resolve_run_paths: invalid mode={mode!r}")
     active_root = genai / "active"
 
     return IAPaths(
@@ -265,6 +279,7 @@ def run_onboard_gate_1(
     *,
     catalog: str,
     onboard_run_id: str,
+    db_run_id: str | None = None,
 ):
     from collections import defaultdict
 
@@ -316,8 +331,20 @@ def run_onboard_gate_1(
         raise
 
     # Resolve HITL items into output configs
-    resolve_items(paths.grain_hitl, paths.grain_output, resolved_by="pipeline", run_log_path=paths.run_log)
-    resolve_items(paths.term_hitl, paths.term_output, resolved_by="pipeline", run_log_path=paths.run_log)
+    resolve_items(
+        paths.grain_hitl,
+        paths.grain_output,
+        resolved_by="pipeline",
+        run_log_path=paths.run_log,
+        db_run_id=db_run_id,
+    )
+    resolve_items(
+        paths.term_hitl,
+        paths.term_output,
+        resolved_by="pipeline",
+        run_log_path=paths.run_log,
+        db_run_id=db_run_id,
+    )
 
     # Reload resolved contracts
     contracts_by_dataset = load_grain_contracts_from_resolver_config(
@@ -354,6 +381,7 @@ def run_onboard_gate_1(
             run_log_path=paths.run_log,
             materialize=True,
             repo_root=paths.run_root,
+            db_run_id=db_run_id,
         )
         validate_hook(paths.grain_output, paths.grain_hitl, item_id=item_id, hook_file_root=paths.run_root)
 
@@ -378,6 +406,7 @@ def run_onboard_gate_1(
             resolved_by="pipeline",
             run_log_path=paths.run_log,
             materialize=False,
+            db_run_id=db_run_id,
         )
     for specs in term_specs_by_file.values():
         materialize_hook_specs_to_file(specs, repo_root=paths.run_root, domain=HITLDomain.IDENTITY_TERM)
@@ -474,6 +503,7 @@ def run_execute(
     if extra_datasets:
         drift_issues.append(f"Unexpected datasets: {sorted(extra_datasets)}")
 
+    has_missing_cols = False
     for ds_name, df in raw_dfs.items():
         if ds_name not in schema_contract.get("datasets", {}):
             continue
@@ -483,6 +513,7 @@ def run_execute(
         missing_cols = expected_cols - incoming_cols
         extra_cols = incoming_cols - expected_cols
         if missing_cols:
+            has_missing_cols = True
             drift_issues.append(f"{ds_name}: missing columns {sorted(missing_cols)}")
         if extra_cols:
             LOGGER.warning("[execute] %s: extra columns (will drop): %s", ds_name, sorted(extra_cols))
@@ -495,7 +526,7 @@ def run_execute(
         import json
         drift_report_path.write_text(json.dumps({"institution_id": institution_id, "issues": drift_issues}, indent=2))
         LOGGER.warning("[execute] Schema drift report written to %s", drift_report_path)
-        if missing_datasets or missing_cols:
+        if missing_datasets or has_missing_cols:
             raise RuntimeError(
                 f"Schema drift check failed for {institution_id} — missing datasets or columns. "
                 "Review schema_drift_report.json. Trigger onboard if re-mapping is needed."
@@ -519,22 +550,50 @@ def run_execute(
 
 def run(
     institution_id: str,
-    onboard_run_id: str,
     catalog: str,
     mode: str,
+    onboard_run_id: str | None = None,
+    execute_run_id: str | None = None,
+    artifacts_onboard_run_id: str | None = None,
     resume_from: str = "start",
     inputs_toml: str | None = None,
     db_run_id: str | None = None,
 ):
-    paths = resolve_run_paths(institution_id, onboard_run_id, catalog)
+    if mode == "onboard":
+        if not (onboard_run_id or "").strip():
+            raise ValueError("onboard_run_id is required when mode='onboard'")
+        paths = resolve_run_paths(
+            institution_id,
+            catalog,
+            mode="onboard",
+            onboard_run_id=onboard_run_id,
+        )
+        _log_run = onboard_run_id
+    elif mode == "execute":
+        if not (execute_run_id or "").strip():
+            raise ValueError("execute_run_id is required when mode='execute'")
+        paths = resolve_run_paths(
+            institution_id,
+            catalog,
+            mode="execute",
+            execute_run_id=execute_run_id,
+        )
+        _log_run = execute_run_id
+    else:
+        raise ValueError(f"Invalid mode={mode!r}. Must be 'onboard' or 'execute'.")
+
     init_file_logging_at_path(
         paths.run_root / "ia_pipeline.log",
         logger_name="edvise_ia",
         append=True,
     )
     LOGGER.info(
-        "edvise_ia | institution=%s | run=%s | mode=%s | resume_from=%s",
-        institution_id, onboard_run_id, mode, resume_from,
+        "edvise_ia | institution=%s | run=%s | mode=%s | resume_from=%s | artifacts_onboard=%s",
+        institution_id,
+        _log_run,
+        mode,
+        resume_from,
+        artifacts_onboard_run_id or "",
     )
 
     # Load school config (shared across all modes)
@@ -570,6 +629,23 @@ def run(
 
     if mode == "execute":
         run_execute(institution_id, paths, school_config)
+        from edvise.genai.mapping.state import pipeline_state as _pipeline_state
+
+        try:
+            _pipeline_state.update_execute_pipeline_run_status(
+                catalog,
+                institution_id,
+                str(execute_run_id).strip(),
+                "complete",
+                db_run_id=db_run_id,
+            )
+        except Exception as e:  # noqa: BLE001
+            LOGGER.warning(
+                "Could not mark pipeline_runs complete after IA execute: catalog=%s execute_run_id=%s (%s)",
+                catalog,
+                execute_run_id,
+                e,
+            )
 
     elif mode == "onboard":
         if resume_from not in ("start", "gate_1"):
@@ -611,6 +687,7 @@ def run(
                     llm_complete,
                     catalog=catalog,
                     onboard_run_id=onboard_run_id,
+                    db_run_id=db_run_id,
                 )
         except HITLTimeoutError:
             raise
@@ -648,16 +725,36 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    _db_run_id = (args.db_run_id or "").strip() or None
+    try:
+        from pyspark.sql import SparkSession
+
+        _spark_sess = SparkSession.getActiveSession()
+        _db_from_spark = (
+            _spark_sess.conf.get("spark.databricks.job.runId", None)
+            if _spark_sess is not None
+            else None
+        )
+    except Exception:
+        _db_from_spark = None
+
+    _db_run_id = (args.db_run_id or "").strip() or (
+        (str(_db_from_spark).strip()) if _db_from_spark else ""
+    ).strip() or None
+
+    _execute_run_id: str | None = None
+    _artifacts_onboard: str | None = None
+    _onboard_run_id: str | None = None
 
     if args.mode == "execute":
-        _resolved = pipeline_state.bootstrap_resolved_onboard_run_id_for_execute(
+        _boot = pipeline_state.bootstrap_execute_run(
             args.catalog,
             args.institution_id,
             db_run_id=_db_run_id,
         )
+        _execute_run_id = _boot.execute_run_id
+        _artifacts_onboard = _boot.artifacts_onboard_run_id
     else:
-        _resolved = pipeline_state.bootstrap_resolved_onboard_run_id(
+        _onboard_run_id = pipeline_state.bootstrap_resolved_onboard_run_id(
             args.catalog,
             args.institution_id,
             None,
@@ -666,19 +763,21 @@ if __name__ == "__main__":
     try:
         run(
             institution_id=args.institution_id,
-            onboard_run_id=_resolved,
             catalog=args.catalog,
             mode=args.mode,
+            onboard_run_id=_onboard_run_id,
+            execute_run_id=_execute_run_id,
+            artifacts_onboard_run_id=_artifacts_onboard,
             resume_from=args.resume_from,
             inputs_toml=args.inputs_toml or None,
             db_run_id=_db_run_id,
         )
     except BaseException:
-        if args.mode == "execute":
+        if args.mode == "execute" and _execute_run_id:
             pipeline_state.mark_execute_pipeline_run_status(
                 args.catalog,
                 args.institution_id,
-                _resolved,
+                _execute_run_id,
                 "failed",
             )
         raise

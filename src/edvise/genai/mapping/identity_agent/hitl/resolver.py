@@ -140,6 +140,8 @@ def _append_run_log(
     selected: HITLOption,
     envelope: InstitutionHITLItems,
     resolved_by: str | None,
+    *,
+    db_run_id: str | None = None,
 ) -> None:
     """
     Append one RunEvent to run_log.json for this institution.
@@ -155,6 +157,7 @@ def _append_run_log(
         choice=item.choice,
         option_id=selected.option_id,
         reentry=selected.reentry.value,
+        db_run_id=db_run_id,
     )
     append_run_log_event(run_log_path, institution_id, event)
 
@@ -203,6 +206,8 @@ def resolve_items(
     config_path: str | Path,
     resolved_by: str | None = None,
     run_log_path: str | Path | None = None,
+    *,
+    db_run_id: str | None = None,
 ) -> None:
     """
     For each HITLItem with ``choice`` set:
@@ -264,6 +269,7 @@ def resolve_items(
                 selected,
                 envelope,
                 resolved_by,
+                db_run_id=db_run_id,
             )
 
     _save_config(config, config_path)
@@ -376,6 +382,7 @@ def apply_hook_spec(
     materialize: bool = False,
     repo_root: str | Path | None = None,
     merge_materialize_with: Sequence[HookSpec] | None = None,
+    db_run_id: str | None = None,
 ) -> None:
     """
     Writes a generated HookSpec to the correct config field.
@@ -471,6 +478,7 @@ def apply_hook_spec(
                         selected,
                         envelope,
                         resolved_by,
+                        db_run_id=db_run_id,
                     )
     else:
         target_items = (
@@ -495,6 +503,7 @@ def apply_hook_spec(
                         selected,
                         envelope,
                         resolved_by,
+                        db_run_id=db_run_id,
                     )
 
     _save_config(config, config_path)

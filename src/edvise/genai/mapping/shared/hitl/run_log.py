@@ -35,6 +35,7 @@ class RunEvent(BaseModel):
     choice: int
     option_id: str
     reentry: str  # "terminal" or "generate_hook"
+    db_run_id: str | None = None
 
 
 class SMARRunEvent(BaseModel):
@@ -56,6 +57,7 @@ class SMARRunEvent(BaseModel):
     choice: int
     option_id: str
     reentry: str  # "terminal" or "direct_edit"
+    db_run_id: str | None = None
 
 
 class RunLog(BaseModel):

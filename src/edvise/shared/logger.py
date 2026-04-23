@@ -148,7 +148,7 @@ def init_file_logging_at_path(
 
     Args:
         append: If True, new log lines are appended to the file (e.g. resume gate_1 after
-            start with the same pipeline_run_id). If False, the file is truncated on open.
+            start with the same onboard_run_id). If False, the file is truncated on open.
 
     Returns:
         str: local filesystem path to the log file.

@@ -3,7 +3,7 @@ On-disk layout for GenAI mapping pipeline outputs and UC registration.
 
 **Path (one folder per job run; institution is implicit in the bronze volume root):** ::
 
-    {bronze_volumes_path}/genai_pipeline/{pipeline_run_id}/
+    {bronze_volumes_path}/genai_pipeline/{onboard_run_id}/
 
 **Release / git version** is **not** a path segment. It is recorded in
 :func:`write_genai_pipeline_run_metadata` as ``genai_pipeline_run.json`` at the run root
@@ -43,8 +43,14 @@ from typing import Any, Final
 
 LOGGER = logging.getLogger(__name__)
 
-GENAI_PIPELINE_RUN_ID_ENV: Final[str] = "GENAI_PIPELINE_RUN_ID"
-"""Override ``pipeline_run_id`` for local runs (set when not on a Databricks job cluster)."""
+GENAI_ONBOARD_RUN_ID_ENV: Final[str] = "GENAI_ONBOARD_RUN_ID"
+"""Override run id for local runs (set when not on a Databricks job cluster)."""
+
+LEGACY_GENAI_PIPELINE_RUN_ID_ENV: Final[str] = "GENAI_PIPELINE_RUN_ID"
+"""Deprecated env name; still read after :data:`GENAI_ONBOARD_RUN_ID_ENV` when unset."""
+
+GENAI_PIPELINE_RUN_ID_ENV: Final[str] = GENAI_ONBOARD_RUN_ID_ENV
+"""Alias of :data:`GENAI_ONBOARD_RUN_ID_ENV` (default ``env_manual_var`` for :func:`resolve_onboard_run_id`)."""
 
 DATABRICKS_JOB_RUN_ID_ENV: Final[str] = "DATABRICKS_JOB_RUN_ID"
 """Job UI / parameters can inject the numeric job run id (e.g. from a job parameter)."""
@@ -63,10 +69,10 @@ _SPARK_CONF_JOB_RUN_ID_KEYS: Final[tuple[str, ...]] = (
 _GENAI_ROOT_DIR: Final[str] = "genai_pipeline"
 
 GENAI_PIPELINE_RUN_METADATA_BASENAME: Final[str] = "genai_pipeline_run.json"
-"""Run-level JSON: ``pipeline_version`` (git/edvise), ``pipeline_run_id``, ``institution_id``."""
+"""Run-level JSON: ``pipeline_version`` (git/edvise), ``onboard_run_id``, ``institution_id``."""
 
 
-def new_pipeline_run_id() -> str:
+def new_onboard_run_id() -> str:
     """Return a new opaque run id (UTC timestamp + short random suffix)."""
     from uuid import uuid4
 
@@ -97,30 +103,31 @@ def _databricks_job_run_id_from_spark() -> str | None:
                 continue
             s = str(raw).strip()
             if s:
-                LOGGER.debug("pipeline_run_id from Spark conf %s=%s", key, s)
+                LOGGER.debug("onboard_run_id from Spark conf %s=%s", key, s)
                 return s
     except Exception as e:
         LOGGER.debug("Could not read Databricks job run id from Spark (%s)", e)
     return None
 
 
-def resolve_pipeline_run_id(
+def resolve_onboard_run_id(
     explicit: str | None = None,
     *,
-    env_manual_var: str = GENAI_PIPELINE_RUN_ID_ENV,
+    env_manual_var: str = GENAI_ONBOARD_RUN_ID_ENV,
     env_job_run_var: str = DATABRICKS_JOB_RUN_ID_ENV,
     create_if_missing: bool = False,
 ) -> str | None:
     """
-    Resolve ``pipeline_run_id`` for artifact paths and UC rows.
+    Resolve ``onboard_run_id`` for bronze artifact paths and ``genai_pipeline_artifacts`` UC rows.
 
     Precedence (first wins):
 
     1. **explicit** non-empty string
     2. **Databricks job run id** from active Spark session conf (``spark.databricks.job.runId``, …)
     3. **``os.environ[env_job_run_var]``** — inject in the job (e.g. job parameter bound to the run id)
-    4. **``os.environ[env_manual_var]``** (default ``GENAI_PIPELINE_RUN_ID``) — local / manual override
-    5. If ``create_if_missing`` is True: :func:`new_pipeline_run_id`
+    4. **``os.environ[env_manual_var]``** (default ``GENAI_ONBOARD_RUN_ID``) — local / manual override
+    5. **``os.environ[GENAI_PIPELINE_RUN_ID]``** — legacy manual override when (4) is unset
+    6. If ``create_if_missing`` is True: :func:`new_onboard_run_id`
 
     When nothing matches and ``create_if_missing`` is False, returns None (legacy unversioned layout).
     """
@@ -135,18 +142,21 @@ def resolve_pipeline_run_id(
     env_manual = os.environ.get(env_manual_var)
     if env_manual and str(env_manual).strip():
         return str(env_manual).strip()
+    legacy_manual = os.environ.get(LEGACY_GENAI_PIPELINE_RUN_ID_ENV)
+    if legacy_manual and str(legacy_manual).strip():
+        return str(legacy_manual).strip()
     if create_if_missing:
-        rid = new_pipeline_run_id()
-        LOGGER.info("Assigned new GENAI pipeline_run_id=%s", rid)
+        rid = new_onboard_run_id()
+        LOGGER.info("Assigned new GENAI onboard_run_id=%s", rid)
         return rid
     return None
 
 
 def _sanitize_run_id_segment(run_id: str) -> str:
-    """Make ``pipeline_run_id`` safe as a single path segment (Databricks job run ids, etc.)."""
+    """Make ``onboard_run_id`` safe as a single path segment (Databricks job run ids, etc.)."""
     s = str(run_id).strip()
     if not s:
-        raise ValueError("pipeline_run_id must be non-empty")
+        raise ValueError("onboard_run_id must be non-empty")
     return re.sub(r"[^\w.\-]+", "_", s)
 
 
@@ -175,7 +185,7 @@ def write_genai_pipeline_run_metadata(
     run_root: str | Path,
     *,
     institution_id: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     pipeline_version: str | None = None,
 ) -> Path:
     """
@@ -188,7 +198,7 @@ def write_genai_pipeline_run_metadata(
     pv = resolve_pipeline_version(pipeline_version)
     payload = {
         "institution_id": str(institution_id).strip(),
-        "pipeline_run_id": str(pipeline_run_id).strip(),
+        "onboard_run_id": str(onboard_run_id).strip(),
         "pipeline_version": pv,
     }
     path = root / GENAI_PIPELINE_RUN_METADATA_BASENAME
@@ -211,21 +221,21 @@ def parse_uc_catalog_from_volume_path(volume_path: str) -> str | None:
 
 def versioned_genai_run_root(
     bronze_volumes_path: str | Path,
-    pipeline_run_id: str,
+    onboard_run_id: str,
 ) -> Path:
     """
     Root directory for all GenAI artifacts for one pipeline run.
 
     Layout (institution is implied by ``bronze_volumes_path``)::
 
-        genai_pipeline/{pipeline_run_id}/
+        genai_pipeline/{onboard_run_id}/
 
     Raises
     ------
     ValueError
-        If ``pipeline_run_id`` is empty.
+        If ``onboard_run_id`` is empty.
     """
-    seg = _sanitize_run_id_segment(pipeline_run_id)
+    seg = _sanitize_run_id_segment(onboard_run_id)
     root = Path(str(bronze_volumes_path).rstrip("/"))
     return root / _GENAI_ROOT_DIR / seg
 
@@ -243,9 +253,9 @@ class GenaiPipelineLayout:
     def from_bronze(
         cls,
         bronze_volumes_path: str | Path,
-        pipeline_run_id: str,
+        onboard_run_id: str,
     ) -> GenaiPipelineLayout:
-        rr = versioned_genai_run_root(bronze_volumes_path, pipeline_run_id)
+        rr = versioned_genai_run_root(bronze_volumes_path, onboard_run_id)
         return cls(
             run_root=rr,
             identity_hitl=rr / "identity_hitl",
@@ -322,7 +332,7 @@ def _sha256_file(path: Path) -> str:
 def build_genai_pipeline_artifact_rows(
     *,
     institution_id: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     pipeline_version: str,
     bronze_volumes_path: str,
     artifact_paths: dict[str, Path],
@@ -342,7 +352,7 @@ def build_genai_pipeline_artifact_rows(
         If None, parsed from ``bronze_volumes_path`` when it is a ``/Volumes/`` path.
     """
     inst = str(institution_id).strip()
-    rid = str(pipeline_run_id).strip()
+    rid = str(onboard_run_id).strip()
     pver = str(pipeline_version).strip() or resolve_pipeline_version()
     bronze = str(bronze_volumes_path).rstrip("/")
     cat = uc_catalog or parse_uc_catalog_from_volume_path(bronze) or ""
@@ -363,7 +373,7 @@ def build_genai_pipeline_artifact_rows(
         rows.append(
             {
                 "institution_id": inst,
-                "pipeline_run_id": rid,
+                "onboard_run_id": rid,
                 "pipeline_version": pver,
                 "artifact_kind": kind,
                 "uc_catalog": cat,
@@ -375,6 +385,14 @@ def build_genai_pipeline_artifact_rows(
             }
         )
     return rows
+
+
+def _maybe_rename_pipeline_run_id_in_artifacts_table(spark: Any, table_name: str) -> None:
+    """Older ``genai_pipeline_artifacts`` tables used ``pipeline_run_id``; normalize to ``onboard_run_id``."""
+    try:
+        spark.sql(f"ALTER TABLE {table_name} RENAME COLUMN pipeline_run_id TO onboard_run_id")
+    except Exception:  # noqa: BLE001
+        LOGGER.debug("Skipped artifact table pipeline_run_id rename for %s", table_name)
 
 
 def merge_genai_pipeline_artifact_rows(
@@ -417,6 +435,7 @@ def merge_genai_pipeline_artifact_rows(
 
         try:
             dt = DeltaTable.forName(spark, table_name)
+            _maybe_rename_pipeline_run_id_in_artifacts_table(spark, table_name)
         except Exception:
             (
                 df.write.format("delta")
@@ -436,7 +455,7 @@ def merge_genai_pipeline_artifact_rows(
             .merge(
                 df.alias("s"),
                 "t.institution_id = s.institution_id AND "
-                "t.pipeline_run_id = s.pipeline_run_id AND "
+                "t.onboard_run_id = s.onboard_run_id AND "
                 "t.artifact_kind = s.artifact_kind",
             )
             .whenMatchedUpdateAll()
@@ -459,7 +478,7 @@ def register_discovered_artifacts_to_uc(
     *,
     table_name: str,
     institution_id: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     bronze_volumes_path: str,
     pipeline_version: str | None = None,
     run_root: str | Path | None = None,
@@ -474,12 +493,12 @@ def register_discovered_artifacts_to_uc(
     rr = (
         Path(run_root)
         if run_root is not None
-        else versioned_genai_run_root(bronze_volumes_path, pipeline_run_id)
+        else versioned_genai_run_root(bronze_volumes_path, onboard_run_id)
     )
     paths = discover_artifact_files(rr, institution_id)
     rows = build_genai_pipeline_artifact_rows(
         institution_id=institution_id,
-        pipeline_run_id=pipeline_run_id,
+        onboard_run_id=onboard_run_id,
         pipeline_version=pv,
         bronze_volumes_path=bronze_volumes_path,
         artifact_paths=paths,
@@ -491,18 +510,20 @@ def register_discovered_artifacts_to_uc(
 __all__ = [
     "DATABRICKS_JOB_RUN_ID_ENV",
     "GENAI_GIT_TAG_ENV",
+    "GENAI_ONBOARD_RUN_ID_ENV",
     "GENAI_PIPELINE_RUN_METADATA_BASENAME",
     "GENAI_PIPELINE_RUN_ID_ENV",
     "GENAI_PIPELINE_VERSION_ENV",
     "GIT_TAG_ENV",
+    "LEGACY_GENAI_PIPELINE_RUN_ID_ENV",
     "GenaiPipelineLayout",
     "build_genai_pipeline_artifact_rows",
     "discover_artifact_files",
     "merge_genai_pipeline_artifact_rows",
-    "new_pipeline_run_id",
+    "new_onboard_run_id",
     "parse_uc_catalog_from_volume_path",
     "register_discovered_artifacts_to_uc",
-    "resolve_pipeline_run_id",
+    "resolve_onboard_run_id",
     "resolve_pipeline_version",
     "versioned_genai_run_root",
     "write_genai_pipeline_run_metadata",

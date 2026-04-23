@@ -3,8 +3,11 @@ Pipeline state: Delta tables under ``{catalog}.genai_mapping`` for run / phase /
 """
 
 from edvise.genai.mapping.state.pipeline_state import (
+    ExecuteRunBootstrap,
+    bootstrap_execute_run,
     check_hitl_resolution,
     count_pipeline_runs_created_today,
+    create_execute_pipeline_run,
     create_pipeline_run,
     get_latest_pipeline_run,
     get_latest_pipeline_run_created_today,
@@ -13,13 +16,17 @@ from edvise.genai.mapping.state.pipeline_state import (
     register_hitl_artifacts,
     resolve_hitl,
     resolve_onboard_run_id,
+    update_execute_pipeline_run_status,
     update_pipeline_run_status,
 )
 from edvise.genai.mapping.state.table_setup import create_state_tables
 
 __all__ = [
+    "ExecuteRunBootstrap",
+    "bootstrap_execute_run",
     "check_hitl_resolution",
     "count_pipeline_runs_created_today",
+    "create_execute_pipeline_run",
     "create_pipeline_run",
     "create_state_tables",
     "get_latest_pipeline_run",
@@ -29,5 +36,6 @@ __all__ = [
     "register_hitl_artifacts",
     "resolve_hitl",
     "resolve_onboard_run_id",
+    "update_execute_pipeline_run_status",
     "update_pipeline_run_status",
 ]

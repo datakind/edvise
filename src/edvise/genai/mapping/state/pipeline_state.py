@@ -1,8 +1,9 @@
 """
 Unity Catalog / Delta state for the GenAI mapping pipeline (infrastructure only).
 
-State tables: ``{catalog}.genai_mapping.pipeline_runs`` (includes ``db_run_id`` for Databricks job
-correlation), ``pipeline_phases``, ``hitl_reviews``.
+State tables: ``{catalog}.genai_mapping.pipeline_runs`` (``onboard_run_id`` for onboard runs;
+``execute_run_id`` + ``onboard_run_id`` = artifact source for execute runs; ``db_run_id`` for
+Databricks job correlation), ``pipeline_phases``, ``hitl_reviews``.
 All DML uses :meth:`pyspark.sql.SparkSession.sql` (no Delta Python API, no pandas).
 """
 
@@ -10,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
 
@@ -23,6 +25,15 @@ from edvise.genai.mapping.state._sql import (
 )
 
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ExecuteRunBootstrap:
+    """Minted or resumed execute job identity (filesystem uses ``execute_run_id``)."""
+
+    execute_run_id: str
+    artifacts_onboard_run_id: str
+
 
 _INITIAL_RUN_STATUS: str = "running"
 
@@ -79,13 +90,17 @@ def create_pipeline_run(
     t = qualified_table(c, PIPELINE_RUNS)
     db_sql = _sql_db_run_id(db_run_id)
     q = f"""
-    INSERT INTO {t} (institution_id, onboard_run_id, `catalog`, status, db_run_id, created_at, updated_at)
+    INSERT INTO {t} (
+      institution_id, onboard_run_id, `catalog`, status, db_run_id, execute_run_id,
+      created_at, updated_at
+    )
     VALUES (
       {lit(inst)},
       {lit(rid)},
       {lit(c)},
       {lit(_INITIAL_RUN_STATUS)},
       {db_sql},
+      NULL,
       current_timestamp(),
       current_timestamp()
     )
@@ -131,13 +146,20 @@ def update_pipeline_run_status(
     ON t.institution_id = s.institution_id
        AND t.onboard_run_id = s.onboard_run_id
        AND t.`catalog` = s.ccat
+       AND t.execute_run_id IS NULL
     WHEN MATCHED THEN
       UPDATE SET
         t.status = s.status,
         t.updated_at = current_timestamp()
     WHEN NOT MATCHED THEN
-      INSERT (institution_id, onboard_run_id, `catalog`, status, db_run_id, created_at, updated_at)
-      VALUES (s.institution_id, s.onboard_run_id, s.ccat, s.status, s.db_run_id, current_timestamp(), current_timestamp())
+      INSERT (
+        institution_id, onboard_run_id, `catalog`, status, db_run_id, execute_run_id,
+        created_at, updated_at
+      )
+      VALUES (
+        s.institution_id, s.onboard_run_id, s.ccat, s.status, s.db_run_id, NULL,
+        current_timestamp(), current_timestamp()
+      )
     """
     _spark().sql(q)
 
@@ -158,7 +180,9 @@ def get_latest_pipeline_run(
     t = qualified_table(c, PIPELINE_RUNS)
     q = f"""
     SELECT * FROM {t}
-    WHERE institution_id = {lit(inst)} AND `catalog` = {lit(c)}
+    WHERE institution_id = {lit(inst)}
+      AND `catalog` = {lit(c)}
+      AND execute_run_id IS NULL
     ORDER BY created_at DESC
     LIMIT 1
     """
@@ -187,6 +211,7 @@ def get_latest_pipeline_run_created_today(
     WHERE institution_id = {lit(inst)}
       AND `catalog` = {lit(c)}
       AND to_date(created_at) = current_date()
+      AND execute_run_id IS NULL
     ORDER BY created_at DESC
     LIMIT 1
     """
@@ -209,6 +234,7 @@ def count_pipeline_runs_created_today(catalog: str, institution_id: str) -> int:
     WHERE institution_id = {lit(inst)}
       AND `catalog` = {lit(c)}
       AND to_date(created_at) = current_date()
+      AND execute_run_id IS NULL
     """
     n = int(_spark().sql(q).collect()[0]["n"])
     return n
@@ -254,17 +280,134 @@ def resolve_onboard_run_id(
     return f"{base_id}_{n + 1}"
 
 
-def new_execute_onboard_run_id(institution_id: str) -> str:
-    """
-    Fresh ``onboard_run_id`` for execute-mode jobs (distinct from onboard ids).
+def new_execute_run_id() -> str:
+    """Return a new UUID string for ``execute_run_id`` (execute-mode silver run folder)."""
+    return str(uuid.uuid4())
 
-    Uses ``_exec_`` in the string so execute-mode bootstrap can resume the same id across
-    multi-task jobs without colliding with onboard runs.
+
+def get_latest_complete_onboard_run(
+    catalog: str,
+    institution_id: str,
+) -> Optional[dict[str, Any]]:
     """
+    Latest completed **onboard** ``pipeline_runs`` row (``execute_run_id`` is null) for this
+    institution and catalog, by ``updated_at`` descending.
+    """
+    c = str(catalog).strip()
     inst = str(institution_id).strip()
     if not inst:
         raise ValueError("institution_id must be non-empty")
-    return f"{inst}_{date.today().strftime('%Y%m%d')}_exec_{uuid.uuid4().hex[:12]}"
+
+    t = qualified_table(c, PIPELINE_RUNS)
+    q = f"""
+    SELECT * FROM {t}
+    WHERE institution_id = {lit(inst)}
+      AND `catalog` = {lit(c)}
+      AND execute_run_id IS NULL
+      AND status = 'complete'
+    ORDER BY updated_at DESC
+    LIMIT 1
+    """
+    rows = _spark().sql(q).collect()
+    if not rows:
+        return None
+    return _row_to_plain_dict(rows[0])
+
+
+def get_latest_execute_pipeline_run_created_today(
+    catalog: str,
+    institution_id: str,
+) -> Optional[dict[str, Any]]:
+    """Most recent execute-mode ``pipeline_runs`` row created today, or ``None``."""
+    c = str(catalog).strip()
+    inst = str(institution_id).strip()
+    if not inst:
+        raise ValueError("institution_id must be non-empty")
+
+    t = qualified_table(c, PIPELINE_RUNS)
+    q = f"""
+    SELECT * FROM {t}
+    WHERE institution_id = {lit(inst)}
+      AND `catalog` = {lit(c)}
+      AND execute_run_id IS NOT NULL
+      AND to_date(created_at) = current_date()
+    ORDER BY created_at DESC
+    LIMIT 1
+    """
+    rows = _spark().sql(q).collect()
+    if not rows:
+        return None
+    return _row_to_plain_dict(rows[0])
+
+
+def create_execute_pipeline_run(
+    catalog: str,
+    institution_id: str,
+    execute_run_id: str,
+    artifacts_onboard_run_id: str,
+    db_run_id: str | None = None,
+) -> None:
+    """
+    Insert an execute-mode ``pipeline_runs`` row.
+
+    ``onboard_run_id`` stores the **artifact source** onboard run (``active/`` promotion);
+    ``execute_run_id`` is the minted id shared by IA and SMA execute tasks.
+    """
+    c = str(catalog).strip()
+    inst = str(institution_id).strip()
+    ex = str(execute_run_id).strip()
+    src = str(artifacts_onboard_run_id).strip()
+    if not inst or not ex or not src:
+        raise ValueError("institution_id, execute_run_id, and artifacts_onboard_run_id must be non-empty")
+
+    t = qualified_table(c, PIPELINE_RUNS)
+    db_sql = _sql_db_run_id(db_run_id)
+    q = f"""
+    INSERT INTO {t} (
+      institution_id, onboard_run_id, `catalog`, status, db_run_id, execute_run_id,
+      created_at, updated_at
+    )
+    VALUES (
+      {lit(inst)},
+      {lit(src)},
+      {lit(c)},
+      {lit(_INITIAL_RUN_STATUS)},
+      {db_sql},
+      {lit(ex)},
+      current_timestamp(),
+      current_timestamp()
+    )
+    """
+    _spark().sql(q)
+
+
+def update_execute_pipeline_run_status(
+    catalog: str,
+    institution_id: str,
+    execute_run_id: str,
+    status: str,
+    db_run_id: str | None = None,
+) -> None:
+    """Set ``status`` and ``updated_at`` for the execute row keyed by ``execute_run_id``."""
+    c = str(catalog).strip()
+    inst = str(institution_id).strip()
+    ex = str(execute_run_id).strip()
+    st = str(status).strip()
+    if not inst or not ex or not st:
+        raise ValueError("institution_id, execute_run_id, and status must be non-empty")
+
+    t = qualified_table(c, PIPELINE_RUNS)
+    db_set = ""
+    if (db_run_id or "").strip():
+        db_set = f", db_run_id = {_sql_db_run_id(db_run_id)}"
+    q = f"""
+    UPDATE {t}
+    SET status = {lit(st)}, updated_at = current_timestamp(){db_set}
+    WHERE institution_id = {lit(inst)}
+      AND `catalog` = {lit(c)}
+      AND execute_run_id = {lit(ex)}
+    """
+    _spark().sql(q)
 
 
 def reconcile_stale_nonterminal_pipeline_runs(
@@ -299,6 +442,7 @@ def reconcile_stale_nonterminal_pipeline_runs(
         AND `catalog` = {lit(c)}
         AND status IN ('running', 'awaiting_hitl')
         AND updated_at < from_unixtime(unix_timestamp(current_timestamp()) - {threshold_sec})
+        AND execute_run_id IS NULL
     ) AS s
     ON t.onboard_run_id = s.onboard_run_id
        AND t.status IN ('running', 'awaiting_hitl')
@@ -540,19 +684,19 @@ def bootstrap_resolved_onboard_run_id(
     return resolved
 
 
-def bootstrap_resolved_onboard_run_id_for_execute(
+def bootstrap_execute_run(
     catalog: str,
     institution_id: str,
     *,
     db_run_id: str | None = None,
     stale_idle_minutes: int | None = None,
-) -> str:
+) -> ExecuteRunBootstrap:
     """
-    Reconcile stale rows, then return an execute ``onboard_run_id``.
+    Reconcile stale rows, then return (or mint) an execute run.
 
-    If today's latest run for this institution is a non-terminal ``*_exec_*`` row (same multi-task
-    job: IA then SMA), that id is reused. Otherwise a new id is minted and inserted into
-    ``pipeline_runs`` so downstream tasks can resolve it the same way onboard does.
+    If today's latest **execute** ``pipeline_runs`` row is non-terminal, reuse its
+    ``execute_run_id`` and ``onboard_run_id`` (artifact source). Otherwise mint a new
+    ``execute_run_id`` and insert a row linking to the latest completed **onboard** run.
     """
     idle = (
         stale_idle_minutes
@@ -560,45 +704,74 @@ def bootstrap_resolved_onboard_run_id_for_execute(
         else STALE_PIPELINE_RUN_IDLE_MINUTES
     )
     reconcile_stale_nonterminal_pipeline_runs(catalog, institution_id, idle)
-    latest = get_latest_pipeline_run_created_today(catalog, institution_id)
-    if latest:
-        st = str(latest.get("status") or "").strip()
-        rid = str(latest.get("onboard_run_id") or "").strip()
-        if rid and "_exec_" in rid and st in ("running", "awaiting_hitl", "timed_out"):
+    latest_ex = get_latest_execute_pipeline_run_created_today(catalog, institution_id)
+    if latest_ex:
+        st = str(latest_ex.get("status") or "").strip()
+        ex_id = str(latest_ex.get("execute_run_id") or "").strip()
+        src = str(latest_ex.get("onboard_run_id") or "").strip()
+        if ex_id and src and st in ("running", "awaiting_hitl", "timed_out"):
             LOGGER.info(
-                "Resuming GenAI execute onboard_run_id=%r (catalog=%r institution_id=%r)",
-                rid,
+                "Resuming GenAI execute_run_id=%r artifacts_onboard_run_id=%r "
+                "(catalog=%r institution_id=%r)",
+                ex_id,
+                src,
                 catalog,
                 institution_id,
             )
-            return rid
+            return ExecuteRunBootstrap(
+                execute_run_id=ex_id,
+                artifacts_onboard_run_id=src,
+            )
 
-    rid = new_execute_onboard_run_id(institution_id)
-    create_pipeline_run(catalog, institution_id, rid, db_run_id=db_run_id)
+    onboard_done = get_latest_complete_onboard_run(catalog, institution_id)
+    if not onboard_done:
+        raise RuntimeError(
+            "No completed onboard pipeline run found for this institution/catalog; "
+            "cannot start execute mode until onboard completes."
+        )
+    src_rid = str(onboard_done.get("onboard_run_id") or "").strip()
+    if not src_rid:
+        raise RuntimeError("Completed onboard row is missing onboard_run_id; cannot start execute.")
+
+    ex_id = new_execute_run_id()
+    create_execute_pipeline_run(
+        catalog,
+        institution_id,
+        ex_id,
+        src_rid,
+        db_run_id=db_run_id,
+    )
     LOGGER.info(
-        "Resolved GenAI execute onboard_run_id=%r (catalog=%r institution_id=%r stale_idle_minutes=%s)",
-        rid,
+        "Minted GenAI execute_run_id=%r artifacts_onboard_run_id=%r "
+        "(catalog=%r institution_id=%r stale_idle_minutes=%s)",
+        ex_id,
+        src_rid,
         catalog,
         institution_id,
         idle,
     )
-    return rid
+    return ExecuteRunBootstrap(
+        execute_run_id=ex_id,
+        artifacts_onboard_run_id=src_rid,
+    )
 
 
 def mark_execute_pipeline_run_status(
     catalog: str,
     institution_id: str,
-    onboard_run_id: str,
+    execute_run_id: str,
     status: str,
 ) -> None:
     """Best-effort ``pipeline_runs`` status for execute jobs (failure / ignored errors)."""
     try:
-        update_pipeline_run_status(catalog, institution_id, onboard_run_id, status)
+        update_execute_pipeline_run_status(
+            catalog, institution_id, execute_run_id, status
+        )
     except Exception as e:  # noqa: BLE001
         LOGGER.warning(
-            "Could not write execute pipeline_runs status=%s catalog=%s run=%s (%s)",
+            "Could not write execute pipeline_runs status=%s catalog=%s execute_run_id=%s (%s)",
             status,
             catalog,
-            onboard_run_id,
+            execute_run_id,
             e,
         )

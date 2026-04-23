@@ -8,10 +8,11 @@ import pytest
 
 from edvise.genai.mapping.shared.pipeline_artifacts import (
     GenaiPipelineLayout,
+    LEGACY_GENAI_PIPELINE_RUN_ID_ENV,
     build_genai_pipeline_artifact_rows,
     discover_artifact_files,
     parse_uc_catalog_from_volume_path,
-    resolve_pipeline_run_id,
+    resolve_onboard_run_id,
     resolve_pipeline_version,
     versioned_genai_run_root,
     write_genai_pipeline_run_metadata,
@@ -34,7 +35,7 @@ def test_versioned_genai_run_root():
 
 
 def test_versioned_genai_run_root_rejects_empty_run_id():
-    with pytest.raises(ValueError, match="pipeline_run_id"):
+    with pytest.raises(ValueError, match="onboard_run_id"):
         versioned_genai_run_root("/Volumes/c/x", "")
 
 
@@ -43,19 +44,34 @@ def test_genai_pipeline_layout():
     assert layout.identity_hitl == Path("/tmp/bronze/genai_pipeline/r1/identity_hitl")
 
 
-def test_resolve_pipeline_run_id_explicit_over_env(monkeypatch):
-    monkeypatch.setenv("GENAI_PIPELINE_RUN_ID", "from_env")
+def test_resolve_onboard_run_id_explicit_over_env(monkeypatch):
+    monkeypatch.setenv("GENAI_ONBOARD_RUN_ID", "from_env")
     monkeypatch.delenv("DATABRICKS_JOB_RUN_ID", raising=False)
-    assert resolve_pipeline_run_id("explicit") == "explicit"
-    assert resolve_pipeline_run_id(None) == "from_env"
-    monkeypatch.delenv("GENAI_PIPELINE_RUN_ID", raising=False)
-    assert resolve_pipeline_run_id(None, create_if_missing=False) is None
+    monkeypatch.delenv(LEGACY_GENAI_PIPELINE_RUN_ID_ENV, raising=False)
+    assert resolve_onboard_run_id("explicit") == "explicit"
+    assert resolve_onboard_run_id(None) == "from_env"
+    monkeypatch.delenv("GENAI_ONBOARD_RUN_ID", raising=False)
+    assert resolve_onboard_run_id(None, create_if_missing=False) is None
 
 
-def test_resolve_pipeline_run_id_prefers_databricks_job_env_over_manual(monkeypatch):
-    monkeypatch.setenv("GENAI_PIPELINE_RUN_ID", "manual")
+def test_resolve_onboard_run_id_legacy_env(monkeypatch):
+    monkeypatch.delenv("GENAI_ONBOARD_RUN_ID", raising=False)
+    monkeypatch.setenv(LEGACY_GENAI_PIPELINE_RUN_ID_ENV, "legacy_only")
+    monkeypatch.delenv("DATABRICKS_JOB_RUN_ID", raising=False)
+    assert resolve_onboard_run_id(None) == "legacy_only"
+
+
+def test_resolve_onboard_run_id_prefers_new_env_over_legacy(monkeypatch):
+    monkeypatch.setenv("GENAI_ONBOARD_RUN_ID", "new")
+    monkeypatch.setenv(LEGACY_GENAI_PIPELINE_RUN_ID_ENV, "old")
+    monkeypatch.delenv("DATABRICKS_JOB_RUN_ID", raising=False)
+    assert resolve_onboard_run_id(None) == "new"
+
+
+def test_resolve_onboard_run_id_prefers_databricks_job_env_over_manual(monkeypatch):
+    monkeypatch.setenv("GENAI_ONBOARD_RUN_ID", "manual")
     monkeypatch.setenv("DATABRICKS_JOB_RUN_ID", "987654321")
-    assert resolve_pipeline_run_id(None) == "987654321"
+    assert resolve_onboard_run_id(None) == "987654321"
 
 
 def test_resolve_pipeline_version_explicit_and_env(monkeypatch):
@@ -87,7 +103,7 @@ def test_discover_artifact_files(tmp_path: Path):
     write_genai_pipeline_run_metadata(
         run,
         institution_id=inst,
-        pipeline_run_id="r1",
+        onboard_run_id="r1",
         pipeline_version="0.2.0",
     )
 
@@ -108,13 +124,14 @@ def test_build_genai_pipeline_artifact_rows(tmp_path: Path):
     p.write_text('{"x": 1}')
     rows = build_genai_pipeline_artifact_rows(
         institution_id="x",
-        pipeline_run_id="r",
+        onboard_run_id="r",
         pipeline_version="0.2.0",
         bronze_volumes_path="/Volumes/c/p",
         artifact_paths={"mapping_manifest": p},
         uc_catalog="c",
     )
     assert len(rows) == 1
+    assert rows[0]["onboard_run_id"] == "r"
     assert rows[0]["pipeline_version"] == "0.2.0"
     assert rows[0]["artifact_kind"] == "mapping_manifest"
     assert rows[0]["uc_catalog"] == "c"
@@ -126,10 +143,10 @@ def test_write_genai_pipeline_run_metadata(tmp_path: Path):
     p = write_genai_pipeline_run_metadata(
         tmp_path,
         institution_id="demo_col",
-        pipeline_run_id="99",
+        onboard_run_id="99",
         pipeline_version="0.2.0",
     )
     assert p.name == "genai_pipeline_run.json"
     text = p.read_text(encoding="utf-8")
     assert '"pipeline_version": "0.2.0"' in text
-    assert '"pipeline_run_id": "99"' in text
+    assert '"onboard_run_id": "99"' in text

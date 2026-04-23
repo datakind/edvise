@@ -70,7 +70,7 @@ _DEFAULT_SMA_GATEWAY_MODEL_ID = "claude-sonnet-test-genai-ai-data-cleaning"
 
 @dataclass
 class SMAPaths:
-    # Run folder (working artifacts, keyed by onboard_run_id)
+    # Run folder: ``runs/onboard/{onboard_run_id}/`` or ``runs/execute/{execute_run_id}/``
     run_root: Path
     manifest_map: Path
     mapping_validation_manifest: Path
@@ -80,7 +80,7 @@ class SMAPaths:
     transform_hooks: Path           # optional, placeholder
     run_log: Path
 
-    # IA outputs this job reads from (same onboard_run_id)
+    # IA outputs this job reads from (same execute or onboard run segment)
     ia_enriched_schema_contract: Path
     ia_cleaned_datasets: Path       # directory
 
@@ -100,12 +100,27 @@ class SMAPaths:
 
 def resolve_run_paths(
     institution_id: str,
-    onboard_run_id: str,
     catalog: str,
+    *,
+    mode: str,
+    onboard_run_id: str | None = None,
+    execute_run_id: str | None = None,
 ) -> SMAPaths:
     genai = Path(genai_cfg.silver_genai_mapping_root(institution_id, catalog=catalog))
-    run_root = genai / "runs" / onboard_run_id / "schema_mapping_agent"
-    ia_run_root = genai / "runs" / onboard_run_id / "identity_agent"
+    if mode == "onboard":
+        rid = (onboard_run_id or "").strip()
+        if not rid:
+            raise ValueError("onboard_run_id is required when mode='onboard'")
+        segment = ("onboard", rid)
+    elif mode == "execute":
+        rid = (execute_run_id or "").strip()
+        if not rid:
+            raise ValueError("execute_run_id is required when mode='execute'")
+        segment = ("execute", rid)
+    else:
+        raise ValueError(f"resolve_run_paths: invalid mode={mode!r}")
+    run_root = genai / "runs" / segment[0] / segment[1] / "schema_mapping_agent"
+    ia_run_root = genai / "runs" / segment[0] / segment[1] / "identity_agent"
     active_root = genai / "active"
 
     return SMAPaths(
@@ -117,7 +132,7 @@ def resolve_run_paths(
         transformation_map=run_root / "transformation_map.json",
         transform_hooks=run_root / "transform_hooks.py",
         run_log=run_root / "run_log.json",
-        # IA outputs — same run_id, identity_agent folder
+        # IA outputs — same run segment under ``runs/onboard/...`` or ``runs/execute/...``
         ia_enriched_schema_contract=ia_run_root / "enriched_schema_contract.json",
         ia_cleaned_datasets=ia_run_root / "cleaned_datasets",
         # Active folder (flat under genai_mapping)
@@ -436,6 +451,7 @@ def run_onboard_gate_2(
     spark_session,
     *,
     onboard_run_id: str,
+    db_run_id: str | None = None,
 ):
     from edvise.genai.mapping.schema_mapping_agent.hitl import (
         check_sma_hitl_gate,
@@ -479,6 +495,7 @@ def run_onboard_gate_2(
             paths.manifest_map,
             resolved_by="pipeline",
             run_log_path=paths.run_log,
+            db_run_id=db_run_id,
         )
 
     # Reload manifest after resolution
@@ -665,21 +682,50 @@ def run_execute(
 
 def run(
     institution_id: str,
-    onboard_run_id: str,
     catalog: str,
     mode: str,
+    onboard_run_id: str | None = None,
+    execute_run_id: str | None = None,
+    artifacts_onboard_run_id: str | None = None,
     resume_from: str = "start",
     reference_id: str = "",
+    db_run_id: str | None = None,
 ):
-    paths = resolve_run_paths(institution_id, onboard_run_id, catalog)
+    if mode == "onboard":
+        if not (onboard_run_id or "").strip():
+            raise ValueError("onboard_run_id is required when mode='onboard'")
+        paths = resolve_run_paths(
+            institution_id,
+            catalog,
+            mode="onboard",
+            onboard_run_id=onboard_run_id,
+        )
+        _log_run = onboard_run_id
+    elif mode == "execute":
+        if not (execute_run_id or "").strip():
+            raise ValueError("execute_run_id is required when mode='execute'")
+        paths = resolve_run_paths(
+            institution_id,
+            catalog,
+            mode="execute",
+            execute_run_id=execute_run_id,
+        )
+        _log_run = execute_run_id
+    else:
+        raise ValueError(f"Invalid mode={mode!r}. Must be 'onboard' or 'execute'.")
+
     init_file_logging_at_path(
         paths.run_root / "sma_pipeline.log",
         logger_name="edvise_sma",
         append=True,
     )
     LOGGER.info(
-        "edvise_sma | institution=%s | run=%s | mode=%s | resume_from=%s",
-        institution_id, onboard_run_id, mode, resume_from,
+        "edvise_sma | institution=%s | run=%s | mode=%s | resume_from=%s | artifacts_onboard=%s",
+        institution_id,
+        _log_run,
+        mode,
+        resume_from,
+        artifacts_onboard_run_id or "",
     )
 
     # Spark session (optional — graceful degradation outside Databricks runtime)
@@ -693,14 +739,18 @@ def run(
     if mode == "execute":
         run_execute(institution_id, paths, spark_session)
         try:
-            _pipeline_state.update_pipeline_run_status(
-                catalog, institution_id, onboard_run_id, "complete"
+            _pipeline_state.update_execute_pipeline_run_status(
+                catalog,
+                institution_id,
+                str(execute_run_id).strip(),
+                "complete",
+                db_run_id=db_run_id,
             )
         except Exception as e:  # noqa: BLE001
             LOGGER.warning(
-                "Could not mark pipeline_runs complete after execute: catalog=%s run=%s (%s)",
+                "Could not mark pipeline_runs complete after SMA execute: catalog=%s execute_run_id=%s (%s)",
                 catalog,
-                onboard_run_id,
+                execute_run_id,
                 e,
             )
 
@@ -738,6 +788,7 @@ def run(
                     client=client,
                     spark_session=spark_session,
                     onboard_run_id=onboard_run_id,
+                    db_run_id=db_run_id,
                 )
         except HITLTimeoutError:
             raise
@@ -767,16 +818,36 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    _db_run_id = (args.db_run_id or "").strip() or None
+    try:
+        from pyspark.sql import SparkSession
+
+        _spark_sess = SparkSession.getActiveSession()
+        _db_from_spark = (
+            _spark_sess.conf.get("spark.databricks.job.runId", None)
+            if _spark_sess is not None
+            else None
+        )
+    except Exception:
+        _db_from_spark = None
+
+    _db_run_id = (args.db_run_id or "").strip() or (
+        (str(_db_from_spark).strip()) if _db_from_spark else ""
+    ).strip() or None
+
+    _execute_run_id: str | None = None
+    _artifacts_onboard: str | None = None
+    _onboard_run_id: str | None = None
 
     if args.mode == "execute":
-        _resolved = pipeline_state.bootstrap_resolved_onboard_run_id_for_execute(
+        _boot = pipeline_state.bootstrap_execute_run(
             args.catalog,
             args.institution_id,
             db_run_id=_db_run_id,
         )
+        _execute_run_id = _boot.execute_run_id
+        _artifacts_onboard = _boot.artifacts_onboard_run_id
     else:
-        _resolved = pipeline_state.bootstrap_resolved_onboard_run_id(
+        _onboard_run_id = pipeline_state.bootstrap_resolved_onboard_run_id(
             args.catalog,
             args.institution_id,
             None,
@@ -785,18 +856,21 @@ if __name__ == "__main__":
     try:
         run(
             institution_id=args.institution_id,
-            onboard_run_id=_resolved,
             catalog=args.catalog,
             mode=args.mode,
+            onboard_run_id=_onboard_run_id,
+            execute_run_id=_execute_run_id,
+            artifacts_onboard_run_id=_artifacts_onboard,
             resume_from=args.resume_from,
             reference_id=args.reference_id,
+            db_run_id=_db_run_id,
         )
     except BaseException:
-        if args.mode == "execute":
+        if args.mode == "execute" and _execute_run_id:
             pipeline_state.mark_execute_pipeline_run_status(
                 args.catalog,
                 args.institution_id,
-                _resolved,
+                _execute_run_id,
                 "failed",
             )
         raise

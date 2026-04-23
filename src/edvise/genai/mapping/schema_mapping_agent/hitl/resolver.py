@@ -136,6 +136,8 @@ def resolve_sma_items(
     manifest_path: str | Path,
     resolved_by: str | None = None,
     run_log_path: str | Path | None = None,
+    *,
+    db_run_id: str | None = None,
 ) -> int:
     """
     Apply reviewer selections from ``sma_hitl*.json`` into the mapping manifest.
@@ -240,6 +242,7 @@ def resolve_sma_items(
                 choice=item.choice,
                 option_id=selected.option_id,
                 reentry=selected.reentry.value,
+                db_run_id=db_run_id,
             )
             append_run_log_event(Path(run_log_path), institution_id, event)
 

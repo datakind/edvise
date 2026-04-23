@@ -3,11 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from edvise.configs.custom import CleaningConfig
 from edvise.genai.mapping.shared.pipeline_artifacts import (
-    resolve_pipeline_run_id,
+    resolve_onboard_run_id,
     resolve_pipeline_version,
     versioned_genai_run_root,
 )
@@ -124,14 +124,16 @@ class DatasetConfig(StrictBaseModel):
 class SchoolMappingConfig(StrictBaseModel):
     institution_id: str
     institution_name: Optional[str] = None
-    pipeline_run_id: Optional[str] = Field(
+    onboard_run_id: Optional[str] = Field(
         default=None,
+        validation_alias=AliasChoices("onboard_run_id", "pipeline_run_id"),
         description=(
             "Databricks **job run id** for this execution (artifact paths + UC registry). "
-            "Resolved by :func:`~edvise.genai.mapping.shared.pipeline_artifacts.resolve_pipeline_run_id` "
-            "(Spark job conf, then ``DATABRICKS_JOB_RUN_ID``, then ``GENAI_PIPELINE_RUN_ID`` for local). "
+            "Resolved by :func:`~edvise.genai.mapping.shared.pipeline_artifacts.resolve_onboard_run_id` "
+            "(Spark job conf, then ``DATABRICKS_JOB_RUN_ID``, then ``GENAI_ONBOARD_RUN_ID`` / legacy "
+            "``GENAI_PIPELINE_RUN_ID`` for local). "
             "When set with ``bronze_volumes_path``, outputs live under "
-            "``genai_pipeline/<pipeline_run_id>/`` (institution is implied by the volume root). "
+            "``genai_pipeline/<onboard_run_id>/`` (institution is implied by the volume root). "
             "Release version is stored in ``genai_pipeline_run.json`` and UC, not in the path."
         ),
     )
@@ -169,11 +171,11 @@ class SchoolMappingConfig(StrictBaseModel):
         """
         Return the UC volume path for versioned GenAI artifacts, or None if not configured.
 
-        Requires both ``bronze_volumes_path`` and ``pipeline_run_id``.
+        Requires both ``bronze_volumes_path`` and ``onboard_run_id``.
         """
         if not self.bronze_volumes_path or not str(self.bronze_volumes_path).strip():
             return None
-        rid = self.pipeline_run_id
+        rid = self.onboard_run_id
         if not rid or not str(rid).strip():
             return None
         return str(
@@ -271,7 +273,7 @@ class IdentityAgentInputsConfig(StrictBaseModel):
         self,
         *,
         uc_catalog: str,
-        pipeline_run_id: Optional[str] = None,
+        onboard_run_id: Optional[str] = None,
         pipeline_version: Optional[str] = None,
     ) -> SchoolMappingConfig:
         """Build :class:`SchoolMappingConfig` with ``DatasetConfig`` entries (files only, no PKs)."""
@@ -284,7 +286,7 @@ class IdentityAgentInputsConfig(StrictBaseModel):
                     f"datasets.files[{name!r}] must list at least one path"
                 )
             datasets[name] = DatasetConfig(files=paths, primary_keys=None)
-        rid = resolve_pipeline_run_id(pipeline_run_id, create_if_missing=False)
+        rid = resolve_onboard_run_id(onboard_run_id, create_if_missing=False)
         pv = resolve_pipeline_version(pipeline_version)
         return SchoolMappingConfig(
             institution_id=self.institution.id,
@@ -292,6 +294,6 @@ class IdentityAgentInputsConfig(StrictBaseModel):
             bronze_volumes_path=bronze_volume_path_for_institution(
                 self.institution.id, catalog=uc_catalog
             ),
-            pipeline_run_id=rid,
+            onboard_run_id=rid,
             pipeline_version=pv,
         )

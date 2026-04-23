@@ -70,6 +70,7 @@ def test_create_pipeline_run_sql(monkeypatch) -> None:
     q = fake.statements[0]
     assert "INSERT INTO `c1`.`genai_mapping`.`pipeline_runs`" in q
     assert "onboard_run_id" in q
+    assert "execute_run_id" in q
     assert "`c1`" in q
     assert "'run-1'" in q
     assert "running" in q
@@ -131,8 +132,10 @@ def test_table_setup_runs_ddl(monkeypatch) -> None:
     assert any("CREATE SCHEMA" in s for s in fake.statements)
     pr_create = next(s for s in fake.statements if "CREATE TABLE" in s and "pipeline_runs" in s)
     assert "onboard_run_id" in pr_create
+    assert "execute_run_id" in pr_create
     assert "db_run_id" in pr_create
     assert any("ALTER TABLE" in s and "db_run_id" in s for s in fake.statements)
+    assert any("ALTER TABLE" in s and "execute_run_id" in s for s in fake.statements)
     assert sum("RENAME COLUMN pipeline_run_id TO onboard_run_id" in s for s in fake.statements) == 3
     assert any("hitl_reviews" in s for s in fake.statements)
 
@@ -200,5 +203,96 @@ def test_reconcile_stale_emits_merge_and_update(monkeypatch) -> None:
     pipeline_state.reconcile_stale_nonterminal_pipeline_runs("c1", "inst1", 10)
     assert len(fake.statements) == 2
     assert "MERGE INTO" in fake.statements[0] and "pipeline_phases" in fake.statements[0]
+    assert "execute_run_id IS NULL" in fake.statements[0]
     assert "UPDATE" in fake.statements[1] and "timed_out" in fake.statements[1]
     assert "from_unixtime(unix_timestamp(current_timestamp()) - 600)" in fake.statements[1]
+
+
+def test_update_pipeline_run_status_merge_scopes_onboard_rows(monkeypatch) -> None:
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    pipeline_state.update_pipeline_run_status("c", "i", "rid", "complete")
+    assert "execute_run_id IS NULL" in fake.statements[0]
+
+
+def test_create_execute_pipeline_run_sql(monkeypatch) -> None:
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    pipeline_state.create_execute_pipeline_run("c1", "inst1", "ex-1", "onb-src", db_run_id="j1")
+    q = fake.statements[0]
+    assert "INSERT INTO" in q
+    assert "'ex-1'" in q
+    assert "'onb-src'" in q
+    assert "'j1'" in q
+
+
+def test_update_execute_pipeline_run_status(monkeypatch) -> None:
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    pipeline_state.update_execute_pipeline_run_status("c1", "inst1", "ex-9", "complete")
+    q = fake.statements[0]
+    assert "UPDATE" in q
+    assert "execute_run_id" in q
+    assert "'ex-9'" in q
+
+
+def test_bootstrap_execute_run_resumes(monkeypatch) -> None:
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    ex_row = _Row(
+        {
+            "execute_run_id": "ex-resume",
+            "onboard_run_id": "src_ob",
+            "status": "running",
+        }
+    )
+    fake.set_sql_result_queue(
+        [
+            _Result([]),
+            _Result([]),
+            _Result([ex_row]),
+        ]
+    )
+    out = pipeline_state.bootstrap_execute_run("cat", "inst")
+    assert out.execute_run_id == "ex-resume"
+    assert out.artifacts_onboard_run_id == "src_ob"
+
+
+def test_bootstrap_execute_run_raises_without_complete_onboard(monkeypatch) -> None:
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    fake.set_sql_result_queue(
+        [
+            _Result([]),
+            _Result([]),
+            _Result([]),
+            _Result([]),
+        ]
+    )
+    with pytest.raises(RuntimeError, match="No completed onboard"):
+        pipeline_state.bootstrap_execute_run("cat", "inst")
+
+
+def test_bootstrap_execute_run_mints(monkeypatch) -> None:
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    monkeypatch.setattr(pipeline_state, "new_execute_run_id", lambda: "exec-uuid-1")
+    onboard_row = _Row(
+        {
+            "onboard_run_id": "src_onboard",
+            "status": "complete",
+            "execute_run_id": None,
+        }
+    )
+    fake.set_sql_result_queue(
+        [
+            _Result([]),
+            _Result([]),
+            _Result([]),
+            _Result([onboard_row]),
+            _Result([]),
+        ]
+    )
+    out = pipeline_state.bootstrap_execute_run("cat", "inst")
+    assert out.execute_run_id == "exec-uuid-1"
+    assert out.artifacts_onboard_run_id == "src_onboard"
