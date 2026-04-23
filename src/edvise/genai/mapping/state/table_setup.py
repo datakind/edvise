@@ -22,6 +22,14 @@ from edvise.genai.mapping.state._sql import (
 LOGGER = logging.getLogger(__name__)
 
 
+def _rename_legacy_pipeline_run_id_column(spark: Any, table_fqn: str) -> None:
+    """Older deployments used ``pipeline_run_id``; normalize to ``onboard_run_id`` idempotently."""
+    try:
+        spark.sql(f"ALTER TABLE {table_fqn} RENAME COLUMN pipeline_run_id TO onboard_run_id")
+    except Exception:  # noqa: BLE001 — ok if column already named onboard_run_id
+        LOGGER.debug("Skipped pipeline_run_id -> onboard_run_id rename for %s", table_fqn)
+
+
 def create_state_tables(catalog: str) -> None:
     """
     Create the ``genai_mapping`` schema and all state tables if they do not exist.
@@ -50,7 +58,7 @@ def create_state_tables(catalog: str) -> None:
         f"""
         CREATE TABLE IF NOT EXISTS {pr} (
           institution_id STRING,
-          pipeline_run_id STRING,
+          onboard_run_id STRING,
           `catalog` STRING,
           status STRING,
           db_run_id STRING,
@@ -64,7 +72,7 @@ def create_state_tables(catalog: str) -> None:
     spark.sql(
         f"""
         CREATE TABLE IF NOT EXISTS {pp} (
-          pipeline_run_id STRING,
+          onboard_run_id STRING,
           phase STRING,
           status STRING,
           started_at TIMESTAMP,
@@ -75,7 +83,7 @@ def create_state_tables(catalog: str) -> None:
     spark.sql(
         f"""
         CREATE TABLE IF NOT EXISTS {hr} (
-          pipeline_run_id STRING,
+          onboard_run_id STRING,
           phase STRING,
           artifact_type STRING,
           artifact_path STRING,
@@ -85,6 +93,8 @@ def create_state_tables(catalog: str) -> None:
         ) USING DELTA
         """
     )
+    for tbl in (pr, pp, hr):
+        _rename_legacy_pipeline_run_id_column(spark, tbl)
     LOGGER.info("genai state tables ensured under %s", qualified_schema(c))
 
 

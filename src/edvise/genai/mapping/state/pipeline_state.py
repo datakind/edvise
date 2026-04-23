@@ -58,7 +58,7 @@ def _row_to_plain_dict(row: Any) -> dict[str, Any]:
 def create_pipeline_run(
     catalog: str,
     institution_id: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     db_run_id: str | None = None,
 ) -> None:
     """
@@ -72,14 +72,14 @@ def create_pipeline_run(
     """
     c = str(catalog).strip()
     inst = str(institution_id).strip()
-    rid = str(pipeline_run_id).strip()
+    rid = str(onboard_run_id).strip()
     if not inst or not rid:
-        raise ValueError("institution_id and pipeline_run_id must be non-empty")
+        raise ValueError("institution_id and onboard_run_id must be non-empty")
 
     t = qualified_table(c, PIPELINE_RUNS)
     db_sql = _sql_db_run_id(db_run_id)
     q = f"""
-    INSERT INTO {t} (institution_id, pipeline_run_id, `catalog`, status, db_run_id, created_at, updated_at)
+    INSERT INTO {t} (institution_id, onboard_run_id, `catalog`, status, db_run_id, created_at, updated_at)
     VALUES (
       {lit(inst)},
       {lit(rid)},
@@ -96,13 +96,13 @@ def create_pipeline_run(
 def update_pipeline_run_status(
     catalog: str,
     institution_id: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     status: str,
     db_run_id: str | None = None,
 ) -> None:
     """
     Set ``status`` and ``updated_at`` for the run keyed by
-    (``institution_id``, ``pipeline_run_id``, ``catalog``).
+    (``institution_id``, ``onboard_run_id``, ``catalog``).
 
     If no row matches, a new row is inserted (merge upsert) so a status update
     can follow a hand-created run id.
@@ -111,10 +111,10 @@ def update_pipeline_run_status(
     """
     c = str(catalog).strip()
     inst = str(institution_id).strip()
-    rid = str(pipeline_run_id).strip()
+    rid = str(onboard_run_id).strip()
     st = str(status).strip()
     if not inst or not rid or not st:
-        raise ValueError("institution_id, pipeline_run_id, and status must be non-empty")
+        raise ValueError("institution_id, onboard_run_id, and status must be non-empty")
 
     t = qualified_table(c, PIPELINE_RUNS)
     db_sql = _sql_db_run_id(db_run_id)
@@ -123,21 +123,21 @@ def update_pipeline_run_status(
     USING (
       SELECT
         {lit(inst)} AS institution_id,
-        {lit(rid)} AS pipeline_run_id,
+        {lit(rid)} AS onboard_run_id,
         {lit(c)} AS ccat,
         {lit(st)} AS status,
         {db_sql} AS db_run_id
     ) s
     ON t.institution_id = s.institution_id
-       AND t.pipeline_run_id = s.pipeline_run_id
+       AND t.onboard_run_id = s.onboard_run_id
        AND t.`catalog` = s.ccat
     WHEN MATCHED THEN
       UPDATE SET
         t.status = s.status,
         t.updated_at = current_timestamp()
     WHEN NOT MATCHED THEN
-      INSERT (institution_id, pipeline_run_id, `catalog`, status, db_run_id, created_at, updated_at)
-      VALUES (s.institution_id, s.pipeline_run_id, s.ccat, s.status, s.db_run_id, current_timestamp(), current_timestamp())
+      INSERT (institution_id, onboard_run_id, `catalog`, status, db_run_id, created_at, updated_at)
+      VALUES (s.institution_id, s.onboard_run_id, s.ccat, s.status, s.db_run_id, current_timestamp(), current_timestamp())
     """
     _spark().sql(q)
 
@@ -214,19 +214,19 @@ def count_pipeline_runs_created_today(catalog: str, institution_id: str) -> int:
     return n
 
 
-def resolve_pipeline_run_id(
+def resolve_onboard_run_id(
     catalog: str,
     institution_id: str,
-    pipeline_run_id: Optional[str] = None,
+    onboard_run_id_override: Optional[str] = None,
 ) -> str:
     """
-    Resolve the active ``pipeline_run_id`` for this institution.
+    Resolve the active ``onboard_run_id`` for this institution.
 
-    If ``pipeline_run_id`` is passed non-empty (manual override / explicit job id), it is returned
-    unchanged. Otherwise the convention is ``{institution_id}_{YYYYMMDD}`` with optional numeric
-    suffix for additional same-day runs after a terminal ``complete`` / ``failed`` state.
+    If ``onboard_run_id_override`` is passed non-empty (manual override / explicit job id), it is
+    returned unchanged. Otherwise the convention is ``{institution_id}_{YYYYMMDD}`` with optional
+    numeric suffix for additional same-day runs after a terminal ``complete`` / ``failed`` state.
     """
-    override = (pipeline_run_id or "").strip()
+    override = (onboard_run_id_override or "").strip()
     if override:
         return override
 
@@ -240,7 +240,7 @@ def resolve_pipeline_run_id(
         return base_id
 
     st = str(latest.get("status") or "").strip()
-    rid = str(latest.get("pipeline_run_id") or "").strip()
+    rid = str(latest.get("onboard_run_id") or "").strip()
     if not rid:
         return base_id
 
@@ -254,9 +254,9 @@ def resolve_pipeline_run_id(
     return f"{base_id}_{n + 1}"
 
 
-def new_execute_pipeline_run_id(institution_id: str) -> str:
+def new_execute_onboard_run_id(institution_id: str) -> str:
     """
-    Fresh ``pipeline_run_id`` for execute-mode jobs (distinct from onboard ids).
+    Fresh ``onboard_run_id`` for execute-mode jobs (distinct from onboard ids).
 
     Uses ``_exec_`` in the string so execute-mode bootstrap can resume the same id across
     multi-task jobs without colliding with onboard runs.
@@ -293,14 +293,14 @@ def reconcile_stale_nonterminal_pipeline_runs(
     q_phases = f"""
     MERGE INTO {pp} AS t
     USING (
-      SELECT DISTINCT pipeline_run_id
+      SELECT DISTINCT onboard_run_id
       FROM {pr}
       WHERE institution_id = {lit(inst)}
         AND `catalog` = {lit(c)}
         AND status IN ('running', 'awaiting_hitl')
         AND updated_at < from_unixtime(unix_timestamp(current_timestamp()) - {threshold_sec})
     ) AS s
-    ON t.pipeline_run_id = s.pipeline_run_id
+    ON t.onboard_run_id = s.onboard_run_id
        AND t.status IN ('running', 'awaiting_hitl')
     WHEN MATCHED THEN UPDATE SET
       t.status = 'timed_out',
@@ -321,34 +321,34 @@ def reconcile_stale_nonterminal_pipeline_runs(
 
 def log_phase_transition(
     catalog: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     phase: str,
     status: str,
 ) -> None:
     """
-    Insert or update a row in ``pipeline_phases`` keyed by (``pipeline_run_id``, ``phase``).
+    Insert or update a row in ``pipeline_phases`` keyed by (``onboard_run_id``, ``phase``).
 
     ``completed_at`` is set when ``status`` is one of: approved, rejected, complete; otherwise
     it is set to NULL (including ``timed_out``, which remains resumable). ``started_at`` is set on
     first insert and left unchanged on update.
     """
     c = str(catalog).strip()
-    rid = str(pipeline_run_id).strip()
+    rid = str(onboard_run_id).strip()
     ph = str(phase).strip()
     st = str(status).strip()
     if not rid or not ph or not st:
-        raise ValueError("pipeline_run_id, phase, and status must be non-empty")
+        raise ValueError("onboard_run_id, phase, and status must be non-empty")
 
     t = qualified_table(c, PIPELINE_PHASES)
     q = f"""
     MERGE INTO {t} t
     USING (
       SELECT
-        {lit(rid)} AS pipeline_run_id,
+        {lit(rid)} AS onboard_run_id,
         {lit(ph)} AS phase,
         {lit(st)} AS status
     ) s
-    ON t.pipeline_run_id = s.pipeline_run_id AND t.phase = s.phase
+    ON t.onboard_run_id = s.onboard_run_id AND t.phase = s.phase
     WHEN MATCHED THEN
       UPDATE SET
         t.status = s.status,
@@ -357,9 +357,9 @@ def log_phase_transition(
           ELSE NULL
         END
     WHEN NOT MATCHED THEN
-      INSERT (pipeline_run_id, phase, status, started_at, completed_at)
+      INSERT (onboard_run_id, phase, status, started_at, completed_at)
       VALUES (
-        s.pipeline_run_id,
+        s.onboard_run_id,
         s.phase,
         s.status,
         current_timestamp(),
@@ -374,7 +374,7 @@ def log_phase_transition(
 
 def register_hitl_artifacts(
     catalog: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     phase: str,
     artifacts: list[dict[str, Any]],
 ) -> None:
@@ -383,10 +383,10 @@ def register_hitl_artifacts(
     row exists in ``hitl_reviews`` with ``status = pending`` (merge by run, phase, type, path).
     """
     c = str(catalog).strip()
-    rid = str(pipeline_run_id).strip()
+    rid = str(onboard_run_id).strip()
     ph = str(phase).strip()
     if not rid or not ph:
-        raise ValueError("pipeline_run_id and phase must be non-empty")
+        raise ValueError("onboard_run_id and phase must be non-empty")
     if not artifacts:
         return
 
@@ -410,12 +410,12 @@ def register_hitl_artifacts(
         MERGE INTO {t} t
         USING (
           SELECT
-            {lit(rid)} AS pipeline_run_id,
+            {lit(rid)} AS onboard_run_id,
             {lit(ph)} AS phase,
             {lit(s_at)} AS artifact_type,
             {lit(s_ap)} AS artifact_path
         ) s
-        ON t.pipeline_run_id = s.pipeline_run_id
+        ON t.onboard_run_id = s.onboard_run_id
            AND t.phase = s.phase
            AND t.artifact_type = s.artifact_type
            AND t.artifact_path = s.artifact_path
@@ -425,15 +425,15 @@ def register_hitl_artifacts(
             t.reviewer = NULL,
             t.reviewed_at = NULL
         WHEN NOT MATCHED THEN
-          INSERT (pipeline_run_id, phase, artifact_type, artifact_path, status, reviewer, reviewed_at)
-          VALUES (s.pipeline_run_id, s.phase, s.artifact_type, s.artifact_path, 'pending', NULL, NULL)
+          INSERT (onboard_run_id, phase, artifact_type, artifact_path, status, reviewer, reviewed_at)
+          VALUES (s.onboard_run_id, s.phase, s.artifact_type, s.artifact_path, 'pending', NULL, NULL)
         """
         _spark().sql(q)
 
 
 def check_hitl_resolution(
     catalog: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     phase: str,
 ) -> bool:
     """
@@ -442,10 +442,10 @@ def check_hitl_resolution(
     is not approved.
     """
     c = str(catalog).strip()
-    rid = str(pipeline_run_id).strip()
+    rid = str(onboard_run_id).strip()
     ph = str(phase).strip()
     if not rid or not ph:
-        raise ValueError("pipeline_run_id and phase must be non-empty")
+        raise ValueError("onboard_run_id and phase must be non-empty")
 
     t = qualified_table(c, HITL_REVIEWS)
     q = f"""
@@ -456,7 +456,7 @@ def check_hitl_resolution(
         0
       ) AS n_approved
     FROM {t}
-    WHERE pipeline_run_id = {lit(rid)} AND phase = {lit(ph)}
+    WHERE onboard_run_id = {lit(rid)} AND phase = {lit(ph)}
     """
     d = _spark().sql(q).collect()[0].asDict()
     n_total = int(d["n_total"])
@@ -468,7 +468,7 @@ def check_hitl_resolution(
 
 def resolve_hitl(
     catalog: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     phase: str,
     artifact_type: str,
     reviewer: str,
@@ -480,13 +480,13 @@ def resolve_hitl(
     with different ``artifact_path`` values are updated together).
     """
     c = str(catalog).strip()
-    rid = str(pipeline_run_id).strip()
+    rid = str(onboard_run_id).strip()
     ph = str(phase).strip()
     at = str(artifact_type).strip()
     st = str(status).strip()
     rev = str(reviewer).strip() if reviewer is not None else None
     if not rid or not ph or not at or not st:
-        raise ValueError("pipeline_run_id, phase, artifact_type, and status must be non-empty")
+        raise ValueError("onboard_run_id, phase, artifact_type, and status must be non-empty")
     if st not in ("approved", "rejected"):
         raise ValueError("status must be 'approved' or 'rejected'")
 
@@ -502,24 +502,24 @@ def resolve_hitl(
       status = {lit(st)},
       {reviewer_set},
       reviewed_at = current_timestamp()
-    WHERE pipeline_run_id = {lit(rid)}
+    WHERE onboard_run_id = {lit(rid)}
       AND phase = {lit(ph)}
       AND artifact_type = {lit(at)}
     """
     _spark().sql(q)
 
 
-def bootstrap_resolved_pipeline_run_id(
+def bootstrap_resolved_onboard_run_id(
     catalog: str,
     institution_id: str,
-    pipeline_run_id_arg: str | None,
+    onboard_run_id_arg: str | None,
     *,
     stale_idle_minutes: int | None = None,
 ) -> str:
     """
     Reconcile stale ``running`` / ``awaiting_hitl`` rows, then resolve the active run id.
 
-    Pass ``pipeline_run_id_arg`` as empty/None to use :func:`resolve_pipeline_run_id`
+    Pass ``onboard_run_id_arg`` as empty/None to use :func:`resolve_onboard_run_id`
     (implicit resume of ``running`` / ``awaiting_hitl`` / ``timed_out``, or a new suffixed id after
     ``complete`` / ``failed``).
     """
@@ -529,9 +529,9 @@ def bootstrap_resolved_pipeline_run_id(
         else STALE_PIPELINE_RUN_IDLE_MINUTES
     )
     reconcile_stale_nonterminal_pipeline_runs(catalog, institution_id, idle)
-    resolved = resolve_pipeline_run_id(catalog, institution_id, pipeline_run_id_arg)
+    resolved = resolve_onboard_run_id(catalog, institution_id, onboard_run_id_arg)
     LOGGER.info(
-        "Resolved GenAI pipeline_run_id=%r (catalog=%r institution_id=%r stale_idle_minutes=%s)",
+        "Resolved GenAI onboard_run_id=%r (catalog=%r institution_id=%r stale_idle_minutes=%s)",
         resolved,
         catalog,
         institution_id,
@@ -540,7 +540,7 @@ def bootstrap_resolved_pipeline_run_id(
     return resolved
 
 
-def bootstrap_resolved_pipeline_run_id_for_execute(
+def bootstrap_resolved_onboard_run_id_for_execute(
     catalog: str,
     institution_id: str,
     *,
@@ -548,7 +548,7 @@ def bootstrap_resolved_pipeline_run_id_for_execute(
     stale_idle_minutes: int | None = None,
 ) -> str:
     """
-    Reconcile stale rows, then return an execute ``pipeline_run_id``.
+    Reconcile stale rows, then return an execute ``onboard_run_id``.
 
     If today's latest run for this institution is a non-terminal ``*_exec_*`` row (same multi-task
     job: IA then SMA), that id is reused. Otherwise a new id is minted and inserted into
@@ -563,20 +563,20 @@ def bootstrap_resolved_pipeline_run_id_for_execute(
     latest = get_latest_pipeline_run_created_today(catalog, institution_id)
     if latest:
         st = str(latest.get("status") or "").strip()
-        rid = str(latest.get("pipeline_run_id") or "").strip()
+        rid = str(latest.get("onboard_run_id") or "").strip()
         if rid and "_exec_" in rid and st in ("running", "awaiting_hitl", "timed_out"):
             LOGGER.info(
-                "Resuming GenAI execute pipeline_run_id=%r (catalog=%r institution_id=%r)",
+                "Resuming GenAI execute onboard_run_id=%r (catalog=%r institution_id=%r)",
                 rid,
                 catalog,
                 institution_id,
             )
             return rid
 
-    rid = new_execute_pipeline_run_id(institution_id)
+    rid = new_execute_onboard_run_id(institution_id)
     create_pipeline_run(catalog, institution_id, rid, db_run_id=db_run_id)
     LOGGER.info(
-        "Resolved GenAI execute pipeline_run_id=%r (catalog=%r institution_id=%r stale_idle_minutes=%s)",
+        "Resolved GenAI execute onboard_run_id=%r (catalog=%r institution_id=%r stale_idle_minutes=%s)",
         rid,
         catalog,
         institution_id,
@@ -588,17 +588,17 @@ def bootstrap_resolved_pipeline_run_id_for_execute(
 def mark_execute_pipeline_run_status(
     catalog: str,
     institution_id: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     status: str,
 ) -> None:
     """Best-effort ``pipeline_runs`` status for execute jobs (failure / ignored errors)."""
     try:
-        update_pipeline_run_status(catalog, institution_id, pipeline_run_id, status)
+        update_pipeline_run_status(catalog, institution_id, onboard_run_id, status)
     except Exception as e:  # noqa: BLE001
         LOGGER.warning(
             "Could not write execute pipeline_runs status=%s catalog=%s run=%s (%s)",
             status,
             catalog,
-            pipeline_run_id,
+            onboard_run_id,
             e,
         )

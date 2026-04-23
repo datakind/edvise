@@ -70,7 +70,7 @@ _DEFAULT_SMA_GATEWAY_MODEL_ID = "claude-sonnet-test-genai-ai-data-cleaning"
 
 @dataclass
 class SMAPaths:
-    # Run folder (working artifacts, keyed by pipeline_run_id)
+    # Run folder (working artifacts, keyed by onboard_run_id)
     run_root: Path
     manifest_map: Path
     mapping_validation_manifest: Path
@@ -80,7 +80,7 @@ class SMAPaths:
     transform_hooks: Path           # optional, placeholder
     run_log: Path
 
-    # IA outputs this job reads from (same pipeline_run_id)
+    # IA outputs this job reads from (same onboard_run_id)
     ia_enriched_schema_contract: Path
     ia_cleaned_datasets: Path       # directory
 
@@ -100,12 +100,12 @@ class SMAPaths:
 
 def resolve_run_paths(
     institution_id: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     catalog: str,
 ) -> SMAPaths:
     genai = Path(genai_cfg.silver_genai_mapping_root(institution_id, catalog=catalog))
-    run_root = genai / "runs" / pipeline_run_id / "schema_mapping_agent"
-    ia_run_root = genai / "runs" / pipeline_run_id / "identity_agent"
+    run_root = genai / "runs" / onboard_run_id / "schema_mapping_agent"
+    ia_run_root = genai / "runs" / onboard_run_id / "identity_agent"
     active_root = genai / "active"
 
     return SMAPaths(
@@ -275,7 +275,7 @@ def run_onboard_start(
     client,
     spark_session,
     *,
-    pipeline_run_id: str,
+    onboard_run_id: str,
 ):
     from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
         build_step2a_batched_prompt,
@@ -416,7 +416,7 @@ def run_onboard_start(
     _pipeline_job_state.after_sma_onboard_start(
         catalog,
         institution_id,
-        pipeline_run_id,
+        onboard_run_id,
         cohort_path=paths.cohort_hitl_manifest,
         course_path=paths.course_hitl_manifest,
     )
@@ -435,7 +435,7 @@ def run_onboard_gate_2(
     client,
     spark_session,
     *,
-    pipeline_run_id: str,
+    onboard_run_id: str,
 ):
     from edvise.genai.mapping.schema_mapping_agent.hitl import (
         check_sma_hitl_gate,
@@ -466,7 +466,7 @@ def run_onboard_gate_2(
     LOGGER.info("[onboard/gate_2] Waiting for Unity Catalog HITL approval (sma_gate_1)")
     _pipeline_job_state.wait_for_sma_gate_1_hitl(
         catalog,
-        pipeline_run_id,
+        onboard_run_id,
         institution_id=institution_id,
         poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
         timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
@@ -571,7 +571,7 @@ def run_onboard_gate_2(
     promote_genai_mapping_to_active(paths)
     LOGGER.info("[onboard/gate_2] Complete. Exiting.")
     _pipeline_job_state.after_sma_onboard_gate_2_success(
-        catalog, institution_id, pipeline_run_id
+        catalog, institution_id, onboard_run_id
     )
 
 
@@ -665,13 +665,13 @@ def run_execute(
 
 def run(
     institution_id: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     catalog: str,
     mode: str,
     resume_from: str = "start",
     reference_id: str = "",
 ):
-    paths = resolve_run_paths(institution_id, pipeline_run_id, catalog)
+    paths = resolve_run_paths(institution_id, onboard_run_id, catalog)
     init_file_logging_at_path(
         paths.run_root / "sma_pipeline.log",
         logger_name="edvise_sma",
@@ -679,7 +679,7 @@ def run(
     )
     LOGGER.info(
         "edvise_sma | institution=%s | run=%s | mode=%s | resume_from=%s",
-        institution_id, pipeline_run_id, mode, resume_from,
+        institution_id, onboard_run_id, mode, resume_from,
     )
 
     # Spark session (optional — graceful degradation outside Databricks runtime)
@@ -694,13 +694,13 @@ def run(
         run_execute(institution_id, paths, spark_session)
         try:
             _pipeline_state.update_pipeline_run_status(
-                catalog, institution_id, pipeline_run_id, "complete"
+                catalog, institution_id, onboard_run_id, "complete"
             )
         except Exception as e:  # noqa: BLE001
             LOGGER.warning(
                 "Could not mark pipeline_runs complete after execute: catalog=%s run=%s (%s)",
                 catalog,
-                pipeline_run_id,
+                onboard_run_id,
                 e,
             )
 
@@ -713,7 +713,7 @@ def run(
             raise ValueError("--reference_id is required for onboard mode.")
 
         _pipeline_job_state.on_sma_onboard_begin(
-            catalog, pipeline_run_id, resume_from=resume_from
+            catalog, onboard_run_id, resume_from=resume_from
         )
 
         client = _build_openai_client(catalog)
@@ -727,7 +727,7 @@ def run(
                     paths=paths,
                     client=client,
                     spark_session=spark_session,
-                    pipeline_run_id=pipeline_run_id,
+                    onboard_run_id=onboard_run_id,
                 )
             elif resume_from == "gate_2":
                 run_onboard_gate_2(
@@ -737,13 +737,13 @@ def run(
                     paths=paths,
                     client=client,
                     spark_session=spark_session,
-                    pipeline_run_id=pipeline_run_id,
+                    onboard_run_id=onboard_run_id,
                 )
         except HITLTimeoutError:
             raise
         except Exception:
             _pipeline_job_state.mark_pipeline_failed(
-                catalog, institution_id, pipeline_run_id
+                catalog, institution_id, onboard_run_id
             )
             raise
 
@@ -770,13 +770,13 @@ if __name__ == "__main__":
     _db_run_id = (args.db_run_id or "").strip() or None
 
     if args.mode == "execute":
-        _resolved = pipeline_state.bootstrap_resolved_pipeline_run_id_for_execute(
+        _resolved = pipeline_state.bootstrap_resolved_onboard_run_id_for_execute(
             args.catalog,
             args.institution_id,
             db_run_id=_db_run_id,
         )
     else:
-        _resolved = pipeline_state.bootstrap_resolved_pipeline_run_id(
+        _resolved = pipeline_state.bootstrap_resolved_onboard_run_id(
             args.catalog,
             args.institution_id,
             None,
@@ -785,7 +785,7 @@ if __name__ == "__main__":
     try:
         run(
             institution_id=args.institution_id,
-            pipeline_run_id=_resolved,
+            onboard_run_id=_resolved,
             catalog=args.catalog,
             mode=args.mode,
             resume_from=args.resume_from,

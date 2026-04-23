@@ -63,7 +63,7 @@ LOGGER = logging.getLogger("edvise_ia")
 
 @dataclass
 class IAPaths:
-    # Run folder (working artifacts, keyed by pipeline_run_id)
+    # Run folder (working artifacts, keyed by onboard_run_id)
     run_root: Path
     grain_output: Path
     grain_hitl: Path
@@ -90,11 +90,11 @@ class IAPaths:
 
 def resolve_run_paths(
     institution_id: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     catalog: str,
 ) -> IAPaths:
     genai = Path(genai_cfg.silver_genai_mapping_root(institution_id, catalog=catalog))
-    run_root = genai / "runs" / pipeline_run_id / "identity_agent"
+    run_root = genai / "runs" / onboard_run_id / "identity_agent"
     active_root = genai / "active"
 
     return IAPaths(
@@ -131,7 +131,7 @@ def run_onboard_start(
     llm_complete,
     *,
     catalog: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
 ):
     from edvise.genai.mapping.identity_agent.grain_inference import (
         build_identity_profiling_run_by_dataset,
@@ -248,7 +248,7 @@ def run_onboard_start(
         len(term_hitl_items),
     )
     _pipeline_job_state.after_ia_onboard_start(
-        catalog, institution_id, pipeline_run_id, grain_path=paths.grain_hitl, term_path=paths.term_hitl
+        catalog, institution_id, onboard_run_id, grain_path=paths.grain_hitl, term_path=paths.term_hitl
     )
 
 
@@ -264,7 +264,7 @@ def run_onboard_gate_1(
     llm_complete,
     *,
     catalog: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
 ):
     from collections import defaultdict
 
@@ -301,7 +301,7 @@ def run_onboard_gate_1(
     LOGGER.info("[onboard/gate_1] Waiting for Unity Catalog HITL approval (ia_gate_1)")
     _pipeline_job_state.wait_for_ia_gate_1_hitl(
         catalog,
-        pipeline_run_id,
+        onboard_run_id,
         institution_id=institution_id,
         poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
         timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
@@ -422,7 +422,7 @@ def run_onboard_gate_1(
     LOGGER.info("[onboard/gate_1] Wrote enriched schema contract -> %s", paths.enriched_schema_contract)
     LOGGER.info("[onboard/gate_1] Complete. Exiting.")
     _pipeline_job_state.after_ia_onboard_gate_1_success(
-        catalog, institution_id, pipeline_run_id
+        catalog, institution_id, onboard_run_id
     )
 
 
@@ -519,14 +519,14 @@ def run_execute(
 
 def run(
     institution_id: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     catalog: str,
     mode: str,
     resume_from: str = "start",
     inputs_toml: str | None = None,
     db_run_id: str | None = None,
 ):
-    paths = resolve_run_paths(institution_id, pipeline_run_id, catalog)
+    paths = resolve_run_paths(institution_id, onboard_run_id, catalog)
     init_file_logging_at_path(
         paths.run_root / "ia_pipeline.log",
         logger_name="edvise_ia",
@@ -534,7 +534,7 @@ def run(
     )
     LOGGER.info(
         "edvise_ia | institution=%s | run=%s | mode=%s | resume_from=%s",
-        institution_id, pipeline_run_id, mode, resume_from,
+        institution_id, onboard_run_id, mode, resume_from,
     )
 
     # Load school config (shared across all modes)
@@ -578,12 +578,12 @@ def run(
         _pipeline_job_state.ensure_ia_run_row(
             catalog,
             institution_id,
-            pipeline_run_id,
+            onboard_run_id,
             create_run=(resume_from == "start"),
             db_run_id=db_run_id,
         )
         _pipeline_job_state.on_ia_onboard_begin(
-            catalog, pipeline_run_id, resume_from=resume_from
+            catalog, onboard_run_id, resume_from=resume_from
         )
 
         # LLM client only needed for onboard
@@ -601,7 +601,7 @@ def run(
                     school_config,
                     llm_complete,
                     catalog=catalog,
-                    pipeline_run_id=pipeline_run_id,
+                    onboard_run_id=onboard_run_id,
                 )
             elif resume_from == "gate_1":
                 run_onboard_gate_1(
@@ -610,13 +610,13 @@ def run(
                     school_config,
                     llm_complete,
                     catalog=catalog,
-                    pipeline_run_id=pipeline_run_id,
+                    onboard_run_id=onboard_run_id,
                 )
         except HITLTimeoutError:
             raise
         except Exception:
             _pipeline_job_state.mark_pipeline_failed(
-                catalog, institution_id, pipeline_run_id
+                catalog, institution_id, onboard_run_id
             )
             raise
 
@@ -651,13 +651,13 @@ if __name__ == "__main__":
     _db_run_id = (args.db_run_id or "").strip() or None
 
     if args.mode == "execute":
-        _resolved = pipeline_state.bootstrap_resolved_pipeline_run_id_for_execute(
+        _resolved = pipeline_state.bootstrap_resolved_onboard_run_id_for_execute(
             args.catalog,
             args.institution_id,
             db_run_id=_db_run_id,
         )
     else:
-        _resolved = pipeline_state.bootstrap_resolved_pipeline_run_id(
+        _resolved = pipeline_state.bootstrap_resolved_onboard_run_id(
             args.catalog,
             args.institution_id,
             None,
@@ -666,7 +666,7 @@ if __name__ == "__main__":
     try:
         run(
             institution_id=args.institution_id,
-            pipeline_run_id=_resolved,
+            onboard_run_id=_resolved,
             catalog=args.catalog,
             mode=args.mode,
             resume_from=args.resume_from,

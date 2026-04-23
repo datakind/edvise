@@ -69,6 +69,7 @@ def test_create_pipeline_run_sql(monkeypatch) -> None:
     assert len(fake.statements) == 1
     q = fake.statements[0]
     assert "INSERT INTO `c1`.`genai_mapping`.`pipeline_runs`" in q
+    assert "onboard_run_id" in q
     assert "`c1`" in q
     assert "'run-1'" in q
     assert "running" in q
@@ -89,7 +90,7 @@ def test_get_latest_converts_row(monkeypatch) -> None:
     fake = _FakeSpark()
     d = {
         "institution_id": "i",
-        "pipeline_run_id": "r",
+        "onboard_run_id": "r",
         "catalog": "c",
         "status": "complete",
         "created_at": None,
@@ -99,7 +100,7 @@ def test_get_latest_converts_row(monkeypatch) -> None:
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
     out = pipeline_state.get_latest_pipeline_run("c", "i")
     assert out is not None
-    assert out["pipeline_run_id"] == "r"
+    assert out["onboard_run_id"] == "r"
     # Spark would supply timestamps; with None, passes through
     assert out.get("status") == "complete"
 
@@ -129,34 +130,36 @@ def test_table_setup_runs_ddl(monkeypatch) -> None:
     table_setup.create_state_tables("my_cat")
     assert any("CREATE SCHEMA" in s for s in fake.statements)
     pr_create = next(s for s in fake.statements if "CREATE TABLE" in s and "pipeline_runs" in s)
+    assert "onboard_run_id" in pr_create
     assert "db_run_id" in pr_create
     assert any("ALTER TABLE" in s and "db_run_id" in s for s in fake.statements)
+    assert sum("RENAME COLUMN pipeline_run_id TO onboard_run_id" in s for s in fake.statements) == 3
     assert any("hitl_reviews" in s for s in fake.statements)
 
 
-def test_resolve_pipeline_run_id_explicit_override(monkeypatch) -> None:
+def test_resolve_onboard_run_id_explicit_override(monkeypatch) -> None:
     fake = _FakeSpark()
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
-    assert pipeline_state.resolve_pipeline_run_id("c", "inst", "  my_run  ") == "my_run"
+    assert pipeline_state.resolve_onboard_run_id("c", "inst", "  my_run  ") == "my_run"
     assert fake.statements == []
 
 
-def test_resolve_pipeline_run_id_no_row_today(monkeypatch) -> None:
+def test_resolve_onboard_run_id_no_row_today(monkeypatch) -> None:
     fake = _FakeSpark()
     fake.set_sql_result_queue([_Result([])])
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
     from datetime import date
 
     base = f"foo_{date.today().strftime('%Y%m%d')}"
-    assert pipeline_state.resolve_pipeline_run_id("c", "foo", None) == base
+    assert pipeline_state.resolve_onboard_run_id("c", "foo", None) == base
     assert "to_date(created_at) = current_date()" in fake.statements[0]
 
 
-def test_resolve_pipeline_run_id_resume_timed_out(monkeypatch) -> None:
+def test_resolve_onboard_run_id_resume_timed_out(monkeypatch) -> None:
     fake = _FakeSpark()
     latest = {
         "institution_id": "foo",
-        "pipeline_run_id": "foo_20990101",
+        "onboard_run_id": "foo_20990101",
         "catalog": "c",
         "status": "timed_out",
         "created_at": None,
@@ -164,14 +167,14 @@ def test_resolve_pipeline_run_id_resume_timed_out(monkeypatch) -> None:
     }
     fake.set_sql_result_queue([_Result([_Row(latest)])])
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
-    assert pipeline_state.resolve_pipeline_run_id("c", "foo", None) == "foo_20990101"
+    assert pipeline_state.resolve_onboard_run_id("c", "foo", None) == "foo_20990101"
 
 
-def test_resolve_pipeline_run_id_new_suffix_after_complete(monkeypatch) -> None:
+def test_resolve_onboard_run_id_new_suffix_after_complete(monkeypatch) -> None:
     fake = _FakeSpark()
     latest = {
         "institution_id": "foo",
-        "pipeline_run_id": "foo_20990101",
+        "onboard_run_id": "foo_20990101",
         "catalog": "c",
         "status": "complete",
         "created_at": None,
@@ -187,7 +190,7 @@ def test_resolve_pipeline_run_id_new_suffix_after_complete(monkeypatch) -> None:
     from datetime import date
 
     base = f"foo_{date.today().strftime('%Y%m%d')}"
-    assert pipeline_state.resolve_pipeline_run_id("c", "foo", None) == f"{base}_3"
+    assert pipeline_state.resolve_onboard_run_id("c", "foo", None) == f"{base}_3"
 
 
 def test_reconcile_stale_emits_merge_and_update(monkeypatch) -> None:

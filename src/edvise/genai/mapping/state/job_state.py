@@ -36,19 +36,19 @@ def _state_safe(label: str, fn, *args, **kwargs) -> None:
         LOGGER.warning("Pipeline state [%s] skipped: %s", label, e)
 
 
-def mark_pipeline_failed(catalog: str, institution_id: str, pipeline_run_id: str) -> None:
+def mark_pipeline_failed(catalog: str, institution_id: str, onboard_run_id: str) -> None:
     _state_safe(
         "update_pipeline_run_status(failed)",
         pipeline_state.update_pipeline_run_status,
         catalog,
         institution_id,
-        pipeline_run_id,
+        onboard_run_id,
         "failed",
     )
 
 
 def after_ia_onboard_start(
-    catalog: str, institution_id: str, pipeline_run_id: str, *, grain_path: Path, term_path: Path
+    catalog: str, institution_id: str, onboard_run_id: str, *, grain_path: Path, term_path: Path
 ) -> None:
     g = grain_path.as_posix()
     t = term_path.as_posix()
@@ -56,7 +56,7 @@ def after_ia_onboard_start(
         "ia_start -> awaiting_hitl",
         pipeline_state.log_phase_transition,
         catalog,
-        pipeline_run_id,
+        onboard_run_id,
         PHASE_IA_START,
         "awaiting_hitl",
     )
@@ -65,14 +65,14 @@ def after_ia_onboard_start(
         pipeline_state.update_pipeline_run_status,
         catalog,
         institution_id,
-        pipeline_run_id,
+        onboard_run_id,
         "awaiting_hitl",
     )
     _state_safe(
         "register_hitl (ia_gate_1 targets)",
         pipeline_state.register_hitl_artifacts,
         catalog,
-        pipeline_run_id,
+        onboard_run_id,
         PHASE_IA_GATE_1,
         [
             {"artifact_type": "grain", "artifact_path": g},
@@ -81,13 +81,13 @@ def after_ia_onboard_start(
     )
 
 
-def on_ia_onboard_begin(catalog: str, pipeline_run_id: str, *, resume_from: str) -> None:
+def on_ia_onboard_begin(catalog: str, onboard_run_id: str, *, resume_from: str) -> None:
     if resume_from == "start":
         _state_safe(
             "ia_start running",
             pipeline_state.log_phase_transition,
             catalog,
-            pipeline_run_id,
+            onboard_run_id,
             PHASE_IA_START,
             "running",
         )
@@ -96,7 +96,7 @@ def on_ia_onboard_begin(catalog: str, pipeline_run_id: str, *, resume_from: str)
             "ia_gate_1 running",
             pipeline_state.log_phase_transition,
             catalog,
-            pipeline_run_id,
+            onboard_run_id,
             PHASE_IA_GATE_1,
             "running",
         )
@@ -104,7 +104,7 @@ def on_ia_onboard_begin(catalog: str, pipeline_run_id: str, *, resume_from: str)
 
 def wait_for_ia_gate_1_hitl(
     catalog: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     *,
     institution_id: str,
     poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
@@ -118,7 +118,7 @@ def wait_for_ia_gate_1_hitl(
     return poll_uc_hitl_until_approved_or_timeout(
         catalog,
         institution_id,
-        pipeline_run_id,
+        onboard_run_id,
         PHASE_IA_GATE_1,
         poll_interval_seconds=poll_interval_seconds,
         timeout_seconds=timeout_seconds,
@@ -127,7 +127,7 @@ def wait_for_ia_gate_1_hitl(
 
 def wait_for_sma_gate_1_hitl(
     catalog: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     *,
     institution_id: str,
     poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
@@ -142,19 +142,19 @@ def wait_for_sma_gate_1_hitl(
     return poll_uc_hitl_until_approved_or_timeout(
         catalog,
         institution_id,
-        pipeline_run_id,
+        onboard_run_id,
         PHASE_SMA_GATE_1,
         poll_interval_seconds=poll_interval_seconds,
         timeout_seconds=timeout_seconds,
     )
 
 
-def after_ia_onboard_gate_1_success(catalog: str, institution_id: str, pipeline_run_id: str) -> None:
+def after_ia_onboard_gate_1_success(catalog: str, institution_id: str, onboard_run_id: str) -> None:
     _state_safe(
         "ia_gate_1 complete",
         pipeline_state.log_phase_transition,
         catalog,
-        pipeline_run_id,
+        onboard_run_id,
         PHASE_IA_GATE_1,
         "complete",
     )
@@ -163,7 +163,7 @@ def after_ia_onboard_gate_1_success(catalog: str, institution_id: str, pipeline_
         pipeline_state.update_pipeline_run_status,
         catalog,
         institution_id,
-        pipeline_run_id,
+        onboard_run_id,
         "running",
     )
 
@@ -171,7 +171,7 @@ def after_ia_onboard_gate_1_success(catalog: str, institution_id: str, pipeline_
 def ensure_ia_run_row(
     catalog: str,
     institution_id: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     *,
     create_run: bool,
     db_run_id: str | None = None,
@@ -183,7 +183,7 @@ def ensure_ia_run_row(
         pipeline_state.create_pipeline_run,
         catalog,
         institution_id,
-        pipeline_run_id,
+        onboard_run_id,
         db_run_id,
     )
 
@@ -192,14 +192,14 @@ def ensure_ia_run_row(
 
 
 def on_sma_onboard_begin(
-    catalog: str, pipeline_run_id: str, *, resume_from: str
+    catalog: str, onboard_run_id: str, *, resume_from: str
 ) -> None:
     if resume_from == "start":
         _state_safe(
             "sma_start running",
             pipeline_state.log_phase_transition,
             catalog,
-            pipeline_run_id,
+            onboard_run_id,
             PHASE_SMA_START,
             "running",
         )
@@ -208,7 +208,7 @@ def on_sma_onboard_begin(
             "sma_gate_1 running",
             pipeline_state.log_phase_transition,
             catalog,
-            pipeline_run_id,
+            onboard_run_id,
             PHASE_SMA_GATE_1,
             "running",
         )
@@ -217,7 +217,7 @@ def on_sma_onboard_begin(
 def after_sma_onboard_start(
     catalog: str,
     institution_id: str,
-    pipeline_run_id: str,
+    onboard_run_id: str,
     *,
     cohort_path: Path,
     course_path: Path,
@@ -227,7 +227,7 @@ def after_sma_onboard_start(
         "sma_start -> awaiting_hitl",
         pipeline_state.log_phase_transition,
         catalog,
-        pipeline_run_id,
+        onboard_run_id,
         PHASE_SMA_START,
         "awaiting_hitl",
     )
@@ -236,14 +236,14 @@ def after_sma_onboard_start(
         pipeline_state.update_pipeline_run_status,
         catalog,
         institution_id,
-        pipeline_run_id,
+        onboard_run_id,
         "awaiting_hitl",
     )
     _state_safe(
         "register_hitl (SMA gate)",
         pipeline_state.register_hitl_artifacts,
         catalog,
-        pipeline_run_id,
+        onboard_run_id,
         PHASE_SMA_GATE_1,
         [
             {"artifact_type": "cohort_manifest", "artifact_path": c},
@@ -252,12 +252,12 @@ def after_sma_onboard_start(
     )
 
 
-def after_sma_onboard_gate_2_success(catalog: str, institution_id: str, pipeline_run_id: str) -> None:
+def after_sma_onboard_gate_2_success(catalog: str, institution_id: str, onboard_run_id: str) -> None:
     _state_safe(
         "sma_gate_1 complete",
         pipeline_state.log_phase_transition,
         catalog,
-        pipeline_run_id,
+        onboard_run_id,
         PHASE_SMA_GATE_1,
         "complete",
     )
@@ -266,6 +266,6 @@ def after_sma_onboard_gate_2_success(catalog: str, institution_id: str, pipeline
         pipeline_state.update_pipeline_run_status,
         catalog,
         institution_id,
-        pipeline_run_id,
+        onboard_run_id,
         "complete",
     )

@@ -12,7 +12,7 @@ from edvise.genai.mapping.state.pipeline_state import (
     reconcile_stale_nonterminal_pipeline_runs,
     register_hitl_artifacts,
     resolve_hitl,
-    resolve_pipeline_run_id,
+    resolve_onboard_run_id,
     update_pipeline_run_status,
 )
 from edvise.genai.mapping.state.table_setup import create_state_tables
@@ -28,6 +28,6 @@ __all__ = [
     "reconcile_stale_nonterminal_pipeline_runs",
     "register_hitl_artifacts",
     "resolve_hitl",
-    "resolve_pipeline_run_id",
+    "resolve_onboard_run_id",
     "update_pipeline_run_status",
 ]
