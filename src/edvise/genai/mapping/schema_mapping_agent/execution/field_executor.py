@@ -16,7 +16,9 @@ Execution model (per field):
 Key design principles:
     - resolve_source_series always returns a Series aligned to base_df (full length)
     - entity_keys are derived from schema.Config.unique + manifest mappings —
-      source column names in base_df that correspond to the target grain
+      source column names in base_df that correspond to the target grain; for
+      course entities, mapped ``course_section_id`` is appended when its source
+      column exists in ``base_df`` (section-level grain; see ``_derive_entity_keys``)
     - Grain reduction is per-field, operating on base_df with entity_keys as
       the groupby key — strategies are applied before assembly
     - where_not_null preserves all entities, producing NA for non-matching rows
@@ -68,6 +70,7 @@ def _effective_source_column(record: FieldMappingRecord) -> Optional[str]:
 def _derive_entity_keys(
     manifest: FieldMappingManifest,
     schema: Type,
+    base_df: Optional[pd.DataFrame] = None,
 ) -> list[str]:
     """
     Derive source-space entity keys from schema.Config.unique + manifest mappings.
@@ -82,6 +85,11 @@ def _derive_entity_keys(
     mapping — used for optional disambiguators (e.g. ``source_term_key``) that direct
     Edvise uploads omit.
 
+    Additionally, ``course_section_id`` is not in ``Config.unique`` (optional column
+    for institutions without section data). When it is mapped and its source column is
+    present in ``base_df``, that column is appended so section-level rows are not
+    collapsed together.
+
     If required ``Config.unique`` fields are unmapped, logs a warning and uses only the
     keys that are mapped (may be empty). Unmapped optional grain targets are omitted
     without warning. Full required-grain compliance is enforced by
@@ -90,6 +98,8 @@ def _derive_entity_keys(
     Args:
         manifest: FieldMappingManifest for this entity type
         schema: Pandera schema class — schema.Config.unique defines required target grain
+        base_df: Optional base DataFrame — used to detect presence of the section source
+            column for conditional grain
 
     Returns:
         Source column names in base_df for mapped subset of required + optional grain
@@ -138,6 +148,24 @@ def _derive_entity_keys(
         for tf in combined
         if target_to_source.get(tf) is not None
     ]
+
+    # Conditional section key: course_section_id is excluded from Config.unique so
+    # course-level-only uploads stay valid. When section data exists (mapped + column
+    # present), include it so distinct sections are not merged.
+    section_source_col = target_to_source.get("course_section_id")
+    if (
+        section_source_col is not None
+        and section_source_col not in entity_keys
+        and base_df is not None
+        and section_source_col in base_df.columns
+    ):
+        entity_keys.append(section_source_col)
+        logger.info(
+            "Conditional section key detected: adding '%s' (course_section_id) to "
+            "entity keys — institution provides section-level data.",
+            section_source_col,
+        )
+
     return list(dict.fromkeys(entity_keys))
 
 
@@ -539,8 +567,9 @@ def execute_transformation_map(
         3. Reduce to one value per entity using row_selection + entity_keys
 
     entity_keys are derived from schema.Config.unique resolved to source column
-    names via the manifest. This guarantees all Series are the same length after
-    reduction — assembly into a DataFrame is always clean.
+    names via the manifest, plus optional grain fields (e.g. mapped
+    ``course_section_id`` when its source column exists on ``base_df``). This
+    keeps all reduced Series aligned — assembly into a DataFrame is always clean.
 
     Args:
         transformation_map: Approved TransformationMap
@@ -559,7 +588,7 @@ def execute_transformation_map(
     manifest_index = {m.target_field: m for m in manifest.mappings}
     base_table = _infer_base_table(manifest)
     base_df = dataframes[base_table]
-    entity_keys = _derive_entity_keys(manifest, schema)
+    entity_keys = _derive_entity_keys(manifest, schema, base_df=base_df)
     if not entity_keys:
         logger.warning(
             "[%s] No entity keys resolved from manifest; using one row per base row "
