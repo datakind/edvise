@@ -146,7 +146,7 @@ resources:
         - name: catalog
           default: ${var.DB_workspace}
         - name: inputs_toml_path
-          default: "inputs/inputs.toml"
+          default: "inputs.toml"
         - name: reference_id
           default: ""
         - name: db_run_id
