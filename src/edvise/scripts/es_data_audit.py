@@ -161,10 +161,16 @@ class ESDataAuditTask:
         LOGGER.info(
             " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
         )
+        # Edvise student/course columns (not PDP cohort/cohort_term or enrollment_intensity_first_term)
         log_misjoined_records(
             df_cohort_raw,
             df_course_raw,
             merge_key=self.cfg.student_id_col,
+            value_count_columns=["enrollment_type"],
+            grouped_count_column_groups=[
+                ["entry_year", "entry_term"],
+                ["academic_year", "academic_term"],
+            ],
         )
 
         # Logs cohort year and terms and academic year and terms, grouped and sorted
