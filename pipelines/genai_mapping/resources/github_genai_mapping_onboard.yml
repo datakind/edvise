@@ -88,6 +88,8 @@ resources:
               - start
               - --reference_id
               - "{{job.parameters.reference_id}}"
+              - --inputs_toml
+              - "{{job.parameters.inputs_toml}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-genai-mapping-onboard-cluster
@@ -110,6 +112,8 @@ resources:
               - gate_2
               - --reference_id
               - "{{job.parameters.reference_id}}"
+              - --inputs_toml
+              - "{{job.parameters.inputs_toml}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-genai-mapping-onboard-cluster

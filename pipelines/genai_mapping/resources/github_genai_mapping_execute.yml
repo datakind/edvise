@@ -60,6 +60,8 @@ resources:
               - "{{job.parameters.catalog}}"
               - --mode
               - execute
+              - --inputs_toml
+              - "{{job.parameters.inputs_toml}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-genai-mapping-execute-cluster
