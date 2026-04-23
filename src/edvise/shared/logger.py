@@ -9,6 +9,22 @@ from typing import Any, Dict, List, Optional
 from edvise.configs.pdp import PDPProjectConfig
 
 
+class _FlushTolerantStreamHandler(logging.StreamHandler):
+    """
+    Console handler that ignores flush failures.
+
+    Databricks notebook / ipykernel stdout can raise ``OSError`` (often errno 95,
+    *Operation not supported*) on ``flush()``, which otherwise surfaces as
+    ``--- Logging error ---`` and noisy tracebacks while the job continues.
+    """
+
+    def flush(self) -> None:
+        try:
+            super().flush()
+        except OSError:
+            pass
+
+
 class SimpleLogger:
     """
     A JSONL logger that temporarily moves the institution log file to /tmp,
@@ -171,7 +187,7 @@ def init_file_logging_at_path(
     for h in list(root.handlers):
         root.removeHandler(h)
 
-    console = logging.StreamHandler(stream=sys.__stdout__)
+    console = _FlushTolerantStreamHandler(stream=sys.__stdout__)
     console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
     root.addHandler(console)
 
