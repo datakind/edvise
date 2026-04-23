@@ -1,7 +1,8 @@
+# Identity + schema-mapping onboard: LLM passes, HITL gates, promote to active/.
 resources:
   jobs:
-    edvise_genai_mapping_pipeline:
-      name: edvise_genai_mapping_pipeline
+    edvise_genai_mapping_onboard_pipeline:
+      name: edvise_genai_mapping_onboard
       timeout_seconds: 7200
       max_concurrent_runs: 5
       queue:
@@ -25,7 +26,7 @@ resources:
               - start
               - --inputs_toml
               - "{{job.parameters.inputs_toml}}"
-          job_cluster_key: edvise-genai-mapping-pipeline-cluster
+          job_cluster_key: edvise-genai-mapping-onboard-cluster
           libraries: &genai_mapping_libs
             - pypi:
                 package: pandas==2.2.3
@@ -71,7 +72,7 @@ resources:
               - "{{job.parameters.hitl_poll_interval_seconds}}"
               - --hitl_timeout_seconds
               - "{{job.parameters.hitl_timeout_seconds}}"
-          job_cluster_key: edvise-genai-mapping-pipeline-cluster
+          job_cluster_key: edvise-genai-mapping-onboard-cluster
           libraries: *genai_mapping_libs
 
         - task_key: sma_onboard_start
@@ -95,7 +96,7 @@ resources:
               - "{{job.parameters.reference_id}}"
               - --model_id
               - "{{job.parameters.model_id}}"
-          job_cluster_key: edvise-genai-mapping-pipeline-cluster
+          job_cluster_key: edvise-genai-mapping-onboard-cluster
           libraries: *genai_mapping_libs
 
         - task_key: sma_onboard_gate_2
@@ -123,11 +124,11 @@ resources:
               - "{{job.parameters.hitl_poll_interval_seconds}}"
               - --hitl_timeout_seconds
               - "{{job.parameters.hitl_timeout_seconds}}"
-          job_cluster_key: edvise-genai-mapping-pipeline-cluster
+          job_cluster_key: edvise-genai-mapping-onboard-cluster
           libraries: *genai_mapping_libs
 
       job_clusters:
-        - job_cluster_key: edvise-genai-mapping-pipeline-cluster
+        - job_cluster_key: edvise-genai-mapping-onboard-cluster
           new_cluster:
             cluster_name: ""
             spark_version: 15.4.x-scala2.12

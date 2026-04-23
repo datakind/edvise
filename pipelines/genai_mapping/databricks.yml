@@ -3,7 +3,8 @@ bundle:
   uuid: a1b2c3d4-e5f6-7890-abcd-ef1234567890
 
 include:
-  - resources/github_genai_mapping.yml
+  - resources/github_genai_mapping_onboard.yml
+  - resources/github_genai_mapping_execute.yml
 
 variables:
   git_commit:
@@ -35,7 +36,12 @@ targets:
       genai_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"  # edvise-data-crew channel on dev_sst_02
     resources:
       jobs:
-        edvise_genai_mapping_pipeline:
+        edvise_genai_mapping_onboard_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
+        edvise_genai_mapping_execute_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
@@ -48,7 +54,12 @@ targets:
       genai_slack_webhook_id: "0fb252f8-f343-4be7-91de-b55f5408a031"  # edvise-data-crew channel on staging_sst_01
     resources:
       jobs:
-        edvise_genai_mapping_pipeline:
+        edvise_genai_mapping_onboard_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}
+        edvise_genai_mapping_execute_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
