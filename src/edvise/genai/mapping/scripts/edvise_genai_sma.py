@@ -3,13 +3,18 @@ edvise_sma.py — SchemaMappingAgent pipeline job entry point.
 
 Usage (Databricks job parameters):
     --institution_id    synthetic_edvise
-    --pipeline_run_id   synthetic_edvise_20260420_001
+    --pipeline_run_id   synthetic_edvise_20260420_001  (optional for onboard: auto-resolve / resume)
     --catalog           dev_sst_02
     --mode              onboard | execute
     --resume_from       start | gate_2  (onboard only)
+    --hitl_poll_interval_seconds   UC HITL poll interval for gate_2 (default: 30)
+    --hitl_timeout_seconds         UC HITL poll timeout for gate_2 (default: 1200, 20 min)
     --reference_id      required for onboard; few-shot from that school's
                         ``.../<ref_id>_silver/silver_volume/genai_mapping/active/{manifest_map,transformation_map}.json``
                         (same ``--catalog`` as the reference institution's volumes).
+
+On Databricks, onboard mode best-effort updates ``{catalog}.genai_mapping`` pipeline state
+(see :mod:`edvise.genai.mapping.state.job_state`); table setup and Spark are required.
 """
 
 import os
@@ -46,6 +51,13 @@ from edvise.genai.mapping.shared.mlflow_gateway_bootstrap import (
 disable_mlflow_side_effects_for_openai_gateway()
 
 from edvise.configs import genai as genai_cfg
+from edvise.genai.mapping.shared.active_promotion import promote_genai_mapping_to_active
+from edvise.genai.mapping.state import job_state as _pipeline_job_state
+from edvise.genai.mapping.state.hitl_poller import (
+    DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+    DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+    HITLTimeoutError,
+)
 from edvise.shared.logger import init_file_logging_at_path
 
 LOGGER = logging.getLogger("edvise_sma")
@@ -262,6 +274,8 @@ def run_onboard_start(
     paths: SMAPaths,
     client,
     spark_session,
+    *,
+    pipeline_run_id: str,
 ):
     from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
         build_step2a_batched_prompt,
@@ -399,6 +413,13 @@ def run_onboard_start(
             LOGGER.info("[onboard/start] Seeded empty HITL envelope -> %s", hitl_path)
 
     LOGGER.info("[onboard/start] Complete. Awaiting HITL review. Exiting.")
+    _pipeline_job_state.after_sma_onboard_start(
+        catalog,
+        institution_id,
+        pipeline_run_id,
+        cohort_path=paths.cohort_hitl_manifest,
+        course_path=paths.course_hitl_manifest,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -414,6 +435,10 @@ def run_onboard_gate_2(
     paths: SMAPaths,
     client,
     spark_session,
+    *,
+    pipeline_run_id: str,
+    hitl_poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+    hitl_timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
 ):
     from edvise.genai.mapping.schema_mapping_agent.hitl import (
         check_sma_hitl_gate,
@@ -440,6 +465,15 @@ def run_onboard_gate_2(
     from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
 
     LOGGER.info("[onboard/gate_2] Resolving HITL for %s", institution_id)
+
+    LOGGER.info("[onboard/gate_2] Waiting for Unity Catalog HITL approval (sma_gate_1)")
+    _pipeline_job_state.wait_for_sma_gate_1_hitl(
+        catalog,
+        pipeline_run_id,
+        institution_id=institution_id,
+        poll_interval_seconds=hitl_poll_interval_seconds,
+        timeout_seconds=hitl_timeout_seconds,
+    )
 
     # Resolve HITL into mapping manifest
     for hitl_path in (paths.cohort_hitl_manifest, paths.course_hitl_manifest):
@@ -536,7 +570,12 @@ def run_onboard_gate_2(
 
     # Write output data
     _write_output_data(paths.output_data, cohort_result, course_result)
+    LOGGER.info("[onboard/gate_2] Promoting artifacts to active/")
+    promote_genai_mapping_to_active(paths)
     LOGGER.info("[onboard/gate_2] Complete. Exiting.")
+    _pipeline_job_state.after_sma_onboard_gate_2_success(
+        catalog, institution_id, pipeline_run_id
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -635,6 +674,9 @@ def run(
     resume_from: str = "start",
     reference_id: str = "",
     model_id: str = "claude-sonnet-test-genai-ai-data-cleaning",
+    *,
+    hitl_poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+    hitl_timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
 ):
     paths = resolve_run_paths(institution_id, pipeline_run_id, catalog)
     init_file_logging_at_path(
@@ -666,50 +708,101 @@ def run(
         if not reference_id:
             raise ValueError("--reference_id is required for onboard mode.")
 
+        _pipeline_job_state.on_sma_onboard_begin(
+            catalog, pipeline_run_id, resume_from=resume_from
+        )
+
         client = _build_openai_client(catalog)
 
-        if resume_from == "start":
-            run_onboard_start(
-                institution_id=institution_id,
-                reference_id=reference_id,
-                catalog=catalog,
-                model_id=model_id,
-                paths=paths,
-                client=client,
-                spark_session=spark_session,
+        try:
+            if resume_from == "start":
+                run_onboard_start(
+                    institution_id=institution_id,
+                    reference_id=reference_id,
+                    catalog=catalog,
+                    model_id=model_id,
+                    paths=paths,
+                    client=client,
+                    spark_session=spark_session,
+                    pipeline_run_id=pipeline_run_id,
+                )
+            elif resume_from == "gate_2":
+                run_onboard_gate_2(
+                    institution_id=institution_id,
+                    reference_id=reference_id,
+                    catalog=catalog,
+                    model_id=model_id,
+                    paths=paths,
+                    client=client,
+                    spark_session=spark_session,
+                    pipeline_run_id=pipeline_run_id,
+                    hitl_poll_interval_seconds=hitl_poll_interval_seconds,
+                    hitl_timeout_seconds=hitl_timeout_seconds,
+                )
+        except HITLTimeoutError:
+            raise
+        except Exception:
+            _pipeline_job_state.mark_pipeline_failed(
+                catalog, institution_id, pipeline_run_id
             )
-        elif resume_from == "gate_2":
-            run_onboard_gate_2(
-                institution_id=institution_id,
-                reference_id=reference_id,
-                catalog=catalog,
-                model_id=model_id,
-                paths=paths,
-                client=client,
-                spark_session=spark_session,
-            )
+            raise
 
     else:
         raise ValueError(f"Invalid mode={mode!r}. Must be 'onboard' or 'execute'.")
 
 
 if __name__ == "__main__":
+    from edvise.genai.mapping.scripts import edvise_genai_pipeline as genai_pl
+
     parser = argparse.ArgumentParser(description="SchemaMappingAgent pipeline job")
     parser.add_argument("--institution_id", required=True)
-    parser.add_argument("--pipeline_run_id", required=True)
+    parser.add_argument(
+        "--pipeline_run_id",
+        default="",
+        help=(
+            "Run folder id. Leave empty to auto-resolve (same-day resume of running / awaiting_hitl / "
+            "timed_out, or a new suffixed id after complete / failed)."
+        ),
+    )
     parser.add_argument("--catalog", required=True)
     parser.add_argument("--mode", required=True, choices=["onboard", "execute"])
     parser.add_argument("--resume_from", default="start", choices=["start", "gate_2"])
     parser.add_argument("--reference_id", default="")
     parser.add_argument("--model_id", default="claude-sonnet-test-genai-ai-data-cleaning")
+    parser.add_argument(
+        "--hitl_poll_interval_seconds",
+        type=int,
+        default=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+        help="Seconds between Unity Catalog hitl_reviews checks when resume_from=gate_2.",
+    )
+    parser.add_argument(
+        "--hitl_timeout_seconds",
+        type=int,
+        default=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+        help="Max seconds to wait for UC HITL approval before failing gate_2 (default 20 min).",
+    )
     args = parser.parse_args()
+
+    _raw_run_id = (args.pipeline_run_id or "").strip()
+    if args.mode == "execute" and not _raw_run_id:
+        parser.error("--pipeline_run_id is required for mode=execute")
+    if args.mode == "execute":
+        _resolved = _raw_run_id
+    else:
+        _resolved = genai_pl.bootstrap_resolved_pipeline_run_id(
+            args.catalog,
+            args.institution_id,
+            _raw_run_id or None,
+        )
 
     run(
         institution_id=args.institution_id,
-        pipeline_run_id=args.pipeline_run_id,
+        pipeline_run_id=_resolved,
         catalog=args.catalog,
         mode=args.mode,
         resume_from=args.resume_from,
         reference_id=args.reference_id,
         model_id=args.model_id,
+        hitl_poll_interval_seconds=args.hitl_poll_interval_seconds,
+        hitl_timeout_seconds=args.hitl_timeout_seconds,
     )

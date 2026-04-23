@@ -21,6 +21,10 @@ from edvise.genai.mapping.state._sql import (
 
 _INITIAL_RUN_STATUS: str = "running"
 
+# Runs with no ``updated_at`` activity for this long while still ``running`` / ``awaiting_hitl``
+# are treated as cluster/job timeouts (e.g. 2h Databricks limit) and marked ``timed_out``.
+STALE_PIPELINE_RUN_IDLE_MINUTES: int = 25
+
 
 def _spark() -> Any:
     spark = get_spark_session()
@@ -141,6 +145,144 @@ def get_latest_pipeline_run(
     return _row_to_plain_dict(rows[0])
 
 
+def get_latest_pipeline_run_created_today(
+    catalog: str,
+    institution_id: str,
+) -> Optional[dict[str, Any]]:
+    """
+    Most recent ``pipeline_runs`` row for this institution and catalog where
+    ``to_date(created_at)`` equals ``current_date()``, or ``None``.
+    """
+    c = str(catalog).strip()
+    inst = str(institution_id).strip()
+    if not inst:
+        raise ValueError("institution_id must be non-empty")
+
+    t = qualified_table(c, PIPELINE_RUNS)
+    q = f"""
+    SELECT * FROM {t}
+    WHERE institution_id = {lit(inst)}
+      AND `catalog` = {lit(c)}
+      AND to_date(created_at) = current_date()
+    ORDER BY created_at DESC
+    LIMIT 1
+    """
+    rows = _spark().sql(q).collect()
+    if not rows:
+        return None
+    return _row_to_plain_dict(rows[0])
+
+
+def count_pipeline_runs_created_today(catalog: str, institution_id: str) -> int:
+    """Count ``pipeline_runs`` rows for this institution and catalog with ``created_at`` today."""
+    c = str(catalog).strip()
+    inst = str(institution_id).strip()
+    if not inst:
+        raise ValueError("institution_id must be non-empty")
+
+    t = qualified_table(c, PIPELINE_RUNS)
+    q = f"""
+    SELECT COUNT(1) AS n FROM {t}
+    WHERE institution_id = {lit(inst)}
+      AND `catalog` = {lit(c)}
+      AND to_date(created_at) = current_date()
+    """
+    n = int(_spark().sql(q).collect()[0]["n"])
+    return n
+
+
+def resolve_pipeline_run_id(
+    catalog: str,
+    institution_id: str,
+    pipeline_run_id: Optional[str] = None,
+) -> str:
+    """
+    Resolve the active ``pipeline_run_id`` for this institution.
+
+    If ``pipeline_run_id`` is passed non-empty (manual override / explicit job id), it is returned
+    unchanged. Otherwise the convention is ``{institution_id}_{YYYYMMDD}`` with optional numeric
+    suffix for additional same-day runs after a terminal ``complete`` / ``failed`` state.
+    """
+    override = (pipeline_run_id or "").strip()
+    if override:
+        return override
+
+    inst = str(institution_id).strip()
+    if not inst:
+        raise ValueError("institution_id must be non-empty")
+
+    base_id = f"{inst}_{date.today().strftime('%Y%m%d')}"
+    latest = get_latest_pipeline_run_created_today(catalog, inst)
+    if latest is None:
+        return base_id
+
+    st = str(latest.get("status") or "").strip()
+    rid = str(latest.get("pipeline_run_id") or "").strip()
+    if not rid:
+        return base_id
+
+    if st in ("running", "awaiting_hitl", "timed_out"):
+        return rid
+    if st in ("complete", "failed"):
+        n = count_pipeline_runs_created_today(catalog, inst)
+        return f"{base_id}_{n + 1}"
+    # Unknown legacy status: start a fresh suffixed id rather than reusing ambiguous rows.
+    n = count_pipeline_runs_created_today(catalog, inst)
+    return f"{base_id}_{n + 1}"
+
+
+def reconcile_stale_nonterminal_pipeline_runs(
+    catalog: str,
+    institution_id: str,
+    idle_minutes: int,
+) -> None:
+    """
+    Mark ``running`` / ``awaiting_hitl`` runs as ``timed_out`` when ``updated_at`` is older than
+    ``idle_minutes`` (cluster preemption, Databricks job timeout, etc.).
+
+    Matching ``pipeline_phases`` rows still in ``running`` or ``awaiting_hitl`` are set to
+    ``timed_out`` with ``completed_at`` cleared.
+    """
+    c = str(catalog).strip()
+    inst = str(institution_id).strip()
+    if not inst:
+        raise ValueError("institution_id must be non-empty")
+    if idle_minutes < 1:
+        raise ValueError("idle_minutes must be >= 1")
+
+    pr = qualified_table(c, PIPELINE_RUNS)
+    pp = qualified_table(c, PIPELINE_PHASES)
+    threshold_sec = int(idle_minutes) * 60
+
+    q_phases = f"""
+    MERGE INTO {pp} AS t
+    USING (
+      SELECT DISTINCT pipeline_run_id
+      FROM {pr}
+      WHERE institution_id = {lit(inst)}
+        AND `catalog` = {lit(c)}
+        AND status IN ('running', 'awaiting_hitl')
+        AND updated_at < from_unixtime(unix_timestamp(current_timestamp()) - {threshold_sec})
+    ) AS s
+    ON t.pipeline_run_id = s.pipeline_run_id
+       AND t.status IN ('running', 'awaiting_hitl')
+    WHEN MATCHED THEN UPDATE SET
+      t.status = 'timed_out',
+      t.completed_at = NULL
+    """
+    _spark().sql(q_phases)
+
+    q_runs = f"""
+    UPDATE {pr}
+    SET status = 'timed_out', updated_at = current_timestamp()
+    WHERE institution_id = {lit(inst)}
+      AND `catalog` = {lit(c)}
+      AND status IN ('running', 'awaiting_hitl')
+      AND updated_at < from_unixtime(unix_timestamp(current_timestamp()) - {threshold_sec})
+    """
+    _spark().sql(q_runs)
+
+
 def log_phase_transition(
     catalog: str,
     pipeline_run_id: str,
@@ -151,7 +293,8 @@ def log_phase_transition(
     Insert or update a row in ``pipeline_phases`` keyed by (``pipeline_run_id``, ``phase``).
 
     ``completed_at`` is set when ``status`` is one of: approved, rejected, complete; otherwise
-    it is set to NULL. ``started_at`` is set on first insert and left unchanged on update.
+    it is set to NULL (including ``timed_out``, which remains resumable). ``started_at`` is set on
+    first insert and left unchanged on update.
     """
     c = str(catalog).strip()
     rid = str(pipeline_run_id).strip()

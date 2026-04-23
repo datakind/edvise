@@ -16,6 +16,9 @@ class _Row:
     def asDict(self) -> dict:  # noqa: N802 (Spark API)
         return self._d
 
+    def __getitem__(self, key: str):  # Spark Row supports column access by name
+        return self._d[key]
+
 
 class _Result:
     def __init__(self, values: list[_Row] | None = None) -> None:
@@ -29,12 +32,21 @@ class _FakeSpark:
     def __init__(self) -> None:
         self.statements: list[str] = []
         self._next_sql_result: _Result = _Result()
+        self._sql_result_queue: list[_Result] | None = None
 
     def set_sql_result(self, res: _Result) -> None:
         self._next_sql_result = res
+        self._sql_result_queue = None
+
+    def set_sql_result_queue(self, queue: list[_Result]) -> None:
+        """Consume one :class:`_Result` per ``sql()`` call in FIFO order."""
+        self._sql_result_queue = list(queue)
+        self._next_sql_result = _Result()
 
     def sql(self, q: str) -> _Result:  # noqa: ARG002
         self.statements.append(q)
+        if self._sql_result_queue:
+            return self._sql_result_queue.pop(0)
         return self._next_sql_result
 
 
@@ -107,3 +119,70 @@ def test_table_setup_runs_ddl(monkeypatch) -> None:
     assert any("CREATE SCHEMA" in s for s in fake.statements)
     assert any("CREATE TABLE" in s and "pipeline_runs" in s for s in fake.statements)
     assert any("hitl_reviews" in s for s in fake.statements)
+
+
+def test_resolve_pipeline_run_id_explicit_override(monkeypatch) -> None:
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    assert pipeline_state.resolve_pipeline_run_id("c", "inst", "  my_run  ") == "my_run"
+    assert fake.statements == []
+
+
+def test_resolve_pipeline_run_id_no_row_today(monkeypatch) -> None:
+    fake = _FakeSpark()
+    fake.set_sql_result_queue([_Result([])])
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    from datetime import date
+
+    base = f"foo_{date.today().strftime('%Y%m%d')}"
+    assert pipeline_state.resolve_pipeline_run_id("c", "foo", None) == base
+    assert "to_date(created_at) = current_date()" in fake.statements[0]
+
+
+def test_resolve_pipeline_run_id_resume_timed_out(monkeypatch) -> None:
+    fake = _FakeSpark()
+    latest = {
+        "institution_id": "foo",
+        "pipeline_run_id": "foo_20990101",
+        "catalog": "c",
+        "status": "timed_out",
+        "created_at": None,
+        "updated_at": None,
+    }
+    fake.set_sql_result_queue([_Result([_Row(latest)])])
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    assert pipeline_state.resolve_pipeline_run_id("c", "foo", None) == "foo_20990101"
+
+
+def test_resolve_pipeline_run_id_new_suffix_after_complete(monkeypatch) -> None:
+    fake = _FakeSpark()
+    latest = {
+        "institution_id": "foo",
+        "pipeline_run_id": "foo_20990101",
+        "catalog": "c",
+        "status": "complete",
+        "created_at": None,
+        "updated_at": None,
+    }
+    fake.set_sql_result_queue(
+        [
+            _Result([_Row(latest)]),
+            _Result([_Row({"n": 2})]),
+        ]
+    )
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    from datetime import date
+
+    base = f"foo_{date.today().strftime('%Y%m%d')}"
+    assert pipeline_state.resolve_pipeline_run_id("c", "foo", None) == f"{base}_3"
+
+
+def test_reconcile_stale_emits_merge_and_update(monkeypatch) -> None:
+    fake = _FakeSpark()
+    fake.set_sql_result_queue([_Result([]), _Result([])])
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    pipeline_state.reconcile_stale_nonterminal_pipeline_runs("c1", "inst1", 10)
+    assert len(fake.statements) == 2
+    assert "MERGE INTO" in fake.statements[0] and "pipeline_phases" in fake.statements[0]
+    assert "UPDATE" in fake.statements[1] and "timed_out" in fake.statements[1]
+    assert "from_unixtime(unix_timestamp(current_timestamp()) - 600)" in fake.statements[1]

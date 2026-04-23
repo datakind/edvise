@@ -3,14 +3,19 @@ edvise_ia.py — IdentityAgent pipeline job entry point.
 
 Usage (Databricks job parameters):
     --institution_id    synthetic_edvise
-    --pipeline_run_id   synthetic_edvise_20260420_001
+    --pipeline_run_id   synthetic_edvise_20260420_001  (optional for onboard: auto-resolve / resume)
     --catalog           dev_sst_02
     --mode              onboard | execute
     --resume_from       start | gate_1  (onboard only)
+    --hitl_poll_interval_seconds   UC HITL poll interval for gate_1 (default: 30)
+    --hitl_timeout_seconds         UC HITL poll timeout for gate_1 (default: 1200, 20 min)
     --inputs_toml       Path to per-school ``inputs.toml`` (Unity Catalog volume path).
                         If omitted or empty, uses default under
                         ``/Volumes/<catalog>/<id>_bronze/bronze_volume/genai_mapping/inputs/``
                         (see ``ia_inputs_toml_under_bronze``; ``--catalog`` sets ``<catalog>``).
+
+On Databricks, onboard mode best-effort updates ``{catalog}.genai_mapping`` pipeline state
+(see :mod:`edvise.genai.mapping.state.job_state`); table setup and Spark are required.
 """
 import os
 import sys
@@ -44,6 +49,12 @@ from edvise.genai.mapping.shared.mlflow_gateway_bootstrap import (
 disable_mlflow_side_effects_for_openai_gateway()
 
 from edvise.configs import genai as genai_cfg
+from edvise.genai.mapping.state import job_state as _pipeline_job_state
+from edvise.genai.mapping.state.hitl_poller import (
+    DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+    DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+    HITLTimeoutError,
+)
 from edvise.shared.logger import init_file_logging_at_path
 
 LOGGER = logging.getLogger("edvise_ia")
@@ -121,6 +132,9 @@ def run_onboard_start(
     paths: IAPaths,
     school_config,
     llm_complete,
+    *,
+    catalog: str,
+    pipeline_run_id: str,
 ):
     from edvise.genai.mapping.identity_agent.grain_inference import (
         build_identity_profiling_run_by_dataset,
@@ -236,6 +250,9 @@ def run_onboard_start(
         len(grain_hitl_items),
         len(term_hitl_items),
     )
+    _pipeline_job_state.after_ia_onboard_start(
+        catalog, institution_id, pipeline_run_id, grain_path=paths.grain_hitl, term_path=paths.term_hitl
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +265,11 @@ def run_onboard_gate_1(
     paths: IAPaths,
     school_config,
     llm_complete,
+    *,
+    catalog: str,
+    pipeline_run_id: str,
+    hitl_poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+    hitl_timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
 ):
     from collections import defaultdict
 
@@ -280,6 +302,15 @@ def run_onboard_gate_1(
     import pandas as pd
 
     LOGGER.info("[onboard/gate_1] Checking HITL gates for %s", institution_id)
+
+    LOGGER.info("[onboard/gate_1] Waiting for Unity Catalog HITL approval (ia_gate_1)")
+    _pipeline_job_state.wait_for_ia_gate_1_hitl(
+        catalog,
+        pipeline_run_id,
+        institution_id=institution_id,
+        poll_interval_seconds=hitl_poll_interval_seconds,
+        timeout_seconds=hitl_timeout_seconds,
+    )
 
     # Gate check — raises HITLBlockingError if any items still pending
     try:
@@ -395,6 +426,9 @@ def run_onboard_gate_1(
     save_enriched_schema_contract(enc, paths.enriched_schema_contract)
     LOGGER.info("[onboard/gate_1] Wrote enriched schema contract -> %s", paths.enriched_schema_contract)
     LOGGER.info("[onboard/gate_1] Complete. Exiting.")
+    _pipeline_job_state.after_ia_onboard_gate_1_success(
+        catalog, institution_id, pipeline_run_id
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -495,6 +529,9 @@ def run(
     mode: str,
     resume_from: str = "start",
     inputs_toml: str | None = None,
+    *,
+    hitl_poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+    hitl_timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
 ):
     paths = resolve_run_paths(institution_id, pipeline_run_id, catalog)
     init_file_logging_at_path(
@@ -545,6 +582,13 @@ def run(
         if resume_from not in ("start", "gate_1"):
             raise ValueError(f"Invalid resume_from={resume_from!r} for mode='onboard'. Must be 'start' or 'gate_1'.")
 
+        _pipeline_job_state.ensure_ia_run_row(
+            catalog, institution_id, pipeline_run_id, create_run=(resume_from == "start")
+        )
+        _pipeline_job_state.on_ia_onboard_begin(
+            catalog, pipeline_run_id, resume_from=resume_from
+        )
+
         # LLM client only needed for onboard
         gateway_client = create_openai_client_for_databricks_gateway()
         llm_complete = wrap_llm_complete_with_retries(
@@ -552,19 +596,52 @@ def run(
             log=LOGGER,
         )
 
-        if resume_from == "start":
-            run_onboard_start(institution_id, paths, school_config, llm_complete)
-        elif resume_from == "gate_1":
-            run_onboard_gate_1(institution_id, paths, school_config, llm_complete)
+        try:
+            if resume_from == "start":
+                run_onboard_start(
+                    institution_id,
+                    paths,
+                    school_config,
+                    llm_complete,
+                    catalog=catalog,
+                    pipeline_run_id=pipeline_run_id,
+                )
+            elif resume_from == "gate_1":
+                run_onboard_gate_1(
+                    institution_id,
+                    paths,
+                    school_config,
+                    llm_complete,
+                    catalog=catalog,
+                    pipeline_run_id=pipeline_run_id,
+                    hitl_poll_interval_seconds=hitl_poll_interval_seconds,
+                    hitl_timeout_seconds=hitl_timeout_seconds,
+                )
+        except HITLTimeoutError:
+            raise
+        except Exception:
+            _pipeline_job_state.mark_pipeline_failed(
+                catalog, institution_id, pipeline_run_id
+            )
+            raise
 
     else:
         raise ValueError(f"Invalid mode={mode!r}. Must be 'onboard' or 'execute'.")
 
 
 if __name__ == "__main__":
+    from edvise.genai.mapping.scripts import edvise_genai_pipeline as genai_pl
+
     parser = argparse.ArgumentParser(description="IdentityAgent pipeline job")
     parser.add_argument("--institution_id", required=True)
-    parser.add_argument("--pipeline_run_id", required=True)
+    parser.add_argument(
+        "--pipeline_run_id",
+        default="",
+        help=(
+            "Run folder id. Leave empty to auto-resolve (same-day resume of running / awaiting_hitl / "
+            "timed_out, or a new suffixed id after complete / failed)."
+        ),
+    )
     parser.add_argument("--catalog", required=True)
     parser.add_argument("--mode", required=True, choices=["onboard", "execute"])
     parser.add_argument("--resume_from", default="start", choices=["start", "gate_1"])
@@ -577,13 +654,39 @@ if __name__ == "__main__":
             "(requires --catalog)."
         ),
     )
+    parser.add_argument(
+        "--hitl_poll_interval_seconds",
+        type=int,
+        default=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+        help="Seconds between Unity Catalog hitl_reviews checks when resume_from=gate_1.",
+    )
+    parser.add_argument(
+        "--hitl_timeout_seconds",
+        type=int,
+        default=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+        help="Max seconds to wait for UC HITL approval before failing gate_1 (default 20 min).",
+    )
     args = parser.parse_args()
+
+    _raw_run_id = (args.pipeline_run_id or "").strip()
+    if args.mode == "execute" and not _raw_run_id:
+        parser.error("--pipeline_run_id is required for mode=execute")
+    if args.mode == "execute":
+        _resolved = _raw_run_id
+    else:
+        _resolved = genai_pl.bootstrap_resolved_pipeline_run_id(
+            args.catalog,
+            args.institution_id,
+            _raw_run_id or None,
+        )
 
     run(
         institution_id=args.institution_id,
-        pipeline_run_id=args.pipeline_run_id,
+        pipeline_run_id=_resolved,
         catalog=args.catalog,
         mode=args.mode,
         resume_from=args.resume_from,
         inputs_toml=args.inputs_toml or None,
+        hitl_poll_interval_seconds=args.hitl_poll_interval_seconds,
+        hitl_timeout_seconds=args.hitl_timeout_seconds,
     )
