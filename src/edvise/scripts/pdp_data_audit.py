@@ -161,7 +161,11 @@ class PDPDataAuditTask:
         LOGGER.info(
             " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
         )
-        log_misjoined_records(df_cohort_raw, df_course_raw)
+        log_misjoined_records(
+            df_cohort_raw,
+            df_course_raw,
+            merge_key=self.cfg.student_id_col,
+        )
 
         # Logs cohort year and terms and academic year and terms, grouped and sorted
 

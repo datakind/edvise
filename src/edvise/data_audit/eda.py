@@ -584,37 +584,35 @@ def log_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
         )
 
 
-def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> None:
+def log_misjoined_records(
+    df_cohort: pd.DataFrame,
+    df_course: pd.DataFrame,
+    merge_key: str = "study_id",
+) -> None:
     """
     Merges raw cohort and course data, identifies misjoined student records,
     and logs value counts for mismatches to help identify possible trends.
 
     Args:
-        df_cohort (pd.DataFrame): Cohort-level student data
-        df_course (pd.DataFrame): Course-level student data
-
-    Returns:
-        pd.DataFrame: Mismatched records with diagnostic columns.
+        df_cohort: Cohort-level student data
+        df_course: Course-level student data
+        merge_key: Column to join on (excluded from the duplicate-column drop on the
+            course side). Default ``study_id``; use e.g. ``cfg.student_id_col`` when it
+            matches both files.
     """
-    # Drop from course any columns that duplicate cohort demographics so the merge
-    # keeps one copy of those fields (from the cohort frame) and avoids
-    # cohort/suffix cleanup for this overlap set.
-    _cohort_course_overlap = (
-        "cohort",
-        "cohort_term",
-        "student_age",
-        "race",
-        "ethnicity",
-        "gender",
-        "institution_id",
+    # Drop from course any column that also exists on cohort (except the merge key)
+    # so each shared name appears once, from the cohort frame.
+    _overlap = (set(df_cohort.columns) & set(df_course.columns)) - {merge_key}
+    _dropped_from_course = sorted(_overlap)
+    LOGGER.info(
+        "Dropped duplicate fields from course file in the merge: %s",
+        _dropped_from_course,
     )
-    _from_course = [c for c in _cohort_course_overlap if c in df_course.columns]
-    df_course_slim = df_course.drop(columns=_from_course, errors="ignore")
+    df_course_slim = df_course.drop(columns=_dropped_from_course, errors="ignore")
     df_merged = df_cohort.merge(
         df_course_slim,
-        on="study_id",
+        on=merge_key,
         how="outer",
-        suffixes=("_cohort", "_course"),
         indicator=True,
     )
 
@@ -646,7 +644,7 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
     )
 
     # Print misjoined ids
-    misjoined_ids = df_misjoined["study_id"].dropna().unique().tolist()
+    misjoined_ids = df_misjoined[merge_key].dropna().unique().tolist()
     LOGGER.info(f" Misjoined student IDs: {misjoined_ids}")
 
     # Additional warning if mismatch is significant
@@ -658,8 +656,8 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
         )
 
     # Log dropped student impact
-    dropped_students = df_misjoined["study_id"].dropna().nunique()
-    total_students = df_merged["study_id"].dropna().nunique()
+    dropped_students = df_misjoined[merge_key].dropna().nunique()
+    total_students = df_merged[merge_key].dropna().nunique()
     pct_dropped = (dropped_students / total_students) * 100 if total_students else 0
 
     # Log value counts of key fields

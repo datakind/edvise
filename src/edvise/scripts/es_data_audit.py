@@ -114,7 +114,7 @@ class ESDataAuditTask:
             "course",
         )
 
-        # --- Load RAW datasets ---
+        # --- Load RAW datasets w/o schema---
         LOGGER.info(" Loading raw cohort and course datasets:")
 
         dttm_formats = ["ISO8601", "%Y%m%d.0"]
@@ -151,7 +151,7 @@ class ESDataAuditTask:
                 " Failed to parse course data with all known datetime formats."
             )
 
-        # Ensure cohort/course files are non-empty
+        # Ensure files are non-empty
         for label, df in [
             ("Raw cohort", df_cohort_raw),
             ("Raw course", df_course_raw),
@@ -161,7 +161,11 @@ class ESDataAuditTask:
         LOGGER.info(
             " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
         )
-        log_misjoined_records(df_cohort_raw, df_course_raw)
+        log_misjoined_records(
+            df_cohort_raw,
+            df_course_raw,
+            merge_key=self.cfg.student_id_col,
+        )
 
         # Logs cohort year and terms and academic year and terms, grouped and sorted
 
