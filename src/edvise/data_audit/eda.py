@@ -596,39 +596,26 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
     Returns:
         pd.DataFrame: Mismatched records with diagnostic columns.
     """
-    # Merge with indicator
-    df_merged = (
-        pd.merge(
-            df_cohort,
-            df_course,
-            on="study_id",
-            how="outer",
-            suffixes=("_cohort", "_course"),
-            indicator=True,
-        )
-        .rename(
-            columns={
-                "cohort_cohort": "cohort",
-                "cohort_term_cohort": "cohort_term",
-                "student_age_cohort": "student_age",
-                "race_cohort": "race",
-                "ethnicity_cohort": "ethnicity",
-                "gender_cohort": "gender",
-                "institution_id_cohort": "institution_id",
-            }
-        )
-        .drop(
-            columns=[
-                "cohort_course",
-                "cohort_term_course",
-                "student_age_course",
-                "race_course",
-                "ethnicity_course",
-                "gender_course",
-                "institution_id_course",
-            ],
-            errors="ignore",
-        )
+    # Drop from course any columns that duplicate cohort demographics so the merge
+    # keeps one copy of those fields (from the cohort frame) and avoids
+    # cohort/suffix cleanup for this overlap set.
+    _cohort_course_overlap = (
+        "cohort",
+        "cohort_term",
+        "student_age",
+        "race",
+        "ethnicity",
+        "gender",
+        "institution_id",
+    )
+    _from_course = [c for c in _cohort_course_overlap if c in df_course.columns]
+    df_course_slim = df_course.drop(columns=_from_course, errors="ignore")
+    df_merged = df_cohort.merge(
+        df_course_slim,
+        on="study_id",
+        how="outer",
+        suffixes=("_cohort", "_course"),
+        indicator=True,
     )
 
     # Count merge results

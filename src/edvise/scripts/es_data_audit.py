@@ -31,8 +31,8 @@ from edvise.utils.databricks import get_spark_session
 from edvise.dataio.path_management import pick_existing_path
 from edvise.dataio.read import (
     read_config,
-    read_raw_pdp_cohort_data,
-    read_raw_pdp_course_data,
+    read_raw_es_cohort_data,
+    read_raw_es_course_data,
 )
 from edvise.dataio.write import write_parquet
 from edvise.configs.es import ESProjectConfig
@@ -121,7 +121,7 @@ class ESDataAuditTask:
 
         for fmt in dttm_formats:
             try:
-                df_cohort_raw = read_raw_pdp_cohort_data(
+                df_cohort_raw = read_raw_es_cohort_data(
                     file_path=cohort_dataset_raw_path,
                     schema=None,
                     dttm_format=fmt,
@@ -137,7 +137,7 @@ class ESDataAuditTask:
 
         for fmt in dttm_formats:
             try:
-                df_course_raw = read_raw_pdp_course_data(
+                df_course_raw = read_raw_es_course_data(
                     file_path=course_dataset_raw_path,
                     schema=None,
                     dttm_format=fmt,
