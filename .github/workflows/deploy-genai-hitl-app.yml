@@ -1,0 +1,66 @@
+# Databricks App: GenAI HITL reviewer (Streamlit, UC hitl_reviews).
+# Reuses the same Databricks + warehouse secrets as deploy-metadata-dashboard (dev).
+#
+# Run: Actions → "Deploy GenAI HITL app (dev)" → Run workflow (choose branch, e.g. your PR branch).
+
+name: deploy-genai-hitl-app
+
+on:
+  push:
+    branches:
+      - feat/gen_ai_hitl_ui_build
+    paths:
+      - "src/edvise/genai/mapping/streamlit-genai-hitl-app/**"
+      - ".github/workflows/deploy-genai-hitl-app.yml"
+      - "pyproject.toml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-genai-hitl-app-dev-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-dev:
+    name: Deploy GenAI HITL app to dev (dev_sst_02)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.11"
+
+      - name: Install uv and Databricks CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+          databricks -v
+        shell: bash
+
+      - name: Install project (uv) — so bundle artifact build can use repo pyproject
+        run: |
+          uv venv
+          uv pip install .
+        working-directory: ${{ github.workspace }}
+
+      - name: Deploy and start app (databricks.yml → target dev)
+        working-directory: src/edvise/genai/mapping/streamlit-genai-hitl-app
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
+          SQL_WAREHOUSE_ID: ${{ secrets.DATABRICKS_DEV_SQL_WAREHOUSE_ID }}
+          GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
+        run: |
+          databricks current-user me
+          databricks bundle deploy \
+            --target=dev \
+            --force-lock \
+            --var="sql_warehouse_id=$SQL_WAREHOUSE_ID" \
+            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
+          databricks bundle run genai_hitl \
+            --target=dev \
+            --var="sql_warehouse_id=$SQL_WAREHOUSE_ID" \
+            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
