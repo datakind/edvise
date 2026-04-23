@@ -37,6 +37,7 @@ from edvise.dataio.read import (
 from edvise.dataio.write import write_parquet
 from edvise.configs.es import ESProjectConfig
 from edvise.data_audit.eda import (
+    log_grade_distribution,
     log_high_null_columns,
     log_record_drops,
     log_terms,
@@ -252,6 +253,8 @@ class ESDataAuditTask:
         # else:
         #     log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
+        # Course exploratory EDA (pre-standardize)
+        log_grade_distribution(df_course_validated)
         # Log high null columns
         log_high_null_columns(df_course_validated)
         # Standardize course data

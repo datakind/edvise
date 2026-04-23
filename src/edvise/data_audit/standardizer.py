@@ -7,11 +7,9 @@ LOGGER = logging.getLogger(__name__)
 from edvise.utils.drop_columns_safely import drop_columns_safely
 from edvise.utils.data_cleaning import (
     drop_course_rows_missing_identifiers,
-    strip_trailing_decimal_strings,
     replace_na_firstgen_and_pell,
+    strip_trailing_decimal_strings,
 )
-from .eda import log_grade_distribution
-
 
 def add_empty_columns_if_missing(
     df: pd.DataFrame,
@@ -121,7 +119,6 @@ class PDPCourseStandardizer:
         """
         df = strip_trailing_decimal_strings(df)
         df = drop_course_rows_missing_identifiers(df)
-        log_grade_distribution(df)
         cols_to_drop = [
             # student demographics found in raw cohort dataset
             "cohort",

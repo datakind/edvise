@@ -42,6 +42,7 @@ from edvise.configs.pdp import PDPProjectConfig
 from edvise.data_audit.eda import (
     check_bias_variables,
     compute_gateway_course_ids_and_cips,
+    log_grade_distribution,
     log_high_null_columns,
     log_record_drops,
     log_top_majors,
@@ -53,8 +54,8 @@ from edvise.data_audit.eda import (
 
 from edvise.utils.update_config import update_key_courses_and_cips
 from edvise.utils.data_cleaning import (
-    remove_pre_cohort_courses,
     log_pre_cohort_courses,
+    remove_pre_cohort_courses,
 )
 from edvise.shared.logger import init_file_logging, resolve_run_path
 from edvise.shared.validation import require
@@ -250,6 +251,8 @@ class PDPDataAuditTask:
         else:
             log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
+        # Course exploratory EDA (pre-standardize; row prep is still in :class:`PDPCourseStandardizer`)
+        log_grade_distribution(df_course_validated)
         # Log high null columns
         log_high_null_columns(df_course_validated)
         # Standardize course data
