@@ -23,6 +23,7 @@ import argparse
 import json
 import logging
 from dataclasses import dataclass
+from typing import Literal, cast
 from pathlib import Path
 
 # Layout: <git_root>/src/edvise/genai/mapping/scripts/<this_file>
@@ -746,7 +747,7 @@ def run(
         )
         raise FileNotFoundError(
             f"IdentityAgent inputs.toml not found: {institution_inputs_toml}. "
-            "Pass --inputs_toml_path relative to genai_mapping on bronze (e.g. inputs/inputs.toml), "
+            "Pass --inputs_toml_path relative to genai_mapping on bronze (e.g. inputs.toml or inputs/inputs.toml), "
             "a full /Volumes/... path, or place the file at "
             f"{default_hint!r}."
         )
@@ -755,7 +756,10 @@ def run(
         str(institution_inputs_toml),
         schema=configs.genai.IdentityAgentInputsConfig,
     )
-    school_config = _ia.to_school_mapping_config(uc_catalog=catalog)
+    school_config = _ia.to_school_mapping_config(
+        uc_catalog=catalog,
+        pipeline_mode=cast(Literal["onboard", "execute"], mode),
+    )
     input_file_paths: dict[str, list[str]] = {
         ds_name: [
             str(resolve_genai_data_path(school_config.bronze_volumes_path, f))
@@ -872,7 +876,7 @@ if __name__ == "__main__":
         default="",
         help=(
             "Relative to …/bronze_volume/genai_mapping/ on the institution bronze volume, "
-            "or an absolute /Volumes/... path. Empty uses inputs/inputs.toml (requires --catalog)."
+            "or an absolute /Volumes/... path. Empty uses inputs.toml (requires --catalog)."
         ),
     )
     parser.add_argument(

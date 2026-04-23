@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Literal, Optional, Union
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from edvise.configs.custom import CleaningConfig
 from edvise.genai.mapping.shared.pipeline_artifacts import (
@@ -76,8 +84,8 @@ def resolve_genai_inputs_toml_path(
     """
     Resolve the absolute path to IdentityAgent ``inputs.toml`` on UC volumes.
 
-    * If ``inputs_toml_path`` is missing or blank: ``…/bronze_volume/genai_mapping/inputs/inputs.toml``
-      (same as the historical default).
+    * If ``inputs_toml_path`` is missing or blank: ``…/bronze_volume/genai_mapping/inputs.toml``.
+      You can still pass a relative path under that folder, e.g. ``inputs/inputs.toml``.
     * If ``inputs_toml_path`` is absolute after :meth:`pathlib.Path.expanduser` (e.g. ``/Volumes/…``):
       returned unchanged (full-path override).
     * Otherwise ``inputs_toml_path`` is treated as **relative to**
@@ -89,7 +97,7 @@ def resolve_genai_inputs_toml_path(
     base = Path(bronze_volume_path_for_institution(institution_id, catalog=catalog)) / "genai_mapping"
     raw = (inputs_toml_path or "").strip()
     if not raw:
-        return str(base / "inputs" / "inputs.toml")
+        return str(base / "inputs.toml")
     expanded = Path(raw).expanduser()
     if expanded.is_absolute():
         return str(expanded)
@@ -100,8 +108,8 @@ def ia_inputs_toml_under_bronze(institution_id: str, *, catalog: str = "") -> st
     """
     Default IdentityAgent ``inputs.toml`` path on the institution bronze volume.
 
-    Same as :func:`resolve_genai_inputs_toml_path` with no relative segment (default file under
-    ``genai_mapping/inputs/``).
+    Same as :func:`resolve_genai_inputs_toml_path` with no relative segment (default
+    ``genai_mapping/inputs.toml``).
 
     ``catalog`` must be the UC workspace catalog (non-empty); see :func:`bronze_volume_path_for_institution`.
     """
@@ -243,9 +251,28 @@ class InstitutionIdSection(StrictBaseModel):
     id: str = Field(..., description="Institution identifier (snake_case)")
 
 
+def _validate_dataset_files_table(field_label: str, v: object) -> object:
+    if not isinstance(v, dict):
+        raise ValueError(f"{field_label} must be a table mapping dataset names to path(s)")
+    for key, val in v.items():
+        if isinstance(val, str):
+            continue
+        if isinstance(val, list) and all(isinstance(x, str) for x in val):
+            continue
+        raise ValueError(
+            f"{field_label}[{key!r}] must be a string or a list of strings, got {type(val).__name__}"
+        )
+    return v
+
+
 class IdentityAgentDatasets(StrictBaseModel):
     """
-    ``[datasets]`` in per-institution ``inputs.toml`` — a flat ``files`` map only.
+    ``[datasets]`` in per-institution ``inputs.toml``.
+
+    * ``onboard_files`` — logical dataset → CSV path(s) used when the mapping pipeline runs in
+      **onboard** mode (:meth:`IdentityAgentInputsConfig.to_school_mapping_config` with
+      ``pipeline_mode='onboard'``).
+    * ``execute_files`` — same for **execute** mode (``pipeline_mode='execute'``).
 
     The bronze volume root is not stored here; :meth:`IdentityAgentInputsConfig.to_school_mapping_config`
     sets :attr:`SchoolMappingConfig.bronze_volumes_path` via :func:`bronze_volume_path_for_institution`
@@ -253,43 +280,48 @@ class IdentityAgentDatasets(StrictBaseModel):
 
     TOML example::
 
-        [datasets.files]
-        student = "roster.csv"
+        [datasets.onboard_files]
+        student = "onboard/roster.csv"
+        course = "onboard/classes.csv"
+
+        [datasets.execute_files]
+        student = "current/roster.csv"
+        course = "current/classes.csv"
     """
 
-    files: Dict[str, Union[str, List[str]]] = Field(
+    onboard_files: Dict[str, Union[str, List[str]]] = Field(
         ...,
+        min_length=1,
         description=(
-            "Logical dataset name → CSV path(s), relative to the resolved bronze volume root "
-            "when that root is set."
+            "Logical dataset name → CSV path(s) for onboard runs, relative to the resolved "
+            "bronze volume root when that root is set."
+        ),
+    )
+    execute_files: Dict[str, Union[str, List[str]]] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Logical dataset name → CSV path(s) for recurring execute runs, relative to the "
+            "resolved bronze volume root when that root is set."
         ),
     )
 
-    @field_validator("files", mode="before")
+    @field_validator("onboard_files", "execute_files", mode="before")
     @classmethod
-    def _files_values_are_str_or_list(cls, v: object) -> object:
-        if not isinstance(v, dict):
-            raise ValueError("files must be a table mapping dataset names to path(s)")
-        for key, val in v.items():
-            if isinstance(val, str):
-                continue
-            if isinstance(val, list) and all(isinstance(x, str) for x in val):
-                continue
-            raise ValueError(
-                f"files[{key!r}] must be a string or a list of strings, got {type(val).__name__}"
-            )
-        return v
+    def _files_values_are_str_or_list(cls, v: object, info: ValidationInfo) -> object:
+        return _validate_dataset_files_table(str(info.field_name), v)
 
 
 class IdentityAgentInputsConfig(StrictBaseModel):
     """
-    Per-institution config: ``[institution]`` and ``[datasets.files]``.
+    Per-institution config: ``[institution]`` and ``[datasets]`` with ``onboard_files`` and
+    ``execute_files`` only (no shared ``files`` table).
 
     File values may be a single string or a list of strings (e.g. multiple course files).
     Relative paths resolve against :func:`bronze_volume_path_for_institution` for the institution
     (``/Volumes/<uc_catalog>/<id>_bronze/bronze_volume``). The ``uc_catalog`` argument to
     :meth:`to_school_mapping_config` sets that catalog segment.
-    Use absolute paths in ``files`` when reading from outside that layout.
+    Use absolute paths when reading from outside that layout.
 
     Load with :func:`edvise.dataio.read.read_config` and ``schema=IdentityAgentInputsConfig``,
     then :meth:`to_school_mapping_config` for :class:`SchoolMappingConfig` (``primary_keys`` unset).
@@ -302,17 +334,27 @@ class IdentityAgentInputsConfig(StrictBaseModel):
         self,
         *,
         uc_catalog: str,
+        pipeline_mode: Literal["onboard", "execute"],
         onboard_run_id: Optional[str] = None,
         pipeline_version: Optional[str] = None,
     ) -> SchoolMappingConfig:
-        """Build :class:`SchoolMappingConfig` with ``DatasetConfig`` entries (files only, no PKs)."""
+        """
+        Build :class:`SchoolMappingConfig` with ``DatasetConfig`` entries (files only, no PKs).
+
+        ``pipeline_mode`` selects ``datasets.onboard_files`` vs ``datasets.execute_files``.
+        """
         ds = self.datasets
+        if pipeline_mode == "onboard":
+            merged_files = dict(ds.onboard_files)
+        else:
+            merged_files = dict(ds.execute_files)
+
         datasets: Dict[str, DatasetConfig] = {}
-        for name, spec in ds.files.items():
+        for name, spec in merged_files.items():
             paths: List[str] = [spec] if isinstance(spec, str) else list(spec)
             if not paths:
                 raise ValueError(
-                    f"datasets.files[{name!r}] must list at least one path"
+                    f"datasets.{pipeline_mode}_files[{name!r}] must list at least one path"
                 )
             datasets[name] = DatasetConfig(files=paths, primary_keys=None)
         rid = resolve_onboard_run_id(onboard_run_id, create_if_missing=False)

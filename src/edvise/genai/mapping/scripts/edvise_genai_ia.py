@@ -7,7 +7,7 @@ Usage (Databricks job parameters):
     --mode              onboard | execute
     --resume_from       start | gate_1  (onboard only)
     --inputs_toml_path  Relative to ``…/bronze_volume/genai_mapping/`` or absolute ``/Volumes/…``.
-                        If omitted or empty, uses ``inputs/inputs.toml`` (requires ``--catalog``).
+                        If omitted or empty, uses ``inputs.toml`` under genai_mapping (requires ``--catalog``).
 
 On Databricks, onboard mode best-effort updates ``{catalog}.genai_mapping`` pipeline state
 (see :mod:`edvise.genai.mapping.state.job_state`); table setup and Spark are required.
@@ -19,6 +19,7 @@ import logging
 import json
 from pathlib import Path
 from dataclasses import dataclass
+from typing import Literal, cast
 
 # Layout: <git_root>/src/edvise/genai/mapping/scripts/<this_file>
 # `import edvise` needs <git_root>/src on sys.path (package is <git_root>/src/edvise/).
@@ -615,7 +616,7 @@ def run(
         )
         raise FileNotFoundError(
             f"IdentityAgent inputs.toml not found: {institution_inputs_toml}. "
-            "Pass --inputs_toml_path relative to genai_mapping on bronze (e.g. inputs/inputs.toml), "
+            "Pass --inputs_toml_path relative to genai_mapping on bronze (e.g. inputs.toml or inputs/inputs.toml), "
             "a full /Volumes/... path, or place the file at "
             f"{default_hint!r}."
         )
@@ -624,7 +625,10 @@ def run(
         str(institution_inputs_toml),
         schema=configs.genai.IdentityAgentInputsConfig,
     )
-    school_config = _ia.to_school_mapping_config(uc_catalog=catalog)
+    school_config = _ia.to_school_mapping_config(
+        uc_catalog=catalog,
+        pipeline_mode=cast(Literal["onboard", "execute"], mode),
+    )
 
     from edvise.configs.genai import resolve_genai_data_path
 
@@ -745,7 +749,7 @@ if __name__ == "__main__":
         default="",
         help=(
             "Relative to …/bronze_volume/genai_mapping/ on the institution bronze volume, "
-            "or an absolute /Volumes/... path. Empty uses inputs/inputs.toml (requires --catalog)."
+            "or an absolute /Volumes/... path. Empty uses inputs.toml (requires --catalog)."
         ),
     )
     parser.add_argument(
