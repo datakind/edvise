@@ -33,6 +33,8 @@ resources:
               - "{{job.parameters.strict_mode}}"
               - --clear_destination
               - "{{job.parameters.clear_destination}}"
+              - --include_blob_paths_json
+              - "{{job.parameters.include_blob_paths_json}}"
           job_cluster_key: edvise-validated-bronze-sync-cluster
           libraries:
             - pypi:
@@ -81,6 +83,9 @@ resources:
           default: "true"
         - name: strict_mode
           default: auto
+        # JSON array of full object paths, e.g. ["validated/file.csv"]. [] = copy whole prefix.
+        - name: include_blob_paths_json
+          default: "[]"
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
           level: CAN_MANAGE

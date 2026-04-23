@@ -6,6 +6,11 @@ Default layout is a single canonical mirror (no per-run subfolder): files land u
 ``bronze_volume/<bronze_subdir>/`` mirroring keys under the GCS prefix. Optional
 ``--sync_run_id`` adds one extra subfolder when you explicitly want run-scoped copies.
 
+Optional ``--include_blob_paths_json`` (JSON array of full object paths, e.g.
+``["validated/foo.csv"]``) copies **only** those objects from the current upload /
+validation batch. When that list is non-empty, full-prefix listing is skipped and
+``clear_destination`` is ignored so other files already mirrored are not deleted.
+
 Intended to run as a single-task Databricks job (see pipelines/pdp/resources).
 """
 
@@ -50,6 +55,43 @@ def get_dbutils():
 def _normalize_gcs_prefix(prefix: str) -> str:
     p = prefix.strip().strip("/")
     return f"{p}/" if p else ""
+
+
+def _normalize_blob_name(name: str) -> str:
+    n = name.strip().lstrip("/").replace("\\", "/")
+    for part in n.split("/"):
+        if part in ("", ".", ".."):
+            raise ValueError(f"Invalid GCS object path: {name!r}")
+    return n
+
+
+def _parse_include_blob_paths_json(raw: str) -> list[str]:
+    """Parse job/API JSON array of full bucket object paths. Empty / [] = no filter."""
+    if raw is None or not str(raw).strip():
+        return []
+    data = json.loads(str(raw).strip())
+    if data == []:
+        return []
+    if not isinstance(data, list):
+        raise ValueError("include_blob_paths_json must be a JSON array of strings")
+    out: list[str] = []
+    for i, item in enumerate(data):
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"include_blob_paths_json entry {i} must be a non-empty string")
+        out.append(_normalize_blob_name(item))
+    return out
+
+
+def _relative_under_prefix(blob_name: str, gcs_prefix: str) -> str:
+    if not blob_name.startswith(gcs_prefix):
+        raise ValueError(
+            f"Blob {blob_name!r} must start with gcs_source_prefix {gcs_prefix!r} "
+            "(pass full object paths as stored in GCS)."
+        )
+    rel = blob_name[len(gcs_prefix) :].lstrip("/")
+    if not rel:
+        raise ValueError(f"Blob path equals prefix only (no file): {blob_name!r}")
+    return rel
 
 
 def _assert_safe_volume_segment(label: str, value: str) -> str:
@@ -113,15 +155,22 @@ def _write_success_marker(
     bucket_name: str,
     gcs_prefix: str,
     layout: str,
+    copy_mode: str,
+    include_blob_paths: Optional[list[str]] = None,
 ) -> None:
-    payload = {
+    payload: dict = {
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "object_count": copied,
         "gcs_uri": f"gs://{bucket_name}/{gcs_prefix}",
         "gcs_prefix": gcs_prefix,
         "marker": SUCCESS_FILENAME,
         "layout": layout,
+        "copy_mode": copy_mode,
     }
+    if include_blob_paths:
+        payload["source_blobs"] = include_blob_paths[:50]
+        if len(include_blob_paths) > 50:
+            payload["source_blobs_truncated"] = True
     marker_path = os.path.join(landing_dir, SUCCESS_FILENAME)
     marker_local = _dest_local_under_landing(landing_dir, SUCCESS_FILENAME)
     with open(marker_local, "w", encoding="utf-8") as f:
@@ -190,30 +239,68 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
         else os.path.join(bronze_root, bronze_sub)
     )
     landing_local = local_fs_path(landing_dir)
-    if args.clear_destination and os.path.isdir(landing_local):
+    include_paths = _parse_include_blob_paths_json(args.include_blob_paths_json)
+    selective = bool(include_paths)
+
+    if selective and args.clear_destination:
+        logging.warning(
+            "clear_destination=true ignored when include_blob_paths_json is non-empty "
+            "(selective copy; other mirrored files are preserved)."
+        )
+
+    if args.clear_destination and not selective and os.path.isdir(landing_local):
         shutil.rmtree(landing_local)
         logging.info("Removed previous mirror at %s (clear_destination=true)", landing_dir)
     os.makedirs(landing_local, exist_ok=True)
 
     strict = _resolve_strict_mode(args.strict_mode)
     client = storage.Client()
+    bucket = client.bucket(args.gcp_bucket_name)
 
     copied = 0
     try:
-        for blob in _iter_blobs(
-            client, args.gcp_bucket_name, gcs_prefix, args.max_objects
-        ):
-            if not blob.name.startswith(gcs_prefix):
-                continue
-            relative = blob.name[len(gcs_prefix) :].lstrip("/")
-            if not relative:
-                continue
-            dest_local = _dest_local_under_landing(landing_dir, relative)
-            blob.download_to_filename(dest_local)
-            copied += 1
-            logging.info(
-                "Copied gs://%s/%s -> %s", args.gcp_bucket_name, blob.name, dest_local
-            )
+        if selective:
+            if len(include_paths) > args.max_objects:
+                raise ValueError(
+                    f"{len(include_paths)} blobs in include_blob_paths_json exceeds "
+                    f"--max_objects ({args.max_objects})"
+                )
+            for blob_name in include_paths:
+                relative = _relative_under_prefix(blob_name, gcs_prefix)
+                dest_local = _dest_local_under_landing(landing_dir, relative)
+                blob = bucket.blob(blob_name)
+                try:
+                    blob.download_to_filename(dest_local)
+                except NotFound as e:
+                    raise FileNotFoundError(
+                        "Validated object not found in GCS (check include_blob_paths_json): "
+                        f"gs://{args.gcp_bucket_name}/{blob_name}"
+                    ) from e
+                copied += 1
+                logging.info(
+                    "Copied gs://%s/%s -> %s",
+                    args.gcp_bucket_name,
+                    blob_name,
+                    dest_local,
+                )
+        else:
+            for blob in _iter_blobs(
+                client, args.gcp_bucket_name, gcs_prefix, args.max_objects
+            ):
+                if not blob.name.startswith(gcs_prefix):
+                    continue
+                relative = blob.name[len(gcs_prefix) :].lstrip("/")
+                if not relative:
+                    continue
+                dest_local = _dest_local_under_landing(landing_dir, relative)
+                blob.download_to_filename(dest_local)
+                copied += 1
+                logging.info(
+                    "Copied gs://%s/%s -> %s",
+                    args.gcp_bucket_name,
+                    blob.name,
+                    dest_local,
+                )
     except Forbidden as e:
         msg = (
             f"GCS 403 listing or reading gs://{args.gcp_bucket_name}/{gcs_prefix}: {e}"
@@ -244,6 +331,8 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
         bucket_name=args.gcp_bucket_name,
         gcs_prefix=gcs_prefix,
         layout="run_scoped_subdir" if sync_id else "flat_mirror",
+        copy_mode="selective" if selective else "full_prefix",
+        include_blob_paths=include_paths if selective else None,
     )
 
     dbutils = get_dbutils()
@@ -296,8 +385,18 @@ def parse_arguments() -> argparse.Namespace:
         choices=("true", "false"),
         default="true",
         help=(
-            "If true, delete the landing directory before copy so bronze matches GCS "
-            "(no orphan files). Default: true. Set false to only overwrite matching paths."
+            "If true, delete the landing directory before a full-prefix copy so bronze "
+            "matches GCS (no orphan files). Ignored when include_blob_paths_json is "
+            "non-empty. Default: true."
+        ),
+    )
+    parser.add_argument(
+        "--include_blob_paths_json",
+        default="[]",
+        help=(
+            'JSON array of full GCS object paths to copy, e.g. ["validated/a.csv"]. '
+            "Each path must start with gcs_source_prefix. Use [] (default) to copy all "
+            "objects under the prefix."
         ),
     )
     parser.add_argument(
@@ -342,6 +441,12 @@ def main() -> None:
                 "zero objects copied."
             )
         gcs_prefix = _normalize_gcs_prefix(args.gcs_source_prefix) or "validated/"
+        inc = _parse_include_blob_paths_json(args.include_blob_paths_json)
+        if inc:
+            raise FileNotFoundError(
+                "No objects were copied from include_blob_paths_json "
+                f"(check paths exist under gs://{args.gcp_bucket_name}/): {inc!r}"
+            )
         raise FileNotFoundError(
             f"No files found under gs://{args.gcp_bucket_name}/{gcs_prefix}"
         )
