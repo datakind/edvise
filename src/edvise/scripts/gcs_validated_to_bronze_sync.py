@@ -2,14 +2,16 @@
 Copy objects from an institution GCS prefix (default: validated/) into the
 institution's Unity Catalog managed bronze_volume for downstream Databricks work.
 
-Default layout is a single canonical mirror (no per-run subfolder): files land under
-``bronze_volume/<bronze_subdir>/`` mirroring keys under the GCS prefix. Optional
-``--sync_run_id`` adds one extra subfolder when you explicitly want run-scoped copies.
+Files are **added or overwritten** under ``bronze_volume/<bronze_subdir>/`` (default
+``gcs_uploads``). Existing objects in that folder are never deleted by this job.
 
-Optional ``--include_blob_paths_json`` (JSON array of full object paths, e.g.
-``["validated/foo.csv"]``) copies **only** those objects from the current upload /
-validation batch. When that list is non-empty, full-prefix listing is skipped and
-``clear_destination`` is ignored so other files already mirrored are not deleted.
+Optional ``--sync_run_id`` adds one extra path segment when you want run-scoped
+folders.
+
+Optional ``--include_blob_paths_json`` (JSON array of full GCS object paths, e.g.
+``["validated/foo.csv"]``) copies **only** those objects from the current validation
+batch. When non-empty, prefix listing is skipped. When empty (``[]``), all objects
+under ``gcs_source_prefix`` are copied (same additive behavior; no deletes).
 
 Intended to run as a single-task Databricks job (see pipelines/pdp/resources).
 """
@@ -21,7 +23,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import sys
 from datetime import datetime, timezone
 from typing import Iterator, Literal, Optional, Tuple
@@ -154,7 +155,7 @@ def _write_success_marker(
     copied: int,
     bucket_name: str,
     gcs_prefix: str,
-    layout: str,
+    storage_layout: str,
     copy_mode: str,
     include_blob_paths: Optional[list[str]] = None,
 ) -> None:
@@ -164,7 +165,7 @@ def _write_success_marker(
         "gcs_uri": f"gs://{bucket_name}/{gcs_prefix}",
         "gcs_prefix": gcs_prefix,
         "marker": SUCCESS_FILENAME,
-        "layout": layout,
+        "storage_layout": storage_layout,
         "copy_mode": copy_mode,
     }
     if include_blob_paths:
@@ -242,15 +243,6 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
     include_paths = _parse_include_blob_paths_json(args.include_blob_paths_json)
     selective = bool(include_paths)
 
-    if selective and args.clear_destination:
-        logging.warning(
-            "clear_destination=true ignored when include_blob_paths_json is non-empty "
-            "(selective copy; other mirrored files are preserved)."
-        )
-
-    if args.clear_destination and not selective and os.path.isdir(landing_local):
-        shutil.rmtree(landing_local)
-        logging.info("Removed previous mirror at %s (clear_destination=true)", landing_dir)
     os.makedirs(landing_local, exist_ok=True)
 
     strict = _resolve_strict_mode(args.strict_mode)
@@ -330,8 +322,8 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
         copied=copied,
         bucket_name=args.gcp_bucket_name,
         gcs_prefix=gcs_prefix,
-        layout="run_scoped_subdir" if sync_id else "flat_mirror",
-        copy_mode="selective" if selective else "full_prefix",
+        storage_layout="run_scoped" if sync_id else "flat",
+        copy_mode="selective" if selective else "all_under_prefix",
         include_blob_paths=include_paths if selective else None,
     )
 
@@ -347,7 +339,7 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Copy GCS objects under a prefix into the institution bronze_volume "
-            "(default prefix: validated/)."
+            "(additive: overwrite matching paths only; never delete existing files)."
         )
     )
     parser.add_argument("--DB_workspace", required=True, help="Unity Catalog catalog name")
@@ -366,8 +358,7 @@ def parse_arguments() -> argparse.Namespace:
         default="",
         help=(
             "Optional single path segment under bronze_subdir (e.g. job run id). "
-            "Leave empty (default) to mirror into bronze_subdir only — one canonical "
-            "folder for notebooks."
+            "Leave empty (default) to land files directly under bronze_subdir."
         ),
     )
     parser.add_argument(
@@ -377,18 +368,8 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--bronze_subdir",
-        default="validated_mirror",
-        help="Directory under bronze_volume for the mirror (default: validated_mirror)",
-    )
-    parser.add_argument(
-        "--clear_destination",
-        choices=("true", "false"),
-        default="true",
-        help=(
-            "If true, delete the landing directory before a full-prefix copy so bronze "
-            "matches GCS (no orphan files). Ignored when include_blob_paths_json is "
-            "non-empty. Default: true."
-        ),
+        default="gcs_uploads",
+        help="Directory under bronze_volume for uploaded copies (default: gcs_uploads)",
     )
     parser.add_argument(
         "--include_blob_paths_json",
@@ -396,7 +377,7 @@ def parse_arguments() -> argparse.Namespace:
         help=(
             'JSON array of full GCS object paths to copy, e.g. ["validated/a.csv"]. '
             "Each path must start with gcs_source_prefix. Use [] (default) to copy all "
-            "objects under the prefix."
+            "objects under the prefix (still additive; no deletes)."
         ),
     )
     parser.add_argument(
@@ -425,7 +406,6 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     args = parse_arguments()
     args.require_at_least_one_file = args.require_at_least_one_file == "true"
-    args.clear_destination = args.clear_destination == "true"
 
     copied, swallowed = sync_validated_to_bronze(args)
 

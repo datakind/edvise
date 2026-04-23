@@ -5,7 +5,7 @@ resources:
       webhook_notifications:
         on_failure:
           - id: ${var.inference_slack_webhook_id}
-      # One writer per institution landing path; avoid concurrent rmtree/copy races.
+      # One writer per institution landing path; avoid concurrent overwrites on same keys.
       max_concurrent_runs: 1
       tasks:
         - task_key: sync_validated_to_bronze
@@ -31,8 +31,6 @@ resources:
               - "{{job.parameters.require_at_least_one_file}}"
               - --strict_mode
               - "{{job.parameters.strict_mode}}"
-              - --clear_destination
-              - "{{job.parameters.clear_destination}}"
               - --include_blob_paths_json
               - "{{job.parameters.include_blob_paths_json}}"
           job_cluster_key: edvise-validated-bronze-sync-cluster
@@ -68,22 +66,20 @@ resources:
           default: ${var.databricks_institution_name}
         - name: gcp_bucket_name
           default: ""
-        # Empty = mirror flat under bronze_subdir (canonical path for notebooks).
+        # Empty = files land directly under bronze_subdir (default gcs_uploads).
         - name: sync_run_id
           default: ""
         - name: gcs_source_prefix
           default: validated/
         - name: bronze_subdir
-          default: validated_mirror
-        - name: clear_destination
-          default: "true"
+          default: gcs_uploads
         - name: max_objects
           default: "1000"
         - name: require_at_least_one_file
           default: "true"
         - name: strict_mode
           default: auto
-        # JSON array of full object paths, e.g. ["validated/file.csv"]. [] = copy whole prefix.
+        # JSON array of full object paths, e.g. ["validated/file.csv"]. [] = all under prefix.
         - name: include_blob_paths_json
           default: "[]"
       permissions:
