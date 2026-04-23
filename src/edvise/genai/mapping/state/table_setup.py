@@ -30,7 +30,7 @@ def _rename_legacy_pipeline_run_id_column(spark: Any, table_fqn: str) -> None:
         LOGGER.debug("Skipped pipeline_run_id -> onboard_run_id rename for %s", table_fqn)
 
 
-def create_state_tables(catalog: str) -> None:
+def create_state_tables(catalog: str, spark: Any | None = None) -> None:
     """
     Create the ``genai_mapping`` schema and all state tables if they do not exist.
 
@@ -39,11 +39,14 @@ def create_state_tables(catalog: str) -> None:
     * ``pipeline_runs`` — top-level run tracking
     * ``pipeline_phases`` — phase transition audit log
     * ``hitl_reviews`` — HITL artifact path + review status
+
+    Pass ``spark`` when the caller already holds the active session (e.g. tests that
+    monkeypatch :func:`edvise.genai.mapping.state._sql.get_spark_session`).
     """
     if not (catalog and str(catalog).strip()):
         raise ValueError("catalog must be non-empty")
 
-    spark: Any = get_spark_session()
+    spark = spark if spark is not None else get_spark_session()
     if spark is None:
         raise RuntimeError("No active Spark session; run on Databricks with Spark available")
 

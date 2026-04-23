@@ -239,6 +239,7 @@ def test_reconcile_stale_emits_merge_and_update(monkeypatch) -> None:
     fake = _FakeSpark()
     fake.set_sql_result_queue([_Result([]), _Result([])])
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    monkeypatch.setattr(pipeline_state, "create_state_tables", lambda *args, **kwargs: None)
     pipeline_state.reconcile_stale_nonterminal_pipeline_runs("c1", "inst1", 10)
     assert len(fake.statements) == 2
     assert "MERGE INTO" in fake.statements[0] and "pipeline_phases" in fake.statements[0]
@@ -278,6 +279,7 @@ def test_update_execute_pipeline_run_status(monkeypatch) -> None:
 def test_bootstrap_execute_run_resumes(monkeypatch) -> None:
     fake = _FakeSpark()
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    monkeypatch.setattr(pipeline_state, "create_state_tables", lambda *args, **kwargs: None)
     ex_row = _Row(
         {
             "execute_run_id": "ex-resume",
@@ -300,6 +302,7 @@ def test_bootstrap_execute_run_resumes(monkeypatch) -> None:
 def test_bootstrap_execute_run_raises_without_complete_onboard(monkeypatch) -> None:
     fake = _FakeSpark()
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    monkeypatch.setattr(pipeline_state, "create_state_tables", lambda *args, **kwargs: None)
     fake.set_sql_result_queue(
         [
             _Result([]),
@@ -315,6 +318,7 @@ def test_bootstrap_execute_run_raises_without_complete_onboard(monkeypatch) -> N
 def test_bootstrap_execute_run_mints(monkeypatch) -> None:
     fake = _FakeSpark()
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    monkeypatch.setattr(pipeline_state, "create_state_tables", lambda *args, **kwargs: None)
     monkeypatch.setattr(pipeline_state, "new_execute_run_id", lambda: "exec-uuid-1")
     onboard_row = _Row(
         {

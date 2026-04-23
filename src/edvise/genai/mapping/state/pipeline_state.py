@@ -23,6 +23,7 @@ from edvise.genai.mapping.state._sql import (
     lit,
     qualified_table,
 )
+from edvise.genai.mapping.state.table_setup import create_state_tables
 
 LOGGER = logging.getLogger(__name__)
 
@@ -502,6 +503,9 @@ def reconcile_stale_nonterminal_pipeline_runs(
         raise ValueError("institution_id must be non-empty")
     if idle_minutes < 1:
         raise ValueError("idle_minutes must be >= 1")
+
+    # Legacy catalogs may predate ``execute_run_id`` / ``onboard_run_id`` renames; align schema first.
+    create_state_tables(c, spark=_spark())
 
     pr = qualified_table(c, PIPELINE_RUNS)
     pp = qualified_table(c, PIPELINE_PHASES)
