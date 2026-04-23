@@ -22,8 +22,8 @@ resources:
               - onboard
               - --resume_from
               - start
-              - --inputs_toml
-              - "{{job.parameters.inputs_toml}}"
+              - --inputs_toml_path
+              - "{{job.parameters.inputs_toml_path}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-genai-mapping-onboard-cluster
@@ -64,8 +64,8 @@ resources:
               - onboard
               - --resume_from
               - gate_1
-              - --inputs_toml
-              - "{{job.parameters.inputs_toml}}"
+              - --inputs_toml_path
+              - "{{job.parameters.inputs_toml_path}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-genai-mapping-onboard-cluster
@@ -88,8 +88,8 @@ resources:
               - start
               - --reference_id
               - "{{job.parameters.reference_id}}"
-              - --inputs_toml
-              - "{{job.parameters.inputs_toml}}"
+              - --inputs_toml_path
+              - "{{job.parameters.inputs_toml_path}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-genai-mapping-onboard-cluster
@@ -112,8 +112,8 @@ resources:
               - gate_2
               - --reference_id
               - "{{job.parameters.reference_id}}"
-              - --inputs_toml
-              - "{{job.parameters.inputs_toml}}"
+              - --inputs_toml_path
+              - "{{job.parameters.inputs_toml_path}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-genai-mapping-onboard-cluster
@@ -145,8 +145,8 @@ resources:
           default: ""
         - name: catalog
           default: ${var.DB_workspace}
-        - name: inputs_toml
-          default: ""
+        - name: inputs_toml_path
+          default: "inputs/inputs.toml"
         - name: reference_id
           default: ""
         - name: db_run_id

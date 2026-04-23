@@ -15,6 +15,7 @@ from edvise.configs.genai import (
     bronze_volume_path_for_institution,
     ia_inputs_toml_under_bronze,
     resolve_genai_data_path,
+    resolve_genai_inputs_toml_path,
 )
 from edvise.genai.mapping.shared.pipeline_artifacts import resolve_pipeline_version
 from edvise.dataio.read import from_toml_file
@@ -115,6 +116,36 @@ def test_bronze_volume_path_for_institution_with_catalog() -> None:
 def test_ia_inputs_toml_under_bronze() -> None:
     assert ia_inputs_toml_under_bronze("synthetic_univ_beta", catalog="my_cat") == (
         "/Volumes/my_cat/synthetic_univ_beta_bronze/bronze_volume/genai_mapping/inputs/inputs.toml"
+    )
+
+
+def test_resolve_genai_inputs_toml_path_default_matches_legacy() -> None:
+    assert resolve_genai_inputs_toml_path(
+        "synthetic_univ_beta", catalog="my_cat", inputs_toml_path=None
+    ) == ia_inputs_toml_under_bronze("synthetic_univ_beta", catalog="my_cat")
+    assert resolve_genai_inputs_toml_path(
+        "synthetic_univ_beta", catalog="my_cat", inputs_toml_path="  "
+    ) == ia_inputs_toml_under_bronze("synthetic_univ_beta", catalog="my_cat")
+
+
+def test_resolve_genai_inputs_toml_path_relative_under_genai_mapping() -> None:
+    assert resolve_genai_inputs_toml_path(
+        "jjc", catalog="dev_sst_02", inputs_toml_path="inputs/inputs.toml"
+    ) == (
+        "/Volumes/dev_sst_02/jjc_bronze/bronze_volume/genai_mapping/inputs/inputs.toml"
+    )
+    assert resolve_genai_inputs_toml_path(
+        "jjc", catalog="dev_sst_02", inputs_toml_path="custom/foo.toml"
+    ) == (
+        "/Volumes/dev_sst_02/jjc_bronze/bronze_volume/genai_mapping/custom/foo.toml"
+    )
+
+
+def test_resolve_genai_inputs_toml_path_absolute_unchanged() -> None:
+    abs_path = "/Volumes/other_cat/other_bronze/bronze_volume/genai_mapping/inputs/inputs.toml"
+    assert (
+        resolve_genai_inputs_toml_path("jjc", catalog="dev_sst_02", inputs_toml_path=abs_path)
+        == abs_path
     )
 
 

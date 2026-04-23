@@ -16,7 +16,9 @@ from edvise.genai.mapping.state.pipeline_state import (
     register_hitl_artifacts,
     resolve_hitl,
     resolve_onboard_run_id,
+    update_execute_pipeline_run_input_file_paths,
     update_execute_pipeline_run_status,
+    update_onboard_pipeline_run_input_file_paths,
     update_pipeline_run_status,
 )
 from edvise.genai.mapping.state.table_setup import create_state_tables
@@ -36,6 +38,8 @@ __all__ = [
     "register_hitl_artifacts",
     "resolve_hitl",
     "resolve_onboard_run_id",
+    "update_execute_pipeline_run_input_file_paths",
     "update_execute_pipeline_run_status",
+    "update_onboard_pipeline_run_input_file_paths",
     "update_pipeline_run_status",
 ]

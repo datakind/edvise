@@ -57,6 +57,14 @@ def _sql_db_run_id(db_run_id: str | None) -> str:
     return lit(s)
 
 
+def _sql_input_file_paths(input_file_paths_json: str | None) -> str:
+    """SQL expression for ``input_file_paths`` (JSON text); NULL when unset or blank."""
+    s = (input_file_paths_json or "").strip()
+    if not s:
+        return "NULL"
+    return lit(s)
+
+
 def _row_to_plain_dict(row: Any) -> dict[str, Any]:
     """Coerce a Spark Row to JSON-friendly scalar dict (timestamps as ISO strings)."""
     d: dict[str, Any] = row.asDict() if hasattr(row, "asDict") else {}
@@ -71,6 +79,7 @@ def create_pipeline_run(
     institution_id: str,
     onboard_run_id: str,
     db_run_id: str | None = None,
+    input_file_paths_json: str | None = None,
 ) -> None:
     """
     Insert a new row into ``pipeline_runs`` with status ``running``.
@@ -89,10 +98,17 @@ def create_pipeline_run(
 
     t = qualified_table(c, PIPELINE_RUNS)
     db_sql = _sql_db_run_id(db_run_id)
+    ifp_sql = _sql_input_file_paths(input_file_paths_json)
+    if ifp_sql == "NULL":
+        ifp_col = ""
+        ifp_val = ""
+    else:
+        ifp_col = ", input_file_paths"
+        ifp_val = f", {ifp_sql}"
     q = f"""
     INSERT INTO {t} (
       institution_id, onboard_run_id, `catalog`, status, db_run_id, execute_run_id,
-      created_at, updated_at
+      created_at, updated_at{ifp_col}
     )
     VALUES (
       {lit(inst)},
@@ -102,7 +118,7 @@ def create_pipeline_run(
       {db_sql},
       NULL,
       current_timestamp(),
-      current_timestamp()
+      current_timestamp(){ifp_val}
     )
     """
     _spark().sql(q)
@@ -160,6 +176,64 @@ def update_pipeline_run_status(
         s.institution_id, s.onboard_run_id, s.ccat, s.status, s.db_run_id, NULL,
         current_timestamp(), current_timestamp()
       )
+    """
+    _spark().sql(q)
+
+
+def update_onboard_pipeline_run_input_file_paths(
+    catalog: str,
+    institution_id: str,
+    onboard_run_id: str,
+    input_file_paths_json: str,
+) -> None:
+    """
+    Set ``input_file_paths`` (JSON text) on the **onboard** row
+    (``execute_run_id`` IS NULL) for audit of raw inputs consumed.
+    """
+    c = str(catalog).strip()
+    inst = str(institution_id).strip()
+    rid = str(onboard_run_id).strip()
+    raw = (input_file_paths_json or "").strip()
+    if not inst or not rid or not raw:
+        raise ValueError("institution_id, onboard_run_id, and input_file_paths_json must be non-empty")
+
+    t = qualified_table(c, PIPELINE_RUNS)
+    q = f"""
+    UPDATE {t}
+    SET
+      input_file_paths = {_sql_input_file_paths(raw)},
+      updated_at = current_timestamp()
+    WHERE institution_id = {lit(inst)}
+      AND onboard_run_id = {lit(rid)}
+      AND `catalog` = {lit(c)}
+      AND execute_run_id IS NULL
+    """
+    _spark().sql(q)
+
+
+def update_execute_pipeline_run_input_file_paths(
+    catalog: str,
+    institution_id: str,
+    execute_run_id: str,
+    input_file_paths_json: str,
+) -> None:
+    """Set ``input_file_paths`` on the execute-mode row keyed by ``execute_run_id``."""
+    c = str(catalog).strip()
+    inst = str(institution_id).strip()
+    ex = str(execute_run_id).strip()
+    raw = (input_file_paths_json or "").strip()
+    if not inst or not ex or not raw:
+        raise ValueError("institution_id, execute_run_id, and input_file_paths_json must be non-empty")
+
+    t = qualified_table(c, PIPELINE_RUNS)
+    q = f"""
+    UPDATE {t}
+    SET
+      input_file_paths = {_sql_input_file_paths(raw)},
+      updated_at = current_timestamp()
+    WHERE institution_id = {lit(inst)}
+      AND `catalog` = {lit(c)}
+      AND execute_run_id = {lit(ex)}
     """
     _spark().sql(q)
 

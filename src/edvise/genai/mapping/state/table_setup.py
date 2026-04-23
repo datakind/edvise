@@ -63,6 +63,7 @@ def create_state_tables(catalog: str) -> None:
           status STRING,
           db_run_id STRING,
           execute_run_id STRING,
+          input_file_paths STRING,
           created_at TIMESTAMP,
           updated_at TIMESTAMP
         ) USING DELTA
@@ -71,6 +72,7 @@ def create_state_tables(catalog: str) -> None:
     # Existing deployments created before ``db_run_id`` / ``execute_run_id`` — add idempotently.
     spark.sql(f"ALTER TABLE {pr} ADD COLUMN IF NOT EXISTS db_run_id STRING")
     spark.sql(f"ALTER TABLE {pr} ADD COLUMN IF NOT EXISTS execute_run_id STRING")
+    spark.sql(f"ALTER TABLE {pr} ADD COLUMN IF NOT EXISTS input_file_paths STRING")
     spark.sql(
         f"""
         CREATE TABLE IF NOT EXISTS {pp} (

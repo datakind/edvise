@@ -20,8 +20,8 @@ resources:
               - "{{job.parameters.catalog}}"
               - --mode
               - execute
-              - --inputs_toml
-              - "{{job.parameters.inputs_toml}}"
+              - --inputs_toml_path
+              - "{{job.parameters.inputs_toml_path}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-genai-mapping-execute-cluster
@@ -60,8 +60,8 @@ resources:
               - "{{job.parameters.catalog}}"
               - --mode
               - execute
-              - --inputs_toml
-              - "{{job.parameters.inputs_toml}}"
+              - --inputs_toml_path
+              - "{{job.parameters.inputs_toml_path}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-genai-mapping-execute-cluster
@@ -93,8 +93,8 @@ resources:
           default: ""
         - name: catalog
           default: ${var.DB_workspace}
-        - name: inputs_toml
-          default: ""
+        - name: inputs_toml_path
+          default: "inputs/inputs.toml"
         - name: db_run_id
           default: "{{job.run_id}}"
 

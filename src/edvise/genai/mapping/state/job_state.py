@@ -81,7 +81,14 @@ def after_ia_onboard_start(
     )
 
 
-def on_ia_onboard_begin(catalog: str, onboard_run_id: str, *, resume_from: str) -> None:
+def on_ia_onboard_begin(
+    catalog: str,
+    onboard_run_id: str,
+    *,
+    resume_from: str,
+    institution_id: str | None = None,
+    input_file_paths_json: str | None = None,
+) -> None:
     if resume_from == "start":
         _state_safe(
             "ia_start running",
@@ -99,6 +106,19 @@ def on_ia_onboard_begin(catalog: str, onboard_run_id: str, *, resume_from: str) 
             onboard_run_id,
             PHASE_IA_GATE_1,
             "running",
+        )
+    if (
+        resume_from == "start"
+        and (institution_id or "").strip()
+        and (input_file_paths_json or "").strip()
+    ):
+        _state_safe(
+            "pipeline_runs input_file_paths (IA onboard begin)",
+            pipeline_state.update_onboard_pipeline_run_input_file_paths,
+            catalog,
+            str(institution_id).strip(),
+            onboard_run_id,
+            str(input_file_paths_json).strip(),
         )
 
 
@@ -175,6 +195,7 @@ def ensure_ia_run_row(
     *,
     create_run: bool,
     db_run_id: str | None = None,
+    input_file_paths_json: str | None = None,
 ) -> None:
     if not create_run:
         return
@@ -185,6 +206,7 @@ def ensure_ia_run_row(
         institution_id,
         onboard_run_id,
         db_run_id,
+        input_file_paths_json,
     )
 
 
@@ -192,7 +214,12 @@ def ensure_ia_run_row(
 
 
 def on_sma_onboard_begin(
-    catalog: str, onboard_run_id: str, *, resume_from: str
+    catalog: str,
+    onboard_run_id: str,
+    *,
+    resume_from: str,
+    institution_id: str | None = None,
+    input_file_paths_json: str | None = None,
 ) -> None:
     if resume_from == "start":
         _state_safe(
@@ -211,6 +238,19 @@ def on_sma_onboard_begin(
             onboard_run_id,
             PHASE_SMA_GATE_1,
             "running",
+        )
+    if (
+        resume_from == "start"
+        and (institution_id or "").strip()
+        and (input_file_paths_json or "").strip()
+    ):
+        _state_safe(
+            "pipeline_runs input_file_paths (SMA onboard)",
+            pipeline_state.update_onboard_pipeline_run_input_file_paths,
+            catalog,
+            str(institution_id).strip(),
+            onboard_run_id,
+            str(input_file_paths_json).strip(),
         )
 
 

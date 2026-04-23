@@ -67,16 +67,45 @@ def silver_genai_mapping_root(institution_id: str, *, catalog: str) -> str:
     return f"{silver_volume_path_for_institution(institution_id, catalog=catalog)}/genai_mapping"
 
 
+def resolve_genai_inputs_toml_path(
+    institution_id: str,
+    *,
+    catalog: str,
+    inputs_toml_path: Optional[str] = None,
+) -> str:
+    """
+    Resolve the absolute path to IdentityAgent ``inputs.toml`` on UC volumes.
+
+    * If ``inputs_toml_path`` is missing or blank: ``…/bronze_volume/genai_mapping/inputs/inputs.toml``
+      (same as the historical default).
+    * If ``inputs_toml_path`` is absolute after :meth:`pathlib.Path.expanduser` (e.g. ``/Volumes/…``):
+      returned unchanged (full-path override).
+    * Otherwise ``inputs_toml_path`` is treated as **relative to**
+      ``/Volumes/{catalog}/{institution_id}_bronze/bronze_volume/genai_mapping/``,
+      matching PDP-style job parameters (cf. ``training_inputs/{{config_file_name}}`` under bronze).
+
+    ``catalog`` must be the UC workspace catalog (non-empty).
+    """
+    base = Path(bronze_volume_path_for_institution(institution_id, catalog=catalog)) / "genai_mapping"
+    raw = (inputs_toml_path or "").strip()
+    if not raw:
+        return str(base / "inputs" / "inputs.toml")
+    expanded = Path(raw).expanduser()
+    if expanded.is_absolute():
+        return str(expanded)
+    return str(base / raw.lstrip("/"))
+
+
 def ia_inputs_toml_under_bronze(institution_id: str, *, catalog: str = "") -> str:
     """
     Default IdentityAgent ``inputs.toml`` path on the institution bronze volume.
 
-    Layout: ``<bronze_volume_path_for_institution>/genai_mapping/inputs/inputs.toml``.
+    Same as :func:`resolve_genai_inputs_toml_path` with no relative segment (default file under
+    ``genai_mapping/inputs/``).
 
     ``catalog`` must be the UC workspace catalog (non-empty); see :func:`bronze_volume_path_for_institution`.
     """
-    base = Path(bronze_volume_path_for_institution(institution_id, catalog=catalog))
-    return str(base / "genai_mapping" / "inputs" / "inputs.toml")
+    return resolve_genai_inputs_toml_path(institution_id, catalog=catalog, inputs_toml_path=None)
 
 
 def resolve_genai_data_path(bronze_volumes_path: Optional[str], file_path: str) -> str:

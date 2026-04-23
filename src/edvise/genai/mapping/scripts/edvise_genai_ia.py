@@ -6,10 +6,8 @@ Usage (Databricks job parameters):
     --catalog           dev_sst_02
     --mode              onboard | execute
     --resume_from       start | gate_1  (onboard only)
-    --inputs_toml       Path to per-school ``inputs.toml`` (Unity Catalog volume path).
-                        If omitted or empty, uses default under
-                        ``/Volumes/<catalog>/<id>_bronze/bronze_volume/genai_mapping/inputs/``
-                        (see ``ia_inputs_toml_under_bronze``; ``--catalog`` sets ``<catalog>``).
+    --inputs_toml_path  Relative to ``…/bronze_volume/genai_mapping/`` or absolute ``/Volumes/…``.
+                        If omitted or empty, uses ``inputs/inputs.toml`` (requires ``--catalog``).
 
 On Databricks, onboard mode best-effort updates ``{catalog}.genai_mapping`` pipeline state
 (see :mod:`edvise.genai.mapping.state.job_state`); table setup and Spark are required.
@@ -556,7 +554,7 @@ def run(
     execute_run_id: str | None = None,
     artifacts_onboard_run_id: str | None = None,
     resume_from: str = "start",
-    inputs_toml: str | None = None,
+    inputs_toml_path: str | None = None,
     db_run_id: str | None = None,
 ):
     if mode == "onboard":
@@ -604,21 +602,22 @@ def run(
         wrap_llm_complete_with_retries,
     )
 
-    raw_inputs = (inputs_toml or "").strip()
-    if raw_inputs:
-        institution_inputs_toml = Path(raw_inputs).expanduser()
-    else:
-        institution_inputs_toml = Path(
-            configs.genai.ia_inputs_toml_under_bronze(institution_id, catalog=catalog)
+    institution_inputs_toml = Path(
+        configs.genai.resolve_genai_inputs_toml_path(
+            institution_id,
+            catalog=catalog,
+            inputs_toml_path=(inputs_toml_path or "").strip() or None,
         )
+    )
     if not institution_inputs_toml.is_file():
-        default_bronze = configs.genai.ia_inputs_toml_under_bronze(
-            institution_id, catalog=catalog
+        default_hint = configs.genai.resolve_genai_inputs_toml_path(
+            institution_id, catalog=catalog, inputs_toml_path=None
         )
         raise FileNotFoundError(
             f"IdentityAgent inputs.toml not found: {institution_inputs_toml}. "
-            "Pass --inputs_toml with a full /Volumes/... path, or place the file at "
-            f"{default_bronze!r}."
+            "Pass --inputs_toml_path relative to genai_mapping on bronze (e.g. inputs/inputs.toml), "
+            "a full /Volumes/... path, or place the file at "
+            f"{default_hint!r}."
         )
     LOGGER.info("Loading IA school config from %s", institution_inputs_toml)
     _ia = dataio.read.read_config(
@@ -627,9 +626,36 @@ def run(
     )
     school_config = _ia.to_school_mapping_config(uc_catalog=catalog)
 
+    from edvise.configs.genai import resolve_genai_data_path
+
+    input_file_paths: dict[str, list[str]] = {
+        ds_name: [
+            str(resolve_genai_data_path(school_config.bronze_volumes_path, f))
+            for f in dc.files
+        ]
+        for ds_name, dc in school_config.datasets.items()
+    }
+    input_file_paths_json = json.dumps(input_file_paths)
+
     if mode == "execute":
-        run_execute(institution_id, paths, school_config)
         from edvise.genai.mapping.state import pipeline_state as _pipeline_state
+
+        try:
+            _pipeline_state.update_execute_pipeline_run_input_file_paths(
+                catalog,
+                institution_id,
+                str(execute_run_id).strip(),
+                input_file_paths_json,
+            )
+        except Exception as e:  # noqa: BLE001
+            LOGGER.warning(
+                "Could not stamp input_file_paths on execute pipeline_runs: catalog=%s execute_run_id=%s (%s)",
+                catalog,
+                execute_run_id,
+                e,
+            )
+
+        run_execute(institution_id, paths, school_config)
 
         try:
             _pipeline_state.update_execute_pipeline_run_status(
@@ -657,9 +683,14 @@ def run(
             onboard_run_id,
             create_run=(resume_from == "start"),
             db_run_id=db_run_id,
+            input_file_paths_json=input_file_paths_json,
         )
         _pipeline_job_state.on_ia_onboard_begin(
-            catalog, onboard_run_id, resume_from=resume_from
+            catalog,
+            onboard_run_id,
+            resume_from=resume_from,
+            institution_id=institution_id,
+            input_file_paths_json=input_file_paths_json,
         )
 
         # LLM client only needed for onboard
@@ -710,12 +741,11 @@ if __name__ == "__main__":
     parser.add_argument("--mode", required=True, choices=["onboard", "execute"])
     parser.add_argument("--resume_from", default="start", choices=["start", "gate_1"])
     parser.add_argument(
-        "--inputs_toml",
+        "--inputs_toml_path",
         default="",
         help=(
-            "Path to inputs.toml (e.g. under /Volumes/<catalog>/<id>_bronze/bronze_volume/...). "
-            "If omitted or empty, uses the default under that institution bronze volume "
-            "(requires --catalog)."
+            "Relative to …/bronze_volume/genai_mapping/ on the institution bronze volume, "
+            "or an absolute /Volumes/... path. Empty uses inputs/inputs.toml (requires --catalog)."
         ),
     )
     parser.add_argument(
@@ -769,7 +799,7 @@ if __name__ == "__main__":
             execute_run_id=_execute_run_id,
             artifacts_onboard_run_id=_artifacts_onboard,
             resume_from=args.resume_from,
-            inputs_toml=args.inputs_toml or None,
+            inputs_toml_path=(args.inputs_toml_path or "").strip() or None,
             db_run_id=_db_run_id,
         )
     except BaseException:

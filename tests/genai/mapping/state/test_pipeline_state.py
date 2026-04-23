@@ -87,6 +87,44 @@ def test_create_pipeline_run_sql_db_run_id(monkeypatch) -> None:
     assert "'job-999'" in q
 
 
+def test_create_pipeline_run_sql_input_file_paths(monkeypatch) -> None:
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    pipeline_state.create_pipeline_run(
+        "c1",
+        "inst1",
+        "run-1",
+        input_file_paths_json='{"cohort":["/Volumes/x/a.csv"]}',
+    )
+    q = fake.statements[0]
+    assert "input_file_paths" in q
+    assert "cohort" in q
+
+
+def test_update_onboard_pipeline_run_input_file_paths(monkeypatch) -> None:
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    pipeline_state.update_onboard_pipeline_run_input_file_paths(
+        "c1", "inst1", "run-1", '{"a":["/p"]}'
+    )
+    q = fake.statements[0]
+    assert "UPDATE" in q
+    assert "execute_run_id IS NULL" in q
+    assert "input_file_paths" in q
+
+
+def test_update_execute_pipeline_run_input_file_paths(monkeypatch) -> None:
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    pipeline_state.update_execute_pipeline_run_input_file_paths(
+        "c1", "inst1", "ex-1", '{"a":["/p"]}'
+    )
+    q = fake.statements[0]
+    assert "UPDATE" in q
+    assert "execute_run_id" in q
+    assert "input_file_paths" in q
+
+
 def test_get_latest_converts_row(monkeypatch) -> None:
     fake = _FakeSpark()
     d = {
@@ -136,6 +174,7 @@ def test_table_setup_runs_ddl(monkeypatch) -> None:
     assert "db_run_id" in pr_create
     assert any("ALTER TABLE" in s and "db_run_id" in s for s in fake.statements)
     assert any("ALTER TABLE" in s and "execute_run_id" in s for s in fake.statements)
+    assert any("ALTER TABLE" in s and "input_file_paths" in s for s in fake.statements)
     assert sum("RENAME COLUMN pipeline_run_id TO onboard_run_id" in s for s in fake.statements) == 3
     assert any("hitl_reviews" in s for s in fake.statements)
 
