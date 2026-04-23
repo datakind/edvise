@@ -40,11 +40,15 @@ from edvise.dataio.read import (
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.data_audit.eda import (
+    check_bias_variables,
     compute_gateway_course_ids_and_cips,
     log_high_null_columns,
     log_record_drops,
+    log_top_majors,
     log_terms,
     log_misjoined_records,
+    print_credential_and_enrollment_types_and_intensities,
+    print_retention,
 )
 
 from edvise.utils.update_config import update_key_courses_and_cips
@@ -189,6 +193,11 @@ class PDPDataAuditTask:
             spark_session=self.spark,
         )
 
+        # Cohort exploratory EDA (pre-standardize; not part of column transforms)
+        print_credential_and_enrollment_types_and_intensities(df_cohort_validated)
+        print_retention(df_cohort_validated)
+        log_top_majors(df_cohort_validated)
+        check_bias_variables(df_cohort_validated)
         # Log high null columns
         log_high_null_columns(df_cohort_validated)
         # Standardize cohort data
