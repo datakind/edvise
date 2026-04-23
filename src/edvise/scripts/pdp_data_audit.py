@@ -349,12 +349,8 @@ class PDPDataAuditTask:
                 )
 
         # Log changes before and after pre-processing
-        log_record_drops(
-            df_cohort_raw,
-            df_cohort_standardized,
-            df_course_raw,
-            df_course_standardized,
-        )
+        log_record_drops("Cohort", df_cohort_raw, df_cohort_standardized)
+        log_record_drops("Course", df_course_raw, df_course_standardized)
 
         LOGGER.info(
             " Listing grouped cohort year and terms and academic year and terms for *standardized* cohort and course data files: "

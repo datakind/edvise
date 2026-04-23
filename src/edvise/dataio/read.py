@@ -145,7 +145,7 @@ def read_parquet(
     return df
 
 
-def _read_and_prepare_pdp_data(
+def _read_and_prepare_data(
     *,
     file_path: t.Optional[str],
     table_path: t.Optional[str],
@@ -153,7 +153,7 @@ def _read_and_prepare_pdp_data(
     schema: t.Optional[type[pda.DataFrameModel]],
     converter_func: t.Optional[t.Callable[[pd.DataFrame], pd.DataFrame]],
     dttm_format: t.Optional[str] = None,
-    string_cols_to_uppercase: t.Sequence[str] = (),
+    string_cols_to_uppercase: t.Optional[t.Sequence[str]] = None,
     datetime_cols: t.Sequence[str] = (),
     null_replacements: dict[str, str | list[str]] = {},
     bool_cols: t.Sequence[str] = (),
@@ -174,8 +174,8 @@ def _read_and_prepare_pdp_data(
 
     transformations: dict[str, pd.Series] = {}
 
-    # String -> uppercase
-    for col in string_cols_to_uppercase:
+    # String -> uppercase (``None`` = skip; PDP ``read_raw_pdp_*`` passes column tuples)
+    for col in string_cols_to_uppercase or ():
         transformations[col] = utils.data_cleaning.uppercase_string_values(df, col=col)
 
     # Parse datetime
@@ -244,7 +244,7 @@ def read_raw_pdp_course_data(
         - https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_csv.html
         - https://pandera.readthedocs.io/en/stable/reference/generated/pandera.api.dataframe.model.DataFrameModel.html#pandera.api.dataframe.model.DataFrameModel.validate
     """
-    return _read_and_prepare_pdp_data(
+    return _read_and_prepare_data(
         table_path=table_path,
         file_path=file_path,
         schema=schema,
@@ -299,7 +299,7 @@ def read_raw_pdp_cohort_data(
         - https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_csv.html
         - https://pandera.readthedocs.io/en/stable/reference/generated/pandera.api.dataframe.model.DataFrameModel.html#pandera.api.dataframe.model.DataFrameModel.validate
     """
-    return _read_and_prepare_pdp_data(
+    return _read_and_prepare_data(
         table_path=table_path,
         file_path=file_path,
         schema=schema,
@@ -314,31 +314,100 @@ def read_raw_pdp_cohort_data(
         **kwargs,  # type: ignore
     )
 
-
-def read_raw_es_cohort_data(df: pd.DataFrame) -> pd.DataFrame:
+def read_raw_es_course_data(
+    *,
+    table_path: t.Optional[str] = None,
+    file_path: t.Optional[str] = None,
+    schema: t.Optional[type[pda.DataFrameModel]] = None,
+    dttm_format: str = "%Y%m%d",
+    spark_session: t.Optional[pyspark.sql.SparkSession] = None,
+    **kwargs: object,
+) -> pd.DataFrame:
     """
-    Prepare raw Edvise learner (student/cohort) data.
+    Read raw Edvise course data from table (in Unity Catalog) or file (in CSV format),
+    and parse+validate it via ``schema`` .
 
     Args:
-        df: Raw learner-level dataframe.
+        table_path
+        file_path
+        schema: "DataFrameModel", such as those specified in :mod:`schemas` ,
+            used to parse and validate the raw data. If None, parsing/validation
+            is skipped, and the raw data is returned as-is.
+        dttm_format: Datetime format for "Course Begin/End Date" columns.
+        converter_func: N/A
+        spark_session: Required if reading data from ``table_path`` , and optional
+            if reading data from ``file_path`` .
+        **kwargs: Additional arguments passed as-is into underlying read func.
+            Note that raw data is always read in as "string" dtype, then coerced
+            into the correct dtypes using ``schema`` .
 
-    Returns:
-        The same dataframe (passthrough for now).
+    See Also:
+        - :func:`read_data_from_csv_file()`
+        - :func:`read_data_from_delta_table()`
+
+    References:
+        - https://docs.google.com/spreadsheets/d/1zOLv2VOIhDpy6f_2KdOJqLOgA9GNhxW8ZUwneMPF-8A/edit?gid=925042166#gid=925042166
+        - https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_csv.html
+        - https://pandera.readthedocs.io/en/stable/reference/generated/pandera.api.dataframe.model.DataFrameModel.html#pandera.api.dataframe.model.DataFrameModel.validate
     """
-    return df
+    return _read_and_prepare_data(
+        table_path=table_path,
+        file_path=file_path,
+        schema=schema,
+        spark_session=spark_session,
+        dttm_format=dttm_format,
+        datetime_cols=("course_begin_date", "course_end_date"),
+        **kwargs,  # type: ignore
+    )
 
 
-def read_raw_es_course_data(df: pd.DataFrame) -> pd.DataFrame:
+def read_raw_es_cohort_data(
+    *,
+    table_path: t.Optional[str] = None,
+    file_path: t.Optional[str] = None,
+    schema: t.Optional[type[pda.DataFrameModel]] = None,
+    dttm_format: str = "%Y%m%d",
+    spark_session: t.Optional[pyspark.sql.SparkSession] = None,
+    **kwargs: object,
+) -> pd.DataFrame:
     """
-    Prepare raw Edvise course data.
+    Read raw ES learner (cohort) data from table (in Unity Catalog) or file (in CSV format),
+    and parse+validate it via ``schema`` .
 
     Args:
-        df: Raw course-level dataframe.
+        table_path
+        file_path
+        schema: "DataFrameModel", such as those specified in :mod:`schemas` ,
+            used to parse and validate the raw data. If None, parsing/validation
+            is skipped, and the raw data is returned as-is.
+        converter_func: N/A
+            to handle bigger problems, such as duplicate ids or borked columns.
+        spark_session: Required if reading data from ``table_path`` , and optional
+            if reading data from ``file_path`` .
+        **kwargs: Additional arguments passed as-is into underlying read func.
+            Note that raw data is always read in as "string" dtype, then coerced
+            into the correct dtypes using ``schema`` .
 
-    Returns:
-        The same dataframe (passthrough for now).
+    See Also:
+        - :func:`read_data_from_csv_file()`
+        - :func:`read_data_from_delta_table()`
+
+    References:
+        - https://docs.google.com/spreadsheets/d/1zOLv2VOIhDpy6f_2KdOJqLOgA9GNhxW8ZUwneMPF-8A/edit?gid=925042166#gid=925042166
+        - https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_csv.html
+        - https://pandera.readthedocs.io/en/stable/reference/generated/pandera.api.dataframe.model.DataFrameModel.html#pandera.api.dataframe.model.DataFrameModel.validate
     """
-    return df
+    return _read_and_prepare_data(
+        table_path=table_path,
+        file_path=file_path,
+        schema=schema,
+        spark_session=spark_session,
+        dttm_format=dttm_format,
+        datetime_cols=("matriculation_date", "bachelors_degree_conferral_date", "associates_degree_conferral_date", 
+        "certificate1_date", "certificate2_date", "certificate3_date"),
+        **kwargs,  # type: ignore
+    )
+
 
 
 def _maybe_convert_maybe_validate_data(

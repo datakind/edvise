@@ -510,34 +510,24 @@ def compute_gateway_course_ids_and_cips(
 
 
 def log_record_drops(
-    df_cohort_before: pd.DataFrame,
-    df_cohort_after: pd.DataFrame,
-    df_course_before: pd.DataFrame,
-    df_course_after: pd.DataFrame,
+    df_name: str,
+    df_before: pd.DataFrame,
+    df_after: pd.DataFrame,
 ) -> None:
     """
     Logs row counts before and after processing for cohort and course data.
     Also logs the number of dropped students and dropped course records.
     """
-    cohort_before = len(df_cohort_before)
-    cohort_after = len(df_cohort_after)
-    cohort_dropped = cohort_before - cohort_after
-
-    course_before = len(df_course_before)
-    course_after = len(df_course_after)
-    course_dropped = course_before - course_after
+    n_rows_before = len(df_before)
+    n_rows_after = len(df_after)
+    n_rows_dropped = n_rows_before - n_rows_after
 
     LOGGER.info(
-        " Cohort file: %d → %d rows (%d total students dropped) after preprocessing",
-        cohort_before,
-        cohort_after,
-        cohort_dropped,
-    )
-    LOGGER.info(
-        " Course file: %d → %d rows (%d total course records dropped) after preprocessing",
-        course_before,
-        course_after,
-        course_dropped,
+        " %s file: %d → %d rows (%d total records dropped) after preprocessing",
+        df_name,
+        n_rows_before,
+        n_rows_after,
+        n_rows_dropped,
     )
 
 

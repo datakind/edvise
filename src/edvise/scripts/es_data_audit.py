@@ -22,7 +22,7 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.data_audit.schemas import RawPDPCohortDataSchema, RawPDPCourseDataSchema
+from edvise.data_audit.schemas import RawEdviseStudentDataSchema, RawEdviseCourseDataSchema
 from edvise.data_audit.standardizer import (
     ESCohortStandardizer,
     ESCourseStandardizer,
@@ -37,13 +37,11 @@ from edvise.dataio.read import (
 from edvise.dataio.write import write_parquet
 from edvise.configs.es import ESProjectConfig
 from edvise.data_audit.eda import (
-    compute_gateway_course_ids_and_cips,
     log_record_drops,
     log_terms,
     log_misjoined_records,
 )
 
-from edvise.utils.update_config import update_key_courses_and_cips
 from edvise.utils.data_cleaning import (
     remove_pre_cohort_courses,
     log_pre_cohort_courses,
@@ -189,9 +187,9 @@ class ESDataAuditTask:
         LOGGER.info(" Reading and schema validating cohort data:")
         for fmt in dttm_formats:
             try:
-                df_cohort_validated = read_raw_pdp_cohort_data(
+                df_cohort_validated = read_raw_es_cohort_data(
                     file_path=cohort_dataset_raw_path,
-                    schema=RawPDPCohortDataSchema,
+                    schema=RawEdviseStudentDataSchema,
                     dttm_format=fmt,
                     converter_func=self.cohort_converter_func,
                     spark_session=self.spark,
@@ -210,7 +208,7 @@ class ESDataAuditTask:
 
         LOGGER.info(" Cohort data standardized.")
 
-        student_id_col = getattr(self.cfg, "student_id_col", None) or "student_id"
+        student_id_col = getattr(self.cfg, "student_id_col", None) or "learner_id"
 
         # --- Load COURSE dataset - with schema ---
 
@@ -221,9 +219,9 @@ class ESDataAuditTask:
 
         for fmt in dttm_formats:
             try:
-                df_course_validated = read_raw_pdp_course_data(
+                df_course_validated = read_raw_es_course_data(
                     file_path=course_dataset_raw_path,
-                    schema=RawPDPCourseDataSchema,
+                    schema=RawEdviseCourseDataSchema,
                     dttm_format=fmt,
                     converter_func=self.course_converter_func,
                     spark_session=self.spark,
@@ -237,21 +235,22 @@ class ESDataAuditTask:
             )
         LOGGER.info(" Course data read and schema validated, duplicates handled.")
 
-        # TODO: can't tell if this is working?
-        try:
-            include_pre_cohort = self.cfg.preprocessing.include_pre_cohort_courses
-        except AttributeError:
-            raise AttributeError(
-                "Config error: 'include_pre_cohort_courses' is missing. "
-                "Please set it explicitly in the config file under 'preprocessing' based on your school's preference (for default models, this should always be false)."
-            )
+        # TODO: Need to merge cohort and course to do this as we dont have cohort 
+        # in course data for ES
+        # try:
+        #     include_pre_cohort = self.cfg.preprocessing.include_pre_cohort_courses
+        # except AttributeError:
+        #     raise AttributeError(
+        #         "Config error: 'include_pre_cohort_courses' is missing. "
+        #         "Please set it explicitly in the config file under 'preprocessing' based on your school's preference (for default models, this should always be false)."
+        #     )
 
-        if not include_pre_cohort:
-            df_course_validated = remove_pre_cohort_courses(
-                df_course_validated, self.cfg.student_id_col
-            )
-        else:
-            log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
+        # if not include_pre_cohort:
+        #     df_course_validated = remove_pre_cohort_courses(
+        #         df_course_validated, self.cfg.student_id_col
+        #     )
+        # else:
+        #     log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
         # Standardize course data
         LOGGER.info(" Standardizing course data:")
@@ -273,104 +272,14 @@ class ESDataAuditTask:
             )
 
         LOGGER.info(
-            " Validated that cohort and course files both have a 'student_id' column with no nulls."
+            f'Validated that cohort and course files both have a {student_id_col} column with no nulls.'
         )
 
-        # Log Math/English gateway courses and add to config
-        ids, cips, has_upper_level, lower_ids, lower_cips = (
-            compute_gateway_course_ids_and_cips(df_course_standardized)
-        )
-
-        # Auto-populate only at training time to avoid training-inference skew
-        if self.args.job_type == "training":
-            LOGGER.info(
-                "Existing config course IDs and subject areas: %s | %s",
-                self.cfg.preprocessing.features.key_course_ids,
-                self.cfg.preprocessing.features.key_course_subject_areas,
-            )
-            if has_upper_level:
-                if (
-                    lower_ids
-                    and lower_cips
-                    and len(lower_ids) <= 10
-                    and len(lower_cips) <= 10
-                ):
-                    LOGGER.warning(
-                        " Upper-level gateway courses detected (first digit of course number >=2). "
-                        "Auto-populating config with lower-level (first digit <2) gateway courses and CIP codes only. "
-                        "Please confirm with the school and adjust if needed."
-                    )
-                    update_key_courses_and_cips(
-                        self.args.config_file_path,
-                        key_course_ids=lower_ids,
-                        key_course_subject_areas=lower_cips,
-                    )
-
-                    existing_ids = set(
-                        self.cfg.preprocessing.features.key_course_ids or []
-                    )
-                    existing_cips = set(
-                        self.cfg.preprocessing.features.key_course_subject_areas or []
-                    )
-
-                    self.cfg.preprocessing.features.key_course_ids = list(
-                        existing_ids.union(lower_ids)
-                    )
-                    self.cfg.preprocessing.features.key_course_subject_areas = list(
-                        existing_cips.union(lower_cips)
-                    )
-
-                    LOGGER.info(
-                        "New config course IDs and subject areas: %s | %s",
-                        self.cfg.preprocessing.features.key_course_ids,
-                        self.cfg.preprocessing.features.key_course_subject_areas,
-                    )
-                else:
-                    LOGGER.warning(
-                        " Skipping auto-populating of config: upper-level gateways present but no acceptable lower-level set "
-                        "was identified (or too many) to auto-populate. Please check in with the school and update config manually."
-                    )
-
-            elif len(ids) <= 25 and len(cips) <= 25:
-                LOGGER.info(
-                    " Auto-populating config with below course IDs and CIP codes: change if necessary"
-                )
-                update_key_courses_and_cips(
-                    self.args.config_file_path,
-                    key_course_ids=ids,
-                    key_course_subject_areas=cips,
-                )
-
-                existing_ids = set(self.cfg.preprocessing.features.key_course_ids or [])
-                existing_cips = set(
-                    self.cfg.preprocessing.features.key_course_subject_areas or []
-                )
-
-                self.cfg.preprocessing.features.key_course_ids = list(
-                    existing_ids.union(ids)
-                )
-                self.cfg.preprocessing.features.key_course_subject_areas = list(
-                    existing_cips.union(cips)
-                )
-
-                LOGGER.info(
-                    "New config course IDs and subject areas: %s | %s",
-                    self.cfg.preprocessing.features.key_course_ids,
-                    self.cfg.preprocessing.features.key_course_subject_areas,
-                )
-            else:
-                LOGGER.warning(
-                    " Skipping auto-populating of config due to too many IDs that were identified. "
-                    "Please check in with school and manually update config."
-                )
+        #TODO: Add gateway or developmental flag handling?
 
         # Log changes before and after pre-processing
-        log_record_drops(
-            df_cohort_raw,
-            df_cohort_standardized,
-            df_course_raw,
-            df_course_standardized,
-        )
+        log_record_drops("Cohort", df_cohort_raw, df_cohort_standardized)
+        log_record_drops("Course", df_course_raw, df_course_standardized)
 
         LOGGER.info(
             " Listing grouped entry year/term and academic year/term for *standardized* cohort and course data files: "
@@ -422,27 +331,9 @@ if __name__ == "__main__":
     args = parse_arguments()
     if args.bronze_volume_path:
         sys.path.append(f"{args.bronze_volume_path}/training_inputs")
-    try:
-        converter_func = importlib.import_module("dataio")
-        cohort_converter_func = converter_func.converter_func_cohort
-        LOGGER.info("Running task with custom cohort converter func")
-    except Exception as e:
-        cohort_converter_func = None
-        LOGGER.info("Running task with default cohort converter func")
-        LOGGER.warning(f"Failed to load custom converter functions: {e}")
-    try:
-        converter_func = importlib.import_module("dataio")
-        course_converter_func = converter_func.converter_func_course
-        LOGGER.info("Running task with custom course converter func")
-    except Exception as e:
-        course_converter_func = None
-        LOGGER.info("Running task default course converter func")
-        LOGGER.warning(f"Failed to load custom converter functions: {e}")
 
     task = ESDataAuditTask(
         args,
-        cohort_converter_func=cohort_converter_func,
-        course_converter_func=course_converter_func,
     )
     # Best-effort: infer databricks_institution_name from volume path like:
     # /Volumes/<catalog>/<inst>_silver/silver_volume
