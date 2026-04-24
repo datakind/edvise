@@ -350,26 +350,11 @@ def render_silver_hitl_editor(
     is_ia_grain = is_ia_grain_phase(phase, artifact_type)
     is_ia_term = is_ia_term_phase(phase, artifact_type)
 
-    compact_chrome = is_ia_grain or is_ia_term or is_sma
-    if not compact_chrome:
-        st.caption(
-            f"**artifact_type** in UC: ``{artifact_type}`` — **onboard_run_id** (this review block): "
-            f"``{onboard_run_id}`` (in standard onboard layout it appears in the path under "
-            f"``…/genai_mapping/runs/onboard/{{onboard_run_id}}/``)."
-        )
-        st.markdown(
-            "**HITL JSON (silver volume)** — paths match ``edvise_genai_ia`` / ``edvise_genai_sma`` "
-            "``resolve_run_paths``: ``{silver}/genai_mapping/runs/…/identity_agent/`` (IA) or "
-            "``…/schema_mapping_agent/`` (SMA) with the HITL filenames. "
-            "The ``onboard_run_id`` is the run folder in ``runs/onboard/…/``. "
-            "Default file path = ``hitl_reviews.artifact_path`` (full string already includes that segment)."
-        )
     sk = f"{_safe_key(onboard_run_id)}-{_safe_key(phase)}-{_safe_key(artifact_type)}"
-    pkey = f"path-{sk}"
-    silver_path = (st.session_state.get(pkey, default_artifact_path) or default_artifact_path or "").strip()
+    # Same session key as ``st.text_input(..., key=f"path-{sk}")`` in ``render_one_hitl_group`` (Path details).
+    silver_path = (st.session_state.get(f"path-{sk}") or default_artifact_path or "").strip()
 
     if not silver_path:
-        st.caption("Set the file path to load HITL JSON (typically the registered `artifact_path`).")
         return
     if not silver_path.startswith("/Volumes/"):
         st.warning("Path should be an absolute Unity Catalog volume path starting with ``/Volumes/``.")

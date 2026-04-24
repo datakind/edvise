@@ -368,8 +368,7 @@ def render_sma_hitl_cards(
                 )
             else:
                 run_line = (
-                    f"No unresolved items — browsing {len(nav_ixs)} item(s). "
-                    "UC gate is finalized; this app does not allow JSON changes."
+                    f"No unresolved items — browsing {len(nav_ixs)} item(s) with options. "
                 )
         if run_line:
             render_sma_status_meta_line(prebuilt_line_html=run_line)

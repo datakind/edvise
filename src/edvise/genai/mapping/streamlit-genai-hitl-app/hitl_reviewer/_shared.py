@@ -329,10 +329,5 @@ def render_action_bar(
                 ):
                     if reject_fn is not None:
                         reject_fn()
-    if show_reject_item and success_silver_filename is not None:
-        if uc_group_pending:
-            st.caption("Approve saves your selections and marks this review complete.")
-        else:
-            st.caption(
-                "Read-only: UC gate is not pending; silver JSON cannot be changed from this app."
-            )
+    if show_reject_item and success_silver_filename is not None and uc_group_pending:
+        st.caption("Approve saves your selections and marks this review complete.")
