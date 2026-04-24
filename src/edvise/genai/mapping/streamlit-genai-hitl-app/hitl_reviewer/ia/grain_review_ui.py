@@ -12,12 +12,17 @@ from __future__ import annotations
 import html
 import json
 import re
+from collections.abc import Callable
 from typing import Any
 
 import pandas as pd
 import streamlit as st
 
 from edvise.utils.institution_naming import format_institution_display_name
+from hitl_reviewer.hitl_json_batch_commit import (
+    persist_ia_grain_hitl_from_session,
+    try_approve_uc_after_json_write,
+)
 from hitl_reviewer.silver_hitl_paths import set_item_choice, set_item_reviewer_note
 from hitl_reviewer.unity_volume_files import read_unity_file_text, write_unity_file_text
 
@@ -231,6 +236,8 @@ def render_ia_grain_hitl_cards(
     sk: str,
     onboard_run_id: str,
     pending_df: pd.DataFrame | None,
+    uc_group_pending: bool = False,
+    approve_uc_if_complete: Callable[[], None] | None = None,
 ) -> None:
     inject_ia_grain_css_once()
     idxs = grain_item_indices(items)
@@ -367,29 +374,40 @@ def render_ia_grain_hitl_cards(
             height=120,
         )
 
-    c_ap, c_rj = st.columns(2)
-    with c_ap:
-        if st.button("Approve selection", key=f"ia-grain-approve-{sk}-{i}", type="primary"):
-            if reentry_sel == "generate_hook":
-                note = (st.session_state.get(custom_key) or "").strip()
-                if not note:
-                    st.error("Custom handling description is required before approving this option.")
-                else:
-                    _persist_grain_item(
-                        silver_path=silver_path,
-                        item_index=i,
-                        choice_1based=sel_j + 1,
-                        reviewer_note=note,
-                        onboard_run_id=str(onboard_run_id),
-                    )
+    c_save, c_rj = st.columns([3, 1])
+    with c_save:
+        if st.button(
+            "Save JSON & approve UC",
+            key=f"ia-grain-save-all-{sk}",
+            type="primary",
+            help=(
+                "Writes **all** grain ``choice`` values from this screen (and any already saved on "
+                "disk) in one file write, then approves the UC ``hitl_reviews`` row when it is pending."
+            ),
+        ):
+            ok, err = persist_ia_grain_hitl_from_session(silver_path=silver_path, sk=sk)
+            if not ok:
+                st.error(err)
             else:
-                _persist_grain_item(
-                    silver_path=silver_path,
-                    item_index=i,
-                    choice_1based=sel_j + 1,
-                    reviewer_note=None,
-                    onboard_run_id=str(onboard_run_id),
+                invalidate_ia_grain_run_cache(onboard_run_id)
+                ap_ok, ap_err = try_approve_uc_after_json_write(
+                    uc_group_pending=uc_group_pending,
+                    approve_uc_if_complete=approve_uc_if_complete,
                 )
+                if not ap_ok:
+                    st.warning(
+                        f"Silver JSON saved, but UC approve failed (fix and retry or use SQL): {ap_err}"
+                    )
+                elif uc_group_pending and approve_uc_if_complete is not None:
+                    st.success("Saved ``identity_grain_hitl.json`` and approved the UC row.")
+                    st.toast("JSON + UC complete.", icon="✅")
+                elif not uc_group_pending:
+                    st.success(
+                        "Saved ``identity_grain_hitl.json``. UC row was not **pending**, so UC approve was skipped."
+                    )
+                else:
+                    st.success("Saved ``identity_grain_hitl.json``.")
+                st.rerun()
     with c_rj:
         if st.button("Reject item", key=f"ia-grain-reject-{sk}-{i}", type="secondary"):
             _persist_grain_reject(
@@ -399,35 +417,9 @@ def render_ia_grain_hitl_cards(
             )
 
     st.caption(
-        "Updates ``hitl_reviews`` only — use the **Approve** / **Reject** below this review "
-        "block for Unity Catalog when the JSON is ready."
+        "Use **Prev** / **Next** to visit every grain item, pick an option on each, then click "
+        "**Save JSON & approve UC** once (single file write + UC approve when pending)."
     )
-
-
-def _persist_grain_item(
-    *,
-    silver_path: str,
-    item_index: int,
-    choice_1based: int,
-    reviewer_note: str | None,
-    onboard_run_id: str,
-) -> None:
-    try:
-        fresh = json.loads(read_unity_file_text(silver_path))
-    except Exception as e:  # noqa: BLE001
-        st.error(f"Re-read failed: {e}")
-        return
-    try:
-        set_item_choice(fresh, item_index, choice_1based)
-        set_item_reviewer_note(fresh, item_index, reviewer_note)
-        out = json.dumps(fresh, indent=2, ensure_ascii=False) + "\n"
-        write_unity_file_text(silver_path, out, overwrite=True)
-    except Exception as e:  # noqa: BLE001
-        st.error(f"Write failed: {e}")
-    else:
-        st.success("Saved selection to silver volume.")
-        invalidate_ia_grain_run_cache(onboard_run_id)
-        st.rerun()
 
 
 def _persist_grain_reject(*, silver_path: str, item_index: int, onboard_run_id: str) -> None:

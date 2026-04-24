@@ -1,12 +1,11 @@
 """
 GenAI mapping — Unity Catalog ``hitl_reviews`` reviewer UI.
 
-HITL **choice** values are edited in JSON on the **silver** volume under
-``{silver_genai_mapping_root}/runs/...``, matching
-``edvise_genai_ia.resolve_run_paths`` (IA grain/term HITL under ``…/identity_agent/``) and
-``edvise_genai_sma.resolve_run_paths`` (``schema_mapping_agent`` cohort/course HITL manifests).
-The file path is the one stored in ``hitl_reviews.artifact_path`` (and overridable in the UI).
-Unity Catalog *approval* is still ``{catalog}.genai_mapping.hitl_reviews``.
+HITL **choice** values live in JSON on the **silver** volume under
+``{silver_genai_mapping_root}/runs/...`` (see ``edvise_genai_ia`` / ``edvise_genai_sma``
+``resolve_run_paths``). Paths come from ``hitl_reviews.artifact_path``. **IA grain** and **SMA**
+manifests use **Save JSON & approve UC** (shared batch write + optional UC approve). Other phases
+keep **Approve UC** / **Reject UC** under each run group. Unity Catalog: ``{catalog}.genai_mapping.hitl_reviews``.
 
 **Local run** (repo root: ``uv pip install -e .`` or regenerate ``requirements.txt`` with
 ``python generate_requirements.py`` so ``edvise`` is installable; then from this directory,
@@ -35,14 +34,23 @@ import os
 import re
 import pandas as pd
 import streamlit as st
-from databricks import sql as databricks_sql  # type: ignore[attr-defined]
-from databricks.sdk.core import Config
 
 from edvise.utils.institution_naming import format_institution_display_name
+from hitl_reviewer.databricks_uc_sql import (
+    approve_or_reject,
+    get_warehouse_id,
+    hitl_reviews_fqn,
+    pipeline_runs_fqn,
+    run_query,
+    sql_str,
+)
+from hitl_reviewer.hitl_json_batch_commit import (
+    persist_hitl_choice_radios_from_session,
+    try_approve_uc_after_json_write,
+)
 from hitl_reviewer.ia.grain_review_ui import is_ia_grain_phase, render_ia_grain_hitl_cards
 from hitl_reviewer.silver_hitl_paths import (
     artifact_path_contains_onboard_run_id,
-    set_item_choice,
 )
 from hitl_reviewer.sma.enriched_schema_contract import (
     enriched_schema_contract_path_from_manifest,
@@ -51,57 +59,6 @@ from hitl_reviewer.sma.enriched_schema_contract import (
     silver_relative_path,
 )
 from hitl_reviewer.unity_volume_files import read_unity_file_text, write_unity_file_text
-
-
-def _sql_str(value: str) -> str:
-    return "'" + str(value).replace("'", "''") + "'"
-
-
-def _sql_ident(part: str) -> str:
-    if not str(part).strip():
-        raise ValueError("SQL identifier must be non-empty")
-    return "`" + str(part).replace("`", "``") + "`"
-
-
-def hitl_reviews_fqn(catalog: str) -> str:
-    c = str(catalog).strip()
-    return f"{_sql_ident(c)}.{_sql_ident('genai_mapping')}.{_sql_ident('hitl_reviews')}"
-
-
-def pipeline_runs_fqn(catalog: str) -> str:
-    c = str(catalog).strip()
-    return f"{_sql_ident(c)}.{_sql_ident('genai_mapping')}.{_sql_ident('pipeline_runs')}"
-
-
-def get_warehouse_id() -> str:
-    warehouse_id = (os.getenv("DATABRICKS_WAREHOUSE_ID") or "").strip()
-    if not warehouse_id:
-        raise RuntimeError(
-            "DATABRICKS_WAREHOUSE_ID must be set (SQL warehouse used to query UC)."
-        )
-    return warehouse_id
-
-
-def _connection():
-    cfg = Config()
-    return databricks_sql.connect(
-        server_hostname=cfg.host,
-        http_path=f"/sql/1.0/warehouses/{get_warehouse_id()}",
-        credentials_provider=lambda: cfg.authenticate,
-    )
-
-
-def run_query(query: str) -> pd.DataFrame:
-    with _connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(query)
-            return cursor.fetchall_arrow().to_pandas()
-
-
-def execute_statement(sql: str) -> None:
-    with _connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(sql)
 
 
 def load_hitl_rows(
@@ -115,13 +72,13 @@ def load_hitl_rows(
     t_h = hitl_reviews_fqn(catalog)
     t_p = pipeline_runs_fqn(catalog)
     where: list[str] = []
-    c_sql = _sql_str(str(catalog).strip())
+    c_sql = sql_str(str(catalog).strip())
     if (onboard_run_id or "").strip():
-        where.append(f"h.onboard_run_id = {_sql_str(onboard_run_id.strip())}")
+        where.append(f"h.onboard_run_id = {sql_str(onboard_run_id.strip())}")
     if (phase or "").strip():
-        where.append(f"h.phase = {_sql_str(phase.strip())}")
+        where.append(f"h.phase = {sql_str(phase.strip())}")
     if (status or "").strip():
-        where.append(f"h.status = {_sql_str(status.strip())}")
+        where.append(f"h.status = {sql_str(status.strip())}")
     w = f"WHERE {' AND '.join(where)}" if where else ""
     lim = max(1, min(int(limit), 5000))
     q = f"""
@@ -397,11 +354,13 @@ def _render_sma_source_column_panel(
 
 def render_silver_hitl_editor(
     *,
+    catalog: str,
     default_artifact_path: str,
     onboard_run_id: str,
     phase: str,
     artifact_type: str,
     pending_df: pd.DataFrame | None = None,
+    uc_group_pending: bool = False,
 ) -> None:
     is_sma = _is_sma_hitl_context(phase, artifact_type)
     is_ia_grain = is_ia_grain_phase(phase, artifact_type)
@@ -476,6 +435,15 @@ def render_silver_hitl_editor(
             sk=sk,
             onboard_run_id=str(onboard_run_id),
             pending_df=pending_df,
+            uc_group_pending=uc_group_pending,
+            approve_uc_if_complete=lambda: approve_or_reject(
+                catalog,
+                str(onboard_run_id),
+                str(phase),
+                str(artifact_type),
+                st.session_state["reviewer"],
+                "approved",
+            ),
         )
         return
 
@@ -617,30 +585,31 @@ def render_silver_hitl_editor(
                 format_func=lambda j, opts=options: _hitl_option_label(opts, j),
                 key=rk,
             )
+    def _approve_uc() -> None:
+        approve_or_reject(
+            catalog,
+            str(onboard_run_id),
+            str(phase),
+            str(artifact_type),
+            st.session_state["reviewer"],
+            "approved",
+        )
+
     if st.button(
-        "Save JSON to silver volume (writes `choice` for items with options above)",
+        "Save JSON & approve UC",
         key=f"ssave{sk}",
-        type="secondary",
+        type="primary",
+        help="Writes every ``choice`` from the radios into this manifest, then approves the UC row when pending.",
     ):
-        try:
-            fresh = json.loads(read_unity_file_text(silver_path))
-        except Exception as e:  # noqa: BLE001
-            st.error(f"Re-read failed: {e}")
-            return
-        for i in option_item_indices:
-            item = items[i]
-            opts = item.get("options")
-            n = len(opts)  # type: ignore[arg-type]
-            rk = f"sv{sk}item{i}{item.get('item_id', i)}"
-            ix = int(st.session_state.get(rk, _default_choice_index(item, n)))
-            set_item_choice(fresh, i, ix + 1)
-        try:
-            out = json.dumps(fresh, indent=2, ensure_ascii=False) + "\n"
-            write_unity_file_text(silver_path, out, overwrite=True)
-        except Exception as e:  # noqa: BLE001
-            st.error(f"Write failed: {e}")
+        ok, err = persist_hitl_choice_radios_from_session(
+            silver_path=silver_path,
+            sk=sk,
+            option_item_indices=option_item_indices,
+            default_choice_index=_default_choice_index,
+        )
+        if not ok:
+            st.error(err)
         else:
-            st.success("Saved to silver volume.")
             if is_sma:
                 _invalidate_sma_run_pending_cache(str(onboard_run_id))
                 esc_path = enriched_schema_contract_path_from_manifest(
@@ -650,32 +619,18 @@ def render_silver_hitl_editor(
                     ck = f"esc-json-{esc_path}"
                     if ck in st.session_state:
                         del st.session_state[ck]
+            ap_ok, ap_err = try_approve_uc_after_json_write(
+                uc_group_pending=uc_group_pending,
+                approve_uc_if_complete=_approve_uc,
+            )
+            if not ap_ok:
+                st.warning(f"JSON saved, but UC approve failed: {ap_err}")
+            elif uc_group_pending:
+                st.success("Saved manifest JSON and approved the UC row.")
+                st.toast("JSON + UC complete.", icon="✅")
+            else:
+                st.success("Saved manifest JSON. UC was not pending, so UC approve was skipped.")
             st.rerun()
-
-
-def approve_or_reject(
-    catalog: str,
-    onboard_run_id: str,
-    phase: str,
-    artifact_type: str,
-    reviewer: str,
-    decision: str,
-) -> None:
-    if decision not in ("approved", "rejected"):
-        raise ValueError("decision must be approved or rejected")
-    t = hitl_reviews_fqn(catalog)
-    rev_sql = "NULL" if not (reviewer or "").strip() else _sql_str(reviewer.strip())
-    q = f"""
-    UPDATE {t}
-    SET
-      status = {_sql_str(decision)},
-      reviewer = {rev_sql},
-      reviewed_at = current_timestamp()
-    WHERE onboard_run_id = {_sql_str(onboard_run_id)}
-      AND phase = {_sql_str(phase)}
-      AND artifact_type = {_sql_str(artifact_type)}
-    """
-    execute_statement(q)
 
 
 def _default_catalog() -> str:
@@ -699,9 +654,9 @@ def _validate_catalog(catalog: str) -> str:
 st.set_page_config(page_title="GenAI HITL reviews", layout="wide")
 st.title("GenAI mapping — UC HITL reviews")
 st.caption(
-    "Approve or reject in ``hitl_reviews`` by "
-    "``(onboard_run_id, phase, artifact_type)``. Set ``choice`` in HITL JSON on the **silver** "
-    "volume (same path the pipeline registered) when your process requires it."
+    "``hitl_reviews`` tracks UC status by ``(onboard_run_id, phase, artifact_type)``. "
+    "**IA grain** and **SMA manifests** use **Save JSON & approve UC** (one file write + UC approve "
+    "when pending). Use **Reject UC** below when you need to block without approving."
 )
 
 if "reviewer" not in st.session_state:
@@ -791,24 +746,38 @@ if df.empty:
 
 st.subheader("Actions")
 st.caption(
-    "1) For pending groups, set ``choice`` in the HITL JSON on the **silver** path below "
-    "(``artifact_path`` from the run). 2) Approve or Reject in Unity Catalog when ready."
+    "**IA grain** and **SMA** (cohort/course manifest): **Save JSON & approve UC** writes the "
+    "silver JSON and approves the pending UC row. Other HITL JSON using the same radio layout "
+    "uses the same button."
 )
 
 pending = df[df["status"].astype(str).str.lower() == "pending"].copy()
-if pending.empty:
-    st.success("No pending rows in the current result set.")
-    st.stop()
+# Editor must stay available when UC is already approved but JSON still needs edits
+# (e.g. only some IA grain items had "Save choice to JSON" clicked).
+action_df = pending if not pending.empty else df
+if pending.empty and not df.empty:
+    st.warning(
+        "No **pending** ``hitl_reviews`` rows in this filter. The silver JSON editor still "
+        "appears below—use **Save JSON & approve UC** (IA grain) or edit JSON directly. "
+        "Separate **Approve UC** / **Reject UC** controls only show when a row is **pending** again."
+    )
+elif not pending.empty:
+    st.success(f"{len(pending)} pending UC row(s) in the current result set.")
 
 groups = (
-    pending[["onboard_run_id", "phase", "artifact_type"]]
+    action_df[["onboard_run_id", "phase", "artifact_type"]]
     .drop_duplicates()
     .sort_values(["onboard_run_id", "phase", "artifact_type"])
     .itertuples(index=False)
 )
 
 for onboard_run_id, phase, artifact_type in groups:
-    sub = pending[
+    sub = action_df[
+        (action_df["onboard_run_id"] == onboard_run_id)
+        & (action_df["phase"] == phase)
+        & (action_df["artifact_type"] == artifact_type)
+    ]
+    sub_pending = pending[
         (pending["onboard_run_id"] == onboard_run_id)
         & (pending["phase"] == phase)
         & (pending["artifact_type"] == artifact_type)
@@ -838,35 +807,27 @@ for onboard_run_id, phase, artifact_type in groups:
             if len(set(raw_paths)) > 1:
                 st.caption("Several paths are registered; defaulting the editor to the first. Adjust the path field if needed.")
             render_silver_hitl_editor(
+                catalog=catalog,
                 default_artifact_path=default_path,
                 onboard_run_id=str(onboard_run_id),
                 phase=str(phase),
                 artifact_type=str(artifact_type),
-                pending_df=pending,
+                pending_df=pending if not pending.empty else action_df,
+                uc_group_pending=not sub_pending.empty,
             )
         st.divider()
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            if st.button(
-                "Approve",
-                key=f"a-{onboard_run_id}-{phase}-{artifact_type}",
-                type="primary",
-            ):
-                try:
-                    approve_or_reject(
-                        catalog,
-                        str(onboard_run_id),
-                        str(phase),
-                        str(artifact_type),
-                        st.session_state["reviewer"],
-                        "approved",
-                    )
-                    st.toast("Approved.", icon="✅")
-                    st.rerun()
-                except Exception as ex:  # noqa: BLE001
-                    st.error(str(ex))
-        with c2:
-            if st.button("Reject", key=f"r-{onboard_run_id}-{phase}-{artifact_type}"):
+        is_ia_grain_row = is_ia_grain_phase(str(phase), str(artifact_type))
+        is_sma_row = _is_sma_hitl_context(str(phase), str(artifact_type))
+        if sub_pending.empty:
+            st.caption(
+                "``hitl_reviews`` for this group is not **pending**—only silver JSON edits above apply."
+            )
+        elif is_ia_grain_row or is_sma_row:
+            st.caption(
+                "IA / SMA: **Save JSON & approve UC** in the editor approves this pending row. "
+                "Use **Reject UC** only if you intend to block the gate."
+            )
+            if st.button("Reject UC", key=f"r-{onboard_run_id}-{phase}-{artifact_type}"):
                 try:
                     approve_or_reject(
                         catalog,
@@ -876,9 +837,45 @@ for onboard_run_id, phase, artifact_type in groups:
                         st.session_state["reviewer"],
                         "rejected",
                     )
-                    st.toast("Rejected.", icon="⛔")
+                    st.toast("UC row rejected.", icon="⛔")
                     st.rerun()
                 except Exception as ex:  # noqa: BLE001
                     st.error(str(ex))
-        with c3:
-            st.caption("Updates ``hitl_reviews`` only; JSON edits target the silver ``artifact_path`` above.")
+        else:
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if st.button(
+                    "Approve UC",
+                    key=f"a-{onboard_run_id}-{phase}-{artifact_type}",
+                    type="primary",
+                ):
+                    try:
+                        approve_or_reject(
+                            catalog,
+                            str(onboard_run_id),
+                            str(phase),
+                            str(artifact_type),
+                            st.session_state["reviewer"],
+                            "approved",
+                        )
+                        st.toast("UC row approved.", icon="✅")
+                        st.rerun()
+                    except Exception as ex:  # noqa: BLE001
+                        st.error(str(ex))
+            with c2:
+                if st.button("Reject UC", key=f"r-{onboard_run_id}-{phase}-{artifact_type}-sma"):
+                    try:
+                        approve_or_reject(
+                            catalog,
+                            str(onboard_run_id),
+                            str(phase),
+                            str(artifact_type),
+                            st.session_state["reviewer"],
+                            "rejected",
+                        )
+                        st.toast("UC row rejected.", icon="⛔")
+                        st.rerun()
+                    except Exception as ex:  # noqa: BLE001
+                        st.error(str(ex))
+            with c3:
+                st.caption("Updates ``hitl_reviews`` only (not the JSON file).")
