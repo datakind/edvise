@@ -31,16 +31,19 @@ from hitl_reviewer.silver_hitl_paths import artifact_path_contains_onboard_run_i
 from hitl_reviewer.sma.enriched_schema_contract import silver_relative_path
 from hitl_reviewer.unity_volume_files import read_unity_file_text
 
-# Path passed to st.switch_page — relative to app entrypoint (app.py) directory.
-HITL_ITEMS_PAGE = "pages/1_Hitl_Items.py"
+# Paths for ``st.switch_page`` / ``st.page_link`` (relative to ``app.py`` in this app tree).
+HITL_REVIEW_HISTORY_PAGE = "pages/1_Hitl_Review_History.py"
+HITL_ITEMS_PAGE = "pages/2_Hitl_Items.py"
 
-# Sidebar copy (kept in one place for the two Streamlit entrypoints).
-HITL_HOME_SIDEBAR_CAPTION = (
-    "Browse ``hitl_reviews`` with the table filters, then open a run’s HITL JSON and UC actions on the **1_Hitl_Items** page."
+# Sidebar copy for Streamlit page entrypoints.
+HITL_REVIEW_HISTORY_SIDEBAR_CAPTION = (
+    "This table **defaults to ``status = pending``** (work queue). Set **status** to **(any)** or add "
+    "run/phase filters when you need to **search** full history. Use **Open in HITL items page** in this "
+    "sidebar to edit silver JSON and UC for one group."
 )
 HITL_ITEMS_SIDEBAR_CAPTION = (
-    "One ``(onboard_run_id, phase, artifact_type)`` group. Pick a run from the home table, or open a link with "
-    "``catalog``, ``onboard_run_id``, ``phase``, and ``artifact_type`` in the query string."
+    "One ``(onboard_run_id, phase, artifact_type)`` group. Open it from **HITL Review History**, or use a link "
+    "with ``catalog``, ``onboard_run_id``, ``phase``, and ``artifact_type`` in the query string."
 )
 
 # Session state keys for navigating to the HITL items page.
@@ -116,7 +119,9 @@ def init_sidebar_form_state() -> None:
     if "sidebar_f_phase" not in st.session_state:
         st.session_state["sidebar_f_phase"] = ""
     if "sidebar_f_status" not in st.session_state:
-        st.session_state["sidebar_f_status"] = "(any)"
+        # Default the work queue to pending; use "(any)" on the History page when you need to search
+        # approved/rejected or all states.
+        st.session_state["sidebar_f_status"] = "pending"
 
 
 def render_connection_sidebar(

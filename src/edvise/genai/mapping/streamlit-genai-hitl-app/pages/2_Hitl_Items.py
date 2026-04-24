@@ -1,9 +1,10 @@
-"""HITL items / silver JSON and UC actions for a single group — opened from the reviews table or URL."""
+"""HITL items / silver JSON and UC actions for a single group — opened from the review history page or URL."""
 
 from __future__ import annotations
 
 import streamlit as st
 from hitl_reviewer.hitl_streamlit import (
+    HITL_REVIEW_HISTORY_PAGE,
     HITL_ITEMS_SIDEBAR_CAPTION,
     get_nav_from_session_or_url,
     init_reviewer_in_session,
@@ -35,11 +36,12 @@ if not warehouse_ok:
 
 if not (c and o and ph and at):
     st.info(
-        "No review group selected. On the **HITL — reviews table** (home) page, use **Open in HITL items page** "
-        "in the **sidebar** after a row appears, or set query parameters: "
+        "No review group selected. On **HITL Review History**, use **Open in HITL items page** "
+        "in the **sidebar** after rows appear, or set query parameters: "
         "``?catalog=…&onboard_run_id=…&phase=…&artifact_type=…``"
     )
-    st.page_link("app.py", label="HITL reviews table (home)")
+    st.page_link("app.py", label="Home")
+    st.page_link(HITL_REVIEW_HISTORY_PAGE, label="HITL Review History")
     st.stop()
 
 try:
@@ -49,7 +51,8 @@ except Exception as e:  # noqa: BLE001
     st.stop()
 if df.empty:
     st.warning("No ``hitl_reviews`` rows for this group. Check **Unity Catalog** in the **sidebar**.")
-    st.page_link("app.py", label="HITL reviews table (home)")
+    st.page_link("app.py", label="Home")
+    st.page_link(HITL_REVIEW_HISTORY_PAGE, label="HITL Review History")
     st.stop()
 
 st.subheader("Actions")
@@ -64,4 +67,5 @@ render_group_loop(df, catalog=catalog)
 with st.sidebar:
     st.divider()
     st.caption("Navigation")
-    st.page_link("app.py", label="HITL reviews table (home)")
+    st.page_link("app.py", label="Home")
+    st.page_link(HITL_REVIEW_HISTORY_PAGE, label="HITL Review History")
