@@ -21,9 +21,9 @@ def inject_hitl_css() -> None:
         """
 <style>
 /* Constrain review card to readable width */
-section[data-testid="stMainBlockContainer"] > div {
-  max-width: 900px;
-  margin: 0 auto;
+div[data-testid="stVerticalBlockBorderWrapper"],
+div[data-testid="stVerticalBlock"] {
+  max-width: 900px !important;
 }
 
 /* Tighten candidate keys table (full rule — font/padding in one place) */
@@ -70,21 +70,17 @@ div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + * div[data-testid="
   background: rgba(99, 102, 241, 0.12) !important;
 }
 p.hitl-opt-mark { display: block; height: 0; margin: 0 !important; padding: 0 !important; font-size: 0; line-height: 0; overflow: hidden; }
-.hitl-inst { font-size: 1.85rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.35rem 0;
-  letter-spacing: -0.02em; }
-.hitl-qpanel {
-  font-size: 1.2rem; line-height: 1.55; font-weight: 500; margin: 1rem 0 1.25rem 0; padding: 1.1rem 1.25rem;
-  background: rgba(99, 102, 241, 0.07); border: 1px solid rgba(99, 102, 241, 0.18); border-radius: 10px;
-}
-.hitl-qpanel.hitl-ia-qpanel { font-size: 1.05rem; padding: 0.75rem 1rem; margin: 0.6rem 0 0.85rem 0; }
-.hitl-inst.hitl-ia-inst { font-size: 1.5rem; }
-.hitl-meta { font-size: 0.82rem; color: rgba(49, 51, 63, 0.75); margin-bottom: 0.35rem; }
+.hitl-inst { font-size: 1.5rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.25rem 0; letter-spacing: -0.02em; }
+.hitl-qpanel { font-size: 1.05rem; line-height: 1.5; font-weight: 500; margin: 0.6rem 0 0.85rem 0;
+  padding: 0.75rem 1rem; background: rgba(99,102,241,0.07); border: 1px solid rgba(99,102,241,0.18);
+  border-radius: 8px; }
+.hitl-meta { font-size: 0.78rem; color: rgba(49, 51, 63, 0.75); margin-bottom: 0.35rem; }
 .hitl-ctx-block { font-size: 0.95rem; line-height: 1.45; color: rgba(49, 51, 63, 0.92); }
 .hitl-chip-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.25rem; }
-.hitl-chip { display: inline-block; padding: 0.12rem 0.55rem; border-radius: 999px; font-size: 0.78rem;
+.hitl-chip { display: inline-block; padding: 0.08rem 0.45rem; border-radius: 999px; font-size: 0.72rem;
   background: rgba(111, 66, 193, 0.12); border: 1px solid rgba(111, 66, 193, 0.28); }
 .ia-domain-pill {
-  display: inline-block; padding: 0.15rem 0.65rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600;
+  display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
   background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.35); color: rgb(6, 95, 70);
 }
 .ia-uni-good { color: rgb(5, 122, 85); font-weight: 600; }

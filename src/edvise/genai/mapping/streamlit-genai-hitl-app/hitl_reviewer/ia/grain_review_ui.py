@@ -201,135 +201,136 @@ def render_ia_grain_hitl_cards(
     approve_uc_if_complete: Callable[[], None] | None = None,
 ) -> None:
     inject_hitl_css()
-    idxs = grain_item_indices(items)
-    if not idxs:
-        st.warning(
-            "This JSON has no **grain** domain items with options — "
-            "if this is ``identity_term_hitl.json``, open the **term** gate (artifact type ``term``), "
-            "or confirm the path points at ``identity_grain_hitl.json``."
-        )
-        return
+    _col_l, _ = st.columns([6, 1])
+    with _col_l:
+        idxs = grain_item_indices(items)
+        if not idxs:
+            st.warning(
+                "This JSON has no **grain** domain items with options — "
+                "if this is ``identity_term_hitl.json``, open the **term** gate (artifact type ``term``), "
+                "or confirm the path points at ``identity_grain_hitl.json``."
+            )
+            return
 
-    inst_raw = (data.get("institution_id") or "").strip()
-    run_total = ia_grain_run_total_items(pending_df, str(onboard_run_id)) if pending_df is not None else None
-    nav_key = f"ia-grain-nav-{sk}"
-    if nav_key not in st.session_state:
-        st.session_state[nav_key] = 0
-    n_items = len(idxs)
-    cur = max(0, min(int(st.session_state[nav_key]), n_items - 1))
-    st.session_state[nav_key] = cur
-    i = idxs[cur]
-    item = items[i]
-    if not isinstance(item, dict):
-        st.error("Invalid HITL item.")
-        return
+        inst_raw = (data.get("institution_id") or "").strip()
+        run_total = ia_grain_run_total_items(pending_df, str(onboard_run_id)) if pending_df is not None else None
+        nav_key = f"ia-grain-nav-{sk}"
+        if nav_key not in st.session_state:
+            st.session_state[nav_key] = 0
+        n_items = len(idxs)
+        cur = max(0, min(int(st.session_state[nav_key]), n_items - 1))
+        st.session_state[nav_key] = cur
+        i = idxs[cur]
+        item = items[i]
+        if not isinstance(item, dict):
+            st.error("Invalid HITL item.")
+            return
 
-    tbl = str(item.get("table") or "").replace("_", " ").strip().title() or "—"
-    render_hitl_header(
-        inst_raw=inst_raw,
-        format_fn=format_institution_display_name,
-        onboard_run_id=str(onboard_run_id),
-        tbl=tbl,
-        domain_label="Grain",
-        cur=cur,
-        n_items=n_items,
-        run_total=run_total,
-        file_index=i,
-        item_id=item.get("item_id", ""),
-        inst_class="hitl-inst hitl-ia-inst",
-    )
-
-    q = (item.get("hitl_question") or "").strip() or f"Item {i + 1}"
-    st.markdown(
-        f'<div class="hitl-qpanel hitl-ia-qpanel">{html.escape(q)}</div>',
-        unsafe_allow_html=True,
-    )
-
-    hctx = item.get("hitl_context")
-    if isinstance(hctx, dict):
-        _render_candidate_keys_table(hctx)
-        _render_variance_profile(hctx)
-    elif isinstance(hctx, str) and hctx.strip():
-        st.subheader("Context")
-        st.text(hctx.strip())
-    else:
-        st.caption("No structured ``hitl_context`` for this item.")
-
-    options = item.get("options")
-    if not isinstance(options, list):
-        options = []
-    n_opt = len(options)
-    sel_key = f"ia-grain-sel-{sk}-{i}"
-    init_sel_key(sel_key, item.get("choice"), n_opt)
-
-    json_choice = item.get("choice")
-    ia_rec_ix = (
-        0
-        if json_choice is None
-        else max(0, min(int(json_choice) - 1, n_opt - 1))
-    )
-
-    render_option_cards(
-        options=options,
-        sel_key=sel_key,
-        ia_rec_ix=ia_rec_ix,
-        json_choice=json_choice,
-        uc_group_pending=uc_group_pending,
-        key_prefix="ia-grain",
-        sk=sk,
-        file_index=i,
-    )
-
-    sel_j = int(st.session_state[sel_key])
-    sel_opt = options[sel_j] if 0 <= sel_j < len(options) and isinstance(options[sel_j], dict) else {}
-    reentry_sel = str(sel_opt.get("reentry") or "").lower()
-    custom_key = f"ia-grain-custom-{sk}-{i}"
-    if custom_key not in st.session_state:
-        existing = item.get("reviewer_note")
-        st.session_state[custom_key] = str(existing or "") if existing else ""
-
-    if reentry_sel == "generate_hook":
-        st.text_area(
-            "Describe the custom handling you want applied:",
-            key=custom_key,
-            height=120,
-            disabled=not uc_group_pending,
-        )
-
-    render_action_bar(
-        nav_key=nav_key,
-        cur=cur,
-        n_items=n_items,
-        sk=sk,
-        key_prefix="ia-grain",
-        file_index=i,
-        include_prev_next=True,
-        nav_prev_button_key=None,
-        nav_next_button_key=None,
-        primary_button_key=f"ia-grain-save-all-{sk}",
-        primary_button_label="Approve",
-        primary_help=(
-            "Writes **all** grain ``choice`` values from this screen (and any already saved on "
-            "disk) in one file write, then approves the UC ``hitl_reviews`` row when it is pending."
-        ),
-        pre_bar_caption=None,
-        uc_group_pending=uc_group_pending,
-        show_reject_item=True,
-        persist_fn=lambda: persist_ia_grain_hitl_from_session(
-            silver_path=silver_path,
-            sk=sk,
-            allow_silver_write=uc_group_pending,
-        ),
-        reject_fn=lambda: _persist_grain_reject(
-            silver_path=silver_path,
-            item_index=i,
+        tbl = str(item.get("table") or "").replace("_", " ").strip().title() or "—"
+        render_hitl_header(
+            inst_raw=inst_raw,
+            format_fn=format_institution_display_name,
             onboard_run_id=str(onboard_run_id),
-            allow_write=uc_group_pending,
-        ),
-        after_persist_success=lambda: invalidate_ia_grain_run_cache(str(onboard_run_id)),
-        approve_fn=approve_uc_if_complete,
-        success_silver_filename="identity_grain_hitl.json",
-    )
+            tbl=tbl,
+            domain_label="Grain",
+            cur=cur,
+            n_items=n_items,
+            run_total=run_total,
+            file_index=i,
+            item_id=item.get("item_id", ""),
+        )
+
+        q = (item.get("hitl_question") or "").strip() or f"Item {i + 1}"
+        st.markdown(
+            f'<div class="hitl-qpanel">{html.escape(q)}</div>',
+            unsafe_allow_html=True,
+        )
+
+        hctx = item.get("hitl_context")
+        if isinstance(hctx, dict):
+            _render_candidate_keys_table(hctx)
+            _render_variance_profile(hctx)
+        elif isinstance(hctx, str) and hctx.strip():
+            st.subheader("Context")
+            st.text(hctx.strip())
+        else:
+            st.caption("No structured ``hitl_context`` for this item.")
+
+        options = item.get("options")
+        if not isinstance(options, list):
+            options = []
+        n_opt = len(options)
+        sel_key = f"ia-grain-sel-{sk}-{i}"
+        init_sel_key(sel_key, item.get("choice"), n_opt)
+
+        json_choice = item.get("choice")
+        ia_rec_ix = (
+            0
+            if json_choice is None
+            else max(0, min(int(json_choice) - 1, n_opt - 1))
+        )
+
+        render_option_cards(
+            options=options,
+            sel_key=sel_key,
+            ia_rec_ix=ia_rec_ix,
+            json_choice=json_choice,
+            uc_group_pending=uc_group_pending,
+            key_prefix="ia-grain",
+            sk=sk,
+            file_index=i,
+        )
+
+        sel_j = int(st.session_state[sel_key])
+        sel_opt = options[sel_j] if 0 <= sel_j < len(options) and isinstance(options[sel_j], dict) else {}
+        reentry_sel = str(sel_opt.get("reentry") or "").lower()
+        custom_key = f"ia-grain-custom-{sk}-{i}"
+        if custom_key not in st.session_state:
+            existing = item.get("reviewer_note")
+            st.session_state[custom_key] = str(existing or "") if existing else ""
+
+        if reentry_sel == "generate_hook":
+            st.text_area(
+                "Describe the custom handling you want applied:",
+                key=custom_key,
+                height=120,
+                disabled=not uc_group_pending,
+            )
+
+        render_action_bar(
+            nav_key=nav_key,
+            cur=cur,
+            n_items=n_items,
+            sk=sk,
+            key_prefix="ia-grain",
+            file_index=i,
+            include_prev_next=True,
+            nav_prev_button_key=None,
+            nav_next_button_key=None,
+            primary_button_key=f"ia-grain-save-all-{sk}",
+            primary_button_label="Approve",
+            primary_help=(
+                "Writes **all** grain ``choice`` values from this screen (and any already saved on "
+                "disk) in one file write, then approves the UC ``hitl_reviews`` row when it is pending."
+            ),
+            pre_bar_caption=None,
+            uc_group_pending=uc_group_pending,
+            show_reject_item=True,
+            persist_fn=lambda: persist_ia_grain_hitl_from_session(
+                silver_path=silver_path,
+                sk=sk,
+                allow_silver_write=uc_group_pending,
+            ),
+            reject_fn=lambda: _persist_grain_reject(
+                silver_path=silver_path,
+                item_index=i,
+                onboard_run_id=str(onboard_run_id),
+                allow_write=uc_group_pending,
+            ),
+            after_persist_success=lambda: invalidate_ia_grain_run_cache(str(onboard_run_id)),
+            approve_fn=approve_uc_if_complete,
+            success_silver_filename="identity_grain_hitl.json",
+        )
 
 
 def _persist_grain_reject(
