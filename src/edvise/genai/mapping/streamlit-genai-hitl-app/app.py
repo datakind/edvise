@@ -409,7 +409,7 @@ def render_silver_hitl_editor(
         _inject_sma_hitl_css_once()
 
     st.caption(
-        f"**artifact_type** in UC: ``{artifact_type}`` — **onboard_run_id** (this expander): "
+        f"**artifact_type** in UC: ``{artifact_type}`` — **onboard_run_id** (this review block): "
         f"``{onboard_run_id}`` (in standard onboard layout it appears in the path under "
         f"``…/genai_mapping/runs/onboard/{{onboard_run_id}}/``)."
     )
@@ -422,8 +422,6 @@ def render_silver_hitl_editor(
     )
     sk = f"{_safe_key(onboard_run_id)}-{_safe_key(phase)}-{_safe_key(artifact_type)}"
     pkey = f"path-{sk}"
-    # Do not use st.expander here: this function is rendered inside a group expander,
-    # and Streamlit forbids nested expanders.
     path_in = st.text_input(
         "UC file path to read/write (absolute ``/Volumes/{catalog}/…_silver/…``)",
         value=default_artifact_path,
@@ -818,7 +816,12 @@ for onboard_run_id, phase, artifact_type in groups:
     paths_preview = "; ".join(sub["artifact_path"].astype(str).head(3).tolist())
     if len(sub) > 3:
         paths_preview += f" … (+{len(sub) - 3} more)"
-    with st.expander(f"{onboard_run_id} | {phase} | {artifact_type} ({len(sub)} path(s))"):
+    # Bordered container (not st.expander): nested expanders are forbidden in Streamlit, but
+    # the HITL editor and SMA/IA helpers use expanders internally.
+    with st.container(border=True):
+        st.markdown(
+            f"**{onboard_run_id}** · `{phase}` · `{artifact_type}` · _{len(sub)} path(s)_"
+        )
         st.text(
             "Registered ``artifact_path``(s) on silver — includes ``onboard_run_id`` in "
             f"``…/runs/onboard/{onboard_run_id}/…`` for standard onboard: " + paths_preview

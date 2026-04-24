@@ -399,8 +399,8 @@ def render_ia_grain_hitl_cards(
             )
 
     st.caption(
-        "Updates ``hitl_reviews`` only — use the **Approve** / **Reject** in this expander’s "
-        "footer for Unity Catalog when the JSON is ready."
+        "Updates ``hitl_reviews`` only — use the **Approve** / **Reject** below this review "
+        "block for Unity Catalog when the JSON is ready."
     )
 
 
