@@ -18,11 +18,14 @@ import pandas as pd
 import streamlit as st
 
 from edvise.utils.institution_naming import format_institution_display_name
-from hitl_reviewer.hitl_json_batch_commit import (
-    persist_ia_term_hitl_from_session,
-    try_approve_uc_after_json_write,
+from hitl_reviewer._shared import (
+    init_sel_key,
+    inject_hitl_css,
+    render_action_bar,
+    render_hitl_header,
+    render_option_cards,
 )
-from hitl_reviewer.ia.grain_review_ui import inject_ia_grain_css
+from hitl_reviewer.hitl_json_batch_commit import persist_ia_term_hitl_from_session
 from hitl_reviewer.silver_hitl_paths import set_item_choice, set_item_reviewer_note
 from hitl_reviewer.unity_volume_files import read_unity_file_text, write_unity_file_text
 
@@ -111,7 +114,7 @@ def render_ia_term_hitl_cards(
     uc_group_pending: bool = False,
     approve_uc_if_complete: Callable[[], None] | None = None,
 ) -> None:
-    inject_ia_grain_css()
+    inject_hitl_css()
     idxs = term_item_indices(items)
     if not idxs:
         st.warning(
@@ -121,11 +124,6 @@ def render_ia_term_hitl_cards(
         return
 
     inst_raw = (data.get("institution_id") or "").strip()
-    st.markdown(
-        f'<p class="hitl-ia-inst">{html.escape(format_institution_display_name(inst_raw))}</p>',
-        unsafe_allow_html=True,
-    )
-
     run_total = ia_term_run_total_items(pending_df, str(onboard_run_id)) if pending_df is not None else None
     nav_key = f"ia-term-nav-{sk}"
     if nav_key not in st.session_state:
@@ -140,29 +138,22 @@ def render_ia_term_hitl_cards(
         return
 
     tbl = str(item.get("table") or "").replace("_", " ").strip().title() or "—"
-    meta_parts = [
-        f'<span class="hitl-ia-meta">Onboard run <code>{html.escape(str(onboard_run_id))}</code></span>',
-        f'<span class="hitl-ia-meta"> · Dataset: <strong>{html.escape(tbl)}</strong></span>',
-        '<span class="ia-domain-pill">Term</span>',
-    ]
-    if run_total is not None:
-        meta_parts.append(
-            f'<span class="hitl-ia-meta"> · <strong>{cur + 1} of {n_items}</strong> items in this file '
-            f"({int(run_total)} term item(s) on this run)</span>"
-        )
-    else:
-        meta_parts.append(
-            f'<span class="hitl-ia-meta"> · <strong>{cur + 1} of {n_items}</strong> items in this file</span>'
-        )
-    _item_id_esc = html.escape(str(item.get("item_id", "")))
-    meta_parts.append(
-        f'<span class="hitl-ia-meta"> · File index <code>{i}</code> · <code>{_item_id_esc}</code></span>'
+    render_hitl_header(
+        inst_raw=inst_raw,
+        format_fn=format_institution_display_name,
+        onboard_run_id=str(onboard_run_id),
+        tbl=tbl,
+        domain_label="Term",
+        cur=cur,
+        n_items=n_items,
+        run_total=run_total,
+        file_index=i,
+        item_id=item.get("item_id", ""),
     )
-    st.markdown("<div>" + "".join(meta_parts) + "</div>", unsafe_allow_html=True)
 
     q = (item.get("hitl_question") or "").strip() or f"Item {i + 1}"
     st.markdown(
-        f'<div class="hitl-ia-qpanel">{html.escape(q)}</div>',
+        f'<div class="hitl-qpanel">{html.escape(q)}</div>',
         unsafe_allow_html=True,
     )
 
@@ -173,15 +164,7 @@ def render_ia_term_hitl_cards(
         options = []
     n_opt = len(options)
     sel_key = f"ia-term-sel-{sk}-{i}"
-    if sel_key not in st.session_state:
-        c0 = item.get("choice")
-        if c0 is None:
-            st.session_state[sel_key] = 0
-        else:
-            try:
-                st.session_state[sel_key] = max(0, min(int(c0) - 1, n_opt - 1))
-            except (TypeError, ValueError):
-                st.session_state[sel_key] = 0
+    init_sel_key(sel_key, item.get("choice"), n_opt)
 
     json_choice = item.get("choice")
     ia_rec_ix = (
@@ -190,39 +173,16 @@ def render_ia_term_hitl_cards(
         else max(0, min(int(json_choice) - 1, n_opt - 1))
     )
 
-    st.subheader("Decision")
-    for j, opt in enumerate(options):
-        if not isinstance(opt, dict):
-            continue
-        lab = str(opt.get("label") or f"Option {j + 1}")
-        desc = str(opt.get("description") or "")
-        selected = int(st.session_state[sel_key]) == j
-        card_cls = "ia-opt-card ia-opt-card-sel" if selected else "ia-opt-card"
-        badge = ""
-        if j == ia_rec_ix:
-            if json_choice is None:
-                badge = '<span class="ia-rec-badge">IA recommendation</span>'
-            else:
-                badge = '<span class="ia-rec-badge">Saved in JSON</span>'
-        st.markdown(
-            f'<div class="{card_cls}"><p class="ia-opt-title">{html.escape(lab)}</p>{badge}'
-            f'<div class="ia-opt-desc">{html.escape(desc)}</div></div>',
-            unsafe_allow_html=True,
-        )
-        _sp, _sel = st.columns([4, 1], gap="small")
-        with _sp:
-            st.empty()
-        with _sel:
-            if st.button(
-                "Select",
-                key=f"ia-term-pick-{sk}-{i}-{j}",
-                type="primary" if selected else "secondary",
-                use_container_width=False,
-                disabled=not uc_group_pending,
-            ):
-                st.session_state[sel_key] = j
-                st.rerun()
-        st.markdown('<div class="ia-grain-opt-after"></div>', unsafe_allow_html=True)
+    render_option_cards(
+        options=options,
+        sel_key=sel_key,
+        ia_rec_ix=ia_rec_ix,
+        json_choice=json_choice,
+        uc_group_pending=uc_group_pending,
+        key_prefix="ia-term",
+        sk=sk,
+        file_index=i,
+    )
 
     sel_j = int(st.session_state[sel_key])
     sel_opt = options[sel_j] if 0 <= sel_j < len(options) and isinstance(options[sel_j], dict) else {}
@@ -240,74 +200,40 @@ def render_ia_term_hitl_cards(
             disabled=not uc_group_pending,
         )
 
-    with st.container(border=True):
-        c_prev, c_next, c_save, c_rej = st.columns([1, 1, 2.6, 1.1], gap="small")
-        with c_prev:
-            if st.button("◀ Prev", key=f"ia-term-prev-{sk}", use_container_width=True):
-                st.session_state[nav_key] = max(0, cur - 1)
-                st.rerun()
-        with c_next:
-            if st.button("Next ▶", key=f"ia-term-nxt-{sk}", use_container_width=True):
-                st.session_state[nav_key] = min(n_items - 1, cur + 1)
-                st.rerun()
-        with c_save:
-            if st.button(
-                "Approve",
-                key=f"ia-term-save-all-{sk}",
-                type="primary",
-                use_container_width=True,
-                disabled=not uc_group_pending,
-                help=(
-                    "Writes **all** term ``choice`` values from this screen (and any already saved on "
-                    "disk) in one file write, then approves the UC ``hitl_reviews`` row when it is pending."
-                ),
-            ):
-                ok, err = persist_ia_term_hitl_from_session(
-                    silver_path=silver_path,
-                    sk=sk,
-                    allow_silver_write=uc_group_pending,
-                )
-                if not ok:
-                    st.error(err)
-                else:
-                    invalidate_ia_term_run_cache(onboard_run_id)
-                    ap_ok, ap_err = try_approve_uc_after_json_write(
-                        uc_group_pending=uc_group_pending,
-                        approve_uc_if_complete=approve_uc_if_complete,
-                    )
-                    if not ap_ok:
-                        st.warning(
-                            f"Silver JSON saved, but UC approve failed (fix and retry or use SQL): {ap_err}"
-                        )
-                    elif uc_group_pending and approve_uc_if_complete is not None:
-                        st.success("Saved ``identity_term_hitl.json`` and approved the UC row.")
-                        st.toast("JSON + UC complete.", icon="✅")
-                    elif not uc_group_pending:
-                        st.success(
-                            "Saved ``identity_term_hitl.json``. UC row was not **pending**, so UC approve was skipped."
-                        )
-                    else:
-                        st.success("Saved ``identity_term_hitl.json``.")
-                    st.rerun()
-        with c_rej:
-            if st.button(
-                "Reject item",
-                key=f"ia-term-reject-{sk}-{i}",
-                type="secondary",
-                use_container_width=True,
-                disabled=not uc_group_pending,
-            ):
-                _persist_term_reject(
-                    silver_path=silver_path,
-                    item_index=i,
-                    onboard_run_id=str(onboard_run_id),
-                    allow_write=uc_group_pending,
-                )
-
-    if uc_group_pending:
-        st.caption("Approve saves your selections and marks this review complete.")
-    else:
-        st.caption("Read-only: UC gate is not pending; silver JSON cannot be changed from this app.")
+    render_action_bar(
+        nav_key=nav_key,
+        cur=cur,
+        n_items=n_items,
+        sk=sk,
+        key_prefix="ia-term",
+        file_index=i,
+        include_prev_next=True,
+        nav_prev_button_key=None,
+        nav_next_button_key=None,
+        primary_button_key=f"ia-term-save-all-{sk}",
+        primary_button_label="Approve",
+        primary_help=(
+            "Writes **all** term ``choice`` values from this screen (and any already saved on "
+            "disk) in one file write, then approves the UC ``hitl_reviews`` row when it is pending."
+        ),
+        pre_bar_caption=None,
+        uc_group_pending=uc_group_pending,
+        show_reject_item=True,
+        persist_fn=lambda: persist_ia_term_hitl_from_session(
+            silver_path=silver_path,
+            sk=sk,
+            allow_silver_write=uc_group_pending,
+        ),
+        reject_fn=lambda: _persist_term_reject(
+            silver_path=silver_path,
+            item_index=i,
+            onboard_run_id=str(onboard_run_id),
+            allow_write=uc_group_pending,
+        ),
+        after_persist_success=lambda: invalidate_ia_term_run_cache(str(onboard_run_id)),
+        approve_fn=approve_uc_if_complete,
+        success_silver_filename="identity_term_hitl.json",
+    )
 
 
 def _persist_term_reject(
