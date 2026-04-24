@@ -34,6 +34,15 @@ from hitl_reviewer.unity_volume_files import read_unity_file_text
 # Path passed to st.switch_page — relative to app entrypoint (app.py) directory.
 HITL_ITEMS_PAGE = "pages/1_Hitl_Items.py"
 
+# Sidebar copy (kept in one place for the two Streamlit entrypoints).
+HITL_HOME_SIDEBAR_CAPTION = (
+    "Browse ``hitl_reviews`` with the table filters, then open a run’s HITL JSON and UC actions on the **1_Hitl_Items** page."
+)
+HITL_ITEMS_SIDEBAR_CAPTION = (
+    "One ``(onboard_run_id, phase, artifact_type)`` group. Pick a run from the home table, or open a link with "
+    "``catalog``, ``onboard_run_id``, ``phase``, and ``artifact_type`` in the query string."
+)
+
 # Session state keys for navigating to the HITL items page.
 KEY_NAV_CATALOG = "hitl_nav_catalog"
 KEY_NAV_ONBOARD = "hitl_nav_onboard_run_id"
@@ -91,36 +100,93 @@ def init_reviewer_in_session() -> None:
         ).strip()
 
 
-def render_connection_sidebar() -> tuple[str, SidebarState]:
-    """Renders the sidebar. Returns (validated catalog, full sidebar state)."""
-    try:
-        get_warehouse_id()
-        st.success("DATABRICKS_WAREHOUSE_ID is set")
-    except RuntimeError as e:
-        st.error(str(e))
-    catalog_in = st.text_input("Unity Catalog", value=default_catalog(), key="sidebar_catalog")
-    try:
-        catalog = validate_catalog(catalog_in)
-    except ValueError as e:
-        st.warning(str(e))
-        catalog = default_catalog()
-    st.session_state["reviewer"] = st.text_input(
-        "Reviewer name (stored on approve/reject)",
-        value=st.session_state["reviewer"],
-        key="sidebar_reviewer",
-    )
-    limit = st.number_input("Row limit", min_value=50, max_value=5000, value=500, step=50, key="sidebar_limit")
-    st.divider()
-    st.subheader("Filters")
-    f_run = st.text_input("onboard_run_id contains", value="", key="sidebar_f_run")
-    f_phase = st.text_input("phase equals", value="", key="sidebar_f_phase")
-    f_status = st.selectbox(
-        "status",
-        options=["(any)", "pending", "approved", "rejected"],
-        index=0,
-        key="sidebar_f_status",
-    )
-    refresh_clicked = st.button("Refresh data", type="primary", help="Re-runs the query with current filters.", key="sidebar_refresh")
+def init_sidebar_form_state() -> None:
+    """
+    Seeds session keys used by `st.*(..., key=...)` *before* widgets are drawn.
+
+    Avoids the Streamlit warning that appears when a widget is given `value=...` while
+    the same `key` is also set via the Session State API (e.g. from `maybe_hydrate_sidebar_from_nav`).
+    """
+    if "sidebar_catalog" not in st.session_state:
+        st.session_state["sidebar_catalog"] = default_catalog()
+    if "sidebar_limit" not in st.session_state:
+        st.session_state["sidebar_limit"] = 500
+    if "sidebar_f_run" not in st.session_state:
+        st.session_state["sidebar_f_run"] = ""
+    if "sidebar_f_phase" not in st.session_state:
+        st.session_state["sidebar_f_phase"] = ""
+    if "sidebar_f_status" not in st.session_state:
+        st.session_state["sidebar_f_status"] = "(any)"
+
+
+def render_connection_sidebar(
+    *,
+    show_table_query_filters: bool = True,
+    page_heading: str = "HITL",
+    page_caption: str = "",
+    nav_group_line: str | None = None,
+) -> tuple[str, SidebarState, bool]:
+    """
+    Renders ``st.sidebar`` with Databricks, Unity Catalog, reviewer, and (on the home page) table filters.
+
+    **Do not** pass ``value=`` to the Unity Catalog field; it uses ``key="sidebar_catalog"`` only, with
+    the initial value coming from :func:`init_sidebar_form_state` and navigation from
+    :func:`maybe_hydrate_sidebar_from_nav`.
+    """
+    warehouse_ok = False
+    refresh_clicked = False
+    with st.sidebar:
+        st.subheader(page_heading)
+        if (page_caption or "").strip():
+            st.caption(page_caption.strip())
+        if (nav_group_line or "").strip():
+            st.caption(nav_group_line.strip())
+        st.divider()
+        try:
+            get_warehouse_id()
+            st.success("DATABRICKS_WAREHOUSE_ID is set")
+            warehouse_ok = True
+        except RuntimeError as e:
+            st.error(str(e))
+        st.subheader("Connection & filters")
+        st.text_input("Unity Catalog", key="sidebar_catalog", help="UC for ``genai_mapping.hitl_reviews``.")
+        catalog_in = (st.session_state.get("sidebar_catalog") or default_catalog() or "").strip()
+        try:
+            catalog = validate_catalog(catalog_in)
+        except ValueError as e:
+            st.warning(str(e))
+            catalog = default_catalog()
+        st.text_input(
+            "Reviewer name (stored on approve/reject)",
+            key="reviewer",
+            help="Written to UC on approve or reject.",
+        )
+        if show_table_query_filters:
+            st.number_input("Row limit", min_value=50, max_value=5000, step=50, key="sidebar_limit")
+            st.caption("**Table filters** — for the home **HITL reviews** query only.")
+            st.text_input("onboard_run_id contains", key="sidebar_f_run")
+            st.text_input("phase equals", key="sidebar_f_phase")
+            st.selectbox(
+                "status",
+                options=["(any)", "pending", "approved", "rejected"],
+                key="sidebar_f_status",
+            )
+            refresh_clicked = st.button(
+                "Refresh data",
+                type="primary",
+                help="Re-runs the home table query with the current filters.",
+                key="sidebar_refresh",
+            )
+        else:
+            st.caption(
+                "**Table filters and row limit** are on the home page. This view loads a single HITL group; "
+                "**Unity Catalog** and **reviewer** above still apply to this page."
+            )
+
+    limit = int(st.session_state.get("sidebar_limit", 500) or 500)
+    f_run = str(st.session_state.get("sidebar_f_run", "") or "")
+    f_phase = str(st.session_state.get("sidebar_f_phase", "") or "")
+    f_status = str(st.session_state.get("sidebar_f_status", "(any)") or "(any)")
     state = SidebarState(
         catalog=catalog,
         f_run=f_run,
@@ -129,7 +195,36 @@ def render_connection_sidebar() -> tuple[str, SidebarState]:
         limit=limit,
         refresh_clicked=refresh_clicked,
     )
-    return catalog, state
+    return catalog, state, warehouse_ok
+
+
+def render_open_group_in_sidebar(
+    gdf: pd.DataFrame,
+    catalog: str,
+) -> None:
+    """Appends the “open in HITL items” block to :func:`st.sidebar` (call after the main table has loaded)."""
+    with st.sidebar:
+        st.divider()
+        st.caption("**Open a HITL group** (JSON + UC on the next page)")
+        cands = [
+            f"{gdf['onboard_run_id'].iat[i]}  |  {gdf['phase'].iat[i]}  |  {gdf['artifact_type'].iat[i]}"
+            for i in range(len(gdf))
+        ]
+        ix = st.selectbox(
+            "``(onboard_run_id, phase, artifact_type)``",
+            options=range(len(gdf)),
+            format_func=lambda j: cands[j],
+            key="home_group_ix",
+        )
+        if st.button("Open in HITL items page", type="primary", key="home_open_items"):
+            row = gdf.iloc[int(ix)]
+            set_nav_selection(
+                str(catalog),
+                str(row["onboard_run_id"]),
+                str(row["phase"]),
+                str(row["artifact_type"]),
+            )
+            st.switch_page(HITL_ITEMS_PAGE)
 
 
 def load_hitl_rows(

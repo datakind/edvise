@@ -1,9 +1,8 @@
 """
 GenAI mapping — Unity Catalog ``hitl_reviews`` reviewer UI (multipage).
 
-* **app** (this file): filter and browse ``hitl_reviews``; pick a group to open the JSON/items editor.
-* **pages/1_Hitl_Items.py**: HITL items, silver JSON, Approve / Reject UC for one
-  ``(onboard_run_id, phase, artifact_type)`` group.
+* **app** (this file): filter and browse ``hitl_reviews``; pick a group in the **sidebar** to open the
+  JSON/UC view on **1_Hitl_Items**.
 
 HITL **choice** values live in JSON on the **silver** volume under
 ``{silver_genai_mapping_root}/runs/...`` (see ``edvise_genai_ia`` / ``edvise_genai_sma``
@@ -34,28 +33,25 @@ The Databricks app identity (service principal) needs **read/write** on the silv
 from __future__ import annotations
 
 import streamlit as st
-from hitl_reviewer.databricks_uc_sql import get_warehouse_id
 from hitl_reviewer.hitl_streamlit import (
-    HITL_ITEMS_PAGE,
+    HITL_HOME_SIDEBAR_CAPTION,
     display_columns,
     init_reviewer_in_session,
+    init_sidebar_form_state,
     load_dataframe_for_sidebar,
     render_connection_sidebar,
-    set_nav_selection,
+    render_open_group_in_sidebar,
 )
 
 st.set_page_config(page_title="HITL — reviews table", layout="wide")
-st.title("HITL — reviews table")
-st.caption(
-    "``hitl_reviews`` in Unity Catalog, filtered in the sidebar. **Open a group in the HITL items page** "
-    "to edit HITL JSON, radios, and UC approve/reject for that run."
-)
-
 init_reviewer_in_session()
-catalog, sidebar = render_connection_sidebar()
-try:
-    get_warehouse_id()
-except RuntimeError:
+init_sidebar_form_state()
+catalog, sidebar, warehouse_ok = render_connection_sidebar(
+    show_table_query_filters=True,
+    page_heading="HITL — reviews table",
+    page_caption=HITL_HOME_SIDEBAR_CAPTION,
+)
+if not warehouse_ok:
     st.stop()
 
 try:
@@ -72,7 +68,7 @@ st.dataframe(
     hide_index=True,
 )
 if df.empty:
-    st.info("No rows match. Clear filters or raise the row limit in the sidebar.")
+    st.info("No rows match. Clear filters or raise the row limit in the **sidebar**.")
     st.stop()
 
 gdf = (
@@ -81,27 +77,4 @@ gdf = (
     .sort_values(["onboard_run_id", "phase", "artifact_type"], na_position="last")
     .reset_index(drop=True)
 )
-st.divider()
-st.subheader("Open a group in HITL items")
-cands = [f"{gdf['onboard_run_id'].iat[i]}  |  {gdf['phase'].iat[i]}  |  {gdf['artifact_type'].iat[i]}" for i in range(len(gdf))]
-ix = st.selectbox(
-    "``(onboard_run_id, phase, artifact_type)``",
-    options=range(len(gdf)),
-    format_func=lambda j: cands[j],
-    key="home_group_ix",
-    label_visibility="visible",
-)
-if st.button("Open in HITL items page", type="primary", key="home_open_items"):
-    row = gdf.iloc[int(ix)]
-    set_nav_selection(
-        str(catalog),
-        str(row["onboard_run_id"]),
-        str(row["phase"]),
-        str(row["artifact_type"]),
-    )
-    st.switch_page(HITL_ITEMS_PAGE)
-
-st.caption(
-    "The **1_Hitl_Items** page in the app navigation (or a URL with the same query parameters) opens "
-    "the JSON editor and Approve / Reject for that group."
-)
+render_open_group_in_sidebar(gdf, catalog)
