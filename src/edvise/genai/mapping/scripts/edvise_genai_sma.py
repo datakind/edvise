@@ -203,8 +203,12 @@ def _run_pandera_validation(cohort_result, course_result) -> None:
     import time
     import pandera
 
+    from edvise.data_audit.schemas.raw_edvise_course import (
+        RawEdviseCourseDataSchema,
+        course_output_row_uniqueness_violation_message,
+        course_output_uniqueness_key_columns,
+    )
     from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
-    from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
 
     def _validate(df, schema, label):
         start = time.perf_counter()
@@ -223,6 +227,21 @@ def _run_pandera_validation(cohort_result, course_result) -> None:
 
     _validate(cohort_result.df, RawEdviseStudentDataSchema, "cohort")
     _validate(course_result.df, RawEdviseCourseDataSchema, "course")
+
+    u_start = time.perf_counter()
+    if (umsg := course_output_row_uniqueness_violation_message(course_result.df)) is not None:
+        LOGGER.warning(
+            "Course row uniqueness [%s]: FAILED (%.2fs)\n%s",
+            course_output_uniqueness_key_columns(course_result.df),
+            time.perf_counter() - u_start,
+            umsg,
+        )
+    else:
+        LOGGER.info(
+            "Course row uniqueness [%s]: OK (%.2fs)",
+            course_output_uniqueness_key_columns(course_result.df),
+            time.perf_counter() - u_start,
+        )
 
 
 def _build_openai_client(catalog: str):

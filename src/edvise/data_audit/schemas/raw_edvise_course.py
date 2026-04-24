@@ -65,9 +65,70 @@ ALLOWED_LETTER_GRADES = {
 
 CreditsField = pda.Field(nullable=False, ge=0.0)
 
-# SMA execution grain: target fields merged when mapped (not in Pandera Config.unique).
+# Manifest + SMA execution: these target keys must map (ENTITY_GRAIN in
+# manifest.validation). ``course_section_id`` / ``source_term_key`` are optional
+# when an institution omits them; composite row uniqueness for pipeline output is
+# enforced separately (see ``course_output_uniqueness_key_columns``) because Pandera
+# ``Config.unique`` cannot express "include column in the key only if present".
+COURSE_MANIFEST_GRAIN_KEYS: tuple[str, ...] = (
+    "learner_id",
+    "academic_year",
+    "academic_term",
+    "course_prefix",
+    "course_number",
+)
+
+# Optional disambiguators merged when mapped (not in COURSE_MANIFEST_GRAIN_KEYS).
 # See field_executor._derive_entity_keys.
 COURSE_OPTIONAL_GRAIN_TARGETS: tuple[str, ...] = ("source_term_key",)
+
+
+def course_output_uniqueness_key_columns(df: pd.DataFrame) -> list[str]:
+    """
+    Target-space columns that jointly identify a course output row for uniqueness.
+
+    Always includes :data:`COURSE_MANIFEST_GRAIN_KEYS`. Appends ``source_term_key``
+    and ``course_section_id`` only when those columns exist on ``df`` (SMA may omit
+    unmapped targets entirely, so missing column means course-level / no IA key).
+    """
+    keys = list(COURSE_MANIFEST_GRAIN_KEYS)
+    if "source_term_key" in df.columns:
+        keys.append("source_term_key")
+    if "course_section_id" in df.columns:
+        keys.append("course_section_id")
+    return keys
+
+
+def course_output_row_uniqueness_violation_message(
+    df: pd.DataFrame,
+    *,
+    max_sample_rows: int = 5,
+) -> str | None:
+    """
+    If ``df`` has duplicate rows under :func:`course_output_uniqueness_key_columns`,
+    return a short diagnostic string; otherwise ``None``.
+
+    Intended for SMA / pipeline logging (avoids Pandera lazy multi-million failure_cases
+    when only uniqueness is wrong).
+    """
+    if df.empty:
+        return None
+    keys = [k for k in course_output_uniqueness_key_columns(df) if k in df.columns]
+    missing_base = [k for k in COURSE_MANIFEST_GRAIN_KEYS if k not in df.columns]
+    if missing_base:
+        return (
+            "Cannot check course row uniqueness: missing base columns "
+            f"{missing_base!r} (have {list(df.columns)!r})"
+        )
+    dup = df.duplicated(subset=keys, keep=False)
+    if not dup.any():
+        return None
+    n = int(dup.sum())
+    sample = df.loc[dup, keys].head(max_sample_rows)
+    return (
+        f"{n} row(s) duplicate on uniqueness keys {keys!r} "
+        f"(sample up to {max_sample_rows} rows):\n{sample.to_string()}"
+    )
 
 
 class RawEdviseCourseDataSchema(pda.DataFrameModel):
@@ -83,8 +144,11 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     grade, course_credits_attempted, course_credits_earned.
     Optional columns (e.g. course_title, course_section_id, source_term_key) may be
     missing from the DataFrame or contain nulls; when present they are validated.
-    Rows must be unique on (learner_id, academic_year, academic_term, course_prefix,
-    course_number). When ``source_term_key`` is supplied (e.g. after IdentityAgent term
+    Pandera does **not** enforce composite row uniqueness on this model
+    (``Config.unique`` is empty): Pandera cannot express optional key columns such as
+    ``course_section_id`` / ``source_term_key`` that participate in the grain only when
+    present. Call :func:`course_output_row_uniqueness_violation_message` on pipeline
+    outputs after :meth:`validate`. When ``source_term_key`` is supplied (e.g. after IdentityAgent term
     normalization), SMA may include it in the execution grain via
     :data:`COURSE_OPTIONAL_GRAIN_TARGETS` (see field_executor._derive_entity_keys).
     """
@@ -215,10 +279,6 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         unique_column_names = True
         add_missing_columns = False
         drop_invalid_rows = False
-        unique = [
-            "learner_id",
-            "academic_year",
-            "academic_term",
-            "course_prefix",
-            "course_number",
-        ]
+        # Composite uniqueness: use course_output_row_uniqueness_violation_message —
+        # Pandera unique= cannot omit optional key columns when unmapped.
+        unique: list[str] = []

@@ -1,8 +1,8 @@
-"""Tests for edvise.utils.databricks module."""
+"""Tests for institution naming (Databricks slug rules)."""
 
 import pytest
 
-from edvise.utils.databricks import (
+from edvise.utils.institution_naming import (
     databricksify_inst_name,
     reverse_databricksify_inst_name,
 )

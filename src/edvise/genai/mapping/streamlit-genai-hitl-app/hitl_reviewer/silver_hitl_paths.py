@@ -34,12 +34,32 @@ def artifact_path_contains_onboard_run_id(artifact_path: str, onboard_run_id: st
     return bool(p and r and r in p)
 
 
-def set_item_choice(data: dict[str, Any], item_index: int, choice: int) -> None:
-    """Set ``data['items'][item_index]['choice']`` (1-based index into ``options``)."""
+def set_item_choice(data: dict[str, Any], item_index: int, choice: int | None) -> None:
+    """
+    Set ``data['items'][item_index]['choice']`` to a 1-based index into ``options``,
+    or ``None`` to clear the selection.
+    """
     items = data.get("items")
     if not isinstance(items, list) or not (0 <= item_index < len(items)):
         raise KeyError("Invalid item index for HITL JSON")
     row = items[item_index]
     if not isinstance(row, dict):
         raise TypeError("HITL item is not an object")
-    row["choice"] = int(choice)
+    if choice is None:
+        row["choice"] = None
+    else:
+        row["choice"] = int(choice)
+
+
+def set_item_reviewer_note(data: dict[str, Any], item_index: int, note: str | None) -> None:
+    """Set ``data['items'][item_index]['reviewer_note']`` (IdentityAgent HITL)."""
+    items = data.get("items")
+    if not isinstance(items, list) or not (0 <= item_index < len(items)):
+        raise KeyError("Invalid item index for HITL JSON")
+    row = items[item_index]
+    if not isinstance(row, dict):
+        raise TypeError("HITL item is not an object")
+    if note is None or str(note).strip() == "":
+        row["reviewer_note"] = None
+    else:
+        row["reviewer_note"] = str(note).strip()

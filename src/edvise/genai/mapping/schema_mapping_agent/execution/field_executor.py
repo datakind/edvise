@@ -15,7 +15,7 @@ Execution model (per field):
 
 Key design principles:
     - resolve_source_series always returns a Series aligned to base_df (full length)
-    - entity_keys are derived from schema.Config.unique + manifest mappings —
+    - entity_keys are derived from the manifest entity grain + manifest mappings —
       source column names in base_df that correspond to the target grain; for
       course entities, mapped ``course_section_id`` is appended when its source
       column exists in ``base_df`` (section-level grain; see ``_derive_entity_keys``)
@@ -73,31 +73,31 @@ def _derive_entity_keys(
     base_df: Optional[pd.DataFrame] = None,
 ) -> list[str]:
     """
-    Derive source-space entity keys from schema.Config.unique + manifest mappings.
+    Derive source-space entity keys from the manifest entity grain + manifest mappings.
 
-    For each target field in the schema's uniqueness constraint, resolves the
-    corresponding source column name via the manifest. The resulting list of
-    source column names is used as the groupby key for all row_selection
-    grain reduction strategies.
+    For each target field in the grain (``COURSE_MANIFEST_GRAIN_KEYS`` for course,
+    ``Config.unique`` for cohort), resolves the corresponding source column name via
+    the manifest. The resulting list of source column names is used as the groupby key
+    for all row_selection grain reduction strategies.
 
     Course schema may define module-level ``COURSE_OPTIONAL_GRAIN_TARGETS`` (see
     ``raw_edvise_course``): those target fields are appended when they have a manifest
     mapping — used for optional disambiguators (e.g. ``source_term_key``) that direct
     Edvise uploads omit.
 
-    Additionally, ``course_section_id`` is not in ``Config.unique`` (optional column
-    for institutions without section data). When it is mapped and its source column is
-    present in ``base_df``, that column is appended so section-level rows are not
-    collapsed together.
+    ``course_section_id`` is optional in the manifest when an institution has no section
+    column, but when it is mapped and its source column is present in ``base_df``, that
+    column is appended so section-level rows are not collapsed together.
 
-    If required ``Config.unique`` fields are unmapped, logs a warning and uses only the
-    keys that are mapped (may be empty). Unmapped optional grain targets are omitted
-    without warning. Full required-grain compliance is enforced by
+    If required grain fields are unmapped, logs a warning and uses only the keys that
+    are mapped (may be empty). Unmapped optional grain targets are omitted without
+    warning. Full required-grain compliance is enforced by
     :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.validation.validate_manifest`.
 
     Args:
         manifest: FieldMappingManifest for this entity type
-        schema: Pandera schema class — schema.Config.unique defines required target grain
+        schema: Pandera schema class — course uses ``COURSE_MANIFEST_GRAIN_KEYS``; cohort
+            uses ``Config.unique`` as the required target grain
         base_df: Optional base DataFrame — used to detect presence of the section source
             column for conditional grain
 
@@ -106,7 +106,7 @@ def _derive_entity_keys(
         (deduped, order preserved).
 
     Raises:
-        ValueError: If the schema has no Config.unique
+        ValueError: If ``Config.unique`` is missing (``None``)
     """
     target_to_source = {
         m.target_field: col
@@ -115,17 +115,26 @@ def _derive_entity_keys(
     }
 
     cfg = getattr(schema, "Config", object)
-    required_keys = getattr(cfg, "unique", None)
-    if not required_keys:
+    raw_unique = getattr(cfg, "unique", None)
+    if raw_unique is None:
         raise ValueError(f"Schema '{schema.__name__}' must define Config.unique.")
+    if schema.__name__ != "RawEdviseCourseDataSchema" and not raw_unique:
+        raise ValueError(
+            f"Schema '{schema.__name__}' must define a non-empty Config.unique."
+        )
 
     optional_extra: tuple[str, ...] = ()
     if schema.__name__ == "RawEdviseCourseDataSchema":
         from edvise.data_audit.schemas.raw_edvise_course import (
+            COURSE_MANIFEST_GRAIN_KEYS,
             COURSE_OPTIONAL_GRAIN_TARGETS,
         )
 
         optional_extra = COURSE_OPTIONAL_GRAIN_TARGETS
+        required_keys = list(COURSE_MANIFEST_GRAIN_KEYS)
+    else:
+        required_keys = list(raw_unique)
+
     combined: list[str] = list(required_keys)
     for tf in optional_extra:
         if tf not in combined:
@@ -136,7 +145,7 @@ def _derive_entity_keys(
         logger.warning(
             "Target entity key(s) %s have no source column mapping in the manifest; "
             "execution will use a reduced grain (or row fallback). "
-            "Expected keys per %s.Config.unique: %s. "
+            "Expected keys for %s entity grain: %s. "
             "validate_manifest() should flag missing grain keys before approval.",
             missing_required,
             schema.__name__,
@@ -149,9 +158,7 @@ def _derive_entity_keys(
         if target_to_source.get(tf) is not None
     ]
 
-    # Conditional section key: course_section_id is excluded from Config.unique so
-    # course-level-only uploads stay valid. When section data exists (mapped + column
-    # present), include it so distinct sections are not merged.
+    # Conditional section key: optional in the manifest grain; include when mapped.
     section_source_col = target_to_source.get("course_section_id")
     if (
         section_source_col is not None
@@ -465,7 +472,7 @@ def _apply_grain_reduction(
 
     Operates on base_df in source space — order_by and condition_col are source
     column names that exist in base_df. entity_keys are the source column names
-    corresponding to schema.Config.unique, derived via _derive_entity_keys.
+    for the entity grain, derived via _derive_entity_keys.
 
     Every strategy merges back against entity_index at the end, guaranteeing
     all fields produce Series with identical length and row ordering.
@@ -478,7 +485,7 @@ def _apply_grain_reduction(
         record: FieldMappingRecord with row_selection config
         base_df: Base DataFrame — source space, used for order_by / condition_col
         entity_keys: Source column names in base_df identifying one target entity.
-                     Derived from schema.Config.unique via manifest mappings.
+                     Derived from the manifest entity grain via manifest mappings.
         entity_index: Canonical entity order — one row per unique entity_keys
                       combination in base_df order. All strategies merge back
                       to this index to guarantee consistent row ordering.
@@ -566,7 +573,7 @@ def execute_transformation_map(
         2. Run transformation steps (pure Series → Series)
         3. Reduce to one value per entity using row_selection + entity_keys
 
-    entity_keys are derived from schema.Config.unique resolved to source column
+    entity_keys are derived from the manifest entity grain resolved to source column
     names via the manifest, plus optional grain fields (e.g. mapped
     ``course_section_id`` when its source column exists on ``base_df``). This
     keeps all reduced Series aligned — assembly into a DataFrame is always clean.
@@ -577,7 +584,8 @@ def execute_transformation_map(
         dataframes: Dict of dataset_name -> DataFrame
         schema: Pandera schema class for the target entity type
                 (e.g. RawEdviseCourseDataSchema).
-                schema.Config.unique defines the target grain.
+                Cohort: ``Config.unique``; course: ``COURSE_MANIFEST_GRAIN_KEYS`` plus
+                optional targets (see ``_derive_entity_keys``).
         raise_on_gap: If True, raise ExecutionGapError on first NEW_UTILITY_NEEDED
         spark_session: Optional Spark session (reserved for future use)
 

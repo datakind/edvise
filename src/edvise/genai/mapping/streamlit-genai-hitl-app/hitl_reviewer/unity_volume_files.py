@@ -2,8 +2,8 @@
 Read and write file contents on Unity Catalog volumes via the Databricks Files API
 (``/api/2.0/fs/files/...``). Mirrors :class:`databricks.sdk.service.files.FilesAPI`.
 
-The GenAI HITL Streamlit app is deployed as a self-contained directory; it cannot import
-``edvise`` at runtime, so this module is local to the app bundle. Typical GenAI HITL paths
+The GenAI HITL Streamlit app bundles ``edvise`` (wheel or editable in ``requirements.txt``)
+so shared helpers can import the library. Typical GenAI HITL paths
 are on the institution **silver** volume, under ``.../genai_mapping/runs/...`` (see
 ``edvise_genai_ia`` / ``edvise_genai_sma`` in ``edvise.genai.mapping.scripts``).
 """

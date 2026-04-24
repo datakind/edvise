@@ -9,6 +9,7 @@ sync:
   include:
     - requirements.txt
     - "**/*.py"
+    - "wheels/*.whl"
 
 artifacts:
   generate_requirements:

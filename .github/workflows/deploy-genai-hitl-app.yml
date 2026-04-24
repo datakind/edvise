@@ -11,6 +11,7 @@ on:
       - feat/gen_ai_hitl_ui_build
     paths:
       - "src/edvise/genai/mapping/streamlit-genai-hitl-app/**"
+      - "src/edvise/utils/institution_naming.py"
       - ".github/workflows/deploy-genai-hitl-app.yml"
       - "pyproject.toml"
   workflow_dispatch:
@@ -44,6 +45,17 @@ jobs:
           uv venv
           uv pip install .
         working-directory: ${{ github.workspace }}
+
+      - name: Build edvise wheel and pin HITL app requirements.txt
+        run: |
+          set -eux
+          cd "${{ github.workspace }}"
+          uv build
+          HITL="src/edvise/genai/mapping/streamlit-genai-hitl-app"
+          mkdir -p "$HITL/wheels"
+          rm -f "$HITL/wheels"/edvise-*.whl
+          cp dist/edvise-*.whl "$HITL/wheels/"
+          (cd "$HITL" && python3 generate_requirements.py)
 
       - name: Deploy and start app (databricks.yml → target dev)
         working-directory: src/edvise/genai/mapping/streamlit-genai-hitl-app

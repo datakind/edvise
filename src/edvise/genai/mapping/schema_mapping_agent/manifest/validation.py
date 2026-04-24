@@ -20,7 +20,7 @@ ValidationError groups:
     JOIN_STRUCTURE     — join declaration is missing, incorrect, or unresolvable
     ROW_SELECTION      — strategy references a column that doesn't exist
     MAP_UNMAP          — sourcing fields present on unmapped record or vice versa
-    ENTITY_GRAIN       — Pandera uniqueness grain field missing or unmapped in manifest
+    ENTITY_GRAIN       — manifest entity-grain field missing or unmapped in manifest
 
 Usage:
     errors = validate_manifest(manifest, schema_contract)
@@ -150,11 +150,12 @@ class ManifestValidationErrorCode(str, Enum):
     # Check: record.source_column is None and (record.source_table is not None
     #        or record.join is not None)
 
-    # ENTITY_GRAIN (target Pandera schema Config.unique → manifest source columns)
+    # ENTITY_GRAIN (manifest entity grain → source columns; for course see
+    # COURSE_MANIFEST_GRAIN_KEYS — composite uniqueness is not on Pandera Config.unique).
     GRAIN_KEY_MISSING_SOURCE = "GRAIN_KEY_MISSING_SOURCE"
     # A field in the target schema's uniqueness grain has no mappable source column.
     # Execution needs source_column (or corrected_source_column) for each grain key.
-    # Check: for each field in schema.Config.unique for manifest.target_schema,
+    # Check: for each field in the manifest grain list for manifest.target_schema,
     #   manifest has a mapping with non-null effective source.
 
 
@@ -541,7 +542,7 @@ def _record_effective_source(record: FieldMappingRecord) -> str | None:
 
 
 def _grain_fields_for_target_schema(target_schema: str) -> list[str] | None:
-    """Return Pandera Config.unique for known Edvise raw schemas; else None."""
+    """Return manifest-required entity grain fields for known Edvise raw schemas."""
     if target_schema == "RawEdviseStudentDataSchema":
         from edvise.data_audit.schemas.raw_edvise_student import (
             RawEdviseStudentDataSchema,
@@ -550,10 +551,11 @@ def _grain_fields_for_target_schema(target_schema: str) -> list[str] | None:
         return list(RawEdviseStudentDataSchema.Config.unique)
     if target_schema == "RawEdviseCourseDataSchema":
         from edvise.data_audit.schemas.raw_edvise_course import (
-            RawEdviseCourseDataSchema,
+            COURSE_MANIFEST_GRAIN_KEYS,
         )
 
-        return list(RawEdviseCourseDataSchema.Config.unique)
+        # Base course entity grain; optional disambiguators are execution-only additions.
+        return list(COURSE_MANIFEST_GRAIN_KEYS)
     return None
 
 
@@ -562,8 +564,8 @@ def _check_entity_grain_keys(
     errors: list[ManifestValidationError],
 ) -> None:
     """
-    ENTITY_GRAIN — every field in the target schema's Config.unique must have a
-    mappable source column so execution can group rows at the correct grain.
+    ENTITY_GRAIN — every field in the manifest entity grain must have a mappable
+    source column so execution can group rows at the correct grain.
     """
     grain_fields = _grain_fields_for_target_schema(manifest.target_schema)
     if not grain_fields:
@@ -582,7 +584,7 @@ def _check_entity_grain_keys(
                     error_code=ManifestValidationErrorCode.GRAIN_KEY_MISSING_SOURCE,
                     detail=(
                         f"No manifest mapping for target_field '{field}', which is required "
-                        f"for the entity grain ({manifest.target_schema}.Config.unique)."
+                        f"for the entity grain ({manifest.target_schema})."
                     ),
                     offending_value=None,
                 )
@@ -595,7 +597,7 @@ def _check_entity_grain_keys(
                     error_code=ManifestValidationErrorCode.GRAIN_KEY_MISSING_SOURCE,
                     detail=(
                         f"Grain key '{field}' is unmapped (no source_column / corrected_source_column). "
-                        f"{manifest.target_schema}.Config.unique requires a source column for each key."
+                        f"The entity grain for {manifest.target_schema} requires a source column for each key."
                     ),
                     offending_value=None,
                 )
@@ -625,7 +627,7 @@ def validate_manifest(
         2. JOIN_STRUCTURE    — join tables/keys valid, aliases present
         3. ROW_SELECTION     — strategy columns present in schema contract
         4. MAP_UNMAP         — sourcing consistency on mapped/unmapped fields
-        5. ENTITY_GRAIN      — each Pandera Config.unique field has a mappable source
+        5. ENTITY_GRAIN      — each manifest entity-grain field has a mappable source
 
     Parameters
     ----------

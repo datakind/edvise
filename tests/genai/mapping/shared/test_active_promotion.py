@@ -61,6 +61,41 @@ def test_promote_genai_mapping_to_active_copies_required_and_optional(tmp_path: 
     assert (active / "term_output.json").read_text() == "{}"
 
 
+def test_promote_genai_mapping_to_active_copies_identity_hooks_subtree(tmp_path: Path) -> None:
+    genai = tmp_path / "genai"
+    run_id = "school_hooks"
+    ia = genai / "runs" / run_id / "identity_agent"
+    sma = genai / "runs" / run_id / "schema_mapping_agent"
+    active = genai / "active"
+    hooks = ia / "identity_hooks" / "test_univ"
+    hooks.mkdir(parents=True)
+    ia.mkdir(parents=True, exist_ok=True)
+    sma.mkdir(parents=True)
+
+    (ia / "enriched_schema_contract.json").write_text("{}")
+    (sma / "manifest_map.json").write_text("{}")
+    (sma / "transformation_map.json").write_text("{}")
+    (hooks / "dedup_hooks.py").write_text("# grain")
+    (hooks / "term_hooks.py").write_text("# term")
+
+    paths = _FakeSMAPaths(
+        active_root=active,
+        active_enriched_schema_contract=active / "enriched_schema_contract.json",
+        active_manifest_map=active / "manifest_map.json",
+        active_transformation_map=active / "transformation_map.json",
+        active_transform_hooks=active / "transform_hooks.py",
+        ia_enriched_schema_contract=ia / "enriched_schema_contract.json",
+        manifest_map=sma / "manifest_map.json",
+        transformation_map=sma / "transformation_map.json",
+        transform_hooks=sma / "transform_hooks.py",
+    )
+
+    promote_genai_mapping_to_active(paths)
+
+    assert (active / "identity_hooks" / "test_univ" / "dedup_hooks.py").read_text() == "# grain"
+    assert (active / "identity_hooks" / "test_univ" / "term_hooks.py").read_text() == "# term"
+
+
 def test_promote_genai_mapping_to_active_missing_required_raises(tmp_path: Path) -> None:
     genai = tmp_path / "genai"
     run_id = "r2"

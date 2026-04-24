@@ -14,6 +14,8 @@ LOGGER = logging.getLogger(__name__)
 _IDENTITY_OPTIONAL_ACTIVE: tuple[tuple[str, str], ...] = (
     ("identity_grain_output.json", "grain_output.json"),
     ("identity_term_output.json", "term_output.json"),
+    # Legacy flat hook filenames (pre-identity_hooks/ layout); canonical modules live under
+    # identity_hooks/<institution_id>/ and are promoted via _promote_identity_hooks_subtree.
     ("term_hooks.py", "term_hooks.py"),
     ("grain_hooks.py", "grain_hooks.py"),
 )
@@ -33,6 +35,19 @@ class _ActivePromotionPaths(Protocol):
     transform_hooks: Path
 
 
+def _promote_identity_hooks_subtree(*, ia_root: Path, active_root: Path) -> None:
+    """
+    Copy materialized IA hook modules so ``hook_spec.file`` paths such as
+    ``identity_hooks/<institution_id>/dedup_hooks.py`` resolve under ``active_root``.
+    """
+    src = ia_root / "identity_hooks"
+    if not src.is_dir():
+        return
+    dst = active_root / "identity_hooks"
+    shutil.copytree(src, dst, dirs_exist_ok=True)
+    LOGGER.info("Promoted identity_hooks tree %s -> %s", src, dst)
+
+
 def promote_genai_mapping_to_active(paths: _ActivePromotionPaths) -> None:
     """
     After a successful SMA onboard ``gate_2``, copy canonical artifacts from the run tree into
@@ -40,7 +55,8 @@ def promote_genai_mapping_to_active(paths: _ActivePromotionPaths) -> None:
 
     Required sources: IA ``enriched_schema_contract.json``, SMA ``manifest_map.json`` and
     ``transformation_map.json``. Optional: ``transform_hooks.py`` if present; identity-agent
-    outputs/hooks when present.
+    outputs when present; ``identity_hooks/`` subtree when materialized hook modules exist
+    (matches :func:`~edvise.genai.mapping.identity_agent.hitl.hook_generation.paths.default_hook_module_relpath`).
     """
     paths.active_root.mkdir(parents=True, exist_ok=True)
     ia_root = paths.ia_enriched_schema_contract.parent
@@ -59,6 +75,8 @@ def promote_genai_mapping_to_active(paths: _ActivePromotionPaths) -> None:
     if paths.transform_hooks.is_file():
         shutil.copy2(paths.transform_hooks, paths.active_transform_hooks)
         LOGGER.info("Promoted %s -> %s", paths.transform_hooks, paths.active_transform_hooks)
+
+    _promote_identity_hooks_subtree(ia_root=ia_root, active_root=paths.active_root)
 
     for src_name, dst_name in _IDENTITY_OPTIONAL_ACTIVE:
         src, dst = ia_root / src_name, paths.active_root / dst_name

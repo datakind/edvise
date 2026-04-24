@@ -25,6 +25,23 @@ class _FlushTolerantStreamHandler(logging.StreamHandler):
             pass
 
 
+class _FlushTolerantFileHandler(logging.FileHandler):
+    """
+    File handler that ignores flush failures on unsupported streams.
+
+    Unity Catalog volume / FUSE-backed log paths sometimes raise ``OSError``
+    (e.g. errno 95 *Operation not supported*) on ``flush()`` even when
+    ``write()`` succeeds; the stdlib would then emit ``--- Logging error ---``
+    for every log line.
+    """
+
+    def flush(self) -> None:
+        try:
+            super().flush()
+        except OSError:
+            pass
+
+
 class SimpleLogger:
     """
     A JSONL logger that temporarily moves the institution log file to /tmp,
@@ -192,7 +209,9 @@ def init_file_logging_at_path(
     root.addHandler(console)
 
     file_mode = "a" if append else "w"
-    fh = logging.FileHandler(local_path, mode=file_mode, encoding="utf-8", delay=True)
+    fh = _FlushTolerantFileHandler(
+        local_path, mode=file_mode, encoding="utf-8", delay=True
+    )
     fh.setFormatter(
         logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     )
