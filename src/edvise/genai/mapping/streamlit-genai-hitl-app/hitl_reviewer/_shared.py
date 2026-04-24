@@ -1,8 +1,8 @@
 """
 Shared Streamlit layout for HITL reviewers (IA grain/term, SMA).
 
-CSS uses unified class names: ``hitl-inst``, ``hitl-qpanel``, ``hitl-meta``; option cards use
-``hitl-opt-*``; grain-specific table/variance keep ``.ia-`` in names.
+CSS uses unified class names: ``hitl-inst``, ``hitl-qpanel``, ``hitl-meta``; options are
+``st.button`` with ``hitl-opt-mark`` + scoped CSS; grain table/variance keep ``.ia-`` names.
 """
 
 from __future__ import annotations
@@ -20,12 +20,64 @@ def inject_hitl_css() -> None:
     st.markdown(
         """
 <style>
+/* Constrain review card to readable width */
+section[data-testid="stMainBlockContainer"] > div {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* Tighten candidate keys table (full rule — font/padding in one place) */
+.ia-cand-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin: 0.5rem 0 1rem 0; }
+.ia-cand-table th, .ia-cand-table td { border: 1px solid rgba(0,0,0,0.08); padding: 0.3rem 0.45rem; vertical-align: top; }
+.ia-cand-table th { background: rgba(0,0,0,0.04); text-align: left; }
+.ia-notes { max-width: 28rem; white-space: pre-wrap; word-break: break-word; }
+
+/* Tighten variance panel */
+.ia-variance-panel { padding: 0.5rem 0.75rem; margin: 0.5rem 0 0.75rem 0; border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 10px; background: rgba(0,0,0,0.02);
+}
+.ia-var-line { font-size: 0.85rem; line-height: 1.45; margin: 0.2rem 0 0.4rem 0; }
+.ia-variance-panel h4 { margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 600; color: rgba(49, 51, 63, 0.95); }
+.ia-var-key { font-weight: 600; font-family: ui-monospace, monospace; }
+
+/* Option card buttons: .hitl-opt-mark in prior block (hidden) + adjacent stButton; avoids action bar */
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + * div[data-testid="stButton"] > button {
+  width: 100%;
+  text-align: left !important;
+  white-space: normal !important;
+  height: auto !important;
+  padding: 0.5rem 0.75rem !important;
+  border-radius: 6px !important;
+  font-size: 0.85rem !important;
+  line-height: 1.4 !important;
+  margin-bottom: 0.4rem !important;
+  box-shadow: none !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + * div[data-testid="stButton"] > button[kind="secondary"] {
+  border: 1px solid rgba(0,0,0,0.12) !important;
+  background: white !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + * div[data-testid="stButton"] > button[kind="primary"] {
+  border: 1px solid rgba(99, 102, 241, 0.7) !important;
+  background: rgba(99, 102, 241, 0.08) !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + * div[data-testid="stButton"] > button[kind="secondary"]:hover:enabled {
+  border-color: rgba(99,102,241,0.5) !important;
+  background: rgba(99,102,241,0.04) !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + * div[data-testid="stButton"] > button[kind="primary"]:hover:enabled {
+  border-color: rgba(99, 102, 241, 0.85) !important;
+  background: rgba(99, 102, 241, 0.12) !important;
+}
+p.hitl-opt-mark { display: block; height: 0; margin: 0 !important; padding: 0 !important; font-size: 0; line-height: 0; overflow: hidden; }
 .hitl-inst { font-size: 1.85rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.35rem 0;
   letter-spacing: -0.02em; }
 .hitl-qpanel {
   font-size: 1.2rem; line-height: 1.55; font-weight: 500; margin: 1rem 0 1.25rem 0; padding: 1.1rem 1.25rem;
   background: rgba(99, 102, 241, 0.07); border: 1px solid rgba(99, 102, 241, 0.18); border-radius: 10px;
 }
+.hitl-qpanel.hitl-ia-qpanel { font-size: 1.05rem; padding: 0.75rem 1rem; margin: 0.6rem 0 0.85rem 0; }
+.hitl-inst.hitl-ia-inst { font-size: 1.5rem; }
 .hitl-meta { font-size: 0.82rem; color: rgba(49, 51, 63, 0.75); margin-bottom: 0.35rem; }
 .hitl-ctx-block { font-size: 0.95rem; line-height: 1.45; color: rgba(49, 51, 63, 0.92); }
 .hitl-chip-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.25rem; }
@@ -37,32 +89,6 @@ def inject_hitl_css() -> None:
 }
 .ia-uni-good { color: rgb(5, 122, 85); font-weight: 600; }
 .ia-uni-warn { color: rgb(180, 83, 9); font-weight: 600; }
-.ia-cand-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; margin: 0.5rem 0 1rem 0; }
-.ia-cand-table th, .ia-cand-table td { border: 1px solid rgba(0,0,0,0.08); padding: 0.45rem 0.55rem; vertical-align: top; }
-.ia-cand-table th { background: rgba(0,0,0,0.04); text-align: left; }
-.ia-notes { white-space: pre-wrap; word-break: break-word; max-width: 36rem; }
-.ia-var-line { margin: 0.35rem 0 0.6rem 0; font-size: 0.92rem; line-height: 1.45; }
-.ia-var-key { font-weight: 600; font-family: ui-monospace, monospace; }
-.hitl-opt-card {
-  border: 1px solid rgba(0,0,0,0.12); border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.4rem;
-  background: rgba(255,255,255,0.9);
-  display: flex; flex-direction: column; justify-content: flex-start;
-}
-.hitl-opt-card-sel {
-  border-color: rgba(99, 102, 241, 0.7); border-width: 1.5px; background: rgba(99, 102, 241, 0.08);
-}
-.hitl-opt-title { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.35rem; }
-.hitl-opt-desc { font-size: 0.85rem; color: rgba(49, 51, 63, 0.88); line-height: 1.45; flex: 1 1 auto; min-height: 2.5rem; }
-.ia-variance-panel {
-  border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; padding: 0.75rem 1rem;
-  margin: 0.75rem 0 1rem 0; background: rgba(0,0,0,0.02);
-}
-.ia-variance-panel h4 { margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 600; color: rgba(49, 51, 63, 0.95); }
-.hitl-rec-badge {
-  display: block; font-size: 0.72rem; font-weight: 600; margin-bottom: 0.4rem; padding: 0.08rem 0.45rem;
-  border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: rgb(30, 64, 175);
-}
-.hitl-opt-after { margin-bottom: 0.65rem; height: 0; overflow: hidden; }
 </style>
 """,
         unsafe_allow_html=True,
@@ -96,9 +122,10 @@ def render_hitl_header(
     run_total: int | None,
     file_index: int,
     item_id: Any,
+    inst_class: str = "hitl-inst",
 ) -> None:
     st.markdown(
-        f'<p class="hitl-inst">{html.escape(format_fn(inst_raw))}</p>',
+        f'<p class="{inst_class}">{html.escape(format_fn(inst_raw))}</p>',
         unsafe_allow_html=True,
     )
     noun = str(domain_label).strip().lower()
@@ -157,32 +184,27 @@ def render_option_cards(
             lab = lab_raw
         desc = str(opt.get("description") or "")
         selected = int(st.session_state[sel_key]) == j
-        card_cls = "hitl-opt-card hitl-opt-card-sel" if selected else "hitl-opt-card"
-        badge = ""
-        if j == ia_rec_ix:
-            if json_choice is None:
-                badge = '<span class="hitl-rec-badge">IA recommendation</span>'
-            else:
-                badge = '<span class="hitl-rec-badge">Saved in JSON</span>'
+        is_rec = j == ia_rec_ix
+        if is_rec and json_choice is not None:
+            badge = " · ✦ Saved in JSON"
+        elif is_rec:
+            badge = " · ✦ IA recommendation"
+        else:
+            badge = ""
+        btn_label = f"**{lab}**{badge}  \n{desc}"
         st.markdown(
-            f'<div class="{card_cls}"><p class="hitl-opt-title">{html.escape(lab)}</p>{badge}'
-            f'<div class="hitl-opt-desc">{html.escape(desc)}</div></div>',
+            f'<p class="hitl-opt-mark" data-opt="{j}">.</p>',
             unsafe_allow_html=True,
         )
-        _sp, _sel = st.columns([4, 1], gap="small")
-        with _sp:
-            st.empty()
-        with _sel:
-            if st.button(
-                "Select",
-                key=f"{key_prefix}-pick-{sk}-{file_index}-{j}",
-                type="primary" if selected else "secondary",
-                use_container_width=False,
-                disabled=not uc_group_pending,
-            ):
-                st.session_state[sel_key] = j
-                st.rerun()
-        st.markdown('<div class="hitl-opt-after"></div>', unsafe_allow_html=True)
+        if st.button(
+            btn_label,
+            key=f"{key_prefix}-pick-{sk}-{file_index}-{j}",
+            type="primary" if selected else "secondary",
+            use_container_width=True,
+            disabled=not uc_group_pending,
+        ):
+            st.session_state[sel_key] = j
+            st.rerun()
 
 
 def render_action_bar(

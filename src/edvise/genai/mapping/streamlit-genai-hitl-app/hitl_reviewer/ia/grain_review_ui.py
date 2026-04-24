@@ -236,11 +236,12 @@ def render_ia_grain_hitl_cards(
         run_total=run_total,
         file_index=i,
         item_id=item.get("item_id", ""),
+        inst_class="hitl-inst hitl-ia-inst",
     )
 
     q = (item.get("hitl_question") or "").strip() or f"Item {i + 1}"
     st.markdown(
-        f'<div class="hitl-qpanel">{html.escape(q)}</div>',
+        f'<div class="hitl-qpanel hitl-ia-qpanel">{html.escape(q)}</div>',
         unsafe_allow_html=True,
     )
 
