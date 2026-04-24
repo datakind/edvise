@@ -422,27 +422,20 @@ def render_silver_hitl_editor(
     )
     sk = f"{_safe_key(onboard_run_id)}-{_safe_key(phase)}-{_safe_key(artifact_type)}"
     pkey = f"path-{sk}"
-    if is_sma or is_ia_grain:
-        with st.expander("📁 Path details ▾", expanded=False):
-            path_in = st.text_input(
-                "UC file path to read/write (absolute ``/Volumes/{catalog}/…_silver/…``)",
-                value=default_artifact_path,
-                key=pkey,
-            )
-            silver_path = (path_in or "").strip()
-            if silver_path:
-                st.code(silver_path, language="text")
-                rel = silver_relative_path(silver_path)
-                if rel:
-                    st.caption("Relative from institution silver volume root")
-                    st.code(rel, language="text")
-    else:
-        path_in = st.text_input(
-            "UC file path to read/write (absolute ``/Volumes/{catalog}/…_silver/…``)",
-            value=default_artifact_path,
-            key=pkey,
-        )
-        silver_path = (path_in or "").strip()
+    # Do not use st.expander here: this function is rendered inside a group expander,
+    # and Streamlit forbids nested expanders.
+    path_in = st.text_input(
+        "UC file path to read/write (absolute ``/Volumes/{catalog}/…_silver/…``)",
+        value=default_artifact_path,
+        key=pkey,
+    )
+    silver_path = (path_in or "").strip()
+    if (is_sma or is_ia_grain) and silver_path:
+        st.code(silver_path, language="text")
+        rel = silver_relative_path(silver_path)
+        if rel:
+            st.caption("Relative from institution silver volume root")
+            st.code(rel, language="text")
 
     if not silver_path:
         st.caption("Set the file path to load HITL JSON (typically the registered `artifact_path`).")
