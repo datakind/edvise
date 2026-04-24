@@ -31,22 +31,22 @@ from hitl_reviewer.silver_hitl_paths import artifact_path_contains_onboard_run_i
 from hitl_reviewer.sma.enriched_schema_contract import silver_relative_path
 from hitl_reviewer.unity_volume_files import read_unity_file_text
 
-# Paths for ``st.switch_page`` / ``st.page_link`` (relative to ``app.py`` in this app tree).
-HITL_REVIEW_HISTORY_PAGE = "pages/1_Hitl_Review_History.py"
-HITL_ITEMS_PAGE = "pages/2_Hitl_Items.py"
+# Primary HITL workbench: ``hitl_reviews`` table and per-group JSON/UC on the **same** page.
+# Paths for ``st.page_link`` (relative to the main script, e.g. :file:`Home.py` for this app).
+HITL_WORKBENCH_PAGE = "pages/1_Hitl_Review.py"
+HITL_REVIEW_HISTORY_PAGE = HITL_WORKBENCH_PAGE
+HITL_ITEMS_PAGE = HITL_WORKBENCH_PAGE
 
-# Sidebar copy for Streamlit page entrypoints.
-HITL_REVIEW_HISTORY_SIDEBAR_CAPTION = (
-    "This table **defaults to ``status = pending``** (work queue). Set **status** to **(any)** or add "
-    "run/phase filters when you need to **search** full history. Use **Open in HITL items page** in this "
-    "sidebar to edit silver JSON and UC for one group."
+HITL_WORKBENCH_CAPTION = (
+    "The table **defaults to ``status = pending``** (work queue). Set **status** to **(any)** and add "
+    "run/phase filters to **search** full history. In the **sidebar** choose a **Group to review**; the "
+    "HITL JSON and **UC** actions **load on this same page** below. **URLs** with "
+    "``catalog``, ``onboard_run_id``, ``phase``, and ``artifact_type`` also select a group here."
 )
-HITL_ITEMS_SIDEBAR_CAPTION = (
-    "One ``(onboard_run_id, phase, artifact_type)`` group. Open it from **HITL Review History**, or use a link "
-    "with ``catalog``, ``onboard_run_id``, ``phase``, and ``artifact_type`` in the query string."
-)
+HITL_REVIEW_HISTORY_SIDEBAR_CAPTION = HITL_WORKBENCH_CAPTION
+HITL_ITEMS_SIDEBAR_CAPTION = HITL_WORKBENCH_CAPTION
 
-# Session state keys for navigating to the HITL items page.
+# Session state keys for the selected (onboard_run_id, phase, artifact_type) + catalog.
 KEY_NAV_CATALOG = "hitl_nav_catalog"
 KEY_NAV_ONBOARD = "hitl_nav_onboard_run_id"
 KEY_NAV_PHASE = "hitl_nav_phase"
@@ -168,7 +168,7 @@ def render_connection_sidebar(
         )
         if show_table_query_filters:
             st.number_input("Row limit", min_value=50, max_value=5000, step=50, key="sidebar_limit")
-            st.caption("**Table filters** — for the home **HITL reviews** query only.")
+            st.caption("**Table filters** — for the **hitl_reviews** result set above (defaults to **pending**).")
             st.text_input("onboard_run_id contains", key="sidebar_f_run")
             st.text_input("phase equals", key="sidebar_f_phase")
             st.selectbox(
@@ -179,13 +179,13 @@ def render_connection_sidebar(
             refresh_clicked = st.button(
                 "Refresh data",
                 type="primary",
-                help="Re-runs the home table query with the current filters.",
+                help="Re-runs the table query with the current filters.",
                 key="sidebar_refresh",
             )
         else:
             st.caption(
-                "**Table filters and row limit** are on the home page. This view loads a single HITL group; "
-                "**Unity Catalog** and **reviewer** above still apply to this page."
+                "**Table filters and row limit** are on the **HITL Review** workbench. "
+                "Use **Unity Catalog** and **reviewer** for the HITL editor below on that page."
             )
 
     limit = int(st.session_state.get("sidebar_limit", 500) or 500)
@@ -203,14 +203,14 @@ def render_connection_sidebar(
     return catalog, state, warehouse_ok
 
 
-def render_open_group_in_sidebar(
+def render_group_picker_in_sidebar(
     gdf: pd.DataFrame,
     catalog: str,
 ) -> None:
-    """Appends the “open in HITL items” block to :func:`st.sidebar` (call after the main table has loaded)."""
+    """Appends a group chooser to :func:`st.sidebar`; on submit, sets nav state and ``st.rerun`` so the editor below loads."""
     with st.sidebar:
         st.divider()
-        st.caption("**Open a HITL group** (JSON + UC on the next page)")
+        st.caption("**Group to review** (JSON and UC **below the table**)")
         cands = [
             f"{gdf['onboard_run_id'].iat[i]}  |  {gdf['phase'].iat[i]}  |  {gdf['artifact_type'].iat[i]}"
             for i in range(len(gdf))
@@ -219,9 +219,9 @@ def render_open_group_in_sidebar(
             "``(onboard_run_id, phase, artifact_type)``",
             options=range(len(gdf)),
             format_func=lambda j: cands[j],
-            key="home_group_ix",
+            key="hitl_workbench_group_ix",
         )
-        if st.button("Open in HITL items page", type="primary", key="home_open_items"):
+        if st.button("Load this group", type="primary", key="hitl_workbench_load_group"):
             row = gdf.iloc[int(ix)]
             set_nav_selection(
                 str(catalog),
@@ -229,7 +229,11 @@ def render_open_group_in_sidebar(
                 str(row["phase"]),
                 str(row["artifact_type"]),
             )
-            st.switch_page(HITL_ITEMS_PAGE)
+            st.rerun()
+
+
+# Kept for older call sites; same implementation as :func:`render_group_picker_in_sidebar`.
+render_open_group_in_sidebar = render_group_picker_in_sidebar
 
 
 def load_hitl_rows(

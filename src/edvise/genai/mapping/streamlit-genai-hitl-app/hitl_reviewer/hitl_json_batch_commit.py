@@ -1,7 +1,7 @@
 """
 Batch-write HITL ``choice`` fields to silver JSON from Streamlit session state, plus optional UC approve.
 
-Used by IA grain, IA term, and SMA manifest editors in ``app.py``.
+Used by IA grain, IA term, and SMA manifest editors in the HITL workbench (``pages/1_Hitl_Review.py``).
 """
 
 from __future__ import annotations
@@ -208,7 +208,7 @@ def persist_hitl_choice_radios_from_session(
 ) -> tuple[bool, str]:
     """
     Write ``choice`` for every HITL row that has ``options``, using session keys
-    ``sv{sk}item{i}{item_id}`` (SMA manifest editor and generic multi-radio layout in ``app.py``).
+    ``sv{sk}item{i}{item_id}`` (SMA manifest editor and generic multi-radio layout in the HITL workbench).
     """
     if not allow_silver_write:
         return False, _WRITE_BLOCKED_MSG

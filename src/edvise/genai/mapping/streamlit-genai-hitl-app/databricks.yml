@@ -65,7 +65,7 @@ resources:
         command:
           - streamlit
           - run
-          - app.py
+          - Home.py
         env:
           - name: DATABRICKS_WAREHOUSE_ID
             value_from: sql-warehouse
