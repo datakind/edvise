@@ -39,6 +39,17 @@ def is_sma_phase(phase: str, artifact_type: str) -> bool:
     )
 
 
+def _sma_wrapped_prose_block(text: str) -> None:
+    """Render multi-line text with wrapping (``st.text`` uses ``<pre>`` and overflows horizontally)."""
+    body = str(text or "")
+    if not body:
+        return
+    st.markdown(
+        f'<div class="hitl-ctx-prose">{html.escape(body)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def invalidate_sma_run_pending_cache(onboard_run_id: str) -> None:
     rid = str(onboard_run_id).strip()
     for suffix in ("total", "order"):
@@ -121,7 +132,7 @@ def render_sma_review_context(*, item: dict) -> None:
             st.markdown(
                 '<p class="hitl-ctx-block"><strong>Evidence</strong></p>', unsafe_allow_html=True
             )
-            st.text(ctx)
+            _sma_wrapped_prose_block(ctx)
         if err_lines:
             st.markdown(
                 '<p class="hitl-ctx-block"><strong>Validation issues</strong></p>',
@@ -138,13 +149,13 @@ def render_sma_review_context(*, item: dict) -> None:
                 '<p class="hitl-ctx-block"><strong>Model rationale</strong> (current mapping)</p>',
                 unsafe_allow_html=True,
             )
-            st.text(rationale)
+            _sma_wrapped_prose_block(rationale)
         if val_notes:
             st.markdown(
                 '<p class="hitl-ctx-block"><strong>Predicted validation notes</strong></p>',
                 unsafe_allow_html=True,
             )
-            st.text(val_notes)
+            _sma_wrapped_prose_block(val_notes)
 
 
 def render_sma_option_descriptions(*, options: list) -> None:
@@ -168,7 +179,7 @@ def render_sma_option_descriptions(*, options: list) -> None:
                 unsafe_allow_html=True,
             )
             if desc:
-                st.text(desc)
+                _sma_wrapped_prose_block(desc)
 
 
 def render_sma_source_column_panel(

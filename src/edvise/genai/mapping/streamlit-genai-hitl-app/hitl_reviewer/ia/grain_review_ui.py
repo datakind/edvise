@@ -122,7 +122,7 @@ def _render_candidate_keys_table(hitl_ctx: dict[str, Any]) -> None:
     if not isinstance(ck, list) or not ck:
         st.caption("No structured ``candidate_keys`` in ``hitl_context``.")
         return
-    st.subheader("Candidate keys")
+    st.markdown("**Candidate keys**")
     body_rows: list[str] = []
     for entry in ck:
         if not isinstance(entry, dict):

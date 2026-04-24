@@ -132,25 +132,7 @@ def render_silver_hitl_editor(
         )
     sk = f"{_safe_key(onboard_run_id)}-{_safe_key(phase)}-{_safe_key(artifact_type)}"
     pkey = f"path-{sk}"
-    if compact_chrome and not uc_group_pending:
-        path_label = "Silver JSON path (read-only — UC gate not pending)"
-    elif compact_chrome:
-        path_label = "Silver JSON path (override only if needed)"
-    elif not uc_group_pending:
-        path_label = "UC file path (read-only — UC gate not pending)"
-    else:
-        path_label = "UC file path to read/write (absolute ``/Volumes/{catalog}/…_silver/…``)"
-    path_in = st.text_input(
-        path_label,
-        value=default_artifact_path,
-        key=pkey,
-        disabled=not uc_group_pending,
-    )
-    silver_path = (path_in or "").strip()
-    if compact_chrome and silver_path:
-        rel = silver_relative_path(silver_path)
-        if rel:
-            st.caption(f"Volume-relative: ``{rel}``")
+    silver_path = (st.session_state.get(pkey, default_artifact_path) or default_artifact_path or "").strip()
 
     if not silver_path:
         st.caption("Set the file path to load HITL JSON (typically the registered `artifact_path`).")
@@ -164,8 +146,6 @@ def render_silver_hitl_editor(
             f"``…/genai_mapping/runs/onboard/{onboard_run_id}/…``. "
             "Confirm the path, or keep going only if you intend another file (e.g. an execute run path). "
         )
-    if not is_sma and not is_ia_grain and not is_ia_term:
-        st.code(silver_path, language="text")
     try:
         raw = read_unity_file_text(silver_path)
     except Exception as e:  # noqa: BLE001 — show in UI
@@ -180,12 +160,6 @@ def render_silver_hitl_editor(
     if not isinstance(items, list) or not items:
         st.info("No `items` in this HITL JSON, or the list is empty — nothing to select.")
         return
-
-    if not uc_group_pending:
-        st.warning(
-            "This ``hitl_reviews`` group is **not pending** (already approved or rejected). "
-            "Silver JSON is **read-only** here so UC and volume state cannot diverge."
-        )
 
     if is_ia_grain:
         render_ia_grain_hitl_cards(
@@ -507,12 +481,42 @@ for onboard_run_id, phase, artifact_type in groups:
             )
         else:
             default_path = raw_paths[0]
+            if sub_pending.empty:
+                st.warning(
+                    "This `hitl_reviews` group is **not pending** (already approved or rejected). "
+                    "Silver JSON is **read-only** here so UC and volume state cannot diverge."
+                )
             if len(set(raw_paths)) > 1:
                 with st.expander("Multiple artifact paths for this group", expanded=False):
                     st.caption(
                         "Defaulting the editor to the first path. Pick another in the path field if needed."
                     )
                     st.code("\n".join(sorted(set(raw_paths))), language="text")
+            sk = f"{_safe_key(str(onboard_run_id))}-{_safe_key(str(phase))}-{_safe_key(str(artifact_type))}"
+            _is_sma = is_sma_phase(str(phase), str(artifact_type))
+            _is_ia_g = is_ia_grain_phase(str(phase), str(artifact_type))
+            _is_ia_t = is_ia_term_phase(str(phase), str(artifact_type))
+            _compact = _is_ia_g or _is_ia_t or _is_sma
+            if _compact:
+                _pl = "Silver JSON path" + (
+                    " (read-only — UC gate not pending)" if sub_pending.empty else ""
+                )
+            elif sub_pending.empty:
+                _pl = "UC file path (read-only — UC gate not pending)"
+            else:
+                _pl = (
+                    "UC file path to read/write (absolute ``/Volumes/{catalog}/…_silver/…``)"
+                )
+            with st.expander("📁 Path details", expanded=False):
+                path_in = st.text_input(
+                    _pl,
+                    value=default_path,
+                    key=f"path-{sk}",
+                    disabled=sub_pending.empty,
+                )
+                _rel = silver_relative_path(path_in or "")
+                if _rel:
+                    st.caption(f"Volume-relative: `{_rel}`")
             render_silver_hitl_editor(
                 catalog=catalog,
                 default_artifact_path=default_path,

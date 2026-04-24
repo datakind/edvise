@@ -41,31 +41,46 @@ div[data-testid="stVerticalBlock"] {
 .ia-var-key { font-weight: 600; font-family: ui-monospace, monospace; }
 
 /* Option card buttons: .hitl-opt-mark in prior block (hidden) + adjacent stButton; avoids action bar */
-div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + * div[data-testid="stButton"] > button {
-  width: 100%;
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button {
+  width: 100% !important;
   text-align: left !important;
   white-space: normal !important;
   height: auto !important;
-  padding: 0.5rem 0.75rem !important;
+  min-height: unset !important;
+  padding: 0.4rem 0.65rem !important;
   border-radius: 6px !important;
-  font-size: 0.85rem !important;
-  line-height: 1.4 !important;
-  margin-bottom: 0.4rem !important;
+  font-size: 0.82rem !important;
+  line-height: 1.35 !important;
+  margin-bottom: 0.35rem !important;
   box-shadow: none !important;
+  display: block !important;
 }
-div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + * div[data-testid="stButton"] > button[kind="secondary"] {
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button p {
+  text-align: left !important;
+  margin: 0 !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button p:first-child {
+  font-weight: 600 !important;
+  font-size: 0.85rem !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button p:last-child {
+  font-size: 0.78rem !important;
+  opacity: 0.75 !important;
+  margin-top: 0.15rem !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button[kind="secondary"] {
   border: 1px solid rgba(0,0,0,0.12) !important;
   background: white !important;
 }
-div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + * div[data-testid="stButton"] > button[kind="primary"] {
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button[kind="primary"] {
   border: 1px solid rgba(99, 102, 241, 0.7) !important;
   background: rgba(99, 102, 241, 0.08) !important;
 }
-div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + * div[data-testid="stButton"] > button[kind="secondary"]:hover:enabled {
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button[kind="secondary"]:hover:enabled {
   border-color: rgba(99,102,241,0.5) !important;
   background: rgba(99,102,241,0.04) !important;
 }
-div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + * div[data-testid="stButton"] > button[kind="primary"]:hover:enabled {
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button[kind="primary"]:hover:enabled {
   border-color: rgba(99, 102, 241, 0.85) !important;
   background: rgba(99, 102, 241, 0.12) !important;
 }
@@ -73,9 +88,17 @@ p.hitl-opt-mark { display: block; height: 0; margin: 0 !important; padding: 0 !i
 .hitl-inst { font-size: 1.5rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.25rem 0; letter-spacing: -0.02em; }
 .hitl-qpanel { font-size: 1.05rem; line-height: 1.5; font-weight: 500; margin: 0.6rem 0 0.85rem 0;
   padding: 0.75rem 1rem; background: rgba(99,102,241,0.07); border: 1px solid rgba(99,102,241,0.18);
-  border-radius: 8px; }
+  border-radius: 8px; overflow-wrap: anywhere; word-break: break-word; }
 .hitl-meta { font-size: 0.78rem; color: rgba(49, 51, 63, 0.75); margin-bottom: 0.35rem; }
 .hitl-ctx-block { font-size: 0.95rem; line-height: 1.45; color: rgba(49, 51, 63, 0.92); }
+/* SMA/IA: wrap long evidence/rationale. Match Streamlit st.text (pre) feel: mono + subtle well,
+   but white-space: pre-wrap + overflow-wrap so lines wrap instead of a horizontal scrollbar. */
+.hitl-ctx-prose { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.86rem; line-height: 1.45; color: rgba(49, 51, 63, 0.92);
+  margin: 0.15rem 0 0.6rem 0; max-width: 100%; box-sizing: border-box;
+  padding: 0.5rem 0.65rem; border-radius: 0.25rem; background: rgba(250, 250, 250, 1);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .hitl-chip-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.25rem; }
 .hitl-chip { display: inline-block; padding: 0.08rem 0.45rem; border-radius: 999px; font-size: 0.72rem;
   background: rgba(111, 66, 193, 0.12); border: 1px solid rgba(111, 66, 193, 0.28); }
@@ -169,7 +192,7 @@ def render_option_cards(
     file_index: int,
     option_label_format: Literal["raw", "numbered"] = "raw",
 ) -> None:
-    st.subheader("Decision")
+    st.markdown("**Decision**")
     for j, opt in enumerate(options):
         if not isinstance(opt, dict):
             continue
@@ -179,6 +202,7 @@ def render_option_cards(
         else:
             lab = lab_raw
         desc = str(opt.get("description") or "")
+        desc_short = desc[:120].rstrip() + "…" if len(desc) > 120 else desc
         selected = int(st.session_state[sel_key]) == j
         is_rec = j == ia_rec_ix
         if is_rec and json_choice is not None:
@@ -187,7 +211,7 @@ def render_option_cards(
             badge = " · ✦ IA recommendation"
         else:
             badge = ""
-        btn_label = f"**{lab}**{badge}  \n{desc}"
+        btn_label = f"**{lab}**{badge}  \n{desc_short}"
         st.markdown(
             f'<p class="hitl-opt-mark" data-opt="{j}">.</p>',
             unsafe_allow_html=True,
