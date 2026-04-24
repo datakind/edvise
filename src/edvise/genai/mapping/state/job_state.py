@@ -200,8 +200,8 @@ def ensure_ia_run_row(
     if not create_run:
         return
     _state_safe(
-        "create_pipeline_run",
-        pipeline_state.create_pipeline_run,
+        "upsert_onboard_pipeline_run_row",
+        pipeline_state.upsert_onboard_pipeline_run_row,
         catalog,
         institution_id,
         onboard_run_id,

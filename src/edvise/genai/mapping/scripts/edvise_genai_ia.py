@@ -757,6 +757,14 @@ if __name__ == "__main__":
         default="",
         help="Databricks job run id (orchestration id) stored on pipeline_runs.db_run_id; empty omits.",
     )
+    parser.add_argument(
+        "--new_onboard_run",
+        action="store_true",
+        help=(
+            "Onboard mode only: mint the next same-day suffixed onboard_run_id instead of reusing "
+            "a failed run (clean artifact folder; use for intentional restart, not Databricks repair)."
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -792,6 +800,7 @@ if __name__ == "__main__":
             args.catalog,
             args.institution_id,
             None,
+            force_new_onboard_run=bool(args.new_onboard_run),
         )
 
     try:

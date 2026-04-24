@@ -469,6 +469,9 @@ def run_onboard_gate_2(
     from edvise.genai.mapping.schema_mapping_agent.transformation.prompt import (
         build_step2b_prompt,
     )
+    from edvise.genai.mapping.schema_mapping_agent.transformation.dedupe_plans import (
+        dedupe_transformation_plans_in_wrapper,
+    )
     from edvise.genai.mapping.schema_mapping_agent.transformation.eval import (
         validate_transformation_wrapper,
     )
@@ -537,6 +540,7 @@ def run_onboard_gate_2(
         raise RuntimeError(result_2b.get("error") or "Step 2b LLM failed")
 
     transformation_data = json.loads(result_2b["response"])
+    dedupe_transformation_plans_in_wrapper(transformation_data, log=LOGGER)
     ok, err = validate_transformation_wrapper(transformation_data)
     if not ok:
         LOGGER.warning("[onboard/gate_2] Transformation map validation warning: %s", err)
@@ -608,6 +612,9 @@ def run_execute(
         FieldMappingManifest,
         MappingManifestEnvelope,
     )
+    from edvise.genai.mapping.schema_mapping_agent.transformation.dedupe_plans import (
+        dedupe_transformation_plans_in_wrapper,
+    )
     from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
         TransformationMap,
     )
@@ -630,6 +637,7 @@ def run_execute(
     # Load approved artifacts
     manifest_data = json.loads(paths.active_manifest_map.read_text())
     transformation_data = json.loads(paths.active_transformation_map.read_text())
+    dedupe_transformation_plans_in_wrapper(transformation_data, log=LOGGER)
     enriched_contract = _load_enriched_contract(paths.active_enriched_schema_contract)
 
     # Load cleaned dataframes — written by edvise_ia execute mode in this run
@@ -884,6 +892,14 @@ if __name__ == "__main__":
         default="",
         help="Databricks job run id (orchestration id) stored on pipeline_runs.db_run_id; empty omits.",
     )
+    parser.add_argument(
+        "--new_onboard_run",
+        action="store_true",
+        help=(
+            "Onboard mode only: mint the next same-day suffixed onboard_run_id instead of reusing "
+            "a failed run (clean artifact folder; use for intentional restart, not Databricks repair)."
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -919,6 +935,7 @@ if __name__ == "__main__":
             args.catalog,
             args.institution_id,
             None,
+            force_new_onboard_run=bool(args.new_onboard_run),
         )
 
     try:

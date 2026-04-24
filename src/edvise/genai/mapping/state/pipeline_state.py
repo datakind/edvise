@@ -125,6 +125,72 @@ def create_pipeline_run(
     _spark().sql(q)
 
 
+def upsert_onboard_pipeline_run_row(
+    catalog: str,
+    institution_id: str,
+    onboard_run_id: str,
+    db_run_id: str | None = None,
+    input_file_paths_json: str | None = None,
+) -> None:
+    """
+    Ensure an onboard ``pipeline_runs`` row exists with status ``running``.
+
+    Used when IA begins onboard with ``resume_from='start'``. If a row already exists for the
+    same keys (for example after ``failed`` and a Databricks job repair), update it in place
+    instead of inserting a duplicate row.
+    """
+    c = str(catalog).strip()
+    inst = str(institution_id).strip()
+    rid = str(onboard_run_id).strip()
+    if not inst or not rid:
+        raise ValueError("institution_id and onboard_run_id must be non-empty")
+
+    t = qualified_table(c, PIPELINE_RUNS)
+    db_sql = _sql_db_run_id(db_run_id)
+    ifp_sql = _sql_input_file_paths(input_file_paths_json)
+    matched_extras: list[str] = []
+    if (db_run_id or "").strip():
+        matched_extras.append(f"t.db_run_id = {db_sql}")
+    if ifp_sql != "NULL":
+        matched_extras.append(f"t.input_file_paths = {ifp_sql}")
+    matched_tail = (", " + ", ".join(matched_extras)) if matched_extras else ""
+
+    if ifp_sql == "NULL":
+        ifp_col = ""
+        ifp_val_not = ""
+    else:
+        ifp_col = ", input_file_paths"
+        ifp_val_not = f", {ifp_sql}"
+
+    q = f"""
+    MERGE INTO {t} t
+    USING (
+      SELECT
+        {lit(inst)} AS institution_id,
+        {lit(rid)} AS onboard_run_id,
+        {lit(c)} AS ccat,
+        {lit(_INITIAL_RUN_STATUS)} AS status,
+        {db_sql} AS db_run_id
+    ) AS s
+    ON t.institution_id = s.institution_id
+       AND t.onboard_run_id = s.onboard_run_id
+       AND t.`catalog` = s.ccat
+       AND t.execute_run_id IS NULL
+    WHEN MATCHED THEN UPDATE SET
+      t.status = s.status,
+      t.updated_at = current_timestamp(){matched_tail}
+    WHEN NOT MATCHED THEN INSERT (
+      institution_id, onboard_run_id, `catalog`, status, db_run_id, execute_run_id,
+      created_at, updated_at{ifp_col}
+    )
+    VALUES (
+      s.institution_id, s.onboard_run_id, s.ccat, s.status, s.db_run_id, NULL,
+      current_timestamp(), current_timestamp(){ifp_val_not}
+    )
+    """
+    _spark().sql(q)
+
+
 def update_pipeline_run_status(
     catalog: str,
     institution_id: str,
@@ -319,13 +385,20 @@ def resolve_onboard_run_id(
     catalog: str,
     institution_id: str,
     onboard_run_id_override: Optional[str] = None,
+    *,
+    force_new_onboard_run: bool = False,
 ) -> str:
     """
     Resolve the active ``onboard_run_id`` for this institution.
 
     If ``onboard_run_id_override`` is passed non-empty (manual override / explicit job id), it is
     returned unchanged. Otherwise the convention is ``{institution_id}_{YYYYMMDD}`` with optional
-    numeric suffix for additional same-day runs after a terminal ``complete`` / ``failed`` state.
+    numeric suffix for additional same-day runs after a terminal ``complete``. A ``failed`` row
+    reuses the same ``onboard_run_id`` so Databricks job repairs keep a single artifact folder.
+
+    Set ``force_new_onboard_run=True`` to mint the next same-day suffixed id without reusing a
+    ``failed`` (or other) row—use when intentionally abandoning the current attempt for a clean
+    ``runs/onboard/…`` folder.
     """
     override = (onboard_run_id_override or "").strip()
     if override:
@@ -336,6 +409,13 @@ def resolve_onboard_run_id(
         raise ValueError("institution_id must be non-empty")
 
     base_id = f"{inst}_{date.today().strftime('%Y%m%d')}"
+
+    if force_new_onboard_run:
+        n = count_pipeline_runs_created_today(catalog, inst)
+        if n == 0:
+            return base_id
+        return f"{base_id}_{n + 1}"
+
     latest = get_latest_pipeline_run_created_today(catalog, inst)
     if latest is None:
         return base_id
@@ -345,9 +425,9 @@ def resolve_onboard_run_id(
     if not rid:
         return base_id
 
-    if st in ("running", "awaiting_hitl", "timed_out"):
+    if st in ("running", "awaiting_hitl", "timed_out", "failed"):
         return rid
-    if st in ("complete", "failed"):
+    if st == "complete":
         n = count_pipeline_runs_created_today(catalog, inst)
         return f"{base_id}_{n + 1}"
     # Unknown legacy status: start a fresh suffixed id rather than reusing ambiguous rows.
@@ -737,13 +817,14 @@ def bootstrap_resolved_onboard_run_id(
     onboard_run_id_arg: str | None,
     *,
     stale_idle_minutes: int | None = None,
+    force_new_onboard_run: bool = False,
 ) -> str:
     """
     Reconcile stale ``running`` / ``awaiting_hitl`` rows, then resolve the active run id.
 
     Pass ``onboard_run_id_arg`` as empty/None to use :func:`resolve_onboard_run_id`
-    (implicit resume of ``running`` / ``awaiting_hitl`` / ``timed_out``, or a new suffixed id after
-    ``complete`` / ``failed``).
+    (implicit resume of ``running`` / ``awaiting_hitl`` / ``timed_out`` / ``failed``, or a new
+    suffixed id after ``complete``). See ``force_new_onboard_run`` on :func:`resolve_onboard_run_id`.
     """
     idle = (
         stale_idle_minutes
@@ -751,13 +832,20 @@ def bootstrap_resolved_onboard_run_id(
         else STALE_PIPELINE_RUN_IDLE_MINUTES
     )
     reconcile_stale_nonterminal_pipeline_runs(catalog, institution_id, idle)
-    resolved = resolve_onboard_run_id(catalog, institution_id, onboard_run_id_arg)
+    resolved = resolve_onboard_run_id(
+        catalog,
+        institution_id,
+        onboard_run_id_arg,
+        force_new_onboard_run=force_new_onboard_run,
+    )
     LOGGER.info(
-        "Resolved GenAI onboard_run_id=%r (catalog=%r institution_id=%r stale_idle_minutes=%s)",
+        "Resolved GenAI onboard_run_id=%r (catalog=%r institution_id=%r stale_idle_minutes=%s "
+        "force_new_onboard_run=%s)",
         resolved,
         catalog,
         institution_id,
         idle,
+        force_new_onboard_run,
     )
     return resolved
 
