@@ -1,11 +1,8 @@
 import argparse
-import importlib
 import logging
-import json
 import typing as t
 import sys
 import pandas as pd
-import pathlib
 import os
 
 # Go up 3 levels from the current file's directory to reach repo root
@@ -46,7 +43,12 @@ from edvise.data_audit.eda import (
 
 from edvise.shared.logger import init_file_logging, resolve_run_path
 from edvise.shared.validation import require
-from edvise.shared.dashboard_metadata.pipeline_runs import append_pipeline_run_event
+from edvise.data_audit.data_audit_cli import (
+    apply_bronze_training_inputs_sys_path,
+    flush_data_audit_logging,
+    parse_data_audit_args,
+    run_data_audit_with_training_events,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -310,129 +312,9 @@ class ESDataAuditTask:
         )
 
 
-def parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Data preprocessing for inference in the SST pipeline."
-    )
-    parser.add_argument(
-        "--course_dataset_validated_path",
-        required=False,
-        help="Name of the course data file during inference with GCS blobs when connected to webapp",
-    )
-    parser.add_argument(
-        "--cohort_dataset_validated_path",
-        required=False,
-        help="Name of the cohort data file during inference with GCS blobs when connected to webapp",
-    )
-    parser.add_argument("--silver_volume_path", type=str, required=True)
-    parser.add_argument("--bronze_volume_path", type=str, required=False)
-    parser.add_argument("--config_file_path", type=str, required=True)
-    parser.add_argument("--DB_workspace", type=str, required=True)
-    parser.add_argument("--job_type", type=str, required=True)
-    parser.add_argument("--db_run_id", type=str, required=False)
-    return parser.parse_args()
-
-
 if __name__ == "__main__":
-    args = parse_arguments()
-    if args.bronze_volume_path:
-        sys.path.append(f"{args.bronze_volume_path}/training_inputs")
-
-    task = ESDataAuditTask(
-        args,
-    )
-    # Best-effort: infer databricks_institution_name from volume path like:
-    # /Volumes/<catalog>/<inst>_silver/silver_volume
-    databricks_institution_name = None
-    try:
-        for seg in pathlib.PurePosixPath(args.silver_volume_path).parts:
-            if seg.endswith("_silver"):
-                databricks_institution_name = seg[: -len("_silver")]
-                break
-    except Exception:
-        databricks_institution_name = None
-
-    # We only emit run-level events from this task for TRAINING runs.
-    if getattr(args, "job_type", None) == "training":
-        cohort = None
-        try:
-            modeling_cfg = getattr(task.cfg, "modeling", None)
-            training_cfg = (
-                getattr(modeling_cfg, "training", None)
-                if modeling_cfg is not None
-                else None
-            )
-            cohorts = (
-                getattr(training_cfg, "cohort", None)
-                if training_cfg is not None
-                else None
-            )
-            if cohorts:
-                cohort = json.dumps(cohorts, default=str)
-        except Exception:
-            cohort = None
-        append_pipeline_run_event(
-            catalog=args.DB_workspace,
-            run_id=args.db_run_id,
-            run_type=args.job_type,
-            event="started",
-            institution_id=getattr(task.cfg, "institution_id", None),
-            databricks_institution_name=databricks_institution_name,
-            cohort=cohort,
-            cohort_dataset_name=getattr(
-                getattr(task.cfg, "datasets", None), "raw_cohort", None
-            ),
-            course_dataset_name=getattr(
-                getattr(task.cfg, "datasets", None), "raw_course", None
-            ),
-            payload={
-                "bronze_volume_path": getattr(args, "bronze_volume_path", None),
-                "silver_volume_path": getattr(args, "silver_volume_path", None),
-                "config_file_path": getattr(args, "config_file_path", None),
-            },
-        )
-
-        try:
-            task.run()
-            append_pipeline_run_event(
-                catalog=args.DB_workspace,
-                run_id=args.db_run_id,
-                run_type=args.job_type,
-                event="completed",
-                institution_id=getattr(task.cfg, "institution_id", None),
-                databricks_institution_name=databricks_institution_name,
-                cohort=cohort,
-                cohort_dataset_name=getattr(
-                    getattr(task.cfg, "datasets", None), "raw_cohort", None
-                ),
-                course_dataset_name=getattr(
-                    getattr(task.cfg, "datasets", None), "raw_course", None
-                ),
-            )
-        except Exception as e:
-            append_pipeline_run_event(
-                catalog=args.DB_workspace,
-                run_id=args.db_run_id,
-                run_type=args.job_type,
-                event="failed",
-                institution_id=getattr(task.cfg, "institution_id", None),
-                databricks_institution_name=databricks_institution_name,
-                cohort=cohort,
-                cohort_dataset_name=getattr(
-                    getattr(task.cfg, "datasets", None), "raw_cohort", None
-                ),
-                course_dataset_name=getattr(
-                    getattr(task.cfg, "datasets", None), "raw_course", None
-                ),
-                error_message=str(e),
-            )
-            raise
-    else:
-        task.run()
-    # Ensure all logs are flushed to disk
-    for h in logging.getLogger().handlers:
-        try:
-            h.flush()
-        except Exception:
-            pass
-    logging.shutdown()
+    args = parse_data_audit_args()
+    apply_bronze_training_inputs_sys_path(args)
+    task = ESDataAuditTask(args)
+    run_data_audit_with_training_events(args, task)
+    flush_data_audit_logging()
