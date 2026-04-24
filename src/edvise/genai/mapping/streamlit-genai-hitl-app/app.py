@@ -396,7 +396,7 @@ def render_silver_hitl_editor(
     silver_path = (path_in or "").strip()
     if compact_chrome and silver_path:
         rel = silver_relative_path(silver_path)
-        if rel:
+        if rel and not is_ia_grain:
             st.caption(f"Volume-relative: ``{rel}``")
 
     if not silver_path:

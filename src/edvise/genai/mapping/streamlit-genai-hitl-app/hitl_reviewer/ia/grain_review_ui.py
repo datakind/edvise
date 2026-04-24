@@ -24,6 +24,7 @@ from hitl_reviewer.hitl_json_batch_commit import (
     try_approve_uc_after_json_write,
 )
 from hitl_reviewer.silver_hitl_paths import set_item_choice, set_item_reviewer_note
+from hitl_reviewer.sma.enriched_schema_contract import silver_relative_path
 from hitl_reviewer.unity_volume_files import read_unity_file_text, write_unity_file_text
 
 _QUOTED = re.compile(r"'([^']{2,800})'|\"([^\"]{2,800})\"")
@@ -90,7 +91,7 @@ def ia_grain_run_total_items(pending_df: pd.DataFrame | None, onboard_run_id: st
     return total
 
 
-_IA_GRAIN_CSS_VER = "3"
+_IA_GRAIN_CSS_VER = "4"
 
 
 def inject_ia_grain_css_once() -> None:
@@ -105,7 +106,7 @@ def inject_ia_grain_css_once() -> None:
   font-size: 1.2rem; line-height: 1.55; font-weight: 500; margin: 1rem 0 1.25rem 0; padding: 1.1rem 1.25rem;
   background: rgba(99, 102, 241, 0.07); border: 1px solid rgba(99, 102, 241, 0.18); border-radius: 10px;
 }
-.hitl-ia-meta { font-size: 0.9rem; color: rgba(49, 51, 63, 0.75); margin-bottom: 0.35rem; }
+.hitl-ia-meta { font-size: 0.82rem; color: rgba(49, 51, 63, 0.75); margin-bottom: 0.35rem; opacity: 0.7; }
 .hitl-chip-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.25rem; }
 .hitl-chip { display: inline-block; padding: 0.12rem 0.55rem; border-radius: 999px; font-size: 0.78rem;
   background: rgba(111, 66, 193, 0.12); border: 1px solid rgba(111, 66, 193, 0.28); }
@@ -122,8 +123,8 @@ def inject_ia_grain_css_once() -> None:
 .ia-var-line { margin: 0.35rem 0 0.6rem 0; font-size: 0.92rem; line-height: 1.45; }
 .ia-var-key { font-weight: 600; font-family: ui-monospace, monospace; }
 .ia-opt-card {
-  border: 2px solid rgba(0,0,0,0.1); border-radius: 10px; padding: 0.85rem 1rem; margin: 0;
-  background: rgba(255,255,255,0.9); min-height: 6.5rem;
+  border: 2px solid rgba(0,0,0,0.1); border-radius: 10px; padding: 1rem 1.25rem 0.85rem; margin: 0;
+  background: rgba(255,255,255,0.9);
   display: flex; flex-direction: column; justify-content: flex-start;
 }
 .ia-opt-card-sel {
@@ -137,9 +138,10 @@ def inject_ia_grain_css_once() -> None:
 }
 .ia-variance-panel h4 { margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 600; color: rgba(49, 51, 63, 0.95); }
 .ia-rec-badge {
-  display: inline-block; font-size: 0.72rem; font-weight: 600; margin-left: 0.35rem; padding: 0.08rem 0.45rem;
+  display: block; font-size: 0.72rem; font-weight: 600; margin-bottom: 0.4rem; padding: 0.08rem 0.45rem;
   border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: rgb(30, 64, 175);
 }
+.ia-grain-opt-after { margin-bottom: 0.65rem; height: 0; overflow: hidden; }
 </style>
 """,
         unsafe_allow_html=True,
@@ -148,6 +150,8 @@ def inject_ia_grain_css_once() -> None:
 
 
 def _columns_chips_html(cols: Any) -> str:
+    if isinstance(cols, str):
+        cols = [c.strip() for c in cols.split(",") if c.strip()]
     if not isinstance(cols, list) or not cols:
         return "—"
     chips = "".join(
@@ -252,6 +256,11 @@ def render_ia_grain_hitl_cards(
     approve_uc_if_complete: Callable[[], None] | None = None,
 ) -> None:
     inject_ia_grain_css_once()
+    vol_rel = silver_relative_path(silver_path) or ""
+    with st.expander("📁 Path details", expanded=False):
+        st.text(silver_path or "")
+        if vol_rel:
+            st.caption(f"Volume-relative: `{vol_rel}`")
     idxs = grain_item_indices(items)
     if not idxs:
         st.warning(
@@ -353,15 +362,15 @@ def render_ia_grain_hitl_cards(
                 badge = '<span class="ia-rec-badge">IA recommendation</span>'
             else:
                 badge = '<span class="ia-rec-badge">Saved in JSON</span>'
-        col_text, col_btn = st.columns([5, 1], gap="small")
-        with col_text:
-            st.markdown(
-                f'<div class="{card_cls}"><p class="ia-opt-title">{html.escape(lab)}{badge}</p>'
-                f'<div class="ia-opt-desc">{html.escape(desc)}</div></div>',
-                unsafe_allow_html=True,
-            )
-        with col_btn:
-            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="{card_cls}"><p class="ia-opt-title">{html.escape(lab)}</p>{badge}'
+            f'<div class="ia-opt-desc">{html.escape(desc)}</div></div>',
+            unsafe_allow_html=True,
+        )
+        _sp, _sel = st.columns([4, 1], gap="small")
+        with _sp:
+            st.empty()
+        with _sel:
             if st.button(
                 "Select",
                 key=f"ia-grain-pick-{sk}-{i}-{j}",
@@ -370,6 +379,7 @@ def render_ia_grain_hitl_cards(
             ):
                 st.session_state[sel_key] = j
                 st.rerun()
+        st.markdown('<div class="ia-grain-opt-after"></div>', unsafe_allow_html=True)
 
     sel_j = int(st.session_state[sel_key])
     sel_opt = options[sel_j] if 0 <= sel_j < len(options) and isinstance(options[sel_j], dict) else {}
@@ -398,7 +408,7 @@ def render_ia_grain_hitl_cards(
                 st.rerun()
         with c_save:
             if st.button(
-                "Save JSON & approve UC",
+                "Approve",
                 key=f"ia-grain-save-all-{sk}",
                 type="primary",
                 use_container_width=True,
@@ -443,9 +453,7 @@ def render_ia_grain_hitl_cards(
                     onboard_run_id=str(onboard_run_id),
                 )
 
-    st.caption(
-        "Pick an option for each item (**Prev** / **Next** in the bar below), then **Save JSON & approve UC** once."
-    )
+    st.caption("Approve saves your selections and marks this review complete.")
 
 
 def _persist_grain_reject(*, silver_path: str, item_index: int, onboard_run_id: str) -> None:
