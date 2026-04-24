@@ -756,10 +756,14 @@ pending = df[df["status"].astype(str).str.lower() == "pending"].copy()
 # (e.g. only some IA grain items had "Save choice to JSON" clicked).
 action_df = pending if not pending.empty else df
 if pending.empty and not df.empty:
-    st.warning(
-        "No **pending** ``hitl_reviews`` rows in this filter. The silver JSON editor still "
-        "appears below—use **Save JSON & approve UC** (IA grain) or edit JSON directly. "
-        "Separate **Approve UC** / **Reject UC** controls only show when a row is **pending** again."
+    n_all = len(df)
+    st.info(
+        f"**{n_all}** ``hitl_reviews`` row(s) match your filters, and **0** are ``status = pending``. "
+        "That usually means these runs were already approved or rejected in Unity Catalog—**not** "
+        "that the JSON is empty. Many rows here are normal (e.g. one row per manifest path). "
+        "The silver JSON editor still appears under each group; **Save JSON & approve UC** writes "
+        "JSON and only runs the UC approve SQL when that group is still pending. "
+        "To list only gates awaiting UC, set sidebar **status** to **pending**."
     )
 elif not pending.empty:
     st.success(f"{len(pending)} pending UC row(s) in the current result set.")
@@ -820,7 +824,9 @@ for onboard_run_id, phase, artifact_type in groups:
         is_sma_row = _is_sma_hitl_context(str(phase), str(artifact_type))
         if sub_pending.empty:
             st.caption(
-                "``hitl_reviews`` for this group is not **pending**—only silver JSON edits above apply."
+                "This UC group is not **pending** (already approved/rejected or filtered out). "
+                "Use the JSON editor above; **Save JSON & approve UC** still saves JSON and does not "
+                "change ``hitl_reviews`` while the row is not pending."
             )
         elif is_ia_grain_row or is_sma_row:
             st.caption(

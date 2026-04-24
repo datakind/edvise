@@ -90,8 +90,11 @@ def ia_grain_run_total_items(pending_df: pd.DataFrame | None, onboard_run_id: st
     return total
 
 
+_IA_GRAIN_CSS_VER = "3"
+
+
 def inject_ia_grain_css_once() -> None:
-    if st.session_state.get("_hitl_ia_grain_css"):
+    if st.session_state.get("_hitl_ia_grain_css_ver") == _IA_GRAIN_CSS_VER:
         return
     st.markdown(
         """
@@ -119,14 +122,20 @@ def inject_ia_grain_css_once() -> None:
 .ia-var-line { margin: 0.35rem 0 0.6rem 0; font-size: 0.92rem; line-height: 1.45; }
 .ia-var-key { font-weight: 600; font-family: ui-monospace, monospace; }
 .ia-opt-card {
-  border: 2px solid rgba(0,0,0,0.1); border-radius: 10px; padding: 0.85rem 1rem; margin: 0.5rem 0;
-  background: rgba(255,255,255,0.9);
+  border: 2px solid rgba(0,0,0,0.1); border-radius: 10px; padding: 0.85rem 1rem; margin: 0;
+  background: rgba(255,255,255,0.9); min-height: 6.5rem;
+  display: flex; flex-direction: column; justify-content: flex-start;
 }
 .ia-opt-card-sel {
   border-color: rgba(99, 102, 241, 0.85); background: rgba(99, 102, 241, 0.08);
 }
 .ia-opt-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.35rem; }
-.ia-opt-desc { font-size: 0.9rem; color: rgba(49, 51, 63, 0.88); line-height: 1.45; }
+.ia-opt-desc { font-size: 0.9rem; color: rgba(49, 51, 63, 0.88); line-height: 1.45; flex: 1 1 auto; min-height: 2.5rem; }
+.ia-variance-panel {
+  border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; padding: 0.75rem 1rem;
+  margin: 0.75rem 0 1rem 0; background: rgba(0,0,0,0.02);
+}
+.ia-variance-panel h4 { margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 600; color: rgba(49, 51, 63, 0.95); }
 .ia-rec-badge {
   display: inline-block; font-size: 0.72rem; font-weight: 600; margin-left: 0.35rem; padding: 0.08rem 0.45rem;
   border-radius: 6px; background: rgba(59, 130, 246, 0.15); color: rgb(30, 64, 175);
@@ -135,7 +144,7 @@ def inject_ia_grain_css_once() -> None:
 """,
         unsafe_allow_html=True,
     )
-    st.session_state["_hitl_ia_grain_css"] = True
+    st.session_state["_hitl_ia_grain_css_ver"] = _IA_GRAIN_CSS_VER
 
 
 def _columns_chips_html(cols: Any) -> str:
@@ -217,15 +226,18 @@ def _render_variance_profile(hitl_ctx: dict[str, Any]) -> None:
     vp = hitl_ctx.get("variance_profile")
     if not isinstance(vp, dict) or not vp:
         return
-    with st.expander("Where the ambiguity is", expanded=True):
-        for col, val in vp.items():
-            v = val if isinstance(val, str) else str(val)
-            key_html = f'<span class="ia-var-key">{html.escape(str(col))}</span>'
-            body = _variance_value_with_chips(v)
-            st.markdown(
-                f'<div class="ia-var-line">{key_html}<br/>{body}</div>',
-                unsafe_allow_html=True,
-            )
+    # Always-visible panel (avoid ``st.expander`` — it collapses on ``st.rerun()`` after Select).
+    inner: list[str] = [
+        '<div class="ia-variance-panel">',
+        "<h4>Where the ambiguity is</h4>",
+    ]
+    for col, val in vp.items():
+        v = val if isinstance(val, str) else str(val)
+        key_html = f'<span class="ia-var-key">{html.escape(str(col))}</span>'
+        body = _variance_value_with_chips(v)
+        inner.append(f'<div class="ia-var-line">{key_html}<br/>{body}</div>')
+    inner.append("</div>")
+    st.markdown("".join(inner), unsafe_allow_html=True)
 
 
 def render_ia_grain_hitl_cards(
@@ -283,19 +295,11 @@ def render_ia_grain_hitl_cards(
         meta_parts.append(
             f'<span class="hitl-ia-meta"> · <strong>{cur + 1} of {n_items}</strong> items in this file</span>'
         )
+    _item_id_esc = html.escape(str(item.get("item_id", "")))
+    meta_parts.append(
+        f'<span class="hitl-ia-meta"> · File index <code>{i}</code> · <code>{_item_id_esc}</code></span>'
+    )
     st.markdown("<div>" + "".join(meta_parts) + "</div>", unsafe_allow_html=True)
-
-    nc1, nc2, nc3 = st.columns([1, 1, 6])
-    with nc1:
-        if st.button("◀ Prev", key=f"ia-grain-prev-{sk}"):
-            st.session_state[nav_key] = max(0, cur - 1)
-            st.rerun()
-    with nc2:
-        if st.button("Next ▶", key=f"ia-grain-nxt-{sk}"):
-            st.session_state[nav_key] = min(n_items - 1, cur + 1)
-            st.rerun()
-    with nc3:
-        st.caption(f"Item index in file: {i} · ``{html.escape(str(item.get('item_id', '')))}``")
 
     q = (item.get("hitl_question") or "").strip() or f"Item {i + 1}"
     st.markdown(
@@ -341,7 +345,6 @@ def render_ia_grain_hitl_cards(
             continue
         lab = str(opt.get("label") or f"Option {j + 1}")
         desc = str(opt.get("description") or "")
-        reentry = str(opt.get("reentry") or "").lower()
         selected = int(st.session_state[sel_key]) == j
         card_cls = "ia-opt-card ia-opt-card-sel" if selected else "ia-opt-card"
         badge = ""
@@ -350,14 +353,23 @@ def render_ia_grain_hitl_cards(
                 badge = '<span class="ia-rec-badge">IA recommendation</span>'
             else:
                 badge = '<span class="ia-rec-badge">Saved in JSON</span>'
-        st.markdown(
-            f'<div class="{card_cls}"><p class="ia-opt-title">{html.escape(lab)}{badge}</p>'
-            f'<div class="ia-opt-desc">{html.escape(desc)}</div></div>',
-            unsafe_allow_html=True,
-        )
-        if st.button("Select", key=f"ia-grain-pick-{sk}-{i}-{j}", type="primary" if selected else "secondary"):
-            st.session_state[sel_key] = j
-            st.rerun()
+        col_text, col_btn = st.columns([5, 1], gap="small")
+        with col_text:
+            st.markdown(
+                f'<div class="{card_cls}"><p class="ia-opt-title">{html.escape(lab)}{badge}</p>'
+                f'<div class="ia-opt-desc">{html.escape(desc)}</div></div>',
+                unsafe_allow_html=True,
+            )
+        with col_btn:
+            st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+            if st.button(
+                "Select",
+                key=f"ia-grain-pick-{sk}-{i}-{j}",
+                type="primary" if selected else "secondary",
+                use_container_width=True,
+            ):
+                st.session_state[sel_key] = j
+                st.rerun()
 
     sel_j = int(st.session_state[sel_key])
     sel_opt = options[sel_j] if 0 <= sel_j < len(options) and isinstance(options[sel_j], dict) else {}
@@ -374,51 +386,65 @@ def render_ia_grain_hitl_cards(
             height=120,
         )
 
-    c_save, c_rj = st.columns([3, 1])
-    with c_save:
-        if st.button(
-            "Save JSON & approve UC",
-            key=f"ia-grain-save-all-{sk}",
-            type="primary",
-            help=(
-                "Writes **all** grain ``choice`` values from this screen (and any already saved on "
-                "disk) in one file write, then approves the UC ``hitl_reviews`` row when it is pending."
-            ),
-        ):
-            ok, err = persist_ia_grain_hitl_from_session(silver_path=silver_path, sk=sk)
-            if not ok:
-                st.error(err)
-            else:
-                invalidate_ia_grain_run_cache(onboard_run_id)
-                ap_ok, ap_err = try_approve_uc_after_json_write(
-                    uc_group_pending=uc_group_pending,
-                    approve_uc_if_complete=approve_uc_if_complete,
-                )
-                if not ap_ok:
-                    st.warning(
-                        f"Silver JSON saved, but UC approve failed (fix and retry or use SQL): {ap_err}"
-                    )
-                elif uc_group_pending and approve_uc_if_complete is not None:
-                    st.success("Saved ``identity_grain_hitl.json`` and approved the UC row.")
-                    st.toast("JSON + UC complete.", icon="✅")
-                elif not uc_group_pending:
-                    st.success(
-                        "Saved ``identity_grain_hitl.json``. UC row was not **pending**, so UC approve was skipped."
-                    )
-                else:
-                    st.success("Saved ``identity_grain_hitl.json``.")
+    with st.container(border=True):
+        c_prev, c_next, c_save, c_rej = st.columns([1, 1, 2.6, 1.1], gap="small")
+        with c_prev:
+            if st.button("◀ Prev", key=f"ia-grain-prev-{sk}", use_container_width=True):
+                st.session_state[nav_key] = max(0, cur - 1)
                 st.rerun()
-    with c_rj:
-        if st.button("Reject item", key=f"ia-grain-reject-{sk}-{i}", type="secondary"):
-            _persist_grain_reject(
-                silver_path=silver_path,
-                item_index=i,
-                onboard_run_id=str(onboard_run_id),
-            )
+        with c_next:
+            if st.button("Next ▶", key=f"ia-grain-nxt-{sk}", use_container_width=True):
+                st.session_state[nav_key] = min(n_items - 1, cur + 1)
+                st.rerun()
+        with c_save:
+            if st.button(
+                "Save JSON & approve UC",
+                key=f"ia-grain-save-all-{sk}",
+                type="primary",
+                use_container_width=True,
+                help=(
+                    "Writes **all** grain ``choice`` values from this screen (and any already saved on "
+                    "disk) in one file write, then approves the UC ``hitl_reviews`` row when it is pending."
+                ),
+            ):
+                ok, err = persist_ia_grain_hitl_from_session(silver_path=silver_path, sk=sk)
+                if not ok:
+                    st.error(err)
+                else:
+                    invalidate_ia_grain_run_cache(onboard_run_id)
+                    ap_ok, ap_err = try_approve_uc_after_json_write(
+                        uc_group_pending=uc_group_pending,
+                        approve_uc_if_complete=approve_uc_if_complete,
+                    )
+                    if not ap_ok:
+                        st.warning(
+                            f"Silver JSON saved, but UC approve failed (fix and retry or use SQL): {ap_err}"
+                        )
+                    elif uc_group_pending and approve_uc_if_complete is not None:
+                        st.success("Saved ``identity_grain_hitl.json`` and approved the UC row.")
+                        st.toast("JSON + UC complete.", icon="✅")
+                    elif not uc_group_pending:
+                        st.success(
+                            "Saved ``identity_grain_hitl.json``. UC row was not **pending**, so UC approve was skipped."
+                        )
+                    else:
+                        st.success("Saved ``identity_grain_hitl.json``.")
+                    st.rerun()
+        with c_rej:
+            if st.button(
+                "Reject item",
+                key=f"ia-grain-reject-{sk}-{i}",
+                type="secondary",
+                use_container_width=True,
+            ):
+                _persist_grain_reject(
+                    silver_path=silver_path,
+                    item_index=i,
+                    onboard_run_id=str(onboard_run_id),
+                )
 
     st.caption(
-        "Use **Prev** / **Next** to visit every grain item, pick an option on each, then click "
-        "**Save JSON & approve UC** once (single file write + UC approve when pending)."
+        "Pick an option for each item (**Prev** / **Next** in the bar below), then **Save JSON & approve UC** once."
     )
 
 
