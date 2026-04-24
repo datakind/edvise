@@ -367,32 +367,37 @@ def render_silver_hitl_editor(
     if is_sma:
         _inject_sma_hitl_css_once()
 
-    st.caption(
-        f"**artifact_type** in UC: ``{artifact_type}`` — **onboard_run_id** (this review block): "
-        f"``{onboard_run_id}`` (in standard onboard layout it appears in the path under "
-        f"``…/genai_mapping/runs/onboard/{{onboard_run_id}}/``)."
-    )
-    st.markdown(
-        "**HITL JSON (silver volume)** — paths match ``edvise_genai_ia`` / ``edvise_genai_sma`` "
-        "``resolve_run_paths``: ``{silver}/genai_mapping/runs/…/identity_agent/`` (IA) or "
-        "``…/schema_mapping_agent/`` (SMA) with the HITL filenames. "
-        "The ``onboard_run_id`` is the run folder in ``runs/onboard/…/``. "
-        "Default file path = ``hitl_reviews.artifact_path`` (full string already includes that segment)."
-    )
+    compact_chrome = is_ia_grain or is_sma
+    if not compact_chrome:
+        st.caption(
+            f"**artifact_type** in UC: ``{artifact_type}`` — **onboard_run_id** (this review block): "
+            f"``{onboard_run_id}`` (in standard onboard layout it appears in the path under "
+            f"``…/genai_mapping/runs/onboard/{{onboard_run_id}}/``)."
+        )
+        st.markdown(
+            "**HITL JSON (silver volume)** — paths match ``edvise_genai_ia`` / ``edvise_genai_sma`` "
+            "``resolve_run_paths``: ``{silver}/genai_mapping/runs/…/identity_agent/`` (IA) or "
+            "``…/schema_mapping_agent/`` (SMA) with the HITL filenames. "
+            "The ``onboard_run_id`` is the run folder in ``runs/onboard/…/``. "
+            "Default file path = ``hitl_reviews.artifact_path`` (full string already includes that segment)."
+        )
     sk = f"{_safe_key(onboard_run_id)}-{_safe_key(phase)}-{_safe_key(artifact_type)}"
     pkey = f"path-{sk}"
+    path_label = (
+        "Silver JSON path (override only if needed)"
+        if compact_chrome
+        else "UC file path to read/write (absolute ``/Volumes/{catalog}/…_silver/…``)"
+    )
     path_in = st.text_input(
-        "UC file path to read/write (absolute ``/Volumes/{catalog}/…_silver/…``)",
+        path_label,
         value=default_artifact_path,
         key=pkey,
     )
     silver_path = (path_in or "").strip()
-    if (is_sma or is_ia_grain) and silver_path:
-        st.code(silver_path, language="text")
+    if compact_chrome and silver_path:
         rel = silver_relative_path(silver_path)
         if rel:
-            st.caption("Relative from institution silver volume root")
-            st.code(rel, language="text")
+            st.caption(f"Volume-relative: ``{rel}``")
 
     if not silver_path:
         st.caption("Set the file path to load HITL JSON (typically the registered `artifact_path`).")
@@ -424,10 +429,6 @@ def render_silver_hitl_editor(
         return
 
     if is_ia_grain:
-        st.caption(
-            "IA grain HITL file name from ``edvise_genai_ia`` is ``identity_grain_hitl.json`` "
-            "(under ``…/identity_agent/``)."
-        )
         render_ia_grain_hitl_cards(
             data=data,
             items=items,
@@ -786,19 +787,14 @@ for onboard_run_id, phase, artifact_type in groups:
         & (pending["phase"] == phase)
         & (pending["artifact_type"] == artifact_type)
     ]
-    paths_preview = "; ".join(sub["artifact_path"].astype(str).head(3).tolist())
-    if len(sub) > 3:
-        paths_preview += f" … (+{len(sub) - 3} more)"
     # Bordered container (not st.expander): nested expanders are forbidden in Streamlit, but
     # the HITL editor and SMA/IA helpers use expanders internally.
     with st.container(border=True):
-        st.markdown(
-            f"**{onboard_run_id}** · `{phase}` · `{artifact_type}` · _{len(sub)} path(s)_"
-        )
-        st.text(
-            "Registered ``artifact_path``(s) on silver — includes ``onboard_run_id`` in "
-            f"``…/runs/onboard/{onboard_run_id}/…`` for standard onboard: " + paths_preview
-        )
+        _n_paths = len(sub)
+        _hdr = f"`{onboard_run_id}` · `{phase}` · `{artifact_type}`"
+        if _n_paths != 1:
+            _hdr += f" · {_n_paths} paths"
+        st.markdown(_hdr)
         raw_s = sub["artifact_path"].dropna().astype(str).str.strip()
         raw_paths = [p for p in raw_s.tolist() if p]
         if not raw_paths:
@@ -809,7 +805,11 @@ for onboard_run_id, phase, artifact_type in groups:
         else:
             default_path = raw_paths[0]
             if len(set(raw_paths)) > 1:
-                st.caption("Several paths are registered; defaulting the editor to the first. Adjust the path field if needed.")
+                with st.expander("Multiple artifact paths for this group", expanded=False):
+                    st.caption(
+                        "Defaulting the editor to the first path. Pick another in the path field if needed."
+                    )
+                    st.code("\n".join(sorted(set(raw_paths))), language="text")
             render_silver_hitl_editor(
                 catalog=catalog,
                 default_artifact_path=default_path,
