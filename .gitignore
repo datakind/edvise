@@ -24,7 +24,9 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
+# Only the setuptools manifest at repo root — plain MANIFEST ignores any
+# ``manifest/`` dir on case-insensitive filesystems (e.g. macOS default).
+/MANIFEST
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

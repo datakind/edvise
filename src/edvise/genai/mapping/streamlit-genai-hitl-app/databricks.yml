@@ -1,0 +1,80 @@
+# Databricks Apps bundle — GenAI HITL reviewer (UC hitl_reviews).
+# Deploy: databricks bundle deploy --target dev
+# Requires variables: sql_warehouse_id, datakind_group_to_manage_workflow (see metadata app pattern).
+
+bundle:
+  name: edvise_genai_hitl_app
+
+sync:
+  include:
+    - requirements.txt
+    - "**/*.py"
+    - "wheels/*.whl"
+
+artifacts:
+  generate_requirements:
+    build: python generate_requirements.py
+
+variables:
+  app_name:
+    description: Databricks app name for GenAI HITL UI
+  sql_warehouse_id:
+    description: SQL warehouse ID used by the app
+  datakind_group_to_manage_workflow:
+    description: Group with permissions to manage the app
+  genai_catalog:
+    description: UC catalog containing genai_mapping.hitl_reviews
+
+targets:
+  dev:
+    mode: development
+    default: true
+    variables:
+      app_name: edvise-genai-hitl-dev
+      genai_catalog: dev_sst_02
+
+  prod:
+    mode: production
+    variables:
+      app_name: edvise-genai-hitl-staging
+      genai_catalog: staging_sst_01
+    workspace:
+      root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
+
+resources:
+  apps:
+    genai_hitl:
+      name: ${var.app_name}
+      source_code_path: .
+      description: |
+        Streamlit app — UC hitl_reviews (approve/reject) and edit HITL JSON on
+        silver /Volumes/.../..._silver/.../genai_mapping/.../runs/... paths
+        (same as edvise_genai_ia / edvise_genai_sma and hitl_reviews.artifact_path).
+        The app’s identity must have read/write on those volume files.
+      resources:
+        - name: sql-warehouse
+          sql_warehouse:
+            id: ${var.sql_warehouse_id}
+            permission: CAN_USE
+        - name: hitl-reviews-table
+          uc_securable:
+            securable_type: TABLE
+            securable_full_name: ${var.genai_catalog}.genai_mapping.hitl_reviews
+            permission: MODIFY
+      config:
+        command:
+          - streamlit
+          - run
+          - Home.py
+        env:
+          - name: DATABRICKS_WAREHOUSE_ID
+            value_from: sql-warehouse
+          - name: GENAI_HITL_CATALOG
+            value: ${var.genai_catalog}
+          - name: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+            value: "false"
+      permissions:
+        - group_name: ${var.datakind_group_to_manage_workflow}
+          level: CAN_MANAGE
+        - group_name: users
+          level: CAN_USE
