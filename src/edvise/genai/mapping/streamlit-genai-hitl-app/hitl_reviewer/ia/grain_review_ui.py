@@ -24,7 +24,6 @@ from hitl_reviewer.hitl_json_batch_commit import (
     try_approve_uc_after_json_write,
 )
 from hitl_reviewer.silver_hitl_paths import set_item_choice, set_item_reviewer_note
-from hitl_reviewer.sma.enriched_schema_contract import silver_relative_path
 from hitl_reviewer.unity_volume_files import read_unity_file_text, write_unity_file_text
 
 _QUOTED = re.compile(r"'([^']{2,800})'|\"([^\"]{2,800})\"")
@@ -91,12 +90,7 @@ def ia_grain_run_total_items(pending_df: pd.DataFrame | None, onboard_run_id: st
     return total
 
 
-_IA_GRAIN_CSS_VER = "4"
-
-
-def inject_ia_grain_css_once() -> None:
-    if st.session_state.get("_hitl_ia_grain_css_ver") == _IA_GRAIN_CSS_VER:
-        return
+def inject_ia_grain_css() -> None:
     st.markdown(
         """
 <style>
@@ -123,15 +117,15 @@ def inject_ia_grain_css_once() -> None:
 .ia-var-line { margin: 0.35rem 0 0.6rem 0; font-size: 0.92rem; line-height: 1.45; }
 .ia-var-key { font-weight: 600; font-family: ui-monospace, monospace; }
 .ia-opt-card {
-  border: 2px solid rgba(0,0,0,0.1); border-radius: 10px; padding: 1rem 1.25rem 0.85rem; margin: 0;
+  border: 1px solid rgba(0,0,0,0.12); border-radius: 6px; padding: 0.5rem 0.75rem; margin-bottom: 0.4rem;
   background: rgba(255,255,255,0.9);
   display: flex; flex-direction: column; justify-content: flex-start;
 }
 .ia-opt-card-sel {
-  border-color: rgba(99, 102, 241, 0.85); background: rgba(99, 102, 241, 0.08);
+  border-color: rgba(99, 102, 241, 0.7); border-width: 1.5px; background: rgba(99, 102, 241, 0.08);
 }
-.ia-opt-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 0.35rem; }
-.ia-opt-desc { font-size: 0.9rem; color: rgba(49, 51, 63, 0.88); line-height: 1.45; flex: 1 1 auto; min-height: 2.5rem; }
+.ia-opt-title { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.35rem; }
+.ia-opt-desc { font-size: 0.85rem; color: rgba(49, 51, 63, 0.88); line-height: 1.45; flex: 1 1 auto; min-height: 2.5rem; }
 .ia-variance-panel {
   border: 1px solid rgba(0,0,0,0.1); border-radius: 10px; padding: 0.75rem 1rem;
   margin: 0.75rem 0 1rem 0; background: rgba(0,0,0,0.02);
@@ -146,7 +140,6 @@ def inject_ia_grain_css_once() -> None:
 """,
         unsafe_allow_html=True,
     )
-    st.session_state["_hitl_ia_grain_css_ver"] = _IA_GRAIN_CSS_VER
 
 
 def _columns_chips_html(cols: Any) -> str:
@@ -255,18 +248,13 @@ def render_ia_grain_hitl_cards(
     uc_group_pending: bool = False,
     approve_uc_if_complete: Callable[[], None] | None = None,
 ) -> None:
-    inject_ia_grain_css_once()
-    vol_rel = silver_relative_path(silver_path) or ""
-    with st.expander("📁 Path details", expanded=False):
-        st.text(silver_path or "")
-        if vol_rel:
-            st.caption(f"Volume-relative: `{vol_rel}`")
+    inject_ia_grain_css()
     idxs = grain_item_indices(items)
     if not idxs:
         st.warning(
             "This JSON has no **grain** domain items with options — "
-            "if this is ``identity_term_hitl.json``, use the standard editor (or open "
-            "``identity_grain_hitl.json``)."
+            "if this is ``identity_term_hitl.json``, open the **term** gate (artifact type ``term``), "
+            "or confirm the path points at ``identity_grain_hitl.json``."
         )
         return
 
@@ -375,7 +363,8 @@ def render_ia_grain_hitl_cards(
                 "Select",
                 key=f"ia-grain-pick-{sk}-{i}-{j}",
                 type="primary" if selected else "secondary",
-                use_container_width=True,
+                use_container_width=False,
+                disabled=not uc_group_pending,
             ):
                 st.session_state[sel_key] = j
                 st.rerun()
@@ -394,6 +383,7 @@ def render_ia_grain_hitl_cards(
             "Describe the custom handling you want applied:",
             key=custom_key,
             height=120,
+            disabled=not uc_group_pending,
         )
 
     with st.container(border=True):
@@ -412,12 +402,17 @@ def render_ia_grain_hitl_cards(
                 key=f"ia-grain-save-all-{sk}",
                 type="primary",
                 use_container_width=True,
+                disabled=not uc_group_pending,
                 help=(
                     "Writes **all** grain ``choice`` values from this screen (and any already saved on "
                     "disk) in one file write, then approves the UC ``hitl_reviews`` row when it is pending."
                 ),
             ):
-                ok, err = persist_ia_grain_hitl_from_session(silver_path=silver_path, sk=sk)
+                ok, err = persist_ia_grain_hitl_from_session(
+                    silver_path=silver_path,
+                    sk=sk,
+                    allow_silver_write=uc_group_pending,
+                )
                 if not ok:
                     st.error(err)
                 else:
@@ -446,17 +441,27 @@ def render_ia_grain_hitl_cards(
                 key=f"ia-grain-reject-{sk}-{i}",
                 type="secondary",
                 use_container_width=True,
+                disabled=not uc_group_pending,
             ):
                 _persist_grain_reject(
                     silver_path=silver_path,
                     item_index=i,
                     onboard_run_id=str(onboard_run_id),
+                    allow_write=uc_group_pending,
                 )
 
-    st.caption("Approve saves your selections and marks this review complete.")
+    if uc_group_pending:
+        st.caption("Approve saves your selections and marks this review complete.")
+    else:
+        st.caption("Read-only: UC gate is not pending; silver JSON cannot be changed from this app.")
 
 
-def _persist_grain_reject(*, silver_path: str, item_index: int, onboard_run_id: str) -> None:
+def _persist_grain_reject(
+    *, silver_path: str, item_index: int, onboard_run_id: str, allow_write: bool
+) -> None:
+    if not allow_write:
+        st.error("Cannot write: this UC gate is not pending; silver JSON edits are disabled.")
+        return
     try:
         fresh = json.loads(read_unity_file_text(silver_path))
     except Exception as e:  # noqa: BLE001

@@ -3,8 +3,9 @@ GenAI mapping — Unity Catalog ``hitl_reviews`` reviewer UI.
 
 HITL **choice** values live in JSON on the **silver** volume under
 ``{silver_genai_mapping_root}/runs/...`` (see ``edvise_genai_ia`` / ``edvise_genai_sma``
-``resolve_run_paths``). Paths come from ``hitl_reviews.artifact_path``. **IA grain** and **SMA**
-manifests use **Save JSON & approve UC** (shared batch write + optional UC approve). Other phases
+``resolve_run_paths``). Paths come from ``hitl_reviews.artifact_path``. **IA grain**, **IA term**,
+and **SMA** editors write silver JSON **only** while that UC group is **pending** (via **Save JSON &
+approve UC** or **Approve**); once the gate is approved or rejected, the UI is read-only. Other phases
 keep **Approve UC** / **Reject UC** under each run group. Unity Catalog: ``{catalog}.genai_mapping.hitl_reviews``.
 
 **Local run** (repo root: ``uv pip install -e .`` or regenerate ``requirements.txt`` with
@@ -49,6 +50,7 @@ from hitl_reviewer.hitl_json_batch_commit import (
     try_approve_uc_after_json_write,
 )
 from hitl_reviewer.ia.grain_review_ui import is_ia_grain_phase, render_ia_grain_hitl_cards
+from hitl_reviewer.ia.term_review_ui import is_ia_term_phase, render_ia_term_hitl_cards
 from hitl_reviewer.silver_hitl_paths import (
     artifact_path_contains_onboard_run_id,
 )
@@ -173,9 +175,7 @@ def _sma_run_pending_ordered_pairs(
     return ordered
 
 
-def _inject_sma_hitl_css_once() -> None:
-    if st.session_state.get("_hitl_sma_css"):
-        return
+def _inject_sma_hitl_css() -> None:
     st.markdown(
         """
 <style>
@@ -191,7 +191,6 @@ def _inject_sma_hitl_css_once() -> None:
 """,
         unsafe_allow_html=True,
     )
-    st.session_state["_hitl_sma_css"] = True
 
 
 def _render_sma_review_context(*, item: dict) -> None:
@@ -364,10 +363,11 @@ def render_silver_hitl_editor(
 ) -> None:
     is_sma = _is_sma_hitl_context(phase, artifact_type)
     is_ia_grain = is_ia_grain_phase(phase, artifact_type)
+    is_ia_term = is_ia_term_phase(phase, artifact_type)
     if is_sma:
-        _inject_sma_hitl_css_once()
+        _inject_sma_hitl_css()
 
-    compact_chrome = is_ia_grain or is_sma
+    compact_chrome = is_ia_grain or is_ia_term or is_sma
     if not compact_chrome:
         st.caption(
             f"**artifact_type** in UC: ``{artifact_type}`` — **onboard_run_id** (this review block): "
@@ -383,20 +383,24 @@ def render_silver_hitl_editor(
         )
     sk = f"{_safe_key(onboard_run_id)}-{_safe_key(phase)}-{_safe_key(artifact_type)}"
     pkey = f"path-{sk}"
-    path_label = (
-        "Silver JSON path (override only if needed)"
-        if compact_chrome
-        else "UC file path to read/write (absolute ``/Volumes/{catalog}/…_silver/…``)"
-    )
+    if compact_chrome and not uc_group_pending:
+        path_label = "Silver JSON path (read-only — UC gate not pending)"
+    elif compact_chrome:
+        path_label = "Silver JSON path (override only if needed)"
+    elif not uc_group_pending:
+        path_label = "UC file path (read-only — UC gate not pending)"
+    else:
+        path_label = "UC file path to read/write (absolute ``/Volumes/{catalog}/…_silver/…``)"
     path_in = st.text_input(
         path_label,
         value=default_artifact_path,
         key=pkey,
+        disabled=not uc_group_pending,
     )
     silver_path = (path_in or "").strip()
     if compact_chrome and silver_path:
         rel = silver_relative_path(silver_path)
-        if rel and not is_ia_grain:
+        if rel:
             st.caption(f"Volume-relative: ``{rel}``")
 
     if not silver_path:
@@ -411,7 +415,7 @@ def render_silver_hitl_editor(
             f"``…/genai_mapping/runs/onboard/{onboard_run_id}/…``. "
             "Confirm the path, or keep going only if you intend another file (e.g. an execute run path). "
         )
-    if not is_sma and not is_ia_grain:
+    if not is_sma and not is_ia_grain and not is_ia_term:
         st.code(silver_path, language="text")
     try:
         raw = read_unity_file_text(silver_path)
@@ -428,8 +432,34 @@ def render_silver_hitl_editor(
         st.info("No `items` in this HITL JSON, or the list is empty — nothing to select.")
         return
 
+    if not uc_group_pending:
+        st.warning(
+            "This ``hitl_reviews`` group is **not pending** (already approved or rejected). "
+            "Silver JSON is **read-only** here so UC and volume state cannot diverge."
+        )
+
     if is_ia_grain:
         render_ia_grain_hitl_cards(
+            data=data,
+            items=items,
+            silver_path=silver_path,
+            sk=sk,
+            onboard_run_id=str(onboard_run_id),
+            pending_df=pending_df,
+            uc_group_pending=uc_group_pending,
+            approve_uc_if_complete=lambda: approve_or_reject(
+                catalog,
+                str(onboard_run_id),
+                str(phase),
+                str(artifact_type),
+                st.session_state["reviewer"],
+                "approved",
+            ),
+        )
+        return
+
+    if is_ia_term:
+        render_ia_term_hitl_cards(
             data=data,
             items=items,
             silver_path=silver_path,
@@ -520,10 +550,16 @@ def render_silver_hitl_editor(
             x_pf = cur_nav + 1 if pending_ixs and nav_ixs == pending_ixs else 0
             run_line = f"<strong>{x_pf} of {y_pending} pending</strong> (this manifest)"
         else:
-            run_line = (
-                "No unresolved items in this file — browsing "
-                f"{len(nav_ixs)} item(s) with options; change a radio and Save to update."
-            )
+            if uc_group_pending:
+                run_line = (
+                    "No unresolved items in this file — browsing "
+                    f"{len(nav_ixs)} item(s) with options; change a radio and Save to update."
+                )
+            else:
+                run_line = (
+                    f"No unresolved items — browsing {len(nav_ixs)} item(s). "
+                    "UC gate is finalized; this app does not allow JSON changes."
+                )
         st.markdown(f'<p class="hitl-sma-meta">{run_line}</p>', unsafe_allow_html=True)
         nc1, nc2, nc3 = st.columns([1, 1, 6])
         with nc1:
@@ -562,6 +598,7 @@ def render_silver_hitl_editor(
             list(range(n)),
             format_func=lambda j, opts=options: _hitl_option_label(opts, j),  # type: ignore[arg-type]
             key=rk,
+            disabled=not uc_group_pending,
         )
     elif is_sma and not nav_ixs:
         st.info("No HITL items with `options` in this JSON.")
@@ -585,6 +622,7 @@ def render_silver_hitl_editor(
                 index=default_ix,
                 format_func=lambda j, opts=options: _hitl_option_label(opts, j),
                 key=rk,
+                disabled=not uc_group_pending,
             )
     def _approve_uc() -> None:
         approve_or_reject(
@@ -600,6 +638,7 @@ def render_silver_hitl_editor(
         "Save JSON & approve UC",
         key=f"ssave{sk}",
         type="primary",
+        disabled=not uc_group_pending,
         help="Writes every ``choice`` from the radios into this manifest, then approves the UC row when pending.",
     ):
         ok, err = persist_hitl_choice_radios_from_session(
@@ -607,6 +646,7 @@ def render_silver_hitl_editor(
             sk=sk,
             option_item_indices=option_item_indices,
             default_choice_index=_default_choice_index,
+            allow_silver_write=uc_group_pending,
         )
         if not ok:
             st.error(err)
@@ -656,7 +696,7 @@ st.set_page_config(page_title="GenAI HITL reviews", layout="wide")
 st.title("GenAI mapping — UC HITL reviews")
 st.caption(
     "``hitl_reviews`` tracks UC status by ``(onboard_run_id, phase, artifact_type)``. "
-    "**IA grain** and **SMA manifests** use **Save JSON & approve UC** (one file write + UC approve "
+    "**IA grain**, **IA term**, and **SMA manifests** use **Save JSON & approve UC** (one file write + UC approve "
     "when pending). Use **Reject UC** below when you need to block without approving."
 )
 
@@ -747,23 +787,21 @@ if df.empty:
 
 st.subheader("Actions")
 st.caption(
-    "**IA grain** and **SMA** (cohort/course manifest): **Save JSON & approve UC** writes the "
-    "silver JSON and approves the pending UC row. Other HITL JSON using the same radio layout "
-    "uses the same button."
+    "**IA grain**, **IA term**, and **SMA** (cohort/course manifest): while the UC row is **pending**, "
+    "**Save JSON & approve UC** (or **Approve** on grain/term) writes silver JSON and approves UC. "
+    "After UC finalizes, the editor is read-only. Other HITL JSON uses the same **Save JSON** button "
+    "with the same rules."
 )
 
 pending = df[df["status"].astype(str).str.lower() == "pending"].copy()
-# Editor must stay available when UC is already approved but JSON still needs edits
-# (e.g. only some IA grain items had "Save choice to JSON" clicked).
 action_df = pending if not pending.empty else df
 if pending.empty and not df.empty:
     n_all = len(df)
     st.info(
         f"**{n_all}** ``hitl_reviews`` row(s) match your filters, and **0** are ``status = pending``. "
         "That usually means these runs were already approved or rejected in Unity Catalog—**not** "
-        "that the JSON is empty. Many rows here are normal (e.g. one row per manifest path). "
-        "The silver JSON editor still appears under each group; **Save JSON & approve UC** writes "
-        "JSON and only runs the UC approve SQL when that group is still pending. "
+        "that the JSON is empty. The editor under each group is **read-only** until that group is "
+        "``pending`` again (silver JSON cannot be changed from this app after UC finalizes). "
         "To list only gates awaiting UC, set sidebar **status** to **pending**."
     )
 elif not pending.empty:
@@ -821,16 +859,16 @@ for onboard_run_id, phase, artifact_type in groups:
             )
         st.divider()
         is_ia_grain_row = is_ia_grain_phase(str(phase), str(artifact_type))
+        is_ia_term_row = is_ia_term_phase(str(phase), str(artifact_type))
         is_sma_row = _is_sma_hitl_context(str(phase), str(artifact_type))
         if sub_pending.empty:
             st.caption(
-                "This UC group is not **pending** (already approved/rejected or filtered out). "
-                "Use the JSON editor above; **Save JSON & approve UC** still saves JSON and does not "
-                "change ``hitl_reviews`` while the row is not pending."
+                "This UC group is not **pending**. The editor above is **read-only**; silver JSON "
+                "cannot be changed from this app after the gate is approved or rejected."
             )
-        elif is_ia_grain_row or is_sma_row:
+        elif is_ia_grain_row or is_ia_term_row or is_sma_row:
             st.caption(
-                "IA / SMA: **Save JSON & approve UC** in the editor approves this pending row. "
+                "IA / SMA: **Save JSON & approve UC** (or **Approve** on grain/term cards) approves this pending row. "
                 "Use **Reject UC** only if you intend to block the gate."
             )
             if st.button("Reject UC", key=f"r-{onboard_run_id}-{phase}-{artifact_type}"):
