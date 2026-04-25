@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+"""Input column contracts and per-step feature specs for :mod:`edvise.feature_generation`.
+
+:mod:`edvise.feature_generation.shared` only holds shared helpers; it does not
+define an ``add_features`` entry point, so there is no ``SharedFeatureSpec`` here.
+"""
+
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +95,135 @@ class StudentFeatureSpec:
 
     @classmethod
     def all(cls) -> StudentFeatureSpec:
+        return cls()
+
+
+@dataclass(frozen=True, slots=True)
+class CourseFeatureSpec:
+    """Toggles for :func:`edvise.feature_generation.course.add_features`."""
+
+    course_id: bool = True
+    course_subject_area: bool = True
+    course_passed: bool = True
+    course_completed: bool = True
+    course_level: bool = True
+    course_grade_numeric: bool = True
+    course_grade: bool = True
+
+    @classmethod
+    def all(cls) -> CourseFeatureSpec:
+        return cls()
+
+
+@dataclass(frozen=True, slots=True)
+class TermFeatureSpec:
+    """Toggles for :func:`edvise.feature_generation.term.add_features`."""
+
+    term_id: bool = True
+    term_start_dt: bool = True
+    term_rank: bool = True
+    term_rank_core: bool = True
+    term_rank_noncore: bool = True
+    term_in_peak_covid: bool = True
+    term_is_core: bool = True
+    term_is_noncore: bool = True
+
+    @classmethod
+    def all(cls) -> TermFeatureSpec:
+        return cls()
+
+
+@dataclass(frozen=True, slots=True)
+class SectionFeatureSpec:
+    """Toggles for :func:`edvise.feature_generation.section.add_features`."""
+
+    section_num_students_enrolled: bool = True
+    section_num_students_passed: bool = True
+    section_num_students_completed: bool = True
+    section_course_grade_numeric_mean: bool = True
+
+    @classmethod
+    def all(cls) -> SectionFeatureSpec:
+        return cls()
+
+
+@dataclass(frozen=True, slots=True)
+class CumulativeExpandingColumnSpec:
+    """
+    Toggles for which (column, agg) families feed the expanding block in
+    :func:`edvise.feature_generation.cumulative.add_features`.
+    """
+
+    term_id: bool = True
+    term_in_peak_covid: bool = True
+    term_is_core: bool = True
+    term_is_noncore: bool = True
+    term_is_while_student_enrolled_at_other_inst: bool = True
+    term_is_pre_cohort: bool = True
+    course_level_mean: bool = True
+    course_grade_numeric_mean: bool = True
+    num_courses: bool = True
+    num_credits_attempted: bool = True
+    num_credits_earned: bool = True
+    student_pass_rate_above_sections_avg: bool = True
+    student_completion_rate_above_sections_avg: bool = True
+
+    @classmethod
+    def all(cls) -> CumulativeExpandingColumnSpec:
+        return cls()
+
+
+@dataclass(frozen=True, slots=True)
+class CumulativeFeatureSpec:
+    """Toggles for :func:`edvise.feature_generation.cumulative.add_features`."""
+
+    expanding_aggregate: bool = True
+    expanding_columns: CumulativeExpandingColumnSpec = field(
+        default_factory=CumulativeExpandingColumnSpec
+    )
+    cumnum_unique_repeated: bool = True
+    cumfrac_terms_enrolled: bool = True
+    term_differences: bool = True
+
+    @classmethod
+    def all(cls) -> CumulativeFeatureSpec:
+        return cls()
+
+
+@dataclass(frozen=True, slots=True)
+class StudentTermAggregateSpec:
+    """Toggles for :func:`edvise.feature_generation.student_term.aggregate_from_course_level_features`."""
+
+    summary_aggregations: bool = True
+    dummies: bool = True
+    value_equality: bool = True
+    multicol_grade: bool = True
+
+    @classmethod
+    def all(cls) -> StudentTermAggregateSpec:
+        return cls()
+
+
+@dataclass(frozen=True, slots=True)
+class StudentTermAddFeatureSpec:
+    """
+    Toggles for :func:`edvise.feature_generation.student_term.add_features`
+    (post-aggregate, joined to students).
+    """
+
+    year_of_enrollment_at_cohort_inst: bool = True
+    student_certificates: bool = True
+    term_cohort_and_transfer_flags: bool = True
+    program_of_study_area: bool = True
+    credit_fraction_and_intensity: bool = True
+    num_courses_in_program_area: bool = True
+    num_course_by_category_fracs: bool = True
+    section_student_fractions: bool = True
+    student_rate_vs_section_fractions: bool = True
+    program_change_from_prior_term: bool = True
+
+    @classmethod
+    def all(cls) -> StudentTermAddFeatureSpec:
         return cls()
 
 
@@ -192,6 +327,9 @@ PDP_STUDENT_COHORT_COLUMNS = PDP_COHORT_INPUT_COLUMNS
 ES_STUDENT_COHORT_COLUMNS = ES_COHORT_INPUT_COLUMNS
 
 __all__ = [
+    "CumulativeExpandingColumnSpec",
+    "CumulativeFeatureSpec",
+    "CourseFeatureSpec",
     "CohortInputColumns",
     "CourseInputColumns",
     "ES_STUDENT_FEATURE_SPEC_DEFAULT",
@@ -201,6 +339,10 @@ __all__ = [
     "PDP_COHORT_INPUT_COLUMNS",
     "PDP_COURSE_INPUT_COLUMNS",
     "PDP_STUDENT_COHORT_COLUMNS",
+    "SectionFeatureSpec",
     "StudentCohortColumns",
     "StudentFeatureSpec",
+    "StudentTermAddFeatureSpec",
+    "StudentTermAggregateSpec",
+    "TermFeatureSpec",
 ]
