@@ -9,6 +9,19 @@ import typing as t
 
 from edvise import utils as edvise_utils
 from edvise import feature_generation
+from edvise.feature_generation.column_names import (
+    CohortInputColumns,
+    CourseFeatureSpec,
+    CourseInputColumns,
+    CumulativeFeatureSpec,
+    PDP_COHORT_INPUT_COLUMNS,
+    PDP_COURSE_INPUT_COLUMNS,
+    SectionFeatureSpec,
+    StudentFeatureSpec,
+    StudentTermAddFeatureSpec,
+    StudentTermAggregateSpec,
+    TermFeatureSpec,
+)
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
 
@@ -76,6 +89,15 @@ class CustomFeatureGenerationTask:
         ] = feature_generation.constants.DEFAULT_PEAK_COVID_TERMS,
         key_course_subject_areas: t.Optional[list[str]] = None,
         key_course_ids: t.Optional[list[str]] = None,
+        cohort_input_columns: CohortInputColumns = PDP_COHORT_INPUT_COLUMNS,
+        course_input_columns: CourseInputColumns = PDP_COURSE_INPUT_COLUMNS,
+        course_feature_spec: CourseFeatureSpec | None = None,
+        student_feature_spec: StudentFeatureSpec | None = None,
+        term_feature_spec: TermFeatureSpec | None = None,
+        section_feature_spec: SectionFeatureSpec | None = None,
+        student_term_aggregate_spec: StudentTermAggregateSpec | None = None,
+        student_term_add_feature_spec: StudentTermAddFeatureSpec | None = None,
+        cumulative_feature_spec: CumulativeFeatureSpec | None = None,
     ) -> pd.DataFrame:
         """Main feature generation pipeline."""
         first_term = edvise_utils.infer_data_terms.infer_first_term_of_year(
@@ -83,12 +105,17 @@ class CustomFeatureGenerationTask:
         )
 
         df_students = df_cohort.pipe(
-            feature_generation.student.add_features, first_term_of_year=first_term
+            feature_generation.student.add_features,
+            first_term_of_year=first_term,
+            cols=cohort_input_columns,
+            spec=student_feature_spec,
         )
 
         df_courses_plus = (
             df_course.pipe(
                 feature_generation.course.add_features,
+                cols=course_input_columns,
+                spec=course_feature_spec,
                 min_passing_grade=min_passing_grade,
                 course_level_pattern=course_level_pattern,
             )
@@ -97,10 +124,12 @@ class CustomFeatureGenerationTask:
                 first_term_of_year=first_term,
                 core_terms=core_terms,
                 peak_covid_terms=peak_covid_terms,
+                spec=term_feature_spec,
             )
             .pipe(
                 feature_generation.section.add_features,
                 section_id_cols=["term_id", "course_id", "section_id"],
+                spec=section_feature_spec,
             )
         )
 
@@ -111,11 +140,13 @@ class CustomFeatureGenerationTask:
                 min_passing_grade=min_passing_grade,
                 key_course_subject_areas=key_course_subject_areas,
                 key_course_ids=key_course_ids,
+                spec=student_term_aggregate_spec,
             )
             .merge(df_students, how="inner", on=["institution_id", "student_id"])
             .pipe(
                 feature_generation.student_term.add_features,
                 min_num_credits_full_time=min_num_credits_full_time,
+                spec=student_term_add_feature_spec,
             )
         )
 
@@ -123,6 +154,7 @@ class CustomFeatureGenerationTask:
             df_student_terms,
             student_id_cols=["institution_id", "student_id"],
             sort_cols=["academic_year", "academic_term"],
+            spec=cumulative_feature_spec,
         ).rename(columns=edvise_utils.data_cleaning.convert_to_snake_case)
 
         return df_student_terms_plus
