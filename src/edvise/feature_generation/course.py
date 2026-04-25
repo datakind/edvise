@@ -6,6 +6,11 @@ import pandas as pd
 import numpy as np
 
 from . import constants, shared
+from .column_names import (
+    CourseFeatureSpec,
+    CourseInputColumns,
+    PDP_COURSE_INPUT_COLUMNS,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -17,6 +22,8 @@ NON_COMPLETE_GRADES = {"I", "W"}
 def add_features(
     df: pd.DataFrame,
     *,
+    cols: CourseInputColumns = PDP_COURSE_INPUT_COLUMNS,
+    spec: CourseFeatureSpec | None = None,
     min_passing_grade: float = constants.DEFAULT_MIN_PASSING_GRADE,
     course_level_pattern: str = constants.DEFAULT_COURSE_LEVEL_PATTERN,
 ) -> pd.DataFrame:
@@ -25,7 +32,10 @@ def add_features(
     and add as columns to ``df`` .
 
     Args:
-        df
+        df: Course-level input frame (standardized for the product in ``cols``).
+        cols: Physical column names for the product (default: PDP).
+        spec: Which feature columns to add; default is all. ``course_grade`` requires
+            ``course_grade_numeric`` in the same run.
         min_passing_grade: Minimum numeric grade considered by institution as "passing".
             Note that this is represented as a float, while grades are strings
             since the values include both numeric and alpha-categorical values.
@@ -36,15 +46,45 @@ def add_features(
             which is taken to be the course level.
     """
     LOGGER.info("adding course features ...")
-    return df.assign(
-        course_id=course_id,
-        course_subject_area=course_subject_area,
-        course_passed=ft.partial(course_passed, min_passing_grade=min_passing_grade),
-        course_completed=course_completed,
-        course_level=ft.partial(course_level, pattern=course_level_pattern),
-        course_grade_numeric=course_grade_numeric,
-        course_grade=course_grade,
-    )
+    s = spec or CourseFeatureSpec.all()
+    if s.course_grade and not s.course_grade_numeric:
+        raise ValueError(
+            "course_grade requires course_grade_numeric=True in the same run."
+        )
+
+    assign_kw: dict = {}
+    if s.course_id:
+        assign_kw["course_id"] = ft.partial(
+            course_id,
+            prefix_col=cols.course_prefix,
+            number_col=cols.course_number,
+        )
+    if s.course_subject_area:
+        assign_kw["course_subject_area"] = ft.partial(
+            course_subject_area, col=cols.course_cip
+        )
+    if s.course_passed:
+        assign_kw["course_passed"] = ft.partial(
+            course_passed, col=cols.grade, min_passing_grade=min_passing_grade
+        )
+    if s.course_completed:
+        assign_kw["course_completed"] = ft.partial(course_completed, col=cols.grade)
+    if s.course_level:
+        assign_kw["course_level"] = ft.partial(
+            course_level, col=cols.course_number, pattern=course_level_pattern
+        )
+    if s.course_grade_numeric:
+        assign_kw["course_grade_numeric"] = ft.partial(
+            course_grade_numeric, col=cols.grade
+        )
+    if s.course_grade:
+        assign_kw["course_grade"] = ft.partial(
+            course_grade,
+            grade_col=cols.grade,
+            grade_num_col="course_grade_numeric",
+        )
+
+    return df.assign(**assign_kw)
 
 
 def course_id(
@@ -226,9 +266,10 @@ def convert_number_of_courses_cols_to_term_flag_cols(df, col_prefix, orig_col):
 def rank_local_dfwi_courses(
     course_df: pd.DataFrame,
     *,
-    grade_col: str = "grade",
-    prefix_col: str = "course_prefix",
-    number_col: str = "course_number",
+    cols: CourseInputColumns = PDP_COURSE_INPUT_COLUMNS,
+    grade_col: str | None = None,
+    prefix_col: str | None = None,
+    number_col: str | None = None,
     min_enrollments: int = 30,  # ignore tiny Ns
     D_grades: set[str] = {"D", "DD"},
     F_grades: set[str] = {"F", "NP", "WF"},
@@ -241,10 +282,16 @@ def rank_local_dfwi_courses(
       - enrollments_den: graded or withdrawn (A-F,P,NP,WF or W*)
       - dfw_count / dfwi_count
       - dfw_rate / dfwi_rate
+
+    If ``grade_col`` / ``prefix_col`` / ``number_col`` are omitted, names come from
+    ``cols`` (default :data:`PDP_COURSE_INPUT_COLUMNS`).
     """
-    df = course_df[[prefix_col, number_col, grade_col]].copy()
-    df["key"] = course_id(df)
-    g = df[grade_col].astype("string").str.strip().str.upper()
+    gcol = grade_col if grade_col is not None else cols.grade
+    pcol = prefix_col if prefix_col is not None else cols.course_prefix
+    ncol = number_col if number_col is not None else cols.course_number
+    df = course_df[[pcol, ncol, gcol]].copy()
+    df["key"] = course_id(df, prefix_col=pcol, number_col=ncol)
+    g = df[gcol].astype("string").str.strip().str.upper()
 
     is_D = g.isin(D_grades)  # could be
     is_F = g.isin(F_grades)  # F, WF, NP
