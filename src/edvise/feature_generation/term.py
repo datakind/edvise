@@ -9,6 +9,7 @@ import re
 
 from edvise.utils import types
 from . import constants, shared
+from .column_names import TermFeatureSpec
 
 LOGGER = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ def add_features(
     peak_covid_terms: set[tuple[str, str]] = constants.DEFAULT_PEAK_COVID_TERMS,
     year_col: str = "academic_year",
     term_col: str = "academic_term",
+    spec: TermFeatureSpec | None = None,
 ) -> pd.DataFrame:
     """
     Compute term-level features from pdp course dataset,
@@ -36,49 +38,62 @@ def add_features(
             {"FALL", "WINTER", "SPRING"} is probably what you want.
         peak_covid_terms: Set of (year, term) pairs considered by the institution as
             occurring during "peak" COVID; for example, ``("2020-21", "SPRING")`` .
+        spec: Optional toggles; default is all.
     """
     LOGGER.info("adding term features ...")
+    s = spec or TermFeatureSpec.all()
     noncore_terms: set[types.TermType] = set(df[term_col].unique()) - set(core_terms)
-    df_term = (
+    first_term = (
         _get_unique_sorted_terms_df(df, year_col=year_col, term_col=term_col)
-        # only need to compute features on unique terms, rather than at course-level
-        # merging back into `df` afterwards ensures all rows have correct values
-        .assign(
-            term_id=ft.partial(shared.year_term, year_col=year_col, term_col=term_col),
-            term_start_dt=ft.partial(
-                shared.year_term_dt,
-                col="term_id",
-                bound="start",
-                first_term_of_year=first_term_of_year,
-            ),
-            term_rank=ft.partial(term_rank, year_col=year_col, term_col=term_col),
-            term_rank_core=ft.partial(
-                term_rank,
-                year_col=year_col,
-                term_col=term_col,
-                terms_subset=core_terms,
-            ),
-            term_rank_noncore=ft.partial(
-                term_rank,
-                year_col=year_col,
-                term_col=term_col,
-                terms_subset=noncore_terms,
-            ),
-            term_in_peak_covid=ft.partial(
-                term_in_peak_covid,
-                year_col=year_col,
-                term_col=term_col,
-                peak_covid_terms=peak_covid_terms,
-            ),
-            # yes, this is silly, but it helps a tricky feature computation later on
-            term_is_core=ft.partial(
-                term_in_subset, terms_subset=core_terms, term_col=term_col
-            ),
-            term_is_noncore=ft.partial(
-                term_in_subset, terms_subset=noncore_terms, term_col=term_col
-            ),
-        )
     )
+    assign_kw: dict[str, t.Any] = {}
+    if s.term_id:
+        assign_kw["term_id"] = ft.partial(
+            shared.year_term, year_col=year_col, term_col=term_col
+        )
+    if s.term_start_dt and not s.term_id:
+        raise ValueError("term_start_dt requires term_id in the same run")
+    if s.term_start_dt:
+        assign_kw["term_start_dt"] = ft.partial(
+            shared.year_term_dt,
+            col="term_id",
+            bound="start",
+            first_term_of_year=first_term_of_year,
+        )
+    if s.term_rank:
+        assign_kw["term_rank"] = ft.partial(
+            term_rank, year_col=year_col, term_col=term_col
+        )
+    if s.term_rank_core:
+        assign_kw["term_rank_core"] = ft.partial(
+            term_rank,
+            year_col=year_col,
+            term_col=term_col,
+            terms_subset=core_terms,
+        )
+    if s.term_rank_noncore:
+        assign_kw["term_rank_noncore"] = ft.partial(
+            term_rank,
+            year_col=year_col,
+            term_col=term_col,
+            terms_subset=noncore_terms,
+        )
+    if s.term_in_peak_covid:
+        assign_kw["term_in_peak_covid"] = ft.partial(
+            term_in_peak_covid,
+            year_col=year_col,
+            term_col=term_col,
+            peak_covid_terms=peak_covid_terms,
+        )
+    if s.term_is_core:
+        assign_kw["term_is_core"] = ft.partial(
+            term_in_subset, terms_subset=core_terms, term_col=term_col
+        )
+    if s.term_is_noncore:
+        assign_kw["term_is_noncore"] = ft.partial(
+            term_in_subset, terms_subset=noncore_terms, term_col=term_col
+        )
+    df_term = first_term.assign(**assign_kw) if assign_kw else first_term
     return pd.merge(df, df_term, on=[year_col, term_col], how="inner")
 
 
