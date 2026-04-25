@@ -9,14 +9,76 @@ from pandas.core.groupby import DataFrameGroupBy
 
 import edvise.utils as utils
 from . import constants
+from .column_names import CumulativeExpandingColumnSpec, CumulativeFeatureSpec
 
 LOGGER = logging.getLogger(__name__)
 
+_DEFAULT_NUMERIC_TERM_DIFF_COLS = [
+    "num_courses",
+    "num_credits_earned",
+    "course_grade_numeric_mean",
+    "course_level_mean",
+]
+
+
+def _col_aggs_for_expanding(
+    ec: CumulativeExpandingColumnSpec, *, df: pd.DataFrame
+) -> list[tuple[str, str | list[str]]]:
+    rows: list[tuple[str, str | list[str]]] = []
+    if ec.term_id:
+        rows.append(("term_id", "count"))
+    if ec.term_in_peak_covid:
+        rows.append(("term_in_peak_covid", "sum"))
+    if ec.term_is_core:
+        rows.append(("term_is_core", "sum"))
+    if ec.term_is_noncore:
+        rows.append(("term_is_noncore", "sum"))
+    if ec.term_is_while_student_enrolled_at_other_inst:
+        rows.append(
+            ("term_is_while_student_enrolled_at_other_inst", "sum")
+        )
+    if ec.term_is_pre_cohort:
+        rows.append(("term_is_pre_cohort", "sum"))
+    if ec.course_level_mean:
+        rows.append(("course_level_mean", ["mean", "min", "std"]))
+    if ec.course_grade_numeric_mean:
+        rows.append(
+            ("course_grade_numeric_mean", ["mean", "min", "std"])
+        )
+    if ec.num_courses:
+        rows.append(("num_courses", ["sum", "mean", "min"]))
+    if ec.num_credits_attempted:
+        rows.append(("num_credits_attempted", ["sum", "mean", "min"]))
+    if ec.num_credits_earned:
+        rows.append(("num_credits_earned", ["sum", "mean", "min"]))
+    if ec.student_pass_rate_above_sections_avg:
+        rows.append(
+            ("student_pass_rate_above_sections_avg", "sum")
+        )
+    if ec.student_completion_rate_above_sections_avg:
+        rows.append(
+            ("student_completion_rate_above_sections_avg", "sum")
+        )
+    return [p for p in rows if p[0] in df.columns]
+
 
 def add_features(
-    df: pd.DataFrame, *, student_id_cols: list[str], sort_cols: list[str]
+    df: pd.DataFrame,
+    *,
+    student_id_cols: list[str],
+    sort_cols: list[str],
+    spec: CumulativeFeatureSpec | None = None,
 ) -> pd.DataFrame:
     LOGGER.info("adding student-term cumulative features ...")
+    s = spec or CumulativeFeatureSpec.all()
+    if s.cumfrac_terms_enrolled and not s.expanding_aggregate:
+        raise ValueError(
+            "cumfrac_terms_enrolled requires expanding_aggregate; disable cumfrac or enable expanding"
+        )
+    if s.term_differences and not s.expanding_aggregate:
+        raise ValueError(
+            "term_differences requires expanding_aggregate; disable term_differences or enable expanding"
+        )
     # sort so that student-terms are ordered chronologically
     df = df.sort_values(by=student_id_cols + sort_cols, ignore_index=True)
     # specifically *don't* re-sort when grouping
@@ -31,68 +93,71 @@ def add_features(
         for col in df.columns
         if col.startswith(f"{constants.DUMMY_COURSE_FEATURE_COL_PREFIX}_")
     ]
-    df_expanding_agg = (
-        expanding_agg_features(
-            df_grped,
-            num_course_cols=num_course_cols,
-            dummy_course_cols=dummy_course_cols,
-            col_aggs=[
-                ("term_id", "count"),
-                ("term_in_peak_covid", "sum"),
-                ("term_is_core", "sum"),
-                ("term_is_noncore", "sum"),
-                ("term_is_while_student_enrolled_at_other_inst", "sum"),
-                ("term_is_pre_cohort", "sum"),
-                ("course_level_mean", ["mean", "min", "std"]),
-                ("course_grade_numeric_mean", ["mean", "min", "std"]),
-                ("num_courses", ["sum", "mean", "min"]),
-                ("num_credits_attempted", ["sum", "mean", "min"]),
-                ("num_credits_earned", ["sum", "mean", "min"]),
-                ("student_pass_rate_above_sections_avg", "sum"),
-                ("student_completion_rate_above_sections_avg", "sum"),
-            ],
-            credits=constants.DEFAULT_COURSE_CREDIT_CHECK,
-        )
-        # rename/dtype special cols for clarity in downstream calcs
-        .astype(
-            {
-                "cumcount_term_id": "Int8",
-                "cumsum_term_is_core": "Int8",
-                "cumsum_term_is_noncore": "Int8",
-            }
-        )
-        .rename(
-            columns={
-                "cumcount_term_id": "cumnum_terms_enrolled",
-                "cumsum_term_is_core": "cumnum_core_terms_enrolled",
-                "cumsum_term_is_noncore": "cumnum_noncore_terms_enrolled",
-            }
-        )
-    )
-    df_cumnum_ur = cumnum_unique_and_repeated_features(
-        df_grped, cols=["course_ids", "course_subjects", "course_subject_areas"]
-    )
+    if s.expanding_aggregate:
+        col_aggs = _col_aggs_for_expanding(s.expanding_columns, df=df)
+        if (not col_aggs) and (not num_course_cols):
+            df_expanding_agg = pd.DataFrame(index=df.index)
+        else:
+            raw = expanding_agg_features(
+                df_grped,
+                num_course_cols=num_course_cols,
+                dummy_course_cols=dummy_course_cols,
+                col_aggs=col_aggs,
+                credits=constants.DEFAULT_COURSE_CREDIT_CHECK,
+            )
+            ast: dict = {}
+            if "cumcount_term_id" in raw.columns:
+                ast["cumcount_term_id"] = "Int8"
+            if "cumsum_term_is_core" in raw.columns:
+                ast["cumsum_term_is_core"] = "Int8"
+            if "cumsum_term_is_noncore" in raw.columns:
+                ast["cumsum_term_is_noncore"] = "Int8"
+            rnm: dict = {}
+            if "cumcount_term_id" in raw.columns:
+                rnm["cumcount_term_id"] = "cumnum_terms_enrolled"
+            if "cumsum_term_is_core" in raw.columns:
+                rnm["cumsum_term_is_core"] = "cumnum_core_terms_enrolled"
+            if "cumsum_term_is_noncore" in raw.columns:
+                rnm["cumsum_term_is_noncore"] = "cumnum_noncore_terms_enrolled"
+            df_expanding_agg = (
+                raw.astype({k: v for k, v in ast.items() if k in raw.columns})
+                .rename(columns={k: v for k, v in rnm.items() if k in raw.columns})
+            )
+    else:
+        df_expanding_agg = pd.DataFrame(index=df.index)
+
+    if s.cumnum_unique_repeated:
+        cum_cols = [c for c in ("course_ids", "course_subjects", "course_subject_areas") if c in df.columns]
+        if cum_cols:
+            df_cumnum_ur = cumnum_unique_and_repeated_features(
+                df_grped, cols=cum_cols
+            )
+        else:
+            df_cumnum_ur = pd.DataFrame(index=df.index)
+    else:
+        df_cumnum_ur = pd.DataFrame(index=df.index)
     concat_dfs = [df, df_cumnum_ur, df_expanding_agg]
-    return (
+    out = (
         # despite best efforts, the student-id index is dropped from df_cumnum_ur
         # and, through sheer pandas insanity, merge on student_id_cols produces
         # huge numbers of duplicate rows -- truly impossible shit, that
         # however, by definition, these transforms shouldn't alter the original indexing, so:
         pd.concat(concat_dfs, axis="columns")
-        # add a last couple features, which don't fit nicely into above logic
-        .pipe(add_cumfrac_terms_enrolled_features, student_id_cols=student_id_cols)
-        .pipe(
-            add_term_diff_features,
-            cols=[
-                "num_courses",
-                "num_credits_earned",
-                "course_grade_numeric_mean",
-                "course_level_mean",
-            ],
-            max_term_num=4,
-            student_id_cols=student_id_cols,
-        )
     )
+    if s.cumfrac_terms_enrolled and s.expanding_aggregate:
+        out = out.pipe(
+            add_cumfrac_terms_enrolled_features, student_id_cols=student_id_cols
+        )
+    if s.term_differences and s.expanding_aggregate:
+        diff_cols = [c for c in _DEFAULT_NUMERIC_TERM_DIFF_COLS if c in out.columns]
+        if diff_cols:
+            out = out.pipe(
+                add_term_diff_features,
+                cols=diff_cols,
+                max_term_num=4,
+                student_id_cols=student_id_cols,
+            )
+    return out
 
 
 def expanding_agg_features(
