@@ -8,6 +8,7 @@ import pandas as pd
 
 from edvise.utils.data_cleaning import convert_to_snake_case
 from . import constants, term, shared
+from .column_names import StudentTermAddFeatureSpec, StudentTermAggregateSpec
 
 LOGGER = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ def aggregate_from_course_level_features(
     min_passing_grade: float = constants.DEFAULT_MIN_PASSING_GRADE,
     key_course_subject_areas: t.Optional[list[str]] = None,
     key_course_ids: t.Optional[list[str]] = None,
+    spec: StudentTermAggregateSpec | None = None,
 ) -> pd.DataFrame:
     """
     Aggregate course-level features up to student-term-level features
@@ -82,91 +84,100 @@ def aggregate_from_course_level_features(
         and features aren't computed! This is because such a group is "undefined",
         so we can't know if the resulting features are correct.
     """
+    s = spec or StudentTermAggregateSpec.all()
     LOGGER.info("aggregating course-level data to student-term-level features ...")
     df_grped = df.groupby(by=student_term_id_cols, observed=True, as_index=False)
     # pass through useful metadata and term features as-is
     # assumed to have the same values for every row per group
-    df_passthrough = df_grped.agg(
-        institution_id=("institution_id", "first"),
-        academic_year=("academic_year", "first"),
-        academic_term=("academic_term", "first"),
-        term_start_dt=("term_start_dt", "first"),
-        term_rank=("term_rank", "first"),
-        term_rank_core=("term_rank_core", "first"),
-        term_rank_noncore=("term_rank_noncore", "first"),
-        term_is_core=("term_is_core", "first"),
-        term_is_noncore=("term_is_noncore", "first"),
-        term_in_peak_covid=("term_in_peak_covid", "first"),
-        term_program_of_study=("term_program_of_study", "first"),
-    )
-    # various aggregations, with an eye toward cumulative features downstream
-    df_aggs = df_grped.agg(
-        num_courses=num_courses_col_agg(),
-        num_courses_passed=num_courses_passed_col_agg(),
-        num_courses_completed=num_courses_completed_col_agg(),
-        num_credits_attempted=num_credits_attempted_col_agg(),
-        num_credits_earned=num_credits_earned_col_agg(),
-        course_ids=course_ids_col_agg(),
-        course_subjects=course_subjects_col_agg(),
-        course_subject_areas=course_subject_areas_col_agg(),
-        course_id_nunique=course_id_nunique_col_agg(),
-        course_subject_nunique=course_subject_nunique_col_agg(),
-        course_subject_area_nunique=course_subject_area_nunique_col_agg(),
-        course_level_mean=course_level_mean_col_agg(),
-        course_level_std=course_level_std_col_agg(),
-        course_grade_numeric_mean=course_grade_numeric_mean_col_agg(),
-        course_grade_numeric_std=course_grade_numeric_std_col_agg(),
-        section_num_students_enrolled_mean=section_num_students_enrolled_mean_col_agg(),
-        section_num_students_enrolled_std=section_num_students_enrolled_std_col_agg(),
-        sections_num_students_enrolled=sections_num_students_enrolled_col_agg(),
-        sections_num_students_passed=sections_num_students_passed_col_agg(),
-        sections_num_students_completed=sections_num_students_completed_col_agg(),
-    )
-    df_dummies = sum_dummy_cols_by_group(
-        df,
-        grp_cols=student_term_id_cols,
-        agg_cols=[
-            "course_type",
-            "delivery_method",
-            "math_or_english_gateway",
-            "co_requisite_course",
-            "course_instructor_employment_status",
-            "course_instructor_rank",
-            "course_level",
-            "course_grade",
-        ],
-    )
-
-    agg_col_vals: list[tuple[str, t.Any | list[t.Any]]] = [
-        ("core_course", "Y"),
-        ("course_type", ["CC", "CD"]),
-        ("course_level", [0, 1]),
-        ("enrolled_at_other_institution_s", "Y"),
-    ]
-    if key_course_subject_areas is not None:
-        agg_col_vals.extend(
-            ("course_subject_area", kcsa) for kcsa in key_course_subject_areas
+    _first = "first"
+    p_cols: dict[str, tuple] = {
+        "institution_id": ("institution_id", _first),
+        "academic_year": ("academic_year", _first),
+        "academic_term": ("academic_term", _first),
+        "term_start_dt": ("term_start_dt", _first),
+        "term_rank": ("term_rank", _first),
+        "term_rank_core": ("term_rank_core", _first),
+        "term_rank_noncore": ("term_rank_noncore", _first),
+        "term_is_core": ("term_is_core", _first),
+        "term_is_noncore": ("term_is_noncore", _first),
+        "term_in_peak_covid": ("term_in_peak_covid", _first),
+        "term_program_of_study": ("term_program_of_study", _first),
+    }
+    p_existing = {k: v for k, v in p_cols.items() if v[0] in df.columns}
+    if not p_existing:
+        raise ValueError(
+            "aggregate: no pass-through columns (e.g. academic_year) found on the course frame"
         )
-    if key_course_ids is not None:
-        agg_col_vals.extend(("course_id", kc) for kc in key_course_ids)
-    df_val_equals = sum_val_equal_cols_by_group(
-        df, grp_cols=student_term_id_cols, agg_col_vals=agg_col_vals
-    )
-    df_dummy_equals = equal_cols_by_group(
-        df=df_val_equals, grp_cols=student_term_id_cols
-    )
-    df_grade_aggs = multicol_grade_aggs_by_group(
-        df, min_passing_grade=min_passing_grade, grp_cols=student_term_id_cols
-    )
+    df_passthrough = df_grped.agg(**p_existing)
+    dfs: list[pd.DataFrame] = [df_passthrough]
+    if s.summary_aggregations:
+        ag = df_grped.agg(
+            num_courses=num_courses_col_agg(),
+            num_courses_passed=num_courses_passed_col_agg(),
+            num_courses_completed=num_courses_completed_col_agg(),
+            num_credits_attempted=num_credits_attempted_col_agg(),
+            num_credits_earned=num_credits_earned_col_agg(),
+            course_ids=course_ids_col_agg(),
+            course_subjects=course_subjects_col_agg(),
+            course_subject_areas=course_subject_areas_col_agg(),
+            course_id_nunique=course_id_nunique_col_agg(),
+            course_subject_nunique=course_subject_nunique_col_agg(),
+            course_subject_area_nunique=course_subject_area_nunique_col_agg(),
+            course_level_mean=course_level_mean_col_agg(),
+            course_level_std=course_level_std_col_agg(),
+            course_grade_numeric_mean=course_grade_numeric_mean_col_agg(),
+            course_grade_numeric_std=course_grade_numeric_std_col_agg(),
+            section_num_students_enrolled_mean=section_num_students_enrolled_mean_col_agg(),
+            section_num_students_enrolled_std=section_num_students_enrolled_std_col_agg(),
+            sections_num_students_enrolled=sections_num_students_enrolled_col_agg(),
+            sections_num_students_passed=sections_num_students_passed_col_agg(),
+            sections_num_students_completed=sections_num_students_completed_col_agg(),
+        )
+        dfs.append(ag)
+    if s.dummies:
+        df_dummies = sum_dummy_cols_by_group(
+            df,
+            grp_cols=student_term_id_cols,
+            agg_cols=[
+                "course_type",
+                "delivery_method",
+                "math_or_english_gateway",
+                "co_requisite_course",
+                "course_instructor_employment_status",
+                "course_instructor_rank",
+                "course_level",
+                "course_grade",
+            ],
+        )
+        dfs.append(df_dummies)
+    if s.value_equality:
+        agg_col_vals: list[tuple[str, t.Any | list[t.Any]]] = [
+            ("core_course", "Y"),
+            ("course_type", ["CC", "CD"]),
+            ("course_level", [0, 1]),
+            ("enrolled_at_other_institution_s", "Y"),
+        ]
+        if key_course_subject_areas is not None:
+            agg_col_vals.extend(
+                ("course_subject_area", kcsa) for kcsa in key_course_subject_areas
+            )
+        if key_course_ids is not None:
+            agg_col_vals.extend(("course_id", kc) for kc in key_course_ids)
+        df_val_equals = sum_val_equal_cols_by_group(
+            df, grp_cols=student_term_id_cols, agg_col_vals=agg_col_vals
+        )
+        df_dummy_equals = equal_cols_by_group(
+            df=df_val_equals, grp_cols=student_term_id_cols
+        )
+        dfs.append(df_val_equals)
+        dfs.append(df_dummy_equals)
+    if s.multicol_grade:
+        df_grade_aggs = multicol_grade_aggs_by_group(
+            df, min_passing_grade=min_passing_grade, grp_cols=student_term_id_cols
+        )
+        dfs.append(df_grade_aggs)
     return shared.merge_many_dataframes(
-        [
-            df_passthrough,
-            df_aggs,
-            df_val_equals,
-            df_dummy_equals,
-            df_dummies,
-            df_grade_aggs,
-        ],
+        dfs,
         on=student_term_id_cols,
     )
 
@@ -175,6 +186,7 @@ def add_features(
     df: pd.DataFrame,
     *,
     min_num_credits_full_time: float = constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
+    spec: StudentTermAddFeatureSpec | None = None,
 ) -> pd.DataFrame:
     """
     Compute various student-term-level features from aggregated course-level features
@@ -185,75 +197,101 @@ def add_features(
         min_num_credits_full_time: Minimum number of credits *attempted* per term
             for a student's enrollment intensity to be considered "full-time".
             Default value is 12.0.
+        spec: Optional feature toggles; default is all.
 
     See Also:
         - :func:`aggregate_from_course_level_features()`
     """
+    s = spec or StudentTermAddFeatureSpec.all()
+    if s.student_certificates and not s.year_of_enrollment_at_cohort_inst:
+        raise ValueError(
+            "student_certificates requires year_of_enrollment_at_cohort_inst in the same run"
+        )
     LOGGER.info("adding student-term features ...")
     nc_prefix = constants.NUM_COURSE_FEATURE_COL_PREFIX
     fc_prefix = constants.FRAC_COURSE_FEATURE_COL_PREFIX
-    _num_course_cols = (
-        [col for col in df.columns if col.startswith(f"{nc_prefix}_")]
-        +
-        # also include num-course cols to be added below
-        ["num_courses_in_term_program_of_study_area"]
-    )
-    num_frac_courses_cols = [
-        (col, col.replace(f"{nc_prefix}_", f"{fc_prefix}_")) for col in _num_course_cols
-    ]
-    feature_name_funcs = (
-        {
-            "year_of_enrollment_at_cohort_inst": year_of_enrollment_at_cohort_inst,
-            "student_has_earned_certificate_at_cohort_inst": ft.partial(
-                student_earned_certificate, inst="cohort"
-            ),
-            "student_has_earned_certificate_at_other_inst": ft.partial(
-                student_earned_certificate, inst="other"
-            ),
-            "term_is_pre_cohort": term_is_pre_cohort,
-            "term_is_while_student_enrolled_at_other_inst": term_is_while_student_enrolled_at_other_inst,
-            "term_program_of_study_area": term_program_of_study_area,
-            "frac_credits_earned": shared.frac_credits_earned,
-            "student_term_enrollment_intensity": ft.partial(
-                student_term_enrollment_intensity,
-                min_num_credits_full_time=min_num_credits_full_time,
-            ),
-            "num_courses_in_term_program_of_study_area": ft.partial(
-                num_courses_in_study_area,
-                study_area_col="term_program_of_study_area",
-            ),
-        }
-        | {
+    batch1: dict[str, t.Any] = {}
+    if s.year_of_enrollment_at_cohort_inst:
+        batch1["year_of_enrollment_at_cohort_inst"] = year_of_enrollment_at_cohort_inst
+    if s.student_certificates:
+        batch1["student_has_earned_certificate_at_cohort_inst"] = ft.partial(
+            student_earned_certificate, inst="cohort"
+        )
+        batch1["student_has_earned_certificate_at_other_inst"] = ft.partial(
+            student_earned_certificate, inst="other"
+        )
+    if s.term_cohort_and_transfer_flags:
+        batch1["term_is_pre_cohort"] = term_is_pre_cohort
+        batch1["term_is_while_student_enrolled_at_other_inst"] = (
+            term_is_while_student_enrolled_at_other_inst
+        )
+    if s.program_of_study_area:
+        batch1["term_program_of_study_area"] = term_program_of_study_area
+    if s.credit_fraction_and_intensity:
+        batch1["frac_credits_earned"] = shared.frac_credits_earned
+        batch1["student_term_enrollment_intensity"] = ft.partial(
+            student_term_enrollment_intensity,
+            min_num_credits_full_time=min_num_credits_full_time,
+        )
+    if s.num_courses_in_program_area and s.program_of_study_area:
+        batch1["num_courses_in_term_program_of_study_area"] = ft.partial(
+            num_courses_in_study_area,
+            study_area_col="term_program_of_study_area",
+        )
+    out = df.assign(**batch1) if batch1 else df
+    if s.num_course_by_category_fracs:
+        _num_course_cols: list[str] = [
+            col for col in out.columns if col.startswith(f"{nc_prefix}_")
+        ]
+        if (
+            s.num_courses_in_program_area
+            and s.program_of_study_area
+            and "num_courses_in_term_program_of_study_area" in out.columns
+            and "num_courses_in_term_program_of_study_area" not in _num_course_cols
+        ):
+            _num_course_cols.append("num_courses_in_term_program_of_study_area")
+        num_frac_courses_cols = [
+            (col, col.replace(f"{nc_prefix}_", f"{fc_prefix}_")) for col in _num_course_cols
+        ]
+        frac_d = {
             fc_col: ft.partial(compute_frac_courses, numer_col=nc_col)
             for nc_col, fc_col in num_frac_courses_cols
         }
-        | {
-            "frac_sections_students_passed": ft.partial(
-                compute_frac_sections_students,
-                numer_col="sections_num_students_passed",
-            ),
-            "frac_sections_students_completed": ft.partial(
-                compute_frac_sections_students,
-                numer_col="sections_num_students_completed",
-            ),
-        }
-        | {
-            "student_pass_rate_above_sections_avg": ft.partial(
-                student_rate_above_sections_avg,
-                student_col="frac_courses_passed",
-                sections_col="frac_sections_students_passed",
-            ),
-            "student_completion_rate_above_sections_avg": ft.partial(
-                student_rate_above_sections_avg,
-                student_col="frac_courses_completed",
-                sections_col="frac_sections_students_completed",
-            ),
-        }
-    )
-    return df.assign(**feature_name_funcs).assign(
-        term_program_of_study_changed_prev_term=term_program_of_study_changed_prev_term,
-        term_program_of_study_area_changed_prev_term=term_program_of_study_area_changed_prev_term,
-    )
+        out = out.assign(**frac_d) if frac_d else out
+    if s.section_student_fractions:
+        out = out.assign(
+            **{
+                "frac_sections_students_passed": ft.partial(
+                    compute_frac_sections_students,
+                    numer_col="sections_num_students_passed",
+                ),
+                "frac_sections_students_completed": ft.partial(
+                    compute_frac_sections_students,
+                    numer_col="sections_num_students_completed",
+                ),
+            }
+        )
+    if s.student_rate_vs_section_fractions:
+        out = out.assign(
+            **{
+                "student_pass_rate_above_sections_avg": ft.partial(
+                    student_rate_above_sections_avg,
+                    student_col="frac_courses_passed",
+                    sections_col="frac_sections_students_passed",
+                ),
+                "student_completion_rate_above_sections_avg": ft.partial(
+                    student_rate_above_sections_avg,
+                    student_col="frac_courses_completed",
+                    sections_col="frac_sections_students_completed",
+                ),
+            }
+        )
+    if s.program_change_from_prior_term:
+        out = out.assign(
+            term_program_of_study_changed_prev_term=term_program_of_study_changed_prev_term,
+            term_program_of_study_area_changed_prev_term=term_program_of_study_area_changed_prev_term,
+        )
+    return out
 
 
 def year_of_enrollment_at_cohort_inst(
