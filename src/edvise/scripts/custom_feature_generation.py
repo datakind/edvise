@@ -128,31 +128,39 @@ class CustomFeatureGenerationTask:
             )
             .pipe(
                 feature_generation.section.add_features,
-                section_id_cols=["term_id", "course_id", "section_id"],
+                section_id_cols=["term_id", "course_id", course_input_columns.section_id],
                 spec=section_feature_spec,
             )
         )
+        student_term_id_cols = [course_input_columns.student_id, "term_id"]
+        merge_on = [
+            c
+            for c in ("institution_id", cohort_input_columns.student_id)
+            if c in df_students.columns and c in df_courses_plus.columns
+        ]
 
         df_student_terms = (
             feature_generation.student_term.aggregate_from_course_level_features(
                 df_courses_plus,
-                student_term_id_cols=["student_id", "term_id"],
+                student_term_id_cols=student_term_id_cols,
+                cols=course_input_columns,
                 min_passing_grade=min_passing_grade,
                 key_course_subject_areas=key_course_subject_areas,
                 key_course_ids=key_course_ids,
                 spec=student_term_aggregate_spec,
             )
-            .merge(df_students, how="inner", on=["institution_id", "student_id"])
+            .merge(df_students, how="inner", on=merge_on)
             .pipe(
                 feature_generation.student_term.add_features,
                 min_num_credits_full_time=min_num_credits_full_time,
                 spec=student_term_add_feature_spec,
             )
         )
+        cumulative_ids = [c for c in ("institution_id", cohort_input_columns.student_id) if c in df_student_terms.columns]
 
         df_student_terms_plus = feature_generation.cumulative.add_features(
             df_student_terms,
-            student_id_cols=["institution_id", "student_id"],
+            student_id_cols=cumulative_ids,
             sort_cols=["academic_year", "academic_term"],
             spec=cumulative_feature_spec,
         ).rename(columns=edvise_utils.data_cleaning.convert_to_snake_case)

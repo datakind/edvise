@@ -8,7 +8,12 @@ import pandas as pd
 
 from edvise.utils.data_cleaning import convert_to_snake_case
 from . import constants, term, shared
-from .column_names import StudentTermAddFeatureSpec, StudentTermAggregateSpec
+from .column_names import (
+    CourseInputColumns,
+    PDP_COURSE_INPUT_COLUMNS,
+    StudentTermAddFeatureSpec,
+    StudentTermAggregateSpec,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -54,6 +59,7 @@ def aggregate_from_course_level_features(
     df: pd.DataFrame,
     *,
     student_term_id_cols: list[str],
+    cols: CourseInputColumns = PDP_COURSE_INPUT_COLUMNS,
     min_passing_grade: float = constants.DEFAULT_MIN_PASSING_GRADE,
     key_course_subject_areas: t.Optional[list[str]] = None,
     key_course_ids: t.Optional[list[str]] = None,
@@ -101,7 +107,7 @@ def aggregate_from_course_level_features(
         "term_is_core": ("term_is_core", _first),
         "term_is_noncore": ("term_is_noncore", _first),
         "term_in_peak_covid": ("term_in_peak_covid", _first),
-        "term_program_of_study": ("term_program_of_study", _first),
+        "term_program_of_study": (cols.term_program_of_study, _first),
     }
     p_existing = {k: v for k, v in p_cols.items() if v[0] in df.columns}
     if not p_existing:
@@ -112,16 +118,20 @@ def aggregate_from_course_level_features(
     dfs: list[pd.DataFrame] = [df_passthrough]
     if s.summary_aggregations:
         ag = df_grped.agg(
-            num_courses=num_courses_col_agg(),
-            num_courses_passed=num_courses_passed_col_agg(),
-            num_courses_completed=num_courses_completed_col_agg(),
-            num_credits_attempted=num_credits_attempted_col_agg(),
-            num_credits_earned=num_credits_earned_col_agg(),
+            num_courses=num_courses_col_agg(col="course_id"),
+            num_courses_passed=num_courses_passed_col_agg(col="course_passed"),
+            num_courses_completed=num_courses_completed_col_agg(col="course_completed"),
+            num_credits_attempted=num_credits_attempted_col_agg(
+                col=cols.number_of_credits_attempted
+            ),
+            num_credits_earned=num_credits_earned_col_agg(
+                col=cols.number_of_credits_earned
+            ),
             course_ids=course_ids_col_agg(),
-            course_subjects=course_subjects_col_agg(),
+            course_subjects=course_subjects_col_agg(col=cols.course_cip),
             course_subject_areas=course_subject_areas_col_agg(),
             course_id_nunique=course_id_nunique_col_agg(),
-            course_subject_nunique=course_subject_nunique_col_agg(),
+            course_subject_nunique=course_subject_nunique_col_agg(col=cols.course_cip),
             course_subject_area_nunique=course_subject_area_nunique_col_agg(),
             course_level_mean=course_level_mean_col_agg(),
             course_level_std=course_level_std_col_agg(),
@@ -135,42 +145,53 @@ def aggregate_from_course_level_features(
         )
         dfs.append(ag)
     if s.dummies:
-        df_dummies = sum_dummy_cols_by_group(
-            df,
-            grp_cols=student_term_id_cols,
-            agg_cols=[
-                "course_type",
-                "delivery_method",
-                "math_or_english_gateway",
-                "co_requisite_course",
-                "course_instructor_employment_status",
-                "course_instructor_rank",
-                "course_level",
-                "course_grade",
-            ],
-        )
-        dfs.append(df_dummies)
+        dummy_candidates: list[str | None] = [
+            cols.course_type,
+            cols.delivery_method,
+            cols.math_or_english_gateway,
+            cols.co_requisite_course,
+            cols.course_instructor_employment_status,
+            cols.course_instructor_rank,
+            "course_level",
+            "course_grade",
+        ]
+        dummy_agg_cols = [
+            c
+            for c in dummy_candidates
+            if c is not None and c in df.columns
+        ]
+        if dummy_agg_cols:
+            df_dummies = sum_dummy_cols_by_group(
+                df,
+                grp_cols=student_term_id_cols,
+                agg_cols=dummy_agg_cols,
+            )
+            dfs.append(df_dummies)
     if s.value_equality:
         agg_col_vals: list[tuple[str, t.Any | list[t.Any]]] = [
-            ("core_course", "Y"),
-            ("course_type", ["CC", "CD"]),
+            (cols.core_course, "Y"),
             ("course_level", [0, 1]),
-            ("enrolled_at_other_institution_s", "Y"),
         ]
+        if cols.course_type is not None:
+            agg_col_vals.append((cols.course_type, ["CC", "CD"]))
+        if cols.enrolled_at_other_institution_s is not None:
+            agg_col_vals.append((cols.enrolled_at_other_institution_s, "Y"))
         if key_course_subject_areas is not None:
             agg_col_vals.extend(
                 ("course_subject_area", kcsa) for kcsa in key_course_subject_areas
             )
         if key_course_ids is not None:
             agg_col_vals.extend(("course_id", kc) for kc in key_course_ids)
-        df_val_equals = sum_val_equal_cols_by_group(
-            df, grp_cols=student_term_id_cols, agg_col_vals=agg_col_vals
-        )
-        df_dummy_equals = equal_cols_by_group(
-            df=df_val_equals, grp_cols=student_term_id_cols
-        )
-        dfs.append(df_val_equals)
-        dfs.append(df_dummy_equals)
+        agg_col_vals = [pair for pair in agg_col_vals if pair[0] in df.columns]
+        if agg_col_vals:
+            df_val_equals = sum_val_equal_cols_by_group(
+                df, grp_cols=student_term_id_cols, agg_col_vals=agg_col_vals
+            )
+            df_dummy_equals = equal_cols_by_group(
+                df=df_val_equals, grp_cols=student_term_id_cols
+            )
+            dfs.append(df_val_equals)
+            dfs.append(df_dummy_equals)
     if s.multicol_grade:
         df_grade_aggs = multicol_grade_aggs_by_group(
             df, min_passing_grade=min_passing_grade, grp_cols=student_term_id_cols
