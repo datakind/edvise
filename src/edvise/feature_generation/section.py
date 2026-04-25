@@ -1,11 +1,19 @@
 import logging
+import typing as t
 
 import pandas as pd
+
+from .column_names import SectionFeatureSpec
 
 LOGGER = logging.getLogger(__name__)
 
 
-def add_features(df: pd.DataFrame, *, section_id_cols: list[str]) -> pd.DataFrame:
+def add_features(
+    df: pd.DataFrame,
+    *,
+    section_id_cols: list[str],
+    spec: SectionFeatureSpec | None = None,
+) -> pd.DataFrame:
     """
     Compute section-level features from pdp course dataset w/ added course-level features,
     and add as columns to ``df`` .
@@ -24,17 +32,37 @@ def add_features(df: pd.DataFrame, *, section_id_cols: list[str]) -> pd.DataFram
         - :func:`pdp.features.course.add_features()`
     """
     LOGGER.info("adding section features ...")
+    s = spec or SectionFeatureSpec.all()
+    if not any(
+        (
+            s.section_num_students_enrolled,
+            s.section_num_students_passed,
+            s.section_num_students_completed,
+            s.section_course_grade_numeric_mean,
+        )
+    ):
+        return df
+    agg_map: dict[str, t.Any] = {}
+    if s.section_num_students_enrolled:
+        agg_map["section_num_students_enrolled"] = section_num_students_enrolled_col_agg()
+    if s.section_num_students_passed:
+        agg_map["section_num_students_passed"] = section_num_students_passed_col_agg()
+    if s.section_num_students_completed:
+        agg_map[
+            "section_num_students_completed"
+        ] = section_num_students_completed_col_agg()
+    if s.section_course_grade_numeric_mean:
+        agg_map["section_course_grade_numeric_mean"] = (
+            section_course_grade_numeric_mean_col_agg()
+        )
     df_section = (
         df.groupby(by=section_id_cols, as_index=False, observed=True, dropna=True)
-        # generating named aggs via functions gives at least *some* testability
-        .agg(
-            section_num_students_enrolled=section_num_students_enrolled_col_agg(),
-            section_num_students_passed=section_num_students_passed_col_agg(),
-            section_num_students_completed=section_num_students_completed_col_agg(),
-            section_course_grade_numeric_mean=section_course_grade_numeric_mean_col_agg(),
-        )
-        .astype({"section_course_grade_numeric_mean": "Float32"})
+        .agg(**agg_map)
     )
+    if s.section_course_grade_numeric_mean and "section_course_grade_numeric_mean" in df_section.columns:
+        df_section = df_section.astype(
+            {"section_course_grade_numeric_mean": "Float32"}
+        )
     return pd.merge(df, df_section, on=section_id_cols, how="left")
 
 
