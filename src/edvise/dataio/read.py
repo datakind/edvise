@@ -145,6 +145,22 @@ def read_parquet(
     return df
 
 
+def read_resolved_parquet(path: str) -> pd.DataFrame:
+    """
+    Read a parquet file after resolving DBFS-style paths to local disk.
+
+    Uses :func:`edvise.shared.logger.local_fs_path` on ``path`` (so the same logical
+    path works in Databricks and locally), then :func:`read_parquet`. Raises
+    :class:`FileNotFoundError` if the resolved file is missing.
+    """
+    from edvise.shared.logger import local_fs_path
+
+    resolved = local_fs_path(path)
+    if not pathlib.Path(resolved).exists():
+        raise FileNotFoundError(f"Missing parquet: {path} (local: {resolved})")
+    return read_parquet(resolved)
+
+
 def _read_and_prepare_data(
     *,
     file_path: t.Optional[str],

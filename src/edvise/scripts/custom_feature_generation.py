@@ -5,22 +5,14 @@ import importlib
 import logging
 import sys
 import pandas as pd
-import typing as t
 
-from edvise import utils as edvise_utils
-from edvise import feature_generation
+from edvise.feature_generation.assemble_student_terms import (
+    make_student_term_dataset,
+    student_level_merge_keys,
+)
 from edvise.feature_generation.column_names import (
-    CohortInputColumns,
-    CourseFeatureSpec,
-    CourseInputColumns,
-    CumulativeFeatureSpec,
     PDP_COHORT_INPUT_COLUMNS,
     PDP_COURSE_INPUT_COLUMNS,
-    SectionFeatureSpec,
-    StudentFeatureSpec,
-    StudentTermAddFeatureSpec,
-    StudentTermAggregateSpec,
-    TermFeatureSpec,
 )
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
@@ -59,114 +51,29 @@ class CustomFeatureGenerationTask:
         )
 
         # --- Generate student-term dataset ---
-        df_student_terms = self.make_student_term_dataset(
+        merge_on = student_level_merge_keys(
+            df_cohort,
+            df_course,
+            cohort_cols=PDP_COHORT_INPUT_COLUMNS,
+        )
+        df_student_terms = make_student_term_dataset(
             df_cohort=df_cohort,
             df_course=df_course,
+            merge_on=merge_on,
             min_passing_grade=min_passing_grade,
             min_num_credits_full_time=min_num_credits_full_time,
             course_level_pattern=course_level_pattern,
             core_terms=core_terms,
             key_course_subject_areas=key_course_subject_areas,
             key_course_ids=key_course_ids,
+            cohort_input_columns=PDP_COHORT_INPUT_COLUMNS,
+            course_input_columns=PDP_COURSE_INPUT_COLUMNS,
         )
 
         # --- Write result ---
         df_student_terms.to_parquet(
             f"{self.args.student_term_path}/student_terms.parquet", index=False
         )
-
-    def make_student_term_dataset(
-        self,
-        df_cohort: pd.DataFrame,
-        df_course: pd.DataFrame,
-        *,
-        min_passing_grade: float = feature_generation.constants.DEFAULT_MIN_PASSING_GRADE,
-        min_num_credits_full_time: float = feature_generation.constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
-        course_level_pattern: str = feature_generation.constants.DEFAULT_COURSE_LEVEL_PATTERN,
-        core_terms: set[str] = feature_generation.constants.DEFAULT_CORE_TERMS,
-        peak_covid_terms: set[
-            tuple[str, str]
-        ] = feature_generation.constants.DEFAULT_PEAK_COVID_TERMS,
-        key_course_subject_areas: t.Optional[list[str]] = None,
-        key_course_ids: t.Optional[list[str]] = None,
-        cohort_input_columns: CohortInputColumns = PDP_COHORT_INPUT_COLUMNS,
-        course_input_columns: CourseInputColumns = PDP_COURSE_INPUT_COLUMNS,
-        course_feature_spec: CourseFeatureSpec | None = None,
-        student_feature_spec: StudentFeatureSpec | None = None,
-        term_feature_spec: TermFeatureSpec | None = None,
-        section_feature_spec: SectionFeatureSpec | None = None,
-        student_term_aggregate_spec: StudentTermAggregateSpec | None = None,
-        student_term_add_feature_spec: StudentTermAddFeatureSpec | None = None,
-        cumulative_feature_spec: CumulativeFeatureSpec | None = None,
-    ) -> pd.DataFrame:
-        """Main feature generation pipeline."""
-        first_term = edvise_utils.infer_data_terms.infer_first_term_of_year(
-            df_course["academic_term"]
-        )
-
-        df_students = df_cohort.pipe(
-            feature_generation.student.add_features,
-            first_term_of_year=first_term,
-            cols=cohort_input_columns,
-            spec=student_feature_spec,
-        )
-
-        df_courses_plus = (
-            df_course.pipe(
-                feature_generation.course.add_features,
-                cols=course_input_columns,
-                spec=course_feature_spec,
-                min_passing_grade=min_passing_grade,
-                course_level_pattern=course_level_pattern,
-            )
-            .pipe(
-                feature_generation.term.add_features,
-                first_term_of_year=first_term,
-                core_terms=core_terms,
-                peak_covid_terms=peak_covid_terms,
-                spec=term_feature_spec,
-            )
-            .pipe(
-                feature_generation.section.add_features,
-                section_id_cols=["term_id", "course_id", course_input_columns.section_id],
-                spec=section_feature_spec,
-            )
-        )
-        student_term_id_cols = [course_input_columns.student_id, "term_id"]
-        merge_on = [
-            c
-            for c in ("institution_id", cohort_input_columns.student_id)
-            if c in df_students.columns and c in df_courses_plus.columns
-        ]
-
-        df_student_terms = (
-            feature_generation.student_term.aggregate_from_course_level_features(
-                df_courses_plus,
-                student_term_id_cols=student_term_id_cols,
-                cols=course_input_columns,
-                min_passing_grade=min_passing_grade,
-                key_course_subject_areas=key_course_subject_areas,
-                key_course_ids=key_course_ids,
-                spec=student_term_aggregate_spec,
-            )
-            .merge(df_students, how="inner", on=merge_on)
-            .pipe(
-                feature_generation.student_term.add_features,
-                min_num_credits_full_time=min_num_credits_full_time,
-                spec=student_term_add_feature_spec,
-            )
-        )
-        cumulative_ids = [c for c in ("institution_id", cohort_input_columns.student_id) if c in df_student_terms.columns]
-
-        df_student_terms_plus = feature_generation.cumulative.add_features(
-            df_student_terms,
-            student_id_cols=cumulative_ids,
-            sort_cols=["academic_year", "academic_term"],
-            spec=cumulative_feature_spec,
-        ).rename(columns=edvise_utils.data_cleaning.convert_to_snake_case)
-
-        return df_student_terms_plus
-
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
