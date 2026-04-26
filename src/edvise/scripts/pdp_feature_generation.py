@@ -112,6 +112,8 @@ class PDPFeatureGenerationTask:
             df_cohort=df_cohort,
             df_course=df_course,
             merge_on=merge_on,
+            cohort_input_columns=PDP_COHORT_INPUT_COLUMNS,
+            course_input_columns=PDP_COURSE_INPUT_COLUMNS,
             min_passing_grade=min_passing_grade,
             min_num_credits_full_time=min_num_credits_full_time,
             course_level_pattern=course_level_pattern,
