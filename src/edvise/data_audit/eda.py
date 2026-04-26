@@ -612,8 +612,9 @@ def log_misjoined_records(
         df_cohort: Cohort-level student data
         df_course: Course-level student data
         merge_key: Column to join on (excluded from the duplicate-column drop on the
-            course side). Default ``study_id``; use e.g. ``cfg.student_id_col`` when it
-            matches both files.
+            course side). For *raw* data, use the project config field
+            ``student_id_col_pre_val``; after schema validation, columns align with
+            ``student_id_col``.
         value_count_columns: Columns for per-column value counts on misjoined rows.
             Defaults to :data:`DEFAULT_MISJOINED_VALUE_COUNT_COLUMNS`.
         grouped_count_column_groups: Each inner sequence is one ``groupby`` key set

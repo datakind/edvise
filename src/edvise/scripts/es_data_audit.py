@@ -163,7 +163,7 @@ class ESDataAuditTask:
         log_misjoined_records(
             df_cohort_raw,
             df_course_raw,
-            merge_key=self.cfg.student_id_col,
+            merge_key=self.cfg.student_id_col_pre_val,
             value_count_columns=["enrollment_type"],
             grouped_count_column_groups=[
                 ["entry_year", "entry_term"],

@@ -173,7 +173,7 @@ class PDPDataAuditTask:
         log_misjoined_records(
             df_cohort_raw,
             df_course_raw,
-            merge_key=self.cfg.student_id_col,
+            merge_key=self.cfg.student_id_col_pre_val,
         )
 
         # Logs cohort year and terms and academic year and terms, grouped and sorted

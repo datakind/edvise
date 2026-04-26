@@ -39,7 +39,14 @@ class ESProjectConfig(pyd.BaseModel):
     )
 
     # shared parameters
-    student_id_col: str = "student_id"
+    student_id_col_pre_val: str = pyd.Field(
+        "learner_id",
+        description=(
+            "Student identifier column name in *raw* Edvise inputs before schema validation; "
+            "e.g. misjoin checks. After validation, data use ``student_id_col``."
+        ),
+    )
+    student_id_col: str = "learner_id"
     target_col: str = "target"
     split_col: t.Optional[str] = "split"
     sample_weight_col: t.Optional[str] = "sample_weight"
@@ -94,7 +101,7 @@ class ESProjectConfig(pyd.BaseModel):
     model_config = pyd.ConfigDict(extra="forbid", strict=True)
 
     @pyd.model_validator(mode="after")
-    def _normalize_and_validate_primary_metric(self) -> "PDPProjectConfig":
+    def _normalize_and_validate_primary_metric(self) -> "ESProjectConfig":
         if (
             self.modeling
             and self.modeling.training
@@ -116,7 +123,7 @@ class ESProjectConfig(pyd.BaseModel):
         return self
 
     @pyd.model_validator(mode="after")
-    def _validate_inference_background_sample(self) -> "PDPProjectConfig":
+    def _validate_inference_background_sample(self) -> "ESProjectConfig":
         if self.inference and self.inference.background_data_sample is not None:
             n = self.inference.background_data_sample
             if not (500 <= n <= 2000):
