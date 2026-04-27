@@ -153,13 +153,11 @@ def run_onboard_start(
     from edvise.genai.mapping.identity_agent.grain_inference.runner import (
         run_identity_agents_for_institution_with_hitl,
     )
-    from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
-        IDENTITY_CONFIDENCE_HITL_THRESHOLD,
-    )
     from edvise.genai.mapping.identity_agent.grain_inference import (
         log_grain_auto_approve,
         log_grain_hitl_queue,
     )
+    from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
     from edvise.genai.mapping.identity_agent.term_normalization.prompt import (
         TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT,
         build_term_normalization_batch_user_message_from_grain_and_profiles,
@@ -203,7 +201,7 @@ def run_onboard_start(
         institution_profiles=institution_profiles,
         dfs=dfs,
         llm_complete=llm_complete,
-        confidence_threshold=IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+        confidence_threshold=PIPELINE_HITL_CONFIDENCE_THRESHOLD,
         queue_for_hitl_review=lambda c: log_grain_hitl_queue(c, logger=LOGGER),
         auto_approve_and_apply=lambda c: log_grain_auto_approve(c, logger=LOGGER),
     )

@@ -9,6 +9,7 @@ import pandas as pd
 
 from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem
 from edvise.genai.mapping.identity_agent.profiling import RankedCandidateProfiles
+from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.shared.token_audit.prompt_token_audit import estimate_tokens
 
 from .prompt import (
@@ -17,7 +18,7 @@ from .prompt import (
     parse_grain_contract_with_hitl,
 )
 from .databricks_gateway import llm_complete_combined_message_content
-from .schemas import IDENTITY_CONFIDENCE_HITL_THRESHOLD, GrainContract
+from .schemas import GrainContract
 
 _LOG = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def run_identity_agents_for_institution_with_hitl(
     institution_profiles: Mapping[str, RankedCandidateProfiles],
     dfs: Mapping[str, pd.DataFrame],
     llm_complete: Callable[[str, str], str],
-    confidence_threshold: float = IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+    confidence_threshold: float = PIPELINE_HITL_CONFIDENCE_THRESHOLD,
     queue_for_hitl_review: Callable[[GrainContract], None] | None = None,
     auto_approve_and_apply: Callable[[GrainContract], None] | None = None,
 ) -> tuple[dict[str, GrainContract], list[HITLItem]]:

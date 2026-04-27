@@ -13,10 +13,8 @@ import logging
 from collections.abc import Mapping
 from typing import Any, Union, cast
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
-    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
-    GrainContract,
-)
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
+from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.identity_agent.hitl.artifacts import (
     unique_hitl_items_by_item_id,
 )
@@ -392,7 +390,7 @@ You do not need to emit academic year logic — just ensure `season_map` canonic
 
 
 def _tn_confidence_scoring() -> str:
-    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
     return f"""
 ## CONFIDENCE SCORING
 
@@ -409,7 +407,7 @@ Use a **number from 0.0 to 1.0** (same scale as Schema Mapping Agent field mappi
 
 
 def _tn_output_format() -> str:
-    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
     return (
         """
 ## OUTPUT FORMAT
@@ -565,7 +563,7 @@ input. Do not omit datasets.
 
 
 def _tn_batch_output_format() -> str:
-    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
     return """
 ## OUTPUT FORMAT (batch)
 
@@ -1067,6 +1065,31 @@ def _strip_term_batch_hitl_payload(d: dict) -> tuple[dict, list[HITLItem]]:
     return d, unique_hitl_items_by_item_id(collected)
 
 
+def _table_has_term_hitl_item(table: str, items: list[HITLItem]) -> bool:
+    """Whether ``items`` has at least one :class:`HITLItem` for ``table`` (primary or hook group)."""
+    for it in items:
+        if it.table == table:
+            return True
+        hgt = it.hook_group_tables
+        if hgt and table in hgt:
+            return True
+    return False
+
+
+def _assert_term_batch_hitl_items_match_flags(
+    inst: InstitutionTermContract, items: list[HITLItem]
+) -> None:
+    for dname, tc in inst.datasets.items():
+        if not tc.hitl_flag:
+            continue
+        if not _table_has_term_hitl_item(dname, items):
+            raise ValueError(
+                f"Term batch JSON: dataset {dname!r} has hitl_flag=true but there is no "
+                "HITLItem in hitl_items for that table. Emit at least one item in the top-level "
+                "hitl_items list (and keep per-dataset hitl_items as [] per the batch spec)."
+            )
+
+
 def parse_institution_term_contracts_with_hitl(
     raw: RawTermPassInput,
 ) -> tuple[InstitutionTermContract, list[HITLItem]]:
@@ -1078,7 +1101,9 @@ def parse_institution_term_contracts_with_hitl(
     try:
         d = _term_payload_as_dict(raw)
         d2, items = _strip_term_batch_hitl_payload(d)
-        return InstitutionTermContract.model_validate(d2), items
+        inst = InstitutionTermContract.model_validate(d2)
+        _assert_term_batch_hitl_items_match_flags(inst, items)
+        return inst, items
     except Exception:
         text = raw if isinstance(raw, str) else str(raw)[:500]
         logger.debug(

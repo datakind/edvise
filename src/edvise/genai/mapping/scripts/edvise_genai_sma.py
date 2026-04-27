@@ -336,7 +336,7 @@ def run_onboard_start(
     )
     from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
     from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
-    from edvise.genai.mapping.shared.gateway_json_schema import (
+    from edvise.genai.mapping.shared.schema_utils import (
         genai_json_schema_enabled,
         mapping_manifest_envelope_response_format,
         sma_refinement_pass1_response_format,
@@ -524,7 +524,7 @@ def run_onboard_gate_2(
     )
     from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
     from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
-    from edvise.genai.mapping.shared.gateway_json_schema import (
+    from edvise.genai.mapping.shared.schema_utils import (
         genai_json_schema_enabled,
         transformation_map_wrapper_response_format,
     )

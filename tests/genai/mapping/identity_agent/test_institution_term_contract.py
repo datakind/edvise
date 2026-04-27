@@ -15,6 +15,7 @@ from edvise.genai.mapping.identity_agent.profiling.schemas import (
 from edvise.genai.mapping.identity_agent.term_normalization.prompt import (
     build_term_normalization_batch_user_payload,
     parse_institution_term_contracts,
+    parse_institution_term_contracts_with_hitl,
 )
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     InstitutionTermContract,
@@ -99,6 +100,25 @@ def test_institution_term_contract_table_key_must_match():
     }
     with pytest.raises(ValueError, match="map key"):
         InstitutionTermContract.model_validate(bad)
+
+
+def test_parse_term_hitl_flag_true_without_items_raises():
+    """Per prompt, hitl_flag=true for a table requires a top-level HITLItem for that table."""
+    payload: dict = {
+        "institution_id": "x",
+        "datasets": {
+            "enroll": {
+                "institution_id": "x",
+                "table": "enroll",
+                "term_config": None,
+                "confidence": 0.9,
+                "hitl_flag": True,
+                "reasoning": "ambiguous term column",
+            }
+        },
+    }
+    with pytest.raises(ValueError, match="hitl_flag=true"):
+        parse_institution_term_contracts_with_hitl(json.dumps(payload))
 
 
 def test_build_term_normalization_batch_user_payload():

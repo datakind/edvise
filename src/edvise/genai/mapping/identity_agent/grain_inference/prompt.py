@@ -20,9 +20,9 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
 )
 from edvise.genai.mapping.identity_agent.utilities import strip_json_fences
 from edvise.genai.mapping.identity_agent.profiling import RankedCandidateProfiles
+from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 
 from .schemas import (
-    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
     GrainContract,
     InstitutionGrainContract,
     get_grain_contract_schema_context,
@@ -535,7 +535,7 @@ def _identity_reasoning_steps() -> str:
 
 
 def _identity_confidence_scoring() -> str:
-    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
     return f"""
 ## CONFIDENCE SCORING
 
@@ -582,7 +582,7 @@ identifier; set `learner_id_alias` accordingly; emit keys in `post_clean_primary
 
 
 def _identity_output_format() -> str:
-    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
     return (
         """
 ## OUTPUT FORMAT
@@ -973,13 +973,19 @@ def parse_grain_contract_with_hitl(
         )
     items = [HITLItem.model_validate(x) for x in hitl_raw]
     try:
-        return GrainContract.model_validate(d), items
+        contract = GrainContract.model_validate(d)
     except Exception:
         logger.debug(
             "Grain contract validation failed; raw (truncated): %s",
             str(raw)[:500] if not isinstance(raw, dict) else str(raw)[:500],
         )
         raise
+    if contract.hitl_flag and not items:
+        raise ValueError(
+            "Grain JSON has hitl_flag=true but hitl_items is missing, null, or empty. "
+            "When hitl_flag is true, emit at least one HITLItem in the top-level hitl_items array."
+        )
+    return contract, items
 
 
 def parse_grain_contract(raw: RawContractInput) -> GrainContract:

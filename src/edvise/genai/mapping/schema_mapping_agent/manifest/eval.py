@@ -29,7 +29,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
 from edvise.genai.mapping.schema_mapping_agent.manifest.validation import (
     validate_manifest,
 )
-from edvise.genai.mapping.shared.gateway_json_schema import (
+from edvise.genai.mapping.shared.schema_utils import (
     genai_json_schema_enabled,
     mapping_manifest_envelope_response_format,
     step2a_entity_pass_response_format,

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from edvise.genai.mapping.shared.schema_utils import (
     _inline_refs,
+    inline_json_schema_refs,
     to_gateway_schema,
     to_gateway_schema_from_dict,
 )
@@ -84,6 +85,11 @@ def test_inline_refs_private_helper_matches_to_gateway_inner_schema():
     raw = Outer.model_json_schema()
     inlined = _inline_refs(copy.deepcopy(raw))
     assert inlined == to_gateway_schema(Outer, "x")["json_schema"]["schema"]
+
+
+def test_public_inline_json_schema_refs_matches_private():
+    raw = Outer.model_json_schema()
+    assert inline_json_schema_refs(raw) == _inline_refs(copy.deepcopy(raw))
 
 
 @pytest.mark.parametrize("strict", [False, True])

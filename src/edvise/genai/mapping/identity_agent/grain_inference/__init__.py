@@ -41,8 +41,8 @@ from .run_by_dataset import (
     identity_profiling_run_to_jsonable,
     write_identity_profiling_artifacts,
 )
+from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from .schemas import (
-    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
     DedupPolicy,
     DedupStrategy,
     GrainContract,
@@ -53,7 +53,7 @@ from .schemas import (
 __all__ = [
     "DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL",
     "DEFAULT_GATEWAY_MODEL_ID",
-    "IDENTITY_CONFIDENCE_HITL_THRESHOLD",
+    "PIPELINE_HITL_CONFIDENCE_THRESHOLD",
     "IdentityProfilingDatasetResult",
     "identity_profiling_run_to_jsonable",
     "write_identity_profiling_artifacts",

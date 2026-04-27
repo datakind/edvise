@@ -16,7 +16,7 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainCon
 from edvise.genai.mapping.shared.mlflow_gateway_bootstrap import (
     disable_mlflow_side_effects_for_openai_gateway,
 )
-from edvise.genai.mapping.shared.gateway_json_schema import (
+from edvise.genai.mapping.shared.schema_utils import (
     genai_json_schema_enabled,
     response_format_for_ia_system_prompt,
 )

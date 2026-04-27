@@ -12,13 +12,11 @@ from pydantic import (
     model_validator,
 )
 
+from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.identity_agent.utilities import (
     concat_model_sources,
     get_top_level_assign_source,
 )
-
-# Below this confidence score, `hitl_flag` must be true (ambiguous grain / policy required).
-IDENTITY_CONFIDENCE_HITL_THRESHOLD: float = 0.5
 
 # Valid `dedup_policy.strategy` values (JSON must use these exact strings).
 DedupStrategy = Literal[
@@ -258,8 +256,8 @@ class GrainContract(BaseModel):
         le=1.0,
         description=(
             "Agent confidence in the proposed grain and dedup policy (same 0.0–1.0 scale as "
-            "Schema Mapping Agent). Drives HITL — scores below the documented threshold require "
-            "hitl_flag true."
+            "Schema Mapping Agent). Drives HITL — at or below the shared "
+            "PIPELINE_HITL_CONFIDENCE_THRESHOLD requires hitl_flag true."
         ),
     )
     hitl_flag: bool
@@ -295,9 +293,10 @@ class GrainContract(BaseModel):
 
     @model_validator(mode="after")
     def low_confidence_requires_hitl(self) -> GrainContract:
-        if self.confidence < IDENTITY_CONFIDENCE_HITL_THRESHOLD and not self.hitl_flag:
+        if self.confidence <= PIPELINE_HITL_CONFIDENCE_THRESHOLD and not self.hitl_flag:
             raise ValueError(
-                f"hitl_flag must be true when confidence is below {IDENTITY_CONFIDENCE_HITL_THRESHOLD}"
+                f"hitl_flag must be true when confidence is at or below "
+                f"{PIPELINE_HITL_CONFIDENCE_THRESHOLD}"
             )
         return self
 

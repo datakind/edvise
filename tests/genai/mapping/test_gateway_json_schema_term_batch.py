@@ -20,7 +20,7 @@ from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     InstitutionTermContract,
     TermContract,
 )
-from edvise.genai.mapping.shared.gateway_json_schema import (
+from edvise.genai.mapping.shared.schema_utils import (
     identity_term_batch_envelope_response_format,
 )
 

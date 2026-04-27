@@ -9,9 +9,15 @@ from edvise.genai.mapping.identity_agent.grain_inference.runner import (
     run_identity_agent_with_hitl,
     run_identity_agents_for_institution_with_hitl,
 )
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
-    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+from edvise.genai.mapping.identity_agent.hitl.schemas import (
+    GrainResolution,
+    HITLDomain,
+    HITLItem,
+    HITLOption,
+    HITLTarget,
+    ReentryDepth,
 )
+from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.identity_agent.profiling import (
     CandidateKey,
     CandidateProfile,
@@ -36,26 +42,64 @@ def _kp() -> RankedCandidateProfiles:
     return RankedCandidateProfiles(candidate_key_profiles=[prof])
 
 
-def _contract_json(*, confidence: float, hitl_flag: bool, table: str = "t") -> str:
-    return json.dumps(
-        {
-            "institution_id": "inst",
-            "table": table,
-            "post_clean_primary_key": ["student_id"],
-            "dedup_policy": {
-                "strategy": "no_dedup",
-                "sort_by": None,
-                "keep": None,
-                "notes": "",
-            },
-            "row_selection_required": True,
-            "join_keys_for_2a": ["student_id", "term"],
-            "confidence": confidence,
-            "hitl_flag": hitl_flag,
-            "hitl_question": None,
-            "reasoning": "test",
-        }
+def _one_grain_hitl_item(*, table: str) -> dict:
+    """Valid :class:`HITLItem` for mock LLM output when hitl_flag is true."""
+    it = HITLItem(
+        item_id="b1",
+        institution_id="inst",
+        table=table,
+        domain=HITLDomain.IDENTITY_GRAIN,
+        hitl_question="q",
+        hitl_context="ctx",
+        options=[
+            HITLOption(
+                option_id="no_dedup",
+                label="No dedup",
+                description="d",
+                resolution=GrainResolution(dedup_strategy="no_dedup").model_dump(
+                    mode="json"
+                ),
+                reentry=ReentryDepth.TERMINAL,
+            ),
+            HITLOption(
+                option_id="custom",
+                label="Custom",
+                description="c",
+                resolution=None,
+                reentry=ReentryDepth.GENERATE_HOOK,
+            ),
+        ],
+        target=HITLTarget(
+            institution_id="inst",
+            table=table,
+            config="grain_contract",
+            field="dedup_policy",
+        ),
     )
+    return it.model_dump(mode="json")
+
+
+def _contract_json(*, confidence: float, hitl_flag: bool, table: str = "t") -> str:
+    payload: dict = {
+        "institution_id": "inst",
+        "table": table,
+        "post_clean_primary_key": ["student_id"],
+        "dedup_policy": {
+            "strategy": "no_dedup",
+            "sort_by": None,
+            "keep": None,
+            "notes": "",
+        },
+        "row_selection_required": True,
+        "join_keys_for_2a": ["student_id", "term"],
+        "confidence": confidence,
+        "hitl_flag": hitl_flag,
+        "hitl_question": None,
+        "reasoning": "test",
+    }
+    if hitl_flag:
+        payload["hitl_items"] = [_one_grain_hitl_item(table=table)]
+    return json.dumps(payload)
 
 
 def test_run_identity_agent_calls_llm_and_parse():
@@ -108,7 +152,7 @@ def test_run_identity_agents_for_institution_with_hitl_routes_callbacks():
         institution_profiles=profiles,
         dfs=dfs,
         llm_complete=llm,
-        confidence_threshold=IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+        confidence_threshold=PIPELINE_HITL_CONFIDENCE_THRESHOLD,
         queue_for_hitl_review=q,
         auto_approve_and_apply=auto,
     )

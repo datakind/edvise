@@ -28,7 +28,7 @@ from pydantic import ValidationError
 from .schemas import TransformationMap
 from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
 from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
-from edvise.genai.mapping.shared.gateway_json_schema import (
+from edvise.genai.mapping.shared.schema_utils import (
     genai_json_schema_enabled,
     transformation_map_wrapper_response_format,
 )

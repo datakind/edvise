@@ -8,11 +8,12 @@ from edvise.genai.mapping.identity_agent.grain_inference.prompt import (
     build_identity_agent_user_message,
     format_column_list,
     parse_grain_contract,
+    parse_grain_contract_with_hitl,
     parse_institution_grain_contracts,
     strip_json_fences,
 )
+from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
-    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
     GrainContract,
     InstitutionGrainContract,
     build_institution_grain_contracts,
@@ -144,7 +145,7 @@ def test_parse_grain_contract_fenced_json():
         "row_selection_required": False,
         "join_keys_for_2a": ["id"],
         "confidence": 0.72,
-        "hitl_flag": True,
+        "hitl_flag": False,
         "hitl_question": "Confirm?",
         "reasoning": "Demo table.",
     }
@@ -230,7 +231,7 @@ def test_low_confidence_requires_hitl():
         },
         "row_selection_required": True,
         "join_keys_for_2a": ["a", "b"],
-        "confidence": IDENTITY_CONFIDENCE_HITL_THRESHOLD - 0.01,
+        "confidence": PIPELINE_HITL_CONFIDENCE_THRESHOLD - 0.01,
         "hitl_flag": False,
         "hitl_question": None,
         "reasoning": "Ambiguous.",
@@ -240,7 +241,7 @@ def test_low_confidence_requires_hitl():
 
 
 def test_confidence_at_threshold_requires_hitl():
-    """Slightly below threshold: hitl_flag must be true (schema uses strict < for the cutoff)."""
+    """Slightly below pipeline threshold: hitl_flag must be true."""
     raw = {
         "institution_id": "x",
         "table": "t",
@@ -253,10 +254,57 @@ def test_confidence_at_threshold_requires_hitl():
         },
         "row_selection_required": True,
         "join_keys_for_2a": ["a", "b"],
-        "confidence": IDENTITY_CONFIDENCE_HITL_THRESHOLD - 1e-6,
+        "confidence": PIPELINE_HITL_CONFIDENCE_THRESHOLD - 1e-6,
         "hitl_flag": False,
         "hitl_question": None,
         "reasoning": "Slightly below threshold.",
+    }
+    with pytest.raises(ValueError, match="hitl_flag"):
+        parse_grain_contract(raw)
+
+
+def test_parse_grain_hitl_flag_true_requires_non_empty_hitl_items():
+    """When hitl_flag is true, top-level hitl_items must be non-empty (enforced in parse)."""
+    raw = {
+        "institution_id": "x",
+        "table": "t",
+        "learner_id_alias": None,
+        "post_clean_primary_key": ["a"],
+        "dedup_policy": {
+            "strategy": "no_dedup",
+            "sort_by": None,
+            "keep": None,
+            "notes": "",
+        },
+        "row_selection_required": True,
+        "join_keys_for_2a": ["a", "b"],
+        "confidence": 0.9,
+        "hitl_flag": True,
+        "reasoning": "r",
+        "hitl_items": [],
+    }
+    with pytest.raises(ValueError, match="hitl_flag=true"):
+        parse_grain_contract_with_hitl(raw)
+
+
+def test_confidence_exactly_at_pipeline_threshold_without_hitl_flag_fails():
+    """At PIPELINE_HITL_CONFIDENCE_THRESHOLD, hitl_flag must be true (validator uses <=)."""
+    raw = {
+        "institution_id": "x",
+        "table": "t",
+        "post_clean_primary_key": ["a"],
+        "dedup_policy": {
+            "strategy": "no_dedup",
+            "sort_by": None,
+            "keep": None,
+            "notes": "",
+        },
+        "row_selection_required": True,
+        "join_keys_for_2a": ["a", "b"],
+        "confidence": PIPELINE_HITL_CONFIDENCE_THRESHOLD,
+        "hitl_flag": False,
+        "hitl_question": None,
+        "reasoning": "On the threshold.",
     }
     with pytest.raises(ValueError, match="hitl_flag"):
         parse_grain_contract(raw)

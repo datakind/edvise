@@ -9,7 +9,7 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     DedupPolicy,
     GrainContract,
 )
-from edvise.genai.mapping.shared.gateway_json_schema import (
+from edvise.genai.mapping.shared.schema_utils import (
     identity_grain_contract_response_format,
 )
 
@@ -98,3 +98,51 @@ def test_grain_schema_rejects_invalid_strategy():
     }
     with pytest.raises(jsonschema.exceptions.ValidationError):
         jsonschema.validate(payload, _grain_schema())
+
+
+def test_grain_schema_rejects_hitl_flag_true_with_empty_hitl_items():
+    payload = {
+        "institution_id": "u1",
+        "table": "t",
+        "learner_id_alias": None,
+        "post_clean_primary_key": ["k"],
+        "dedup_policy": {
+            "strategy": "no_dedup",
+            "sort_by": None,
+            "sort_ascending": None,
+            "keep": None,
+            "notes": "",
+        },
+        "row_selection_required": False,
+        "join_keys_for_2a": ["k"],
+        "confidence": 0.5,
+        "hitl_flag": True,
+        "reasoning": "r",
+        "hitl_items": [],
+    }
+    with pytest.raises(jsonschema.exceptions.ValidationError):
+        jsonschema.validate(payload, _grain_schema())
+
+
+def test_grain_schema_accepts_hitl_flag_true_with_nonempty_hitl_items_key():
+    """Root schema must allow top-level hitl_items (at least one object when HITL)."""
+    payload = {
+        "institution_id": "u1",
+        "table": "t",
+        "learner_id_alias": None,
+        "post_clean_primary_key": ["k"],
+        "dedup_policy": {
+            "strategy": "no_dedup",
+            "sort_by": None,
+            "sort_ascending": None,
+            "keep": None,
+            "notes": "",
+        },
+        "row_selection_required": False,
+        "join_keys_for_2a": ["k"],
+        "confidence": 0.5,
+        "hitl_flag": True,
+        "reasoning": "r",
+        "hitl_items": [{"item_id": "1"}],
+    }
+    jsonschema.validate(payload, _grain_schema())
