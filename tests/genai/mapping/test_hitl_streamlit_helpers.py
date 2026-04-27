@@ -8,7 +8,7 @@ _HITL_APP = _REPO / "src/edvise/genai/mapping/streamlit-genai-hitl-app"
 if str(_HITL_APP) not in sys.path:
     sys.path.insert(0, str(_HITL_APP))
 
-from hitl_reviewer.sma import enriched_schema_contract as sc
+from hitl_reviewer.ui.sma import enriched_schema_contract as sc
 
 
 def test_enriched_schema_contract_path_from_manifest():

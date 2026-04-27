@@ -13,7 +13,7 @@ from typing import Any, Literal
 
 import streamlit as st
 
-from hitl_reviewer.hitl_json_batch_commit import try_approve_uc_after_json_write
+from hitl_reviewer.persistence.hitl_json_batch_commit import try_approve_uc_after_json_write
 
 
 def inject_hitl_css() -> None:
@@ -198,7 +198,6 @@ def render_option_cards(
         else:
             lab = lab_raw
         desc = str(opt.get("description") or "")
-        desc_short = desc[:120].rstrip() + "…" if len(desc) > 120 else desc
         selected = int(st.session_state[sel_key]) == j
         is_rec = j == ia_rec_ix
         if is_rec and json_choice is not None:
@@ -207,7 +206,7 @@ def render_option_cards(
             badge = " · ✦ IA recommendation"
         else:
             badge = ""
-        btn_label = f"**{lab}**{badge}  \n{desc_short}"
+        btn_label = f"**{lab}**{badge}  \n{desc}"
         st.markdown(
             f'<p class="hitl-opt-mark" data-opt="{j}">.</p>',
             unsafe_allow_html=True,

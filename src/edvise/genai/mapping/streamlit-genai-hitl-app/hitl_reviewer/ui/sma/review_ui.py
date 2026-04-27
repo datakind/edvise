@@ -1,7 +1,7 @@
 """
 SMA (Schema Mapping Agent) HITL reviewer (Streamlit) — manifest JSON with option selection.
 
-Renders the cohort/course manifest HITL editor. Shared layout uses :mod:`hitl_reviewer._shared`.
+Renders the cohort/course manifest HITL editor. Shared layout uses :mod:`hitl_reviewer.ui._shared`.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import pandas as pd
 import streamlit as st
 
 from edvise.utils.institution_naming import format_institution_display_name
-from hitl_reviewer._shared import (
+from hitl_reviewer.ui._shared import (
     init_sel_key,
     inject_hitl_css,
     render_action_bar,
@@ -23,13 +23,13 @@ from hitl_reviewer._shared import (
     render_option_cards,
     render_sma_status_meta_line,
 )
-from hitl_reviewer.hitl_json_batch_commit import persist_hitl_choice_radios_from_session
-from hitl_reviewer.sma.enriched_schema_contract import (
+from hitl_reviewer.persistence.hitl_json_batch_commit import persist_hitl_choice_radios_from_session
+from hitl_reviewer.ui.sma.enriched_schema_contract import (
     enriched_schema_contract_path_from_manifest,
     extract_column_panel_fields,
     load_json_object_from_text,
 )
-from hitl_reviewer.unity_volume_files import read_unity_file_text
+from hitl_reviewer.platform.unity_volume_files import read_unity_file_text
 
 
 def is_sma_phase(phase: str, artifact_type: str) -> bool:

@@ -19,16 +19,16 @@ import pandas as pd
 import streamlit as st
 
 from edvise.utils.institution_naming import format_institution_display_name
-from hitl_reviewer._shared import (
+from hitl_reviewer.ui._shared import (
     init_sel_key,
     inject_hitl_css,
     render_action_bar,
     render_hitl_header,
     render_option_cards,
 )
-from hitl_reviewer.hitl_json_batch_commit import persist_ia_grain_hitl_from_session
-from hitl_reviewer.silver_hitl_paths import set_item_choice, set_item_reviewer_note
-from hitl_reviewer.unity_volume_files import read_unity_file_text, write_unity_file_text
+from hitl_reviewer.persistence.hitl_json_batch_commit import persist_ia_grain_hitl_from_session
+from hitl_reviewer.persistence.silver_hitl_paths import set_item_choice, set_item_reviewer_note
+from hitl_reviewer.platform.unity_volume_files import read_unity_file_text, write_unity_file_text
 
 _QUOTED = re.compile(r"'([^']{2,800})'|\"([^\"]{2,800})\"")
 

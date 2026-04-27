@@ -1,7 +1,7 @@
 """
 Batch-write HITL ``choice`` fields to silver JSON from Streamlit session state, plus optional UC approve.
 
-Used by IA grain, IA term, and SMA manifest editors in the HITL workbench (``pages/1_Hitl_Review.py``).
+Used by IA grain, IA term, and SMA manifest editors in the HITL workbench (``pages/1_HITL_Review_History.py``).
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from typing import Any
 
 import streamlit as st
 
-from hitl_reviewer.silver_hitl_paths import set_item_choice, set_item_reviewer_note
-from hitl_reviewer.unity_volume_files import read_unity_file_text, write_unity_file_text
+from hitl_reviewer.persistence.silver_hitl_paths import set_item_choice, set_item_reviewer_note
+from hitl_reviewer.platform.unity_volume_files import read_unity_file_text, write_unity_file_text
 
 _WRITE_BLOCKED_MSG = (
     "This UC gate is not **pending** (already approved or rejected); silver JSON writes are disabled."

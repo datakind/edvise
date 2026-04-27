@@ -12,7 +12,7 @@ from dataclasses import dataclass
 import pandas as pd
 import streamlit as st
 
-from hitl_reviewer.databricks_uc_sql import (
+from hitl_reviewer.platform.databricks_uc_sql import (
     approve_or_reject,
     get_warehouse_id,
     hitl_reviews_fqn,
@@ -20,28 +20,27 @@ from hitl_reviewer.databricks_uc_sql import (
     run_query,
     sql_str,
 )
-from hitl_reviewer.hitl_json_batch_commit import (
+from hitl_reviewer.persistence.hitl_json_batch_commit import (
     persist_hitl_choice_radios_from_session,
     try_approve_uc_after_json_write,
 )
-from hitl_reviewer.ia.grain_review_ui import is_ia_grain_phase, render_ia_grain_hitl_cards
-from hitl_reviewer.ia.term_review_ui import is_ia_term_phase, render_ia_term_hitl_cards
-from hitl_reviewer.sma.review_ui import is_sma_phase, render_sma_hitl_cards
-from hitl_reviewer.silver_hitl_paths import artifact_path_contains_onboard_run_id
-from hitl_reviewer.sma.enriched_schema_contract import silver_relative_path
-from hitl_reviewer.unity_volume_files import read_unity_file_text
+from hitl_reviewer.ui.ia.grain_review_ui import is_ia_grain_phase, render_ia_grain_hitl_cards
+from hitl_reviewer.ui.ia.term_review_ui import is_ia_term_phase, render_ia_term_hitl_cards
+from hitl_reviewer.ui.sma.review_ui import is_sma_phase, render_sma_hitl_cards
+from hitl_reviewer.persistence.silver_hitl_paths import artifact_path_contains_onboard_run_id
+from hitl_reviewer.ui.sma.enriched_schema_contract import silver_relative_path
+from hitl_reviewer.platform.unity_volume_files import read_unity_file_text
 
 # Primary HITL workbench: ``hitl_reviews`` table and per-group JSON/UC on the **same** page.
 # Paths for ``st.page_link`` (relative to the main script, e.g. :file:`Home.py` for this app).
-HITL_WORKBENCH_PAGE = "pages/1_Hitl_Review.py"
+HITL_WORKBENCH_PAGE = "pages/1_HITL_Review_History.py"
 HITL_REVIEW_HISTORY_PAGE = HITL_WORKBENCH_PAGE
 HITL_ITEMS_PAGE = HITL_WORKBENCH_PAGE
 
 HITL_WORKBENCH_CAPTION = (
-    "The table **defaults to ``status = pending``** (work queue). Set **status** to **(any)** and add "
-    "run/phase filters to **search** full history. In the **sidebar** choose a **Group to review**; the "
-    "HITL JSON and **UC** actions **load on this same page** below. **URLs** with "
-    "``catalog``, ``onboard_run_id``, ``phase``, and ``artifact_type`` also select a group here."
+    "The workbench table **defaults to ``status = pending``**. Set **status** to **(any)** and add run/phase "
+    "filters to search full history. **Select a row** to open the editor on the main page; **URLs** with "
+    "``catalog``, ``onboard_run_id``, ``phase``, and ``artifact_type`` do the same."
 )
 HITL_REVIEW_HISTORY_SIDEBAR_CAPTION = HITL_WORKBENCH_CAPTION
 HITL_ITEMS_SIDEBAR_CAPTION = HITL_WORKBENCH_CAPTION
@@ -52,10 +51,8 @@ KEY_NAV_ONBOARD = "hitl_nav_onboard_run_id"
 KEY_NAV_PHASE = "hitl_nav_phase"
 KEY_NAV_ARTIFACT_TYPE = "hitl_nav_artifact_type"
 KEY_HYDRATE_SIG = "hitl_sidebar_hydrate_sig"
-# st.dataframe row selection in workbench: must match :file:`pages/1_Hitl_Review.py`
+# st.dataframe row selection in workbench: must match :file:`pages/1_HITL_Review_History.py`
 HITL_RESULTS_DF_KEY = "hitl_workbench_results_df"
-# Sidebar selectbox index for which group to load; kept in sync when opening a group from the Results table
-HITL_WORKBENCH_GROUP_IX = "hitl_workbench_group_ix"
 
 _DISPLAY_COLS: tuple[str, ...] = (
     "institution_id",
@@ -154,7 +151,6 @@ def render_connection_sidebar(
         st.divider()
         try:
             get_warehouse_id()
-            st.success("DATABRICKS_WAREHOUSE_ID is set")
             warehouse_ok = True
         except RuntimeError as e:
             st.error(str(e))
@@ -184,7 +180,7 @@ def render_connection_sidebar(
             )
         else:
             st.caption(
-                "**Table filters and row limit** are on the **HITL Review** workbench. "
+                "**Table filters and row limit** are on the **HITL Review History** workbench. "
                 "Use **Unity Catalog** there for the HITL editor below."
             )
 
@@ -201,39 +197,6 @@ def render_connection_sidebar(
         refresh_clicked=refresh_clicked,
     )
     return catalog, state, warehouse_ok
-
-
-def render_group_picker_in_sidebar(
-    gdf: pd.DataFrame,
-    catalog: str,
-) -> None:
-    """Appends a group chooser to :func:`st.sidebar`; on submit, sets nav state and ``st.rerun`` so the editor below loads."""
-    with st.sidebar:
-        st.divider()
-        st.caption("**Group to review** (JSON and UC **below the table**)")
-        cands = [
-            f"{gdf['onboard_run_id'].iat[i]}  |  {gdf['phase'].iat[i]}  |  {gdf['artifact_type'].iat[i]}"
-            for i in range(len(gdf))
-        ]
-        ix = st.selectbox(
-            "``(onboard_run_id, phase, artifact_type)``",
-            options=range(len(gdf)),
-            format_func=lambda j: cands[j],
-            key=HITL_WORKBENCH_GROUP_IX,
-        )
-        if st.button("Load this group", type="primary", key="hitl_workbench_load_group"):
-            row = gdf.iloc[int(ix)]
-            set_nav_selection(
-                str(catalog),
-                str(row["onboard_run_id"]),
-                str(row["phase"]),
-                str(row["artifact_type"]),
-            )
-            st.rerun()
-
-
-# Kept for older call sites; same implementation as :func:`render_group_picker_in_sidebar`.
-render_open_group_in_sidebar = render_group_picker_in_sidebar
 
 
 def load_hitl_rows(
@@ -542,18 +505,6 @@ def render_silver_hitl_editor(
             st.rerun()
 
 
-def unique_groups_df(df: pd.DataFrame) -> pd.DataFrame:
-    """Deduplicate ``(onboard_run_id, phase, artifact_type)``; same order as the workbench table."""
-    if df.empty or not {"onboard_run_id", "phase", "artifact_type"}.issubset(df.columns):
-        return pd.DataFrame(columns=["onboard_run_id", "phase", "artifact_type"])
-    return (
-        df[["onboard_run_id", "phase", "artifact_type"]]
-        .drop_duplicates()
-        .sort_values(["onboard_run_id", "phase", "artifact_type"], na_position="last")
-        .reset_index(drop=True)
-    )
-
-
 def apply_nav_from_results_dataframe_event(
     *,
     full_df: pd.DataFrame,
@@ -561,7 +512,7 @@ def apply_nav_from_results_dataframe_event(
     event: object,
 ) -> None:
     """
-    When the Results table uses ``on_select="rerun"`` with row selection, set the HITL workbench
+    When the workbench table uses ``on_select="rerun"`` with row selection, set the HITL workbench
     group (session + query params) from the first selected row and :func:`st.rerun` if it changed.
     """
     if full_df is None or full_df.empty or event is None:
@@ -595,16 +546,6 @@ def apply_nav_from_results_dataframe_event(
     ):
         return
     set_nav_selection(c_use, o, ph, at)
-    gdf_u = unique_groups_df(full_df)
-    for i in range(len(gdf_u)):
-        r = gdf_u.iloc[i]
-        if (
-            str(r.get("onboard_run_id", "")) == o
-            and str(r.get("phase", "")) == ph
-            and str(r.get("artifact_type", "")) == at
-        ):
-            st.session_state[HITL_WORKBENCH_GROUP_IX] = i
-            break
     st.rerun()
 
 
