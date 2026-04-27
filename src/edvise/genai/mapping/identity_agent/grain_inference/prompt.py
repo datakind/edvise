@@ -187,6 +187,25 @@ GPA/standing when policy is to keep the highest-standing credential. **Never** u
 `degree_name`, etc.); use `policy_required` + HITL when no valid sort column exists; do not
 offer standalone alphabetical tiebreaks without explicit institutional confirmation.
 
+### Degree tier — categorical_priority hierarchy
+
+When collapsing rows that differ on a degree-type or credential column
+(`program_at_graduation`, `degree_type`, `awarded_degree`, or similar), use
+`dedup_strategy: "categorical_priority"` with `priority_column` set to that column and
+`priority_order` drawn from this standard tier list (highest to lowest):
+
+  ["Doctorate", "Doctor of Philosophy", "Doctor of Education",
+   "Master's", "Master of Science", "Master of Arts", "Master of Business Administration",
+   "Bachelor's", "Bachelor of Science", "Bachelor of Arts", "Bachelor of Applied Science",
+   "Associate's", "Associate of Science", "Associate of Arts", "Associate of Applied Science",
+   "Certificate", "Diploma", ""]
+
+Match actual column values from `RawTableProfile.unique_values` to the closest tier above
+and use the **actual value strings** in `priority_order` — not the tier labels.
+If `unique_values` is not available or contains values you cannot confidently map to a tier,
+use `policy_required` + HITL rather than guessing.
+Do NOT use `true_duplicate` or `no_dedup` when rows differ on a degree/credential column.
+
 ### Categorical column variance — categorical_priority strategy
 
 When non-unique rows differ on a categorical column that has a meaningful institutional
