@@ -16,8 +16,8 @@ class CohortInputColumns:
     for :mod:`student_term` when those columns exist).
 
     A field is ``str | None`` when a product has no raw comparable (e.g. Edvise has
-    no PDP-style per-year credit templates, GPA buckets, or credential *year* columns
-    in the long PDP roster).
+    no PDP-style per-year credit templates or GPA buckets; credential *year* columns
+    for Edvise are derived in :mod:`edvise.data_audit.es_cohort_credential_years`).
     """
 
     student_id: str
@@ -259,8 +259,11 @@ PDP_COHORT_INPUT_COLUMNS = CohortInputColumns(
     years_to_latest_certificate_at_other_inst="years_to_latest_certificate_at_other_inst",
 )
 
-## Edvise: mapping per ``RawEdviseStudentDataSchema``; no per-year credit templates, GPA, or
-## credential-year fields on raw. Add ``institution_id`` in silver if joins require it. Use
+## Edvise: mapping per ``RawEdviseStudentDataSchema``; no per-year credit templates or GPA.
+## ``first_year_to_*`` / ``years_to_latest_*`` at cohort inst are produced in
+## :mod:`edvise.data_audit.es_cohort_credential_years` (via
+## :class:`edvise.data_audit.standardizer.ESCohortStandardizer`) from matriculation and
+## conferral dates. Add ``institution_id`` in silver if joins require it. Use
 ## :data:`ES_STUDENT_FEATURE_SPEC_DEFAULT` with :func:`student.add_features` unless you add
 ## data and enable flags.
 ES_COHORT_INPUT_COLUMNS = CohortInputColumns(
@@ -269,7 +272,11 @@ ES_COHORT_INPUT_COLUMNS = CohortInputColumns(
     cohort_year_col="entry_year",
     cohort_term_col="entry_term",
     pell_status_col="pell_recipient_year1",
-    # gpa, credits_*, credential years: all default None
+    first_year_to_associates_at_cohort_inst="first_year_to_associates_at_cohort_inst",
+    years_to_latest_associates_at_cohort_inst="years_to_latest_associates_at_cohort_inst",
+    first_year_to_certificate_at_cohort_inst="first_year_to_certificate_at_cohort_inst",
+    years_to_latest_certificate_at_cohort_inst="years_to_latest_certificate_at_cohort_inst",
+    # gpa, credits_*: default None; other-inst credential years: not on Edvise extract
 )
 
 PDP_COURSE_INPUT_COLUMNS = CourseInputColumns(

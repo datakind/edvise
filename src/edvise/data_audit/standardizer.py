@@ -5,6 +5,7 @@ import typing as t
 LOGGER = logging.getLogger(__name__)
 
 from edvise.utils.drop_columns_safely import drop_columns_safely
+from edvise.data_audit.es_cohort_credential_years import add_es_credential_year_columns
 from edvise.utils.data_cleaning import (
     drop_course_rows_missing_identifiers,
     replace_na_firstgen_and_pell,
@@ -151,7 +152,7 @@ class ESCourseStandardizer:
 
 
 class ESCohortStandardizer:
-    """Edvise learner (cohort) rows: no extra standardization until school-specific steps exist."""
+    """Edvise learner (cohort) rows: PDP-style credential year columns from matriculation + award dates."""
 
     def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
-        return df
+        return add_es_credential_year_columns(df)
