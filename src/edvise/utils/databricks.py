@@ -147,8 +147,16 @@ def mock_pandera():
     m1.check = check  # type: ignore
     m2.Series = Series  # type: ignore
 
+    m3 = types.ModuleType("pandera.errors")
+
+    class SchemaErrors(Exception):
+        """Placeholder so :mod:`edvise.dataio.read` can ``except SchemaErrors``."""
+
+    m3.SchemaErrors = SchemaErrors  # type: ignore[attr-defined]
+
     sys.modules[m1.__name__] = m1
     sys.modules[m2.__name__] = m2
+    sys.modules[m3.__name__] = m3
 
 
 # Schema and volume caches for Databricks catalog operations

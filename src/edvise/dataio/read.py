@@ -3,8 +3,18 @@ import mlflow
 import pandas as pd
 import typing as t
 import pydantic as pyd
-import pandera as pda
-from pandera.errors import SchemaErrors
+
+try:
+    import pandera as pda
+    from pandera.errors import SchemaErrors
+except ModuleNotFoundError:
+    # Databricks runtimes often omit pandera; match data_audit schema imports.
+    from edvise.utils.databricks import mock_pandera
+
+    mock_pandera()
+    import pandera as pda
+    from pandera.errors import SchemaErrors
+
 import pyspark.sql
 import pathlib
 
