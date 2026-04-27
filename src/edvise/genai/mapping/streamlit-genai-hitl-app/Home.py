@@ -30,21 +30,27 @@ from hitl_reviewer.ui.hitl_streamlit import (
     validate_catalog,
 )
 
+_HITL_BENCH = "HITL Review History"
+
 st.set_page_config(page_title="HITL — home", layout="wide")
 st.title("GenAI HITL")
 st.caption(
-    "The **HITL Review History** page combines the ``hitl_reviews`` table, search filters, and the JSON/UC editor in one place."
+    f"**How to use:** open **{_HITL_BENCH}** from the sidebar to work the queue "
+    f"(``hitl_reviews`` table, filters, JSON/UC editor). This page is a home snapshot; add more app pages under ``pages/`` as needed."
 )
 st.page_link(
     HITL_WORKBENCH_PAGE,
-    label="HITL Review History (table + editor)",
+    label=f"Open {_HITL_BENCH}",
     use_container_width=True,
 )
-st.caption("More pages can be added under ``pages/`` later. Use the app sidebar to switch between **Home** and **HITL Review History**.")
 
 st.divider()
 st.subheader("What’s still pending?")
-st.caption("``status = pending`` in ``hitl_reviews`` for the default catalog (up to 50 rows). The **HITL Review History** table defaults to the same work queue with full search.")
+_PENDING_BLURB = (
+    f"``status = pending`` in ``hitl_reviews`` for the default catalog; preview is capped at 50 rows "
+    f"and matches the default queue in **{_HITL_BENCH}**."
+)
+st.caption(_PENDING_BLURB)
 try:
     get_warehouse_id()
     _cat = validate_catalog(default_catalog())
@@ -59,9 +65,10 @@ try:
             height=260,
         )
     else:
-        st.info("No pending HITL gates in this catalog (or none in the first 50 rows for this query).")
+        st.info("No matching rows in this snapshot.")
 except RuntimeError as e:
-    st.caption(f"**Preview unavailable:** {e} After the warehouse is configured, open **HITL Review History** in the sidebar.")
+    st.caption(
+        f"**Preview unavailable:** {e} After the warehouse is configured, open **{_HITL_BENCH}** from the sidebar."
+    )
 except Exception as e:  # noqa: BLE001
     st.warning(str(e))
-st.page_link(HITL_WORKBENCH_PAGE, label="Open HITL Review History (full workbench)", use_container_width=True)
