@@ -14,8 +14,9 @@ OpenAI / Databricks MLflow-style ``response_format`` helpers for edvise.
     + grain ``if``/``then`` for HITL). SMA uses loose list/dict field types where the LLM
     output is normalized later in the pipeline.
 
-    Opt-out: set env ``EDVISE_GENAI_JSON_SCHEMA=0`` to disable and fall back to plain
-    JSON prompting + ``strip_json_fences`` parsing.
+    **Default: off.** Opt-in: set env ``EDVISE_GENAI_JSON_SCHEMA=1`` to send gateway
+    ``response_format`` JSON schema; otherwise plain JSON prompting +
+    ``strip_json_fences`` parsing.
 """
 
 from __future__ import annotations
@@ -92,7 +93,7 @@ _EDVISE_GENAI_JSON_SCHEMA_ENV = "EDVISE_GENAI_JSON_SCHEMA"
 
 
 def genai_json_schema_enabled() -> bool:
-    v = (os.environ.get(_EDVISE_GENAI_JSON_SCHEMA_ENV) or "1").strip().lower()
+    v = (os.environ.get(_EDVISE_GENAI_JSON_SCHEMA_ENV) or "0").strip().lower()
     return v not in ("0", "false", "no", "off")
 
 
