@@ -530,6 +530,9 @@ def _identity_reasoning_steps() -> str:
      Preserve each candidate's `uniqueness_score` from the profile for the same `columns`
      list. You may mention the profiler's original ordering in `notes` if it helps reviewers
      (e.g. "Profiler rank was 2").
+   - **Structured `hitl_context.candidate_keys`:** every object in `candidate_keys` **must**
+     include **`uniqueness_score`** as a **JSON number** in **0.0–1.0** (profiling evidence).
+     **Never** use JSON `null` or omit the field; if you have no score, use **0.0**.
    - When `hitl_flag` is false, emit `hitl_items: []`.
 """
 
@@ -681,7 +684,10 @@ HITLItem shape for grain:
 ```
 
 When key-profiling output is available, use structured `hitl_context` instead of a string (same
-options/target shape as above; only `hitl_context` changes):
+options/target shape as above; only `hitl_context` changes).
+
+**Required fields on each `candidate_keys[]` object:** `rank`, `columns`, and **`uniqueness_score`**
+(numeric, 0.0–1.0, never `null`).
 
 `candidate_keys`: **fully re-ranked** by **semantic grain plausibility** (see **REASONING STEPS**
 and **HITL** bullets above)—`rank` **1** **matches `post_clean_primary_key`** from this response;
@@ -752,6 +758,9 @@ VALIDITY RULES
   genuinely wider — avoid padding.
 - Non-custom options must have a non-null `resolution`.
 - `item_id` must be unique — use `<institution_id>_<table>_<descriptor>`.
+- Structured `hitl_context`: every `hitl_context.candidate_keys[]` entry must have a numeric
+  `uniqueness_score` in 0.0–1.0, never `null` (use the profiler value when the column set matches;
+  use **0.0** only if no score is available).
 """
     )
 

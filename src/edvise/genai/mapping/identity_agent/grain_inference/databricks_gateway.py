@@ -16,11 +16,6 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainCon
 from edvise.genai.mapping.shared.mlflow_gateway_bootstrap import (
     disable_mlflow_side_effects_for_openai_gateway,
 )
-from edvise.genai.mapping.shared.schema_utils import (
-    genai_json_schema_enabled,
-    response_format_for_ia_system_prompt,
-)
-
 # Same default endpoint as ``schema_mapping_agent.manifest.eval`` (MLflow serving / gateway).
 DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL: str = (
     "https://4437281602191762.ai-gateway.gcp.databricks.com/mlflow/v1"
@@ -135,7 +130,6 @@ def make_databricks_gateway_llm_complete(
     *,
     model: str | None = None,
     max_tokens: int = DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
-    response_format: dict[str, object] | None = None,
 ) -> Callable[[str, str], str]:
     """
     Return ``llm_complete(system, user)`` for :mod:`~edvise.genai.mapping.identity_agent.grain_inference.runner`.
@@ -146,21 +140,15 @@ def make_databricks_gateway_llm_complete(
     resolved_model = model if model is not None else resolve_gateway_model_id()
 
     def complete(system: str, user: str) -> str:
-        rf: dict[str, object] | None = response_format
-        if rf is None and genai_json_schema_enabled():
-            rf = response_format_for_ia_system_prompt(system)
         messages = cast(
             list[ChatCompletionMessageParam],
             [{"role": "user", "content": llm_complete_combined_message_content(system, user)}],
         )
-        kwargs: dict[str, object] = {
-            "model": resolved_model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-        }
-        if rf is not None:
-            kwargs["response_format"] = rf
-        resp = client.chat.completions.create(**kwargs)
+        resp = client.chat.completions.create(
+            model=resolved_model,
+            messages=messages,
+            max_tokens=max_tokens,
+        )
         return resp.choices[0].message.content or ""
 
     return complete

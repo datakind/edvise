@@ -261,9 +261,7 @@ def _build_openai_client(catalog: str):
     )
 
 
-def _run_once(
-    model_id: str, prompt: str, client, *, response_format: dict | None = None
-) -> dict:
+def _run_once(model_id: str, prompt: str, client) -> dict:
     """
     Call :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.eval.run_once` with
     retries for transient gateway / transport failures (same policy as IA ``llm_complete``).
@@ -278,7 +276,7 @@ def _run_once(
     max_backoff_s = 60.0
     last: dict = {}
     for attempt in range(max_attempts):
-        last = run_once(model_id, prompt, client, response_format=response_format)
+        last = run_once(model_id, prompt, client)
         if last.get("success"):
             return last
         if attempt >= max_attempts - 1:
@@ -336,13 +334,6 @@ def run_onboard_start(
     )
     from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
     from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
-    from edvise.genai.mapping.shared.schema_utils import (
-        genai_json_schema_enabled,
-        mapping_manifest_envelope_response_format,
-        sma_refinement_pass1_response_format,
-        sma_refinement_pass2_response_format,
-    )
-
     LOGGER.info("[onboard/start] Loading IA outputs for %s", institution_id)
     paths.run_root.mkdir(parents=True, exist_ok=True)
 
@@ -370,11 +361,8 @@ def run_onboard_start(
         cohort_schema_class=RawEdviseStudentDataSchema,
         course_schema_class=RawEdviseCourseDataSchema,
     )
-    _rf_2a = (
-        mapping_manifest_envelope_response_format() if genai_json_schema_enabled() else None
-    )
     result_2a = _run_once(
-        _DEFAULT_SMA_GATEWAY_MODEL_ID, prompt_2a, client, response_format=_rf_2a
+        _DEFAULT_SMA_GATEWAY_MODEL_ID, prompt_2a, client
     )
     if not result_2a["success"]:
         raise RuntimeError(result_2a.get("error") or "Step 2a LLM failed")
@@ -413,17 +401,10 @@ def run_onboard_start(
 
     def _refinement_llm_complete(system: str, user: str) -> str:
         combined = system + "\n\n---\n\n" + user
-        rf = None
-        if genai_json_schema_enabled():
-            if "You are Pass 2" in system:
-                rf = sma_refinement_pass2_response_format()
-            else:
-                rf = sma_refinement_pass1_response_format()
         r = _run_once(
             _DEFAULT_SMA_GATEWAY_MODEL_ID,
             combined,
             client,
-            response_format=rf,
         )
         if not r.get("success"):
             raise RuntimeError(r.get("error") or "SMA refinement LLM call failed")
@@ -524,11 +505,6 @@ def run_onboard_gate_2(
     )
     from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
     from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
-    from edvise.genai.mapping.shared.schema_utils import (
-        genai_json_schema_enabled,
-        transformation_map_wrapper_response_format,
-    )
-
     LOGGER.info("[onboard/gate_2] Resolving HITL for %s", institution_id)
 
     LOGGER.info("[onboard/gate_2] Waiting for Unity Catalog HITL approval (sma_gate_1)")
@@ -582,11 +558,8 @@ def run_onboard_gate_2(
         reference_transformation_maps=[reference_tm],
         reference_institution_ids=[reference_id],
     )
-    _rf_2b = (
-        transformation_map_wrapper_response_format() if genai_json_schema_enabled() else None
-    )
     result_2b = _run_once(
-        _DEFAULT_SMA_GATEWAY_MODEL_ID, prompt_2b, client, response_format=_rf_2b
+        _DEFAULT_SMA_GATEWAY_MODEL_ID, prompt_2b, client
     )
     if not result_2b["success"]:
         raise RuntimeError(result_2b.get("error") or "Step 2b LLM failed")

@@ -18,6 +18,7 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     InstitutionGrainContract,
     build_institution_grain_contracts,
 )
+from edvise.genai.mapping.identity_agent.hitl.schemas import GrainCandidateKeyEntry
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     TermOrderConfig,
 )
@@ -352,3 +353,12 @@ def test_institution_grain_contracts_rejects_mismatched_institution_id():
     c = _minimal_grain("other", "t")
     with pytest.raises(ValueError, match="institution_id"):
         InstitutionGrainContract(institution_id="here", datasets={"t": c})
+
+
+def test_grain_candidate_key_entry_uniqueness_score_coerces_null():
+    a = GrainCandidateKeyEntry.model_validate(
+        {"rank": 1, "columns": ["a"], "uniqueness_score": None}
+    )
+    assert a.uniqueness_score == 0.0
+    b = GrainCandidateKeyEntry.model_validate({"rank": 1, "columns": ["a"]})
+    assert b.uniqueness_score == 0.0

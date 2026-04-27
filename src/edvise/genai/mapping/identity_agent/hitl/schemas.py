@@ -149,15 +149,25 @@ class GrainCandidateKeyEntry(BaseModel):
     )
     columns: list[str] = Field(..., min_length=1)
     uniqueness_score: float = Field(
-        ...,
+        default=0.0,
         ge=0.0,
         le=1.0,
-        description="Estimated key uniqueness on the profiled sample.",
+        description=(
+            "Estimated key uniqueness on the profiled sample. "
+            "LLM output should always send a number in [0, 1]; null is coerced to 0.0 at parse time."
+        ),
     )
     notes: str | None = Field(
         default=None,
         description="Short human-readable caveat (e.g. measure columns mixed into key).",
     )
+
+    @field_validator("uniqueness_score", mode="before")
+    @classmethod
+    def _coerce_null_uniqueness_score(cls, v: object) -> object:
+        if v is None:
+            return 0.0
+        return v
 
 
 class GrainAmbiguityHITLContext(BaseModel):
