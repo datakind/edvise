@@ -668,6 +668,9 @@ def _apply_grain_hook_spec_dict(
     dp["sort_by"] = None
     dp["sort_ascending"] = None
     dp["keep"] = None
+    dp["suffix_column"] = None
+    dp["priority_column"] = None
+    dp["priority_order"] = None
 
 
 def _apply_term_hook_spec_dict(
@@ -733,15 +736,33 @@ def _apply_grain_resolution(
         )
 
     if resolution.dedup_strategy:
-        grain_cfg["dedup_policy"]["strategy"] = resolution.dedup_strategy
-        grain_cfg["dedup_policy"]["sort_by"] = resolution.dedup_sort_by
-        grain_cfg["dedup_policy"]["sort_ascending"] = resolution.dedup_sort_ascending
-        grain_cfg["dedup_policy"]["keep"] = resolution.dedup_keep
+        dp = grain_cfg.setdefault("dedup_policy", {})
+        notes = dp.get("notes") or ""
+        s = resolution.dedup_strategy
+        dp["strategy"] = s
+        dp["sort_by"] = None
+        dp["sort_ascending"] = None
+        dp["keep"] = None
+        dp["suffix_column"] = None
+        dp["priority_column"] = None
+        dp["priority_order"] = None
+        dp["hook_spec"] = None
+        dp["notes"] = notes
+        if s == "temporal_collapse":
+            dp["sort_by"] = resolution.dedup_sort_by
+            dp["sort_ascending"] = resolution.dedup_sort_ascending
+            dp["keep"] = resolution.dedup_keep or "first"
+        elif s == "categorical_priority":
+            dp["priority_column"] = resolution.priority_column
+            dp["priority_order"] = list(resolution.priority_order or [])
+        elif s == "suffix_identifier":
+            dp["suffix_column"] = resolution.suffix_column
         print(
             "  → dedup_policy updated: "
-            f"strategy={resolution.dedup_strategy}, "
-            f"sort_by={resolution.dedup_sort_by}, "
-            f"ascending={resolution.dedup_sort_ascending}"
+            f"strategy={s}, sort_by={dp.get('sort_by')}, "
+            f"ascending={dp.get('sort_ascending')}, "
+            f"priority_column={dp.get('priority_column')}, "
+            f"suffix_column={dp.get('suffix_column')}"
         )
 
     if resolution.hook_spec is not None:

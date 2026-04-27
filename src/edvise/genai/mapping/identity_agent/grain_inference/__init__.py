@@ -23,6 +23,7 @@ from .databricks_gateway import (
 from .prompt import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
     IDENTITY_AGENT_USER_TEMPLATE,
+    backfill_hitl_uniqueness_scores_from_key_profile,
     build_identity_agent_system_prompt,
     build_identity_agent_user_message,
     format_column_list,
@@ -68,6 +69,7 @@ __all__ = [
     "deduplication",
     "format_column_list",
     "build_institution_grain_contracts",
+    "backfill_hitl_uniqueness_scores_from_key_profile",
     "build_identity_profiling_run_by_dataset",
     "create_openai_client_for_databricks_gateway",
     "load_school_dataset_dataframe",

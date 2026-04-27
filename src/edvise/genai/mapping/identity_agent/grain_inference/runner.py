@@ -16,6 +16,7 @@ from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
 from .prompt import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
+    backfill_hitl_uniqueness_scores_from_key_profile,
     build_identity_agent_user_message,
     parse_grain_contract_with_hitl,
 )
@@ -53,11 +54,16 @@ def run_identity_agent_with_hitl(
         len(_combined),
         estimate_tokens(_combined),
     )
+    def _parse_and_backfill(raw: str) -> tuple[GrainContract, list[HITLItem]]:
+        contract, items = parse_grain_contract_with_hitl(raw)
+        items = backfill_hitl_uniqueness_scores_from_key_profile(items, key_profile)
+        return contract, items
+
     return llm_complete_with_parse_retry(
         llm_complete,
         IDENTITY_AGENT_SYSTEM_PROMPT,
         user,
-        parse_grain_contract_with_hitl,
+        _parse_and_backfill,
         logger=_LOG,
     )
 

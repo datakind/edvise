@@ -15,6 +15,8 @@ from typing import Any, Union, cast
 import pandas as pd
 
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
+    GrainAmbiguityHITLContext,
+    HITLDomain,
     HITLItem,
     get_grain_hitl_item_schema_context,
 )
@@ -528,11 +530,17 @@ def _identity_reasoning_steps() -> str:
      ordering you used there). **`rank` 2..n** list **alternative** grain keys the reviewer
      might adopt via `candidate_key_override` on an option — not a second guess of rank 1.
      Preserve each candidate's `uniqueness_score` from the profile for the same `columns`
-     list. You may mention the profiler's original ordering in `notes` if it helps reviewers
+     list (the pipeline **re-applies** the profiler's score for that column set when it
+     matches the key profile, so the artifact stays honest even if the model drifts). **Never**
+     use `0` to mean "weaker semantic grain" or "requires dedup" — that number is only the
+     **fraction of rows unique on that key** from profiling, not a quality judgment.
+     You may mention the profiler's original ordering in `notes` if it helps reviewers
      (e.g. "Profiler rank was 2").
    - **Structured `hitl_context.candidate_keys`:** every object in `candidate_keys` **must**
-     include **`uniqueness_score`** as a **JSON number** in **0.0–1.0** (profiling evidence).
-     **Never** use JSON `null` or omit the field; if you have no score, use **0.0**.
+     include **`uniqueness_score`** as a **JSON number** on the **profiler scale: 0.0–1.0**
+     (e.g. `0.998`). The parser also accepts an equivalent **0–100 percent** (e.g. `99.8` →
+     `0.998`); do not double-scale. **Never** use JSON `null` or omit the field; if a column
+     set is not in the profile, use **0.0** (rare).
    - When `hitl_flag` is false, emit `hitl_items: []`.
 """
 
@@ -605,10 +613,13 @@ in `post_clean_primary_key`, `join_keys_for_2a`, and `dedup_policy.sort_by`.
   "learner_id_alias": "<column name from column list, or null>",
   "post_clean_primary_key": ["<col1>", "<col2>"],
   "dedup_policy": {
-    "strategy": "<true_duplicate | temporal_collapse | no_dedup | policy_required>",
-    "sort_by": "<column_name or null>",
+    "strategy": "<true_duplicate | temporal_collapse | categorical_priority | suffix_identifier | no_dedup | policy_required>",
+    "sort_by": "<column_name or null — set only for temporal_collapse>",
     "sort_ascending": "<true | false | null — required when strategy is temporal_collapse>",
-    "keep": "<\"first\" | \"last\" or null — never any_row; prefer \"first\" with sort_ascending for temporal_collapse>",
+    "keep": "<\"first\" | \"last\" or null — never any_row; temporal_collapse must use \"first\" with sort_ascending for direction>",
+    "suffix_column": "<non-empty string or null — required for suffix_identifier only>",
+    "priority_column": "<non-empty string or null — required for categorical_priority only>",
+    "priority_order": "<non-empty JSON array of strings or null — required for categorical_priority: highest-priority value first>",
     "hook_spec": null,
     "notes": "<brief explanation>"
   },
@@ -642,10 +653,13 @@ HITLItem shape for grain:
       "description": "<explicit: grain columns + collapse rule + which columns are retained with one value per grain vs widened into the key — never imply a column is deleted from schema>",
       "resolution": {
         "candidate_key_override": null,
-        "dedup_strategy": "<true_duplicate | temporal_collapse | no_dedup>",
-        "dedup_sort_by": "<column or null>",
-        "dedup_sort_ascending": "<true for earliest | false for latest | null>",
+        "dedup_strategy": "<true_duplicate | temporal_collapse | categorical_priority | suffix_identifier | no_dedup>",
+        "dedup_sort_by": "<column or null — temporal_collapse only>",
+        "dedup_sort_ascending": "<true | false | null — temporal_collapse only; true=earliest, false=latest>",
         "dedup_keep": "first",
+        "priority_column": "<column or null — categorical_priority only>",
+        "priority_order": "<array of strings or null — categorical_priority only, highest first>",
+        "suffix_column": "<column or null — suffix_identifier only>",
         "hook_spec": null
       },
       "reentry": "terminal"
@@ -682,6 +696,12 @@ HITLItem shape for grain:
   "resolution": null
 }
 ```
+
+HITL option `resolution` (non-custom, `reentry: "terminal"`) must match
+`GrainResolution` in the injected schema: for **`categorical_priority`**, set `dedup_strategy`,
+`priority_column`, and `priority_order` (leave sort fields and `suffix_column` null). For
+**`suffix_identifier`**, set `dedup_strategy` and `suffix_column` only. For
+**`temporal_collapse`**, set the three `dedup_sort_*` / `dedup_keep` fields as in **VALIDITY RULES**.
 
 When key-profiling output is available, use structured `hitl_context` instead of a string (same
 options/target shape as above; only `hitl_context` changes).
@@ -737,9 +757,9 @@ VALIDITY RULES
   | `no_dedup` | `policy_required`
   No other values are valid.
 - `categorical_priority` requires `priority_column` (non-null string) and `priority_order`
-  (non-null non-empty list). `sort_by`, `keep`, and `suffix_column` must be null.
-- `suffix_identifier` requires `suffix_column` (non-null string). `sort_by`, `keep`,
-  `priority_column`, and `priority_order` must be null.
+  (non-null non-empty list). `sort_by`, `sort_ascending`, `keep`, and `suffix_column` must be null.
+- `suffix_identifier` requires `suffix_column` (non-null string). `sort_by`, `sort_ascending`,
+  `keep`, `priority_column`, and `priority_order` must be null.
 - `temporal_collapse` requires `sort_by` (non-null), `sort_ascending` (non-null bool),
   and `keep: "first"`. `suffix_column`, `priority_column`, `priority_order` must be null.
 - `true_duplicate` and `no_dedup`: all of `sort_by`, `keep`, `suffix_column`,
@@ -759,8 +779,9 @@ VALIDITY RULES
 - Non-custom options must have a non-null `resolution`.
 - `item_id` must be unique — use `<institution_id>_<table>_<descriptor>`.
 - Structured `hitl_context`: every `hitl_context.candidate_keys[]` entry must have a numeric
-  `uniqueness_score` in 0.0–1.0, never `null` (use the profiler value when the column set matches;
-  use **0.0** only if no score is available).
+  `uniqueness_score` in 0.0–1.0 (or the same value as 0–100, e.g. 99.8 for 0.998); never
+  `null` (use the profiler value when the column set matches; use **0.0** only if no score is
+  available).
 """
     )
 
@@ -951,6 +972,56 @@ def _grain_payload_as_dict(raw: RawContractInput) -> dict:
         return dict(raw)
     text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
     return cast(dict[str, Any], json.loads(strip_json_fences(text)))
+
+
+def _column_set_signature(columns: list[str]) -> tuple[str, ...]:
+    return tuple(sorted(columns))
+
+
+def backfill_hitl_uniqueness_scores_from_key_profile(
+    items: list[HITLItem],
+    key_profile: RankedCandidateProfiles,
+) -> list[HITLItem]:
+    """
+    Overwrite ``hitl_context.candidate_keys[].uniqueness_score`` when the column set matches
+    a profiled :class:`~edvise.genai.mapping.identity_agent.profiling.schemas.CandidateKey`.
+
+    The LLM often re-ranks keys for semantic grain and may emit **0** to mean "not the
+    intended grain" or "requires collapse" — that misuses the field, which is **profiling
+    evidence** (fraction of rows unique on the key), not a confidence score. The key profile
+    is the source of truth for the same column list.
+    """
+    profile_scores: dict[tuple[str, ...], float] = {}
+    for prof in key_profile.candidate_key_profiles:
+        sig = _column_set_signature(prof.candidate_key.columns)
+        profile_scores[sig] = prof.candidate_key.uniqueness_score
+
+    if not profile_scores:
+        return items
+
+    out: list[HITLItem] = []
+    for item in items:
+        if item.domain != HITLDomain.IDENTITY_GRAIN:
+            out.append(item)
+            continue
+        ctx = item.hitl_context
+        if not isinstance(ctx, GrainAmbiguityHITLContext):
+            out.append(item)
+            continue
+        new_keys = []
+        for entry in ctx.candidate_keys:
+            sig = _column_set_signature(entry.columns)
+            if sig in profile_scores:
+                new_keys.append(
+                    entry.model_copy(
+                        update={"uniqueness_score": profile_scores[sig]}
+                    )
+                )
+            else:
+                new_keys.append(entry)
+        new_ctx = ctx.model_copy(update={"candidate_keys": new_keys})
+        out.append(item.model_copy(update={"hitl_context": new_ctx}))
+    return out
 
 
 def parse_grain_contract_with_hitl(

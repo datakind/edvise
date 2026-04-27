@@ -68,6 +68,8 @@ class GrainResolution(BaseModel):
         Literal[
             "true_duplicate",
             "temporal_collapse",
+            "categorical_priority",
+            "suffix_identifier",
             "no_dedup",
         ]
         | None
@@ -93,6 +95,18 @@ class GrainResolution(BaseModel):
         default=None,
         description="Which row to keep after sort. Never 'any_row' — that is a 2a concept.",
     )
+    priority_column: str | None = Field(
+        default=None,
+        description="Column for categorical_priority (highest-priority value wins).",
+    )
+    priority_order: list[str] | None = Field(
+        default=None,
+        description="Value order, highest first, for categorical_priority.",
+    )
+    suffix_column: str | None = Field(
+        default=None,
+        description="Column to suffix for suffix_identifier (append -1, -2, ... within key groups).",
+    )
     hook_spec: HookSpec | None = Field(
         default=None,
         description=(
@@ -102,16 +116,89 @@ class GrainResolution(BaseModel):
     )
 
     @model_validator(mode="after")
-    def temporal_collapse_requires_sort(self) -> "GrainResolution":
-        if self.dedup_strategy == "temporal_collapse":
-            if self.dedup_sort_by is None:
+    def dedup_fields_match_strategy(self) -> "GrainResolution":
+        s = self.dedup_strategy
+        if s is None:
+            if any(
+                [
+                    self.dedup_sort_by is not None,
+                    self.dedup_sort_ascending is not None,
+                    self.dedup_keep is not None,
+                    self.priority_column is not None,
+                    self.priority_order is not None,
+                    self.suffix_column is not None,
+                ]
+            ):
                 raise ValueError(
-                    "dedup_strategy='temporal_collapse' requires dedup_sort_by to be set."
+                    "dedup_strategy is required when dedup sort/priority/suffix fields are set."
+                )
+            return self
+        if s == "temporal_collapse":
+            if self.dedup_sort_by is None or not str(self.dedup_sort_by).strip():
+                raise ValueError(
+                    "dedup_strategy='temporal_collapse' requires a non-empty dedup_sort_by."
                 )
             if self.dedup_sort_ascending is None:
                 raise ValueError(
                     "dedup_strategy='temporal_collapse' requires dedup_sort_ascending to be set "
                     "(True for earliest, False for latest)."
+                )
+            if self.priority_column is not None or self.priority_order is not None:
+                raise ValueError(
+                    "temporal_collapse may not set priority_column or priority_order; "
+                    "use categorical_priority for explicit value ranking."
+                )
+            if self.suffix_column is not None:
+                raise ValueError("temporal_collapse may not set suffix_column.")
+        elif s == "categorical_priority":
+            if not self.priority_column or not str(self.priority_column).strip():
+                raise ValueError(
+                    "dedup_strategy='categorical_priority' requires a non-empty priority_column."
+                )
+            if self.priority_order is None or len(self.priority_order) == 0:
+                raise ValueError(
+                    "dedup_strategy='categorical_priority' requires a non-empty priority_order list."
+                )
+            if any(
+                x is not None
+                for x in (self.dedup_sort_by, self.dedup_sort_ascending, self.dedup_keep)
+            ):
+                raise ValueError(
+                    "categorical_priority requires dedup_sort_by, dedup_sort_ascending, "
+                    "and dedup_keep to be null; use priority_column and priority_order."
+                )
+            if self.suffix_column is not None:
+                raise ValueError("categorical_priority may not set suffix_column.")
+        elif s == "suffix_identifier":
+            if not self.suffix_column or not str(self.suffix_column).strip():
+                raise ValueError(
+                    "dedup_strategy='suffix_identifier' requires a non-empty suffix_column."
+                )
+            if any(
+                x is not None
+                for x in (
+                    self.dedup_sort_by,
+                    self.dedup_sort_ascending,
+                    self.dedup_keep,
+                    self.priority_column,
+                )
+            ) or (self.priority_order is not None and len(self.priority_order) > 0):
+                raise ValueError(
+                    "suffix_identifier may only set suffix_column; other dedup fields must be null."
+                )
+        elif s in ("true_duplicate", "no_dedup"):
+            if any(
+                x is not None
+                for x in (
+                    self.dedup_sort_by,
+                    self.dedup_sort_ascending,
+                    self.dedup_keep,
+                    self.priority_column,
+                    self.suffix_column,
+                )
+            ) or (self.priority_order is not None and len(self.priority_order) > 0):
+                raise ValueError(
+                    f"dedup_strategy={s!r} requires all sort, priority, and suffix fields null."
                 )
         if self.dedup_sort_ascending is not None and self.dedup_sort_by is None:
             raise ValueError("dedup_sort_ascending requires dedup_sort_by to be set.")
@@ -154,7 +241,9 @@ class GrainCandidateKeyEntry(BaseModel):
         le=1.0,
         description=(
             "Estimated key uniqueness on the profiled sample. "
-            "LLM output should always send a number in [0, 1]; null is coerced to 0.0 at parse time."
+            "Use the profiler scale: fraction in [0, 1] (e.g. 0.998). "
+            "Percent-style values in (1, 100] (e.g. 99.8) are normalized to fractions; "
+            "null is coerced to 0.0 at parse time."
         ),
     )
     notes: str | None = Field(
@@ -164,10 +253,22 @@ class GrainCandidateKeyEntry(BaseModel):
 
     @field_validator("uniqueness_score", mode="before")
     @classmethod
-    def _coerce_null_uniqueness_score(cls, v: object) -> object:
+    def _coerce_uniqueness_score(cls, v: object) -> object:
         if v is None:
             return 0.0
-        return v
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return v
+        # Profiler and contracts use 0.0-1.0. Models sometimes send 0-100; normalize so
+        # 99.8 is not rejected (le=1.0) and does not spuriously fail parse / retry to 0.
+        if f > 1.0:
+            f = f / 100.0
+        if f < 0.0:
+            f = 0.0
+        elif f > 1.0:
+            f = 1.0
+        return f
 
 
 class GrainAmbiguityHITLContext(BaseModel):

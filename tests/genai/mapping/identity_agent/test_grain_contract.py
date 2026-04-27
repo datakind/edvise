@@ -5,12 +5,23 @@ import pytest
 from pydantic import ValidationError
 
 from edvise.genai.mapping.identity_agent.grain_inference.prompt import (
+    backfill_hitl_uniqueness_scores_from_key_profile,
     build_identity_agent_user_message,
     format_column_list,
     parse_grain_contract,
     parse_grain_contract_with_hitl,
     parse_institution_grain_contracts,
     strip_json_fences,
+)
+from edvise.genai.mapping.identity_agent.hitl.schemas import (
+    GrainAmbiguityHITLContext,
+    GrainCandidateKeyEntry,
+    GrainResolution,
+    HITLDomain,
+    HITLItem,
+    HITLOption,
+    HITLTarget,
+    ReentryDepth,
 )
 from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
@@ -362,3 +373,83 @@ def test_grain_candidate_key_entry_uniqueness_score_coerces_null():
     assert a.uniqueness_score == 0.0
     b = GrainCandidateKeyEntry.model_validate({"rank": 1, "columns": ["a"]})
     assert b.uniqueness_score == 0.0
+
+
+def test_grain_candidate_key_entry_uniqueness_score_accepts_percent_scale():
+    """LLMs often send 99.8 meaning 99.8%; must normalize to 0.998, not fail le=1.0."""
+    x = GrainCandidateKeyEntry.model_validate(
+        {"rank": 1, "columns": ["a"], "uniqueness_score": 99.8}
+    )
+    assert abs(x.uniqueness_score - 0.998) < 1e-9
+    y = GrainCandidateKeyEntry.model_validate(
+        {"rank": 2, "columns": ["a", "b"], "uniqueness_score": 100}
+    )
+    assert y.uniqueness_score == 1.0
+    z = GrainCandidateKeyEntry.model_validate(
+        {"rank": 1, "columns": ["a"], "uniqueness_score": 0.998}
+    )
+    assert z.uniqueness_score == 0.998
+
+
+def test_backfill_hitl_uniqueness_scores_replaces_invented_zero_from_profile():
+    """Model may emit 0 for 'semantic' rank-1; profile is source of truth for that column set."""
+    ck = CandidateKey(
+        columns=["student_id"],
+        uniqueness_score=0.5244,
+        null_rate=0.0,
+        rank=1,
+    )
+    key_profile = RankedCandidateProfiles(
+        candidate_key_profiles=[
+            CandidateProfile(
+                candidate_key=ck,
+                non_unique_rows=10,
+                affected_groups=2,
+                group_size_distribution={2: 5},
+                within_group_variance=[],
+            )
+        ]
+    )
+    item = HITLItem(
+        item_id="inst_t_q",
+        institution_id="inst",
+        table="t",
+        domain=HITLDomain.IDENTITY_GRAIN,
+        hitl_question="q",
+        hitl_context=GrainAmbiguityHITLContext(
+            candidate_keys=[
+                GrainCandidateKeyEntry(
+                    rank=1, columns=["student_id"], uniqueness_score=0.0, notes="wrong"
+                )
+            ],
+            variance_profile={},
+        ),
+        options=[
+            HITLOption(
+                option_id="nd",
+                label="nd",
+                description="d",
+                resolution=GrainResolution(dedup_strategy="no_dedup").model_dump(
+                    mode="json"
+                ),
+                reentry=ReentryDepth.TERMINAL,
+            ),
+            HITLOption(
+                option_id="custom",
+                label="Custom",
+                description="c",
+                resolution=None,
+                reentry=ReentryDepth.GENERATE_HOOK,
+            ),
+        ],
+        target=HITLTarget(
+            institution_id="inst",
+            table="t",
+            config="grain_contract",
+            field="dedup_policy",
+        ),
+    )
+    out = backfill_hitl_uniqueness_scores_from_key_profile([item], key_profile)
+    ctx = out[0].hitl_context
+    assert isinstance(ctx, GrainAmbiguityHITLContext)
+    assert ctx.candidate_keys[0].uniqueness_score == 0.5244
