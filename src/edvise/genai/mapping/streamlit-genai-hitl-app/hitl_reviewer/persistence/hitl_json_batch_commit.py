@@ -58,6 +58,17 @@ def _term_item_file_indices(items: list[Any]) -> list[int]:
     return out
 
 
+def _ia_hook_option_requires_reviewer_note(sel_opt: dict[str, Any]) -> bool:
+    """
+    For ``reentry: generate_hook``, a written reviewer note is required only when the
+    option has no structured resolution (``resolution: null`` in HITL — the custom
+    escape-hatch). Non-null ``resolution`` (including a partial object) may proceed to
+    hook generation using ``hitl_context`` and config, matching
+    :func:`build_hook_generation_user_message` behavior.
+    """
+    return sel_opt.get("resolution") is None
+
+
 def persist_ia_grain_hitl_from_session(
     *, silver_path: str, sk: str, allow_silver_write: bool = True
 ) -> tuple[bool, str]:
@@ -98,13 +109,13 @@ def persist_ia_grain_hitl_from_session(
             note: str | None = None
             if reentry == "generate_hook":
                 ck = f"ia-grain-custom-{sk}-{fi}"
-                note = (st.session_state.get(ck) or "").strip()
-                if not note:
+                note = (st.session_state.get(ck) or "").strip() or None
+                if _ia_hook_option_requires_reviewer_note(sel_opt) and not note:
                     tbl = row.get("table") or fi
                     return (
                         False,
-                        f"Table ``{tbl}``: custom / hook option requires a non-empty description "
-                        "before saving.",
+                        f"Table ``{tbl}``: custom option (``resolution: null``) needs a non-empty "
+                        "reviewer description before saving.",
                     )
             try:
                 set_item_choice(fresh, fi, choice_1)
@@ -168,13 +179,13 @@ def persist_ia_term_hitl_from_session(
             note: str | None = None
             if reentry == "generate_hook":
                 ck = f"ia-term-custom-{sk}-{fi}"
-                note = (st.session_state.get(ck) or "").strip()
-                if not note:
+                note = (st.session_state.get(ck) or "").strip() or None
+                if _ia_hook_option_requires_reviewer_note(sel_opt) and not note:
                     tbl = row.get("table") or fi
                     return (
                         False,
-                        f"Table ``{tbl}``: custom / hook option requires a non-empty description "
-                        "before saving.",
+                        f"Table ``{tbl}``: custom option (``resolution: null``) needs a non-empty "
+                        "reviewer description before saving.",
                     )
             try:
                 set_item_choice(fresh, fi, choice_1)

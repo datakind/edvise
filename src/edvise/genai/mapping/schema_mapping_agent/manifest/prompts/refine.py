@@ -47,8 +47,11 @@ does not require a fully initialized ``hitl`` package (see ``hitl.artifacts``).
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Literal
+
+from pydantic import TypeAdapter
 
 if TYPE_CHECKING:
     from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
@@ -70,11 +73,20 @@ from ..schemas import (
 )
 from ..validation import ManifestValidationError
 
+from edvise.utils.llm_utils import llm_complete_with_parse_retry
+
 from .generate import strip_json_fences
 
 # Same value as ``hitl.schemas.HITL_CONFIDENCE_THRESHOLD`` — defined here so prompt + runtime
 # code share one constant without importing ``hitl`` at module load (circular with ``artifacts``).
 HITL_CONFIDENCE_THRESHOLD = PIPELINE_HITL_CONFIDENCE_THRESHOLD
+
+_LOG = logging.getLogger(__name__)
+
+
+def _parse_sma_refinement_llm_dict(raw: str) -> dict[str, Any]:
+    """Parse gateway JSON (after fence strip) to a top-level object; use Pydantic errors for retry."""
+    return TypeAdapter(dict[str, Any]).validate_json(strip_json_fences(raw))
 
 
 # ---------------------------------------------------------------------------
@@ -978,11 +990,13 @@ def _run_pass1_llm_call(
         validation_errors,
         schema_contract,
     )
-    raw = llm_complete(system, user)
-    data = json.loads(strip_json_fences(raw))
-    if not isinstance(data, dict):
-        raise ValueError("Pass 1 LLM output must be a JSON object")
-    return data
+    return llm_complete_with_parse_retry(
+        llm_complete,
+        system,
+        user,
+        _parse_sma_refinement_llm_dict,
+        logger=_LOG,
+    )
 
 
 def _run_pass2_llm_call(
@@ -999,11 +1013,13 @@ def _run_pass2_llm_call(
         hitl_flags,
         schema_contract,
     )
-    raw = llm_complete(system, user)
-    data = json.loads(strip_json_fences(raw))
-    if not isinstance(data, dict):
-        raise ValueError("Pass 2 LLM output must be a JSON object")
-    return data
+    return llm_complete_with_parse_retry(
+        llm_complete,
+        system,
+        user,
+        _parse_sma_refinement_llm_dict,
+        logger=_LOG,
+    )
 
 
 def run_sma_refinement(

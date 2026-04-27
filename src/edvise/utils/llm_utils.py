@@ -75,3 +75,25 @@ def call_with_retry(
                 "Return a corrected version."
             )
     assert False, "unreachable"  # noqa: S101
+
+
+def llm_complete_with_parse_retry(
+    llm_complete: Callable[[str, str], str],
+    system: str,
+    user: str,
+    parse_fn: Callable[[str], T],
+    max_retries: int = 3,
+    logger: logging.Logger | None = None,
+) -> T:
+    """Call ``llm_complete(system, user)`` and run ``parse_fn`` on the returned text.
+
+    Retries use :func:`call_with_retry`. On a :class:`pydantic.ValidationError`, the
+    next attempt appends the correction block to the **user** message only; the
+    system prompt is unchanged.
+    """
+    def call_fn(hint: str | None) -> str:
+        if hint is None:
+            return llm_complete(system, user)
+        return llm_complete(system, f"{user}\n\n{hint}")
+
+    return call_with_retry(call_fn, parse_fn, max_retries=max_retries, logger=logger)

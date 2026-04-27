@@ -218,6 +218,7 @@ def run_onboard_start(
         llm_complete_combined_message_content,
     )
     from edvise.genai.mapping.shared.token_audit.prompt_token_audit import estimate_tokens
+    from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
     _term_combined = llm_complete_combined_message_content(
         TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT,
@@ -234,9 +235,12 @@ def run_onboard_start(
         DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
         _term_est_in + DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
     )
-    raw_term_batch = llm_complete(TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT, term_batch_user)
-    _institution_term, term_hitl_items = parse_institution_term_contracts_with_hitl(
-        raw_term_batch
+    _institution_term, term_hitl_items = llm_complete_with_parse_retry(
+        llm_complete,
+        TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT,
+        term_batch_user,
+        parse_institution_term_contracts_with_hitl,
+        logger=LOGGER,
     )
     term_contract_by_dataset = _institution_term.contracts_by_dataset()
 

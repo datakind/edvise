@@ -12,6 +12,8 @@ from edvise.genai.mapping.identity_agent.profiling import RankedCandidateProfile
 from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.shared.token_audit.prompt_token_audit import estimate_tokens
 
+from edvise.utils.llm_utils import llm_complete_with_parse_retry
+
 from .prompt import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
     build_identity_agent_user_message,
@@ -51,8 +53,13 @@ def run_identity_agent_with_hitl(
         len(_combined),
         estimate_tokens(_combined),
     )
-    raw = llm_complete(IDENTITY_AGENT_SYSTEM_PROMPT, user)
-    return parse_grain_contract_with_hitl(raw)
+    return llm_complete_with_parse_retry(
+        llm_complete,
+        IDENTITY_AGENT_SYSTEM_PROMPT,
+        user,
+        parse_grain_contract_with_hitl,
+        logger=_LOG,
+    )
 
 
 def run_identity_agents_for_institution_with_hitl(

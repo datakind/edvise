@@ -206,12 +206,20 @@ def render_ia_term_hitl_cards(
             st.session_state[custom_key] = str(existing or "") if existing else ""
 
         if reentry_sel == "generate_hook":
-            st.text_area(
-                "Describe the custom handling you want applied:",
-                key=custom_key,
-                height=120,
-                disabled=not uc_group_pending,
-            )
+            if sel_opt.get("resolution") is None:
+                st.text_area(
+                    "Describe the custom handling you want applied:",
+                    key=custom_key,
+                    height=120,
+                    disabled=not uc_group_pending,
+                )
+            else:
+                st.text_area(
+                    "Optional: extra instructions for hook generation (if blank, context + config are used):",
+                    key=custom_key,
+                    height=120,
+                    disabled=not uc_group_pending,
+                )
 
         render_action_bar(
             nav_key=nav_key,

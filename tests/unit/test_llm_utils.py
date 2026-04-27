@@ -4,11 +4,41 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Any
 
 import pytest
 from pydantic import BaseModel, Field, ValidationError
 
-from edvise.utils.llm_utils import LLMRetryExhausted, call_with_retry
+from edvise.utils.llm_utils import (
+    LLMRetryExhausted,
+    call_with_retry,
+    llm_complete_with_parse_retry,
+)
+
+
+def test_llm_complete_with_parse_retry_appends_hint_to_user_on_validation() -> None:
+    calls: list[tuple[str, str]] = []
+
+    def llm_complete(system: str, user: str) -> str:
+        calls.append((system, user))
+        if len(calls) == 1:
+            return "[]"
+        return '{"a": 1}'
+
+    def parse_fn(s: str) -> dict:
+        from pydantic import TypeAdapter
+
+        return TypeAdapter(dict[str, Any]).validate_json(s)
+
+    out = llm_complete_with_parse_retry(
+        llm_complete, "s", "base u", parse_fn, max_retries=3
+    )
+    assert out == {"a": 1}
+    assert len(calls) == 2
+    assert calls[0] == ("s", "base u")
+    _sys, u2 = calls[1]
+    assert _sys == "s"
+    assert u2.startswith("base u\n\nYour previous response was:")
 
 
 def test_clean_success_on_first_attempt() -> None:
