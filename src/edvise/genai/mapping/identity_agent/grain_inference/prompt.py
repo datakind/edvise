@@ -50,7 +50,8 @@ dataset. You will receive:
     (non-key columns on non-unique rows).
   - When provided, a **raw table profile** JSON (`RawTableProfile`) with `row_count` and per-column
     `unique_count`, `unique_values` (when enumerable), and `sample_values` — use this for
-    **cardinality** and sort-column validity (see **Sort column validity and cardinality**).
+    **cardinality** and sort-column validity (see **`dedup_sort_by`: within-group variance** and
+    **Sort column validity and cardinality** in **REASONING STEPS**).
     **Profiling uses an in-memory full-row deduplicated copy of the table** (identical rows are dropped
     before stats). Uniqueness scores and `non_unique_rows` therefore describe key-level behavior on
     distinct rows, not literal duplicate full rows still present in the raw extract.
@@ -147,7 +148,8 @@ When two or more non-temporal, non-measure columns have variance within the same
 
 - **Before** you pick tiebreak columns, prioritize columns for collapse, or emit
   `dedup_sort_by` / `temporal_collapse` in HITL or the contract, read
-  **Collision scale** and **Sort column validity and cardinality** in **REASONING STEPS**
+  **`dedup_sort_by`: within-group variance**, **Collision scale** and
+  **Sort column validity and cardinality** in **REASONING STEPS**
   (immediately after step 7, before HITL option generation in step 8). They apply to
   every table type, not only degree tables.
 - Do NOT use `no_dedup` as a catch-all. You must still choose a collapse strategy or declare
@@ -177,7 +179,8 @@ When two or more non-temporal, non-measure columns have variance within the same
 
 ### Degree dedup — sort column validity
 
-Applies the same requirements as **Collision scale** and **Sort column validity and
+Applies the same requirements as **`dedup_sort_by`: within-group variance**,
+**Collision scale** and **Sort column validity and
 cardinality** in **REASONING STEPS** (immediately before HITL / step 8). In degree/award work, that
 includes:
 prefer completion/award date or term; prefer `categorical_priority` with `priority_order` (or
@@ -372,8 +375,9 @@ def _identity_reasoning_steps() -> str:
 
       **Option i) All variance is noise; grain is as identified; collapse via tiebreak on ONE column**
          - Choose the column with clearest business semantics (e.g., honors over sub_plan
-           if honors is institutional priority) — verify **Collision scale** and
-           **Sort column validity and cardinality** (see before step 8) before committing.
+           if honors is institutional priority) — verify **dedup_sort_by: within-group variance**,
+           **Collision scale** and **Sort column validity and cardinality** (see before step 8)
+           before committing.
          - Accept that you're losing the other column's distinctions.
          - Example: (sid, plan, term, degree) is the grain; collapse on honors descending
            (keep Summa > Magna > Cum > none); **drop sub_plan distinctions** means one row per grain
@@ -468,7 +472,33 @@ a widespread structural pattern.
   `non_unique_rows` greater than zero; route the ambiguity through `policy_required` and
   HITL as above instead of fabricating sort-based options.
 
+### `dedup_sort_by`: within-group variance (read with Collision scale, before **Sort column validity and cardinality**)
+
+Before you emit any `temporal_collapse` option, contract field, or HITL resolution that sets
+`dedup_sort_by`, **verify** that the named column **actually differs within the affected
+duplicate groups** for that candidate key. Use the key profile: the column should appear in
+`within_group_variance`, **or** the profile (including row-level or duplicate-group detail, when
+present) must **explicitly** show that the column takes **different** values **across the
+non-unique** rows in those groups.
+
+- A column **constant** within every affected group (one value for both/all rows in each duplicate
+  group) carries **no** information about which row to keep. Sorting on it matches **arbitrary** row
+  selection. **Do not** use it as a tiebreak for `dedup_sort_by`.
+- **Semantic** plausibility is **not** enough — e.g. a graduation-date column on the table does
+  **not** qualify if duplicate rows **share the same** value in every colliding group. The column
+  must **vary within** those groups for the sort to be meaningful.
+- **No** substitute from the **full** column list: if **no** column that appears in
+  (or is justified from) `within_group_variance` is a **valid** sort target under the **existing**
+  cardinality, label, and temporal rules in **Sort column validity and cardinality** below, **do
+  not** pick a different column from the broader table list. Use **`policy_required`**, set
+  `hitl_flag` true, and route through **HITL** — do **not** "find" a tiebreak in columns that are
+  absent from within-group variance evidence. This **closes the escape hatch** where a
+  plausible-sounding name is used even though the column is flat across the colliding rows.
+
 ### Sort column validity and cardinality (all table types) — read before HITL option generation (step 8)
+
+**Prerequisite:** A column must pass **`dedup_sort_by`: within-group variance** (immediately
+above) before you may treat it as a sort target here, in addition to the rules in this section.
 
 This applies to **every** table type whenever you set `dedup_sort_by` (contract or
 `HITLItem` resolution) for `temporal_collapse` (or the equivalent in option JSON).
