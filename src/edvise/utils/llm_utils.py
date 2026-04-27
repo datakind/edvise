@@ -29,8 +29,10 @@ def call_with_retry(
 ) -> T:
     """Call ``call_fn`` with retries for malformed JSON and validation failures.
 
-    * ``json.JSONDecodeError`` from ``parse_fn``: retry with the same
-      ``call_fn`` contract (``correction_hint`` is set to ``None``).
+    * ``json.JSONDecodeError`` from ``parse_fn``: retry, usually with the same
+      request (``correction_hint`` is ``None``). If the model returned
+      *nothing* (empty or whitespace-only text), the next call includes an
+      explicit instruction to emit valid JSON, since a blind repeat is futile.
     * :class:`pydantic.ValidationError` from ``parse_fn``: pass a
       ``correction_hint`` describing the prior raw output and the error
       on the next ``call_fn`` call.
@@ -58,7 +60,14 @@ def call_with_retry(
                 )
             if attempt == max_retries:
                 raise LLMRetryExhausted(e, last_raw) from e
-            correction_hint = None
+            if not (last_raw or "").strip():
+                correction_hint = (
+                    "Your previous response was empty (no text). "
+                    "You must return exactly one JSON object and nothing else "
+                    "before or after (no markdown fences unless asked)."
+                )
+            else:
+                correction_hint = None
         except ValidationError as e:
             if logger is not None:
                 logger.warning(

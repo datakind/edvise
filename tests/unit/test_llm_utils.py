@@ -56,6 +56,25 @@ def test_clean_success_on_first_attempt() -> None:
     assert calls == [None]
 
 
+def test_json_decode_error_on_empty_uses_hint_on_next_call() -> None:
+    calls: list[str | None] = []
+
+    def call_fn(hint: str | None) -> str:
+        calls.append(hint)
+        if len(calls) == 1:
+            return ""
+        return '{"ok": true}'
+
+    def parse_fn(text: str) -> dict:
+        return json.loads(text)
+
+    out = call_with_retry(call_fn, parse_fn, max_retries=3)
+    assert out == {"ok": True}
+    assert calls[0] is None
+    assert calls[1] is not None
+    assert "empty" in (calls[1] or "")
+
+
 def test_json_decode_error_resolves_on_retry_with_no_hint() -> None:
     calls: list[str | None] = []
     good = '{"ok": true}'
