@@ -22,7 +22,7 @@ DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL: str = (
     "https://4437281602191762.ai-gateway.gcp.databricks.com/mlflow/v1"
 )
 
-DEFAULT_GATEWAY_MODEL_ID: str = "claude-sonnet-test-genai-ai-data-cleaning"
+DEFAULT_GATEWAY_MODEL_ID: str = "claude-sonnet-edvise-genai"
 
 # System + user are concatenated into one role=user message (IA / SMA).
 LLM_COMPLETE_SYSTEM_USER_SEP: Final[str] = "\n\n---\n\n"

@@ -63,7 +63,7 @@ from edvise.shared.logger import init_file_logging_at_path
 LOGGER = logging.getLogger("edvise_sma")
 
 # AI Gateway route for SMA onboard LLM steps (2a / refinement / 2b). Not a CLI flag.
-_DEFAULT_SMA_GATEWAY_MODEL_ID = "claude-sonnet-test-genai-ai-data-cleaning"
+_DEFAULT_SMA_GATEWAY_MODEL_ID = "claude-sonnet-edvise-genai"
 
 # ---------------------------------------------------------------------------
 # Paths
