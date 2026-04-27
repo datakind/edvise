@@ -52,6 +52,10 @@ KEY_NAV_ONBOARD = "hitl_nav_onboard_run_id"
 KEY_NAV_PHASE = "hitl_nav_phase"
 KEY_NAV_ARTIFACT_TYPE = "hitl_nav_artifact_type"
 KEY_HYDRATE_SIG = "hitl_sidebar_hydrate_sig"
+# st.dataframe row selection in workbench: must match :file:`pages/1_Hitl_Review.py`
+HITL_RESULTS_DF_KEY = "hitl_workbench_results_df"
+# Sidebar selectbox index for which group to load; kept in sync when opening a group from the Results table
+HITL_WORKBENCH_GROUP_IX = "hitl_workbench_group_ix"
 
 _DISPLAY_COLS: tuple[str, ...] = (
     "institution_id",
@@ -219,7 +223,7 @@ def render_group_picker_in_sidebar(
             "``(onboard_run_id, phase, artifact_type)``",
             options=range(len(gdf)),
             format_func=lambda j: cands[j],
-            key="hitl_workbench_group_ix",
+            key=HITL_WORKBENCH_GROUP_IX,
         )
         if st.button("Load this group", type="primary", key="hitl_workbench_load_group"):
             row = gdf.iloc[int(ix)]
@@ -542,6 +546,72 @@ def render_silver_hitl_editor(
             st.rerun()
 
 
+def unique_groups_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Deduplicate ``(onboard_run_id, phase, artifact_type)``; same order as the workbench table."""
+    if df.empty or not {"onboard_run_id", "phase", "artifact_type"}.issubset(df.columns):
+        return pd.DataFrame(columns=["onboard_run_id", "phase", "artifact_type"])
+    return (
+        df[["onboard_run_id", "phase", "artifact_type"]]
+        .drop_duplicates()
+        .sort_values(["onboard_run_id", "phase", "artifact_type"], na_position="last")
+        .reset_index(drop=True)
+    )
+
+
+def apply_nav_from_results_dataframe_event(
+    *,
+    full_df: pd.DataFrame,
+    catalog: str,
+    event: object,
+) -> None:
+    """
+    When the Results table uses ``on_select="rerun"`` with row selection, set the HITL workbench
+    group (session + query params) from the first selected row and :func:`st.rerun` if it changed.
+    """
+    if full_df is None or full_df.empty or event is None:
+        return
+    sel = event.get("selection") if isinstance(event, dict) else getattr(event, "selection", None)
+    if not sel:
+        return
+    rows = sel.get("rows") if isinstance(sel, dict) else getattr(sel, "rows", None)
+    if not rows:
+        return
+    ri = int(rows[0])
+    if ri < 0 or ri >= len(full_df):
+        return
+    row = full_df.iloc[ri]
+    o = str(row.get("onboard_run_id", "") or "").strip()
+    ph = str(row.get("phase", "") or "").strip()
+    at = str(row.get("artifact_type", "") or "").strip()
+    if not o or not ph or not at:
+        return
+    c_use = str(catalog).strip()
+    c_cur, o_cur, ph_cur, at_cur = get_nav_from_session_or_url()
+    if (
+        c_cur
+        and o_cur
+        and ph_cur
+        and at_cur
+        and c_use == c_cur
+        and o == o_cur
+        and ph == ph_cur
+        and at == at_cur
+    ):
+        return
+    set_nav_selection(c_use, o, ph, at)
+    gdf_u = unique_groups_df(full_df)
+    for i in range(len(gdf_u)):
+        r = gdf_u.iloc[i]
+        if (
+            str(r.get("onboard_run_id", "")) == o
+            and str(r.get("phase", "")) == ph
+            and str(r.get("artifact_type", "")) == at
+        ):
+            st.session_state[HITL_WORKBENCH_GROUP_IX] = i
+            break
+    st.rerun()
+
+
 def set_nav_selection(
     catalog: str,
     onboard_run_id: str,
@@ -737,16 +807,7 @@ def render_group_loop(
 ) -> None:
     pending = df[df["status"].astype(str).str.lower() == "pending"].copy()
     action_df = pending if not pending.empty else df
-    if pending.empty and not df.empty:
-        n_all = len(df)
-        st.info(
-            f"**{n_all}** ``hitl_reviews`` row(s) match your filters, and **0** are ``status = pending``. "
-            "That usually means these runs were already approved or rejected in Unity Catalog—**not** "
-            "that the JSON is empty. The editor under each group is **read-only** until that group is "
-            "``pending`` again (silver JSON cannot be changed from this app after UC finalizes). "
-            "To list only gates awaiting UC, set sidebar **status** to **pending**."
-        )
-    elif not pending.empty:
+    if not pending.empty:
         st.success(f"{len(pending)} pending UC row(s) in the current result set.")
 
     groups = (

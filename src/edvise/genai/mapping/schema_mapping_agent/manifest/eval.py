@@ -29,6 +29,11 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
 from edvise.genai.mapping.schema_mapping_agent.manifest.validation import (
     validate_manifest,
 )
+from edvise.genai.mapping.shared.gateway_json_schema import (
+    genai_json_schema_enabled,
+    mapping_manifest_envelope_response_format,
+    step2a_entity_pass_response_format,
+)
 from edvise.genai.mapping.shared.schema_contract import (
     parse_enriched_schema_contract_for_sma,
 )
@@ -117,25 +122,35 @@ MODELS_WITH_PREFILL = {
 
 
 # ── inference ─────────────────────────────────────────────────────────────────
-def run_once(model: str, prompt: str, client: OpenAI) -> dict[str, Any]:
+def run_once(
+    model: str,
+    prompt: str,
+    client: OpenAI,
+    *,
+    response_format: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     start = time.perf_counter()
     try:
         full_text = ""
 
+        use_rf = bool(response_format) and genai_json_schema_enabled()
         # Build messages - only add assistant prefill for models that support it
         messages_list: list[dict[str, str]] = [{"role": "user", "content": prompt}]
-        if model in MODELS_WITH_PREFILL:
+        if not use_rf and model in MODELS_WITH_PREFILL:
             messages_list.append(
                 {"role": "assistant", "content": "{"}
             )  # prefill for JSON
         messages = cast(list[ChatCompletionMessageParam], messages_list)
 
-        resp = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=16000,
-            stream=True,
-        )
+        create_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": 16000,
+            "stream": True,
+        }
+        if use_rf:
+            create_kwargs["response_format"] = response_format
+        resp = client.chat.completions.create(**create_kwargs)
         for chunk in resp:
             # Safely extract content from chunk - handle cases where choices might be empty
             try:
@@ -155,7 +170,9 @@ def run_once(model: str, prompt: str, client: OpenAI) -> dict[str, Any]:
         latency_s = time.perf_counter() - start
 
         # For models with prefill, reattach the brace if needed; for others, just strip fences
-        if model in MODELS_WITH_PREFILL:
+        if use_rf:
+            raw = strip_json_fences(full_text)
+        elif model in MODELS_WITH_PREFILL:
             # The model's response continues from the prefill "{", so it may already start with "{"
             # Only prepend "{" if the response doesn't already start with it (after stripping whitespace)
             full_text_stripped = full_text.lstrip()
@@ -237,6 +254,7 @@ def run_step2a_two_pass(
     prompt_course: str,
     *,
     institution_id: str | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> dict:
     """
     Step 2a only: two gateway calls (cohort JSON, then course JSON), then merge into one manifest.
@@ -251,7 +269,7 @@ def run_step2a_two_pass(
     is the sum of both calls.
     """
     sep = "\n\n=== STEP 2a PASS 2 (course) ===\n\n"
-    r1 = run_once(model, prompt_cohort, client)
+    r1 = run_once(model, prompt_cohort, client, response_format=response_format)
     prompt_combined = f"=== STEP 2a PASS 1 (cohort) ===\n\n{prompt_cohort}"
     if not r1["success"]:
         return {**r1, "prompt": prompt_combined}
@@ -271,7 +289,7 @@ def run_step2a_two_pass(
 
     prompt_combined = f"{prompt_combined}{sep}{prompt_course}"
 
-    r2 = run_once(model, prompt_course, client)
+    r2 = run_once(model, prompt_course, client, response_format=response_format)
     lat = round((r1["latency_s"] or 0) + (r2["latency_s"] or 0), 3)
 
     if not r2["success"]:
@@ -1008,6 +1026,14 @@ def run():
             base_url=BASE_URL,
         )
 
+        rf_2a = None
+        if genai_json_schema_enabled():
+            rf_2a = (
+                step2a_entity_pass_response_format()
+                if STEP2A_TWO_PASS
+                else mapping_manifest_envelope_response_format()
+            )
+
         # ── run loop ──────────────────────────────────────────────────────────
         rows = []
         total = len(MODELS)
@@ -1022,9 +1048,10 @@ def run():
                     PROMPT_COHORT,
                     PROMPT_COURSE,
                     institution_id=target_id,
+                    response_format=rf_2a,
                 )
             else:
-                result = run_once(model, PROMPT_SINGLE, client)
+                result = run_once(model, PROMPT_SINGLE, client, response_format=rf_2a)
             if result["success"]:
                 logger.info(
                     f"→ done | success={result['success']} | latency={result['latency_s']}s"

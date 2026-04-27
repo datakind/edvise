@@ -133,40 +133,34 @@ def render_hitl_header(
     *,
     inst_raw: str,
     format_fn: Callable[[str], str],
-    onboard_run_id: str,
     tbl: str,
     domain_label: str,
     cur: int,
     n_items: int,
     run_total: int | None,
-    file_index: int,
     item_id: Any,
     inst_class: str = "hitl-inst",
 ) -> None:
+    """
+    One title (institution) and one sub line: table · domain · progress. Does not repeat
+    ``onboard_run_id`` (the parent HITL group already shows run / phase / artifact).
+    """
     st.markdown(
         f'<p class="{inst_class}">{html.escape(format_fn(inst_raw))}</p>',
         unsafe_allow_html=True,
     )
-    noun = str(domain_label).strip().lower()
-    meta_parts = [
-        f'<span class="hitl-meta">Onboard run <code>{html.escape(str(onboard_run_id))}</code></span>',
-        f'<span class="hitl-meta"> · Dataset: <strong>{html.escape(tbl)}</strong></span>',
-        f'<span class="ia-domain-pill">{html.escape(domain_label)}</span>',
-    ]
-    if run_total is not None:
-        meta_parts.append(
-            f'<span class="hitl-meta"> · <strong>{cur + 1} of {n_items}</strong> items in this file '
-            f"({int(run_total)} {noun} item(s) on this run)</span>"
-        )
-    else:
-        meta_parts.append(
-            f'<span class="hitl-meta"> · <strong>{cur + 1} of {n_items}</strong> items in this file</span>'
-        )
-    _item_id_esc = html.escape(str(item_id))
-    meta_parts.append(
-        f'<span class="hitl-meta"> · File index <code>{file_index}</code> · <code>{_item_id_esc}</code></span>'
+    domain_e = html.escape(str(domain_label).strip())
+    table_e = html.escape(str(tbl).strip()) or "—"
+    in_file = f"{cur + 1} of {n_items} in this file"
+    if run_total is not None and int(run_total) != n_items:
+        in_file += f" · {int(run_total)} in this run"
+    _id = str(item_id).strip()
+    item_bit = f' · <code>{html.escape(_id)}</code>' if _id else ""
+    st.markdown(
+        f'<p class="hitl-meta">'
+        f"<strong>{table_e}</strong> · {domain_e} · {in_file}{item_bit}</p>",
+        unsafe_allow_html=True,
     )
-    st.markdown("<div>" + "".join(meta_parts) + "</div>", unsafe_allow_html=True)
 
 
 def init_sel_key(sel_key: str, choice: Any, n_opt: int) -> None:
@@ -254,7 +248,7 @@ def render_action_bar(
         st.caption(pre_bar_caption)
     with st.container(border=True):
         if include_prev_next:
-            c_prev, c_next, c_save, c_rej = st.columns([1, 1, 2.6, 1.1], gap="small")
+            c_prev, c_next, _nav_pad = st.columns([1, 1, 3], gap="small")
             with c_prev:
                 pk = f"{key_prefix}-prev-{sk}" if nav_prev_button_key is None else nav_prev_button_key
                 if st.button("◀ Prev", key=pk, use_container_width=True):
@@ -267,8 +261,10 @@ def render_action_bar(
                 if st.button("Next ▶", key=nk, use_container_width=True):
                     st.session_state[nav_key] = min(n_items - 1, cur + 1)
                     st.rerun()
-        else:
-            c_save, c_rej = st.columns([2.6, 1.1], gap="small")
+            with _nav_pad:
+                pass
+            st.divider()
+        c_save, c_rej = st.columns([2.6, 1.1], gap="small")
         with c_save:
             if st.button(
                 primary_button_label,

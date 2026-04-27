@@ -230,13 +230,11 @@ def render_ia_grain_hitl_cards(
         render_hitl_header(
             inst_raw=inst_raw,
             format_fn=format_institution_display_name,
-            onboard_run_id=str(onboard_run_id),
             tbl=tbl,
             domain_label="Grain",
             cur=cur,
             n_items=n_items,
             run_total=run_total,
-            file_index=i,
             item_id=item.get("item_id", ""),
         )
 

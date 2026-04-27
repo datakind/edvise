@@ -28,6 +28,10 @@ from pydantic import ValidationError
 from .schemas import TransformationMap
 from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
 from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
+from edvise.genai.mapping.shared.gateway_json_schema import (
+    genai_json_schema_enabled,
+    transformation_map_wrapper_response_format,
+)
 
 from ..manifest.eval import MODELS, _find_eval_project_root, folder_slug_2b, run_once
 from .prompt import build_step2b_prompt, load_json
@@ -678,10 +682,16 @@ def run():
             base_url="https://4437281602191762.ai-gateway.gcp.databricks.com/mlflow/v1",
         )
 
+        _rf_2b = (
+            transformation_map_wrapper_response_format()
+            if genai_json_schema_enabled()
+            else None
+        )
+
         rows = []
         for i, model in enumerate(MODELS, start=1):
             logger.info(f"[{i}/{len(MODELS)}] Running model={model}")
-            result = run_once(model, PROMPT, client)
+            result = run_once(model, PROMPT, client, response_format=_rf_2b)
             if result["success"]:
                 logger.info(
                     f"→ done | success={result['success']} | latency={result['latency_s']}s"

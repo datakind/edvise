@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import streamlit as st
 from hitl_reviewer.hitl_streamlit import (
+    HITL_RESULTS_DF_KEY,
     HITL_WORKBENCH_CAPTION,
+    apply_nav_from_results_dataframe_event,
     display_columns,
     get_nav_from_session_or_url,
     init_reviewer_in_session,
@@ -17,6 +19,7 @@ from hitl_reviewer.hitl_streamlit import (
     render_connection_sidebar,
     render_group_loop,
     render_group_picker_in_sidebar,
+    unique_groups_df,
 )
 
 st.set_page_config(page_title="HITL Review", layout="wide")
@@ -47,17 +50,21 @@ except Exception as e:  # noqa: BLE001
 if not df.empty:
     cols = display_columns(df)
     st.subheader("Results")
-    st.dataframe(
-        df[cols] if cols else df,
+    st.caption(
+        "Select a **row** in the table to open that review group in the editor below (same as "
+        "**Load this group** in the sidebar)."
+    )
+    display_df = df[cols] if cols else df
+    _results_event = st.dataframe(
+        display_df,
         use_container_width=True,
         hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key=HITL_RESULTS_DF_KEY,
     )
-    gdf = (
-        df[["onboard_run_id", "phase", "artifact_type"]]
-        .drop_duplicates()
-        .sort_values(["onboard_run_id", "phase", "artifact_type"], na_position="last")
-        .reset_index(drop=True)
-    )
+    apply_nav_from_results_dataframe_event(full_df=df, catalog=catalog, event=_results_event)
+    gdf = unique_groups_df(df)
     render_group_picker_in_sidebar(gdf, catalog)
 else:
     st.info(
