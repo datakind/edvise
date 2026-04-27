@@ -8,9 +8,12 @@ The MLflow / OpenAI-compatible gateway used by edvise supports::
         "json_schema": {"name": str, "strict": bool, "schema": <JSON Schema>},
     }
 
-We keep schemas intentionally small: top-level shape + a few required keys, with
-``additionalProperties: true`` for nested objects so we do not fight Databricks
-JSON Schema subset limitations (``anyOf`` / ``$ref``, etc.).
+Response envelopes are built with :func:`~edvise.genai.mapping.shared.schema_utils.to_gateway_schema_from_dict`
+(inlines ``$defs`` / ``$ref`` when present). We keep schemas small where needed for Databricks
+JSON Schema subset limitations (some combinators). IdentityAgent **grain** uses a closed
+:class:`GrainContract` (``additionalProperties: false``) and a typed ``dedup_policy``
+matching :class:`DedupPolicy`. **Term batch** per-dataset objects match :class:`TermContract`
+so the gateway cannot accept profile-input-shaped JSON in ``datasets``.
 
 Opt-out: set env ``EDVISE_GENAI_JSON_SCHEMA=0`` to disable and fall back to plain
 JSON prompting + ``strip_json_fences`` parsing.
@@ -21,19 +24,14 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from edvise.genai.mapping.shared.schema_utils import to_gateway_schema_from_dict
+
 _EDVISE_GENAI_JSON_SCHEMA_ENV = "EDVISE_GENAI_JSON_SCHEMA"
 
 
 def genai_json_schema_enabled() -> bool:
     v = (os.environ.get(_EDVISE_GENAI_JSON_SCHEMA_ENV) or "1").strip().lower()
     return v not in ("0", "false", "no", "off")
-
-
-def _wrap(name: str, schema: dict[str, Any], *, strict: bool = False) -> dict[str, Any]:
-    return {
-        "type": "json_schema",
-        "json_schema": {"name": name, "strict": strict, "schema": schema},
-    }
 
 
 # --- Step 2a (MappingManifestEnvelope) ---------------------------------------
@@ -54,7 +52,7 @@ def mapping_manifest_envelope_response_format() -> dict[str, Any]:
         "required": ["entity_type", "target_schema", "mappings", "column_aliases"],
         "additionalProperties": True,
     }
-    return _wrap(
+    return to_gateway_schema_from_dict(
         "mapping_manifest_envelope",
         {
             "type": "object",
@@ -86,7 +84,7 @@ def step2a_entity_pass_response_format() -> dict[str, Any]:
     with a single entity key, *or* a :class:`FieldMappingManifest` top-level object, so
     the JSON schema only enforces a JSON object.
     """
-    return _wrap(
+    return to_gateway_schema_from_dict(
         "step2a_entity_pass",
         {"type": "object", "additionalProperties": True},
         strict=False,
@@ -107,7 +105,7 @@ def transformation_map_wrapper_response_format() -> dict[str, Any]:
         "required": ["entity_type", "target_schema", "plans"],
         "additionalProperties": True,
     }
-    return _wrap(
+    return to_gateway_schema_from_dict(
         "transformation_map_wrapper",
         {
             "type": "object",
@@ -133,8 +131,72 @@ def transformation_map_wrapper_response_format() -> dict[str, Any]:
 # --- IdentityAgent: grain (GrainContract) ------------------------------------
 
 
+def _ia_grain_dedup_hook_function_spec() -> dict[str, Any]:
+    # :class:`HookFunctionSpec` — ``additionalProperties: false`` to match the model
+    return {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "description": {"type": "string"},
+            "signature": {"type": ["string", "null"]},
+            "example_input": {"type": ["string", "null"]},
+            "example_output": {"type": ["string", "number", "null"]},
+            "draft": {"type": ["string", "null"]},
+        },
+        "required": ["name", "description"],
+        "additionalProperties": False,
+    }
+
+
+def _ia_grain_dedup_hook_spec() -> dict[str, Any]:
+    return {
+        "type": ["object", "null"],
+        "properties": {
+            "file": {"type": ["string", "null"]},
+            "functions": {
+                "type": "array",
+                "items": _ia_grain_dedup_hook_function_spec(),
+            },
+        },
+        "required": ["functions"],
+        "additionalProperties": False,
+    }
+
+
+def _ia_grain_dedup_policy() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "strategy": {
+                "type": "string",
+                "enum": [
+                    "true_duplicate",
+                    "temporal_collapse",
+                    "categorical_priority",
+                    "suffix_identifier",
+                    "no_dedup",
+                    "policy_required",
+                ],
+            },
+            "sort_by": {"type": ["string", "null"]},
+            "sort_ascending": {"type": ["boolean", "null"]},
+            "keep": {"enum": [None, "first", "last"]},
+            "suffix_column": {"type": ["string", "null"]},
+            "priority_column": {"type": ["string", "null"]},
+            "priority_order": {
+                "type": ["array", "null"],
+                "items": {"type": "string"},
+            },
+            "notes": {"type": "string"},
+            "hook_spec": _ia_grain_dedup_hook_spec(),
+        },
+        "required": ["strategy"],
+        "additionalProperties": False,
+    }
+
+
 def identity_grain_contract_response_format() -> dict[str, Any]:
-    return _wrap(
+    return to_gateway_schema_from_dict(
         "identity_grain_contract",
         {
             "type": "object",
@@ -146,13 +208,17 @@ def identity_grain_contract_response_format() -> dict[str, Any]:
                     "type": "array",
                     "items": {"type": "string"},
                 },
-                "dedup_policy": {"type": "object"},
+                "dedup_policy": _ia_grain_dedup_policy(),
                 "row_selection_required": {"type": "boolean"},
                 "join_keys_for_2a": {
                     "type": "array",
                     "items": {"type": "string"},
                 },
-                "confidence": {"type": "number"},
+                "confidence": {
+                    "type": "number",
+                    "minimum": 0.0,
+                    "maximum": 1.0,
+                },
                 "hitl_flag": {"type": "boolean"},
                 "reasoning": {"type": "string"},
                 "notes": {"type": "string"},
@@ -168,7 +234,7 @@ def identity_grain_contract_response_format() -> dict[str, Any]:
                 "hitl_flag",
                 "reasoning",
             ],
-            "additionalProperties": True,
+            "additionalProperties": False,
         },
         strict=False,
     )
@@ -177,14 +243,135 @@ def identity_grain_contract_response_format() -> dict[str, Any]:
 # --- IdentityAgent: term batch (InstitutionTermContract) ----------------------
 
 
+def _ia_term_batch_hook_function_spec() -> dict[str, Any]:
+    # Mirror HookFunctionSpec; example_output is str|int|float|None
+    return {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "description": {"type": "string"},
+            "signature": {"type": ["string", "null"]},
+            "example_input": {"type": ["string", "null"]},
+            "example_output": {"type": ["string", "number", "null"]},
+            "draft": {"type": ["string", "null"]},
+        },
+        "required": ["name", "description"],
+        "additionalProperties": True,
+    }
+
+
+def _ia_term_batch_hook_spec_value() -> dict[str, Any]:
+    """
+    Object or null, matching :class:`HookSpec` in term ``term_config``;
+    not wrapped in a redundant outer ``{type: object}`` for nesting under ``type: []``.
+    """
+    return {
+        "type": ["object", "null"],
+        "properties": {
+            "file": {"type": ["string", "null"]},
+            "functions": {
+                "type": "array",
+                "items": _ia_term_batch_hook_function_spec(),
+            },
+        },
+        "required": ["functions"],
+        "additionalProperties": True,
+    }
+
+
+def _ia_term_batch_term_order_config_properties() -> dict[str, Any]:
+    """
+    Property map for a non-null :class:`TermOrderConfig`. Only ``term_extraction`` is required;
+    other fields default in Pydantic. ``hook_spec`` is optional; use null or omit.
+    """
+    return {
+        "term_col": {"type": ["string", "null"]},
+        "year_col": {"type": ["string", "null"]},
+        "season_col": {"type": ["string", "null"]},
+        "season_map": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "raw": {"type": "string"},
+                    "canonical": {"type": "string"},
+                },
+                "required": ["raw", "canonical"],
+                "additionalProperties": True,
+            },
+        },
+        "exclude_tokens": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "term_extraction": {
+            "type": "string",
+            "enum": ["standard", "hook_required"],
+        },
+        "hook_spec": _ia_term_batch_hook_spec_value(),
+    }
+
+
+def _ia_term_batch_term_config_property() -> dict[str, Any]:
+    """``TermOrderConfig | None`` — use ``type: [object, null]`` (no top-level anyOf)."""
+    props = _ia_term_batch_term_order_config_properties()
+    return {
+        "type": ["object", "null"],
+        "properties": props,
+        "required": ["term_extraction"],
+        "additionalProperties": True,
+    }
+
+
+def _ia_term_batch_per_dataset_term_contract() -> dict[str, Any]:
+    """
+    :class:`TermContract` (plus optional ``hitl_items``; ignored by Pydantic, allowed by prompt).
+    ``additionalProperties: false`` so profile-only keys (e.g. ``row_selection_required``) are rejected
+    at the gateway before Pydantic sees them.
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "institution_id": {"type": "string"},
+            "table": {"type": "string"},
+            "term_config": _ia_term_batch_term_config_property(),
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "hitl_flag": {"type": "boolean"},
+            "reasoning": {"type": "string"},
+            "hitl_items": {
+                "type": "array",
+                "items": {"type": "object"},
+            },
+        },
+        "required": [
+            "institution_id",
+            "table",
+            "term_config",
+            "confidence",
+            "hitl_flag",
+            "reasoning",
+        ],
+        "additionalProperties": False,
+    }
+
+
 def identity_term_batch_envelope_response_format() -> dict[str, Any]:
-    return _wrap(
+    # Aligns with InstitutionTermContract + per-dataset TermContract; top-level hitl_items is
+    # produced by the model, stripped before Pydantic — keep optional in schema.
+    return to_gateway_schema_from_dict(
         "identity_term_batch_envelope",
         {
             "type": "object",
             "properties": {
                 "institution_id": {"type": "string"},
-                "datasets": {"type": "object"},
+                "datasets": {
+                    "type": "object",
+                    "additionalProperties": _ia_term_batch_per_dataset_term_contract(),
+                },
+                "hitl_items": {
+                    "type": "array",
+                    "items": {"type": "object", "additionalProperties": True},
+                },
             },
             "required": ["institution_id", "datasets"],
             "additionalProperties": True,
@@ -197,7 +384,7 @@ def identity_term_batch_envelope_response_format() -> dict[str, Any]:
 
 
 def identity_hook_spec_response_format() -> dict[str, Any]:
-    return _wrap(
+    return to_gateway_schema_from_dict(
         "identity_hook_spec",
         {
             "type": "object",
@@ -228,7 +415,7 @@ def identity_hook_spec_response_format() -> dict[str, Any]:
 
 
 def sma_refinement_pass1_response_format() -> dict[str, Any]:
-    return _wrap(
+    return to_gateway_schema_from_dict(
         "sma_refinement_pass1",
         {
             "type": "object",
@@ -245,7 +432,7 @@ def sma_refinement_pass1_response_format() -> dict[str, Any]:
 
 
 def sma_refinement_pass2_response_format() -> dict[str, Any]:
-    return _wrap(
+    return to_gateway_schema_from_dict(
         "sma_refinement_pass2",
         {
             "type": "object",
