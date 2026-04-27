@@ -76,9 +76,19 @@ def backfill_hitl_uniqueness_scores(
     for it in items:
         by_table[str(it.table)].append(it)
     by_id: dict[str, HITLItem] = {}
+    available_tables = sorted(key_profiles_by_table.keys())
     for table, group in by_table.items():
         profile = key_profiles_by_table.get(table)
         if profile is None:
+            n_grain = sum(1 for it in group if it.domain == HITLDomain.IDENTITY_GRAIN)
+            if n_grain:
+                logger.warning(
+                    "HITL uniqueness backfill: no key profile for table %r (%d identity_grain "
+                    "item(s)); leaving candidate_keys uniqueness as-is. Profiling has tables: %s",
+                    table,
+                    n_grain,
+                    available_tables,
+                )
             for it in group:
                 by_id[it.item_id] = it
         else:

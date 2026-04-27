@@ -196,11 +196,15 @@ def run_onboard_start(
         name: load_school_dataset_dataframe(school_config, name)
         for name in run_by_dataset
     }
+    raw_table_profiles_by_table = {
+        name: run_by_dataset[name]["raw_table_profile"] for name in run_by_dataset
+    }
     contracts_by_dataset, grain_hitl_items = run_identity_agents_for_institution_with_hitl(
         institution_id=institution_id,
         institution_profiles=institution_profiles,
         dfs=dfs,
         llm_complete=llm_complete,
+        raw_table_profiles_by_table=raw_table_profiles_by_table,
         confidence_threshold=PIPELINE_HITL_CONFIDENCE_THRESHOLD,
         queue_for_hitl_review=lambda c: log_grain_hitl_queue(c, logger=LOGGER),
         auto_approve_and_apply=lambda c: log_grain_auto_approve(c, logger=LOGGER),

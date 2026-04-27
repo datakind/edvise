@@ -39,6 +39,8 @@ from edvise.genai.mapping.identity_agent.profiling import (
     CandidateKey,
     CandidateProfile,
     RankedCandidateProfiles,
+    RawColumnProfile,
+    RawTableProfile,
 )
 
 
@@ -77,6 +79,39 @@ def test_build_identity_agent_user_message_with_df():
     assert "students" in msg
     assert "student_id" in msg
     assert "candidate_key_profiles" in msg
+    assert "Raw table profile JSON" not in msg
+
+
+def test_build_identity_agent_user_message_includes_raw_table_profile_for_cardinality():
+    df = pd.DataFrame({"student_id": [1]})
+    rtp = RawTableProfile(
+        institution_id="school_a",
+        dataset="students",
+        row_count=1,
+        column_count=1,
+        columns=[
+            RawColumnProfile(
+                name="student_id",
+                dtype="int64",
+                null_rate=0.0,
+                null_rate_including_tokens=0.0,
+                unique_count=1,
+                unique_values=[1],
+                sample_values=[1],
+                is_term_candidate=False,
+            )
+        ],
+    )
+    msg = build_identity_agent_user_message(
+        "school_a",
+        "students",
+        _minimal_key_profile(),
+        df=df,
+        raw_table_profile=rtp,
+    )
+    assert "Raw table profile JSON" in msg
+    assert '"row_count": 1' in msg
+    assert "unique_count" in msg
 
 
 def test_build_identity_agent_user_message_column_list():

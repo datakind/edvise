@@ -55,13 +55,14 @@ def build_identity_profiling_run_by_dataset(
             cleaning=cleaning,
         )
         key_profile = kp_result.key_profile
+        rtp = kp_result.raw_table_profile
         user_msg = build_identity_agent_user_message(
             institution_id,
             name,
             key_profile,
             df=df,
+            raw_table_profile=rtp,
         )
-        rtp = kp_result.raw_table_profile
         results[name] = {
             "n_rows": len(df),
             "n_cols": len(df.columns),

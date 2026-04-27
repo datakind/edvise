@@ -19,7 +19,10 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     get_grain_hitl_item_schema_context,
 )
 from edvise.genai.mapping.identity_agent.utilities import strip_json_fences
-from edvise.genai.mapping.identity_agent.profiling import RankedCandidateProfiles
+from edvise.genai.mapping.identity_agent.profiling import (
+    RankedCandidateProfiles,
+    RawTableProfile,
+)
 from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 
 from .schemas import (
@@ -43,7 +46,11 @@ dataset. You will receive:
   - The dataset name and institution ID
   - The full column list with dtypes (one column per line: `name: dtype`)
   - A key profile: JSON from `RankedCandidateProfiles` — ranked `candidate_key_profiles` with uniqueness
-    scores and, for each candidate key, within-group variance for non-key columns on non-unique rows.
+    scores, `non_unique_rows` / `affected_groups` per key, and within-group variance
+    (non-key columns on non-unique rows).
+  - When provided, a **raw table profile** JSON (`RawTableProfile`) with `row_count` and per-column
+    `unique_count`, `unique_values` (when enumerable), and `sample_values` — use this for
+    **cardinality** and sort-column validity (see **Sort column validity and cardinality**).
     **Profiling uses an in-memory full-row deduplicated copy of the table** (identical rows are dropped
     before stats). Uniqueness scores and `non_unique_rows` therefore describe key-level behavior on
     distinct rows, not literal duplicate full rows still present in the raw extract.
@@ -140,8 +147,9 @@ When two or more non-temporal, non-measure columns have variance within the same
 
 - **Before** you pick tiebreak columns, prioritize columns for collapse, or emit
   `dedup_sort_by` / `temporal_collapse` in HITL or the contract, read
-  **Sort column validity (all table types)** in **REASONING STEPS** (immediately after step 7,
-  before step 8). It applies to every table type, not only degree tables.
+  **Collision scale** and **Sort column validity and cardinality** in **REASONING STEPS**
+  (immediately after step 7, before HITL option generation in step 8). They apply to
+  every table type, not only degree tables.
 - Do NOT use `no_dedup` as a catch-all. You must still choose a collapse strategy or declare
   the grain is wider.
 - Prioritize **institutional semantic meaning**:
@@ -169,8 +177,9 @@ When two or more non-temporal, non-measure columns have variance within the same
 
 ### Degree dedup — sort column validity
 
-Applies the same requirements as **Sort column validity (all table types)** in
-**REASONING STEPS** (immediately before step 8). In degree/award work, that includes:
+Applies the same requirements as **Collision scale** and **Sort column validity and
+cardinality** in **REASONING STEPS** (immediately before HITL / step 8). In degree/award work, that
+includes:
 prefer completion/award date or term; prefer `categorical_priority` with `priority_order` (or
 `reentry: "generate_hook"`) for degree-tier semantics where raw name sort is unreliable; prefer
 GPA/standing when policy is to keep the highest-standing credential. **Never** use
@@ -344,8 +353,8 @@ def _identity_reasoning_steps() -> str:
 
       **Option i) All variance is noise; grain is as identified; collapse via tiebreak on ONE column**
          - Choose the column with clearest business semantics (e.g., honors over sub_plan
-           if honors is institutional priority) — verify it meets **Sort column validity**
-           (see step 7 / **Sort column validity (all table types)**) before committing.
+           if honors is institutional priority) — verify **Collision scale** and
+           **Sort column validity and cardinality** (see before step 8) before committing.
          - Accept that you're losing the other column's distinctions.
          - Example: (sid, plan, term, degree) is the grain; collapse on honors descending
            (keep Summa > Magna > Cum > none); **drop sub_plan distinctions** means one row per grain
@@ -372,6 +381,10 @@ def _identity_reasoning_steps() -> str:
 3. Apply domain priors (see above) — these override data inference when they conflict.
 
 4. Determine dedup policy — PRIORITY: prefer collapse to clean grain over multi-row ambiguity
+
+   **Collision scale (first):** If **Collision scale** (before step 8) applies, prefer
+   `policy_required` and HITL about whether duplicates are intentional — do not default to
+   `temporal_collapse` with sort options.
 
    **Validity check:** If the candidate key has `non_unique_rows` > 0, you CANNOT use `no_dedup`.
    Use `temporal_collapse`, `true_duplicate`, or `policy_required` instead.
@@ -413,33 +426,90 @@ def _identity_reasoning_steps() -> str:
 
 7. Assign numeric `confidence` and `hitl_flag` per **CONFIDENCE SCORING** (next section).
 
-### Sort column validity (all table types) — read before HITL option generation (step 8)
+### Collision scale (read before `dedup_sort_by`, contract dedup, and HITL options — step 8)
+
+Before you generate any dedup option or `temporal_collapse` with a sort direction, use the key
+profile facts for the candidate key: `non_unique_rows`, `affected_groups`, and (when you can
+judge it) the duplicate share of the table — a tiny duplicate footprint is **not** the same as
+a widespread structural pattern.
+
+- **Small-collision threshold (treat as data quality, not structural dedup):** When
+  `non_unique_rows` is very small (e.g. `non_unique_rows` ≤ 5) **or** `affected_groups` = 1, or
+  when the duplicate count is a negligible share of a large table, **do not** treat the situation
+  as a reusable collapse/tiebreak pattern. Treat it as a **data quality** question: are these
+  rows **intentional** (e.g. dual enrollment, multiple awards) or **artifacts** (entry error,
+  system duplicate, bad join)?
+- In that case use `dedup_policy.strategy`: `policy_required`, set `hitl_flag` true, and frame
+  `hitl_questions` / HITL text around **whether the collision is expected and business-correct** —
+  **not** around which sort direction (earliest vs latest) to apply.
+- **Never** offer **first/last** `temporal_collapse` or alphabetical tiebreak options for
+  **single-group** collisions (`affected_groups` = 1) in this small-collision regime — there is
+  no meaningful “direction” to choose; the question is **policy**, not sort order.
+- It remains true that you cannot use `no_dedup` while the candidate key has
+  `non_unique_rows` greater than zero; route the ambiguity through `policy_required` and
+  HITL as above instead of fabricating sort-based options.
+
+### Sort column validity and cardinality (all table types) — read before HITL option generation (step 8)
 
 This applies to **every** table type whenever you set `dedup_sort_by` (contract or
 `HITLItem` resolution) for `temporal_collapse` (or the equivalent in option JSON).
 
-- **Require** `dedup_sort_by` to reference a column with meaningful ordering semantics:
+**Temporal columns** (term, date, year, semester) remain valid `dedup_sort_by` targets when
+time order is the policy — still subject to **Collision scale** when the duplicate footprint
+is tiny (do not invent “earliest vs latest” on time if the real question is whether a duplicate
+row is valid).
+
+**Cardinality (non-temporal columns)** — before setting `dedup_sort_by` on a **non-temporal**
+column, check **effective cardinality** and whether you can list a **complete** meaningful
+ordering from profile evidence **alone**. A **non-temporal** column is a **valid** sort
+target **only** if it has a **small, fully enumerable** value set and you can state a
+**complete** `categorical_priority` with `priority_order` (institutional hierarchy, not string
+collation and not a partial guess).
+
+- A column is **not** a valid sort target (do **not** use `dedup_sort_by` / `temporal_collapse`
+  on it; do **not** use `temporal_collapse` as a stand-in) when it has **high** effective
+  cardinality (roughly **10+** distinct values in the profile) **or** you **cannot** enumerate
+  a **complete** meaningful `priority_order` from the profile alone. In that case: use
+  `policy_required`, set `hitl_flag` true, and **do not** offer “first/last alphabetically” as a
+  fallback. **Do not** treat a couple of `sample_values` in `within_group_variance` as proof of
+  low cardinality or a sortable set — that field shows **what differs in collisions**, not a
+  basis for row ordering. Two program names in `sample_values` are still not an institutional
+  hierarchy. When you need distinct counts and full value lists, use `RawTableProfile` column
+  stats (`unique_count`, `unique_values`, `sample_values`) if present in the same run; the key
+  profile’s variance `sample_values` alone are **never** sufficient to justify
+  `temporal_collapse` on a non-temporal label column.
+
+- **Require** `dedup_sort_by` (where valid) to reference a column with meaningful ordering
+  semantics:
   - a **temporal** column (term, date, semester, etc.), or
   - a **categorical** column that you can express as `dedup_strategy: "categorical_priority"`
-    with an explicit `priority_order` (institutional value hierarchy, not string collation), or
+    with an explicit, **complete** `priority_order` (institutional value hierarchy, not string
+    collation), or
   - a **measure** column (GPA, credits, counts, etc.) **only** when the policy question is
     explicitly about keeping the **highest** or **lowest** value — not as a default tiebreak
-    when the real issue is label variance.
+    when the real issue is high-cardinality label variance.
 
 - **Prohibit** `dedup_sort_by` on free-text **label or name** columns
   (e.g. `program_at_first_enrollment`, `major_at_first_enrollment`, `degree_name`,
   `program_at_graduation`, `major_at_graduation`) where **alphabetical** order carries no
   institutional meaning — the same class of mistake called out in **Degree dedup — sort column
-  validity** (DOMAIN PRIORS).
+  validity** (DOMAIN PRIORS), unless the cardinality and hierarchy rules above are satisfied
+  (rare for raw labels).
 
 - When **no** column meets the above, do **not** fake a sort: use
   `dedup_strategy: "policy_required"`, set `hitl_flag` true, and describe the ambiguity in
   `hitl_items`. **HITL options must name actual tiebreak semantics** — e.g. "keep first/last
   alphabetically" is **not** a valid standalone option unless the institution has **explicitly
-  confirmed** that alphabetic ordering is intentional policy.
+  confirmed** that alphabetic ordering is intentional policy. Combine with **Collision scale**
+  when duplicate volume is small: do not substitute sort options for a policy question.
 
 8. Emit `hitl_items` when `hitl_flag` is true
 
+   - **Collision scale:** When **Collision scale** classifies the duplicate footprint as
+     small (e.g. `affected_groups` = 1, or `non_unique_rows` below the threshold there), do
+     **not** emit HITL options that are only “keep earliest / latest” on a **non-temporal** column
+     or alphabetical first/last — HITL must target **whether the duplicate is expected** (and
+     related policy), per that section.
    - Emit one `HITLItem` per distinct ambiguity. A single table may have multiple items
      if independent questions arise (e.g. grain ambiguity + dedup policy).
 
@@ -878,11 +948,22 @@ Column list (name: dtype, one per line):
 {column_list}
 
 Key profile JSON (`RankedCandidateProfiles` — ranked candidate keys, uniqueness, within-group variance):
-{key_profile_json}
+{key_profile_json}{raw_table_profile_block}
 """
 
 
 IDENTITY_AGENT_USER_TEMPLATE = _user_message_template()
+
+
+def _raw_table_profile_user_block(raw_table_profile: RawTableProfile | None) -> str:
+    if raw_table_profile is None:
+        return ""
+    return (
+        "\n\nRaw table profile JSON (`RawTableProfile` — table scale and per-column "
+        "cardinality: `row_count`, `unique_count`, `unique_values` when present, `sample_values`; "
+        "for **Sort column validity and cardinality** in the system prompt):\n"
+        + json.dumps(raw_table_profile.model_dump(mode="json"), indent=2)
+    )
 
 
 def format_column_list(df: pd.DataFrame) -> str:
@@ -897,8 +978,10 @@ def get_identity_agent_user_sections(
     *,
     column_list: str,
     key_profile_json: str,
+    raw_table_profile: RawTableProfile | None = None,
 ) -> dict[str, str]:
     """Named sections of the grain user message (variable-size vs static instructions)."""
+    rtp_block = _raw_table_profile_user_block(raw_table_profile)
     return {
         "institution_and_dataset": f"Institution ID: {institution_id}\nDataset: {dataset_name}",
         "column_list_block": (
@@ -908,6 +991,7 @@ def get_identity_agent_user_sections(
             "\nKey profile JSON (`RankedCandidateProfiles` — ranked candidate keys, uniqueness, "
             "within-group variance):\n" + key_profile_json
         ),
+        "raw_table_profile": rtp_block,
     }
 
 
@@ -918,11 +1002,15 @@ def build_identity_agent_user_message(
     *,
     column_list: str | None = None,
     df: pd.DataFrame | None = None,
+    raw_table_profile: RawTableProfile | None = None,
 ) -> str:
     """
     Build the user message body for IdentityAgent.
 
     Pass exactly one of ``column_list`` (pre-formatted) or ``df`` (columns inferred).
+    When ``raw_table_profile`` is set (same object from ``profile_candidate_keys``), the model
+    receives per-column ``unique_count`` / ``unique_values`` for cardinality rules in the
+    system prompt.
     """
     if df is not None and column_list is not None:
         raise ValueError("Pass only one of column_list or df")
@@ -939,6 +1027,7 @@ def build_identity_agent_user_message(
         dataset_name=dataset_name,
         column_list=resolved_columns,
         key_profile_json=key_profile_json,
+        raw_table_profile_block=_raw_table_profile_user_block(raw_table_profile),
     )
 
 
@@ -949,6 +1038,7 @@ def audit_identity_agent_prompt(
     *,
     column_list: str | None = None,
     df: pd.DataFrame | None = None,
+    raw_table_profile: RawTableProfile | None = None,
     log: bool = True,
 ) -> dict[str, Any]:
     """
@@ -976,6 +1066,7 @@ def audit_identity_agent_prompt(
         dataset_name,
         column_list=resolved_columns,
         key_profile_json=key_profile_json,
+        raw_table_profile=raw_table_profile,
     )
     combined: dict[str, str] = {f"system.{k}": v for k, v in sys_sections.items()}
     combined.update({f"user.{k}": v for k, v in user_sections.items()})
