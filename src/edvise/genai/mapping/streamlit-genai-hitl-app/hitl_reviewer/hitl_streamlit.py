@@ -101,6 +101,7 @@ def _safe_key(s: str) -> str:
 
 
 def init_reviewer_in_session() -> None:
+    """Default ``session_state['reviewer']`` for UC approve/reject (``GENAI_HITL_REVIEWER`` or ``USER``). No UI field."""
     if "reviewer" not in st.session_state:
         st.session_state["reviewer"] = os.getenv("GENAI_HITL_REVIEWER", "").strip() or (
             os.getenv("USER", "") or os.getenv("USERNAME", "") or "reviewer"
@@ -136,7 +137,7 @@ def render_connection_sidebar(
     nav_group_line: str | None = None,
 ) -> tuple[str, SidebarState, bool]:
     """
-    Renders ``st.sidebar`` with Databricks, Unity Catalog, reviewer, and (on the home page) table filters.
+    Renders ``st.sidebar`` with Databricks, Unity Catalog, and (on the home page) table filters.
 
     **Do not** pass ``value=`` to the Unity Catalog field; it uses ``key="sidebar_catalog"`` only, with
     the initial value coming from :func:`init_sidebar_form_state` and navigation from
@@ -165,11 +166,6 @@ def render_connection_sidebar(
         except ValueError as e:
             st.warning(str(e))
             catalog = default_catalog()
-        st.text_input(
-            "Reviewer name (stored on approve/reject)",
-            key="reviewer",
-            help="Written to UC on approve or reject.",
-        )
         if show_table_query_filters:
             st.number_input("Row limit", min_value=50, max_value=5000, step=50, key="sidebar_limit")
             st.caption("**Table filters** — for the **hitl_reviews** result set above (defaults to **pending**).")
@@ -189,7 +185,7 @@ def render_connection_sidebar(
         else:
             st.caption(
                 "**Table filters and row limit** are on the **HITL Review** workbench. "
-                "Use **Unity Catalog** and **reviewer** for the HITL editor below on that page."
+                "Use **Unity Catalog** there for the HITL editor below."
             )
 
     limit = int(st.session_state.get("sidebar_limit", 500) or 500)

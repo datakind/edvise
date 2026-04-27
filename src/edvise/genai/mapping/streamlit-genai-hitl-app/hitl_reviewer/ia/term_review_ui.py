@@ -91,11 +91,24 @@ def ia_term_run_total_items(pending_df: pd.DataFrame | None, onboard_run_id: str
     return total
 
 
-def _render_term_hitl_context(item: dict[str, Any]) -> None:
+def _render_term_hitl_context(*, item: dict[str, Any], hitl_question: str) -> None:
+    """
+    ``hitl_context`` is meant to be *evidence* (e.g. sample values) while ``hitl_question`` is the ask.
+    The model sometimes repeats content in both; we skip a redundant **Context** block. We render with
+    ``hitl-ctx-prose`` (``pre-wrap``) so long lines wrap — raw ``st.text`` does not, which looked like
+    the copy was cut off.
+    """
     hctx = item.get("hitl_context")
+    q = (hitl_question or "").strip()
     if isinstance(hctx, str) and hctx.strip():
+        h = hctx.strip()
+        if h == q or (q and h in q and len(h) >= 48):
+            return
         st.subheader("Context")
-        st.text(hctx.strip())
+        st.markdown(
+            f'<div class="hitl-ctx-prose">{html.escape(h)}</div>',
+            unsafe_allow_html=True,
+        )
     elif isinstance(hctx, dict) and hctx:
         st.subheader("Context")
         st.json(hctx)
@@ -157,7 +170,7 @@ def render_ia_term_hitl_cards(
             unsafe_allow_html=True,
         )
 
-        _render_term_hitl_context(item)
+        _render_term_hitl_context(item=item, hitl_question=q)
 
         options = item.get("options")
         if not isinstance(options, list):

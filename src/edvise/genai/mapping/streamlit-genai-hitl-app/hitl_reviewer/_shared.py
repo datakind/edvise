@@ -38,6 +38,8 @@ div[data-testid="stVerticalBlock"] {
 }
 .ia-var-line { font-size: 0.85rem; line-height: 1.45; margin: 0.2rem 0 0.4rem 0; }
 .ia-variance-panel h4 { margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 600; color: rgba(49, 51, 63, 0.95); }
+.ia-variance-explainer { font-size: 0.78rem; line-height: 1.45; color: rgba(49, 51, 63, 0.75);
+  margin: 0 0 0.6rem 0; padding-bottom: 0.45rem; border-bottom: 1px solid rgba(0,0,0,0.07); }
 .ia-var-key { font-weight: 600; font-family: ui-monospace, monospace; }
 
 /* Option card buttons: .hitl-opt-mark in prior block (hidden) + adjacent stButton; avoids action bar */
@@ -247,7 +249,7 @@ def render_action_bar(
     if pre_bar_caption is not None:
         st.caption(pre_bar_caption)
     with st.container(border=True):
-        if include_prev_next:
+        if include_prev_next and n_items > 1:
             c_prev, c_next, _nav_pad = st.columns([1, 1, 3], gap="small")
             with c_prev:
                 pk = f"{key_prefix}-prev-{sk}" if nav_prev_button_key is None else nav_prev_button_key

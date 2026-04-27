@@ -176,9 +176,18 @@ def _render_variance_profile(hitl_ctx: dict[str, Any]) -> None:
     if not isinstance(vp, dict) or not vp:
         return
     # Always-visible panel (avoid ``st.expander`` — it collapses on ``st.rerun()`` after Select).
+    # Percent in JSON strings is profiling: fraction of *duplicate key groups* where the column
+    # takes &gt;1 value (not % of all rows, not statistical variance of numbers).
+    _exp = (
+        "Percentages in the summaries below (e.g. 100% or 25%–50%) mean: among "
+        "duplicate <strong>groups</strong> (rows sharing the same candidate key), what <strong>fraction of "
+        "those groups</strong> show this <strong>non-key</strong> column with <strong>more than one value</strong>. "
+        "100% means every such group—not “100% of all rows in the file.” Quoted values render as chips."
+    )
     inner: list[str] = [
         '<div class="ia-variance-panel">',
         "<h4>Where the ambiguity is</h4>",
+        f'<p class="ia-variance-explainer">{_exp}</p>',
     ]
     for col, val in vp.items():
         v = val if isinstance(val, str) else str(val)
