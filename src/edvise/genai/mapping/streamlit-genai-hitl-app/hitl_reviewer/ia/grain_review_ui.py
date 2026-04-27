@@ -123,6 +123,11 @@ def _render_candidate_keys_table(hitl_ctx: dict[str, Any]) -> None:
         st.caption("No structured ``candidate_keys`` in ``hitl_context``.")
         return
     st.markdown("**Candidate keys**")
+    st.caption(
+        "**Rank 1** is the proposed grain: the same column set as **post_clean_primary_key** in the "
+        "Identity Agent response. Ranks **2+** are documented alternatives (e.g. **candidate key override**), "
+        "not a second “best” guess of rank 1. Uniqueness % is profiling evidence, not the sort order of ranks."
+    )
     body_rows: list[str] = []
     for entry in ck:
         if not isinstance(entry, dict):
