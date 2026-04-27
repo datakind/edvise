@@ -14,9 +14,9 @@ from edvise.genai.mapping.shared.token_audit.prompt_token_audit import estimate_
 
 from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
+from .hitl_uniqueness_backfill import backfill_hitl_uniqueness_scores_from_key_profile
 from .prompt import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
-    backfill_hitl_uniqueness_scores_from_key_profile,
     build_identity_agent_user_message,
     parse_grain_contract_with_hitl,
 )

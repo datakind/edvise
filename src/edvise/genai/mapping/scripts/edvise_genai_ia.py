@@ -250,6 +250,9 @@ def run_onboard_start(
         institution_id,
         contracts_by_dataset,
         grain_hitl_items,
+        key_profiles_by_table={
+            name: run_by_dataset[name]["key_profile"] for name in run_by_dataset
+        },
     )
     write_identity_term_artifacts(
         paths.run_root,

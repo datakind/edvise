@@ -4,8 +4,10 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from edvise.genai.mapping.identity_agent.grain_inference.prompt import (
+from edvise.genai.mapping.identity_agent.grain_inference.hitl_uniqueness_backfill import (
     backfill_hitl_uniqueness_scores_from_key_profile,
+)
+from edvise.genai.mapping.identity_agent.grain_inference.prompt import (
     build_identity_agent_user_message,
     format_column_list,
     parse_grain_contract,

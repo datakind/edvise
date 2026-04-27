@@ -17,6 +17,7 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     HITLItem,
     InstitutionHITLItems,
 )
+from edvise.genai.mapping.identity_agent.profiling import RankedCandidateProfiles
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermContract
 
 
@@ -57,9 +58,16 @@ def write_identity_grain_artifacts(
     institution_id: str,
     contracts_by_dataset: Mapping[str, GrainContract],
     hitl_items: list[HITLItem],
+    *,
+    key_profiles_by_table: Mapping[str, RankedCandidateProfiles] | None = None,
 ) -> tuple[Path, Path]:
     """
     Write ``identity_grain_output.json`` (resolver config) and ``identity_grain_hitl.json``.
+
+    When ``key_profiles_by_table`` is set (e.g. ``{dataset: key_profile}`` from
+    :func:`build_identity_profiling_run_by_dataset`), HITL ``candidate_keys[].uniqueness_score``
+    values are **re-copied** from the profiler for matching column sets so the written JSON
+    does not retain model-invented zeros. Pass the same map used for the grain LLM.
 
     Returns
     -------
@@ -68,11 +76,21 @@ def write_identity_grain_artifacts(
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    if key_profiles_by_table:
+        from edvise.genai.mapping.identity_agent.grain_inference.hitl_uniqueness_backfill import (
+            backfill_hitl_uniqueness_scores,
+        )
+
+        to_write = backfill_hitl_uniqueness_scores(
+            hitl_items, key_profiles_by_table
+        )
+    else:
+        to_write = hitl_items
     cfg = build_grain_config_for_resolver(institution_id, contracts_by_dataset)
     env = InstitutionHITLItems(
         institution_id=institution_id,
         domain="grain",
-        items=hitl_items,
+        items=to_write,
     )
     config_path = output_dir / "identity_grain_output.json"
     hitl_path = output_dir / "identity_grain_hitl.json"

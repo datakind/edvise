@@ -15,8 +15,6 @@ from typing import Any, Union, cast
 import pandas as pd
 
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
-    GrainAmbiguityHITLContext,
-    HITLDomain,
     HITLItem,
     get_grain_hitl_item_schema_context,
 )
@@ -140,6 +138,10 @@ remains multi-row per student after the suffix pass.
 
 When two or more non-temporal, non-measure columns have variance within the same candidate key:
 
+- **Before** you pick tiebreak columns, prioritize columns for collapse, or emit
+  `dedup_sort_by` / `temporal_collapse` in HITL or the contract, read
+  **Sort column validity (all table types)** in **REASONING STEPS** (immediately after step 7,
+  before step 8). It applies to every table type, not only degree tables.
 - Do NOT use `no_dedup` as a catch-all. You must still choose a collapse strategy or declare
   the grain is wider.
 - Prioritize **institutional semantic meaning**:
@@ -167,21 +169,14 @@ When two or more non-temporal, non-measure columns have variance within the same
 
 ### Degree dedup — sort column validity
 
-When collapsing a degree/award table to one row per student, `dedup_sort_by` must reference
-a column with meaningful ordering semantics. Valid choices in priority order:
-
-1. A completion/award date or term column (e.g. `compl_term`, `award_date`) — prefer earliest
-   or latest depending on the policy question.
-2. A degree-tier column where values have institutional hierarchy (e.g. Bachelor's > Associate's
-   > Certificate). Because raw string sort on degree names is not reliable, use
-   `reentry: "generate_hook"` for any option that requires a tier mapping.
-3. A GPA or standing column if the institution's policy is to keep the highest-standing degree.
-
-Never use `dedup_sort_by` pointing to a free-text name or label column (e.g. `program_at_graduation`,
-`major_at_graduation`, `degree_name`) where alphabetical order carries no institutional meaning.
-If no meaningful sort column exists, use `dedup_strategy: "policy_required"` and flag HITL.
-HITL options must name actual tiebreak semantics — never offer "keep first/last alphabetically"
-as a standalone option unless the institution has confirmed that ordering is intentional.
+Applies the same requirements as **Sort column validity (all table types)** in
+**REASONING STEPS** (immediately before step 8). In degree/award work, that includes:
+prefer completion/award date or term; prefer `categorical_priority` with `priority_order` (or
+`reentry: "generate_hook"`) for degree-tier semantics where raw name sort is unreliable; prefer
+GPA/standing when policy is to keep the highest-standing credential. **Never** use
+`dedup_sort_by` on free-text name/label columns (`program_at_graduation`, `major_at_graduation`,
+`degree_name`, etc.); use `policy_required` + HITL when no valid sort column exists; do not
+offer standalone alphabetical tiebreaks without explicit institutional confirmation.
 
 ### Categorical column variance — categorical_priority strategy
 
@@ -349,7 +344,8 @@ def _identity_reasoning_steps() -> str:
 
       **Option i) All variance is noise; grain is as identified; collapse via tiebreak on ONE column**
          - Choose the column with clearest business semantics (e.g., honors over sub_plan
-           if honors is institutional priority).
+           if honors is institutional priority) — verify it meets **Sort column validity**
+           (see step 7 / **Sort column validity (all table types)**) before committing.
          - Accept that you're losing the other column's distinctions.
          - Example: (sid, plan, term, degree) is the grain; collapse on honors descending
            (keep Summa > Magna > Cum > none); **drop sub_plan distinctions** means one row per grain
@@ -416,6 +412,31 @@ def _identity_reasoning_steps() -> str:
      name from the column list for the student slot.
 
 7. Assign numeric `confidence` and `hitl_flag` per **CONFIDENCE SCORING** (next section).
+
+### Sort column validity (all table types) — read before HITL option generation (step 8)
+
+This applies to **every** table type whenever you set `dedup_sort_by` (contract or
+`HITLItem` resolution) for `temporal_collapse` (or the equivalent in option JSON).
+
+- **Require** `dedup_sort_by` to reference a column with meaningful ordering semantics:
+  - a **temporal** column (term, date, semester, etc.), or
+  - a **categorical** column that you can express as `dedup_strategy: "categorical_priority"`
+    with an explicit `priority_order` (institutional value hierarchy, not string collation), or
+  - a **measure** column (GPA, credits, counts, etc.) **only** when the policy question is
+    explicitly about keeping the **highest** or **lowest** value — not as a default tiebreak
+    when the real issue is label variance.
+
+- **Prohibit** `dedup_sort_by` on free-text **label or name** columns
+  (e.g. `program_at_first_enrollment`, `major_at_first_enrollment`, `degree_name`,
+  `program_at_graduation`, `major_at_graduation`) where **alphabetical** order carries no
+  institutional meaning — the same class of mistake called out in **Degree dedup — sort column
+  validity** (DOMAIN PRIORS).
+
+- When **no** column meets the above, do **not** fake a sort: use
+  `dedup_strategy: "policy_required"`, set `hitl_flag` true, and describe the ambiguity in
+  `hitl_items`. **HITL options must name actual tiebreak semantics** — e.g. "keep first/last
+  alphabetically" is **not** a valid standalone option unless the institution has **explicitly
+  confirmed** that alphabetic ordering is intentional policy.
 
 8. Emit `hitl_items` when `hitl_flag` is true
 
@@ -972,56 +993,6 @@ def _grain_payload_as_dict(raw: RawContractInput) -> dict:
         return dict(raw)
     text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
     return cast(dict[str, Any], json.loads(strip_json_fences(text)))
-
-
-def _column_set_signature(columns: list[str]) -> tuple[str, ...]:
-    return tuple(sorted(columns))
-
-
-def backfill_hitl_uniqueness_scores_from_key_profile(
-    items: list[HITLItem],
-    key_profile: RankedCandidateProfiles,
-) -> list[HITLItem]:
-    """
-    Overwrite ``hitl_context.candidate_keys[].uniqueness_score`` when the column set matches
-    a profiled :class:`~edvise.genai.mapping.identity_agent.profiling.schemas.CandidateKey`.
-
-    The LLM often re-ranks keys for semantic grain and may emit **0** to mean "not the
-    intended grain" or "requires collapse" — that misuses the field, which is **profiling
-    evidence** (fraction of rows unique on the key), not a confidence score. The key profile
-    is the source of truth for the same column list.
-    """
-    profile_scores: dict[tuple[str, ...], float] = {}
-    for prof in key_profile.candidate_key_profiles:
-        sig = _column_set_signature(prof.candidate_key.columns)
-        profile_scores[sig] = prof.candidate_key.uniqueness_score
-
-    if not profile_scores:
-        return items
-
-    out: list[HITLItem] = []
-    for item in items:
-        if item.domain != HITLDomain.IDENTITY_GRAIN:
-            out.append(item)
-            continue
-        ctx = item.hitl_context
-        if not isinstance(ctx, GrainAmbiguityHITLContext):
-            out.append(item)
-            continue
-        new_keys = []
-        for entry in ctx.candidate_keys:
-            sig = _column_set_signature(entry.columns)
-            if sig in profile_scores:
-                new_keys.append(
-                    entry.model_copy(
-                        update={"uniqueness_score": profile_scores[sig]}
-                    )
-                )
-            else:
-                new_keys.append(entry)
-        new_ctx = ctx.model_copy(update={"candidate_keys": new_keys})
-        out.append(item.model_copy(update={"hitl_context": new_ctx}))
-    return out
 
 
 def parse_grain_contract_with_hitl(
