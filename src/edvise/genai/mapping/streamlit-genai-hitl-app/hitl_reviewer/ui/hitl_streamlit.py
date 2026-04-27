@@ -566,6 +566,26 @@ def set_nav_selection(
     p["artifact_type"] = st.session_state[KEY_NAV_ARTIFACT_TYPE]
 
 
+_NAV_QUERY_KEYS = ("catalog", "onboard_run_id", "phase", "artifact_type")
+
+
+def clear_hitl_workbench_group_nav() -> None:
+    """
+    Drop the HITL workbench “selected group” from session and from URL query params.
+
+    Call from the Home page (or any non-workbench page) so a previous table selection or
+    in-app navigation does not keep showing after the user leaves and returns to Review History.
+    Also clears the workbench table selection widget key so the grid does not keep a row highlighted.
+    """
+    for k in (KEY_NAV_CATALOG, KEY_NAV_ONBOARD, KEY_NAV_PHASE, KEY_NAV_ARTIFACT_TYPE, KEY_HYDRATE_SIG):
+        st.session_state.pop(k, None)
+    st.session_state.pop(HITL_RESULTS_DF_KEY, None)
+    qp = st.query_params
+    for qk in _NAV_QUERY_KEYS:
+        if qk in qp:
+            del qp[qk]
+
+
 def _one_query_value(key: str) -> str | None:
     v = st.query_params.get(key)
     if v is None:

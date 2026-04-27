@@ -42,7 +42,7 @@ def _grain(**kwargs) -> GrainContract:
         dedup_policy=DedupPolicy(
             strategy="true_duplicate",
             sort_by=None,
-            keep="first",
+            keep=None,
             notes="",
         ),
         row_selection_required=False,
@@ -272,7 +272,7 @@ def test_apply_grain_execution_order_dedup_then_term():
         dedup_policy=DedupPolicy(
             strategy="true_duplicate",
             sort_by=None,
-            keep="first",
+            keep=None,
             notes="",
         ),
     )
@@ -297,7 +297,7 @@ def test_apply_grain_dedup_learner_id_canonical_column():
         dedup_policy=DedupPolicy(
             strategy="true_duplicate",
             sort_by=None,
-            keep="first",
+            keep=None,
             notes="",
         ),
     )
@@ -312,7 +312,7 @@ def test_build_dedupe_fn_from_grain_contract():
         dedup_policy=DedupPolicy(
             strategy="true_duplicate",
             sort_by=None,
-            keep="first",
+            keep=None,
             notes="",
         ),
     )
@@ -353,7 +353,7 @@ def test_apply_grain_dedup_resolves_term_desc_prefix_to_term_descr():
         dedup_policy=DedupPolicy(
             strategy="true_duplicate",
             sort_by=None,
-            keep="first",
+            keep=None,
             notes="",
         ),
     )

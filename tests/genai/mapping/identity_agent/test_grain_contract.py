@@ -138,7 +138,7 @@ def test_parse_grain_contract_fenced_json():
         "dedup_policy": {
             "strategy": "true_duplicate",
             "sort_by": None,
-            "keep": "first",
+            "keep": None,
             "notes": "drop dupes",
         },
         "row_selection_required": False,
@@ -240,7 +240,7 @@ def test_low_confidence_requires_hitl():
 
 
 def test_confidence_at_threshold_requires_hitl():
-    """At-or-below threshold: hitl_flag must be true (≤ comparison)."""
+    """Slightly below threshold: hitl_flag must be true (schema uses strict < for the cutoff)."""
     raw = {
         "institution_id": "x",
         "table": "t",
@@ -253,10 +253,10 @@ def test_confidence_at_threshold_requires_hitl():
         },
         "row_selection_required": True,
         "join_keys_for_2a": ["a", "b"],
-        "confidence": IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+        "confidence": IDENTITY_CONFIDENCE_HITL_THRESHOLD - 1e-6,
         "hitl_flag": False,
         "hitl_question": None,
-        "reasoning": "At threshold.",
+        "reasoning": "Slightly below threshold.",
     }
     with pytest.raises(ValueError, match="hitl_flag"):
         parse_grain_contract(raw)

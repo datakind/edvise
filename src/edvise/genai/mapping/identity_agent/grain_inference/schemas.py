@@ -12,7 +12,10 @@ from pydantic import (
     model_validator,
 )
 
-from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
+from edvise.genai.mapping.identity_agent.utilities import (
+    concat_model_sources,
+    get_top_level_assign_source,
+)
 
 # Below this confidence score, `hitl_flag` must be true (ambiguous grain / policy required).
 IDENTITY_CONFIDENCE_HITL_THRESHOLD: float = 0.5
@@ -21,6 +24,8 @@ IDENTITY_CONFIDENCE_HITL_THRESHOLD: float = 0.5
 DedupStrategy = Literal[
     "true_duplicate",
     "temporal_collapse",
+    "categorical_priority",
+    "suffix_identifier",
     "no_dedup",
     "policy_required",  # current state only — never a valid resolution target
 ]
@@ -88,6 +93,27 @@ class DedupPolicy(BaseModel):
         ),
     )
     keep: Literal["first", "last"] | None = None
+    suffix_column: str | None = Field(
+        default=None,
+        description=(
+            "When strategy is suffix_identifier: column whose values are suffixed with -1, -2, ... "
+            "within each grain key group so all rows are kept. Required for that strategy."
+        ),
+    )
+    priority_column: str | None = Field(
+        default=None,
+        description=(
+            "When strategy is categorical_priority: column whose categorical values are ranked. "
+            "Required for that strategy; must be null for other strategies."
+        ),
+    )
+    priority_order: list[str] | None = Field(
+        default=None,
+        description=(
+            "When strategy is categorical_priority: explicit value order, highest priority first. "
+            "Values not in this list are ranked lowest. Required (non-empty) for that strategy."
+        ),
+    )
     notes: str = ""
     hook_spec: HookSpec | None = Field(
         default=None,
@@ -116,6 +142,68 @@ class DedupPolicy(BaseModel):
                 "temporal_collapse requires sort_ascending to be explicitly set — "
                 "True for earliest, False for latest."
             )
+        return self
+
+    @model_validator(mode="after")
+    def suffix_identifier_requires_suffix_column(self) -> "DedupPolicy":
+        if self.strategy == "suffix_identifier" and not (
+            self.suffix_column and str(self.suffix_column).strip()
+        ):
+            raise ValueError(
+                "dedup strategy suffix_identifier requires suffix_column to be a non-empty column name."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def strategy_specific_field_consistency(self) -> "DedupPolicy":
+        """Enforce that optional dedup fields are only set for the strategies that use them."""
+        s = self.strategy
+        if s == "categorical_priority":
+            if not self.priority_column or not str(self.priority_column).strip():
+                raise ValueError(
+                    "categorical_priority requires a non-empty priority_column."
+                )
+            if self.priority_order is None or not len(self.priority_order):
+                raise ValueError(
+                    "categorical_priority requires priority_order to be a non-null non-empty list."
+                )
+            for name, v in (
+                ("sort_by", self.sort_by),
+                ("keep", self.keep),
+                ("sort_ascending", self.sort_ascending),
+                ("suffix_column", self.suffix_column),
+            ):
+                if v is not None:
+                    raise ValueError(
+                        f"categorical_priority requires {name} to be null; use "
+                        f"priority_column and priority_order only."
+                    )
+            return self
+
+        if self.priority_column is not None or self.priority_order is not None:
+            raise ValueError(
+                f"dedup strategy {s!r} may not set priority_column or priority_order; "
+                "those fields are only for strategy=categorical_priority."
+            )
+        if s not in ("suffix_identifier",) and self.suffix_column is not None:
+            raise ValueError(
+                f"dedup strategy {s!r} requires suffix_column to be null; "
+                "it is only used for strategy=suffix_identifier."
+            )
+        if s in ("true_duplicate", "no_dedup") and (
+            self.sort_by is not None
+            or self.keep is not None
+            or self.sort_ascending is not None
+        ):
+            raise ValueError(
+                f"dedup strategy {s!r} requires sort_by, keep, and sort_ascending to be null."
+            )
+        if s == "suffix_identifier" and (
+            self.sort_by is not None
+            or self.keep is not None
+            or self.sort_ascending is not None
+        ):
+            raise ValueError("suffix_identifier requires sort_by, keep, and sort_ascending to be null.")
         return self
 
 
@@ -264,6 +352,12 @@ def build_institution_grain_contracts(
 
 def get_grain_contract_schema_context() -> str:
     """Python source for grain-stage contract models (per-dataset ``GrainContract`` JSON)."""
-    return concat_model_sources(
+    # Module-level ``DedupStrategy`` is the Literal set for ``dedup_policy.strategy``; it is not
+    # included in ``getsource`` of the model classes, so we prepend it for the system prompt.
+    dedup_strategy = get_top_level_assign_source(__file__, "DedupStrategy")
+    rest = concat_model_sources(
         (HookFunctionSpec, HookSpec, DedupPolicy, GrainContract)
     )
+    if not dedup_strategy:
+        return rest
+    return f"{dedup_strategy}\n\n{rest}"

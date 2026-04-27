@@ -24,6 +24,7 @@ import streamlit as st
 from hitl_reviewer.platform.databricks_uc_sql import get_warehouse_id
 from hitl_reviewer.ui.hitl_streamlit import (
     HITL_WORKBENCH_PAGE,
+    clear_hitl_workbench_group_nav,
     default_catalog,
     display_columns,
     load_hitl_rows,
@@ -33,6 +34,7 @@ from hitl_reviewer.ui.hitl_streamlit import (
 _HITL_BENCH = "HITL Review History"
 
 st.set_page_config(page_title="HITL — home", layout="wide")
+clear_hitl_workbench_group_nav()
 st.title("GenAI HITL")
 st.caption(
     f"**How to use:** open **{_HITL_BENCH}** from the sidebar to work the queue "

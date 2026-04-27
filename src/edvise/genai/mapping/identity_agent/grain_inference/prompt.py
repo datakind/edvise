@@ -102,6 +102,32 @@ If you need HITL because the grain is ambiguous (should it be `(student, class)`
   }
   ```
 
+### Repeat course enrollment — grade and credit preservation
+
+When a course table has multiple rows per (student, course_identifier, term) that differ on
+grade, credits_earned, credits_attempted, or similar measure columns, do NOT collapse by filtering on grade values
+(A > B > C loses longitudinal information). Do NOT offer grade-value filtering as an option.
+
+Instead, use `dedup_strategy: "suffix_identifier"` to make the course identifier unique by
+appending a positional suffix (-1, -2, ...) to the identifier column. All rows are preserved.
+No rows are dropped.
+
+Emit the contract as:
+- `dedup_policy.strategy`: `"suffix_identifier"`
+- `dedup_policy.suffix_column`: the string column that identifies the course record —
+  prefer `course_name` or `course_section_id` over opaque numeric identifiers.
+  Choose the most human-readable stable identifier available in the column list.
+- `dedup_policy.sort_by`: null (suffix order is positional, not sorted)
+- `dedup_policy.keep`: null
+
+`suffix_identifier` is a first-class strategy implemented in `contract_utilities.py`. It requires
+no hook and no HITL unless the correct `suffix_column` is genuinely ambiguous across multiple
+equally valid candidates. If ambiguous, flag HITL with options naming each candidate column
+and set `reentry: "terminal"` (the resolution only needs to specify `suffix_column`).
+
+`row_selection_required` stays true for course tables that use `suffix_identifier` — the table
+remains multi-row per student after the suffix pass.
+
 ### Semester / term-summary tables
 - Expected grain is (student_id, term).
 - True duplicates on this key (within-group variance = 0 across all columns) should be
@@ -136,6 +162,70 @@ When two or more non-temporal, non-measure columns have variance within the same
   vs degree), the grain is either intentionally multi-row at that key or must include a
   degree/credential dimension — FLAG for HITL when the collapse policy is unclear.
 - row_selection is often required when the table remains multi-row per student after cleaning.
+
+### Degree dedup — sort column validity
+
+When collapsing a degree/award table to one row per student, `dedup_sort_by` must reference
+a column with meaningful ordering semantics. Valid choices in priority order:
+
+1. A completion/award date or term column (e.g. `compl_term`, `award_date`) — prefer earliest
+   or latest depending on the policy question.
+2. A degree-tier column where values have institutional hierarchy (e.g. Bachelor's > Associate's
+   > Certificate). Because raw string sort on degree names is not reliable, use
+   `reentry: "generate_hook"` for any option that requires a tier mapping.
+3. A GPA or standing column if the institution's policy is to keep the highest-standing degree.
+
+Never use `dedup_sort_by` pointing to a free-text name or label column (e.g. `program_at_graduation`,
+`major_at_graduation`, `degree_name`) where alphabetical order carries no institutional meaning.
+If no meaningful sort column exists, use `dedup_strategy: "policy_required"` and flag HITL.
+HITL options must name actual tiebreak semantics — never offer "keep first/last alphabetically"
+as a standalone option unless the institution has confirmed that ordering is intentional.
+
+### Categorical column variance — categorical_priority strategy
+
+When non-unique rows differ on a categorical column that has a meaningful institutional
+value hierarchy (e.g. honors distinction, degree tier, enrollment status), use
+`dedup_strategy: "categorical_priority"` rather than generating a hook.
+
+Required fields in `dedup_policy`:
+- `priority_column`: the column name with categorical variance
+- `priority_order`: explicit list of values from highest to lowest priority
+  e.g. ["Summa Cum Laude", "Magna Cum Laude", "Cum Laude", ""]
+  Values not in the list are kept last (lowest priority fallback).
+- `sort_by`, `keep`: both null
+- `suffix_column`: null
+
+The kept row's value on all other columns is preserved as-is — no other column is
+controlled by this strategy. When a secondary column also has variance and its value
+from the kept row is acceptable, note this in `dedup_policy.notes`. When the secondary
+column's variance is NOT acceptable from the kept row alone, flag HITL.
+
+**Compound variance (two or more categorical columns)**
+
+When two columns both have variance, classify each:
+
+- **Dependent** (major is nested under program, sub_plan is nested under acad_plan):
+  Collapsing on the primary column resolves the secondary automatically. Use
+  `categorical_priority` on the primary column; note the dependency in `notes`.
+
+- **Independent with a clear primary** (honors and sub_plan where honors has institutional
+  priority): Use `categorical_priority` on the primary column. The secondary column
+  retains the value from the kept row — its diversity is lost. Note this explicitly
+  in `dedup_policy.notes` and in any HITL option descriptions.
+
+- **Independent with no clear primary**: Use `policy_required` and flag HITL. Options
+  must each propose a concrete `categorical_priority` resolution (naming `priority_column`
+  and a suggested `priority_order`) — never offer `no_dedup` when non_unique_rows > 0,
+  and never leave both options as `generate_hook`.
+
+When to use `generate_hook` instead:
+Hook generation is reserved for logic that cannot be expressed as a strategy + parameters:
+  - Conditional rules with branching (e.g. keep active row, fall back to most recent if none)
+  - Cross-table lookups required to resolve the duplicate
+  - Institution-specific encodings with no stable parameter form
+If the resolution can be expressed as an ordered list or a sort column, use a strategy.
+`reentry: "generate_hook"` should only appear on the `custom` escape-hatch option and
+genuinely bespoke cases — not as a shortcut when a strategy would suffice.
 
 ### Term dimension columns (course, semester, any grain that includes term)
 Mirror term **batch** normalization when choosing which column is the term dimension
@@ -636,9 +726,24 @@ VALIDITY RULES
 
 - `hitl_flag: true` requires at least one corresponding item in the top-level `hitl_items`.
 - `hitl_flag: false` means no items for this table appear in `hitl_items`.
-- `no_dedup` is only valid when `non_unique_rows` = 0 for the candidate key in the key profile.
-  If any candidate key has `non_unique_rows` > 0, use `temporal_collapse`, `true_duplicate`,
-  or `policy_required` — never `no_dedup`.
+- `dedup_policy.strategy` must be exactly one of:
+  `true_duplicate` | `temporal_collapse` | `categorical_priority` | `suffix_identifier`
+  | `no_dedup` | `policy_required`
+  No other values are valid.
+- `categorical_priority` requires `priority_column` (non-null string) and `priority_order`
+  (non-null non-empty list). `sort_by`, `keep`, and `suffix_column` must be null.
+- `suffix_identifier` requires `suffix_column` (non-null string). `sort_by`, `keep`,
+  `priority_column`, and `priority_order` must be null.
+- `temporal_collapse` requires `sort_by` (non-null), `sort_ascending` (non-null bool),
+  and `keep: "first"`. `suffix_column`, `priority_column`, `priority_order` must be null.
+- `true_duplicate` and `no_dedup`: all of `sort_by`, `keep`, `suffix_column`,
+  `priority_column`, `priority_order` must be null.
+- `no_dedup` is only valid when `non_unique_rows` = 0 for the candidate key.
+- `policy_required` defers to HITL; `hitl_flag` must be true.
+- `reentry: "generate_hook"` is only valid on the `custom` escape-hatch option and
+  cases where the resolution logic requires branching or cross-table context that no
+  strategy can express. Do not use it when `categorical_priority` or `temporal_collapse`
+  would suffice.
 """
         + f"- `confidence` ≤ {t} requires `hitl_flag: true`.\n"
         + """
@@ -653,6 +758,8 @@ VALIDITY RULES
 
 def _identity_pydantic_schema_reference() -> str:
     """Inject Pydantic model source (Schema Mapping Agent pattern) for validated JSON shapes."""
+    # get_grain_contract_schema_context() reflects the live DedupPolicy/GrainContract models
+    # (e.g. priority_column, priority_order, suffix_column); no manual copy of field lists.
     return f"""
 ## AUTHORITATIVE PYDANTIC MODELS
 
