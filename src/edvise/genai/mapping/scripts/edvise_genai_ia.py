@@ -376,15 +376,6 @@ def run_onboard_gate_1(
         db_run_id=db_run_id,
     )
 
-    # Reload resolved contracts
-    contracts_by_dataset = load_grain_contracts_from_resolver_config(
-        paths.grain_output, expected_institution_id=institution_id
-    )
-    term_contract_by_dataset = load_term_contracts_from_resolver_config(
-        paths.term_output, expected_institution_id=institution_id
-    )
-    grain_map = dict(contracts_by_dataset)
-
     # §6b — Hook generation LLM (grain + term), then UC ia_gate_1_hooks before apply/materialize
     LOGGER.info("[onboard/gate_1] Hook generation (preview)")
     norm_cols_by_table: dict[str, list[str]] = {}
@@ -496,6 +487,35 @@ def run_onboard_gate_1(
             paths.term_hitl,
             item_id=item_id,
             hook_file_root=paths.run_root,
+        )
+
+    # Reload resolver JSON after apply_hook_spec so in-memory contracts match disk.
+    # Materialize term hook modules from every dataset's TermOrderConfig — not only specs from
+    # get_hook_items (reentry=GENERATE_HOOK). Other resolutions can embed hook_spec without that
+    # reentry; those specs never appeared in term_pairs, so term_hooks.py was missing otherwise.
+    contracts_by_dataset = load_grain_contracts_from_resolver_config(
+        paths.grain_output, expected_institution_id=institution_id
+    )
+    grain_map = dict(contracts_by_dataset)
+    term_contract_by_dataset = load_term_contracts_from_resolver_config(
+        paths.term_output, expected_institution_id=institution_id
+    )
+    term_specs_embedded: dict[str, list] = defaultdict(list)
+    for _ds, t_contract in term_contract_by_dataset.items():
+        tcfg = t_contract.term_config
+        if tcfg is None or tcfg.term_extraction != "hook_required":
+            continue
+        if tcfg.hook_spec is None:
+            continue
+        spec_embedded = ensure_hook_spec_file(
+            tcfg.hook_spec,
+            institution_id=institution_id,
+            domain=HITLDomain.IDENTITY_TERM,
+        )
+        term_specs_embedded[spec_embedded.file].append(spec_embedded)
+    for specs in term_specs_embedded.values():
+        materialize_hook_specs_to_file(
+            specs, repo_root=paths.run_root, domain=HITLDomain.IDENTITY_TERM
         )
 
     # §7 — Build enriched schema contract + cleaned Parquet
