@@ -47,6 +47,7 @@ class PredConfig:
     background_data_sample: int
     cfg_inference_params: dict | None
     random_state: int
+    classification_threshold: float = 0.5
 
 
 @dataclass
@@ -144,6 +145,7 @@ def predict_probs(
     feature_names: list[str],
     pos_label: str,
     calibrator: t.Optional[modeling.h2o_ml.calibration.SklearnCalibratorWrapper] = None,
+    classification_threshold: float = 0.5,
 ) -> t.Tuple[np.ndarray, np.ndarray]:
     labels, probs = modeling.h2o_ml.inference.predict_h2o(
         features=features_df,
@@ -151,6 +153,7 @@ def predict_probs(
         feature_names=feature_names,
         pos_label=pos_label,
         calibrator=calibrator,
+        classification_threshold=classification_threshold,
     )
     return labels, probs
 
@@ -292,6 +295,7 @@ def run_predictions(
         model_feature_names,
         str(pred_cfg.pos_label),
         calibrator=cal,
+        classification_threshold=pred_cfg.classification_threshold,
     )
 
     # ----- Background for SHAP -----

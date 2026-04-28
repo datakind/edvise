@@ -60,7 +60,7 @@ def register_metric_sections(card, registry):
         will still print out how many experiments were run but the sample weight details are optional, depending
         on where a column with a substring of "sample_weight" exists in the training data.
         """
-        platform = "H2O AutoML"
+        platform = "[H2O AutoML](#glossary-h2o-automl)"
         used_weights = any(
             col.startswith("sample_weight") for col in card.training_data.columns
         )
@@ -82,3 +82,40 @@ def register_metric_sections(card, registry):
                 f"we built a machine learning pipeline for data preprocessing, model experimentation, and evaluation."
             )
         return "\n".join(filter(None, [mlops_note, sw_note]))
+
+    @registry.register("classification_threshold_section")
+    def classification_threshold():
+        """
+        Returns a markdown string describing the classification threshold used for predictions.
+        The threshold is retrieved from MLflow run parameters (logged during training) or from config.
+        """
+        # Try to get threshold from MLflow run params first
+        threshold = None
+        try:
+            if hasattr(card, "run_id") and card.run_id:
+                run = card.client.get_run(card.run_id)
+                if "classification_threshold" in run.data.params:
+                    threshold = float(run.data.params["classification_threshold"])
+        except Exception:
+            pass
+
+        # Fallback to config if not found in MLflow
+        if threshold is None:
+            modeling = getattr(card.cfg, "modeling", None)
+            training = getattr(modeling, "training", None)
+            if training:
+                threshold = getattr(training, "classification_threshold", 0.5)
+            else:
+                threshold = 0.5
+
+        threshold_note = (
+            f"{card.format.indent_level(1)}- A [classification threshold](#glossary-classification-threshold) of {threshold} was used to convert "
+            f"predicted probabilities into final binary classifications. The model produces a probability that a student needs support. "
+            f"If this probability is greater than or equal to {threshold}, the student is classified as needing support.\n"
+            f"{card.format.indent_level(2)}- Lower thresholds (e.g., 0.4) increase [recall](#glossary-recall), meaning fewer students who need support are missed, "
+            f"but more students may be flagged unnecessarily.\n"
+            f"{card.format.indent_level(2)}- Higher thresholds (e.g., 0.6) increase [precision](#glossary-precision), meaning flagged students are more likely to truly need support, "
+            f"but some students who could benefit may not be identified."
+        )
+
+        return threshold_note

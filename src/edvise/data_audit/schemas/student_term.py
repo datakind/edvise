@@ -134,8 +134,6 @@ class PDPStudentTermsDataSchema(pda.DataFrameModel):
         nullable=True
     )
     credential_type_sought_year_1: pt.Series["string"] = pda.Field(nullable=True)
-    program_of_study_term_1: pt.Series["string"] = pda.Field(nullable=True)
-    program_of_study_year_1: pt.Series["string"] = pda.Field(nullable=True)
     gpa_group_term_1: pt.Series["Float32"] = GPAField()
     gpa_group_year_1: pt.Series["Float32"] = GPAField()
     number_of_credits_earned_year_1: pt.Series["Float32"] = NumCreditsGt0Field()
@@ -148,11 +146,6 @@ class PDPStudentTermsDataSchema(pda.DataFrameModel):
     # NOTE: let's skip the many "outcome"-like columns here; we'll drop them later, anyway
     cohort_id: pt.Series["string"]
     cohort_start_dt: pt.Series["datetime64[ns]"]
-    student_program_of_study_area_term_1: pt.Series["string"] = pda.Field(nullable=True)
-    student_program_of_study_area_year_1: pt.Series["string"] = pda.Field(nullable=True)
-    student_program_of_study_area_changed_term_1_to_year_1: pt.Series["boolean"] = (
-        pda.Field(nullable=True)
-    )
     diff_gpa_term_1_to_year_1: pt.Series["Float32"] = pda.Field(nullable=True)
     frac_credits_earned_year_1: pt.Series["Float32"] = pda.Field(nullable=True)
     frac_credits_earned_year_2: pt.Series["Float32"] = pda.Field(nullable=True)
@@ -162,6 +155,12 @@ class PDPStudentTermsDataSchema(pda.DataFrameModel):
     term_is_while_student_enrolled_at_other_inst: pt.Series["bool"]
     frac_credits_earned: pt.Series["Float32"] = pda.Field(nullable=True)
     student_term_enrollment_intensity: pt.Series["string"]
+    term_program_of_study_changed_prev_term: pt.Series["boolean"] = pda.Field(
+        nullable=True
+    )
+    term_program_of_study_area_changed_prev_term: pt.Series["boolean"] = pda.Field(
+        nullable=True
+    )
     frac_courses_passed: pt.Series["float32"]
     frac_courses_completed: pt.Series["float32"]
     frac_courses_enrolled_at_other_institution_s_y: pt.Series["float32"]

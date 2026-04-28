@@ -59,11 +59,11 @@ def register_attribute_sections(card, registry):
                 )
                 return f"{card.format.bold('Timeframe for Outcome Variable Not Found')}"
 
-            full_str = card.format.format_intensity_time_limit(full_time)
+            full_str = card.format.format_time_limit_display(full_time)
             description = f"This model predicts the likelihood of {outcome} within {full_str} for full-time students"
 
             if part_time:
-                part_str = card.format.format_intensity_time_limit(part_time)
+                part_str = card.format.format_time_limit_display(part_time)
                 description += f", and within {part_str} for part-time students"
 
             description += ", based on student, course, and academic data."
@@ -152,15 +152,10 @@ def register_attribute_sections(card, registry):
             return message
         elif checkpoint_type == "first":
             return f"{base_message} completed their first term."
-        elif checkpoint_type == "last":
-            return f"{base_message} completed their last term."
         elif checkpoint_type == "first_at_num_credits_earned":
             credit_thresh = card.cfg.preprocessing.checkpoint.min_num_credits
             return f"{base_message} earned {credit_thresh} credits."
         elif checkpoint_type == "first_within_cohort":
             return f"{base_message} completed their first term within their cohort."
-        elif checkpoint_type == "last_in_enrollment_year":
-            enrl_year = card.cfg.preprocessing.checkpoint.enrollment_year
-            return f"{base_message} completed their {card.format.ordinal(enrl_year)} year of enrollment."
         else:
             raise ValueError(f"Unknown checkpoint type: {checkpoint_type}")

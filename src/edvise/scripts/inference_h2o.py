@@ -13,6 +13,7 @@ Writes results to Unity Catalog Delta tables and exports CSV.
 
 from __future__ import annotations
 import argparse
+import json
 import logging
 import os
 import sys
@@ -48,6 +49,7 @@ from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session
 from edvise.modeling.inference import top_n_features, features_box_whiskers_table
 from edvise.shared.logger import resolve_run_path, local_fs_path
+from edvise.shared.dashboard_metadata.pipeline_runs import append_pipeline_run_event
 from edvise.shared.validation import (
     validate_tables_exist,
     ExpectedTable,
@@ -115,12 +117,19 @@ class ModelInferenceTask:
     def load_mlflow_model_metadata(self) -> None:
         """Discover UC model latest version -> run_id + experiment_id (no model object needed here)."""
         client = MlflowClient(registry_uri="databricks-uc")
-        self.model_name = modeling.registration.get_model_name(
+
+        # Assert preprocessing is not None (should be validated by config loading)
+        assert self.cfg.preprocessing is not None, "preprocessing config is required"
+
+        self.model_name = modeling.registration.get_model_name_from_config(
+            preprocessing=self.cfg.preprocessing,
             institution_id=self.cfg.institution_id,
-            target=self.cfg.preprocessing.target.name,  # type: ignore
-            checkpoint=self.cfg.preprocessing.checkpoint.name,  # type: ignore
         )
-        full_model_name = f"{self.args.DB_workspace}.{self.args.databricks_institution_name}_gold.{self.model_name}"
+        full_model_name = (
+            f"{self.args.DB_workspace}."
+            f"{self.args.databricks_institution_name}_gold."
+            f"{self.model_name}"
+        )
 
         mv = max(
             client.search_model_versions(f"name='{full_model_name}'"),
@@ -235,7 +244,10 @@ class ModelInferenceTask:
         )
         current_run_path_local = local_fs_path(current_run_path)
 
-        logging.info("Loading UC model metadata (run_id + experiment_id)")
+        logging.info(
+            "Loading UC model metadata (run_id + experiment_id) from: %s",
+            current_run_path_local,
+        )
         self.load_mlflow_model_metadata()
         assert self.model_run_id and self.model_experiment_id
 
@@ -315,6 +327,31 @@ class ModelInferenceTask:
             if inf is None or inf.dict() is None
             else inf.dict()
         )
+
+        # Get threshold from MLflow run params (logged during training), fallback to config
+        classification_threshold = 0.5
+        try:
+            client = MlflowClient()
+            run = client.get_run(self.model_run_id)
+            if "classification_threshold" in run.data.params:
+                classification_threshold = float(
+                    run.data.params["classification_threshold"]
+                )
+                logging.info(
+                    "Using threshold from MLflow run: %s", classification_threshold
+                )
+            elif self.cfg.modeling and self.cfg.modeling.training:
+                classification_threshold = (
+                    self.cfg.modeling.training.classification_threshold
+                )
+                logging.info(
+                    "Using threshold from config: %s", classification_threshold
+                )
+        except Exception as e:
+            logging.warning(
+                "Could not get threshold from MLflow run, using default 0.5: %s", e
+            )
+
         pred_cfg = PredConfig(
             model_run_id=self.model_run_id,
             experiment_id=self.model_experiment_id,
@@ -327,6 +364,7 @@ class ModelInferenceTask:
                 12345 if self.cfg.random_state is None else self.cfg.random_state
             ),
             cfg_inference_params=inference_params,
+            classification_threshold=classification_threshold,
         )
         # Choose the correct features table path your project uses
         features_table_path = self.features_table_path
@@ -482,4 +520,53 @@ if __name__ == "__main__":
     #     logging.info("Running task with default schema")
 
     task = ModelInferenceTask(args)
-    task.run()
+    # Best-effort: log which inference term(s) are configured/used.
+    term_filter = None
+    try:
+        inf = getattr(task.cfg, "inference", None)
+        terms = getattr(inf, "term", None) if inf is not None else None
+        if terms is not None:
+            term_filter = json.dumps(terms, default=str)
+    except Exception:
+        term_filter = None
+    append_pipeline_run_event(
+        catalog=args.DB_workspace,
+        run_id=args.db_run_id,
+        run_type="inference",
+        event="started",
+        institution_id=getattr(task.cfg, "institution_id", None),
+        databricks_institution_name=getattr(args, "databricks_institution_name", None),
+        term_filter=term_filter,
+        payload={"config_file_path": getattr(args, "config_file_path", None)},
+    )
+    try:
+        task.run()
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=args.db_run_id,
+            run_type="inference",
+            event="completed",
+            institution_id=getattr(task.cfg, "institution_id", None),
+            databricks_institution_name=getattr(
+                args, "databricks_institution_name", None
+            ),
+            term_filter=term_filter,
+            model_run_id=getattr(task, "model_run_id", None),
+            experiment_id=getattr(task, "model_experiment_id", None),
+        )
+    except Exception as e:
+        append_pipeline_run_event(
+            catalog=args.DB_workspace,
+            run_id=args.db_run_id,
+            run_type="inference",
+            event="failed",
+            institution_id=getattr(task.cfg, "institution_id", None),
+            databricks_institution_name=getattr(
+                args, "databricks_institution_name", None
+            ),
+            term_filter=term_filter,
+            model_run_id=getattr(task, "model_run_id", None),
+            experiment_id=getattr(task, "model_experiment_id", None),
+            error_message=str(e),
+        )
+        raise
