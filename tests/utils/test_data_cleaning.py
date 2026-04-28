@@ -91,8 +91,18 @@ class TestIsLabLectureCombo:
         assert result is False
 
 
-class TestFindPdpRowsToRenumber:
-    """Tests for _find_pdp_rows_to_renumber function."""
+_PDP_DUP_UNIQUE_COLS = [
+    "student_id",
+    "academic_year",
+    "academic_term",
+    "course_prefix",
+    "course_number",
+    "section_id",
+]
+
+
+class TestClassifyDuplicateGroupsPdpStyle:
+    """PDP-style keys and columns through _classify_duplicate_groups."""
 
     @pytest.fixture
     def sample_df(self):
@@ -115,23 +125,22 @@ class TestFindPdpRowsToRenumber:
             }
         )
 
-    def test_find_rows_with_different_names(self, sample_df):
-        unique_cols = [
-            "student_id",
-            "academic_year",
-            "academic_term",
-            "course_prefix",
-            "course_number",
-            "section_id",
-        ]
-        dup_mask = sample_df.duplicated(unique_cols, keep=False)
-        result = data_cleaning._find_pdp_rows_to_renumber(
-            sample_df, dup_mask, unique_cols
+    def test_renumbers_when_names_differ(self, sample_df):
+        unique_cols = _PDP_DUP_UNIQUE_COLS
+        dup_rows = sample_df[sample_df.duplicated(unique_cols, keep=False)]
+        renumber_idx, drop_idx, rg, dg, _ = data_cleaning._classify_duplicate_groups(
+            dup_rows,
+            unique_cols,
+            course_type_col=None,
+            course_name_col="course_name",
+            credits_col=None,
         )
-        # Should return indices 0, 1 (different course names for MATH 101)
-        assert set(result) == {0, 1}
+        assert rg == 1
+        assert dg == 2
+        assert set(renumber_idx) == {0, 1}
+        assert len(drop_idx) == 2
 
-    def test_find_rows_with_same_names(self):
+    def test_drops_when_same_name_no_credits_or_grade(self):
         df = pd.DataFrame(
             {
                 "student_id": ["A", "A"],
@@ -143,18 +152,46 @@ class TestFindPdpRowsToRenumber:
                 "course_name": ["Calculus I", "Calculus I"],
             }
         )
-        unique_cols = [
-            "student_id",
-            "academic_year",
-            "academic_term",
-            "course_prefix",
-            "course_number",
-            "section_id",
-        ]
-        dup_mask = df.duplicated(unique_cols, keep=False)
-        result = data_cleaning._find_pdp_rows_to_renumber(df, dup_mask, unique_cols)
-        # Should return empty list (same names)
-        assert result == []
+        unique_cols = _PDP_DUP_UNIQUE_COLS
+        dup_rows = df[df.duplicated(unique_cols, keep=False)]
+        renumber_idx, drop_idx, rg, dg, _ = data_cleaning._classify_duplicate_groups(
+            dup_rows,
+            unique_cols,
+            course_type_col=None,
+            course_name_col="course_name",
+            credits_col=None,
+        )
+        assert rg == 0
+        assert dg == 1
+        assert renumber_idx == []
+        assert len(drop_idx) == 1
+
+    def test_renumbers_when_same_name_different_credits(self):
+        df = pd.DataFrame(
+            {
+                "student_id": ["A", "A"],
+                "academic_year": ["2024", "2024"],
+                "academic_term": ["FALL", "FALL"],
+                "course_prefix": ["MATH", "MATH"],
+                "course_number": ["101", "101"],
+                "section_id": ["001", "001"],
+                "course_name": ["Calculus I", "Calculus I"],
+                "number_of_credits_attempted": [3.0, 4.0],
+            }
+        )
+        unique_cols = _PDP_DUP_UNIQUE_COLS
+        dup_rows = df[df.duplicated(unique_cols, keep=False)]
+        renumber_idx, drop_idx, rg, dg, _ = data_cleaning._classify_duplicate_groups(
+            dup_rows,
+            unique_cols,
+            course_type_col=None,
+            course_name_col="course_name",
+            credits_col="number_of_credits_attempted",
+        )
+        assert rg == 1
+        assert dg == 0
+        assert set(renumber_idx) == {0, 1}
+        assert drop_idx == []
 
 
 class TestLogPdpDuplicateDrop:
@@ -217,13 +254,72 @@ class TestClassifyDuplicateGroups:
         )
         renumber_idx, drop_idx, renumber_groups, drop_groups, lab_lecture_rows = result
 
-        # MATH 101 should be renumbered (different types and names)
-        # PHYS 201 should be dropped (same type and name)
-        # ENGL 102 should be dropped (same type and name)
+        # MATH 101: type+name vary -> renumber
+        # ENGL 102: same type+name but different credits -> renumber
+        # PHYS 201: true duplicate key -> drop one
+        assert renumber_groups == 2
+        assert drop_groups == 1
+        assert len(renumber_idx) == 4
+        assert len(drop_idx) == 1
+        assert lab_lecture_rows == 2
+
+    def test_classify_same_name_different_grades_renumbers(self):
+        df = pd.DataFrame(
+            {
+                "student_id": ["A", "A"],
+                "academic_term": ["F2024", "F2024"],
+                "course_prefix": ["MATH", "MATH"],
+                "course_number": ["101", "101"],
+                "course_classification": ["Lecture", "Lecture"],
+                "course_name": ["Calculus I", "Calculus I"],
+                "course_credits_attempted": [3.0, 3.0],
+                "grade": ["C", "A"],
+            }
+        )
+        unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
+        result = data_cleaning._classify_duplicate_groups(
+            df,
+            unique_cols,
+            course_type_col="course_classification",
+            course_name_col="course_name",
+            credits_col="course_credits_attempted",
+            grade_col="grade",
+        )
+        renumber_idx, drop_idx, renumber_groups, drop_groups, _ = result
         assert renumber_groups == 1
-        assert drop_groups == 2
-        assert len(renumber_idx) == 2  # MATH rows
-        assert len(drop_idx) == 2  # one from PHYS, one from ENGL
+        assert drop_groups == 0
+        assert len(renumber_idx) == 2
+        assert drop_idx == []
+
+    def test_classify_drops_when_only_non_material_columns_differ(self):
+        """Classification, name, credits, and grade match; another column differs."""
+        df = pd.DataFrame(
+            {
+                "student_id": ["A", "A"],
+                "academic_term": ["F2024", "F2024"],
+                "course_prefix": ["MATH", "MATH"],
+                "course_number": ["101", "101"],
+                "course_classification": ["Lecture", "Lecture"],
+                "course_name": ["Calculus I", "Calculus I"],
+                "course_credits_attempted": [3.0, 3.0],
+                "grade": ["B", "B"],
+                "delivery_method": ["F", "O"],
+            }
+        )
+        unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
+        _, drop_idx, renumber_groups, drop_groups, _ = (
+            data_cleaning._classify_duplicate_groups(
+                df,
+                unique_cols,
+                course_type_col="course_classification",
+                course_name_col="course_name",
+                credits_col="course_credits_attempted",
+                grade_col="grade",
+            )
+        )
+        assert renumber_groups == 0
+        assert drop_groups == 1
+        assert len(drop_idx) == 1
 
     def test_classify_without_course_type(self):
         df = pd.DataFrame(
@@ -360,9 +456,23 @@ class TestHandlePdpDuplicates:
         assert mock_dedupe.called
 
     @patch("edvise.utils.data_cleaning.LOGGER")
-    def test_drops_when_names_same(self, mock_logger, pdp_df_with_same_names):
+    @patch("edvise.utils.data_cleaning.dedupe_by_renumbering_courses")
+    def test_renumbers_when_names_same_but_credits_differ(
+        self, mock_dedupe, mock_logger, pdp_df_with_same_names
+    ):
+        mock_dedupe.return_value = pdp_df_with_same_names.copy()
         result = data_cleaning._handle_pdp_duplicates(pdp_df_with_same_names)
-        assert len(result) == 1  # One duplicate dropped
+        assert mock_dedupe.called
+        assert len(result) == 2
+
+    @patch("edvise.utils.data_cleaning.LOGGER")
+    def test_drops_when_names_same_and_credits_match(
+        self, mock_logger, pdp_df_with_same_names
+    ):
+        df = pdp_df_with_same_names.copy()
+        df["number_of_credits_attempted"] = [3.0, 3.0]
+        result = data_cleaning._handle_pdp_duplicates(df)
+        assert len(result) == 1
 
 
 class TestHandleSchemaDuplicates:
@@ -411,11 +521,34 @@ class TestHandleSchemaDuplicates:
         assert mock_dedupe.called
 
     @patch("edvise.utils.data_cleaning.LOGGER")
-    def test_drops_true_duplicates(self, mock_logger, schema_df_true_duplicates):
+    @patch("edvise.utils.data_cleaning.dedupe_by_renumbering_courses")
+    def test_renumbers_when_same_title_but_credits_differ(
+        self, mock_dedupe, mock_logger, schema_df_true_duplicates
+    ):
+        mock_dedupe.return_value = schema_df_true_duplicates.copy()
         result = data_cleaning._handle_schema_duplicates(schema_df_true_duplicates)
-        assert len(result) == 1  # One duplicate dropped
-        # Should keep the one with higher credits (4.0)
-        assert result.iloc[0]["course_credits_attempted"] == 4.0
+        assert mock_dedupe.called
+        assert len(result) == 2
+
+    @patch("edvise.utils.data_cleaning.LOGGER")
+    def test_drops_identical_true_duplicates(
+        self, mock_logger, schema_df_true_duplicates
+    ):
+        df = schema_df_true_duplicates.copy()
+        df.loc[1, "course_credits_attempted"] = 3.0
+        result = data_cleaning._handle_schema_duplicates(df)
+        assert len(result) == 1
+        assert result.iloc[0]["course_credits_attempted"] == 3.0
+
+    @patch("edvise.utils.data_cleaning.LOGGER")
+    def test_drops_when_only_extraneous_column_differs(
+        self, mock_logger, schema_df_true_duplicates
+    ):
+        df = schema_df_true_duplicates.copy()
+        df.loc[1, "course_credits_attempted"] = 3.0
+        df["delivery_method"] = ["F", "O"]
+        result = data_cleaning._handle_schema_duplicates(df)
+        assert len(result) == 1
 
 
 class TestHandlingDuplicates:
