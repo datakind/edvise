@@ -101,7 +101,11 @@ class GrainResolution(BaseModel):
     )
     priority_order: list[str] | None = Field(
         default=None,
-        description="Value order, highest first, for categorical_priority.",
+        description=(
+            "Value order, highest first, for categorical_priority. "
+            "Executor: exact match, else substring (longest token wins, then first in list); "
+            "unmatched values last."
+        ),
     )
     suffix_column: str | None = Field(
         default=None,

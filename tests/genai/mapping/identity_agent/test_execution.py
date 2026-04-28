@@ -15,6 +15,7 @@ from edvise.genai.mapping.identity_agent.execution import (
     merge_grain_contracts_into_school_config,
     merge_grain_learner_id_alias_into_school_config,
 )
+from edvise.genai.mapping.identity_agent.execution import contract_utilities as cu
 from edvise.genai.mapping.identity_agent.grain_inference.deduplication import (
     drop_duplicate_keys,
 )
@@ -90,6 +91,33 @@ def test_true_duplicate_collapses():
     )
     out = apply_grain_dedup(df, c)
     assert len(out) == 1
+
+
+def test_apply_categorical_priority_substring_and_longest_token():
+    """Substring match e.g. B.S. in 'Accounting, B.S.'; M.A. in 'X, M.B.A.' defers to M.B.A. when longer."""
+    po = ["M.S.", "B.S."]
+    out = cu.apply_categorical_priority(
+        pd.DataFrame(
+            {
+                "k": [1, 1],
+                "deg": ["Accounting, B.S.", "Psychology, M.S."],
+            }
+        ),
+        group_by=["k"],
+        priority_column="deg",
+        priority_order=po,
+    )
+    assert len(out) == 1
+    assert "M.S." in out["deg"].iloc[0]
+    # Longest included token wins (else "M.A." would match inside "M.B.A.").
+    assert (
+        cu._categorical_value_rank("Business, M.B.A.", ["M.A.", "M.B.A."])
+        == 1
+    )
+    assert (
+        cu._categorical_value_rank("Business, M.B.A.", ["M.B.A.", "M.A."])
+        == 0
+    )
 
 
 def test_temporal_collapse_keep_last():

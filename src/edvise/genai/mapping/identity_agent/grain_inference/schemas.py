@@ -109,7 +109,10 @@ class DedupPolicy(BaseModel):
         default=None,
         description=(
             "When strategy is categorical_priority: explicit value order, highest priority first. "
-            "Values not in this list are ranked lowest. Required (non-empty) for that strategy."
+            "The executor first tries exact value equality, then match-by-substring: a cell's "
+            "string may contain a listed token (e.g. B.S. in 'Psychology, B.S.'). If multiple "
+            "listed tokens are substrings, the longest token wins, then the earlier list position. "
+            "Unmatched values are ranked last. Required (non-empty) for that strategy."
         ),
     )
     notes: str = ""

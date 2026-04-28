@@ -184,13 +184,11 @@ When two or more non-temporal, non-measure columns have variance within the same
 
 **Credential suffix detection (variance values embed a degree type)**
 
-When a variance column's values embed a credential suffix (B.S., M.S., B.A., M.A., Ph.D., A.S., A.A., A.A.S., and similar), treat the column as a **degree-type** column **regardless of its column name**. Extract the **credential tier** from the suffix and use `categorical_priority` with the **standard tier hierarchy** in **Degree tier — categorical_priority** below, with `priority_order` listing the **actual full values from the data**, grouped by tier: all values mapped to a higher tier (e.g. Master's-level) **before** all values at a lower tier (Bachelor's, Associate's, etc.). Values **within the same tier** are peer-level — their relative order does not matter analytically; list them in any **stable** order (e.g. the order they appear in `unique_values`).
-
-When **all** distinct values in the column map to the **same** tier (e.g. every row is a B.S. program string), `categorical_priority` **still** applies: put every value in `priority_order` in any stable order. Do **not** use `temporal_collapse` on a **non-varying** column (e.g. a single-valued or effectively constant column) to mimic this outcome.
+When a variance column's values embed a degree or credential (abbreviation **or** long-form name: B.S., M.S., *Bachelor of Science*, *Master of Arts*, Ph.D., *Doctor of Philosophy*, A.S., A.A.S., and similar), treat the column as a **degree-type** column **regardless of its column name** and use `categorical_priority` with `priority_order` from **Degree tier — categorical_priority** below: list **tier tokens** in descending order, where each token can be a **short suffix** *or* a **spelled-out phrase** that actually appears in `unique_values` — the same substring rules apply to both (a list entry is matched by exact equality, else as a **substring** of the cell; e.g. `B.S.` matches `Accounting, B.S.`; `Master of Science` in the list matches any cell containing that phrase). You do **not** need to list every distinct program title. When **all** values are the same tier, `priority_order` may be a single token such as `["B.S."]` or `["Bachelor of Science"]` as appropriate. Do **not** use `temporal_collapse` on a **non-varying** or effectively constant column to mimic this outcome.
 
 **Degree / credential column vs. major / concentration column**
 
-- **Degree / credential columns** — e.g. `program_at_graduation`, `degree_type`, `awarded_degree`, or **any** column whose values embed a credential suffix per above → use `categorical_priority` with the tier hierarchy (suffix-derived tier or mapping from value text to the standard list).
+- **Degree / credential columns** — e.g. `program_at_graduation`, `degree_type`, `awarded_degree`, or **any** column whose values embed a degree or credential per above → use `categorical_priority` with `priority_order` in **Degree tier — categorical_priority** (abbreviations and/or long-form tokens; executor substring-matches list entries to cells; full enumeration of program names is not required).
 - **Major / concentration columns** — e.g. `major_at_graduation`, `major_at_first_enrollment` — major labels are **peer-level**; choosing one value over another for collapse is **arbitrarily** acceptable. Use `categorical_priority` with `priority_order` in any stable order, **or** state in `dedup_policy.notes` that the selection is arbitrary when documenting the policy.
 
 ### Degree dedup — sort column validity
@@ -210,20 +208,14 @@ offer standalone alphabetical tiebreaks without explicit institutional confirmat
 
 When collapsing rows that differ on a degree-type or credential column
 (`program_at_graduation`, `degree_type`, `awarded_degree`, or similar), use
-`dedup_strategy: "categorical_priority"` with `priority_column` set to that column and
-`priority_order` drawn from this standard tier list (highest to lowest):
-
-  ["Doctorate", "Doctor of Philosophy", "Doctor of Education",
-   "Master's", "Master of Science", "Master of Arts", "Master of Business Administration",
-   "Bachelor's", "Bachelor of Science", "Bachelor of Arts", "Bachelor of Applied Science",
-   "Associate's", "Associate of Science", "Associate of Arts", "Associate of Applied Science",
-   "Certificate", "Diploma", ""]
-
-Match actual column values from `RawTableProfile.unique_values` to the closest tier above
-and use the **actual value strings** in `priority_order` — not the tier labels.
-If `unique_values` is not available or contains values you cannot confidently map to a tier,
-use `policy_required` + HITL rather than guessing.
-Do NOT use `true_duplicate` or `no_dedup` when rows differ on a degree/credential column.
+`dedup_strategy: "categorical_priority"` with `priority_column` on that column and
+`priority_order` a **non-empty subsequence** of the **canonical** flat list, **highest first**
+(omit unused tokens; preserve the order of rungs): `["Ph.D.", "M.S.", "M.A.", "M.B.A.", "B.S.", "B.A.", "A.S.", "A.A.", "A.A.S.", "Certificate", "Diploma"]`. You may **substitute** or **augment** with **long-form** strings that appear in the data (e.g. `Doctor of Philosophy`, `Master of Science`, `Bachelor of Arts`) in the **same** rung positions — both styles are `priority_order` tokens; **substring matching applies to every token** whether it is an abbreviation or a full name (e.g. `B.S.` matches `Major, B.S.`; `Master of Science` matches `Program, Master of Science, awarded 2020`).
+*Rung map* (highest to lowest, **same** token order as the list): `Ph.D.` = doctoral; `M.S.…M.B.A.` = master’s; `B.S.…B.A.` = bachelor’s; `A.S.…A.A.S.` = associate’s; `Certificate` / `Diploma` last. If `unique_values` are mostly spelled out, prefer listing those phrases in the right rungs (you can mix one rung on abbreviations and another on long-form if the column is mixed).
+The executor: exact match first, then substring for any list entry vs. the cell string; if several entries match as substrings, **longest** wins, then the **earlier** index in `priority_order`.
+If values cannot be mapped to these tiers, use `policy_required` + HITL. Do not use
+`true_duplicate` or `no_dedup` when rows differ on a degree/credential column.
+*Example* (IIT-style all-undergraduate `program_at_graduation`): `["B.S.", "B.A.", "A.S.", "A.A.", "A.A.S."]` only — not every program title.
 
 ### Categorical column variance — categorical_priority strategy
 
@@ -233,9 +225,11 @@ value hierarchy (e.g. honors distinction, degree tier, enrollment status), use
 
 Required fields in `dedup_policy`:
 - `priority_column`: the column name with categorical variance
-- `priority_order`: explicit list of values from highest to lowest priority
-  e.g. ["Summa Cum Laude", "Magna Cum Laude", "Cum Laude", ""]
-  Values not in the list are kept last (lowest priority fallback).
+- `priority_order`: explicit list from highest to lowest priority, e.g.
+  `["Summa Cum Laude", "Magna Cum Laude", "Cum Laude", ""]` or
+  (degree suffixes) `["B.S.", "A.A."]` — the executor also treats a value as a match
+  when it **contains** a list entry as a substring (see Pydantic field description). Unmatched
+  values are ranked last.
 - `sort_by`, `keep`: both null
 - `suffix_column`: null
 

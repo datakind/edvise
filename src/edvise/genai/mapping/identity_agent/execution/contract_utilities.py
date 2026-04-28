@@ -316,6 +316,21 @@ def _categorical_value_rank(value: object, priority_order: list[str]) -> int:
     for i, p in enumerate(priority_order):
         if _dedup_categorical_values_equal(value, p):
             return i
+    if not isinstance(value, str):
+        return len(priority_order)
+    # Substring match, e.g. "B.S." in "Accounting, B.S."
+    # If several tokens match as substrings (e.g. "M.A." in "M.B.A.", "A.S." in "A.A.S."),
+    # use the longest matching token, then the earliest in `priority_order`.
+    best: tuple[int, int] | None = None  # (-len(p), i) minimization
+    for i, p in enumerate(priority_order):
+        if not isinstance(p, str) or not p:
+            continue
+        if p in value:
+            key = (-len(p), i)
+            if best is None or key < best:
+                best = key
+    if best is not None:
+        return best[1]
     return len(priority_order)
 
 
@@ -328,8 +343,10 @@ def apply_categorical_priority(
     """
     Within each ``group_by`` key group, keep a single row: the one with the best (lowest)
     rank on ``priority_column``, where ``priority_order`` lists values from highest to
-    lowest priority. Values not in ``priority_order`` are ranked last. Ties in rank
-    resolve to the first row in the sorted order (stable sort).
+    lowest priority. A cell is matched by exact equality to an entry in ``priority_order``,
+    or, if there is no exact match, as a **substring** (longest token wins, then
+    first-listed). Values that match nothing are ranked last. Ties in rank resolve to
+    the first row in the sorted order (stable sort).
     """
     _validate_key_columns(df, group_by, label="apply_categorical_priority")
     if priority_column not in df.columns:
@@ -467,7 +484,8 @@ def apply_grain_dedup(
       "drop distinctions" = one value per grain per non-key column when applicable, not schema
       deletion). If ``sort_by`` is omitted, logs a warning and behaves like ``true_duplicate``.
     - ``categorical_priority``: one row per key, chosen by ranking ``dedup_policy.priority_column``
-      values with ``dedup_policy.priority_order`` (highest-priority first in the list).
+      values with ``dedup_policy.priority_order`` (highest-priority first in the list; exact
+      match, else substring: longest token wins, then first-listed).
     - ``suffix_identifier``: no rows dropped. Within each key group, ``dedup_policy.suffix_column``
       values are suffixed with ``-1``, ``-2``, ... in input row order so the identifier is unique
       (e.g. repeat course enrollments).
