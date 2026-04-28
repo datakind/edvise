@@ -94,8 +94,9 @@ class DedupPolicy(BaseModel):
     suffix_column: str | None = Field(
         default=None,
         description=(
-            "When strategy is suffix_identifier: column whose values are suffixed with -1, -2, ... "
-            "within each grain key group so all rows are kept. Required for that strategy."
+            "When strategy is suffix_identifier: a grain column (must appear in post_clean_primary_key) "
+            "whose values are suffixed with -1, -2, ... within each grain key group so all rows are kept. "
+            "Required for that strategy; never use a non-grain column even if more readable."
         ),
     )
     priority_column: str | None = Field(

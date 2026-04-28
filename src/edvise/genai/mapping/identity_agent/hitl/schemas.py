@@ -109,7 +109,10 @@ class GrainResolution(BaseModel):
     )
     suffix_column: str | None = Field(
         default=None,
-        description="Column to suffix for suffix_identifier (append -1, -2, ... within key groups).",
+        description=(
+            "Grain column to suffix for suffix_identifier (append -1, -2, ... within key groups); "
+            "must appear in post_clean_primary_key."
+        ),
     )
     hook_spec: HookSpec | None = Field(
         default=None,

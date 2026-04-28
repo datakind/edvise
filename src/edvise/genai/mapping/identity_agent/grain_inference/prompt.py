@@ -122,18 +122,19 @@ No rows are dropped.
 
 Emit the contract as:
 - `dedup_policy.strategy`: `"suffix_identifier"`
-- `dedup_policy.suffix_column`: set this to **whichever course-identifier column is already part of the grain**
-  (`post_clean_primary_key`) — e.g. course title/name, catalog/course number, `class_number`, or a
-  section/course-section column, depending on what appears in the grain for this dataset. Pick the
-  grain column that best identifies the offering when duplicate grain keys differ only on measure
-  columns. Prefer the **most human-readable stable** grain column over opaque surrogate IDs when
-  several identifiers are present.
+- `dedup_policy.suffix_column`: **must be a column name that appears in `post_clean_primary_key`**
+  for this table. Choose **only** among grain columns — never pick a column outside the grain
+  because it is more human-readable. Set it to the grain column that **best identifies the course
+  offering** when duplicate grain keys differ only on measure columns. When several grain columns
+  are course identifiers (e.g. catalog code vs section id), prefer the **most human-readable**
+  among those **in `post_clean_primary_key`**. If no suitable course-identifier column exists in
+  the grain, **flag HITL** rather than inventing a `suffix_column` outside the grain.
 - `dedup_policy.sort_by`: null (suffix order is positional, not sorted)
 - `dedup_policy.keep`: null
 
 `suffix_identifier` is a first-class strategy implemented in `contract_utilities.py`. It requires
 no hook and no HITL unless the correct `suffix_column` is genuinely ambiguous across multiple
-equally valid candidates. If ambiguous, flag HITL with options naming each candidate column
+equally valid **grain** candidates. If ambiguous, flag HITL with options naming each candidate column
 and set `reentry: "terminal"` (the resolution only needs to specify `suffix_column`).
 
 `row_selection_required` stays true for course tables that use `suffix_identifier` — the table
@@ -141,8 +142,21 @@ remains multi-row per student after the suffix pass.
 
 **`suffix_identifier` scope (course grain vs. student grain)**
 
-- `suffix_identifier` is for **course**-style tables where the grain **already** includes a course-identifier column and multiple rows at that grain differ on **measure** columns (grade, credits, etc.). Set `suffix_column` to **one of the course-identifier columns listed in `post_clean_primary_key`** (same logical grain as the contract). Suffixing that column **makes** previously duplicate grain keys **unique** so all rows are retained — each suffix becomes a disambiguating part of the key.
-- `suffix_identifier` is **not** appropriate for **student / demographic** tables where `student_id` (alone) is treated as the grain. Appending a suffix to `program_at_graduation` or another **non–grain-key** column does **not** fix duplicate `student_id` keys: the table stays multi-row per student and the student-level grain is still not unique. For student tables with multi-degree (or multi-program) rows, use `categorical_priority` (including **credential suffix detection** under Degree / award / completion tables), **widen the grain** via `candidate_key_override`, or **`policy_required` + HITL** — not `suffix_identifier` on a program/major column.
+- **Course-style tables:** the grain already includes a course-identifier column and multiple rows at
+  that grain differ on **measure** columns (grade, credits, etc.). `suffix_column` **must** appear in
+  `post_clean_primary_key`. Suffixing that column makes previously duplicate grain keys **unique** so
+  all rows are retained — each suffix is a disambiguating part of the key.
+  - Valid example: `post_clean_primary_key = [learner_id, course_identifier, term]` →
+    `suffix_column`: `"course_identifier"` (in grain — valid).
+  - Invalid example: same grain → `suffix_column`: `"course_title"` is **wrong** if `course_title` is
+    **not** in `post_clean_primary_key`, even when titles are more readable than codes.
+- **Student / demographic tables** where `student_id` (alone) is the grain: **do not** use
+  `suffix_identifier`. The strategy depends on suffixing a course-identifier column that is **already**
+  in the grain; a student-only grain has no such column, so the strategy does **not** apply. Appending
+  a suffix to `program_at_graduation` or another non-grain column does not fix duplicate student keys.
+  For multi-degree or multi-program rows, use `categorical_priority` (including credential suffix
+  detection under Degree / award / completion tables), **`candidate_key_override`** to widen the grain,
+  or **`policy_required` + HITL** — not `suffix_identifier`.
 
 ### Semester / term-summary tables
 - Expected grain is (student_id, term).
@@ -770,7 +784,7 @@ in `post_clean_primary_key`, `join_keys_for_2a`, and `dedup_policy.sort_by`.
     "sort_by": "<column_name or null — set only for temporal_collapse>",
     "sort_ascending": "<true | false | null — required when strategy is temporal_collapse>",
     "keep": "<\"first\" | \"last\" or null — never any_row; temporal_collapse must use \"first\" with sort_ascending for direction>",
-    "suffix_column": "<non-empty string or null — required for suffix_identifier only>",
+    "suffix_column": "<non-empty string in post_clean_primary_key or null — required for suffix_identifier only>",
     "priority_column": "<non-empty string or null — required for categorical_priority only>",
     "priority_order": "<non-empty JSON array of strings or null — required for categorical_priority: highest-priority value first>",
     "hook_spec": null,
@@ -812,7 +826,7 @@ HITLItem shape for grain:
         "dedup_keep": "first",
         "priority_column": "<column or null — categorical_priority only>",
         "priority_order": "<array of strings or null — categorical_priority only, highest first>",
-        "suffix_column": "<column or null — suffix_identifier only>",
+        "suffix_column": "<grain column or null — suffix_identifier only; must be in post_clean_primary_key>",
         "hook_spec": null
       },
       "reentry": "terminal"
