@@ -30,33 +30,65 @@ import os
 import re
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterator, Literal, Optional, Tuple
+from typing import Any, Iterator, Literal, Optional, Tuple
 
 from google.api_core import exceptions as gax_exc
 from google.api_core.exceptions import Forbidden, NotFound
 from google.cloud import storage
+from google.cloud.storage import Blob
 
 # Single path segment for landing subdirs (no traversal, no nested path in param).
 _SAFE_VOLUME_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
 
 SUCCESS_FILENAME = "_SUCCESS.json"
+DEFAULT_GCS_PREFIX = "validated/"
+MAX_BLOBS_LISTED_IN_SUCCESS_JSON = 50
+BLOB_DOWNLOAD_MAX_ATTEMPTS = 3
+BLOB_DOWNLOAD_RETRY_DELAY_INITIAL = 0.5
+BLOB_DOWNLOAD_RETRY_DELAY_CAP = 4.0
+# HTTP codes where GCS/transport often benefits from a retry
+HTTP_STATUS_TRANSIENT_GCS: Tuple[int, ...] = (429, 500, 502, 503, 504)
+
+Swallowed = Optional[Literal["forbidden", "notfound"]]
 
 
-def local_fs_path(p: str) -> str:
-    return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
+@dataclass(frozen=True, slots=True)
+class _SyncPaths:
+    """Resolved GCS and volume paths for one run."""
+
+    db_workspace: str
+    institution: str
+    gcs_prefix: str
+    sync_id: str
+    landing_dir: str
+    landing_local: str
+    include_paths: list[str]
+
+
+def local_fs_path(path: str) -> str:
+    """Map dbfs: URI to a local /dbfs path; otherwise return the path unchanged."""
+    return (
+        path.replace("dbfs:/", "/dbfs/") if path and path.startswith("dbfs:/") else path
+    )
 
 
 def in_databricks() -> bool:
+    """True if running in a Databricks/Spark driver environment."""
     return bool(os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER"))
 
 
-def get_dbutils():
+def get_dbutils() -> Any | None:
+    """
+    Return Databricks ``dbutils`` in-cluster, or None when not available
+    (e.g. local pytest).
+    """
     try:
-        from databricks.sdk.runtime import dbutils  # type: ignore
+        from databricks.sdk.runtime import dbutils  # type: ignore[import-not-found]
 
         return dbutils
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
         return None
 
 
@@ -179,8 +211,8 @@ def _write_success_marker(
         "copy_mode": copy_mode,
     }
     if include_blob_paths:
-        payload["source_blobs"] = include_blob_paths[:50]
-        if len(include_blob_paths) > 50:
+        payload["source_blobs"] = include_blob_paths[:MAX_BLOBS_LISTED_IN_SUCCESS_JSON]
+        if len(include_blob_paths) > MAX_BLOBS_LISTED_IN_SUCCESS_JSON:
             payload["source_blobs_truncated"] = True
     marker_path = os.path.join(landing_dir, SUCCESS_FILENAME)
     marker_local = _dest_local_under_landing(landing_dir, SUCCESS_FILENAME)
@@ -191,7 +223,7 @@ def _write_success_marker(
 
 def _iter_blobs(
     client: storage.Client, bucket_name: str, prefix: str, max_objects: int
-) -> Iterator[storage.Blob]:
+) -> Iterator[Blob]:
     count = 0
     for blob in client.list_blobs(bucket_name, prefix=prefix):
         if blob.name.endswith("/"):
@@ -215,7 +247,7 @@ def _resolve_strict_mode(strict_mode: str) -> bool:
     raise ValueError(f"Invalid strict_mode: {strict_mode!r}")
 
 
-def _is_transient_gcs_error(exc: BaseException) -> bool:
+def _is_transient_gcs_error(exc: Exception) -> bool:
     """True for likely-transient GCS/transport failures worth retrying."""
     if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
         return True
@@ -225,43 +257,39 @@ def _is_transient_gcs_error(exc: BaseException) -> bool:
             or getattr(exc, "http_status", None)
             or getattr(exc, "grpc_status_code", None)
         )
-        if code in (429, 500, 502, 503, 504):
+        if code in HTTP_STATUS_TRANSIENT_GCS:
             return True
     return False
 
 
-def _download_blob_to_file(blob, dest_local: str) -> None:
+def _download_blob_to_file(blob: Blob, dest_local: str) -> None:
     """Download one blob to dest with limited retries for transient GCS errors."""
-    max_attempts = 3
-    delay = 0.5
-    for attempt in range(1, max_attempts + 1):
+    delay = BLOB_DOWNLOAD_RETRY_DELAY_INITIAL
+    for attempt in range(1, BLOB_DOWNLOAD_MAX_ATTEMPTS + 1):
         try:
             blob.download_to_filename(dest_local)
             return
         except (NotFound, Forbidden):
             raise
-        except Exception as e:  # noqa: BLE001 — narrow downstream after transient check
-            if attempt == max_attempts or not _is_transient_gcs_error(e):
+        except (
+            OSError,
+            ConnectionError,
+            TimeoutError,
+            gax_exc.GoogleAPICallError,
+        ) as e:
+            if attempt == BLOB_DOWNLOAD_MAX_ATTEMPTS or not _is_transient_gcs_error(e):
                 raise
             logging.warning(
                 "Transient GCS download error (attempt %s/%s), retrying: %s",
                 attempt,
-                max_attempts,
+                BLOB_DOWNLOAD_MAX_ATTEMPTS,
                 e,
             )
             time.sleep(delay)
-            delay = min(delay * 2, 4.0)
+            delay = min(delay * 2, BLOB_DOWNLOAD_RETRY_DELAY_CAP)
 
 
-Swallowed = Optional[Literal["forbidden", "notfound"]]
-
-
-def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
-    """
-    Returns (copied_count, swallowed_error).
-    swallowed_error is set when strict_mode=false and GCS returned 403/404 so the caller
-    can surface PermissionError / bucket missing instead of 'empty prefix'.
-    """
+def _build_sync_paths(args: argparse.Namespace) -> _SyncPaths:
     if not args.gcp_bucket_name.strip():
         raise ValueError(
             "gcp_bucket_name is empty; pass the institution bucket when starting the job."
@@ -271,18 +299,16 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
     inst = _assert_safe_volume_segment(
         "databricks_institution_name", args.databricks_institution_name.strip()
     )
-
     gcs_prefix = _normalize_gcs_prefix(args.gcs_source_prefix)
     if not gcs_prefix:
-        gcs_prefix = "validated/"
-
-    bronze_sub = _assert_safe_volume_segment("bronze_subdir", args.bronze_subdir)
+        gcs_prefix = DEFAULT_GCS_PREFIX
     sync_id_raw = (args.sync_run_id or "").strip()
     if sync_id_raw:
         sync_id = _assert_safe_volume_segment("sync_run_id", sync_id_raw)
     else:
         sync_id = ""
-
+    include_paths = _parse_include_blob_paths_json(args.include_blob_paths_json)
+    bronze_sub = _assert_safe_volume_segment("bronze_subdir", args.bronze_subdir)
     bronze_root = f"/Volumes/{db_w}/{inst}_bronze/bronze_volume"
     landing_dir = (
         os.path.join(bronze_root, bronze_sub, sync_id)
@@ -290,63 +316,113 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
         else os.path.join(bronze_root, bronze_sub)
     )
     landing_local = local_fs_path(landing_dir)
-    include_paths = _parse_include_blob_paths_json(args.include_blob_paths_json)
-    selective = bool(include_paths)
+    return _SyncPaths(
+        db_workspace=db_w,
+        institution=inst,
+        gcs_prefix=gcs_prefix,
+        sync_id=sync_id,
+        landing_dir=landing_dir,
+        landing_local=landing_local,
+        include_paths=include_paths,
+    )
 
-    os.makedirs(landing_local, exist_ok=True)
 
+def _run_selective_copies(
+    args: argparse.Namespace,
+    sp: _SyncPaths,
+    bucket: storage.Bucket,
+) -> int:
+    if len(sp.include_paths) > args.max_objects:
+        raise ValueError(
+            f"{len(sp.include_paths)} blobs in include_blob_paths_json exceeds "
+            f"--max_objects ({args.max_objects})"
+        )
+    copied = 0
+    for blob_name in sp.include_paths:
+        relative = _relative_under_prefix(blob_name, sp.gcs_prefix)
+        dest_local = _dest_local_under_landing(sp.landing_dir, relative)
+        blob = bucket.blob(blob_name)
+        try:
+            _download_blob_to_file(blob, dest_local)
+        except NotFound as e:
+            raise FileNotFoundError(
+                "Validated object not found in GCS (check include_blob_paths_json): "
+                f"gs://{args.gcp_bucket_name}/{blob_name}"
+            ) from e
+        copied += 1
+        logging.info(
+            "Copied gs://%s/%s -> %s",
+            args.gcp_bucket_name,
+            blob_name,
+            dest_local,
+        )
+    return copied
+
+
+def _run_listing_copies(
+    args: argparse.Namespace, sp: _SyncPaths, client: storage.Client
+) -> int:
+    copied = 0
+    for blob in _iter_blobs(
+        client, args.gcp_bucket_name, sp.gcs_prefix, args.max_objects
+    ):
+        if not blob.name.startswith(sp.gcs_prefix):
+            continue
+        relative = blob.name[len(sp.gcs_prefix) :].lstrip("/")
+        if not relative:
+            continue
+        dest_local = _dest_local_under_landing(sp.landing_dir, relative)
+        _download_blob_to_file(blob, dest_local)
+        copied += 1
+        logging.info(
+            "Copied gs://%s/%s -> %s",
+            args.gcp_bucket_name,
+            blob.name,
+            dest_local,
+        )
+    return copied
+
+
+def _try_set_job_task_values(landing_dir: str, copied: int) -> None:
+    """Set multi-task job values; failures are logged only (DRuntime varies)."""
+    dbc = get_dbutils()
+    if not dbc:
+        return
+    try:
+        dbc.jobs.taskValues.set(key="synced_file_count", value=str(copied))
+        dbc.jobs.taskValues.set(key="bronze_landing_path", value=landing_dir)
+    except (AttributeError, OSError, RuntimeError, TypeError) as e:
+        logging.error(
+            "dbutils.jobs.taskValues.set failed; sync finished but job taskValues "
+            "unavailable: %s",
+            e,
+            exc_info=True,
+        )
+
+
+def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
+    """
+    Copy validated GCS objects to the institution bronze volume.
+
+    Returns (copied_count, swallowed_error). ``swallowed_error`` is set when
+    ``strict_mode`` is false and GCS returned 403/404 so the caller can surface
+    :class:`PermissionError` or bucket-missing instead of "empty prefix".
+    """
+    sp = _build_sync_paths(args)
+    os.makedirs(sp.landing_local, exist_ok=True)
     strict = _resolve_strict_mode(args.strict_mode)
     client = storage.Client()
     bucket = client.bucket(args.gcp_bucket_name)
+    include_paths = sp.include_paths
+    selective = bool(include_paths)
 
-    copied = 0
     try:
         if selective:
-            if len(include_paths) > args.max_objects:
-                raise ValueError(
-                    f"{len(include_paths)} blobs in include_blob_paths_json exceeds "
-                    f"--max_objects ({args.max_objects})"
-                )
-            for blob_name in include_paths:
-                relative = _relative_under_prefix(blob_name, gcs_prefix)
-                dest_local = _dest_local_under_landing(landing_dir, relative)
-                blob = bucket.blob(blob_name)
-                try:
-                    _download_blob_to_file(blob, dest_local)
-                except NotFound as e:
-                    raise FileNotFoundError(
-                        "Validated object not found in GCS (check include_blob_paths_json): "
-                        f"gs://{args.gcp_bucket_name}/{blob_name}"
-                    ) from e
-                copied += 1
-                logging.info(
-                    "Copied gs://%s/%s -> %s",
-                    args.gcp_bucket_name,
-                    blob_name,
-                    dest_local,
-                )
+            copied = _run_selective_copies(args, sp, bucket)
         else:
-            for blob in _iter_blobs(
-                client, args.gcp_bucket_name, gcs_prefix, args.max_objects
-            ):
-                if not blob.name.startswith(gcs_prefix):
-                    continue
-                relative = blob.name[len(gcs_prefix) :].lstrip("/")
-                if not relative:
-                    continue
-                dest_local = _dest_local_under_landing(landing_dir, relative)
-                _download_blob_to_file(blob, dest_local)
-                copied += 1
-                logging.info(
-                    "Copied gs://%s/%s -> %s",
-                    args.gcp_bucket_name,
-                    blob.name,
-                    dest_local,
-                )
+            copied = _run_listing_copies(args, sp, client)
     except Forbidden as e:
-        msg = (
-            f"GCS 403 listing or reading gs://{args.gcp_bucket_name}/{gcs_prefix}: {e}"
-        )
+        msg = f"GCS 403 listing or reading gs://{args.gcp_bucket_name}/{sp.gcs_prefix}: {e}"
         if strict:
             raise
         logging.error("%s (strict_mode=false, exiting with 0 copied)", msg)
@@ -362,42 +438,26 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
         return 0, None
 
     logging.info(
-        "gcs_validated_to_bronze_sync finished: %s files -> %s",
-        copied,
-        landing_dir,
+        "gcs_validated_to_bronze_sync finished: %s files -> %s", copied, sp.landing_dir
     )
 
     _write_success_marker(
-        landing_dir,
+        sp.landing_dir,
         copied=copied,
         bucket_name=args.gcp_bucket_name,
-        gcs_prefix=gcs_prefix,
-        storage_layout="run_scoped" if sync_id else "flat",
+        gcs_prefix=sp.gcs_prefix,
+        storage_layout="run_scoped" if sp.sync_id else "flat",
         copy_mode="selective" if selective else "all_under_prefix",
         include_blob_paths=include_paths if selective else None,
     )
 
-    dbutils = get_dbutils()
-    if dbutils:
-        try:
-            dbutils.jobs.taskValues.set(key="synced_file_count", value=str(copied))
-            dbutils.jobs.taskValues.set(key="bronze_landing_path", value=landing_dir)
-        except Exception:
-            logging.exception(
-                "dbutils.jobs.taskValues.set failed; sync finished but job taskValues "
-                "are unavailable for downstream tasks."
-            )
+    _try_set_job_task_values(sp.landing_dir, copied)
 
     return copied, None
 
 
-def parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Copy GCS objects under a prefix into the institution bronze_volume "
-            "(additive: overwrite matching paths only; never delete existing files)."
-        )
-    )
+def _add_cli_path_arguments(parser: argparse.ArgumentParser) -> None:
+    """Register volume and GCS path related CLI args."""
     parser.add_argument(
         "--DB_workspace", required=True, help="Unity Catalog catalog name"
     )
@@ -438,6 +498,10 @@ def parse_arguments() -> argparse.Namespace:
             "objects under the prefix (still additive; no deletes)."
         ),
     )
+
+
+def _add_cli_mode_arguments(parser: argparse.ArgumentParser) -> None:
+    """Register cap and behavior CLI args."""
     parser.add_argument(
         "--max_objects",
         type=int,
@@ -457,37 +521,56 @@ def parse_arguments() -> argparse.Namespace:
         help="auto: strict off-cluster, lenient on DBR (matches PDP pattern). "
         "true/false: force.",
     )
+
+
+def parse_arguments() -> argparse.Namespace:
+    """Parse CLI for the Databricks job (see bundle ``job.parameters``)."""
+    parser = argparse.ArgumentParser(
+        description=(
+            "Copy GCS objects under a prefix into the institution bronze_volume "
+            "(additive: overwrite matching paths only; never delete existing files)."
+        )
+    )
+    _add_cli_path_arguments(parser)
+    _add_cli_mode_arguments(parser)
     return parser.parse_args()
 
 
+def _raise_on_zero_copies(
+    args: argparse.Namespace, swallowed: Swallowed, copied: int
+) -> None:
+    if copied != 0 or not args.require_at_least_one_file:
+        return
+    if swallowed == "forbidden":
+        raise PermissionError(
+            "GCS returned 403 Forbidden for this identity; "
+            "zero objects copied. This is not an empty prefix — fix IAM / bucket access."
+        )
+    if swallowed == "notfound":
+        raise FileNotFoundError(
+            "GCS bucket was not found for the given gcp_bucket_name; "
+            "zero objects copied."
+        )
+    gcs_prefix = _normalize_gcs_prefix(args.gcs_source_prefix) or DEFAULT_GCS_PREFIX
+    include_paths = _parse_include_blob_paths_json(args.include_blob_paths_json)
+    if include_paths:
+        raise FileNotFoundError(
+            "No objects were copied from include_blob_paths_json "
+            f"(check paths exist under gs://{args.gcp_bucket_name}/): {include_paths!r}"
+        )
+    raise FileNotFoundError(
+        f"No files found under gs://{args.gcp_bucket_name}/{gcs_prefix}"
+    )
+
+
 def main() -> None:
+    """Entry point for the driver script."""
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     args = parse_arguments()
     args.require_at_least_one_file = args.require_at_least_one_file == "true"
 
     copied, swallowed = sync_validated_to_bronze(args)
-
-    if copied == 0 and args.require_at_least_one_file:
-        if swallowed == "forbidden":
-            raise PermissionError(
-                "GCS returned 403 Forbidden for this identity; "
-                "zero objects copied. This is not an empty prefix — fix IAM / bucket access."
-            )
-        if swallowed == "notfound":
-            raise FileNotFoundError(
-                "GCS bucket was not found for the given gcp_bucket_name; "
-                "zero objects copied."
-            )
-        gcs_prefix = _normalize_gcs_prefix(args.gcs_source_prefix) or "validated/"
-        inc = _parse_include_blob_paths_json(args.include_blob_paths_json)
-        if inc:
-            raise FileNotFoundError(
-                "No objects were copied from include_blob_paths_json "
-                f"(check paths exist under gs://{args.gcp_bucket_name}/): {inc!r}"
-            )
-        raise FileNotFoundError(
-            f"No files found under gs://{args.gcp_bucket_name}/{gcs_prefix}"
-        )
+    _raise_on_zero_copies(args, swallowed, copied)
 
 
 if __name__ == "__main__":
