@@ -136,6 +136,11 @@ and set `reentry: "terminal"` (the resolution only needs to specify `suffix_colu
 `row_selection_required` stays true for course tables that use `suffix_identifier` — the table
 remains multi-row per student after the suffix pass.
 
+**`suffix_identifier` scope (course grain vs. student grain)**
+
+- `suffix_identifier` is for **course**-style tables where the grain **already** includes a course-identifier column and multiple rows at that grain differ on **measure** columns (grade, credits, etc.). The `suffix_column` must be a column that is part of the **grain key** (or will be part of it after suffixing). Suffixing that column **makes** previously duplicate grain keys **unique** so all rows are retained — each suffix becomes a disambiguating part of the key.
+- `suffix_identifier` is **not** appropriate for **student / demographic** tables where `student_id` (alone) is treated as the grain. Appending a suffix to `program_at_graduation` or another **non–grain-key** column does **not** fix duplicate `student_id` keys: the table stays multi-row per student and the student-level grain is still not unique. For student tables with multi-degree (or multi-program) rows, use `categorical_priority` (including **credential suffix detection** under Degree / award / completion tables), **widen the grain** via `candidate_key_override`, or **`policy_required` + HITL** — not `suffix_identifier` on a program/major column.
+
 ### Semester / term-summary tables
 - Expected grain is (student_id, term).
 - True duplicates on this key (within-group variance = 0 across all columns) should be
@@ -176,6 +181,17 @@ When two or more non-temporal, non-measure columns have variance within the same
   vs degree), the grain is either intentionally multi-row at that key or must include a
   degree/credential dimension — FLAG for HITL when the collapse policy is unclear.
 - row_selection is often required when the table remains multi-row per student after cleaning.
+
+**Credential suffix detection (variance values embed a degree type)**
+
+When a variance column's values embed a credential suffix (B.S., M.S., B.A., M.A., Ph.D., A.S., A.A., A.A.S., and similar), treat the column as a **degree-type** column **regardless of its column name**. Extract the **credential tier** from the suffix and use `categorical_priority` with the **standard tier hierarchy** in **Degree tier — categorical_priority** below, with `priority_order` listing the **actual full values from the data**, grouped by tier: all values mapped to a higher tier (e.g. Master's-level) **before** all values at a lower tier (Bachelor's, Associate's, etc.). Values **within the same tier** are peer-level — their relative order does not matter analytically; list them in any **stable** order (e.g. the order they appear in `unique_values`).
+
+When **all** distinct values in the column map to the **same** tier (e.g. every row is a B.S. program string), `categorical_priority` **still** applies: put every value in `priority_order` in any stable order. Do **not** use `temporal_collapse` on a **non-varying** column (e.g. a single-valued or effectively constant column) to mimic this outcome.
+
+**Degree / credential column vs. major / concentration column**
+
+- **Degree / credential columns** — e.g. `program_at_graduation`, `degree_type`, `awarded_degree`, or **any** column whose values embed a credential suffix per above → use `categorical_priority` with the tier hierarchy (suffix-derived tier or mapping from value text to the standard list).
+- **Major / concentration columns** — e.g. `major_at_graduation`, `major_at_first_enrollment` — major labels are **peer-level**; choosing one value over another for collapse is **arbitrarily** acceptable. Use `categorical_priority` with `priority_order` in any stable order, **or** state in `dedup_policy.notes` that the selection is arbitrary when documenting the policy.
 
 ### Degree dedup — sort column validity
 
