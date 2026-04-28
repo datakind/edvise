@@ -122,9 +122,12 @@ No rows are dropped.
 
 Emit the contract as:
 - `dedup_policy.strategy`: `"suffix_identifier"`
-- `dedup_policy.suffix_column`: the string column that identifies the course record —
-  prefer `course_name` or `course_section_id` over opaque numeric identifiers.
-  Choose the most human-readable stable identifier available in the column list.
+- `dedup_policy.suffix_column`: set this to **whichever course-identifier column is already part of the grain**
+  (`post_clean_primary_key`) — e.g. course title/name, catalog/course number, `class_number`, or a
+  section/course-section column, depending on what appears in the grain for this dataset. Pick the
+  grain column that best identifies the offering when duplicate grain keys differ only on measure
+  columns. Prefer the **most human-readable stable** grain column over opaque surrogate IDs when
+  several identifiers are present.
 - `dedup_policy.sort_by`: null (suffix order is positional, not sorted)
 - `dedup_policy.keep`: null
 
@@ -138,7 +141,7 @@ remains multi-row per student after the suffix pass.
 
 **`suffix_identifier` scope (course grain vs. student grain)**
 
-- `suffix_identifier` is for **course**-style tables where the grain **already** includes a course-identifier column and multiple rows at that grain differ on **measure** columns (grade, credits, etc.). The `suffix_column` must be a column that is part of the **grain key** (or will be part of it after suffixing). Suffixing that column **makes** previously duplicate grain keys **unique** so all rows are retained — each suffix becomes a disambiguating part of the key.
+- `suffix_identifier` is for **course**-style tables where the grain **already** includes a course-identifier column and multiple rows at that grain differ on **measure** columns (grade, credits, etc.). Set `suffix_column` to **one of the course-identifier columns listed in `post_clean_primary_key`** (same logical grain as the contract). Suffixing that column **makes** previously duplicate grain keys **unique** so all rows are retained — each suffix becomes a disambiguating part of the key.
 - `suffix_identifier` is **not** appropriate for **student / demographic** tables where `student_id` (alone) is treated as the grain. Appending a suffix to `program_at_graduation` or another **non–grain-key** column does **not** fix duplicate `student_id` keys: the table stays multi-row per student and the student-level grain is still not unique. For student tables with multi-degree (or multi-program) rows, use `categorical_priority` (including **credential suffix detection** under Degree / award / completion tables), **widen the grain** via `candidate_key_override`, or **`policy_required` + HITL** — not `suffix_identifier` on a program/major column.
 
 ### Semester / term-summary tables
