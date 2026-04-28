@@ -82,6 +82,7 @@ def test_is_transient_gcs_error() -> None:
 def test_download_blob_retries_on_transient_then_ok(tmp_path) -> None:
     blob = mock.Mock()
     calls: list[int] = [0]
+
     def flaky_download(p: str) -> None:
         calls[0] += 1
         if calls[0] < 2:
