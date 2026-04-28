@@ -9,9 +9,26 @@ from typing import Any
 
 import streamlit as st
 
-from edvise.genai.mapping.identity_agent.hitl.hook_preview import (
-    assemble_hook_spec_drafts_as_module_text,
-)
+
+def assemble_hook_spec_drafts_as_module_text(hook_spec: dict[str, Any]) -> str:
+    """
+    Concatenate ``functions[].draft`` in hook_spec JSON (same logic as
+    ``edvise.genai.mapping.identity_agent.hitl.hook_preview``).
+
+    Implemented here so the HITL app does not depend on that submodule being present in
+    whichever ``edvise`` wheel was bundled for Databricks (avoids stale-wheel import errors).
+    """
+    functions = hook_spec.get("functions")
+    if not isinstance(functions, list):
+        return ""
+    parts: list[str] = []
+    for fn in functions:
+        if not isinstance(fn, dict):
+            continue
+        draft = (fn.get("draft") or "").strip()
+        if draft:
+            parts.append(draft)
+    return "\n\n".join(parts).strip()
 
 
 def is_ia_hook_preview_phase(phase: str, artifact_type: str) -> bool:
