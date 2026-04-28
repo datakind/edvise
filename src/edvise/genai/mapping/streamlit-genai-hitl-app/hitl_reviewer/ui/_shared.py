@@ -18,6 +18,30 @@ from hitl_reviewer.persistence.hitl_json_batch_commit import (
 )
 
 
+def mark_hitl_nav_visit(
+    *, store_key: str, silver_path: str, cur: int, n_items: int
+) -> tuple[int, bool]:
+    """
+    Track which Prev/Next positions (``0 .. n_items-1``) have been displayed for this JSON path.
+
+    Returns ``(opened_count, all_opened)`` where ``opened_count`` is how many distinct positions
+    in range have been visited at least once (session resets per ``silver_path`` key inside ``store_key``).
+    """
+    if n_items <= 1:
+        return (1, True)
+    if store_key not in st.session_state:
+        st.session_state[store_key] = {}
+    by_path: dict[str, set[int]] = st.session_state[store_key]
+    if silver_path not in by_path:
+        by_path[silver_path] = set()
+    by_path[silver_path].add(int(cur))
+    seen = by_path[silver_path]
+    need = set(range(int(n_items)))
+    all_open = need <= seen
+    opened_k = len(seen & need)
+    return (opened_k, all_open)
+
+
 def inject_hitl_css() -> None:
     st.markdown(
         """
@@ -240,6 +264,7 @@ def render_action_bar(
     primary_help: str,
     pre_bar_caption: str | None,
     uc_group_pending: bool,
+    primary_extra_disabled: bool = False,
     show_reject_item: bool,
     persist_fn: Callable[[], tuple[bool, str]],
     reject_fn: Callable[[], None] | None,
@@ -259,7 +284,15 @@ def render_action_bar(
                     if nav_prev_button_key is None
                     else nav_prev_button_key
                 )
-                if st.button("◀ Prev", key=pk, use_container_width=True):
+                if st.button(
+                    "◀ Prev",
+                    key=pk,
+                    use_container_width=True,
+                    disabled=cur <= 0,
+                    help="First grain item in this file."
+                    if cur <= 0
+                    else "Previous grain item (another table) in this JSON file.",
+                ):
                     st.session_state[nav_key] = max(0, cur - 1)
                     st.rerun()
             with c_next:
@@ -268,7 +301,15 @@ def render_action_bar(
                     if nav_next_button_key is None
                     else nav_next_button_key
                 )
-                if st.button("Next ▶", key=nk, use_container_width=True):
+                if st.button(
+                    "Next ▶",
+                    key=nk,
+                    use_container_width=True,
+                    disabled=cur >= n_items - 1,
+                    help="Last grain item in this file — pick an option below, then Approve."
+                    if cur >= n_items - 1
+                    else "Next grain item (another table) in this JSON file.",
+                ):
                     st.session_state[nav_key] = min(n_items - 1, cur + 1)
                     st.rerun()
             with _nav_pad:
@@ -281,7 +322,7 @@ def render_action_bar(
                 key=primary_button_key,
                 type="primary",
                 use_container_width=True,
-                disabled=not uc_group_pending,
+                disabled=not uc_group_pending or primary_extra_disabled,
                 help=primary_help,
             ):
                 ok, err = persist_fn()
@@ -340,4 +381,7 @@ def render_action_bar(
                     if reject_fn is not None:
                         reject_fn()
     if show_reject_item and success_silver_filename is not None and uc_group_pending:
-        st.caption("Approve saves your selections and marks this review complete.")
+        _cap = "Approve saves your selections and marks this review complete."
+        if primary_extra_disabled:
+            _cap += " Approve stays disabled until every item in this file has been opened with Prev/Next."
+        st.caption(_cap)

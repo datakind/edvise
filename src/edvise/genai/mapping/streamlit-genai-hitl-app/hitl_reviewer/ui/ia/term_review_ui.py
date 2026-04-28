@@ -21,6 +21,7 @@ from edvise.utils.institution_naming import format_institution_display_name
 from hitl_reviewer.ui._shared import (
     init_sel_key,
     inject_hitl_css,
+    mark_hitl_nav_visit,
     render_action_bar,
     render_hitl_header,
     render_option_cards,
@@ -241,6 +242,33 @@ def render_ia_term_hitl_cards(
                     disabled=not uc_group_pending,
                 )
 
+        opened_k, all_nav_seen = mark_hitl_nav_visit(
+            store_key=f"ia-term-nav-visit-{sk}",
+            silver_path=silver_path,
+            cur=cur,
+            n_items=n_items,
+        )
+        approve_blocked = n_items > 1 and not all_nav_seen
+        _term_help_base = (
+            "Writes **all** term ``choice`` values from this screen (and any already saved on "
+            "disk) in one file write, then approves the UC ``hitl_reviews`` row when it is pending."
+        )
+        _term_help = _term_help_base
+        if approve_blocked:
+            _term_help = (
+                f"Open each term item with Prev/Next first ({opened_k}/{n_items} viewed). "
+                + _term_help_base
+            )
+        _term_cap = None
+        if n_items > 1:
+            _term_cap = (
+                f"This file has **{n_items}** term item(s). Use **Prev/Next** to review each one."
+            )
+            if approve_blocked:
+                _term_cap += (
+                    f" **Approve** is disabled until every item has been opened ({opened_k}/{n_items} so far)."
+                )
+
         render_action_bar(
             nav_key=nav_key,
             cur=cur,
@@ -253,12 +281,10 @@ def render_ia_term_hitl_cards(
             nav_next_button_key=None,
             primary_button_key=f"ia-term-save-all-{sk}",
             primary_button_label="Approve",
-            primary_help=(
-                "Writes **all** term ``choice`` values from this screen (and any already saved on "
-                "disk) in one file write, then approves the UC ``hitl_reviews`` row when it is pending."
-            ),
-            pre_bar_caption=None,
+            primary_help=_term_help,
+            pre_bar_caption=_term_cap,
             uc_group_pending=uc_group_pending,
+            primary_extra_disabled=approve_blocked,
             show_reject_item=True,
             persist_fn=lambda: persist_ia_term_hitl_from_session(
                 silver_path=silver_path,

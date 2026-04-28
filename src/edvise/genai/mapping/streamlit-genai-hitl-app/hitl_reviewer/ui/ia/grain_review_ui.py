@@ -22,6 +22,7 @@ from edvise.utils.institution_naming import format_institution_display_name
 from hitl_reviewer.ui._shared import (
     init_sel_key,
     inject_hitl_css,
+    mark_hitl_nav_visit,
     render_action_bar,
     render_hitl_header,
     render_option_cards,
@@ -333,6 +334,34 @@ def render_ia_grain_hitl_cards(
                     disabled=not uc_group_pending,
                 )
 
+        opened_k, all_nav_seen = mark_hitl_nav_visit(
+            store_key=f"ia-grain-nav-visit-{sk}",
+            silver_path=silver_path,
+            cur=cur,
+            n_items=n_items,
+        )
+        approve_blocked = n_items > 1 and not all_nav_seen
+        _grain_help_base = (
+            "Writes **all** grain ``choice`` values from this screen (and any already saved on "
+            "disk) in one file write, then approves the UC ``hitl_reviews`` row when it is pending."
+        )
+        _grain_help = _grain_help_base
+        if approve_blocked:
+            _grain_help = (
+                f"Open each grain item with Prev/Next first ({opened_k}/{n_items} viewed). "
+                + _grain_help_base
+            )
+        _grain_cap = None
+        if n_items > 1:
+            _grain_cap = (
+                f"This file has **{n_items}** grain item(s) (often one per table). Use **Prev/Next** "
+                "to open each one and pick an option — **Approve** saves every table’s choice in one write."
+            )
+            if approve_blocked:
+                _grain_cap += (
+                    f" **Approve** is disabled until every item has been opened ({opened_k}/{n_items} so far)."
+                )
+
         render_action_bar(
             nav_key=nav_key,
             cur=cur,
@@ -345,12 +374,10 @@ def render_ia_grain_hitl_cards(
             nav_next_button_key=None,
             primary_button_key=f"ia-grain-save-all-{sk}",
             primary_button_label="Approve",
-            primary_help=(
-                "Writes **all** grain ``choice`` values from this screen (and any already saved on "
-                "disk) in one file write, then approves the UC ``hitl_reviews`` row when it is pending."
-            ),
-            pre_bar_caption=None,
+            primary_help=_grain_help,
+            pre_bar_caption=_grain_cap,
             uc_group_pending=uc_group_pending,
+            primary_extra_disabled=approve_blocked,
             show_reject_item=True,
             persist_fn=lambda: persist_ia_grain_hitl_from_session(
                 silver_path=silver_path,

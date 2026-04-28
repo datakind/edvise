@@ -18,6 +18,7 @@ from edvise.utils.institution_naming import format_institution_display_name
 from hitl_reviewer.ui._shared import (
     init_sel_key,
     inject_hitl_css,
+    mark_hitl_nav_visit,
     render_action_bar,
     render_institution_line,
     render_option_cards,
@@ -446,6 +447,28 @@ def render_sma_hitl_cards(
             allow_silver_write=uc_group_pending,
         )
 
+    sma_opened, sma_all_seen = (1, True)
+    sma_approve_blocked = False
+    if nav_ixs and len(nav_ixs) > 1:
+        sma_opened, sma_all_seen = mark_hitl_nav_visit(
+            store_key=f"sma-nav-visit-{sk}",
+            silver_path=silver_path,
+            cur=cur_nav,
+            n_items=len(nav_ixs),
+        )
+        sma_approve_blocked = not sma_all_seen
+
+    _sma_help_base = (
+        "Writes every ``choice`` from the radios into this manifest, then approves the UC row "
+        "when pending."
+    )
+    _sma_help = _sma_help_base
+    if sma_approve_blocked:
+        _sma_help = (
+            f"Open each item with Prev/Next first ({sma_opened}/{len(nav_ixs)} viewed). "
+            + _sma_help_base
+        )
+
     nav_n = max(1, len(nav_ixs) if nav_ixs else 1)
     render_action_bar(
         nav_key=cur_key,
@@ -459,12 +482,10 @@ def render_sma_hitl_cards(
         nav_next_button_key=f"nxt-{sk}",
         primary_button_key=f"ssave{sk}",
         primary_button_label="Save JSON & approve UC",
-        primary_help=(
-            "Writes every ``choice`` from the radios into this manifest, then approves the UC row "
-            "when pending."
-        ),
+        primary_help=_sma_help,
         pre_bar_caption=pre_bar_caption,
         uc_group_pending=uc_group_pending,
+        primary_extra_disabled=sma_approve_blocked,
         show_reject_item=False,
         persist_fn=_persist,
         reject_fn=None,
