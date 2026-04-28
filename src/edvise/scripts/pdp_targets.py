@@ -18,9 +18,9 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise import targets as _targets
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
+from edvise.targets.invoke import compute_target_from_config
 from edvise.shared.logger import (
     local_fs_path,
     resolve_run_path,
@@ -54,28 +54,12 @@ class PDPTargetsTask:
         if preproc is None or preproc.target is None:
             raise ValueError("cfg.preprocessing.target must be configured.")
 
-        target_cfg = preproc.target
-        target_type = target_cfg.type_
-
-        target_modules = {
-            "credits_earned": _targets.credits_earned,
-            "graduation": _targets.graduation,
-            "retention": _targets.retention,
-        }
-        if target_type not in target_modules:
-            raise ValueError(f"Unknown target type: {target_type}")
-
-        compute_func = target_modules[target_type].compute_target
-        kwargs = target_cfg.model_dump()
-        kwargs.pop("name", None)
-        kwargs.pop("type_", None)
-        if target_type == "credits_earned":
-            kwargs["checkpoint"] = df_ckpt
-
-        s = compute_func(df_student_terms, **kwargs)
-        if not isinstance(s, pd.Series):
-            raise TypeError(f"compute_target must return pd.Series, got {type(s)}")
-        return s.astype(bool) if s.dtype != "bool" else s
+        return compute_target_from_config(
+            preproc.target,
+            df_student_terms,
+            df_ckpt,
+            student_id_col=self.cfg.student_id_col,
+        )
 
     def run(self):
         """Executes the target computation pipeline and saves result."""
