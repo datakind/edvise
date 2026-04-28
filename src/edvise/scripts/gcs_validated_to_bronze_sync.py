@@ -13,6 +13,11 @@ Optional ``--include_blob_paths_json`` (JSON array of full GCS object paths, e.g
 batch. When non-empty, prefix listing is skipped. When empty (``[]``), all objects
 under ``gcs_source_prefix`` are copied (same additive behavior; no deletes).
 
+``_SUCCESS.json`` is written when the copy loop finishes without the early
+``no files + require_at_least_one`` exit. That includes 0 files copied with
+``--require_at_least_one_file`` false. With ``--require_at_least_one_file`` true
+and 0 files, the run exits before writing the marker; ``main`` then raises.
+
 Intended to run as a single-task Databricks job (see pipelines/pdp/resources).
 """
 
@@ -24,9 +29,11 @@ import logging
 import os
 import re
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Iterator, Literal, Optional, Tuple
 
+from google.api_core import exceptions as gax_exc
 from google.api_core.exceptions import Forbidden, NotFound
 from google.cloud import storage
 
@@ -78,7 +85,9 @@ def _parse_include_blob_paths_json(raw: str) -> list[str]:
     out: list[str] = []
     for i, item in enumerate(data):
         if not isinstance(item, str) or not item.strip():
-            raise ValueError(f"include_blob_paths_json entry {i} must be a non-empty string")
+            raise ValueError(
+                f"include_blob_paths_json entry {i} must be a non-empty string"
+            )
         out.append(_normalize_blob_name(item))
     return out
 
@@ -159,6 +168,7 @@ def _write_success_marker(
     copy_mode: str,
     include_blob_paths: Optional[list[str]] = None,
 ) -> None:
+    """Write ``_SUCCESS.json`` under ``landing_dir`` (``copied`` may be 0 if the run allowed it)."""
     payload: dict = {
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "object_count": copied,
@@ -205,6 +215,44 @@ def _resolve_strict_mode(strict_mode: str) -> bool:
     raise ValueError(f"Invalid strict_mode: {strict_mode!r}")
 
 
+def _is_transient_gcs_error(exc: BaseException) -> bool:
+    """True for likely-transient GCS/transport failures worth retrying."""
+    if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
+        return True
+    if isinstance(exc, gax_exc.GoogleAPICallError):
+        code = (
+            getattr(exc, "code", None)
+            or getattr(exc, "http_status", None)
+            or getattr(exc, "grpc_status_code", None)
+        )
+        if code in (429, 500, 502, 503, 504):
+            return True
+    return False
+
+
+def _download_blob_to_file(blob, dest_local: str) -> None:
+    """Download one blob to dest with limited retries for transient GCS errors."""
+    max_attempts = 3
+    delay = 0.5
+    for attempt in range(1, max_attempts + 1):
+        try:
+            blob.download_to_filename(dest_local)
+            return
+        except (NotFound, Forbidden):
+            raise
+        except Exception as e:  # noqa: BLE001 — narrow downstream after transient check
+            if attempt == max_attempts or not _is_transient_gcs_error(e):
+                raise
+            logging.warning(
+                "Transient GCS download error (attempt %s/%s), retrying: %s",
+                attempt,
+                max_attempts,
+                e,
+            )
+            time.sleep(delay)
+            delay = min(delay * 2, 4.0)
+
+
 Swallowed = Optional[Literal["forbidden", "notfound"]]
 
 
@@ -219,6 +267,11 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
             "gcp_bucket_name is empty; pass the institution bucket when starting the job."
         )
 
+    db_w = _assert_safe_volume_segment("DB_workspace", args.DB_workspace.strip())
+    inst = _assert_safe_volume_segment(
+        "databricks_institution_name", args.databricks_institution_name.strip()
+    )
+
     gcs_prefix = _normalize_gcs_prefix(args.gcs_source_prefix)
     if not gcs_prefix:
         gcs_prefix = "validated/"
@@ -230,10 +283,7 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
     else:
         sync_id = ""
 
-    bronze_root = (
-        f"/Volumes/{args.DB_workspace}/"
-        f"{args.databricks_institution_name}_bronze/bronze_volume"
-    )
+    bronze_root = f"/Volumes/{db_w}/{inst}_bronze/bronze_volume"
     landing_dir = (
         os.path.join(bronze_root, bronze_sub, sync_id)
         if sync_id
@@ -262,7 +312,7 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
                 dest_local = _dest_local_under_landing(landing_dir, relative)
                 blob = bucket.blob(blob_name)
                 try:
-                    blob.download_to_filename(dest_local)
+                    _download_blob_to_file(blob, dest_local)
                 except NotFound as e:
                     raise FileNotFoundError(
                         "Validated object not found in GCS (check include_blob_paths_json): "
@@ -285,7 +335,7 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
                 if not relative:
                     continue
                 dest_local = _dest_local_under_landing(landing_dir, relative)
-                blob.download_to_filename(dest_local)
+                _download_blob_to_file(blob, dest_local)
                 copied += 1
                 logging.info(
                     "Copied gs://%s/%s -> %s",
@@ -329,8 +379,14 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
 
     dbutils = get_dbutils()
     if dbutils:
-        dbutils.jobs.taskValues.set(key="synced_file_count", value=str(copied))
-        dbutils.jobs.taskValues.set(key="bronze_landing_path", value=landing_dir)
+        try:
+            dbutils.jobs.taskValues.set(key="synced_file_count", value=str(copied))
+            dbutils.jobs.taskValues.set(key="bronze_landing_path", value=landing_dir)
+        except Exception:
+            logging.exception(
+                "dbutils.jobs.taskValues.set failed; sync finished but job taskValues "
+                "are unavailable for downstream tasks."
+            )
 
     return copied, None
 
@@ -342,7 +398,9 @@ def parse_arguments() -> argparse.Namespace:
             "(additive: overwrite matching paths only; never delete existing files)."
         )
     )
-    parser.add_argument("--DB_workspace", required=True, help="Unity Catalog catalog name")
+    parser.add_argument(
+        "--DB_workspace", required=True, help="Unity Catalog catalog name"
+    )
     parser.add_argument(
         "--databricks_institution_name",
         required=True,

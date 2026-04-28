@@ -5,8 +5,11 @@ resources:
       webhook_notifications:
         on_failure:
           - id: ${var.inference_slack_webhook_id}
-      # One writer per institution landing path; avoid concurrent overwrites on same keys.
-      max_concurrent_runs: 1
+      # Allow concurrent runs across institutions: each run uses a distinct
+      # gcp_bucket_name + databricks_institution_name. A global cap still limits
+      # total parallel runs; tune if the workspace is large enough to need more
+      # throughput. Same-institution double-runs are an upstream concern (API ordering).
+      max_concurrent_runs: 5
       tasks:
         - task_key: sync_validated_to_bronze
           spark_python_task:
