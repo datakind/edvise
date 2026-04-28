@@ -27,7 +27,7 @@ train_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_cohort_train.cs
 predict_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_cohort_inference.csv"
 
 [datasets.bronze.raw_course]
-primary_keys = ["student_id", "course_id"]
+primary_keys = ["student_id", "term", "course_prefix", "course_number", "course_id", "section_id"]
 drop_cols = ["timestamp"]
 train_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_course_train.csv"
 predict_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_course_inference.csv"

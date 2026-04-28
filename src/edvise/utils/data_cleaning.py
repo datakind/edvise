@@ -11,6 +11,20 @@ from edvise.utils import types
 
 LOGGER = logging.getLogger(__name__)
 
+# Edvise-schema course duplicate key uses ``section_id`` (5-part key). If only
+# ``course_section_id`` is present, it is copied to ``section_id`` for this step.
+DEFAULT_EDVISE_SCHEMA_DUP_KEY_COLS: tuple[str, ...] = (
+    "student_id",
+    "academic_term",
+    "course_prefix",
+    "course_number",
+    "section_id",
+)
+
+# If ``section_id`` is absent or the null share is strictly greater than this,
+# duplicate-key logic omits section (4-part key: student, term, prefix, number).
+MAX_SECTION_ID_NULL_FRACTION_FOR_DUP_KEY = 0.75
+
 RE_VARIOUS_PUNCTS = re.compile(r"[!()*+\,\-./:;<=>?[\]^_{|}~]")
 RE_QUOTATION_MARKS = re.compile(r"[\'\"\`]")
 
@@ -669,16 +683,13 @@ def _handle_pdp_duplicates(df: pd.DataFrame) -> pd.DataFrame:
 
 def _log_duplicate_groups(
     duplicate_rows: pd.DataFrame,
-    unique_cols: list[str] = [
-        "student_id",
-        "academic_term",
-        "course_prefix",
-        "course_number",
-    ],
+    unique_cols: list[str] | None = None,
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
 ) -> None:
     """Log detailed breakdown of duplicate course groups."""
+    if unique_cols is None:
+        unique_cols = list(DEFAULT_EDVISE_SCHEMA_DUP_KEY_COLS)
     LOGGER.info("Duplicate Course Groups (course_type / course_name breakdown)")
     if len(duplicate_rows) == 0:
         LOGGER.info("No duplicate course groups remain.")
@@ -687,7 +698,8 @@ def _log_duplicate_groups(
     for key_vals, group in duplicate_rows.groupby(
         unique_cols, observed=True, dropna=False
     ):
-        sid, term, subj, num = key_vals
+        key_tup = key_vals if isinstance(key_vals, tuple) else (key_vals,)
+        key_str = " ".join(str(v) for v in key_tup)
         parts = []
         if course_type_col is not None:
             type_counts = group[course_type_col].fillna("UNKNOWN").value_counts()
@@ -700,7 +712,7 @@ def _log_duplicate_groups(
                 "name: " + ", ".join(f"{c}×{n}" for n, c in name_counts.items())
             )
         extra = (" | " + " | ".join(parts)) if parts else ""
-        LOGGER.info(f"  {sid} {term} {subj} {num}{extra}")
+        LOGGER.info("  %s%s", key_str, extra)
 
 
 def _dup_group_field_varies(grp: pd.DataFrame, col: str | None) -> bool:
@@ -742,12 +754,7 @@ def _material_duplicate_group_differs(
 
 def _classify_duplicate_groups(
     duplicate_rows: pd.DataFrame,
-    unique_cols: list[str] = [
-        "student_id",
-        "academic_term",
-        "course_prefix",
-        "course_number",
-    ],
+    unique_cols: list[str] | None = None,
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
     credits_col: str | None = "course_credits_attempted",
@@ -756,6 +763,9 @@ def _classify_duplicate_groups(
     credits_earned_col: str | None = None,
 ) -> tuple[list[int], list[int], int, int, int]:
     """Renumber only when :func:`_material_duplicate_group_differs`; else drop extras."""
+    if unique_cols is None:
+        unique_cols = list(DEFAULT_EDVISE_SCHEMA_DUP_KEY_COLS)
+    unique_cols = [c for c in unique_cols if c in duplicate_rows.columns]
     renumber_groups = 0
     drop_groups = 0
     renumber_work_idx = []
@@ -825,7 +835,10 @@ def _renumber_duplicates(
 ) -> pd.DataFrame:
     """Renumber duplicate courses for schema mode."""
     if unique_cols is None:
-        unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
+        unique_cols = list(DEFAULT_EDVISE_SCHEMA_DUP_KEY_COLS)
+    unique_cols = [c for c in unique_cols if c in df.columns]
+    if not unique_cols:
+        raise ValueError("renumber_duplicates: none of unique_cols are present on df")
 
     if not renumber_work_idx:
         return df
@@ -938,6 +951,32 @@ def _log_schema_summary(
     LOGGER.info("")
 
 
+def _omit_section_from_dup_key_if_unusable(
+    df: pd.DataFrame, unique_cols: list[str]
+) -> list[str]:
+    """
+    Drop ``section_id`` from the duplicate key when the column is missing or null
+    values exceed :data:`MAX_SECTION_ID_NULL_FRACTION_FOR_DUP_KEY`.
+    """
+    if "section_id" not in unique_cols:
+        return unique_cols
+    if "section_id" not in df.columns:
+        LOGGER.warning("section_id missing; duplicate-key omits section.")
+        return [c for c in unique_cols if c != "section_id"]
+    n = len(df)
+    if n == 0:
+        return [c for c in unique_cols if c != "section_id"]
+    null_frac = float(df["section_id"].isna().sum()) / n
+    if null_frac > MAX_SECTION_ID_NULL_FRACTION_FOR_DUP_KEY:
+        LOGGER.warning(
+            "section_id is %.1f%% null (threshold %.1f%%); duplicate-key omits section.",
+            100.0 * null_frac,
+            100.0 * MAX_SECTION_ID_NULL_FRACTION_FOR_DUP_KEY,
+        )
+        return [c for c in unique_cols if c != "section_id"]
+    return unique_cols
+
+
 def _handle_schema_duplicates(
     df: pd.DataFrame,
     unique_cols: list[str] | None = None,
@@ -947,10 +986,23 @@ def _handle_schema_duplicates(
 ) -> pd.DataFrame:
     """Handle duplicates for Edvise schema mode."""
     LOGGER.info("handle_duplicates: edvise schema mode triggered")
+    df = df.copy()
+    if "section_id" not in df.columns and "course_section_id" in df.columns:
+        df["section_id"] = df["course_section_id"]
 
-    # Set defaults for unique_cols
     if unique_cols is None:
-        unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
+        unique_cols = list(DEFAULT_EDVISE_SCHEMA_DUP_KEY_COLS)
+    else:
+        unique_cols = list(unique_cols)
+
+    unique_cols = _omit_section_from_dup_key_if_unusable(df, unique_cols)
+
+    missing_key = [c for c in unique_cols if c not in df.columns]
+    if missing_key:
+        raise ValueError(
+            "Edvise duplicate-key columns missing from dataframe: "
+            + ", ".join(missing_key)
+        )
 
     # Validate optional columns; set to None if missing
     course_type_col = validate_optional_column(
@@ -1051,12 +1103,7 @@ def _handle_schema_duplicates(
 def handling_duplicates(
     df: pd.DataFrame,
     schema_type: str,
-    unique_cols: list[str] | None = [
-        "student_id",
-        "academic_term",
-        "course_prefix",
-        "course_number",
-    ],
+    unique_cols: list[str] | None = None,
     credits_col: str | None = "course_credits_attempted",
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
@@ -1069,8 +1116,11 @@ def handling_duplicates(
     or earned), or **grade** disagree. If those fields align and differences are only
     elsewhere (or the rows are otherwise redundant), **one row is dropped** per key
     (arbitrary deterministic choice: first row in each duplicate-key group). PDP
-    infers student id and includes section in the key; ES drops exact dupes first
-    then sets ``course_id``.
+    infers student id and includes ``section_id`` in the key. ES uses the same
+    five-part key; if only ``course_section_id`` exists it is copied to
+    ``section_id``. ``section_id`` is dropped from the key when the column is
+    missing or when more than :data:`MAX_SECTION_ID_NULL_FRACTION_FOR_DUP_KEY`
+    of values are null. Then sets ``course_id``.
     """
     df = df.copy()
     schema_type = (schema_type or "").strip().lower()

@@ -79,7 +79,7 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     course_section_id, grade, course_credits_attempted, course_credits_earned.
     Optional columns (e.g. course_title) may be missing from the DataFrame or
     contain nulls; when present they are validated. Rows must be unique on (learner_id,
-    academic_year, academic_term, course_prefix, course_number, section_id).
+    academic_year, academic_term, course_prefix, course_number, course_section_id).
     """
 
     # ------------------------------------------------------------------ #

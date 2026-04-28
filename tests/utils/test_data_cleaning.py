@@ -5,6 +5,8 @@ from collections.abc import Iterable
 
 from edvise.utils import data_cleaning
 
+_ES_SCHEMA_DUP_KEYS = list(data_cleaning.DEFAULT_EDVISE_SCHEMA_DUP_KEY_COLS)
+
 
 @pytest.mark.parametrize(
     ["eles", "exp"],
@@ -240,11 +242,12 @@ class TestClassifyDuplicateGroups:
                     "English",
                 ],
                 "course_credits_attempted": [1.0, 3.0, 3.0, 3.0, 2.0, 1.0],
+                "section_id": ["001", "001", "001", "001", "002", "002"],
             }
         )
 
     def test_classify_with_varying_types(self, sample_duplicate_rows):
-        unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
+        unique_cols = _ES_SCHEMA_DUP_KEYS
         result = data_cleaning._classify_duplicate_groups(
             sample_duplicate_rows,
             unique_cols,
@@ -274,9 +277,10 @@ class TestClassifyDuplicateGroups:
                 "course_name": ["Calculus I", "Calculus I"],
                 "course_credits_attempted": [3.0, 3.0],
                 "grade": ["C", "A"],
+                "section_id": ["001", "001"],
             }
         )
-        unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
+        unique_cols = _ES_SCHEMA_DUP_KEYS
         result = data_cleaning._classify_duplicate_groups(
             df,
             unique_cols,
@@ -304,9 +308,10 @@ class TestClassifyDuplicateGroups:
                 "course_credits_attempted": [3.0, 3.0],
                 "grade": ["B", "B"],
                 "delivery_method": ["F", "O"],
+                "section_id": ["001", "001"],
             }
         )
-        unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
+        unique_cols = _ES_SCHEMA_DUP_KEYS
         _, drop_idx, renumber_groups, drop_groups, _ = (
             data_cleaning._classify_duplicate_groups(
                 df,
@@ -330,9 +335,10 @@ class TestClassifyDuplicateGroups:
                 "course_number": ["101", "101"],
                 "course_name": ["Calculus I", "Calculus II"],
                 "course_credits_attempted": [3.0, 3.0],
+                "section_id": ["001", "001"],
             }
         )
-        unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
+        unique_cols = _ES_SCHEMA_DUP_KEYS
         result = data_cleaning._classify_duplicate_groups(
             df,
             unique_cols,
@@ -390,7 +396,7 @@ class TestRenumberDuplicates:
         data_cleaning._renumber_duplicates(
             df,
             renumber_work_idx=[0, 1],
-            unique_cols=None,
+            unique_cols=["course_prefix", "course_number"],
             credits_col=None,
             course_type_col="course_classification",
             course_name_col=None,
@@ -405,7 +411,7 @@ class TestRenumberDuplicates:
         result = data_cleaning._renumber_duplicates(
             df,
             renumber_work_idx=[],
-            unique_cols=None,
+            unique_cols=["course_prefix", "course_number"],
             credits_col=None,
             course_type_col=None,
             course_name_col=None,
@@ -489,6 +495,7 @@ class TestHandleSchemaDuplicates:
                 "course_classification": ["Lab", "Lecture", "Lecture"],
                 "course_name": ["Math Lab", "Math Lecture", "Physics"],
                 "course_credits_attempted": [1.0, 3.0, 3.0],
+                "section_id": ["001", "001", "001"],
             }
         )
 
@@ -500,6 +507,7 @@ class TestHandleSchemaDuplicates:
                 "academic_term": ["F2024", "F2024"],
                 "course_prefix": ["MATH", "MATH"],
                 "course_number": ["101", "101"],
+                "section_id": ["001", "001"],
                 "course_classification": ["Lecture", "Lecture"],
                 "course_name": ["Calculus I", "Calculus I"],
                 "course_credits_attempted": [3.0, 4.0],
@@ -550,6 +558,79 @@ class TestHandleSchemaDuplicates:
         result = data_cleaning._handle_schema_duplicates(df)
         assert len(result) == 1
 
+    @patch("edvise.utils.data_cleaning.LOGGER")
+    def test_same_course_different_section_not_key_duplicate(self, mock_logger):
+        df = pd.DataFrame(
+            {
+                "student_id": ["A", "A"],
+                "academic_term": ["F2024", "F2024"],
+                "course_prefix": ["MATH", "MATH"],
+                "course_number": ["101", "101"],
+                "section_id": ["001", "002"],
+                "course_classification": ["Lecture", "Lecture"],
+                "course_name": ["Calculus I", "Calculus I"],
+                "course_credits_attempted": [3.0, 3.0],
+            }
+        )
+        result = data_cleaning._handle_schema_duplicates(df)
+        assert len(result) == 2
+
+    @patch("edvise.utils.data_cleaning.LOGGER")
+    def test_course_section_id_copied_to_section_id_for_dup_key(self, mock_logger):
+        df = pd.DataFrame(
+            {
+                "student_id": ["A", "A"],
+                "academic_term": ["F2024", "F2024"],
+                "course_prefix": ["MATH", "MATH"],
+                "course_number": ["101", "101"],
+                "course_section_id": ["001", "001"],
+                "course_classification": ["Lecture", "Lecture"],
+                "course_name": ["Calculus I", "Calculus I"],
+                "course_credits_attempted": [3.0, 4.0],
+            }
+        )
+        result = data_cleaning._handle_schema_duplicates(df)
+        assert "section_id" in result.columns
+        assert len(result) == 2
+
+    @patch("edvise.utils.data_cleaning.LOGGER")
+    def test_omits_section_from_dup_key_when_all_section_id_null(self, mock_logger):
+        df = pd.DataFrame(
+            {
+                "student_id": ["A", "A"],
+                "academic_term": ["F2024", "F2024"],
+                "course_prefix": ["MATH", "MATH"],
+                "course_number": ["101", "101"],
+                "section_id": [pd.NA, pd.NA],
+                "course_classification": ["Lecture", "Lecture"],
+                "course_name": ["Calculus I", "Calculus I"],
+                "course_credits_attempted": [3.0, 3.0],
+            }
+        )
+        result = data_cleaning._handle_schema_duplicates(df)
+        assert len(result) == 1
+
+    @patch("edvise.utils.data_cleaning.LOGGER")
+    def test_omits_section_from_dup_key_when_null_fraction_exceeds_threshold(
+        self, mock_logger
+    ):
+        # 4/5 = 80% null > 75% threshold → omit section → same 4-key + material
+        df = pd.DataFrame(
+            {
+                "student_id": ["A"] * 5,
+                "academic_term": ["F2024"] * 5,
+                "course_prefix": ["MATH"] * 5,
+                "course_number": ["101"] * 5,
+                "section_id": [pd.NA, pd.NA, pd.NA, pd.NA, "001"],
+                "course_classification": ["Lecture"] * 5,
+                "course_name": ["Calculus I"] * 5,
+                "course_credits_attempted": [3.0] * 5,
+            }
+        )
+        result = data_cleaning._handle_schema_duplicates(df)
+        assert mock_logger.warning.called
+        assert len(result) == 1
+
 
 class TestHandlingDuplicates:
     """Integration tests for the main handling_duplicates function."""
@@ -580,6 +661,7 @@ class TestHandlingDuplicates:
                 "course_classification": ["Lecture", "Lecture"],
                 "course_name": ["Calculus I", "Calculus I"],
                 "course_credits_attempted": [3.0, 3.0],
+                "section_id": ["001", "001"],
             }
         )
 
