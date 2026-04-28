@@ -189,8 +189,11 @@ def render_sma_option_descriptions(*, options: list) -> None:
 
 
 def _field_mapping_preview_lines(fm: dict[str, Any]) -> list[str]:
-    """Human-readable lines for an SMA option ``field_mapping`` (source, join, row_selection, filter)."""
+    """Human-readable lines for an SMA option ``field_mapping`` (target, source, join, row_selection, filter)."""
     lines: list[str] = []
+    tf = fm.get("target_field")
+    if tf is not None and str(tf).strip():
+        lines.append(f"Target field (Edvise schema): {tf!s}")
     sc = fm.get("source_column")
     stbl = fm.get("source_table")
     if sc is not None or stbl is not None:
@@ -480,6 +483,15 @@ def render_sma_hitl_cards(
             f'<div class="hitl-qpanel">{html.escape(q)}</div>',
             unsafe_allow_html=True,
         )
+        cfm_head = item.get("current_field_mapping")
+        if isinstance(cfm_head, dict):
+            tf_head = (str(cfm_head.get("target_field") or "")).strip()
+            if tf_head:
+                st.markdown(
+                    '<p class="hitl-ctx-block"><strong>Target field</strong> '
+                    f"(maps into Edvise schema): <code>{html.escape(tf_head)}</code></p>",
+                    unsafe_allow_html=True,
+                )
         options = item.get("options")
         if not options or not isinstance(options, list):
             options = []
