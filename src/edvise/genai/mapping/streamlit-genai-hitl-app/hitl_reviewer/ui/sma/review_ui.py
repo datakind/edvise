@@ -296,6 +296,7 @@ def render_sma_hitl_cards(
     pending_df: pd.DataFrame | None,
     uc_group_pending: bool = False,
     approve_uc_if_complete: Callable[[], None] | None = None,
+    after_uc_approve_success: Callable[[], None] | None = None,
 ) -> None:
     """Full SMA manifest HITL UI, including Save + optional UC approve (``ssave{sk}``)."""
     inject_hitl_css()
@@ -457,5 +458,6 @@ def render_sma_hitl_cards(
             silver_path=silver_path, onboard_run_id=str(onboard_run_id)
         ),
         approve_fn=approve_uc_if_complete,
+        after_uc_approve_success=after_uc_approve_success,
         success_silver_filename=None,
     )

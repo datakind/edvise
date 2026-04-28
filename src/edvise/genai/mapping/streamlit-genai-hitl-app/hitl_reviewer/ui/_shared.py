@@ -243,6 +243,7 @@ def render_action_bar(
     reject_fn: Callable[[], None] | None,
     after_persist_success: Callable[[], None],
     approve_fn: Callable[[], None] | None,
+    after_uc_approve_success: Callable[[], None] | None,
     success_silver_filename: str | None,
 ) -> None:
     if pre_bar_caption is not None:
@@ -294,6 +295,8 @@ def render_action_bar(
                             st.warning(f"JSON saved, but UC approve failed: {ap_err}")
                     elif success_silver_filename is not None:
                         if uc_group_pending and approve_fn is not None:
+                            if after_uc_approve_success is not None:
+                                after_uc_approve_success()
                             st.success(
                                 f"Saved ``{success_silver_filename}`` and approved the UC row."
                             )
@@ -308,6 +311,8 @@ def render_action_bar(
                         st.rerun()
                     else:
                         if uc_group_pending:
+                            if after_uc_approve_success is not None:
+                                after_uc_approve_success()
                             st.success("Saved manifest JSON and approved the UC row.")
                             st.toast("JSON + UC complete.", icon="✅")
                         else:

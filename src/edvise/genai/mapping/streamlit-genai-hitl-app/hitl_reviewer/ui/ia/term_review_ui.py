@@ -126,6 +126,7 @@ def render_ia_term_hitl_cards(
     pending_df: pd.DataFrame | None,
     uc_group_pending: bool = False,
     approve_uc_if_complete: Callable[[], None] | None = None,
+    after_uc_approve_success: Callable[[], None] | None = None,
 ) -> None:
     inject_hitl_css()
     _col_l, _ = st.columns([6, 1])
@@ -253,6 +254,7 @@ def render_ia_term_hitl_cards(
             ),
             after_persist_success=lambda: invalidate_ia_term_run_cache(str(onboard_run_id)),
             approve_fn=approve_uc_if_complete,
+            after_uc_approve_success=after_uc_approve_success,
             success_silver_filename="identity_term_hitl.json",
         )
 

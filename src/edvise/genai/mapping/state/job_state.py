@@ -14,6 +14,9 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from edvise.genai.mapping.identity_agent.hitl.schemas import InstitutionHITLItems
+from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import InstitutionSMAHITLItems
+from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json
 from edvise.genai.mapping.state import pipeline_state
 from edvise.genai.mapping.state.hitl_poller import (
     DEFAULT_HITL_POLL_INTERVAL_SECONDS,
@@ -27,6 +30,7 @@ PHASE_IA_START: str = "ia_start"
 PHASE_IA_GATE_1: str = "ia_gate_1"
 PHASE_SMA_START: str = "sma_start"
 PHASE_SMA_GATE_1: str = "sma_gate_1"
+AUTO_APPROVER: str = "pipeline_auto_approve_empty_hitl"
 
 
 def _state_safe(label: str, fn, *args, **kwargs) -> None:
@@ -34,6 +38,59 @@ def _state_safe(label: str, fn, *args, **kwargs) -> None:
         fn(*args, **kwargs)
     except Exception as e:  # noqa: BLE001 — intentional non-fatal
         LOGGER.warning("Pipeline state [%s] skipped: %s", label, e)
+
+
+def _hitl_artifact_has_actionable_items(artifact_type: str, artifact_path: Path) -> bool:
+    """
+    Return True when the artifact contains at least one gate-blocking item.
+
+    IA grain/term: any item with ``choice`` unset.
+    SMA cohort/course manifests: any item in ``gate_pending``.
+    """
+    at = str(artifact_type).strip().lower()
+    if at in {"grain", "term"}:
+        env = read_pydantic_json(Path(artifact_path), InstitutionHITLItems)
+        return len(env.pending) > 0
+    if at in {"cohort_manifest", "course_manifest"}:
+        env = read_pydantic_json(Path(artifact_path), InstitutionSMAHITLItems)
+        return len(env.gate_pending) > 0
+    return True
+
+
+def _auto_approve_hitl_artifact_if_empty(
+    catalog: str,
+    onboard_run_id: str,
+    phase: str,
+    artifact_type: str,
+    artifact_path: Path,
+) -> None:
+    """
+    Auto-approve a UC ``hitl_reviews`` artifact row when the file has no actionable items.
+    """
+    try:
+        has_actionable = _hitl_artifact_has_actionable_items(artifact_type, artifact_path)
+    except Exception as e:  # noqa: BLE001
+        LOGGER.warning(
+            "Could not inspect HITL artifact for auto-approve: run=%s phase=%s artifact_type=%s path=%s (%s)",
+            onboard_run_id,
+            phase,
+            artifact_type,
+            artifact_path,
+            e,
+        )
+        return
+    if has_actionable:
+        return
+    _state_safe(
+        f"auto-approve empty HITL artifact ({artifact_type})",
+        pipeline_state.resolve_hitl,
+        catalog,
+        onboard_run_id,
+        phase,
+        artifact_type,
+        AUTO_APPROVER,
+        "approved",
+    )
 
 
 def mark_pipeline_failed(catalog: str, institution_id: str, onboard_run_id: str) -> None:
@@ -78,6 +135,20 @@ def after_ia_onboard_start(
             {"artifact_type": "grain", "artifact_path": g},
             {"artifact_type": "term", "artifact_path": t},
         ],
+    )
+    _auto_approve_hitl_artifact_if_empty(
+        catalog,
+        onboard_run_id,
+        PHASE_IA_GATE_1,
+        "grain",
+        grain_path,
+    )
+    _auto_approve_hitl_artifact_if_empty(
+        catalog,
+        onboard_run_id,
+        PHASE_IA_GATE_1,
+        "term",
+        term_path,
     )
 
 
@@ -289,6 +360,20 @@ def after_sma_onboard_start(
             {"artifact_type": "cohort_manifest", "artifact_path": c},
             {"artifact_type": "course_manifest", "artifact_path": co},
         ],
+    )
+    _auto_approve_hitl_artifact_if_empty(
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_1,
+        "cohort_manifest",
+        cohort_path,
+    )
+    _auto_approve_hitl_artifact_if_empty(
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_1,
+        "course_manifest",
+        course_path,
     )
 
 

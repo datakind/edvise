@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import pandas as pd
@@ -317,6 +318,7 @@ def render_silver_hitl_editor(
     artifact_type: str,
     pending_df: pd.DataFrame | None = None,
     uc_group_pending: bool = False,
+    after_uc_approve_success: Callable[[], None] | None = None,
 ) -> None:
     is_sma = is_sma_phase(phase, artifact_type)
     is_ia_grain = is_ia_grain_phase(phase, artifact_type)
@@ -369,6 +371,7 @@ def render_silver_hitl_editor(
                 st.session_state["reviewer"],
                 "approved",
             ),
+            after_uc_approve_success=after_uc_approve_success,
         )
         return
 
@@ -389,6 +392,7 @@ def render_silver_hitl_editor(
                 st.session_state["reviewer"],
                 "approved",
             ),
+            after_uc_approve_success=after_uc_approve_success,
         )
         return
 
@@ -409,6 +413,7 @@ def render_silver_hitl_editor(
                 st.session_state["reviewer"],
                 "approved",
             ),
+            after_uc_approve_success=after_uc_approve_success,
         )
         return
 
@@ -498,6 +503,8 @@ def render_silver_hitl_editor(
             if not ap_ok:
                 st.warning(f"JSON saved, but UC approve failed: {ap_err}")
             elif uc_group_pending:
+                if after_uc_approve_success is not None:
+                    after_uc_approve_success()
                 st.success("Saved manifest JSON and approved the UC row.")
                 st.toast("JSON + UC complete.", icon="✅")
             else:
@@ -584,6 +591,79 @@ def clear_hitl_workbench_group_nav() -> None:
     for qk in _NAV_QUERY_KEYS:
         if qk in qp:
             del qp[qk]
+
+
+def advance_to_next_pending_group(
+    *,
+    catalog: str,
+    current_onboard_run_id: str,
+    current_phase: str,
+    current_artifact_type: str,
+) -> bool:
+    """
+    Move editor navigation to the next pending group in the current workbench context.
+
+    Preference order:
+    1) Pending rows from the current sidebar-filtered result set.
+    2) Fallback to a broader pending query.
+    If no other pending group exists, clear selection.
+    """
+    try:
+        sidebar = SidebarState(
+            catalog=str(catalog).strip(),
+            f_run=str(st.session_state.get("sidebar_f_run", "") or ""),
+            f_phase=str(st.session_state.get("sidebar_f_phase", "") or ""),
+            f_status=str(st.session_state.get("sidebar_f_status", "(any)") or "(any)"),
+            limit=int(st.session_state.get("sidebar_limit", 500) or 500),
+            refresh_clicked=False,
+        )
+        base_df = load_dataframe_for_sidebar(str(catalog).strip(), sidebar)
+    except Exception:
+        base_df = load_hitl_rows(
+            str(catalog).strip(),
+            onboard_run_id=None,
+            phase=None,
+            status="pending",
+            limit=5000,
+        )
+
+    if base_df is None or base_df.empty:
+        clear_hitl_workbench_group_nav()
+        return False
+
+    pending_df = base_df[base_df["status"].astype(str).str.lower() == "pending"].copy()
+    if pending_df.empty:
+        clear_hitl_workbench_group_nav()
+        return False
+
+    groups = pending_df[["onboard_run_id", "phase", "artifact_type"]].drop_duplicates()
+    if groups.empty:
+        clear_hitl_workbench_group_nav()
+        return False
+
+    o_cur = str(current_onboard_run_id).strip()
+    ph_cur = str(current_phase).strip()
+    at_cur = str(current_artifact_type).strip()
+    mask_current = (
+        groups["onboard_run_id"].astype(str).str.strip() == o_cur
+    ) & (
+        groups["phase"].astype(str).str.strip() == ph_cur
+    ) & (
+        groups["artifact_type"].astype(str).str.strip() == at_cur
+    )
+    next_groups = groups[~mask_current]
+    if next_groups.empty:
+        clear_hitl_workbench_group_nav()
+        return False
+
+    nxt = next_groups.iloc[0]
+    set_nav_selection(
+        str(catalog).strip(),
+        str(nxt.get("onboard_run_id", "")).strip(),
+        str(nxt.get("phase", "")).strip(),
+        str(nxt.get("artifact_type", "")).strip(),
+    )
+    return True
 
 
 def _one_query_value(key: str) -> str | None:
@@ -692,6 +772,12 @@ def render_one_hitl_group(
                 artifact_type=str(artifact_type),
                 pending_df=pending if not pending.empty else action_df,
                 uc_group_pending=not sub_pending.empty,
+                after_uc_approve_success=lambda: advance_to_next_pending_group(
+                    catalog=str(catalog),
+                    current_onboard_run_id=str(onboard_run_id),
+                    current_phase=str(phase),
+                    current_artifact_type=str(artifact_type),
+                ),
             )
         st.divider()
         is_ia_grain_row = is_ia_grain_phase(str(phase), str(artifact_type))
@@ -717,6 +803,12 @@ def render_one_hitl_group(
                         st.session_state["reviewer"],
                         "rejected",
                     )
+                    advance_to_next_pending_group(
+                        catalog=str(catalog),
+                        current_onboard_run_id=str(onboard_run_id),
+                        current_phase=str(phase),
+                        current_artifact_type=str(artifact_type),
+                    )
                     st.toast("UC row rejected.", icon="⛔")
                     st.rerun()
                 except Exception as ex:  # noqa: BLE001
@@ -734,6 +826,12 @@ def render_one_hitl_group(
                             st.session_state["reviewer"],
                             "approved",
                         )
+                        advance_to_next_pending_group(
+                            catalog=str(catalog),
+                            current_onboard_run_id=str(onboard_run_id),
+                            current_phase=str(phase),
+                            current_artifact_type=str(artifact_type),
+                        )
                         st.toast("UC row approved.", icon="✅")
                         st.rerun()
                     except Exception as ex:  # noqa: BLE001
@@ -748,6 +846,12 @@ def render_one_hitl_group(
                             str(artifact_type),
                             st.session_state["reviewer"],
                             "rejected",
+                        )
+                        advance_to_next_pending_group(
+                            catalog=str(catalog),
+                            current_onboard_run_id=str(onboard_run_id),
+                            current_phase=str(phase),
+                            current_artifact_type=str(artifact_type),
                         )
                         st.toast("UC row rejected.", icon="⛔")
                         st.rerun()
