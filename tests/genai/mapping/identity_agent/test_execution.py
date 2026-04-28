@@ -141,6 +141,33 @@ def test_apply_grain_dedup_suffix_identifier_appends_suffixes_and_preserves_row_
     assert g2["grade"].iloc[0] == "B"
 
 
+def test_apply_grain_dedup_suffix_identifier_on_int_column_stores_hyphenated_strings():
+    """Integer catalog/class ids must become string dtype so values like 37559-1 do not coerce via int()."""
+    df = pd.DataFrame(
+        {
+            "learner_id": ["s1", "s1"],
+            "class_number": [37559, 37559],
+            "term": ["2024FA", "2024FA"],
+            "grade": ["A", "B"],
+        }
+    )
+    assert df["class_number"].dtype.kind in "iu"
+    grain = ["learner_id", "class_number", "term"]
+    c = _grain(
+        post_clean_primary_key=grain,
+        join_keys_for_2a=grain,
+        dedup_policy=DedupPolicy(
+            strategy="suffix_identifier",
+            suffix_column="class_number",
+            notes="",
+        ),
+    )
+    out = apply_grain_dedup(df, c)
+    assert len(out) == 2
+    assert out["class_number"].tolist() == ["37559-1", "37559-2"]
+    assert pd.api.types.is_string_dtype(out["class_number"])
+
+
 def test_apply_categorical_priority_substring_and_longest_token():
     """Substring match e.g. B.S. in 'Accounting, B.S.'; M.A. in 'X, M.B.A.' defers to M.B.A. when longer."""
     po = ["M.S.", "B.S."]

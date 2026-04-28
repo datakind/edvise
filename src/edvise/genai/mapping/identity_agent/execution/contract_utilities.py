@@ -281,6 +281,9 @@ def suffix_repeat_course_identifier(
     out = df.copy()
     if out.empty or len(out) < 2:
         return out
+    # Values become strings like "37559-1". Integer (or other non-text) dtypes cannot store
+    # those literals — pandas would coerce and raise (e.g. int("37559-1")).
+    out[suffix_column] = out[suffix_column].astype("string")
     grp = out.groupby(group_by, dropna=False, sort=False)
     n_in_group = grp[suffix_column].transform("size")
     rank_1based = grp.cumcount() + 1
