@@ -46,7 +46,9 @@ STALE_PIPELINE_RUN_IDLE_MINUTES: int = 25
 def _spark() -> Any:
     spark = get_spark_session()
     if spark is None:
-        raise RuntimeError("No active Spark session; run on Databricks with Spark available")
+        raise RuntimeError(
+            "No active Spark session; run on Databricks with Spark available"
+        )
     return spark
 
 
@@ -262,7 +264,9 @@ def update_onboard_pipeline_run_input_file_paths(
     rid = str(onboard_run_id).strip()
     raw = (input_file_paths_json or "").strip()
     if not inst or not rid or not raw:
-        raise ValueError("institution_id, onboard_run_id, and input_file_paths_json must be non-empty")
+        raise ValueError(
+            "institution_id, onboard_run_id, and input_file_paths_json must be non-empty"
+        )
 
     t = qualified_table(c, PIPELINE_RUNS)
     q = f"""
@@ -290,7 +294,9 @@ def update_execute_pipeline_run_input_file_paths(
     ex = str(execute_run_id).strip()
     raw = (input_file_paths_json or "").strip()
     if not inst or not ex or not raw:
-        raise ValueError("institution_id, execute_run_id, and input_file_paths_json must be non-empty")
+        raise ValueError(
+            "institution_id, execute_run_id, and input_file_paths_json must be non-empty"
+        )
 
     t = qualified_table(c, PIPELINE_RUNS)
     q = f"""
@@ -513,7 +519,9 @@ def create_execute_pipeline_run(
     ex = str(execute_run_id).strip()
     src = str(artifacts_onboard_run_id).strip()
     if not inst or not ex or not src:
-        raise ValueError("institution_id, execute_run_id, and artifacts_onboard_run_id must be non-empty")
+        raise ValueError(
+            "institution_id, execute_run_id, and artifacts_onboard_run_id must be non-empty"
+        )
 
     t = qualified_table(c, PIPELINE_RUNS)
     db_sql = _sql_db_run_id(db_run_id)
@@ -699,11 +707,15 @@ def register_hitl_artifacts(
         at = a.get("artifact_type")
         ap = a.get("artifact_path")
         if at is None or ap is None:
-            raise ValueError(f"artifacts[{i}] must have artifact_type and artifact_path")
+            raise ValueError(
+                f"artifacts[{i}] must have artifact_type and artifact_path"
+            )
         s_at = str(at).strip()
         s_ap = str(ap).strip()
         if not s_at or not s_ap:
-            raise ValueError(f"artifacts[{i}]: artifact_type and artifact_path must be non-empty")
+            raise ValueError(
+                f"artifacts[{i}]: artifact_type and artifact_path must be non-empty"
+            )
         rows.append((s_at, s_ap))
 
     t = qualified_table(c, HITL_REVIEWS)
@@ -788,7 +800,9 @@ def resolve_hitl(
     st = str(status).strip()
     rev = str(reviewer).strip() if reviewer is not None else None
     if not rid or not ph or not at or not st:
-        raise ValueError("onboard_run_id, phase, artifact_type, and status must be non-empty")
+        raise ValueError(
+            "onboard_run_id, phase, artifact_type, and status must be non-empty"
+        )
     if st not in ("approved", "rejected"):
         raise ValueError("status must be 'approved' or 'rejected'")
 
@@ -897,7 +911,9 @@ def bootstrap_execute_run(
         )
     src_rid = str(onboard_done.get("onboard_run_id") or "").strip()
     if not src_rid:
-        raise RuntimeError("Completed onboard row is missing onboard_run_id; cannot start execute.")
+        raise RuntimeError(
+            "Completed onboard row is missing onboard_run_id; cannot start execute."
+        )
 
     ex_id = new_execute_run_id()
     create_execute_pipeline_run(

@@ -12,12 +12,16 @@ from typing import Any
 
 import streamlit as st
 
-from hitl_reviewer.persistence.silver_hitl_paths import set_item_choice, set_item_reviewer_note
-from hitl_reviewer.platform.unity_volume_files import read_unity_file_text, write_unity_file_text
-
-_WRITE_BLOCKED_MSG = (
-    "This UC gate is not **pending** (already approved or rejected); silver JSON writes are disabled."
+from hitl_reviewer.persistence.silver_hitl_paths import (
+    set_item_choice,
+    set_item_reviewer_note,
 )
+from hitl_reviewer.platform.unity_volume_files import (
+    read_unity_file_text,
+    write_unity_file_text,
+)
+
+_WRITE_BLOCKED_MSG = "This UC gate is not **pending** (already approved or rejected); silver JSON writes are disabled."
 
 
 def _is_grain_domain_item(item: dict[str, Any]) -> bool:

@@ -15,7 +15,9 @@ import logging
 from pathlib import Path
 
 from edvise.genai.mapping.identity_agent.hitl.schemas import InstitutionHITLItems
-from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import InstitutionSMAHITLItems
+from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
+    InstitutionSMAHITLItems,
+)
 from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json
 from edvise.genai.mapping.state import pipeline_state
 from edvise.genai.mapping.state.hitl_poller import (
@@ -40,7 +42,9 @@ def _state_safe(label: str, fn, *args, **kwargs) -> None:
         LOGGER.warning("Pipeline state [%s] skipped: %s", label, e)
 
 
-def _hitl_artifact_has_actionable_items(artifact_type: str, artifact_path: Path) -> bool:
+def _hitl_artifact_has_actionable_items(
+    artifact_type: str, artifact_path: Path
+) -> bool:
     """
     Return True when the artifact contains at least one gate-blocking item.
 
@@ -68,7 +72,9 @@ def _auto_approve_hitl_artifact_if_empty(
     Auto-approve a UC ``hitl_reviews`` artifact row when the file has no actionable items.
     """
     try:
-        has_actionable = _hitl_artifact_has_actionable_items(artifact_type, artifact_path)
+        has_actionable = _hitl_artifact_has_actionable_items(
+            artifact_type, artifact_path
+        )
     except Exception as e:  # noqa: BLE001
         LOGGER.warning(
             "Could not inspect HITL artifact for auto-approve: run=%s phase=%s artifact_type=%s path=%s (%s)",
@@ -93,7 +99,9 @@ def _auto_approve_hitl_artifact_if_empty(
     )
 
 
-def mark_pipeline_failed(catalog: str, institution_id: str, onboard_run_id: str) -> None:
+def mark_pipeline_failed(
+    catalog: str, institution_id: str, onboard_run_id: str
+) -> None:
     _state_safe(
         "update_pipeline_run_status(failed)",
         pipeline_state.update_pipeline_run_status,
@@ -105,7 +113,12 @@ def mark_pipeline_failed(catalog: str, institution_id: str, onboard_run_id: str)
 
 
 def after_ia_onboard_start(
-    catalog: str, institution_id: str, onboard_run_id: str, *, grain_path: Path, term_path: Path
+    catalog: str,
+    institution_id: str,
+    onboard_run_id: str,
+    *,
+    grain_path: Path,
+    term_path: Path,
 ) -> None:
     g = grain_path.as_posix()
     t = term_path.as_posix()
@@ -240,7 +253,9 @@ def wait_for_sma_gate_1_hitl(
     )
 
 
-def after_ia_onboard_gate_1_success(catalog: str, institution_id: str, onboard_run_id: str) -> None:
+def after_ia_onboard_gate_1_success(
+    catalog: str, institution_id: str, onboard_run_id: str
+) -> None:
     _state_safe(
         "ia_gate_1 complete",
         pipeline_state.log_phase_transition,
@@ -377,7 +392,9 @@ def after_sma_onboard_start(
     )
 
 
-def after_sma_onboard_gate_2_success(catalog: str, institution_id: str, onboard_run_id: str) -> None:
+def after_sma_onboard_gate_2_success(
+    catalog: str, institution_id: str, onboard_run_id: str
+) -> None:
     _state_safe(
         "sma_gate_1 complete",
         pipeline_state.log_phase_transition,

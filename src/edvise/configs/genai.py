@@ -94,7 +94,10 @@ def resolve_genai_inputs_toml_path(
 
     ``catalog`` must be the UC workspace catalog (non-empty).
     """
-    base = Path(bronze_volume_path_for_institution(institution_id, catalog=catalog)) / "genai_mapping"
+    base = (
+        Path(bronze_volume_path_for_institution(institution_id, catalog=catalog))
+        / "genai_mapping"
+    )
     raw = (inputs_toml_path or "").strip()
     if not raw:
         return str(base / "inputs.toml")
@@ -113,7 +116,9 @@ def ia_inputs_toml_under_bronze(institution_id: str, *, catalog: str = "") -> st
 
     ``catalog`` must be the UC workspace catalog (non-empty); see :func:`bronze_volume_path_for_institution`.
     """
-    return resolve_genai_inputs_toml_path(institution_id, catalog=catalog, inputs_toml_path=None)
+    return resolve_genai_inputs_toml_path(
+        institution_id, catalog=catalog, inputs_toml_path=None
+    )
 
 
 def resolve_genai_data_path(bronze_volumes_path: Optional[str], file_path: str) -> str:
@@ -253,7 +258,9 @@ class InstitutionIdSection(StrictBaseModel):
 
 def _validate_dataset_files_table(field_label: str, v: object) -> object:
     if not isinstance(v, dict):
-        raise ValueError(f"{field_label} must be a table mapping dataset names to path(s)")
+        raise ValueError(
+            f"{field_label} must be a table mapping dataset names to path(s)"
+        )
     for key, val in v.items():
         if isinstance(val, str):
             continue

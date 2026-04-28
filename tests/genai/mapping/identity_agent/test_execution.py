@@ -93,6 +93,54 @@ def test_true_duplicate_collapses():
     assert len(out) == 1
 
 
+def test_apply_grain_dedup_suffix_identifier_appends_suffixes_and_preserves_row_count():
+    """suffix_identifier: within each (learner_id, class_number, term) group, course_name gets -1, -2, ...; no rows dropped."""
+    # Same grain + same catalog title: multiple rows can appear (e.g. concurrent attempts / bad ingest).
+    # Suffix disambiguates without dropping — unlike mixing unrelated titles under one class_number.
+    df = pd.DataFrame(
+        {
+            "learner_id": ["s001", "s001", "s001", "s002"],
+            "class_number": [101, 101, 101, 202],
+            "term": ["2024FA", "2024FA", "2024FA", "2024SP"],
+            "course_name": [
+                "Intro Biology",
+                "Intro Biology",
+                "Intro Biology",
+                "Statistics",
+            ],
+            "grade": ["A", "B", "W", "B"],
+        }
+    )
+    grain = ["learner_id", "class_number", "term"]
+    c = _grain(
+        post_clean_primary_key=grain,
+        join_keys_for_2a=grain,
+        dedup_policy=DedupPolicy(
+            strategy="suffix_identifier",
+            suffix_column="course_name",
+            notes="",
+        ),
+    )
+    out = apply_grain_dedup(df, c)
+    assert len(out) == len(df) == 4
+
+    triple = (out["learner_id"] == "s001") & (out["class_number"] == 101) & (
+        out["term"] == "2024FA"
+    )
+    g1 = out[triple].reset_index(drop=True)
+    assert g1["course_name"].tolist() == [
+        "Intro Biology-1",
+        "Intro Biology-2",
+        "Intro Biology-3",
+    ]
+    assert g1["grade"].tolist() == ["A", "B", "W"]
+
+    g2 = out[out["learner_id"] == "s002"].reset_index(drop=True)
+    assert len(g2) == 1
+    assert g2["course_name"].iloc[0] == "Statistics"
+    assert g2["grade"].iloc[0] == "B"
+
+
 def test_apply_categorical_priority_substring_and_longest_token():
     """Substring match e.g. B.S. in 'Accounting, B.S.'; M.A. in 'X, M.B.A.' defers to M.B.A. when longer."""
     po = ["M.S.", "B.S."]
@@ -110,14 +158,8 @@ def test_apply_categorical_priority_substring_and_longest_token():
     assert len(out) == 1
     assert "M.S." in out["deg"].iloc[0]
     # Longest included token wins (else "M.A." would match inside "M.B.A.").
-    assert (
-        cu._categorical_value_rank("Business, M.B.A.", ["M.A.", "M.B.A."])
-        == 1
-    )
-    assert (
-        cu._categorical_value_rank("Business, M.B.A.", ["M.B.A.", "M.A."])
-        == 0
-    )
+    assert cu._categorical_value_rank("Business, M.B.A.", ["M.A.", "M.B.A."]) == 1
+    assert cu._categorical_value_rank("Business, M.B.A.", ["M.B.A.", "M.A."]) == 0
 
 
 def test_temporal_collapse_keep_last():

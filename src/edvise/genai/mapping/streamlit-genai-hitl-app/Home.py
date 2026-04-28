@@ -56,7 +56,9 @@ st.caption(_PENDING_BLURB)
 try:
     get_warehouse_id()
     _cat = validate_catalog(default_catalog())
-    _pend = load_hitl_rows(_cat, onboard_run_id=None, phase=None, status="pending", limit=50)
+    _pend = load_hitl_rows(
+        _cat, onboard_run_id=None, phase=None, status="pending", limit=50
+    )
     st.metric("Pending UC rows (up to 50 shown)", len(_pend))
     if not _pend.empty:
         _cols = display_columns(_pend)

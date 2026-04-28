@@ -165,7 +165,11 @@ class GrainResolution(BaseModel):
                 )
             if any(
                 x is not None
-                for x in (self.dedup_sort_by, self.dedup_sort_ascending, self.dedup_keep)
+                for x in (
+                    self.dedup_sort_by,
+                    self.dedup_sort_ascending,
+                    self.dedup_keep,
+                )
             ):
                 raise ValueError(
                     "categorical_priority requires dedup_sort_by, dedup_sort_ascending, "

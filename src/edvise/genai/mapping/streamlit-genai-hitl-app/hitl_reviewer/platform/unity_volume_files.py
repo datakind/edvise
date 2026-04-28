@@ -28,7 +28,9 @@ def read_unity_file_bytes(absolute_path: str) -> bytes:
     """
     path = str(absolute_path).strip()
     if not path or not path.startswith("/Volumes/"):
-        raise ValueError("Path must be a non-empty Unity Catalog /Volumes/… absolute path")
+        raise ValueError(
+            "Path must be a non-empty Unity Catalog /Volumes/… absolute path"
+        )
     c = _client()
     out = c.files.download(path)
     if out.contents is None:
@@ -45,7 +47,9 @@ def write_unity_file_text(
 ) -> None:
     path = str(absolute_path).strip()
     if not path or not path.startswith("/Volumes/"):
-        raise ValueError("Path must be a non-empty Unity Catalog /Volumes/… absolute path")
+        raise ValueError(
+            "Path must be a non-empty Unity Catalog /Volumes/… absolute path"
+        )
     c = _client()
     c.files.upload(
         path,

@@ -13,7 +13,9 @@ from typing import Any, Literal
 
 import streamlit as st
 
-from hitl_reviewer.persistence.hitl_json_batch_commit import try_approve_uc_after_json_write
+from hitl_reviewer.persistence.hitl_json_batch_commit import (
+    try_approve_uc_after_json_write,
+)
 
 
 def inject_hitl_css() -> None:
@@ -157,7 +159,7 @@ def render_hitl_header(
     if run_total is not None and int(run_total) != n_items:
         in_file += f" · {int(run_total)} in this run"
     _id = str(item_id).strip()
-    item_bit = f' · <code>{html.escape(_id)}</code>' if _id else ""
+    item_bit = f" · <code>{html.escape(_id)}</code>" if _id else ""
     st.markdown(
         f'<p class="hitl-meta">'
         f"<strong>{table_e}</strong> · {domain_e} · {in_file}{item_bit}</p>",
@@ -252,13 +254,19 @@ def render_action_bar(
         if include_prev_next and n_items > 1:
             c_prev, c_next, _nav_pad = st.columns([1, 1, 3], gap="small")
             with c_prev:
-                pk = f"{key_prefix}-prev-{sk}" if nav_prev_button_key is None else nav_prev_button_key
+                pk = (
+                    f"{key_prefix}-prev-{sk}"
+                    if nav_prev_button_key is None
+                    else nav_prev_button_key
+                )
                 if st.button("◀ Prev", key=pk, use_container_width=True):
                     st.session_state[nav_key] = max(0, cur - 1)
                     st.rerun()
             with c_next:
                 nk = (
-                    f"{key_prefix}-nxt-{sk}" if nav_next_button_key is None else nav_next_button_key
+                    f"{key_prefix}-nxt-{sk}"
+                    if nav_next_button_key is None
+                    else nav_next_button_key
                 )
                 if st.button("Next ▶", key=nk, use_container_width=True):
                     st.session_state[nav_key] = min(n_items - 1, cur + 1)

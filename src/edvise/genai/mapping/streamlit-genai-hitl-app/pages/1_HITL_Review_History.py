@@ -28,7 +28,9 @@ maybe_hydrate_sidebar_from_nav()
 c0, o0, ph0, at0 = get_nav_from_session_or_url()
 nav_group_line: str | None = None
 if c0 and o0 and ph0 and at0:
-    nav_group_line = f"**Selected group** · ``{o0}`` · ``{ph0}`` · ``{at0}`` (nav catalog **{c0}**)"
+    nav_group_line = (
+        f"**Selected group** · ``{o0}`` · ``{ph0}`` · ``{at0}`` (nav catalog **{c0}**)"
+    )
 
 catalog, sidebar, warehouse_ok = render_connection_sidebar(
     show_table_query_filters=True,
@@ -62,7 +64,9 @@ if not df.empty:
         selection_mode="single-row",
         key=HITL_RESULTS_DF_KEY,
     )
-    apply_nav_from_results_dataframe_event(full_df=df, catalog=catalog, event=_results_event)
+    apply_nav_from_results_dataframe_event(
+        full_df=df, catalog=catalog, event=_results_event
+    )
 else:
     st.info(
         "No rows match your current table filters. Set **status** to **(any)**, clear run/phase filters, "

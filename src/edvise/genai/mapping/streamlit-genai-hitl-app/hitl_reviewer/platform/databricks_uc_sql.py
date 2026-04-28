@@ -27,7 +27,9 @@ def hitl_reviews_fqn(catalog: str) -> str:
 
 def pipeline_runs_fqn(catalog: str) -> str:
     c = str(catalog).strip()
-    return f"{_sql_ident(c)}.{_sql_ident('genai_mapping')}.{_sql_ident('pipeline_runs')}"
+    return (
+        f"{_sql_ident(c)}.{_sql_ident('genai_mapping')}.{_sql_ident('pipeline_runs')}"
+    )
 
 
 def get_warehouse_id() -> str:

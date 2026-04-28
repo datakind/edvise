@@ -26,15 +26,26 @@ from hitl_reviewer.ui._shared import (
     render_hitl_header,
     render_option_cards,
 )
-from hitl_reviewer.persistence.hitl_json_batch_commit import persist_ia_grain_hitl_from_session
-from hitl_reviewer.persistence.silver_hitl_paths import set_item_choice, set_item_reviewer_note
-from hitl_reviewer.platform.unity_volume_files import read_unity_file_text, write_unity_file_text
+from hitl_reviewer.persistence.hitl_json_batch_commit import (
+    persist_ia_grain_hitl_from_session,
+)
+from hitl_reviewer.persistence.silver_hitl_paths import (
+    set_item_choice,
+    set_item_reviewer_note,
+)
+from hitl_reviewer.platform.unity_volume_files import (
+    read_unity_file_text,
+    write_unity_file_text,
+)
 
 _QUOTED = re.compile(r"'([^']{2,800})'|\"([^\"]{2,800})\"")
 
 
 def is_ia_grain_phase(phase: str, artifact_type: str) -> bool:
-    return str(phase).strip().lower() == "ia_gate_1" and str(artifact_type).strip().lower() == "grain"
+    return (
+        str(phase).strip().lower() == "ia_gate_1"
+        and str(artifact_type).strip().lower() == "grain"
+    )
 
 
 def is_grain_domain_item(item: dict) -> bool:
@@ -62,7 +73,9 @@ def invalidate_ia_grain_run_cache(onboard_run_id: str) -> None:
         del st.session_state[k]
 
 
-def ia_grain_run_total_items(pending_df: pd.DataFrame | None, onboard_run_id: str) -> int | None:
+def ia_grain_run_total_items(
+    pending_df: pd.DataFrame | None, onboard_run_id: str
+) -> int | None:
     """Count grain HITL items across all ``grain`` artifact paths for this onboard run."""
     if pending_df is None or pending_df.empty:
         return None
@@ -145,9 +158,7 @@ def _render_candidate_keys_table(hitl_ctx: dict[str, Any]) -> None:
     tbl = (
         "<table class='ia-cand-table'><thead><tr>"
         "<th>Rank</th><th>Columns</th><th>Uniqueness</th><th>Notes</th>"
-        "</tr></thead><tbody>"
-        + "".join(body_rows)
-        + "</tbody></table>"
+        "</tr></thead><tbody>" + "".join(body_rows) + "</tbody></table>"
     )
     st.markdown(tbl, unsafe_allow_html=True)
 
@@ -168,9 +179,7 @@ def _variance_value_with_chips(text: str) -> str:
     pos = 0
     for a, b, inner in spans:
         out.append(html.escape(text[pos:a]))
-        out.append(
-            f'<span class="hitl-chip">{html.escape(inner)}</span>'
-        )
+        out.append(f'<span class="hitl-chip">{html.escape(inner)}</span>')
         pos = b
     out.append(html.escape(text[pos:]))
     return "".join(out)
@@ -228,7 +237,11 @@ def render_ia_grain_hitl_cards(
             return
 
         inst_raw = (data.get("institution_id") or "").strip()
-        run_total = ia_grain_run_total_items(pending_df, str(onboard_run_id)) if pending_df is not None else None
+        run_total = (
+            ia_grain_run_total_items(pending_df, str(onboard_run_id))
+            if pending_df is not None
+            else None
+        )
         nav_key = f"ia-grain-nav-{sk}"
         if nav_key not in st.session_state:
             st.session_state[nav_key] = 0
@@ -278,9 +291,7 @@ def render_ia_grain_hitl_cards(
 
         json_choice = item.get("choice")
         ia_rec_ix = (
-            0
-            if json_choice is None
-            else max(0, min(int(json_choice) - 1, n_opt - 1))
+            0 if json_choice is None else max(0, min(int(json_choice) - 1, n_opt - 1))
         )
 
         render_option_cards(
@@ -295,7 +306,11 @@ def render_ia_grain_hitl_cards(
         )
 
         sel_j = int(st.session_state[sel_key])
-        sel_opt = options[sel_j] if 0 <= sel_j < len(options) and isinstance(options[sel_j], dict) else {}
+        sel_opt = (
+            options[sel_j]
+            if 0 <= sel_j < len(options) and isinstance(options[sel_j], dict)
+            else {}
+        )
         reentry_sel = str(sel_opt.get("reentry") or "").lower()
         custom_key = f"ia-grain-custom-{sk}-{i}"
         if custom_key not in st.session_state:
@@ -348,7 +363,9 @@ def render_ia_grain_hitl_cards(
                 onboard_run_id=str(onboard_run_id),
                 allow_write=uc_group_pending,
             ),
-            after_persist_success=lambda: invalidate_ia_grain_run_cache(str(onboard_run_id)),
+            after_persist_success=lambda: invalidate_ia_grain_run_cache(
+                str(onboard_run_id)
+            ),
             approve_fn=approve_uc_if_complete,
             after_uc_approve_success=after_uc_approve_success,
             success_silver_filename="identity_grain_hitl.json",
@@ -359,7 +376,9 @@ def _persist_grain_reject(
     *, silver_path: str, item_index: int, onboard_run_id: str, allow_write: bool
 ) -> None:
     if not allow_write:
-        st.error("Cannot write: this UC gate is not pending; silver JSON edits are disabled.")
+        st.error(
+            "Cannot write: this UC gate is not pending; silver JSON edits are disabled."
+        )
         return
     try:
         fresh = json.loads(read_unity_file_text(silver_path))

@@ -129,9 +129,7 @@ def test_exhausted_retries_raises_for_json_with_correct_fields() -> None:
         return object()
 
     with pytest.raises(LLMRetryExhausted) as ctx:
-        call_with_retry(
-            call_fn, parse_fn, max_retries=2, logger=logging.getLogger("t")
-        )
+        call_with_retry(call_fn, parse_fn, max_retries=2, logger=logging.getLogger("t"))
 
     err = ctx.value
     assert isinstance(err.last_error, json.JSONDecodeError)

@@ -193,9 +193,7 @@ def init_file_logging_at_path(
         os.makedirs(log_dir, exist_ok=True)
 
     prior_size = (
-        os.path.getsize(local_path)
-        if append and os.path.isfile(local_path)
-        else 0
+        os.path.getsize(local_path) if append and os.path.isfile(local_path) else 0
     )
 
     root = logging.getLogger()

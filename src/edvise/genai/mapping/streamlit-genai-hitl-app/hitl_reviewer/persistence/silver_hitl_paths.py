@@ -22,7 +22,9 @@ from __future__ import annotations
 from typing import Any
 
 
-def artifact_path_contains_onboard_run_id(artifact_path: str, onboard_run_id: str) -> bool:
+def artifact_path_contains_onboard_run_id(
+    artifact_path: str, onboard_run_id: str
+) -> bool:
     """
     Heuristic: onboard HITL file paths from IA/SMA include the run folder segment, so
     the ``onboard_run_id`` string is usually a substring of ``artifact_path``.
@@ -51,7 +53,9 @@ def set_item_choice(data: dict[str, Any], item_index: int, choice: int | None) -
         row["choice"] = int(choice)
 
 
-def set_item_reviewer_note(data: dict[str, Any], item_index: int, note: str | None) -> None:
+def set_item_reviewer_note(
+    data: dict[str, Any], item_index: int, note: str | None
+) -> None:
     """Set ``data['items'][item_index]['reviewer_note']`` (IdentityAgent HITL)."""
     items = data.get("items")
     if not isinstance(items, list) or not (0 <= item_index < len(items)):

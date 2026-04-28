@@ -57,7 +57,9 @@ def test_identity_agent_inputs_round_trip(tmp_path: Path) -> None:
         "fixture_classes_2014_2025.csv",
     ]
 
-    school = raw.to_school_mapping_config(uc_catalog="dev_sst_02", pipeline_mode="onboard")
+    school = raw.to_school_mapping_config(
+        uc_catalog="dev_sst_02", pipeline_mode="onboard"
+    )
     assert school.onboard_run_id is None
     assert school.pipeline_version == resolve_pipeline_version()
     assert school.institution_id == "synthetic_univ_alpha"
@@ -95,7 +97,9 @@ def test_bronze_volume_path_derived_from_institution_id(tmp_path: Path) -> None:
     )
 
     raw = IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
-    school = raw.to_school_mapping_config(uc_catalog="dev_sst_02", pipeline_mode="execute")
+    school = raw.to_school_mapping_config(
+        uc_catalog="dev_sst_02", pipeline_mode="execute"
+    )
     assert (
         school.bronze_volumes_path
         == "/Volumes/dev_sst_02/synthetic_univ_alpha_bronze/bronze_volume"
@@ -119,9 +123,9 @@ def test_bronze_volume_path_for_institution_empty_catalog_raises() -> None:
 
 
 def test_bronze_volume_path_for_institution_with_catalog() -> None:
-    assert bronze_volume_path_for_institution("synthetic_univ_beta", catalog="my_cat") == (
-        "/Volumes/my_cat/synthetic_univ_beta_bronze/bronze_volume"
-    )
+    assert bronze_volume_path_for_institution(
+        "synthetic_univ_beta", catalog="my_cat"
+    ) == ("/Volumes/my_cat/synthetic_univ_beta_bronze/bronze_volume")
 
 
 def test_ia_inputs_toml_under_bronze() -> None:
@@ -142,9 +146,7 @@ def test_resolve_genai_inputs_toml_path_default_matches_legacy() -> None:
 def test_resolve_genai_inputs_toml_path_relative_under_genai_mapping() -> None:
     assert resolve_genai_inputs_toml_path(
         "jjc", catalog="dev_sst_02", inputs_toml_path="inputs.toml"
-    ) == (
-        "/Volumes/dev_sst_02/jjc_bronze/bronze_volume/genai_mapping/inputs.toml"
-    )
+    ) == ("/Volumes/dev_sst_02/jjc_bronze/bronze_volume/genai_mapping/inputs.toml")
     assert resolve_genai_inputs_toml_path(
         "jjc", catalog="dev_sst_02", inputs_toml_path="inputs/inputs.toml"
     ) == (
@@ -152,15 +154,17 @@ def test_resolve_genai_inputs_toml_path_relative_under_genai_mapping() -> None:
     )
     assert resolve_genai_inputs_toml_path(
         "jjc", catalog="dev_sst_02", inputs_toml_path="custom/foo.toml"
-    ) == (
-        "/Volumes/dev_sst_02/jjc_bronze/bronze_volume/genai_mapping/custom/foo.toml"
-    )
+    ) == ("/Volumes/dev_sst_02/jjc_bronze/bronze_volume/genai_mapping/custom/foo.toml")
 
 
 def test_resolve_genai_inputs_toml_path_absolute_unchanged() -> None:
-    abs_path = "/Volumes/other_cat/other_bronze/bronze_volume/genai_mapping/inputs/inputs.toml"
+    abs_path = (
+        "/Volumes/other_cat/other_bronze/bronze_volume/genai_mapping/inputs/inputs.toml"
+    )
     assert (
-        resolve_genai_inputs_toml_path("jjc", catalog="dev_sst_02", inputs_toml_path=abs_path)
+        resolve_genai_inputs_toml_path(
+            "jjc", catalog="dev_sst_02", inputs_toml_path=abs_path
+        )
         == abs_path
     )
 
@@ -344,5 +348,7 @@ def test_to_school_mapping_config_onboard_run_id_from_env(
         encoding="utf-8",
     )
     raw = IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
-    school = raw.to_school_mapping_config(uc_catalog="dev_sst_02", pipeline_mode="onboard")
+    school = raw.to_school_mapping_config(
+        uc_catalog="dev_sst_02", pipeline_mode="onboard"
+    )
     assert school.onboard_run_id == "from_env"

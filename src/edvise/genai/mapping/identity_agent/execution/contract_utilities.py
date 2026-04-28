@@ -541,7 +541,9 @@ def apply_grain_dedup(
         try:
             priority_resolved = _resolve_grain_key_to_existing_column(pc, cols)
         except ValueError as e:
-            raise ValueError(f"apply_grain_dedup: dedup_policy.priority_column: {e}") from e
+            raise ValueError(
+                f"apply_grain_dedup: dedup_policy.priority_column: {e}"
+            ) from e
         return apply_categorical_priority(
             df,
             group_by=keys,
@@ -558,7 +560,9 @@ def apply_grain_dedup(
         try:
             suffix_resolved = _resolve_grain_key_to_existing_column(sc, cols)
         except ValueError as e:
-            raise ValueError(f"apply_grain_dedup: dedup_policy.suffix_column: {e}") from e
+            raise ValueError(
+                f"apply_grain_dedup: dedup_policy.suffix_column: {e}"
+            ) from e
         return suffix_repeat_course_identifier(
             df, group_by=keys, suffix_column=suffix_resolved
         )

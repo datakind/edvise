@@ -12,6 +12,7 @@ Usage (Databricks job parameters):
 On Databricks, onboard mode best-effort updates ``{catalog}.genai_mapping`` pipeline state
 (see :mod:`edvise.genai.mapping.state.job_state`); table setup and Spark are required.
 """
+
 import os
 import sys
 import argparse
@@ -72,7 +73,7 @@ class IAPaths:
     grain_hooks: Path
     enriched_schema_contract: Path
     profiling_output: Path
-    cleaned_datasets: Path          # directory, one .parquet per logical dataset
+    cleaned_datasets: Path  # directory, one .parquet per logical dataset
     run_log: Path
 
     # Active folder (promoted artifacts, what execute mode reads from)
@@ -137,6 +138,7 @@ def resolve_run_paths(
 # Profile -> Pass 1 grain LLM -> Pass 2 term LLM -> write HITL -> exit
 # ---------------------------------------------------------------------------
 
+
 def run_onboard_start(
     institution_id: str,
     paths: IAPaths,
@@ -199,29 +201,35 @@ def run_onboard_start(
     raw_table_profiles_by_table = {
         name: run_by_dataset[name]["raw_table_profile"] for name in run_by_dataset
     }
-    contracts_by_dataset, grain_hitl_items = run_identity_agents_for_institution_with_hitl(
-        institution_id=institution_id,
-        institution_profiles=institution_profiles,
-        dfs=dfs,
-        llm_complete=llm_complete,
-        raw_table_profiles_by_table=raw_table_profiles_by_table,
-        confidence_threshold=PIPELINE_HITL_CONFIDENCE_THRESHOLD,
-        queue_for_hitl_review=lambda c: log_grain_hitl_queue(c, logger=LOGGER),
-        auto_approve_and_apply=lambda c: log_grain_auto_approve(c, logger=LOGGER),
+    contracts_by_dataset, grain_hitl_items = (
+        run_identity_agents_for_institution_with_hitl(
+            institution_id=institution_id,
+            institution_profiles=institution_profiles,
+            dfs=dfs,
+            llm_complete=llm_complete,
+            raw_table_profiles_by_table=raw_table_profiles_by_table,
+            confidence_threshold=PIPELINE_HITL_CONFIDENCE_THRESHOLD,
+            queue_for_hitl_review=lambda c: log_grain_hitl_queue(c, logger=LOGGER),
+            auto_approve_and_apply=lambda c: log_grain_auto_approve(c, logger=LOGGER),
+        )
     )
 
     # §5 — Pass 2: Term batch LLM
     LOGGER.info("[onboard/start] Pass 2 — Term batch LLM")
-    term_batch_user = build_term_normalization_batch_user_message_from_grain_and_profiles(
-        institution_id,
-        contracts_by_dataset,
-        run_by_dataset,
+    term_batch_user = (
+        build_term_normalization_batch_user_message_from_grain_and_profiles(
+            institution_id,
+            contracts_by_dataset,
+            run_by_dataset,
+        )
     )
     from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
         DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
         llm_complete_combined_message_content,
     )
-    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import estimate_tokens
+    from edvise.genai.mapping.shared.token_audit.prompt_token_audit import (
+        estimate_tokens,
+    )
     from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
     _term_combined = llm_complete_combined_message_content(
@@ -270,7 +278,11 @@ def run_onboard_start(
         len(term_hitl_items),
     )
     _pipeline_job_state.after_ia_onboard_start(
-        catalog, institution_id, onboard_run_id, grain_path=paths.grain_hitl, term_path=paths.term_hitl
+        catalog,
+        institution_id,
+        onboard_run_id,
+        grain_path=paths.grain_hitl,
+        term_path=paths.term_hitl,
     )
 
 
@@ -278,6 +290,7 @@ def run_onboard_start(
 # Onboard — resume_from="gate_1"
 # Gate check -> resolve HITL -> hook gen LLM -> schema contract + cleaned Parquet -> exit
 # ---------------------------------------------------------------------------
+
 
 def run_onboard_gate_1(
     institution_id: str,
@@ -367,9 +380,13 @@ def run_onboard_gate_1(
     LOGGER.info("[onboard/gate_1] Hook generation")
     norm_cols_by_table: dict[str, list[str]] = {}
     for ds_name, dc in school_config.datasets.items():
-        csv_path = resolve_genai_data_path(school_config.bronze_volumes_path, dc.files[0])
+        csv_path = resolve_genai_data_path(
+            school_config.bronze_volumes_path, dc.files[0]
+        )
         hdr = pd.read_csv(csv_path, nrows=0)
-        norm_cols_by_table[ds_name] = normalized_column_names_from_raw_headers(hdr.columns)
+        norm_cols_by_table[ds_name] = normalized_column_names_from_raw_headers(
+            hdr.columns
+        )
 
     # Grain hooks
     grain_pairs = generate_hook_specs_for_hook_items(
@@ -391,7 +408,12 @@ def run_onboard_gate_1(
             repo_root=paths.run_root,
             db_run_id=db_run_id,
         )
-        validate_hook(paths.grain_output, paths.grain_hitl, item_id=item_id, hook_file_root=paths.run_root)
+        validate_hook(
+            paths.grain_output,
+            paths.grain_hitl,
+            item_id=item_id,
+            hook_file_root=paths.run_root,
+        )
 
     # Term hooks — merge-materialize per shared term_hooks.py
     term_pairs = generate_hook_specs_for_hook_items(
@@ -402,7 +424,9 @@ def run_onboard_gate_1(
     )
     term_specs_by_file: dict[str, list] = defaultdict(list)
     for item_id, spec in term_pairs:
-        canonical = ensure_hook_spec_file(spec, institution_id=institution_id, domain=HITLDomain.IDENTITY_TERM)
+        canonical = ensure_hook_spec_file(
+            spec, institution_id=institution_id, domain=HITLDomain.IDENTITY_TERM
+        )
         term_specs_by_file[canonical.file].append(canonical)
     for item_id, spec in term_pairs:
         apply_hook_spec(
@@ -417,9 +441,16 @@ def run_onboard_gate_1(
             db_run_id=db_run_id,
         )
     for specs in term_specs_by_file.values():
-        materialize_hook_specs_to_file(specs, repo_root=paths.run_root, domain=HITLDomain.IDENTITY_TERM)
+        materialize_hook_specs_to_file(
+            specs, repo_root=paths.run_root, domain=HITLDomain.IDENTITY_TERM
+        )
     for item_id, _ in term_pairs:
-        validate_hook(paths.term_output, paths.term_hitl, item_id=item_id, hook_file_root=paths.run_root)
+        validate_hook(
+            paths.term_output,
+            paths.term_hitl,
+            item_id=item_id,
+            hook_file_root=paths.run_root,
+        )
 
     # §7 — Build enriched schema contract + cleaned Parquet
     LOGGER.info("[onboard/gate_1] Building enriched schema contract")
@@ -437,9 +468,13 @@ def run_onboard_gate_1(
             if tcfg.term_extraction == "hook_required"
             else {}
         )
-        term_order_fn_by_dataset[ds] = term_order_fn_from_term_order_config(tcfg, **fn_kw)
+        term_order_fn_by_dataset[ds] = term_order_fn_from_term_order_config(
+            tcfg, **fn_kw
+        )
 
-    school_effective = merge_grain_learner_id_alias_into_school_config(school_config, grain_map)
+    school_effective = merge_grain_learner_id_alias_into_school_config(
+        school_config, grain_map
+    )
     enc, cleaned = build_enriched_schema_contract_for_institution(
         school_effective,
         grain_contracts_by_dataset=grain_map,
@@ -456,7 +491,10 @@ def run_onboard_gate_1(
 
     # Write enriched schema contract
     save_enriched_schema_contract(enc, paths.enriched_schema_contract)
-    LOGGER.info("[onboard/gate_1] Wrote enriched schema contract -> %s", paths.enriched_schema_contract)
+    LOGGER.info(
+        "[onboard/gate_1] Wrote enriched schema contract -> %s",
+        paths.enriched_schema_contract,
+    )
     LOGGER.info("[onboard/gate_1] Complete. Exiting.")
     _pipeline_job_state.after_ia_onboard_gate_1_success(
         catalog, institution_id, onboard_run_id
@@ -467,6 +505,7 @@ def run_onboard_gate_1(
 # Execute
 # Drift check -> enforce schema -> write cleaned Parquet -> exit
 # ---------------------------------------------------------------------------
+
 
 def run_execute(
     institution_id: str,
@@ -483,7 +522,9 @@ def run_execute(
         load_school_dataset_dataframe,
     )
 
-    LOGGER.info("[execute] Loading approved artifacts from active/ for %s", institution_id)
+    LOGGER.info(
+        "[execute] Loading approved artifacts from active/ for %s", institution_id
+    )
 
     if not paths.active_enriched_schema_contract.is_file():
         raise FileNotFoundError(
@@ -515,7 +556,9 @@ def run_execute(
     for ds_name, df in raw_dfs.items():
         if ds_name not in schema_contract.get("datasets", {}):
             continue
-        expected_cols = set(schema_contract["datasets"][ds_name].get("dtypes", {}).keys())
+        expected_cols = set(
+            schema_contract["datasets"][ds_name].get("dtypes", {}).keys()
+        )
         norm_cols, _ = normalize_columns(df.columns)
         incoming_cols = set(norm_cols)
         missing_cols = expected_cols - incoming_cols
@@ -524,15 +567,28 @@ def run_execute(
             has_missing_cols = True
             drift_issues.append(f"{ds_name}: missing columns {sorted(missing_cols)}")
         if extra_cols:
-            LOGGER.warning("[execute] %s: extra columns (will drop): %s", ds_name, sorted(extra_cols))
+            LOGGER.warning(
+                "[execute] %s: extra columns (will drop): %s",
+                ds_name,
+                sorted(extra_cols),
+            )
 
     if drift_issues:
-        LOGGER.warning("[execute] Schema drift detected for %s:\n%s", institution_id, "\n".join(f"  - {i}" for i in drift_issues))
+        LOGGER.warning(
+            "[execute] Schema drift detected for %s:\n%s",
+            institution_id,
+            "\n".join(f"  - {i}" for i in drift_issues),
+        )
         # Write drift report to run folder
         paths.run_root.mkdir(parents=True, exist_ok=True)
         drift_report_path = paths.run_root / "schema_drift_report.json"
         import json
-        drift_report_path.write_text(json.dumps({"institution_id": institution_id, "issues": drift_issues}, indent=2))
+
+        drift_report_path.write_text(
+            json.dumps(
+                {"institution_id": institution_id, "issues": drift_issues}, indent=2
+            )
+        )
         LOGGER.warning("[execute] Schema drift report written to %s", drift_report_path)
         if missing_datasets or has_missing_cols:
             raise RuntimeError(
@@ -555,6 +611,7 @@ def run_execute(
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def run(
     institution_id: str,
@@ -688,7 +745,9 @@ def run(
 
     elif mode == "onboard":
         if resume_from not in ("start", "gate_1"):
-            raise ValueError(f"Invalid resume_from={resume_from!r} for mode='onboard'. Must be 'start' or 'gate_1'.")
+            raise ValueError(
+                f"Invalid resume_from={resume_from!r} for mode='onboard'. Must be 'start' or 'gate_1'."
+            )
 
         _pipeline_job_state.ensure_ia_run_row(
             catalog,
@@ -788,9 +847,11 @@ if __name__ == "__main__":
     except Exception:
         _db_from_spark = None
 
-    _db_run_id = (args.db_run_id or "").strip() or (
-        (str(_db_from_spark).strip()) if _db_from_spark else ""
-    ).strip() or None
+    _db_run_id = (
+        (args.db_run_id or "").strip()
+        or ((str(_db_from_spark).strip()) if _db_from_spark else "").strip()
+        or None
+    )
 
     _execute_run_id: str | None = None
     _artifacts_onboard: str | None = None

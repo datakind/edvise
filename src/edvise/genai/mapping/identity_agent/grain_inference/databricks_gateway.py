@@ -16,6 +16,7 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainCon
 from edvise.genai.mapping.shared.mlflow_gateway_bootstrap import (
     disable_mlflow_side_effects_for_openai_gateway,
 )
+
 # Same default endpoint as ``schema_mapping_agent.manifest.eval`` (MLflow serving / gateway).
 DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL: str = (
     "https://4437281602191762.ai-gateway.gcp.databricks.com/mlflow/v1"
@@ -75,7 +76,9 @@ def _token_from_databricks_sdk_default_auth() -> str | None:
     try:
         from databricks.sdk.core import Config
     except ImportError:
-        _LOG.debug("databricks-sdk not installed; cannot resolve runtime workspace token")
+        _LOG.debug(
+            "databricks-sdk not installed; cannot resolve runtime workspace token"
+        )
         return None
     try:
         headers = Config().authenticate()
@@ -142,7 +145,12 @@ def make_databricks_gateway_llm_complete(
     def complete(system: str, user: str) -> str:
         messages = cast(
             list[ChatCompletionMessageParam],
-            [{"role": "user", "content": llm_complete_combined_message_content(system, user)}],
+            [
+                {
+                    "role": "user",
+                    "content": llm_complete_combined_message_content(system, user),
+                }
+            ],
         )
         resp = client.chat.completions.create(
             model=resolved_model,
@@ -210,9 +218,12 @@ def _assistant_text_from_chat_completion_or_raise(
     ref = getattr(msg, "refusal", None)
     if isinstance(ref, str) and ref.strip():
         short = ref.strip()[:2000]
-        log.error("AI Gateway: model refusal (not valid JSON for downstream parse): %s", short)
+        log.error(
+            "AI Gateway: model refusal (not valid JSON for downstream parse): %s", short
+        )
         raise RuntimeError(
-            "The model refused to return structured output. Refusal: " + ref.strip()[:4000]
+            "The model refused to return structured output. Refusal: "
+            + ref.strip()[:4000]
         ) from None
 
     u = getattr(resp, "usage", None)
@@ -304,7 +315,10 @@ def invoke_with_openai_retries(
         try:
             return fn()
         except BaseException as exc:
-            if not is_retryable_openai_gateway_error(exc) or attempt >= max_attempts - 1:
+            if (
+                not is_retryable_openai_gateway_error(exc)
+                or attempt >= max_attempts - 1
+            ):
                 raise
             delay = min(
                 max_backoff_s,

@@ -65,6 +65,7 @@ def run_identity_agent_with_hitl(
         len(_combined),
         estimate_tokens(_combined),
     )
+
     def _parse_and_backfill(raw: str) -> tuple[GrainContract, list[HITLItem]]:
         contract, items = parse_grain_contract_with_hitl(raw)
         items = backfill_hitl_uniqueness_scores_from_key_profile(items, key_profile)

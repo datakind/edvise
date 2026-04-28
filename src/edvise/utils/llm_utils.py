@@ -100,6 +100,7 @@ def llm_complete_with_parse_retry(
     next attempt appends the correction block to the **user** message only; the
     system prompt is unchanged.
     """
+
     def call_fn(hint: str | None) -> str:
         if hint is None:
             return llm_complete(system, user)

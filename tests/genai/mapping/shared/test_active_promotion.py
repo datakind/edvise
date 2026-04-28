@@ -23,7 +23,9 @@ class _FakeSMAPaths:
     transform_hooks: Path
 
 
-def test_promote_genai_mapping_to_active_copies_required_and_optional(tmp_path: Path) -> None:
+def test_promote_genai_mapping_to_active_copies_required_and_optional(
+    tmp_path: Path,
+) -> None:
     genai = tmp_path / "genai"
     run_id = "school_20260101"
     ia = genai / "runs" / run_id / "identity_agent"
@@ -61,7 +63,9 @@ def test_promote_genai_mapping_to_active_copies_required_and_optional(tmp_path: 
     assert (active / "term_output.json").read_text() == "{}"
 
 
-def test_promote_genai_mapping_to_active_copies_identity_hooks_subtree(tmp_path: Path) -> None:
+def test_promote_genai_mapping_to_active_copies_identity_hooks_subtree(
+    tmp_path: Path,
+) -> None:
     genai = tmp_path / "genai"
     run_id = "school_hooks"
     ia = genai / "runs" / run_id / "identity_agent"
@@ -92,11 +96,17 @@ def test_promote_genai_mapping_to_active_copies_identity_hooks_subtree(tmp_path:
 
     promote_genai_mapping_to_active(paths)
 
-    assert (active / "identity_hooks" / "test_univ" / "dedup_hooks.py").read_text() == "# grain"
-    assert (active / "identity_hooks" / "test_univ" / "term_hooks.py").read_text() == "# term"
+    assert (
+        active / "identity_hooks" / "test_univ" / "dedup_hooks.py"
+    ).read_text() == "# grain"
+    assert (
+        active / "identity_hooks" / "test_univ" / "term_hooks.py"
+    ).read_text() == "# term"
 
 
-def test_promote_genai_mapping_to_active_missing_required_raises(tmp_path: Path) -> None:
+def test_promote_genai_mapping_to_active_missing_required_raises(
+    tmp_path: Path,
+) -> None:
     genai = tmp_path / "genai"
     run_id = "r2"
     ia = genai / "runs" / run_id / "identity_agent"

@@ -8,7 +8,12 @@ import logging
 import time
 from typing import Any
 
-from edvise.genai.mapping.state._sql import HITL_REVIEWS, get_spark_session, lit, qualified_table
+from edvise.genai.mapping.state._sql import (
+    HITL_REVIEWS,
+    get_spark_session,
+    lit,
+    qualified_table,
+)
 from edvise.genai.mapping.state.pipeline_state import (
     check_hitl_resolution,
     log_phase_transition,
@@ -33,7 +38,9 @@ class HITLRejectedError(Exception):
 def _spark() -> Any:
     spark = get_spark_session()
     if spark is None:
-        raise RuntimeError("No active Spark session; run on Databricks with Spark available")
+        raise RuntimeError(
+            "No active Spark session; run on Databricks with Spark available"
+        )
     return spark
 
 
@@ -175,5 +182,7 @@ def poll_uc_hitl_until_approved_or_timeout(
             institution_id=institution_id,
         )
     except HITLTimeoutError:
-        record_pipeline_run_timed_out_after_hitl_wait(catalog, institution_id, onboard_run_id)
+        record_pipeline_run_timed_out_after_hitl_wait(
+            catalog, institution_id, onboard_run_id
+        )
         raise

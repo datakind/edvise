@@ -81,9 +81,7 @@ def write_identity_grain_artifacts(
             backfill_hitl_uniqueness_scores,
         )
 
-        to_write = backfill_hitl_uniqueness_scores(
-            hitl_items, key_profiles_by_table
-        )
+        to_write = backfill_hitl_uniqueness_scores(hitl_items, key_profiles_by_table)
     else:
         to_write = hitl_items
     cfg = build_grain_config_for_resolver(institution_id, contracts_by_dataset)

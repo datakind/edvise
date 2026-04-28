@@ -123,12 +123,16 @@ def _ensure_onboard_run_id_column(spark: Any, catalog: str, table_short: str) ->
         _rebuild_table_pipeline_run_id_to_onboard(spark, catalog, table_short, fqn)
 
 
-def _add_column_if_missing(spark: Any, table_fqn: str, col_name: str, col_type: str) -> None:
+def _add_column_if_missing(
+    spark: Any, table_fqn: str, col_name: str, col_type: str
+) -> None:
     """Add a column when missing; older runtimes reject ``ADD COLUMN IF NOT EXISTS`` syntax."""
     try:
         spark.sql(f"ALTER TABLE {table_fqn} ADD COLUMN {col_name} {col_type}")
     except Exception:  # noqa: BLE001 — ok if column already exists (e.g. new CREATE TABLE)
-        LOGGER.debug("Skipped ADD COLUMN %s on %s (likely already present)", col_name, table_fqn)
+        LOGGER.debug(
+            "Skipped ADD COLUMN %s on %s (likely already present)", col_name, table_fqn
+        )
 
 
 def create_state_tables(catalog: str, spark: Any | None = None) -> None:
@@ -149,7 +153,9 @@ def create_state_tables(catalog: str, spark: Any | None = None) -> None:
 
     spark = spark if spark is not None else get_spark_session()
     if spark is None:
-        raise RuntimeError("No active Spark session; run on Databricks with Spark available")
+        raise RuntimeError(
+            "No active Spark session; run on Databricks with Spark available"
+        )
 
     c = str(catalog).strip()
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema(c)}")
@@ -211,7 +217,10 @@ def create_state_tables(catalog: str, spark: Any | None = None) -> None:
 
 def _main() -> None:
     if len(sys.argv) < 2:
-        print("Usage: python -m edvise.genai.mapping.state.table_setup <catalog>", file=sys.stderr)
+        print(
+            "Usage: python -m edvise.genai.mapping.state.table_setup <catalog>",
+            file=sys.stderr,
+        )
         sys.exit(1)
     create_state_tables(sys.argv[1])
 

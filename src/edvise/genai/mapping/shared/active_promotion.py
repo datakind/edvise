@@ -74,7 +74,9 @@ def promote_genai_mapping_to_active(paths: _ActivePromotionPaths) -> None:
 
     if paths.transform_hooks.is_file():
         shutil.copy2(paths.transform_hooks, paths.active_transform_hooks)
-        LOGGER.info("Promoted %s -> %s", paths.transform_hooks, paths.active_transform_hooks)
+        LOGGER.info(
+            "Promoted %s -> %s", paths.transform_hooks, paths.active_transform_hooks
+        )
 
     _promote_identity_hooks_subtree(ia_root=ia_root, active_root=paths.active_root)
 

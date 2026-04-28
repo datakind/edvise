@@ -387,10 +387,14 @@ def build_genai_pipeline_artifact_rows(
     return rows
 
 
-def _maybe_rename_pipeline_run_id_in_artifacts_table(spark: Any, table_name: str) -> None:
+def _maybe_rename_pipeline_run_id_in_artifacts_table(
+    spark: Any, table_name: str
+) -> None:
     """Older ``genai_pipeline_artifacts`` tables used ``pipeline_run_id``; normalize to ``onboard_run_id``."""
     try:
-        spark.sql(f"ALTER TABLE {table_name} RENAME COLUMN pipeline_run_id TO onboard_run_id")
+        spark.sql(
+            f"ALTER TABLE {table_name} RENAME COLUMN pipeline_run_id TO onboard_run_id"
+        )
     except Exception:  # noqa: BLE001
         LOGGER.debug("Skipped artifact table pipeline_run_id rename for %s", table_name)
 
@@ -423,7 +427,9 @@ def merge_genai_pipeline_artifact_rows(
     try:
         from delta.tables import DeltaTable  # type: ignore
     except Exception as e:
-        LOGGER.warning("merge_genai_pipeline_artifact_rows: PySpark/Delta unavailable (%s)", e)
+        LOGGER.warning(
+            "merge_genai_pipeline_artifact_rows: PySpark/Delta unavailable (%s)", e
+        )
         return False
 
     try:

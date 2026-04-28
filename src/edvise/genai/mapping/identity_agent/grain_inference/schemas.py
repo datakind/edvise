@@ -204,7 +204,9 @@ class DedupPolicy(BaseModel):
             or self.keep is not None
             or self.sort_ascending is not None
         ):
-            raise ValueError("suffix_identifier requires sort_by, keep, and sort_ascending to be null.")
+            raise ValueError(
+                "suffix_identifier requires sort_by, keep, and sort_ascending to be null."
+            )
         return self
 
 

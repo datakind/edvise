@@ -55,7 +55,10 @@ def test_lit_escapes_quotes() -> None:
 
 
 def test_qualified_table() -> None:
-    assert sql.qualified_table("dev", "pipeline_runs") == "`dev`.`genai_mapping`.`pipeline_runs`"
+    assert (
+        sql.qualified_table("dev", "pipeline_runs")
+        == "`dev`.`genai_mapping`.`pipeline_runs`"
+    )
 
 
 def test_qualified_schema() -> None:
@@ -186,14 +189,22 @@ def test_table_setup_runs_ddl(monkeypatch) -> None:
     monkeypatch.setattr(table_setup, "get_spark_session", lambda: fake)
     table_setup.create_state_tables("my_cat")
     assert any("CREATE SCHEMA" in s for s in fake.statements)
-    pr_create = next(s for s in fake.statements if "CREATE TABLE" in s and "pipeline_runs" in s)
+    pr_create = next(
+        s for s in fake.statements if "CREATE TABLE" in s and "pipeline_runs" in s
+    )
     assert "onboard_run_id" in pr_create
     assert "execute_run_id" in pr_create
     assert "db_run_id" in pr_create
     assert any("ALTER TABLE" in s and "db_run_id" in s for s in fake.statements)
     assert any("ALTER TABLE" in s and "execute_run_id" in s for s in fake.statements)
     assert any("ALTER TABLE" in s and "input_file_paths" in s for s in fake.statements)
-    assert sum("RENAME COLUMN pipeline_run_id TO onboard_run_id" in s for s in fake.statements) == 3
+    assert (
+        sum(
+            "RENAME COLUMN pipeline_run_id TO onboard_run_id" in s
+            for s in fake.statements
+        )
+        == 3
+    )
     assert any("hitl_reviews" in s for s in fake.statements)
 
 
@@ -253,7 +264,9 @@ def test_resolve_onboard_run_id_force_new_after_failed(monkeypatch) -> None:
 
     base = f"foo_{date.today().strftime('%Y%m%d')}"
     assert (
-        pipeline_state.resolve_onboard_run_id("c", "foo", None, force_new_onboard_run=True)
+        pipeline_state.resolve_onboard_run_id(
+            "c", "foo", None, force_new_onboard_run=True
+        )
         == f"{base}_2"
     )
 
@@ -265,7 +278,12 @@ def test_resolve_onboard_run_id_force_new_no_runs_today(monkeypatch) -> None:
     from datetime import date
 
     base = f"foo_{date.today().strftime('%Y%m%d')}"
-    assert pipeline_state.resolve_onboard_run_id("c", "foo", None, force_new_onboard_run=True) == base
+    assert (
+        pipeline_state.resolve_onboard_run_id(
+            "c", "foo", None, force_new_onboard_run=True
+        )
+        == base
+    )
 
 
 def test_resolve_onboard_run_id_new_suffix_after_complete(monkeypatch) -> None:
@@ -295,13 +313,19 @@ def test_reconcile_stale_emits_merge_and_update(monkeypatch) -> None:
     fake = _FakeSpark()
     fake.set_sql_result_queue([_Result([]), _Result([])])
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
-    monkeypatch.setattr(pipeline_state, "create_state_tables", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        pipeline_state, "create_state_tables", lambda *args, **kwargs: None
+    )
     pipeline_state.reconcile_stale_nonterminal_pipeline_runs("c1", "inst1", 10)
     assert len(fake.statements) == 2
-    assert "MERGE INTO" in fake.statements[0] and "pipeline_phases" in fake.statements[0]
+    assert (
+        "MERGE INTO" in fake.statements[0] and "pipeline_phases" in fake.statements[0]
+    )
     assert "execute_run_id IS NULL" in fake.statements[0]
     assert "UPDATE" in fake.statements[1] and "timed_out" in fake.statements[1]
-    assert "from_unixtime(unix_timestamp(current_timestamp()) - 600)" in fake.statements[1]
+    assert (
+        "from_unixtime(unix_timestamp(current_timestamp()) - 600)" in fake.statements[1]
+    )
 
 
 def test_update_pipeline_run_status_merge_scopes_onboard_rows(monkeypatch) -> None:
@@ -314,7 +338,9 @@ def test_update_pipeline_run_status_merge_scopes_onboard_rows(monkeypatch) -> No
 def test_create_execute_pipeline_run_sql(monkeypatch) -> None:
     fake = _FakeSpark()
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
-    pipeline_state.create_execute_pipeline_run("c1", "inst1", "ex-1", "onb-src", db_run_id="j1")
+    pipeline_state.create_execute_pipeline_run(
+        "c1", "inst1", "ex-1", "onb-src", db_run_id="j1"
+    )
     q = fake.statements[0]
     assert "INSERT INTO" in q
     assert "'ex-1'" in q
@@ -335,7 +361,9 @@ def test_update_execute_pipeline_run_status(monkeypatch) -> None:
 def test_bootstrap_execute_run_resumes(monkeypatch) -> None:
     fake = _FakeSpark()
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
-    monkeypatch.setattr(pipeline_state, "create_state_tables", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        pipeline_state, "create_state_tables", lambda *args, **kwargs: None
+    )
     ex_row = _Row(
         {
             "execute_run_id": "ex-resume",
@@ -358,7 +386,9 @@ def test_bootstrap_execute_run_resumes(monkeypatch) -> None:
 def test_bootstrap_execute_run_raises_without_complete_onboard(monkeypatch) -> None:
     fake = _FakeSpark()
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
-    monkeypatch.setattr(pipeline_state, "create_state_tables", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        pipeline_state, "create_state_tables", lambda *args, **kwargs: None
+    )
     fake.set_sql_result_queue(
         [
             _Result([]),
@@ -374,7 +404,9 @@ def test_bootstrap_execute_run_raises_without_complete_onboard(monkeypatch) -> N
 def test_bootstrap_execute_run_mints(monkeypatch) -> None:
     fake = _FakeSpark()
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
-    monkeypatch.setattr(pipeline_state, "create_state_tables", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        pipeline_state, "create_state_tables", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(pipeline_state, "new_execute_run_id", lambda: "exec-uuid-1")
     onboard_row = _Row(
         {

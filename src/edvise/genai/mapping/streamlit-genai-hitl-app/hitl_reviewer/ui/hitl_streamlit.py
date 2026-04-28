@@ -25,10 +25,18 @@ from hitl_reviewer.persistence.hitl_json_batch_commit import (
     persist_hitl_choice_radios_from_session,
     try_approve_uc_after_json_write,
 )
-from hitl_reviewer.ui.ia.grain_review_ui import is_ia_grain_phase, render_ia_grain_hitl_cards
-from hitl_reviewer.ui.ia.term_review_ui import is_ia_term_phase, render_ia_term_hitl_cards
+from hitl_reviewer.ui.ia.grain_review_ui import (
+    is_ia_grain_phase,
+    render_ia_grain_hitl_cards,
+)
+from hitl_reviewer.ui.ia.term_review_ui import (
+    is_ia_term_phase,
+    render_ia_term_hitl_cards,
+)
 from hitl_reviewer.ui.sma.review_ui import is_sma_phase, render_sma_hitl_cards
-from hitl_reviewer.persistence.silver_hitl_paths import artifact_path_contains_onboard_run_id
+from hitl_reviewer.persistence.silver_hitl_paths import (
+    artifact_path_contains_onboard_run_id,
+)
 from hitl_reviewer.ui.sma.enriched_schema_contract import silver_relative_path
 from hitl_reviewer.platform.unity_volume_files import read_unity_file_text
 
@@ -90,7 +98,9 @@ def default_catalog() -> str:
 def validate_catalog(catalog: str) -> str:
     c = str(catalog).strip()
     if not c or not _CATALOG_SAFE.match(c):
-        raise ValueError("Catalog must be a simple identifier (letters, digits, underscore).")
+        raise ValueError(
+            "Catalog must be a simple identifier (letters, digits, underscore)."
+        )
     return c
 
 
@@ -101,9 +111,12 @@ def _safe_key(s: str) -> str:
 def init_reviewer_in_session() -> None:
     """Default ``session_state['reviewer']`` for UC approve/reject (``GENAI_HITL_REVIEWER`` or ``USER``). No UI field."""
     if "reviewer" not in st.session_state:
-        st.session_state["reviewer"] = os.getenv("GENAI_HITL_REVIEWER", "").strip() or (
-            os.getenv("USER", "") or os.getenv("USERNAME", "") or "reviewer"
-        ).strip()
+        st.session_state["reviewer"] = (
+            os.getenv("GENAI_HITL_REVIEWER", "").strip()
+            or (
+                os.getenv("USER", "") or os.getenv("USERNAME", "") or "reviewer"
+            ).strip()
+        )
 
 
 def init_sidebar_form_state() -> None:
@@ -156,16 +169,26 @@ def render_connection_sidebar(
         except RuntimeError as e:
             st.error(str(e))
         st.subheader("Connection & filters")
-        st.text_input("Unity Catalog", key="sidebar_catalog", help="UC for ``genai_mapping.hitl_reviews``.")
-        catalog_in = (st.session_state.get("sidebar_catalog") or default_catalog() or "").strip()
+        st.text_input(
+            "Unity Catalog",
+            key="sidebar_catalog",
+            help="UC for ``genai_mapping.hitl_reviews``.",
+        )
+        catalog_in = (
+            st.session_state.get("sidebar_catalog") or default_catalog() or ""
+        ).strip()
         try:
             catalog = validate_catalog(catalog_in)
         except ValueError as e:
             st.warning(str(e))
             catalog = default_catalog()
         if show_table_query_filters:
-            st.number_input("Row limit", min_value=50, max_value=5000, step=50, key="sidebar_limit")
-            st.caption("**Table filters** — for the **hitl_reviews** result set above (defaults to **pending**).")
+            st.number_input(
+                "Row limit", min_value=50, max_value=5000, step=50, key="sidebar_limit"
+            )
+            st.caption(
+                "**Table filters** — for the **hitl_reviews** result set above (defaults to **pending**)."
+            )
             st.text_input("onboard_run_id contains", key="sidebar_f_run")
             st.text_input("phase equals", key="sidebar_f_phase")
             st.selectbox(
@@ -279,10 +302,14 @@ def apply_contains_filter(
     if not (f_run or "").strip():
         return df
     needle = f_run.strip().lower()
-    return df[df["onboard_run_id"].astype(str).str.lower().str.contains(needle, na=False)]
+    return df[
+        df["onboard_run_id"].astype(str).str.lower().str.contains(needle, na=False)
+    ]
 
 
-def _tuple_unpack_filters(sidebar: SidebarState) -> tuple[str | None, str | None, str | None, bool, int]:
+def _tuple_unpack_filters(
+    sidebar: SidebarState,
+) -> tuple[str | None, str | None, str | None, bool, int]:
     use_contains = bool((sidebar.f_run or "").strip())
     onboard_exact = None if use_contains else ((sidebar.f_run or "").strip() or None)
     phase_f = (sidebar.f_phase or "").strip() or None
@@ -326,12 +353,16 @@ def render_silver_hitl_editor(
 
     sk = f"{_safe_key(onboard_run_id)}-{_safe_key(phase)}-{_safe_key(artifact_type)}"
     # Same session key as ``st.text_input(..., key=f"path-{sk}")`` in ``render_one_hitl_group`` (Path details).
-    silver_path = (st.session_state.get(f"path-{sk}") or default_artifact_path or "").strip()
+    silver_path = (
+        st.session_state.get(f"path-{sk}") or default_artifact_path or ""
+    ).strip()
 
     if not silver_path:
         return
     if not silver_path.startswith("/Volumes/"):
-        st.warning("Path should be an absolute Unity Catalog volume path starting with ``/Volumes/``.")
+        st.warning(
+            "Path should be an absolute Unity Catalog volume path starting with ``/Volumes/``."
+        )
     if not artifact_path_contains_onboard_run_id(silver_path, str(onboard_run_id)):
         st.warning(
             "This path string does not contain the **onboard_run_id** for this review row. "
@@ -351,7 +382,9 @@ def render_silver_hitl_editor(
         return
     items = data.get("items")
     if not isinstance(items, list) or not items:
-        st.info("No `items` in this HITL JSON, or the list is empty — nothing to select.")
+        st.info(
+            "No `items` in this HITL JSON, or the list is empty — nothing to select."
+        )
         return
 
     if is_ia_grain:
@@ -453,7 +486,9 @@ def render_silver_hitl_editor(
         q = (item.get("hitl_question") or "").strip() or f"Item {i + 1}"
         options = item.get("options")
         if not options or not isinstance(options, list):
-            st.caption(f"**{q}** — no `options` (direct manifest edit may be required).")
+            st.caption(
+                f"**{q}** — no `options` (direct manifest edit may be required)."
+            )
             continue
         n = len(options)
         if n < 1:
@@ -508,7 +543,9 @@ def render_silver_hitl_editor(
                 st.success("Saved manifest JSON and approved the UC row.")
                 st.toast("JSON + UC complete.", icon="✅")
             else:
-                st.success("Saved manifest JSON. UC was not pending, so UC approve was skipped.")
+                st.success(
+                    "Saved manifest JSON. UC was not pending, so UC approve was skipped."
+                )
             st.rerun()
 
 
@@ -524,7 +561,11 @@ def apply_nav_from_results_dataframe_event(
     """
     if full_df is None or full_df.empty or event is None:
         return
-    sel = event.get("selection") if isinstance(event, dict) else getattr(event, "selection", None)
+    sel = (
+        event.get("selection")
+        if isinstance(event, dict)
+        else getattr(event, "selection", None)
+    )
     if not sel:
         return
     rows = sel.get("rows") if isinstance(sel, dict) else getattr(sel, "rows", None)
@@ -584,7 +625,13 @@ def clear_hitl_workbench_group_nav() -> None:
     in-app navigation does not keep showing after the user leaves and returns to Review History.
     Also clears the workbench table selection widget key so the grid does not keep a row highlighted.
     """
-    for k in (KEY_NAV_CATALOG, KEY_NAV_ONBOARD, KEY_NAV_PHASE, KEY_NAV_ARTIFACT_TYPE, KEY_HYDRATE_SIG):
+    for k in (
+        KEY_NAV_CATALOG,
+        KEY_NAV_ONBOARD,
+        KEY_NAV_PHASE,
+        KEY_NAV_ARTIFACT_TYPE,
+        KEY_HYDRATE_SIG,
+    ):
         st.session_state.pop(k, None)
     st.session_state.pop(HITL_RESULTS_DF_KEY, None)
     qp = st.query_params
@@ -645,11 +692,9 @@ def advance_to_next_pending_group(
     ph_cur = str(current_phase).strip()
     at_cur = str(current_artifact_type).strip()
     mask_current = (
-        groups["onboard_run_id"].astype(str).str.strip() == o_cur
-    ) & (
-        groups["phase"].astype(str).str.strip() == ph_cur
-    ) & (
-        groups["artifact_type"].astype(str).str.strip() == at_cur
+        (groups["onboard_run_id"].astype(str).str.strip() == o_cur)
+        & (groups["phase"].astype(str).str.strip() == ph_cur)
+        & (groups["artifact_type"].astype(str).str.strip() == at_cur)
     )
     next_groups = groups[~mask_current]
     if next_groups.empty:
@@ -675,13 +720,23 @@ def _one_query_value(key: str) -> str | None:
     return str(v) if v else None
 
 
-def get_nav_from_session_or_url() -> tuple[str | None, str | None, str | None, str | None]:
+def get_nav_from_session_or_url() -> tuple[
+    str | None, str | None, str | None, str | None
+]:
     """(catalog, onboard, phase, artifact_type) or Nones if any piece is missing."""
-    c = (_one_query_value("catalog") or (st.session_state.get(KEY_NAV_CATALOG) or "")).strip() or None
-    o = (_one_query_value("onboard_run_id") or (st.session_state.get(KEY_NAV_ONBOARD) or "")).strip() or None
-    ph = (_one_query_value("phase") or (st.session_state.get(KEY_NAV_PHASE) or "")).strip() or None
+    c = (
+        _one_query_value("catalog") or (st.session_state.get(KEY_NAV_CATALOG) or "")
+    ).strip() or None
+    o = (
+        _one_query_value("onboard_run_id")
+        or (st.session_state.get(KEY_NAV_ONBOARD) or "")
+    ).strip() or None
+    ph = (
+        _one_query_value("phase") or (st.session_state.get(KEY_NAV_PHASE) or "")
+    ).strip() or None
     at = (
-        _one_query_value("artifact_type") or (st.session_state.get(KEY_NAV_ARTIFACT_TYPE) or "")
+        _one_query_value("artifact_type")
+        or (st.session_state.get(KEY_NAV_ARTIFACT_TYPE) or "")
     ).strip() or None
     if c and o and ph and at:
         return c, o, ph, at
@@ -739,8 +794,12 @@ def render_one_hitl_group(
                     "Silver JSON is **read-only** here so UC and volume state cannot diverge."
                 )
             if len(set(raw_paths)) > 1:
-                with st.expander("Multiple artifact paths for this group", expanded=False):
-                    st.caption("Defaulting the editor to the first path. Pick another in the path field if needed.")
+                with st.expander(
+                    "Multiple artifact paths for this group", expanded=False
+                ):
+                    st.caption(
+                        "Defaulting the editor to the first path. Pick another in the path field if needed."
+                    )
                     st.code("\n".join(sorted(set(raw_paths))), language="text")
             sk = f"{_safe_key(str(onboard_run_id))}-{_safe_key(str(phase))}-{_safe_key(str(artifact_type))}"
             _is_sma = is_sma_phase(str(phase), str(artifact_type))
@@ -793,7 +852,9 @@ def render_one_hitl_group(
                 "IA / SMA: **Save JSON & approve UC** (or **Approve** on grain/term cards) approves this pending row. "
                 "Use **Reject UC** only if you intend to block the gate."
             )
-            if st.button("Reject UC", key=f"r-{onboard_run_id}-{phase}-{artifact_type}"):
+            if st.button(
+                "Reject UC", key=f"r-{onboard_run_id}-{phase}-{artifact_type}"
+            ):
                 try:
                     approve_or_reject(
                         catalog,
@@ -816,7 +877,11 @@ def render_one_hitl_group(
         else:
             c1, c2, c3 = st.columns(3)
             with c1:
-                if st.button("Approve UC", key=f"a-{onboard_run_id}-{phase}-{artifact_type}", type="primary"):
+                if st.button(
+                    "Approve UC",
+                    key=f"a-{onboard_run_id}-{phase}-{artifact_type}",
+                    type="primary",
+                ):
                     try:
                         approve_or_reject(
                             catalog,
@@ -837,7 +902,9 @@ def render_one_hitl_group(
                     except Exception as ex:  # noqa: BLE001
                         st.error(str(ex))
             with c2:
-                if st.button("Reject UC", key=f"r-{onboard_run_id}-{phase}-{artifact_type}-sma"):
+                if st.button(
+                    "Reject UC", key=f"r-{onboard_run_id}-{phase}-{artifact_type}-sma"
+                ):
                     try:
                         approve_or_reject(
                             catalog,

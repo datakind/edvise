@@ -34,9 +34,7 @@ def test_merges_identical_duplicates_and_joins_distinct_notes() -> None:
             "reviewer_notes": "r1",
         },
     ]
-    out, n = dedupe_plans_in_section(
-        copy.deepcopy(plans), entity="course", log=_LOG
-    )
+    out, n = dedupe_plans_in_section(copy.deepcopy(plans), entity="course", log=_LOG)
     assert n == 1
     assert len(out) == 1
     p = out[0]
@@ -49,8 +47,16 @@ def test_merges_identical_duplicates_and_joins_distinct_notes() -> None:
 
 def test_raises_on_conflicting_duplicates() -> None:
     plans = [
-        {"target_field": "x", "output_dtype": "string", "steps": [_step("cast_string", "a")]},
-        {"target_field": "x", "output_dtype": "string", "steps": [_step("cast_string", "b")]},
+        {
+            "target_field": "x",
+            "output_dtype": "string",
+            "steps": [_step("cast_string", "a")],
+        },
+        {
+            "target_field": "x",
+            "output_dtype": "string",
+            "steps": [_step("cast_string", "b")],
+        },
     ]
     with pytest.raises(ValueError) as e:
         dedupe_plans_in_section(plans, entity="cohort", log=_LOG)

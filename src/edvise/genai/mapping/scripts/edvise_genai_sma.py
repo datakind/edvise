@@ -79,12 +79,12 @@ class SMAPaths:
     cohort_hitl_manifest: Path
     course_hitl_manifest: Path
     transformation_map: Path
-    transform_hooks: Path           # optional, placeholder
+    transform_hooks: Path  # optional, placeholder
     run_log: Path
 
     # IA outputs this job reads from (same execute or onboard run segment)
     ia_enriched_schema_contract: Path
-    ia_cleaned_datasets: Path       # directory
+    ia_cleaned_datasets: Path  # directory
 
     # Active folder (promoted artifacts, what execute mode reads from)
     active_root: Path
@@ -97,7 +97,7 @@ class SMAPaths:
     genai_data: Path
 
     # Output data (written after execution)
-    output_data: Path               # directory, one .parquet per entity
+    output_data: Path  # directory, one .parquet per entity
 
 
 def resolve_run_paths(
@@ -153,7 +153,10 @@ def resolve_reference_sma_active_paths(
     reference_id: str, *, catalog: str
 ) -> tuple[Path, Path]:
     """Few-shot reference: promoted SMA artifacts under the reference school's ``genai_mapping/active/``."""
-    active = Path(genai_cfg.silver_genai_mapping_root(reference_id, catalog=catalog)) / "active"
+    active = (
+        Path(genai_cfg.silver_genai_mapping_root(reference_id, catalog=catalog))
+        / "active"
+    )
     return (
         active / "manifest_map.json",
         active / "transformation_map.json",
@@ -164,6 +167,7 @@ def resolve_reference_sma_active_paths(
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _load_enriched_contract(path: Path) -> dict:
     if not path.is_file():
         raise FileNotFoundError(
@@ -173,7 +177,9 @@ def _load_enriched_contract(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
-def _load_cleaned_dataframes(cleaned_datasets_dir: Path, enriched_contract: dict) -> dict:
+def _load_cleaned_dataframes(
+    cleaned_datasets_dir: Path, enriched_contract: dict
+) -> dict:
     import pandas as pd
 
     dataframes = {}
@@ -195,8 +201,12 @@ def _write_output_data(output_data_dir: Path, cohort_result, course_result) -> N
     course_path = output_data_dir / "course.parquet"
     cohort_result.df.to_parquet(cohort_path, index=False)
     course_result.df.to_parquet(course_path, index=False)
-    LOGGER.info("Wrote cohort output -> %s (shape=%s)", cohort_path, cohort_result.df.shape)
-    LOGGER.info("Wrote course output -> %s (shape=%s)", course_path, course_result.df.shape)
+    LOGGER.info(
+        "Wrote cohort output -> %s (shape=%s)", cohort_path, cohort_result.df.shape
+    )
+    LOGGER.info(
+        "Wrote course output -> %s (shape=%s)", course_path, course_result.df.shape
+    )
 
 
 def _run_pandera_validation(cohort_result, course_result) -> None:
@@ -214,7 +224,9 @@ def _run_pandera_validation(cohort_result, course_result) -> None:
         start = time.perf_counter()
         try:
             schema.validate(df, lazy=True)
-            LOGGER.info("Pandera [%s]: PASSED (%.2fs)", label, time.perf_counter() - start)
+            LOGGER.info(
+                "Pandera [%s]: PASSED (%.2fs)", label, time.perf_counter() - start
+            )
         except pandera.errors.SchemaErrors as e:
             LOGGER.warning(
                 "Pandera [%s]: FAILED — %d case(s) (%.2fs)",
@@ -229,7 +241,9 @@ def _run_pandera_validation(cohort_result, course_result) -> None:
     _validate(course_result.df, RawEdviseCourseDataSchema, "course")
 
     u_start = time.perf_counter()
-    if (umsg := course_output_row_uniqueness_violation_message(course_result.df)) is not None:
+    if (
+        umsg := course_output_row_uniqueness_violation_message(course_result.df)
+    ) is not None:
         LOGGER.warning(
             "Course row uniqueness [%s]: FAILED (%.2fs)\n%s",
             course_output_uniqueness_key_columns(course_result.df),
@@ -303,6 +317,7 @@ def _run_once(model_id: str, prompt: str, client) -> dict:
 # Load IA outputs -> 2a LLM -> structural validation -> refinement LLM -> write HITL -> exit
 # ---------------------------------------------------------------------------
 
+
 def run_onboard_start(
     institution_id: str,
     reference_id: str,
@@ -318,7 +333,9 @@ def run_onboard_start(
         load_json,
         run_sma_refinement,
     )
-    from edvise.genai.mapping.schema_mapping_agent.manifest.eval import validate_envelope_dict
+    from edvise.genai.mapping.schema_mapping_agent.manifest.eval import (
+        validate_envelope_dict,
+    )
     from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
         MappingManifestEnvelope,
     )
@@ -334,6 +351,7 @@ def run_onboard_start(
     )
     from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
     from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
+
     LOGGER.info("[onboard/start] Loading IA outputs for %s", institution_id)
     paths.run_root.mkdir(parents=True, exist_ok=True)
 
@@ -361,9 +379,7 @@ def run_onboard_start(
         cohort_schema_class=RawEdviseStudentDataSchema,
         course_schema_class=RawEdviseCourseDataSchema,
     )
-    result_2a = _run_once(
-        _DEFAULT_SMA_GATEWAY_MODEL_ID, prompt_2a, client
-    )
+    result_2a = _run_once(_DEFAULT_SMA_GATEWAY_MODEL_ID, prompt_2a, client)
     if not result_2a["success"]:
         raise RuntimeError(result_2a.get("error") or "Step 2a LLM failed")
 
@@ -413,7 +429,11 @@ def run_onboard_start(
     for entity_key, entity_manifest in list(envelope_2a.manifests.items()):
         ek = entity_key.value if hasattr(entity_key, "value") else str(entity_key)
         errs = validate_manifest_structure(entity_manifest, schema_contract_sma)
-        LOGGER.info("[onboard/start] Refinement: entity=%s (validation errors=%d)", ek, len(errs))
+        LOGGER.info(
+            "[onboard/start] Refinement: entity=%s (validation errors=%d)",
+            ek,
+            len(errs),
+        )
 
         refined_fm, hitl_env = run_sma_refinement(
             institution_id=institution_id,
@@ -426,7 +446,9 @@ def run_onboard_start(
         envelope_2a.manifests[entity_key] = refined_fm
 
         hitl_basename = (
-            "cohort_hitl_manifest.json" if ek == "cohort" else "course_hitl_manifest.json"
+            "cohort_hitl_manifest.json"
+            if ek == "cohort"
+            else "course_hitl_manifest.json"
         )
         write_sma_hitl_artifact(paths.run_root, hitl_env, basename=hitl_basename)
         LOGGER.info(
@@ -448,7 +470,9 @@ def run_onboard_start(
         if not hitl_path.is_file():
             write_sma_hitl_artifact(
                 paths.run_root,
-                InstitutionSMAHITLItems(institution_id=institution_id, entity_type=entity_type, items=[]),
+                InstitutionSMAHITLItems(
+                    institution_id=institution_id, entity_type=entity_type, items=[]
+                ),
                 basename=hitl_path.name,
             )
             LOGGER.info("[onboard/start] Seeded empty HITL envelope -> %s", hitl_path)
@@ -467,6 +491,7 @@ def run_onboard_start(
 # Onboard — resume_from="gate_2"
 # Resolve HITL -> gate check -> 2b LLM -> execute -> Pandera -> write outputs -> exit
 # ---------------------------------------------------------------------------
+
 
 def run_onboard_gate_2(
     institution_id: str,
@@ -505,6 +530,7 @@ def run_onboard_gate_2(
     )
     from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
     from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
+
     LOGGER.info("[onboard/gate_2] Resolving HITL for %s", institution_id)
 
     LOGGER.info("[onboard/gate_2] Waiting for Unity Catalog HITL approval (sma_gate_1)")
@@ -541,7 +567,9 @@ def run_onboard_gate_2(
         raise FileNotFoundError(
             f"Reference transformation map not found (expected promoted SMA active/): {ref_tm_path}"
         )
-    LOGGER.info("[onboard/gate_2] Reference transformation map (active): %s", ref_tm_path)
+    LOGGER.info(
+        "[onboard/gate_2] Reference transformation map (active): %s", ref_tm_path
+    )
     reference_tm = load_json(str(ref_tm_path))
 
     enriched_contract = _load_enriched_contract(paths.ia_enriched_schema_contract)
@@ -558,9 +586,7 @@ def run_onboard_gate_2(
         reference_transformation_maps=[reference_tm],
         reference_institution_ids=[reference_id],
     )
-    result_2b = _run_once(
-        _DEFAULT_SMA_GATEWAY_MODEL_ID, prompt_2b, client
-    )
+    result_2b = _run_once(_DEFAULT_SMA_GATEWAY_MODEL_ID, prompt_2b, client)
     if not result_2b["success"]:
         raise RuntimeError(result_2b.get("error") or "Step 2b LLM failed")
 
@@ -568,10 +594,14 @@ def run_onboard_gate_2(
     dedupe_transformation_plans_in_wrapper(transformation_data, log=LOGGER)
     ok, err = validate_transformation_wrapper(transformation_data)
     if not ok:
-        LOGGER.warning("[onboard/gate_2] Transformation map validation warning: %s", err)
+        LOGGER.warning(
+            "[onboard/gate_2] Transformation map validation warning: %s", err
+        )
 
     paths.transformation_map.write_text(json.dumps(transformation_data, indent=2))
-    LOGGER.info("[onboard/gate_2] Wrote transformation map -> %s", paths.transformation_map)
+    LOGGER.info(
+        "[onboard/gate_2] Wrote transformation map -> %s", paths.transformation_map
+    )
 
     # Load cleaned dataframes from IA run folder
     dataframes = _load_cleaned_dataframes(paths.ia_cleaned_datasets, enriched_contract)
@@ -589,8 +619,12 @@ def run_onboard_gate_2(
         "institution_id": institution_id_from_tm,
     }
 
-    cohort_manifest = FieldMappingManifest.model_validate(manifest_2a["manifests"]["cohort"])
-    course_manifest = FieldMappingManifest.model_validate(manifest_2a["manifests"]["course"])
+    cohort_manifest = FieldMappingManifest.model_validate(
+        manifest_2a["manifests"]["cohort"]
+    )
+    course_manifest = FieldMappingManifest.model_validate(
+        manifest_2a["manifests"]["course"]
+    )
     cohort_map = TransformationMap.model_validate(cohort_map_data)
     course_map = TransformationMap.model_validate(course_map_data)
 
@@ -628,6 +662,7 @@ def run_onboard_gate_2(
 # Load approved artifacts -> execute transformation map -> Pandera -> write outputs
 # ---------------------------------------------------------------------------
 
+
 def run_execute(
     institution_id: str,
     paths: SMAPaths,
@@ -649,10 +684,16 @@ def run_execute(
     from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
     from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
 
-    LOGGER.info("[execute] Loading approved artifacts from active/ for %s", institution_id)
+    LOGGER.info(
+        "[execute] Loading approved artifacts from active/ for %s", institution_id
+    )
 
     # Validate active artifacts exist
-    for p in (paths.active_manifest_map, paths.active_transformation_map, paths.active_enriched_schema_contract):
+    for p in (
+        paths.active_manifest_map,
+        paths.active_transformation_map,
+        paths.active_enriched_schema_contract,
+    ):
         if not p.is_file():
             raise FileNotFoundError(
                 f"Missing active artifact: {p}. "
@@ -682,8 +723,12 @@ def run_execute(
     }
 
     envelope = MappingManifestEnvelope.model_validate(manifest_data)
-    cohort_manifest = FieldMappingManifest.model_validate(manifest_data["manifests"]["cohort"])
-    course_manifest = FieldMappingManifest.model_validate(manifest_data["manifests"]["course"])
+    cohort_manifest = FieldMappingManifest.model_validate(
+        manifest_data["manifests"]["cohort"]
+    )
+    course_manifest = FieldMappingManifest.model_validate(
+        manifest_data["manifests"]["course"]
+    )
     cohort_map = TransformationMap.model_validate(cohort_map_data)
     course_map = TransformationMap.model_validate(course_map_data)
 
@@ -714,6 +759,7 @@ def run_execute(
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def run(
     institution_id: str,
@@ -805,6 +851,7 @@ def run(
     # Spark session (optional — graceful degradation outside Databricks runtime)
     try:
         from databricks.connect import DatabricksSession
+
         spark_session = DatabricksSession.builder.getOrCreate()
     except Exception:
         spark_session = None
@@ -939,9 +986,11 @@ if __name__ == "__main__":
     except Exception:
         _db_from_spark = None
 
-    _db_run_id = (args.db_run_id or "").strip() or (
-        (str(_db_from_spark).strip()) if _db_from_spark else ""
-    ).strip() or None
+    _db_run_id = (
+        (args.db_run_id or "").strip()
+        or ((str(_db_from_spark).strip()) if _db_from_spark else "").strip()
+        or None
+    )
 
     _execute_run_id: str | None = None
     _artifacts_onboard: str | None = None

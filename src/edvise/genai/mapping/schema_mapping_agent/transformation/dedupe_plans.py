@@ -34,7 +34,9 @@ def _merge_distinct_texts(*parts: str | None) -> str | None:
     return "; ".join(seen)
 
 
-def _merge_plan_group(base: dict[str, Any], others: list[dict[str, Any]]) -> dict[str, Any]:
+def _merge_plan_group(
+    base: dict[str, Any], others: list[dict[str, Any]]
+) -> dict[str, Any]:
     out = dict(base)
     for key in _NOTE_KEYS:
         merged: str | None = out.get(key)  # type: ignore[assignment]

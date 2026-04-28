@@ -23,7 +23,9 @@ from hitl_reviewer.ui._shared import (
     render_option_cards,
     render_sma_status_meta_line,
 )
-from hitl_reviewer.persistence.hitl_json_batch_commit import persist_hitl_choice_radios_from_session
+from hitl_reviewer.persistence.hitl_json_batch_commit import (
+    persist_hitl_choice_radios_from_session,
+)
 from hitl_reviewer.ui.sma.enriched_schema_contract import (
     enriched_schema_contract_path_from_manifest,
     extract_column_panel_fields,
@@ -33,7 +35,9 @@ from hitl_reviewer.platform.unity_volume_files import read_unity_file_text
 
 
 def is_sma_phase(phase: str, artifact_type: str) -> bool:
-    return str(phase).strip().lower() == "sma_gate_1" and str(artifact_type).strip().lower() in (
+    return str(phase).strip().lower() == "sma_gate_1" and str(
+        artifact_type
+    ).strip().lower() in (
         "cohort_manifest",
         "course_manifest",
     )
@@ -130,7 +134,8 @@ def render_sma_review_context(*, item: dict) -> None:
     with st.expander("Review context", expanded=True):
         if ctx:
             st.markdown(
-                '<p class="hitl-ctx-block"><strong>Evidence</strong></p>', unsafe_allow_html=True
+                '<p class="hitl-ctx-block"><strong>Evidence</strong></p>',
+                unsafe_allow_html=True,
             )
             _sma_wrapped_prose_block(ctx)
         if err_lines:
@@ -196,14 +201,21 @@ def render_sma_source_column_panel(
         return
     source_column = fm.get("source_column")
     source_table = fm.get("source_table")
-    if not source_table or not isinstance(source_table, str) or not str(source_table).strip():
+    if (
+        not source_table
+        or not isinstance(source_table, str)
+        or not str(source_table).strip()
+    ):
         st.caption(":gray[Column details unavailable]")
         return
     cache_key = f"esc-json-{enriched_contract_path}"
     if cache_key not in st.session_state:
         try:
             raw_c = read_unity_file_text(enriched_contract_path)
-            st.session_state[cache_key] = {"ok": True, "obj": load_json_object_from_text(raw_c)}
+            st.session_state[cache_key] = {
+                "ok": True,
+                "obj": load_json_object_from_text(raw_c),
+            }
         except Exception as ex:  # noqa: BLE001
             st.session_state[cache_key] = {"ok": False, "err": str(ex)}
     cached = st.session_state[cache_key]
@@ -247,7 +259,9 @@ def render_sma_source_column_panel(
             {"Field": "Unique values", "Value": uniq_s},
         ]
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
-        label = "Unique values" if panel.get("chip_mode") == "unique" else "Sample values"
+        label = (
+            "Unique values" if panel.get("chip_mode") == "unique" else "Sample values"
+        )
         st.caption(label)
         chips = panel.get("chip_values") or []
         mode = panel.get("chip_mode", "sample")
@@ -275,11 +289,11 @@ def _default_choice_index(item: dict, n_opts: int) -> int:
     return max(0, min(n_opts - 1, c_int - 1))
 
 
-def _after_sma_persist(
-    *, silver_path: str, onboard_run_id: str
-) -> None:
+def _after_sma_persist(*, silver_path: str, onboard_run_id: str) -> None:
     invalidate_sma_run_pending_cache(str(onboard_run_id))
-    esc_path = enriched_schema_contract_path_from_manifest(silver_path, str(onboard_run_id))
+    esc_path = enriched_schema_contract_path_from_manifest(
+        silver_path, str(onboard_run_id)
+    )
     if esc_path:
         ck = f"esc-json-{esc_path}"
         if ck in st.session_state:
@@ -344,18 +358,18 @@ def render_sma_hitl_cards(
             if y_run > 0 and pr in ordered:
                 x_run = ordered.index(pr) + 1
                 run_line = (
-                    f'Onboard run <code>{html.escape(str(onboard_run_id))}</code> — '
+                    f"Onboard run <code>{html.escape(str(onboard_run_id))}</code> — "
                     f"<strong>{x_run} of {y_run} pending</strong>"
                 )
             elif y_run > 0:
                 run_line = (
-                    f'Onboard run <code>{html.escape(str(onboard_run_id))}</code> — '
+                    f"Onboard run <code>{html.escape(str(onboard_run_id))}</code> — "
                     f"{y_run} pending on this run; this item is already resolved in JSON "
                     "(browse or change a choice and Save)."
                 )
             else:
                 run_line = (
-                    f'Onboard run <code>{html.escape(str(onboard_run_id))}</code> — '
+                    f"Onboard run <code>{html.escape(str(onboard_run_id))}</code> — "
                     "<strong>0 of 0 pending</strong>"
                 )
         elif y_pending > 0:
@@ -368,9 +382,7 @@ def render_sma_hitl_cards(
                     f"{len(nav_ixs)} item(s) with options; change a radio and Save to update."
                 )
             else:
-                run_line = (
-                    f"No unresolved items — browsing {len(nav_ixs)} item(s) with options. "
-                )
+                run_line = f"No unresolved items — browsing {len(nav_ixs)} item(s) with options. "
         if run_line:
             render_sma_status_meta_line(prebuilt_line_html=run_line)
 
@@ -389,7 +401,9 @@ def render_sma_hitl_cards(
         n = len(options)
         render_sma_review_context(item=item)
         render_sma_option_descriptions(options=options)
-        enriched = enriched_schema_contract_path_from_manifest(silver_path, str(onboard_run_id))
+        enriched = enriched_schema_contract_path_from_manifest(
+            silver_path, str(onboard_run_id)
+        )
         render_sma_source_column_panel(
             item=item,
             enriched_contract_path=enriched,
