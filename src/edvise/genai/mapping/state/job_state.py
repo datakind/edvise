@@ -4,13 +4,15 @@ Best-effort pipeline state updates for Databricks job entrypoints (IA / SMA).
 Failures are logged and do not block the job (same spirit as
 :func:`~edvise.genai.mapping.shared.pipeline_artifacts.merge_genai_pipeline_artifact_rows`).
 
-UC HITL polling helpers (:func:`wait_for_ia_gate_1_hitl`, :func:`wait_for_sma_gate_1_hitl`) are
-blocking and raise on timeout or rejection. Timeouts persist ``timed_out`` on ``pipeline_runs`` /
-``pipeline_phases`` (resumable); other failures may use :func:`mark_pipeline_failed`.
+UC HITL polling helpers (:func:`wait_for_ia_gate_1_hitl`, :func:`wait_for_ia_gate_1_hooks_hitl`,
+:func:`wait_for_sma_gate_1_hitl`) are blocking and raise on timeout or rejection. Timeouts persist
+``timed_out`` on ``pipeline_runs`` / ``pipeline_phases`` (resumable); other failures may use
+:func:`mark_pipeline_failed`.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -30,6 +32,7 @@ LOGGER = logging.getLogger(__name__)
 
 PHASE_IA_START: str = "ia_start"
 PHASE_IA_GATE_1: str = "ia_gate_1"
+PHASE_IA_GATE_1_HOOKS: str = "ia_gate_1_hooks"
 PHASE_SMA_START: str = "sma_start"
 PHASE_SMA_GATE_1: str = "sma_gate_1"
 AUTO_APPROVER: str = "pipeline_auto_approve_empty_hitl"
@@ -165,6 +168,109 @@ def after_ia_onboard_start(
     )
 
 
+def _hook_preview_specs_nonempty(artifact_path: Path) -> bool:
+    """Return True when the preview JSON has a non-empty ``specs`` list (needs human review)."""
+    try:
+        data = json.loads(artifact_path.read_text(encoding="utf-8"))
+    except Exception:
+        return True
+    specs = data.get("specs")
+    return isinstance(specs, list) and len(specs) > 0
+
+
+def _auto_approve_hook_preview_if_empty(
+    catalog: str,
+    onboard_run_id: str,
+    phase: str,
+    artifact_type: str,
+    artifact_path: Path,
+) -> None:
+    """Approve UC when the hook preview file has no generated specs."""
+    try:
+        needs_review = _hook_preview_specs_nonempty(artifact_path)
+    except Exception as e:  # noqa: BLE001
+        LOGGER.warning(
+            "Could not inspect hook preview for auto-approve: run=%s phase=%s artifact_type=%s path=%s (%s)",
+            onboard_run_id,
+            phase,
+            artifact_type,
+            artifact_path,
+            e,
+        )
+        return
+    if needs_review:
+        return
+    _state_safe(
+        f"auto-approve empty hook preview ({artifact_type})",
+        pipeline_state.resolve_hitl,
+        catalog,
+        onboard_run_id,
+        phase,
+        artifact_type,
+        AUTO_APPROVER,
+        "approved",
+    )
+
+
+def register_ia_gate_1_hook_preview_artifacts(
+    catalog: str,
+    institution_id: str,
+    onboard_run_id: str,
+    *,
+    grain_hook_preview_path: Path,
+    term_hook_preview_path: Path,
+) -> None:
+    """
+    Register grain + term hook preview JSON paths under ``ia_gate_1_hooks`` and optional auto-approve.
+
+    Preview files are produced after hook-generation LLM calls and before ``apply_hook_spec`` /
+    materialize. Rows with empty ``specs`` are auto-approved like empty grain/term HITL artifacts.
+    """
+    g = grain_hook_preview_path.as_posix()
+    t = term_hook_preview_path.as_posix()
+    _state_safe(
+        "ia_gate_1_hooks -> awaiting_hitl",
+        pipeline_state.log_phase_transition,
+        catalog,
+        onboard_run_id,
+        PHASE_IA_GATE_1_HOOKS,
+        "awaiting_hitl",
+    )
+    _state_safe(
+        "pipeline_runs -> awaiting_hitl (IA hook preview)",
+        pipeline_state.update_pipeline_run_status,
+        catalog,
+        institution_id,
+        onboard_run_id,
+        "awaiting_hitl",
+    )
+    _state_safe(
+        "register_hitl (ia_gate_1_hooks targets)",
+        pipeline_state.register_hitl_artifacts,
+        catalog,
+        onboard_run_id,
+        PHASE_IA_GATE_1_HOOKS,
+        [
+            {"artifact_type": "grain_hook_preview", "artifact_path": g},
+            {"artifact_type": "term_hook_preview", "artifact_path": t},
+        ],
+    )
+    _auto_approve_hook_preview_if_empty(
+        catalog,
+        onboard_run_id,
+        PHASE_IA_GATE_1_HOOKS,
+        "grain_hook_preview",
+        grain_hook_preview_path,
+    )
+    _auto_approve_hook_preview_if_empty(
+        catalog,
+        onboard_run_id,
+        PHASE_IA_GATE_1_HOOKS,
+        "term_hook_preview",
+        term_hook_preview_path,
+    )
+
+
 def on_ia_onboard_begin(
     catalog: str,
     onboard_run_id: str,
@@ -226,6 +332,52 @@ def wait_for_ia_gate_1_hitl(
         PHASE_IA_GATE_1,
         poll_interval_seconds=poll_interval_seconds,
         timeout_seconds=timeout_seconds,
+    )
+
+
+def wait_for_ia_gate_1_hooks_hitl(
+    catalog: str,
+    onboard_run_id: str,
+    *,
+    institution_id: str,
+    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+) -> bool:
+    """
+    Block until every ``hitl_reviews`` row for ``ia_gate_1_hooks`` is ``approved``.
+
+    Used in IA onboard ``gate_1`` after hook-generation LLM output is written to preview JSON;
+    reviewers approve before ``apply_hook_spec`` / materialize / enriched contract build.
+    """
+    return poll_uc_hitl_until_approved_or_timeout(
+        catalog,
+        institution_id,
+        onboard_run_id,
+        PHASE_IA_GATE_1_HOOKS,
+        poll_interval_seconds=poll_interval_seconds,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def after_ia_onboard_gate_1_hooks_approved(
+    catalog: str, institution_id: str, onboard_run_id: str
+) -> None:
+    """Log hook-preview gate complete and set pipeline run status back to ``running``."""
+    _state_safe(
+        "ia_gate_1_hooks complete",
+        pipeline_state.log_phase_transition,
+        catalog,
+        onboard_run_id,
+        PHASE_IA_GATE_1_HOOKS,
+        "complete",
+    )
+    _state_safe(
+        "pipeline_runs -> running (post hook-preview HITL)",
+        pipeline_state.update_pipeline_run_status,
+        catalog,
+        institution_id,
+        onboard_run_id,
+        "running",
     )
 
 

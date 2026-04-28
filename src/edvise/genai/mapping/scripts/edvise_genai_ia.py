@@ -10,7 +10,9 @@ Usage (Databricks job parameters):
                         If omitted or empty, uses ``inputs.toml`` under genai_mapping (requires ``--catalog``).
 
 On Databricks, onboard mode best-effort updates ``{catalog}.genai_mapping`` pipeline state
-(see :mod:`edvise.genai.mapping.state.job_state`); table setup and Spark are required.
+(see :mod:`edvise.genai.mapping.state.job_state`). Gate ``ia_gate_1`` covers grain/term HITL JSON;
+``ia_gate_1_hooks`` covers generated hook specs (preview JSON) before apply/materialize. Table setup
+and Spark are required.
 """
 
 import os
@@ -75,6 +77,8 @@ class IAPaths:
     profiling_output: Path
     cleaned_datasets: Path  # directory, one .parquet per logical dataset
     run_log: Path
+    grain_hook_preview: Path  # UC ``ia_gate_1_hooks`` — generated HookSpecs before apply
+    term_hook_preview: Path
 
     # Active folder (promoted artifacts, what execute mode reads from)
     active_root: Path
@@ -123,6 +127,8 @@ def resolve_run_paths(
         profiling_output=run_root / "profiling_output.json",
         cleaned_datasets=run_root / "cleaned_datasets",
         run_log=run_root / "run_log.json",
+        grain_hook_preview=run_root / "identity_grain_hook_preview.json",
+        term_hook_preview=run_root / "identity_term_hook_preview.json",
         active_root=active_root,
         active_grain_output=active_root / "grain_output.json",
         active_term_output=active_root / "term_output.json",
@@ -316,6 +322,9 @@ def run_onboard_gate_1(
         normalized_column_names_from_raw_headers,
         validate_hook,
     )
+    from edvise.genai.mapping.identity_agent.hitl.hook_preview import (
+        write_identity_hook_preview_json,
+    )
     from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
         ensure_hook_spec_file,
     )
@@ -376,8 +385,8 @@ def run_onboard_gate_1(
     )
     grain_map = dict(contracts_by_dataset)
 
-    # §6b — Hook generation LLM (grain + term)
-    LOGGER.info("[onboard/gate_1] Hook generation")
+    # §6b — Hook generation LLM (grain + term), then UC ia_gate_1_hooks before apply/materialize
+    LOGGER.info("[onboard/gate_1] Hook generation (preview)")
     norm_cols_by_table: dict[str, list[str]] = {}
     for ds_name, dc in school_config.datasets.items():
         csv_path = resolve_genai_data_path(
@@ -388,13 +397,55 @@ def run_onboard_gate_1(
             hdr.columns
         )
 
-    # Grain hooks
     grain_pairs = generate_hook_specs_for_hook_items(
         hitl_path=paths.grain_hitl,
         config_path=paths.grain_output,
         llm_complete=llm_complete,
         normalized_columns_by_table=norm_cols_by_table,
     )
+    term_pairs = generate_hook_specs_for_hook_items(
+        hitl_path=paths.term_hitl,
+        config_path=paths.term_output,
+        llm_complete=llm_complete,
+        normalized_columns_by_table=norm_cols_by_table,
+    )
+
+    write_identity_hook_preview_json(
+        output_path=paths.grain_hook_preview,
+        institution_id=institution_id,
+        domain="identity_grain",
+        specs=grain_pairs,
+    )
+    write_identity_hook_preview_json(
+        output_path=paths.term_hook_preview,
+        institution_id=institution_id,
+        domain="identity_term",
+        specs=term_pairs,
+    )
+
+    LOGGER.info(
+        "[onboard/gate_1] Registering hook preview artifacts; waiting for UC (ia_gate_1_hooks)"
+    )
+    _pipeline_job_state.register_ia_gate_1_hook_preview_artifacts(
+        catalog,
+        institution_id,
+        onboard_run_id,
+        grain_hook_preview_path=paths.grain_hook_preview,
+        term_hook_preview_path=paths.term_hook_preview,
+    )
+    _pipeline_job_state.wait_for_ia_gate_1_hooks_hitl(
+        catalog,
+        onboard_run_id,
+        institution_id=institution_id,
+        poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+        timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+    )
+    _pipeline_job_state.after_ia_onboard_gate_1_hooks_approved(
+        catalog, institution_id, onboard_run_id
+    )
+
+    LOGGER.info("[onboard/gate_1] Applying hook specs (grain)")
+    # Grain hooks
     for item_id, spec in grain_pairs:
         apply_hook_spec(
             paths.grain_hitl,
@@ -416,12 +467,7 @@ def run_onboard_gate_1(
         )
 
     # Term hooks — merge-materialize per shared term_hooks.py
-    term_pairs = generate_hook_specs_for_hook_items(
-        hitl_path=paths.term_hitl,
-        config_path=paths.term_output,
-        llm_complete=llm_complete,
-        normalized_columns_by_table=norm_cols_by_table,
-    )
+    LOGGER.info("[onboard/gate_1] Applying hook specs (term)")
     term_specs_by_file: dict[str, list] = defaultdict(list)
     for item_id, spec in term_pairs:
         canonical = ensure_hook_spec_file(

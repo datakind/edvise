@@ -33,6 +33,10 @@ from hitl_reviewer.ui.ia.term_review_ui import (
     is_ia_term_phase,
     render_ia_term_hitl_cards,
 )
+from hitl_reviewer.ui.ia.hook_preview_ui import (
+    is_ia_hook_preview_phase,
+    render_ia_hook_preview_cards,
+)
 from hitl_reviewer.ui.sma.review_ui import is_sma_phase, render_sma_hitl_cards
 from hitl_reviewer.persistence.silver_hitl_paths import (
     artifact_path_contains_onboard_run_id,
@@ -350,6 +354,7 @@ def render_silver_hitl_editor(
     is_sma = is_sma_phase(phase, artifact_type)
     is_ia_grain = is_ia_grain_phase(phase, artifact_type)
     is_ia_term = is_ia_term_phase(phase, artifact_type)
+    is_ia_hook_pv = is_ia_hook_preview_phase(phase, artifact_type)
 
     sk = f"{_safe_key(onboard_run_id)}-{_safe_key(phase)}-{_safe_key(artifact_type)}"
     # Same session key as ``st.text_input(..., key=f"path-{sk}")`` in ``render_one_hitl_group`` (Path details).
@@ -380,6 +385,25 @@ def render_silver_hitl_editor(
     except json.JSONDecodeError as e:
         st.error(f"Invalid JSON: {e}")
         return
+
+    if is_ia_hook_pv:
+        render_ia_hook_preview_cards(
+            data=data,
+            silver_path=silver_path,
+            sk=sk,
+            uc_group_pending=uc_group_pending,
+            approve_uc_if_complete=lambda: approve_or_reject(
+                catalog,
+                str(onboard_run_id),
+                str(phase),
+                str(artifact_type),
+                st.session_state["reviewer"],
+                "approved",
+            ),
+            after_uc_approve_success=after_uc_approve_success,
+        )
+        return
+
     items = data.get("items")
     if not isinstance(items, list) or not items:
         st.info(
@@ -805,7 +829,8 @@ def render_one_hitl_group(
             _is_sma = is_sma_phase(str(phase), str(artifact_type))
             _is_ia_g = is_ia_grain_phase(str(phase), str(artifact_type))
             _is_ia_t = is_ia_term_phase(str(phase), str(artifact_type))
-            if _is_sma or _is_ia_g or _is_ia_t:
+            _is_ia_hp = is_ia_hook_preview_phase(str(phase), str(artifact_type))
+            if _is_sma or _is_ia_g or _is_ia_t or _is_ia_hp:
                 _pl = "Silver JSON path" + (
                     " (read-only — UC gate not pending)" if sub_pending.empty else ""
                 )
@@ -841,15 +866,22 @@ def render_one_hitl_group(
         st.divider()
         is_ia_grain_row = is_ia_grain_phase(str(phase), str(artifact_type))
         is_ia_term_row = is_ia_term_phase(str(phase), str(artifact_type))
+        is_ia_hook_pv_row = is_ia_hook_preview_phase(str(phase), str(artifact_type))
         is_sma_row = is_sma_phase(str(phase), str(artifact_type))
         if sub_pending.empty:
             st.caption(
                 "This UC group is not **pending**. The editor above is **read-only**; silver JSON "
                 "cannot be changed from this app after the gate is approved or rejected."
             )
-        elif is_ia_grain_row or is_ia_term_row or is_sma_row:
+        elif (
+            is_ia_grain_row
+            or is_ia_term_row
+            or is_ia_hook_pv_row
+            or is_sma_row
+        ):
             st.caption(
-                "IA / SMA: **Save JSON & approve UC** (or **Approve** on grain/term cards) approves this pending row. "
+                "IA / SMA: **Save JSON & approve UC** (or **Approve** on grain/term/hook-preview cards) "
+                "approves this pending row. "
                 "Use **Reject UC** only if you intend to block the gate."
             )
             if st.button(

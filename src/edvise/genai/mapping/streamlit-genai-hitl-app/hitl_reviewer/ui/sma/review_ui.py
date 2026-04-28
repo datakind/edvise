@@ -188,6 +188,90 @@ def render_sma_option_descriptions(*, options: list) -> None:
                 _sma_wrapped_prose_block(desc)
 
 
+def _field_mapping_preview_lines(fm: dict[str, Any]) -> list[str]:
+    """Human-readable lines for an SMA option ``field_mapping`` (source, join, row_selection, filter)."""
+    lines: list[str] = []
+    sc = fm.get("source_column")
+    stbl = fm.get("source_table")
+    if sc is not None or stbl is not None:
+        lines.append(f"Source: table={stbl!s}, column={sc!s}")
+
+    jc = fm.get("join")
+    if isinstance(jc, dict) and jc:
+        bt = jc.get("base_table")
+        lt = jc.get("lookup_table")
+        jk = jc.get("join_keys")
+        lines.append(f"Join: {bt} ← {lt} on {jk!s}")
+
+    rs = fm.get("row_selection")
+    if not isinstance(rs, dict) or not rs:
+        return lines
+
+    strat = rs.get("strategy")
+    if strat is not None:
+        lines.append(f"Row selection: {strat}")
+    if rs.get("order_by") is not None:
+        lines.append(f"  order_by: {rs['order_by']!s}")
+    if rs.get("condition_col") is not None:
+        lines.append(f"  condition_col: {rs['condition_col']!s}")
+    if rs.get("n") is not None:
+        lines.append(f"  n (1-based): {rs['n']!s}")
+
+    filt = rs.get("filter")
+    if isinstance(filt, dict) and filt.get("column"):
+        col = str(filt.get("column", ""))
+        op = str(filt.get("operator", ""))
+        val = filt.get("value")
+        if isinstance(val, list):
+            val_s = json.dumps(val, ensure_ascii=False)
+        else:
+            val_s = json.dumps(val, ensure_ascii=False)
+        lines.append(f"  Filter: {col} {op} {val_s}")
+    return lines
+
+
+def render_sma_option_field_mapping_previews(*, options: list) -> None:
+    """
+    Per-option ``field_mapping`` preview: source/join, row selection strategy, and **filter**
+    (``row_selection.filter``) so reviewers compare alternatives before choosing.
+    """
+    sections: list[tuple[str, str]] = []
+    for j, opt in enumerate(options):
+        if not isinstance(opt, dict):
+            continue
+        num = j + 1
+        lab = (str(opt.get("label") or f"Option {num}")).strip()
+        title = f"{num}. {lab}"
+        fm = opt.get("field_mapping")
+        reentry = str(opt.get("reentry") or "").lower()
+        if fm is None:
+            note = (
+                "Direct edit — no embedded mapping; you author the record in the manifest editor."
+                if reentry == "direct_edit"
+                else "No embedded field_mapping on this option."
+            )
+            sections.append((title, note))
+            continue
+        if not isinstance(fm, dict):
+            sections.append((title, f"(unrecognized field_mapping type: {type(fm).__name__})"))
+            continue
+        lines = _field_mapping_preview_lines(fm)
+        if lines:
+            sections.append((title, "\n".join(lines)))
+        else:
+            sections.append((title, "(empty field_mapping)"))
+
+    if not sections:
+        return
+    with st.expander("Row selection & filters (per option)", expanded=True):
+        for title, body in sections:
+            st.markdown(
+                f'<p class="hitl-ctx-block"><strong>{html.escape(title)}</strong></p>',
+                unsafe_allow_html=True,
+            )
+            _sma_wrapped_prose_block(body)
+
+
 def render_sma_source_column_panel(
     *,
     item: dict,
@@ -402,6 +486,7 @@ def render_sma_hitl_cards(
         n = len(options)
         render_sma_review_context(item=item)
         render_sma_option_descriptions(options=options)
+        render_sma_option_field_mapping_previews(options=options)
         enriched = enriched_schema_contract_path_from_manifest(
             silver_path, str(onboard_run_id)
         )
