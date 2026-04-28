@@ -76,10 +76,15 @@ def render_ia_hook_preview_cards(
                         st.code(module_text, language="python", line_numbers=True)
                     else:
                         st.warning(
-                            "No non-empty `functions[].draft` strings — showing raw JSON below."
+                            "No non-empty `functions[].draft` strings — enable raw JSON below."
                         )
-                        st.json(hs)
-                    with st.expander("Raw `hook_spec` JSON", expanded=False):
+                    # Streamlit forbids expander-inside-expander; use a checkbox instead of a nested expander.
+                    show_raw = st.checkbox(
+                        "Show raw `hook_spec` JSON",
+                        key=f"hk-raw-{sk}-{i}",
+                        value=not bool(module_text),
+                    )
+                    if show_raw:
                         st.json(hs)
                 else:
                     st.write(row)
