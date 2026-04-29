@@ -90,6 +90,7 @@ from edvise.genai.mapping.shared.hitl.run_log import RunEvent, append_run_log_ev
 from edvise.genai.mapping.shared.hitl.time import utc_now_iso
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     SeasonMapEntry,
+    TermContract,
 )
 
 logger = logging.getLogger(__name__)
@@ -317,6 +318,67 @@ def get_hook_items(hitl_path: str | Path) -> list[HITLItem]:
         result.append(item)
 
     return result
+
+
+def count_term_hook_required_streams(
+    term_contract_by_dataset: dict[str, TermContract],
+) -> int:
+    """
+    Count :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermOrderConfig`
+    instances (primary ``term_config`` plus each ``completion_term_streams`` entry) with
+    ``term_extraction == 'hook_required'``.
+    """
+    n = 0
+    for tc in term_contract_by_dataset.values():
+        tcfg = tc.term_config
+        if tcfg is not None and tcfg.term_extraction == "hook_required":
+            n += 1
+        for stream in tc.completion_term_streams or []:
+            if stream.term_extraction == "hook_required":
+                n += 1
+    return n
+
+
+def validate_term_hook_hitl_covers_hook_required(
+    *,
+    term_hitl_path: str | Path,
+    term_contract_by_dataset: dict[str, TermContract],
+) -> None:
+    """
+    Ensure every hook-required term stream can go through hook generation.
+
+    Hook generation runs only for resolved HITL items whose selected option has
+    ``reentry=GENERATE_HOOK`` (:func:`get_hook_items`). If ``identity_term_output.json`` lists more
+    ``hook_required`` streams than there are such items (after hook-group deduplication), the batch
+    drafts in the resolver JSON are not sufficient — the pipeline would skip hook gen for some
+    streams or rely on unstale drafts.
+
+    Raises
+    ------
+    HITLValidationError
+        When counts are inconsistent (unless there are zero hook-required streams).
+    """
+    n_streams = count_term_hook_required_streams(term_contract_by_dataset)
+    if n_streams == 0:
+        return
+    items = get_hook_items(term_hitl_path)
+    n_items = len(items)
+    if n_items == 0:
+        raise HITLValidationError(
+            f"identity_term_output.json has {n_streams} TermOrderConfig(s) with "
+            "term_extraction='hook_required', but identity_term_hitl.json has no resolved items "
+            "with reentry='generate_hook'. Hook generation would emit zero HookSpecs — fix term "
+            "config (e.g. drop erroneous hook_required) or add/review HITL hook items."
+        )
+    if n_items < n_streams:
+        raise HITLValidationError(
+            f"identity_term_output.json has {n_streams} hook_required term stream(s) "
+            f"(primary term_config + completion_term_streams) but only {n_items} "
+            "GENERATE_HOOK HITL item(s) after hook_group_id deduplication. Each hook_required "
+            "stream needs a hook-generation review path, or multiple streams must explicitly "
+            "share one item via hook_group_id / hook_group_tables. Batch-only hook_spec drafts "
+            "do not satisfy hook generation."
+        )
 
 
 # ---------------------------------------------------------------------------

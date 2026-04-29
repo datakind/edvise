@@ -21,8 +21,9 @@ import argparse
 import logging
 import json
 from pathlib import Path
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 # Layout: <git_root>/src/edvise/genai/mapping/scripts/<this_file>
 # `import edvise` needs <git_root>/src on sys.path (package is <git_root>/src/edvise/).
@@ -298,6 +299,31 @@ def run_onboard_start(
 # ---------------------------------------------------------------------------
 
 
+def _iter_term_order_configs_with_hooks(t_contract: Any) -> Iterator[Any]:
+    """
+    Primary ``term_config`` plus each ``completion_term_streams`` entry that uses hooks.
+
+    Used when merging HookSpecs for ``term_hooks.py`` so completion columns are not dropped.
+    """
+    from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermContract
+
+    if not isinstance(t_contract, TermContract):
+        raise TypeError(f"expected TermContract, got {type(t_contract)!r}")
+    tcfg = t_contract.term_config
+    if (
+        tcfg is not None
+        and tcfg.term_extraction == "hook_required"
+        and tcfg.hook_spec is not None
+    ):
+        yield tcfg
+    for stream in t_contract.completion_term_streams or []:
+        if (
+            stream.term_extraction == "hook_required"
+            and stream.hook_spec is not None
+        ):
+            yield stream
+
+
 def run_onboard_gate_1(
     institution_id: str,
     paths: IAPaths,
@@ -321,6 +347,7 @@ def run_onboard_gate_1(
         materialize_hook_specs_to_file,
         normalized_column_names_from_raw_headers,
         validate_hook,
+        validate_term_hook_hitl_covers_hook_required,
     )
     from edvise.genai.mapping.identity_agent.hitl.hook_preview import (
         apply_term_hook_spec_names_from_item_id,
@@ -375,6 +402,14 @@ def run_onboard_gate_1(
         resolved_by="pipeline",
         run_log_path=paths.run_log,
         db_run_id=db_run_id,
+    )
+
+    _term_after_resolve = load_term_contracts_from_resolver_config(
+        paths.term_output, expected_institution_id=institution_id
+    )
+    validate_term_hook_hitl_covers_hook_required(
+        term_hitl_path=paths.term_hitl,
+        term_contract_by_dataset=_term_after_resolve,
     )
 
     # §6b — Hook generation LLM (grain + term), then UC ia_gate_1_hooks before apply/materialize
@@ -491,6 +526,23 @@ def run_onboard_gate_1(
             materialize=False,
             db_run_id=db_run_id,
         )
+
+    # Resolver JSON lists hook_spec on primary term_config and on completion_term_streams.
+    # Merge those specs with term_pairs before a single materialize. Previously we materialized
+    # twice: the second pass only scanned primary term_config and overwrote term_hooks.py,
+    # dropping completion-stream functions and sometimes truncating the merged HITL output.
+    term_contract_by_dataset = load_term_contracts_from_resolver_config(
+        paths.term_output, expected_institution_id=institution_id
+    )
+    for _ds, t_contract in term_contract_by_dataset.items():
+        for tcfg in _iter_term_order_configs_with_hooks(t_contract):
+            spec_embedded = ensure_hook_spec_file(
+                tcfg.hook_spec,
+                institution_id=institution_id,
+                domain=HITLDomain.IDENTITY_TERM,
+            )
+            term_specs_by_file[spec_embedded.file].append(spec_embedded)
+
     for specs in term_specs_by_file.values():
         materialize_hook_specs_to_file(
             specs, repo_root=paths.run_root, domain=HITLDomain.IDENTITY_TERM
@@ -503,34 +555,10 @@ def run_onboard_gate_1(
             hook_file_root=paths.run_root,
         )
 
-    # Reload resolver JSON after apply_hook_spec so in-memory contracts match disk.
-    # Materialize term hook modules from every dataset's TermOrderConfig — not only specs from
-    # get_hook_items (reentry=GENERATE_HOOK). Other resolutions can embed hook_spec without that
-    # reentry; those specs never appeared in term_pairs, so term_hooks.py was missing otherwise.
     contracts_by_dataset = load_grain_contracts_from_resolver_config(
         paths.grain_output, expected_institution_id=institution_id
     )
     grain_map = dict(contracts_by_dataset)
-    term_contract_by_dataset = load_term_contracts_from_resolver_config(
-        paths.term_output, expected_institution_id=institution_id
-    )
-    term_specs_embedded: dict[str, list] = defaultdict(list)
-    for _ds, t_contract in term_contract_by_dataset.items():
-        tcfg = t_contract.term_config
-        if tcfg is None or tcfg.term_extraction != "hook_required":
-            continue
-        if tcfg.hook_spec is None:
-            continue
-        spec_embedded = ensure_hook_spec_file(
-            tcfg.hook_spec,
-            institution_id=institution_id,
-            domain=HITLDomain.IDENTITY_TERM,
-        )
-        term_specs_embedded[spec_embedded.file].append(spec_embedded)
-    for specs in term_specs_embedded.values():
-        materialize_hook_specs_to_file(
-            specs, repo_root=paths.run_root, domain=HITLDomain.IDENTITY_TERM
-        )
 
     # §7 — Build enriched schema contract + cleaned Parquet
     LOGGER.info("[onboard/gate_1] Building enriched schema contract")
