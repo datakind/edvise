@@ -968,8 +968,8 @@ if __name__ == "__main__":
         "--new_onboard_run",
         action="store_true",
         help=(
-            "Onboard mode only: mint the next same-day suffixed onboard_run_id instead of reusing "
-            "a failed run (clean artifact folder; use for intentional restart, not Databricks repair)."
+            "Onboard mode only: mint a fresh opaque onboard_run_id (ignore db_run_id); rare escape "
+            "hatch — prefer starting a new job for a new folder; repairs reuse the same db_run_id."
         ),
     )
     args = parser.parse_args()
@@ -1009,6 +1009,7 @@ if __name__ == "__main__":
             args.catalog,
             args.institution_id,
             None,
+            db_run_id=_db_run_id,
             force_new_onboard_run=bool(args.new_onboard_run),
         )
 

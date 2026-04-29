@@ -15,6 +15,10 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
 
+from edvise.genai.mapping.shared.pipeline_artifacts import (
+    new_onboard_run_id,
+    resolve_onboard_run_id as resolve_onboard_run_id_from_runtime,
+)
 from edvise.genai.mapping.state._sql import (
     HITL_REVIEWS,
     PIPELINE_PHASES,
@@ -387,11 +391,46 @@ def count_pipeline_runs_created_today(catalog: str, institution_id: str) -> int:
     return n
 
 
+def get_onboard_run_id_for_db_run(
+    catalog: str,
+    institution_id: str,
+    db_run_id: str,
+) -> Optional[str]:
+    """
+    Return ``onboard_run_id`` for an existing onboard ``pipeline_runs`` row
+    (``execute_run_id IS NULL``) with this ``db_run_id``, or ``None``.
+    """
+    c = str(catalog).strip()
+    inst = str(institution_id).strip()
+    db = str(db_run_id).strip()
+    if not inst or not db:
+        raise ValueError("institution_id and db_run_id must be non-empty")
+
+    t = qualified_table(c, PIPELINE_RUNS)
+    q = f"""
+    SELECT onboard_run_id FROM {t}
+    WHERE institution_id = {lit(inst)}
+      AND `catalog` = {lit(c)}
+      AND execute_run_id IS NULL
+      AND trim(cast(db_run_id AS STRING)) = trim({lit(db)})
+    LIMIT 1
+    """
+    rows = _spark().sql(q).collect()
+    if not rows:
+        return None
+    raw = rows[0]["onboard_run_id"]
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    return s if s else None
+
+
 def resolve_onboard_run_id(
     catalog: str,
     institution_id: str,
     onboard_run_id_override: Optional[str] = None,
     *,
+    db_run_id: Optional[str] = None,
     force_new_onboard_run: bool = False,
 ) -> str:
     """
@@ -400,22 +439,29 @@ def resolve_onboard_run_id(
     If ``onboard_run_id_override`` is passed non-empty (manual override / explicit folder name), it
     is returned unchanged.
 
-    Otherwise the convention is ``{institution_id}_{YYYYMMDD}`` with optional numeric suffix for
-    additional same-day **onboard** runs after a terminal ``complete``. Rows are read from
-    ``pipeline_runs`` (``execute_run_id IS NULL``). A non-terminal row (``running``, ``awaiting_hitl``,
-    ``timed_out``, ``failed``) **reuses** its ``onboard_run_id`` so retries/repairs keep one folder.
+    When ``db_run_id`` is non-empty (from ``--db_run_id`` or ``spark.databricks.job.runId``):
 
-    ``db_run_id`` on ``pipeline_runs`` is separate: set from ``--db_run_id`` / Spark for correlation
-    with Databricks Jobs UI — it does **not** have to match this string (often it is the numeric
-    ``job.run_id`` while ``onboard_run_id`` stays institution + date).
+    * **Repair:** if ``pipeline_runs`` already has an onboard row for this ``db_run_id``, return
+      that row's ``onboard_run_id`` (same folder as the first attempt).
+    * **New job run same calendar day:** mint ``{institution_id}_{YYYYMMDD}_1``, ``_2``, ``_3``, …
+      from how many onboard rows were **created today** (see :func:`count_pipeline_runs_created_today`)
+      — each distinct ``db_run_id`` gets its own folder name before the row exists.
 
-    Set ``force_new_onboard_run=True`` to mint the next same-day suffixed id without reusing a
-    ``failed`` row — use for an intentional clean folder (not Databricks repair of the same run).
+    ``db_run_id`` remains stored on ``pipeline_runs`` for Jobs correlation; it is not required to
+    equal the folder segment string.
+
+    When ``db_run_id`` is missing (local runs), falls back to
+    :func:`~edvise.genai.mapping.shared.pipeline_artifacts.resolve_onboard_run_id` (Spark conf,
+    ``DATABRICKS_JOB_RUN_ID``, ``GENAI_ONBOARD_RUN_ID``, or an opaque mint).
+
+    Set ``force_new_onboard_run=True`` to mint a fresh opaque folder (:func:`new_onboard_run_id`),
+    skipping ``db_run_id`` lookup — rare escape hatch (normally start a new job).
     """
     LOGGER.debug(
-        "resolve_onboard_run_id catalog=%r institution_id=%r force_new_onboard_run=%s",
+        "resolve_onboard_run_id catalog=%r institution_id=%r db_run_id=%r force_new_onboard_run=%s",
         catalog,
         institution_id,
+        db_run_id,
         force_new_onboard_run,
     )
     override = (onboard_run_id_override or "").strip()
@@ -426,31 +472,25 @@ def resolve_onboard_run_id(
     if not inst:
         raise ValueError("institution_id must be non-empty")
 
+    if force_new_onboard_run:
+        return new_onboard_run_id()
+
+    db = (db_run_id or "").strip()
     base_id = f"{inst}_{date.today().strftime('%Y%m%d')}"
 
-    if force_new_onboard_run:
-        n = count_pipeline_runs_created_today(catalog, inst)
-        if n == 0:
-            return base_id
-        return f"{base_id}_{n + 1}"
-
-    latest = get_latest_pipeline_run_created_today(catalog, inst)
-    if latest is None:
-        return base_id
-
-    st = str(latest.get("status") or "").strip()
-    rid = str(latest.get("onboard_run_id") or "").strip()
-    if not rid:
-        return base_id
-
-    if st in ("running", "awaiting_hitl", "timed_out", "failed"):
-        return rid
-    if st == "complete":
+    if db:
+        existing = get_onboard_run_id_for_db_run(catalog, inst, db)
+        if existing:
+            return existing
         n = count_pipeline_runs_created_today(catalog, inst)
         return f"{base_id}_{n + 1}"
-    # Unknown legacy status: start a fresh suffixed id rather than reusing ambiguous rows.
-    n = count_pipeline_runs_created_today(catalog, inst)
-    return f"{base_id}_{n + 1}"
+
+    rid = resolve_onboard_run_id_from_runtime(None, create_if_missing=True)
+    if rid is None:
+        raise RuntimeError(
+            "resolve_onboard_run_id_from_runtime returned None with create_if_missing=True"
+        )
+    return rid
 
 
 def new_execute_run_id() -> str:
@@ -842,14 +882,15 @@ def bootstrap_resolved_onboard_run_id(
     institution_id: str,
     onboard_run_id_arg: str | None,
     *,
+    db_run_id: str | None = None,
     stale_idle_minutes: int | None = None,
     force_new_onboard_run: bool = False,
 ) -> str:
     """
     Reconcile stale ``running`` / ``awaiting_hitl`` rows, then resolve the active run id.
 
-    Pass ``onboard_run_id_arg`` as empty/None to use :func:`resolve_onboard_run_id` (institution +
-    calendar day + suffix from ``pipeline_runs``). See ``force_new_onboard_run`` on
+    Pass ``onboard_run_id_arg`` as empty/None and supply ``db_run_id`` so :func:`resolve_onboard_run_id`
+    can reuse an existing onboard folder on repair or mint ``{inst}_{YYYYMMDD}_{n}`` (``_1``, ``_2``, …). See
     :func:`resolve_onboard_run_id`.
     """
     idle = (
@@ -862,14 +903,16 @@ def bootstrap_resolved_onboard_run_id(
         catalog,
         institution_id,
         onboard_run_id_arg,
+        db_run_id=db_run_id,
         force_new_onboard_run=force_new_onboard_run,
     )
     LOGGER.info(
-        "Resolved GenAI onboard_run_id=%r (catalog=%r institution_id=%r stale_idle_minutes=%s "
-        "force_new_onboard_run=%s)",
+        "Resolved GenAI onboard_run_id=%r (catalog=%r institution_id=%r db_run_id=%r "
+        "stale_idle_minutes=%s force_new_onboard_run=%s)",
         resolved,
         catalog,
         institution_id,
+        db_run_id,
         idle,
         force_new_onboard_run,
     )
