@@ -275,8 +275,14 @@ def render_ia_term_hitl_cards(
                             hitl_question=q,
                             hitl_context=item.get("hitl_context"),
                         )
+                # Pass a copy into the editor — mutating the same DataFrame object as
+                # ``session_state[smr_key]`` is a known cause of ``st.data_editor`` reverting
+                # or resetting edits (esp. SelectboxColumn). A stable ``key`` keeps widget state
+                # aligned across reruns.
+                smr_editor_key = f"{smr_key}-editor"
                 edited_smr = st.data_editor(
-                    st.session_state[smr_key],
+                    st.session_state[smr_key].copy(),
+                    key=smr_editor_key,
                     num_rows="dynamic",
                     column_config={
                         "raw": st.column_config.TextColumn(
@@ -287,7 +293,8 @@ def render_ia_term_hitl_cards(
                         "canonical": st.column_config.SelectboxColumn(
                             "canonical",
                             options=["FALL", "SPRING", "SUMMER", "WINTER"],
-                            required=True,
+                            required=False,
+                            default="SPRING",
                         ),
                     },
                     hide_index=True,
