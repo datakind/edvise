@@ -323,6 +323,7 @@ def run_onboard_gate_1(
         validate_hook,
     )
     from edvise.genai.mapping.identity_agent.hitl.hook_preview import (
+        apply_term_hook_spec_names_from_item_id,
         write_identity_hook_preview_json,
     )
     from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
@@ -400,6 +401,15 @@ def run_onboard_gate_1(
         llm_complete=llm_complete,
         normalized_columns_by_table=norm_cols_by_table,
     )
+    term_pairs = [
+        (
+            item_id,
+            apply_term_hook_spec_names_from_item_id(
+                spec, item_id, institution_id=institution_id
+            ),
+        )
+        for item_id, spec in term_pairs
+    ]
 
     write_identity_hook_preview_json(
         output_path=paths.grain_hook_preview,

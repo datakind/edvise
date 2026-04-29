@@ -9,6 +9,7 @@ import pytest
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec, HookFunctionSpec
 from edvise.genai.mapping.identity_agent.hitl.hook_preview import (
+    apply_term_hook_spec_names_from_item_id,
     assemble_hook_spec_drafts_as_module_text,
     hook_slug_from_item_id,
     write_identity_hook_preview_json,
@@ -182,8 +183,8 @@ def test_hook_slug_from_item_id_strips_institution_and_hook_suffix() -> None:
     )
 
 
-def test_write_identity_hook_preview_json_renames_term_functions(tmp_path: Path) -> None:
-    spec = HookSpec(
+def test_term_preview_json_matches_slugged_hook_spec(tmp_path: Path) -> None:
+    raw = HookSpec(
         file="identity_hooks/uni_of_central_florida/term_hooks.py",
         functions=[
             HookFunctionSpec(
@@ -204,14 +205,16 @@ def test_write_identity_hook_preview_json_renames_term_functions(tmp_path: Path)
             ),
         ],
     )
+    item_id = "uni_of_central_florida_student_deg_comp_term_bachelors_hook"
+    spec = apply_term_hook_spec_names_from_item_id(
+        raw, item_id, institution_id="uni_of_central_florida"
+    )
     out = tmp_path / "term_preview.json"
     write_identity_hook_preview_json(
         output_path=out,
         institution_id="uni_of_central_florida",
         domain="identity_term",
-        specs=[
-            ("uni_of_central_florida_student_deg_comp_term_bachelors_hook", spec),
-        ],
+        specs=[(item_id, spec)],
     )
     data = json.loads(out.read_text(encoding="utf-8"))
     funcs = data["specs"][0]["hook_spec"]["functions"]

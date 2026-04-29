@@ -275,13 +275,13 @@ def render_ia_term_hitl_cards(
                             hitl_question=q,
                             hitl_context=item.get("hitl_context"),
                         )
-                # Pass a copy into the editor — mutating the same DataFrame object as
-                # ``session_state[smr_key]`` is a known cause of ``st.data_editor`` reverting
-                # or resetting edits (esp. SelectboxColumn). A stable ``key`` keeps widget state
-                # aligned across reruns.
+                # Pass the **same** DataFrame instance each rerun — do *not* wrap in ``.copy()`` here.
+                # A fresh copy every run changes the ``data=`` argument identity, which recreates the
+                # editor and matches Streamlit's "one interaction behind" / double-click behavior
+                # (see streamlit#7749). We keep a stable ``key`` and persist the returned frame.
                 smr_editor_key = f"{smr_key}-editor"
                 edited_smr = st.data_editor(
-                    st.session_state[smr_key].copy(),
+                    st.session_state[smr_key],
                     key=smr_editor_key,
                     num_rows="dynamic",
                     column_config={
@@ -300,7 +300,7 @@ def render_ia_term_hitl_cards(
                     hide_index=True,
                     disabled=not uc_group_pending,
                 )
-                st.session_state[smr_key] = edited_smr
+                st.session_state[smr_key] = edited_smr.copy()
                 st.session_state.setdefault(smr_store_key, {})[loc] = edited_smr.copy()
 
         def _flush_ia_term_custom_note_to_store() -> None:

@@ -81,9 +81,11 @@ def apply_term_hook_preview_names_from_item_id(
 ) -> dict[str, Any]:
     """
     Return a deep copy of ``hook_spec`` with ``year_extractor_<slug>`` / ``season_extractor_<slug>``
-    names (and matching ``draft`` / ``signature`` text) so preview JSON matches unique module symbols.
+    names (and matching ``draft`` / ``signature`` text) so merged ``term_hooks.py`` modules have
+    unique symbols per HITL item.
 
-    No-op if ``functions`` does not contain exactly one year-like and one season-like name.
+    Dict-level primitive used by :func:`apply_term_hook_spec_names_from_item_id`. No-op if
+    ``functions`` does not contain exactly one year-like and one season-like name.
     """
     out = copy.deepcopy(hook_spec)
     functions = out.get("functions")
@@ -120,6 +122,26 @@ def apply_term_hook_preview_names_from_item_id(
     return out
 
 
+def apply_term_hook_spec_names_from_item_id(
+    hook_spec: HookSpec,
+    item_id: str,
+    *,
+    institution_id: str,
+) -> HookSpec:
+    """
+    Apply :func:`apply_term_hook_preview_names_from_item_id` to a ``HookSpec`` instance.
+
+    Call once after term hook generation (before preview JSON, ``apply_hook_spec``, and merge
+    materialize) so pipeline and UC artifacts share the same uniquified function names.
+    """
+    dumped = apply_term_hook_preview_names_from_item_id(
+        hook_spec.model_dump(mode="json"),
+        item_id,
+        institution_id=institution_id,
+    )
+    return HookSpec.model_validate(dumped)
+
+
 def assemble_hook_spec_drafts_as_module_text(hook_spec: dict[str, Any]) -> str:
     """
     Concatenate ``functions[].draft`` in order, separated by a blank line — same body layout as
@@ -152,6 +174,8 @@ def write_identity_hook_preview_json(
     Write a JSON artifact listing generated hook specs (``item_id`` + ``hook_spec``) for HITL review.
 
     ``domain`` is ``identity_grain`` or ``identity_term`` (informative for reviewers / UI).
+    For ``identity_term``, specs should already carry slugged extractor names from
+    :func:`apply_term_hook_spec_names_from_item_id` at the pipeline choke point.
 
     When ``hitl_path`` and ``config_path`` are both set (resolver-shaped identity JSON at
     ``config_path``), each spec row also gets ``review_context``: table, HITL question/context,
@@ -179,12 +203,6 @@ def write_identity_hook_preview_json(
     spec_rows: list[dict[str, Any]] = []
     for item_id, spec in specs:
         spec_dump = spec.model_dump(mode="json")
-        if domain == "identity_term":
-            spec_dump = apply_term_hook_preview_names_from_item_id(
-                spec_dump,
-                item_id,
-                institution_id=institution_id,
-            )
         row: dict[str, Any] = {
             "item_id": item_id,
             "hook_spec": spec_dump,
@@ -223,6 +241,7 @@ def write_identity_hook_preview_json(
 
 __all__ = [
     "apply_term_hook_preview_names_from_item_id",
+    "apply_term_hook_spec_names_from_item_id",
     "assemble_hook_spec_drafts_as_module_text",
     "hook_slug_from_item_id",
     "write_identity_hook_preview_json",
