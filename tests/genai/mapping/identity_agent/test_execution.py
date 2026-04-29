@@ -356,6 +356,49 @@ def test_apply_term_order_from_contract_yyyytt_with_season_map():
     assert "_season" in out.columns
 
 
+def test_apply_term_order_from_contract_entry_plus_completion_streams():
+    df = pd.DataFrame(
+        {
+            "term": ["2018FA", "2019SP"],
+            "deg_comp_term": ["2019FA", pd.NA],
+            "k": [1, 2],
+        }
+    )
+    entry = TermOrderConfig(
+        term_col="term",
+        season_map=[
+            {"raw": "SP", "canonical": "SPRING"},
+            {"raw": "FA", "canonical": "FALL"},
+        ],
+        term_extraction="standard",
+    )
+    completion = TermOrderConfig(
+        term_col="deg_comp_term",
+        season_map=[
+            {"raw": "SP", "canonical": "SPRING"},
+            {"raw": "FA", "canonical": "FALL"},
+        ],
+        term_extraction="standard",
+        output_prefix="_completion_bachelors",
+    )
+    tp = TermContract(
+        institution_id="x",
+        table="t",
+        term_config=entry,
+        completion_term_streams=[completion],
+        confidence=0.95,
+        hitl_flag=False,
+        reasoning="test",
+    )
+    out = apply_term_order_from_contract(df, tp)
+    assert "_edvise_term_academic_year" in out.columns
+    assert "_completion_bachelors_edvise_term_academic_year" in out.columns
+    assert (
+        str(out.loc[0, "_edvise_term_academic_year"])
+        != str(out.loc[0, "_completion_bachelors_edvise_term_academic_year"])
+    )
+
+
 def test_apply_grain_execution_order_dedup_then_term():
     df = pd.DataFrame(
         {
@@ -808,7 +851,7 @@ def test_merge_preserves_institution_when_partial():
     assert out.datasets["students"].primary_keys == ["student_id"]
 
 
-def test_merge_sets_cleaning_student_id_alias_from_grain_learner_id_alias():
+def test_merge_sets_dataset_student_id_alias_from_grain_learner_id_alias():
     school = _school_config()
     gc = _merge_contract(
         "students",
@@ -816,8 +859,7 @@ def test_merge_sets_cleaning_student_id_alias_from_grain_learner_id_alias():
         learner_id_alias="student_id_randomized_datakind",
     )
     out = merge_grain_contracts_into_school_config(school, {"students": gc})
-    assert out.cleaning is not None
-    assert out.cleaning.student_id_alias == "student_id_randomized_datakind"
+    assert out.datasets["students"].student_id_alias == "student_id_randomized_datakind"
 
 
 def test_merge_grain_learner_id_alias_only_is_idempotent():
@@ -829,15 +871,16 @@ def test_merge_grain_learner_id_alias_only_is_idempotent():
     )
     once = merge_grain_learner_id_alias_into_school_config(school, {"students": gc})
     twice = merge_grain_learner_id_alias_into_school_config(once, {"students": gc})
-    assert twice.cleaning and twice.cleaning.student_id_alias == "col_a"
+    assert twice.datasets["students"].student_id_alias == "col_a"
 
 
-def test_merge_conflicting_grain_learner_id_alias_raises():
+def test_merge_distinct_grain_learner_id_alias_per_dataset_allowed():
     school = _school_config()
     a = _merge_contract("students", ["student_id"], learner_id_alias="a")
     b = _merge_contract("courses", ["student_id", "term"], learner_id_alias="b")
-    with pytest.raises(ValueError, match="disagree on learner_id_alias"):
-        merge_grain_contracts_into_school_config(school, {"students": a, "courses": b})
+    out = merge_grain_contracts_into_school_config(school, {"students": a, "courses": b})
+    assert out.datasets["students"].student_id_alias == "a"
+    assert out.datasets["courses"].student_id_alias == "b"
 
 
 def test_merge_unknown_dataset_raises():

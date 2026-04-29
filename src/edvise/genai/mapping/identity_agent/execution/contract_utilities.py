@@ -597,17 +597,31 @@ def apply_grain_dedup(
 def apply_term_order_from_contract(
     df: pd.DataFrame,
     term_pass: TermContract | None,
+    *,
+    hook_modules_root: str | Path | None = None,
 ) -> pd.DataFrame:
     """
     Apply term-stage :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermContract` when
     ``term_config`` is set; otherwise return ``df`` unchanged.
 
+    Runs primary ``term_config`` (entry) then each ``completion_term_streams`` config so completion
+    columns do not overwrite entry ``_edvise_term_*`` when ``output_prefix`` is set on streams.
+
     Delegates to :func:`~edvise.genai.mapping.identity_agent.term_normalization.term_order.apply_term_order_from_config`.
     Grain-stage :class:`~edvise.genai.mapping.identity_agent.grain_inference.schemas.GrainContract` has no term fields.
     """
-    if term_pass is None or term_pass.term_config is None:
+    if term_pass is None:
         return df
-    return apply_term_order_from_config(df, term_pass.term_config)
+    out = df
+    if term_pass.term_config is not None:
+        out = apply_term_order_from_config(
+            out, term_pass.term_config, hook_modules_root=hook_modules_root
+        )
+    for stream in term_pass.completion_term_streams:
+        out = apply_term_order_from_config(
+            out, stream, hook_modules_root=hook_modules_root
+        )
+    return out
 
 
 def apply_grain_execution(
@@ -625,7 +639,9 @@ def apply_grain_execution(
         canonical_learner_column=canonical_learner_column,
         hook_modules_root=hook_modules_root,
     )
-    return apply_term_order_from_contract(out, term_pass)
+    return apply_term_order_from_contract(
+        out, term_pass, hook_modules_root=hook_modules_root
+    )
 
 
 def build_dedupe_fn_from_grain_contract(

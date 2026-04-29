@@ -58,6 +58,9 @@ Your job is to produce a `TermOrderConfig` that tells the cleaning layer how to 
 - `_edvise_term_academic_year` — e.g. `"2017-18"`
 - `_term_order` — chronological sort key: `year * 100 + season_rank` (rank = 1-indexed position in `season_map`)
 
+When **both** entry/cohort and separate completion term codes exist on this table, keep primary
+`term_config` unprefixed and add `completion_term_streams` — see **COMPLETION TERM STREAMS**.
+
 `TermOrderConfig` (as a JSON-compatible dict) is consumed by:
 
 - `add_edvise_term_order(df, term_config, year_extractor, season_extractor)` — produces `_year`, `_season`, `_term_order`, `_edvise_term_season`, `_edvise_term_academic_year` (it runs term labels automatically)
@@ -490,10 +493,49 @@ types, and nesting must match; do not add extra keys at validated levels.
 """
 
 
+def _tn_completion_streams() -> str:
+    return """
+## COMPLETION TERM STREAMS (optional)
+
+Use when one wide table (often `student`) carries **both** entry/cohort term and **distinct**
+completion encodings (e.g. bachelor's graduation term on the same row).
+
+- **Primary `term_config`:** cohort / entry — **omit `output_prefix`** → `_edvise_term_academic_year`,
+  `_edvise_term_season`, …
+- **`completion_term_streams`:** one full `TermOrderConfig` per extra raw column. Each **must** set
+  `output_prefix` (e.g. `_completion_bachelors`) and `exclude_tokens`: `[]` (required when `output_prefix`
+  is set). Prefixes must be unique across streams.
+- **Materialized names:** `{output_prefix}_edvise_term_academic_year`, `{output_prefix}_edvise_term_season`, …
+  Do not treat entry `_edvise_term_*` as degree-completion timing when a completion stream applies.
+- Duplicating `season_map` / `hook_spec` per stream is fine; reuse `hook_group_id` when encodings match.
+
+Illustrative snippet (see injected Pydantic for full fields):
+
+```json
+"term_config": {
+  "term_col": "starting_cohort_term",
+  "season_map": [{"raw": "FA", "canonical": "FALL"}],
+  "term_extraction": "standard",
+  "exclude_tokens": []
+},
+"completion_term_streams": [
+  {
+    "term_col": "bachelors_grad_term",
+    "output_prefix": "_completion_bachelors",
+    "exclude_tokens": [],
+    "season_map": [{"raw": "FA", "canonical": "FALL"}],
+    "term_extraction": "standard"
+  }
+]
+```
+"""
+
+
 TERM_NORMALIZATION_SYSTEM_SECTION_KEYS: tuple[str, ...] = (
     "role_and_inputs",
     "when_null",
     "reasoning_steps",
+    "completion_streams",
     "confidence_scoring",
     "output_format",
     "pydantic_schema_reference",
@@ -506,6 +548,7 @@ def get_term_normalization_system_sections() -> dict[str, str]:
         "role_and_inputs": _tn_role_and_inputs().strip(),
         "when_null": _tn_when_null(),
         "reasoning_steps": _tn_reasoning_steps(),
+        "completion_streams": _tn_completion_streams().strip(),
         "confidence_scoring": _tn_confidence_scoring(),
         "output_format": _tn_output_format(),
         "pydantic_schema_reference": _tn_pydantic_schema_reference(
@@ -544,6 +587,8 @@ You will receive a single JSON object with:
 
 Apply the same per-table reasoning rules as single-dataset term inference (term column selection,
 `season_map`, `term_extraction`, `hook_spec` when hook_required) **independently for each dataset**.
+When a table needs entry **and** separate completion term materializations, use primary `term_config`
+(no `output_prefix`) plus `completion_term_streams` — see **COMPLETION TERM STREAMS**.
 
 **Hook drafts (`year_extractor` / `season_extractor`):** Hooks run after `clean_dataset` dtype generation; `term` is the column as string and is often **ISO-like** for datetimes even when profiling showed `%m/%d/%Y` in the raw file. Draft with `pd.to_datetime(term)` **without** a fixed `format=` unless you need strict validation or ambiguous-date handling (see **date columns** under REASONING STEPS). Put **one-line Python expressions** in `functions[].draft` (not full `def` blocks); the downstream `generate_hook` step turns them into complete functions.
 
@@ -788,6 +833,7 @@ TERM_NORMALIZATION_BATCH_SYSTEM_SECTION_KEYS: tuple[str, ...] = (
     "batch_role_and_inputs",
     "when_null",
     "reasoning_steps_batch",
+    "completion_streams",
     "confidence_scoring",
     "batch_output_format",
     "pydantic_schema_reference",
@@ -800,6 +846,7 @@ def get_term_normalization_batch_system_sections() -> dict[str, str]:
         "batch_role_and_inputs": _tn_batch_role_and_inputs().strip(),
         "when_null": _tn_when_null(),
         "reasoning_steps_batch": _tn_reasoning_steps_batch(),
+        "completion_streams": _tn_completion_streams().strip(),
         "confidence_scoring": _tn_confidence_scoring(),
         "batch_output_format": _tn_batch_output_format(),
         "pydantic_schema_reference": _tn_pydantic_schema_reference(

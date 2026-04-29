@@ -287,3 +287,64 @@ def test_summarize_schema_contract_includes_term_normalization():
     assert "entry_term" in note
     assert "standard" in note
     assert "term_normalization" not in summary["datasets"]["students"]
+
+
+def test_summarize_schema_contract_includes_completion_term_normalizations():
+    raw = {
+        "school_id": "s1",
+        "school_name": "School One",
+        "datasets": {
+            "students": {
+                "normalized_columns": {"A": "a"},
+                "dtypes": {
+                    "a": "Int64",
+                    "_completion_bachelors_edvise_term_academic_year": "string",
+                },
+                "non_null_columns": [],
+                "unique_keys": ["a"],
+                "null_tokens": ["(Blank)"],
+                "boolean_map": {"true": True, "false": False},
+                "training": {
+                    "file_path": "/x.csv",
+                    "num_rows": 1,
+                    "num_columns": 1,
+                    "column_normalization": {"original_to_normalized": {}},
+                    "column_details": [
+                        {
+                            "original_name": "A",
+                            "normalized_name": "a",
+                            "null_count": 0,
+                            "null_percentage": 0.0,
+                            "unique_count": 1,
+                            "sample_values": ["1"],
+                        }
+                    ],
+                    "term_normalization": {
+                        "mode": "single_column",
+                        "term_extraction": "standard",
+                        "term_col": "entry_term",
+                        "year_col": None,
+                        "season_col": None,
+                        "clean_spec_term_column": "entry_term",
+                    },
+                    "completion_term_normalizations": [
+                        {
+                            "mode": "single_column",
+                            "term_extraction": "standard",
+                            "term_col": "bachelors_grad_term",
+                            "year_col": None,
+                            "season_col": None,
+                            "clean_spec_term_column": "bachelors_grad_term",
+                            "stream_role": "completion_bachelors",
+                            "materialized_column_prefix": "_completion_bachelors",
+                        }
+                    ],
+                },
+            }
+        },
+    }
+    summary = summarize_schema_contract(raw)
+    notes = summary["datasets"]["students"]["completion_term_normalization_notes"]
+    assert len(notes) == 1
+    assert "_completion_bachelors" in notes[0]
+    assert "bachelors_grad_term" in notes[0]

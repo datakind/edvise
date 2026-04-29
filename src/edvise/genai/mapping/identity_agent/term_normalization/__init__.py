@@ -48,6 +48,8 @@ __all__ = [
     "SeasonMapEntry",
     "TermContract",
     "TermOrderConfig",
+    "EdviseTermColumnSet",
+    "edvise_term_column_set",
     "apply_term_order_from_config",
     "load_term_extractors_from_hook_spec",
     "term_normalization_summary_for_enriched_contract",
@@ -69,6 +71,14 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
+    if name == "EdviseTermColumnSet":
+        from .term_order import EdviseTermColumnSet
+
+        return EdviseTermColumnSet
+    if name == "edvise_term_column_set":
+        from .term_order import edvise_term_column_set
+
+        return edvise_term_column_set
     if name == "apply_term_order_from_config":
         from .term_order import apply_term_order_from_config
 

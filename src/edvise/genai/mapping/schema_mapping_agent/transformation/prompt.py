@@ -65,7 +65,7 @@ COHORT degree- and certificate-related DATETIME fields (cross-table joins to deg
 
 These targets include e.g. `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
 `certificate1_date`, `certificate2_date`, `certificate3_date` when the mapping manifest uses a
-lookup table (e.g. `degree`) with filters and `row_selection`.
+lookup table (e.g. `degree`) with filters and `row_selection`, **or** completion-prefixed IA columns on wide `student`.
 
 **(1) Manifest `source_column` is IdentityAgent term metadata — REQUIRED shape**
 - If the manifest's `source_column` for the field is `_edvise_term_academic_year` (or another IA
@@ -77,6 +77,10 @@ lookup table (e.g. `degree`) with filters and `row_selection`.
     these targets — even when `schema_contract` sample_values for `term` look easy to parse. Parsing
     `term` when the manifest sourced `_edvise_term_academic_year` ignores the manifest and breaks
     alignment with IdentityAgent normalization.
+- If the manifest sources **`{prefix}_edvise_term_academic_year`** on **student** (completion stream —
+  see `completion_term_normalization_notes` in the summarized schema contract), bind the paired season column:
+  `extra_columns`: `{"season_series": "{prefix}_edvise_term_season"}` (same utility chain). Do **not**
+  use unprefixed `_edvise_term_season` when the manifest sourced a prefixed academic-year column.
 
 **(2) Manifest `source_column` is a raw code or date column — format-driven**
 - Only if the manifest explicitly maps `source_column` to `term`, a literal date column, or another
@@ -218,7 +222,7 @@ SOURCE COLUMN FORMAT AWARENESS
 - Do not assume a column's format from its name alone — verify against sample_values in the schema contract
 - For cross-table degree/certificate datetime fields, follow **COHORT degree- and certificate-related DATETIME**
   rules below: do not pick utilities from raw `term` sample_values when the manifest sourced
-  `_edvise_term_academic_year`
+  `_edvise_term_academic_year` or `{prefix}_edvise_term_academic_year`
 
 OUTPUT DTYPES
 - Set output_dtype to the RawEdvise / pandas name: "string", "Int64", "Float64" (extension dtypes — not numpy int64/float64), "category" (Pandera categoricals: entry_term, academic_term, pell_recipient_year1, term_pell_recipient), "boolean", "datetime64[ns]".
@@ -232,7 +236,7 @@ STEP ORDERING
   not after. The map keys must match the values that actually arrive at that step.
 - Apply type casting steps (cast_string, cast_nullable_int, etc.) after value transformations
   unless an earlier step requires a specific type as input
-- Apply domain-specific normalization (normalize_grade, etc.) as needed; canonical term season and academic year come from IdentityAgent columns (_edvise_term_season, _edvise_term_academic_year), not SMA string parsers
+- Apply domain-specific normalization (normalize_grade, etc.) as needed; canonical term season and academic year come from IdentityAgent columns (`_edvise_term_*` or `{prefix}_edvise_term_*` for completion streams), not SMA string parsers
 
 {_step2b_cohort_entry_term_transformation_rules()}
 {_step2b_course_academic_term_transformation_rules()}
@@ -240,7 +244,8 @@ STEP ORDERING
 EXTRA COLUMNS
 - Some utilities require extra_columns
   (e.g., birthyear_to_age_bucket needs reference_year_series, conditional_credits needs grade_series,
-  term_components_to_datetime needs season_series bound to ``_edvise_term_season``)
+  term_components_to_datetime needs season_series bound to the manifest's paired IA column —
+  ``_edvise_term_season`` or ``{prefix}_edvise_term_season`` when academic year uses a completion prefix)
 - Specify extra_columns as a dict mapping parameter names to source column names: {{"param_name": "column_name"}}
 - These columns are resolved from the base DataFrame before the step runs
 

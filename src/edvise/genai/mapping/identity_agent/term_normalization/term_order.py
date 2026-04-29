@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import logging
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -18,6 +19,44 @@ from edvise.genai.mapping.shared.schema_contract.schemas import TermNormalizatio
 from .schemas import TermOrderConfig
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EdviseTermColumnSet:
+    """Column names materialized by :func:`add_edvise_term_order` for one normalization stream."""
+
+    year: str
+    season: str
+    term_order: str
+    term_grain: str
+    edvise_season: str
+    edvise_academic_year: str
+
+
+def edvise_term_column_set(output_prefix: str | None) -> EdviseTermColumnSet:
+    """
+    Map optional IA ``output_prefix`` (e.g. ``_completion_bachelors``) to concrete column names.
+
+    Primary entry normalization uses ``output_prefix=None`` → legacy ``_year``, ``_edvise_term_*``.
+    """
+    if not output_prefix:
+        return EdviseTermColumnSet(
+            year="_year",
+            season="_season",
+            term_order="_term_order",
+            term_grain="_term_grain",
+            edvise_season="_edvise_term_season",
+            edvise_academic_year="_edvise_term_academic_year",
+        )
+    p = output_prefix
+    return EdviseTermColumnSet(
+        year=f"{p}_year",
+        season=f"{p}_season",
+        term_order=f"{p}_term_order",
+        term_grain=f"{p}_term_grain",
+        edvise_season=f"{p}_edvise_term_season",
+        edvise_academic_year=f"{p}_edvise_term_academic_year",
+    )
 
 
 def _normalize_term_config_column_names(tc: dict) -> dict:
@@ -92,7 +131,7 @@ def _season_map_lookups(season_map: list) -> tuple[dict[str, int], list[str]]:
     return raw_to_rank, norm_keys
 
 
-def _add_term_grain(df: pd.DataFrame) -> pd.DataFrame:
+def _add_term_grain(df: pd.DataFrame, cols: EdviseTermColumnSet) -> pd.DataFrame:
     """
     Stable source-term key from calendar year, raw season token, and sort key.
 
@@ -100,12 +139,12 @@ def _add_term_grain(df: pd.DataFrame) -> pd.DataFrame:
     distinct when ``_edvise_term_*`` canonical labels collapse multiple source terms.
     """
     out = df.copy()
-    out["_term_grain"] = (
-        out["_year"].astype("string")
+    out[cols.term_grain] = (
+        out[cols.year].astype("string")
         + "|"
-        + out["_season"].astype("string")
+        + out[cols.season].astype("string")
         + "|"
-        + out["_term_order"].astype("string")
+        + out[cols.term_order].astype("string")
     )
     return out
 
@@ -114,9 +153,10 @@ def _finalize_season_year_order(
     out: pd.DataFrame,
     season_norm: pd.Series,
     raw_to_rank: dict[str, int],
+    cols: EdviseTermColumnSet,
 ) -> pd.DataFrame:
     out = out.copy()
-    out["_season"] = season_norm.astype("string")
+    out[cols.season] = season_norm.astype("string")
 
     found = set(season_norm.dropna().unique())
     valid = set(raw_to_rank.keys())
@@ -132,7 +172,7 @@ def _finalize_season_year_order(
         season_norm = season_norm[mask]
 
     season_rank = season_norm.map(raw_to_rank).astype("Int64")
-    out["_term_order"] = (out["_year"] * 100 + season_rank).astype("Int64")
+    out[cols.term_order] = (out[cols.year] * 100 + season_rank).astype("Int64")
     return out
 
 
@@ -167,14 +207,10 @@ def add_edvise_term_order(
 
     Returns
     -------
-    pd.DataFrame with added columns:
-        _year                     : Int64  — extracted calendar year
-        _season                   : string — raw season token (e.g. "FA", "9", "Spring")
-        _term_order               : Int64  — chronological sort key (year * 100 + season_rank)
-        _term_grain               : string — ``_year|_season|_term_order`` for source-term uniqueness
-        _edvise_term_season       : string — canonical season (FALL, SPRING, SUMMER, WINTER)
-        _edvise_term_academic_year: string — e.g. "2017-18"
+    pd.DataFrame with added columns (names depend on ``term_config["output_prefix"]`` — see
+    :func:`edvise_term_column_set`).
     """
+    cols = edvise_term_column_set(term_config.get("output_prefix"))
     season_map = term_config["season_map"]
     term_extraction = term_config["term_extraction"]
     term_col = term_config.get("term_col")
@@ -236,7 +272,7 @@ def add_edvise_term_order(
         for c in (year_col, season_col):
             if c not in out.columns:
                 raise KeyError(f"DataFrame must contain column '{c}'")
-        out["_year"] = pd.to_numeric(out[year_col], errors="coerce").astype("Int64")
+        out[cols.year] = pd.to_numeric(out[year_col], errors="coerce").astype("Int64")
         s_season = out[season_col].astype("string").str.strip()
 
         def _cell_to_season_norm(val: object) -> str | None:
@@ -250,9 +286,9 @@ def add_edvise_term_order(
             return _resolve_season_token(_norm_token(str(val).strip()), norm_keys)
 
         season_norm = s_season.map(_cell_to_season_norm)
-        ordered = _finalize_season_year_order(out, season_norm, raw_to_rank)
-        ordered = _add_term_grain(ordered)
-        return add_edvise_term_labels(ordered, term_config)
+        ordered = _finalize_season_year_order(out, season_norm, raw_to_rank, cols)
+        ordered = _add_term_grain(ordered, cols)
+        return add_edvise_term_labels(ordered, term_config, columns=cols)
 
     # --- Combined term_col path ---
     if term_col not in out.columns:
@@ -265,7 +301,7 @@ def add_edvise_term_order(
     else:
         year_str = s.str.extract(r"(\d{4})", expand=False)
 
-    out["_year"] = pd.to_numeric(year_str, errors="coerce").astype("Int64")
+    out[cols.year] = pd.to_numeric(year_str, errors="coerce").astype("Int64")
 
     if season_extractor is not None:
         # Extractor returns the raw season fragment; normalize to season_map keys (lowercase).
@@ -279,37 +315,36 @@ def add_edvise_term_order(
 
         season_norm = s.apply(_extract_season)
 
-    ordered = _finalize_season_year_order(out, season_norm, raw_to_rank)
-    ordered = _add_term_grain(ordered)
-    return add_edvise_term_labels(ordered, term_config)
+    ordered = _finalize_season_year_order(out, season_norm, raw_to_rank, cols)
+    ordered = _add_term_grain(ordered, cols)
+    return add_edvise_term_labels(ordered, term_config, columns=cols)
 
 
 def add_edvise_term_labels(
     df: pd.DataFrame,
     term_config: dict,
+    *,
+    columns: EdviseTermColumnSet | None = None,
 ) -> pd.DataFrame:
     """
     Adds Edvise standard term label columns to a DataFrame.
-    Expects ``_year`` and ``_season`` (e.g. from :func:`add_edvise_term_order`, which
+    Expects year and season columns (e.g. from :func:`add_edvise_term_order`, which
     invokes this function automatically).
 
-    Calendar year is ``_year`` only; there is no separate ``_edvise_term_year`` column.
+    Calendar year is the work ``year`` column only; there is no separate ``_edvise_term_year``.
 
     Parameters
     ----------
     df : pd.DataFrame
-        Input DataFrame, must contain _year and _season columns.
+        Input DataFrame, must contain year and season work columns.
     term_config : dict
         Term config emitted by IdentityAgent. Expected keys:
             season_map : list[{"raw": str, "canonical": str}]
-
-    Returns
-    -------
-    pd.DataFrame with added columns:
-        _edvise_term_season         : string — e.g. "FALL"
-        _edvise_term_academic_year  : string — e.g. "2017-18"
+    columns : EdviseTermColumnSet | None
+        Column names for this stream; defaults to entry (legacy ``_year`` / ``_season``).
     """
-    for col in ("_year", "_season"):
+    cols = columns or edvise_term_column_set(None)
+    for col in (cols.year, cols.season):
         if col not in df.columns:
             raise KeyError(
                 f"Column '{col}' not found. "
@@ -323,9 +358,9 @@ def add_edvise_term_labels(
 
     out = df.copy()
 
-    # _edvise_term_season — map raw token to canonical label
-    out["_edvise_term_season"] = (
-        out["_season"]
+    # edvise_season — map raw token to canonical label
+    out[cols.edvise_season] = (
+        out[cols.season]
         .astype("string")
         .str.lower()
         .map(raw_to_canonical)
@@ -334,17 +369,17 @@ def add_edvise_term_labels(
 
     # Warn on unmapped seasons
     unmapped = out.loc[
-        out["_season"].notna() & out["_edvise_term_season"].isna(), "_season"
+        out[cols.season].notna() & out[cols.edvise_season].isna(), cols.season
     ].unique()
     if len(unmapped) > 0:
         logger.warning("Unmapped season tokens in standardization: %s", unmapped)
 
-    # _edvise_term_academic_year
+    # edvise_academic_year
     # FALL/WINTER of year N -> "N-(N+1 2-digit)"
     # SPRING/SUMMER of year N -> "(N-1)-(N 2-digit)"
     def _academic_year(row: pd.Series) -> str | pd.NA:
-        year = row["_year"]
-        season = row["_edvise_term_season"]
+        year = row[cols.year]
+        season = row[cols.edvise_season]
         if pd.isna(year) or pd.isna(season):
             return pd.NA
         year = int(year)
@@ -352,9 +387,7 @@ def add_edvise_term_labels(
             return f"{year}-{str(year + 1)[-2:]}"
         return f"{year - 1}-{str(year)[-2:]}"
 
-    out["_edvise_term_academic_year"] = out.apply(_academic_year, axis=1).astype(
-        "string"
-    )
+    out[cols.edvise_academic_year] = out.apply(_academic_year, axis=1).astype("string")
 
     return out
 
@@ -444,6 +477,8 @@ def _resolve_hook_year_season_callables(
 
 def term_normalization_summary_for_enriched_contract(
     config: TermOrderConfig,
+    *,
+    stream_role: str | None = None,
 ) -> TermNormalizationSummary:
     """
     Build :class:`~edvise.genai.mapping.shared.schema_contract.schemas.TermNormalizationSummary`
@@ -455,7 +490,17 @@ def term_normalization_summary_for_enriched_contract(
         mode: Literal["single_column", "year_season_columns"] = "single_column"
     else:
         mode = "year_season_columns"
+    if stream_role is None:
+        resolved_role = (
+            "entry"
+            if not config.output_prefix
+            else config.output_prefix.strip("_").replace("__", "_")
+        )
+    else:
+        resolved_role = stream_role
     return TermNormalizationSummary(
+        stream_role=resolved_role,
+        materialized_column_prefix=config.output_prefix,
         mode=mode,
         term_extraction=config.term_extraction,
         term_col=d.get("term_col"),

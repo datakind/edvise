@@ -155,6 +155,15 @@ class DatasetConfig(StrictBaseModel):
             "(filled from IdentityAgent grain contracts via merge_grain_contracts_into_school_config)."
         ),
     )
+    student_id_alias: Optional[str] = Field(
+        default=None,
+        description=(
+            "Raw learner/student identifier column name for this dataset only (headers normalize "
+            "to snake_case). Overrides school-level cleaning.student_id_alias for clean_dataset on "
+            "this table. IdentityAgent grain merge sets this from each grain contract's "
+            "learner_id_alias."
+        ),
+    )
 
     @model_validator(mode="after")
     def _primary_keys_nonempty_when_present(self) -> DatasetConfig:
@@ -199,8 +208,9 @@ class SchoolMappingConfig(StrictBaseModel):
     cleaning: Optional[CleaningConfig] = Field(
         default=None,
         description=(
-            "Optional CleaningConfig (e.g. student_id_alias). Same semantics as custom "
-            "pipeline cleaning in edvise.data_audit.custom_cleaning."
+            "Optional CleaningConfig shared defaults for all datasets (e.g. student_id_alias, "
+            "null_tokens). Per-dataset ``datasets.*.student_id_alias`` overrides cleaning.student_id_alias "
+            "for that table. Same semantics as custom pipeline cleaning in edvise.data_audit.custom_cleaning."
         ),
     )
     datasets: Dict[str, DatasetConfig] = Field(
