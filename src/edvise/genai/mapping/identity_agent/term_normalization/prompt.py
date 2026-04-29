@@ -674,7 +674,7 @@ Shape:
   },
   "hitl_items": [
     {
-      "item_id": "<institution_id>_<dataset_c>_<short_descriptor>",
+      "item_id": "<dataset_c>_<short_descriptor>",
       "institution_id": "<institution_id>",
       "table": "<dataset_c>",
       "domain": "identity_term",
@@ -828,7 +828,8 @@ VALIDITY RULES
   `resolution` object with concrete field mutations. For hook-confirmation items (`reentry`:
   `"generate_hook"`), the resolution must include the confirmed `hook_spec` inline — do not
   leave `resolution: null` on a non-custom option.
-- `item_id` must be unique across the entire response.
+- `item_id` must be unique across the entire response. Do **not** prefix `institution_id` —
+  `institution_id` is already on the envelope and each HITL item; repeating it in `item_id` is redundant.
 - Each nested object under `datasets` must set `"table"` to the same string as its key in `datasets`.
 """.replace("__PIPELINE_HITL_T__", f"{t}")
 

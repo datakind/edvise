@@ -66,6 +66,43 @@ def render_ia_hook_preview_cards(
             hs = row.get("hook_spec")
             title = f"`{item_id}`"
             with st.expander(title, expanded=(i == 0)):
+                rc = row.get("review_context") if isinstance(row.get("review_context"), dict) else None
+                if rc:
+                    st.markdown("**Review context** (HITL item + config slice used for hook generation)")
+                    q = (rc.get("hitl_question") or "").strip()
+                    if q:
+                        st.markdown(q)
+                    tbl = (rc.get("table") or "").strip()
+                    if tbl:
+                        st.caption(f"table `{tbl}`")
+                    hg = rc.get("hook_group_id")
+                    hgt = rc.get("hook_group_tables")
+                    if hg or (isinstance(hgt, list) and hgt):
+                        st.caption(
+                            f"hook group `{hg}` · tables {hgt if isinstance(hgt, list) else []}"
+                        )
+                    note = rc.get("reviewer_note")
+                    if isinstance(note, str) and note.strip():
+                        st.markdown("Reviewer note:")
+                        st.markdown(note.strip())
+                    hx = rc.get("hitl_context")
+                    if hx is not None:
+                        st.markdown("HITL evidence:")
+                        if isinstance(hx, str):
+                            st.markdown(hx)
+                        else:
+                            st.json(hx)
+                    tgt = rc.get("target")
+                    if isinstance(tgt, dict) and tgt:
+                        st.caption(
+                            f"target · `{tgt.get('config', '')}.{tgt.get('field', '')}` "
+                            f"on `{tgt.get('table', '')}`"
+                        )
+                    cs = rc.get("config_snippet")
+                    if isinstance(cs, dict) and cs:
+                        st.markdown("**Config snippet** (`grain_contract` or `term_config`):")
+                        st.json(cs)
+                    st.divider()
                 if isinstance(hs, dict):
                     rel_file = (hs.get("file") or "").strip()
                     if rel_file:

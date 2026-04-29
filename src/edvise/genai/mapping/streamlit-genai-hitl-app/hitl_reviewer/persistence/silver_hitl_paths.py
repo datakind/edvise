@@ -53,6 +53,25 @@ def set_item_choice(data: dict[str, Any], item_index: int, choice: int | None) -
         row["choice"] = int(choice)
 
 
+def set_item_direct_edit_field_mapping(
+    data: dict[str, Any], item_index: int, mapping: dict[str, Any] | None
+) -> None:
+    """
+    Set ``data['items'][item_index]['direct_edit_field_mapping']`` for SMA HITL when the
+    reviewer selects the ``direct_edit`` option (``None`` when a terminal option is selected).
+    """
+    items = data.get("items")
+    if not isinstance(items, list) or not (0 <= item_index < len(items)):
+        raise KeyError("Invalid item index for HITL JSON")
+    row = items[item_index]
+    if not isinstance(row, dict):
+        raise TypeError("HITL item is not an object")
+    if mapping is None:
+        row["direct_edit_field_mapping"] = None
+    else:
+        row["direct_edit_field_mapping"] = mapping
+
+
 def set_item_reviewer_note(
     data: dict[str, Any], item_index: int, note: str | None
 ) -> None:

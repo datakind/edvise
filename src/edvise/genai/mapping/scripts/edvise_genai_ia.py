@@ -406,12 +406,16 @@ def run_onboard_gate_1(
         institution_id=institution_id,
         domain="identity_grain",
         specs=grain_pairs,
+        hitl_path=paths.grain_hitl,
+        config_path=paths.grain_output,
     )
     write_identity_hook_preview_json(
         output_path=paths.term_hook_preview,
         institution_id=institution_id,
         domain="identity_term",
         specs=term_pairs,
+        hitl_path=paths.term_hitl,
+        config_path=paths.term_output,
     )
 
     LOGGER.info(

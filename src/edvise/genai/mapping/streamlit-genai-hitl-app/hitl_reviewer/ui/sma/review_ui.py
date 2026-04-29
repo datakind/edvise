@@ -249,7 +249,8 @@ def render_sma_option_field_mapping_previews(*, options: list) -> None:
         reentry = str(opt.get("reentry") or "").lower()
         if fm is None:
             note = (
-                "Direct edit — no embedded mapping; you author the record in the manifest editor."
+                "Direct edit — no embedded mapping; after you select this option, paste JSON under "
+                "**Edit mapping directly** (saved as ``direct_edit_field_mapping``)."
                 if reentry == "direct_edit"
                 else "No embedded field_mapping on this option."
             )
@@ -532,6 +533,37 @@ def render_sma_hitl_cards(
             file_index=int(i),
             option_label_format="numbered",
         )
+        dem_key = f"sma-dem-{sk}-{i}-{item.get('item_id', i)}"
+        if dem_key not in st.session_state:
+            dem_raw = item.get("direct_edit_field_mapping")
+            if isinstance(dem_raw, dict):
+                st.session_state[dem_key] = json.dumps(
+                    dem_raw, indent=2, ensure_ascii=False
+                )
+            else:
+                st.session_state[dem_key] = ""
+        try:
+            sel_j = max(0, min(int(st.session_state[sel_key]), n - 1))
+        except (TypeError, ValueError):
+            sel_j = 0
+        cur_opt = (
+            options[sel_j]
+            if sel_j < len(options) and isinstance(options[sel_j], dict)
+            else {}
+        )
+        if str(cur_opt.get("reentry") or "").lower() == "direct_edit":
+            st.markdown("**Edit mapping directly** — full ``field_mapping`` (JSON)")
+            st.caption(
+                "Paste one complete FieldMappingRecord (same shape as the terminal options above). "
+                "Saving writes this to ``direct_edit_field_mapping`` on the item."
+            )
+            st.text_area(
+                "direct_edit_field_mapping",
+                height=320,
+                key=dem_key,
+                disabled=not uc_group_pending,
+                label_visibility="collapsed",
+            )
     else:
         st.info("No HITL items with `options` in this JSON.")
 

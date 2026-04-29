@@ -14,6 +14,7 @@ import streamlit as st
 
 from hitl_reviewer.persistence.silver_hitl_paths import (
     set_item_choice,
+    set_item_direct_edit_field_mapping,
     set_item_reviewer_note,
 )
 from hitl_reviewer.platform.unity_volume_files import (
@@ -251,12 +252,63 @@ def persist_hitl_choice_radios_from_session(
             set_item_choice(fresh, i, ix + 1)
         except (KeyError, TypeError) as e:
             return False, str(e)
+        sel_opt = opts[ix] if isinstance(opts[ix], dict) else {}
+        reentry = str(sel_opt.get("reentry") or "").lower()
+        item_id = item.get("item_id", i)
+        if reentry == "direct_edit":
+            dem_key = f"sma-dem-{sk}-{i}-{item_id}"
+            raw_txt = (st.session_state.get(dem_key) or "").strip()
+            if not raw_txt:
+                return (
+                    False,
+                    f"Item ``{item_id!s}``: **Edit mapping directly** is selected — paste a complete "
+                    "``direct_edit_field_mapping`` JSON object in the text area before saving.",
+                )
+            try:
+                parsed = json.loads(raw_txt)
+            except json.JSONDecodeError as e:
+                return (
+                    False,
+                    f"Item ``{item_id!s}``: invalid JSON in direct edit field mapping: {e}",
+                )
+            if not isinstance(parsed, dict):
+                return (
+                    False,
+                    f"Item ``{item_id!s}``: direct_edit_field_mapping must be a JSON object.",
+                )
+            val_err = _validate_sma_direct_edit_field_mapping_dict(parsed)
+            if val_err:
+                return False, f"Item ``{item_id!s}``: {val_err}"
+            try:
+                set_item_direct_edit_field_mapping(fresh, i, parsed)
+            except (KeyError, TypeError) as e:
+                return False, str(e)
+        else:
+            try:
+                set_item_direct_edit_field_mapping(fresh, i, None)
+            except (KeyError, TypeError) as e:
+                return False, str(e)
     try:
         out = json.dumps(fresh, indent=2, ensure_ascii=False) + "\n"
         write_unity_file_text(silver_path, out, overwrite=True)
     except Exception as e:  # noqa: BLE001
         return False, f"Write failed: {e}"
     return True, ""
+
+
+def _validate_sma_direct_edit_field_mapping_dict(obj: dict[str, Any]) -> str | None:
+    """Return an error message if ``obj`` is not a valid FieldMappingRecord, else ``None``."""
+    try:
+        from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
+            FieldMappingRecord,
+        )
+    except ImportError:
+        return None
+    try:
+        FieldMappingRecord.model_validate(obj)
+    except Exception as e:  # noqa: BLE001
+        return f"Field mapping does not match schema (FieldMappingRecord): {e}"
+    return None
 
 
 def try_approve_uc_after_json_write(

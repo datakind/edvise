@@ -19,7 +19,9 @@ from edvise.genai.mapping.identity_agent.hitl.hook_generation import (
 )
 from edvise.genai.mapping.shared.hitl import HITLBlockingError
 from edvise.genai.mapping.identity_agent.hitl.hook_preview import (
+    apply_term_hook_preview_names_from_item_id,
     assemble_hook_spec_drafts_as_module_text,
+    hook_slug_from_item_id,
     write_identity_hook_preview_json,
 )
 from edvise.genai.mapping.identity_agent.hitl.artifacts import (
@@ -77,7 +79,9 @@ __all__ = [
     "ReentryDepth",
     "TermResolution",
     "apply_hook_spec",
+    "apply_term_hook_preview_names_from_item_id",
     "assemble_hook_spec_drafts_as_module_text",
+    "hook_slug_from_item_id",
     "build_grain_config_for_resolver",
     "build_term_config_for_resolver",
     "load_grain_contracts_from_resolver_config",
