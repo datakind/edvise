@@ -135,11 +135,11 @@ Use dtype and `unique_values` (or `sample_values` if `unique_values` is null) to
 - **YYYYTT** — 4-digit year + season code suffix: `"2018FA"`, `"2019SP"`, `"2018S1"` — year extractable via 4-digit regex, season matchable via suffix
 - **Season_YYYY** — spelled season + year: `"Fall 2019"`, `"Spring 2021"` — year extractable via 4-digit regex, season matchable via prefix
 
-**Hook-required formats** (`term_extraction`: `"hook_required"`):
+**Hook-required formats** (`term_extraction`: `"hook_required"`) — classify **per column** using **that column's** samples only:
 
-- `datetime` or `date` dtype — date-based extraction needed
+- `datetime` or `date` dtype — date-based extraction needed when standard regex routing does not apply
 - Opaque numeric codes — e.g. `"1192"`, `"1199"` with no visible year string or season token
-- `float` or `int` dtype with numeric codes — e.g. `1192.0` — treat as opaque numeric
+- `float` / `int` **only when** samples match opaque codes or compact numerics (e.g. **YYYYMM** like `202401.0`), **not** merely because the profiler labeled dtype float — string **`Season_YYYY`** columns stay **`standard`**
 
 ### Step 3 — Build `season_map`
 
@@ -167,18 +167,33 @@ Example for YYYYTT:
 
 ### Step 4 — Set `term_extraction` and populate `hook_spec` if needed
 
+**Column grounding (critical):** For **each** `term_col` you configure — primary `term_config` **and**
+each entry in `completion_term_streams` (when present) — infer encoding **only** from **that**
+column's row in the profile `columns` list (`sample_values`, `unique_values`, dtype). **Never**
+copy hook logic, `season_map`, or digit-slice patterns from one column onto another (e.g. do **not**
+apply **YYYYMM** extraction drafted for **DEGREE_EARNED_TERM** to **TERM_DESC** when **TERM_DESC**
+samples are **Season_YYYY** text like `"Fall 2024"`).
+
+**Reasoning vs JSON:** The dataset `reasoning` text must **agree** with `term_config.term_extraction`
+and season-map style for the **primary** term column — if reasoning describes **standard**
+Season_YYYY extraction, `term_config` must **not** use `hook_required` with numeric-month hooks.
+
 Set `term_extraction`: `"standard"` when:
 
 - A 4-digit year is extractable via regex from the raw value, **AND**
 - Season tokens are matchable via prefix or suffix against `season_map` keys
 
-Set `term_extraction`: `"hook_required"` when:
+Set `term_extraction`: `"hook_required"` when **that column's** profile matches:
 
-- dtype is `datetime` or `date`
-- Raw values are opaque numeric codes with no visible year string or season token
-- dtype is `float` or `int`
+- dtype is `datetime` or `date` **and** hooks are required per the date-column guidance below; OR
+- Raw values are **opaque numeric codes** (e.g. `"1192"`) with no visible four-digit year substring and no season token; OR
+- Values are **compact numeric term encodings** (e.g. **YYYYMM** as `201308.0`, `202401.0`) for **that** column's samples — extract year/season fragments by position on **those** values.
 
-When `term_extraction`: `"hook_required"`, always populate `hook_spec`. Draft extractor functions based on observed patterns in unique values.
+**Do not** set `hook_required` **solely** because dtype is `float` or `int` — **inspect**
+`sample_values` / `unique_values`. **Do not** set `hook_required` when samples clearly show
+**Season_YYYY** English tokens (`Fall`, `Spring`, …) plus a year — use **`standard`**.
+
+When `term_extraction`: `"hook_required"`, always populate `hook_spec`. Draft extractor functions from **that column's** observed patterns only.
 
 For **opaque numeric codes** (e.g. `"1192"` with no visible year in the string):
 
@@ -244,11 +259,11 @@ Use dtype and `unique_values` (or `sample_values` if `unique_values` is null) to
 - **YYYYTT** — 4-digit year + season code suffix: `"2018FA"`, `"2019SP"`, `"2018S1"` — year extractable via 4-digit regex, season matchable via suffix
 - **Season_YYYY** — spelled season + year: `"Fall 2019"`, `"Spring 2021"` — year extractable via 4-digit regex, season matchable via prefix
 
-**Hook-required formats** (`term_extraction`: `"hook_required"`):
+**Hook-required formats** (`term_extraction`: `"hook_required"`) — classify **per column** using **that column's** samples only:
 
-- `datetime` or `date` dtype — date-based extraction needed
+- `datetime` or `date` dtype — date-based extraction needed when standard regex routing does not apply
 - Opaque numeric codes — e.g. `"1192"`, `"1199"` with no visible year string or season token
-- `float` or `int` dtype with numeric codes — e.g. `1192.0` — treat as opaque numeric
+- `float` / `int` **only when** samples match opaque codes or compact numerics (e.g. **YYYYMM** like `202401.0`), **not** merely because the profiler labeled dtype float — string **`Season_YYYY`** columns stay **`standard`**
 
 ### Step 3 — Build `season_map`
 
@@ -282,18 +297,33 @@ Example for YYYYTT:
 
 ### Step 4 — Set `term_extraction` and populate `hook_spec` if needed
 
+**Column grounding (critical):** For **each** `term_col` you configure — primary `term_config` **and**
+each entry in `completion_term_streams` (when present) — infer encoding **only** from **that**
+column's row in the profile `columns` list (`sample_values`, `unique_values`, dtype). **Never**
+copy hook logic, `season_map`, or digit-slice patterns from one column onto another (e.g. do **not**
+apply **YYYYMM** extraction drafted for **DEGREE_EARNED_TERM** to **TERM_DESC** when **TERM_DESC**
+samples are **Season_YYYY** text like `"Fall 2024"`).
+
+**Reasoning vs JSON:** The dataset `reasoning` text must **agree** with `term_config.term_extraction`
+and season-map style for the **primary** term column — if reasoning describes **standard**
+Season_YYYY extraction, `term_config` must **not** use `hook_required` with numeric-month hooks.
+
 Set `term_extraction`: `"standard"` when:
 
 - A 4-digit year is extractable via regex from the raw value, **AND**
 - Season tokens are matchable via prefix or suffix against `season_map` keys
 
-Set `term_extraction`: `"hook_required"` when:
+Set `term_extraction`: `"hook_required"` when **that column's** profile matches:
 
-- dtype is `datetime` or `date`
-- Raw values are opaque numeric codes with no visible year string or season token
-- dtype is `float` or `int`
+- dtype is `datetime` or `date` **and** hooks are required per the date-column guidance below; OR
+- Raw values are **opaque numeric codes** (e.g. `"1192"`) with no visible four-digit year substring and no season token; OR
+- Values are **compact numeric term encodings** (e.g. **YYYYMM** as `201308.0`, `202401.0`) for **that** column's samples — extract year/season fragments by position on **those** values.
 
-When `term_extraction`: `"hook_required"`, always populate `hook_spec`. Draft extractor functions based on observed patterns in unique values.
+**Do not** set `hook_required` **solely** because dtype is `float` or `int` — **inspect**
+`sample_values` / `unique_values`. **Do not** set `hook_required` when samples clearly show
+**Season_YYYY** English tokens (`Fall`, `Spring`, …) plus a year — use **`standard`**.
+
+When `term_extraction`: `"hook_required"`, always populate `hook_spec`. Draft extractor functions from **that column's** observed patterns only.
 
 For **opaque numeric codes** (e.g. `"1192"` with no visible year in the string):
 
