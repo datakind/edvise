@@ -113,6 +113,31 @@ def _safe_key(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "-", str(s))[:80]
 
 
+def _df_pending_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Rows whose ``status`` is pending (trimmed, case-insensitive)."""
+    if df.empty or "status" not in df.columns:
+        return df.iloc[0:0].copy()
+    ok = df["status"].astype(str).str.strip().str.lower() == "pending"
+    return df.loc[ok].copy()
+
+
+def _mask_same_uc_group(
+    df: pd.DataFrame,
+    onboard_run_id: object,
+    phase: object,
+    artifact_type: object,
+) -> pd.Series:
+    """Align with SQL ``trim(cast(... AS STRING))`` / manual edits: strip UC join keys."""
+    oid = str(onboard_run_id).strip()
+    ph = str(phase).strip()
+    at = str(artifact_type).strip()
+    return (
+        (df["onboard_run_id"].astype(str).str.strip() == oid)
+        & (df["phase"].astype(str).str.strip() == ph)
+        & (df["artifact_type"].astype(str).str.strip() == at)
+    )
+
+
 def _uc_gate_button_key(
     kind: str, onboard_run_id: str, phase: str, artifact_type: str
 ) -> str:
@@ -717,7 +742,7 @@ def advance_to_next_pending_group(
         clear_hitl_workbench_group_nav()
         return False
 
-    pending_df = base_df[base_df["status"].astype(str).str.lower() == "pending"].copy()
+    pending_df = _df_pending_rows(base_df)
     if pending_df.empty:
         clear_hitl_workbench_group_nav()
         return False
@@ -982,7 +1007,7 @@ def render_group_loop(
     *,
     catalog: str,
 ) -> None:
-    pending = df[df["status"].astype(str).str.lower() == "pending"].copy()
+    pending = _df_pending_rows(df)
     action_df = pending if not pending.empty else df
     if not pending.empty:
         st.success(f"{len(pending)} pending UC row(s) in the current result set.")
@@ -996,14 +1021,10 @@ def render_group_loop(
 
     for onboard_run_id, phase, artifact_type in groups:
         sub = action_df[
-            (action_df["onboard_run_id"] == onboard_run_id)
-            & (action_df["phase"] == phase)
-            & (action_df["artifact_type"] == artifact_type)
+            _mask_same_uc_group(action_df, onboard_run_id, phase, artifact_type)
         ]
         sub_pending = pending[
-            (pending["onboard_run_id"] == onboard_run_id)
-            & (pending["phase"] == phase)
-            & (pending["artifact_type"] == artifact_type)
+            _mask_same_uc_group(pending, onboard_run_id, phase, artifact_type)
         ]
         render_one_hitl_group(
             catalog=catalog,

@@ -36,7 +36,13 @@ def is_ia_hook_preview_phase(phase: str, artifact_type: str) -> bool:
     at = str(artifact_type).strip().lower()
     if ph != "ia_gate_1_hooks":
         return False
-    return at in ("grain_hook_preview", "term_hook_preview")
+    # Canonical names plus legacy shorthand (older rows / manual UC registrations).
+    return at in (
+        "grain_hook_preview",
+        "term_hook_preview",
+        "grain_hook",
+        "term_hook",
+    )
 
 
 def render_ia_hook_preview_cards(
@@ -132,8 +138,11 @@ def render_ia_hook_preview_cards(
         type="primary",
         disabled=not uc_group_pending,
     ):
-        approve_uc_if_complete()
-        if after_uc_approve_success is not None:
-            after_uc_approve_success()
-        st.success("Hook preview approved.")
-        st.rerun()
+        try:
+            approve_uc_if_complete()
+            if after_uc_approve_success is not None:
+                after_uc_approve_success()
+            st.success("Hook preview approved.")
+            st.rerun()
+        except Exception as ex:  # noqa: BLE001
+            st.error(str(ex))
