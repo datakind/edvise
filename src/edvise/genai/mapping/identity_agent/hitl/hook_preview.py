@@ -155,7 +155,8 @@ def write_identity_hook_preview_json(
 
     When ``hitl_path`` and ``config_path`` are both set (resolver-shaped identity JSON at
     ``config_path``), each spec row also gets ``review_context``: table, HITL question/context,
-    reviewer note, hook group metadata, resolver ``target``, and the same ``config_snippet``
+    reviewer note, optional ``season_map_replace`` from the selected option’s partial resolution,
+    hook group metadata, resolver ``target``, and the same ``config_snippet``
     (``grain_contract`` / ``term_config`` slice) passed to hook-generation LLM calls.
     """
     path = Path(output_path)
@@ -192,11 +193,18 @@ def write_identity_hook_preview_json(
             hit = items_by_id.get(item_id)
             if hit is not None:
                 snippet = extract_config_snippet_for_hook_item(identity_config, hit)
+                season_map_replace_preview: list | None = None
+                sel_o = hit.selected_option()
+                if sel_o is not None and isinstance(sel_o.resolution, dict):
+                    raw_smr = sel_o.resolution.get("season_map_replace")
+                    if isinstance(raw_smr, list):
+                        season_map_replace_preview = raw_smr
                 row["review_context"] = {
                     "table": hit.table,
                     "hitl_question": hit.hitl_question,
                     "hitl_context": _hitl_context_json(hit.hitl_context),
                     "reviewer_note": hit.reviewer_note,
+                    "season_map_replace": season_map_replace_preview,
                     "hook_group_id": hit.hook_group_id,
                     "hook_group_tables": hit.hook_group_tables,
                     "target": hit.target.model_dump(mode="json"),

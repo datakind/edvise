@@ -86,3 +86,40 @@ def set_item_reviewer_note(
         row["reviewer_note"] = None
     else:
         row["reviewer_note"] = str(note).strip()
+
+
+def merge_season_map_replace_into_selected_option(
+    data: dict[str, Any],
+    item_index: int,
+    choice_1_based: int,
+    season_map_replace: list[dict[str, str]],
+) -> None:
+    """
+    Write ``season_map_replace`` onto ``options[choice - 1].resolution`` for term HITL.
+
+    Used when the reviewer selects an option with ``reentry: generate_hook`` and a partial
+    :class:`~edvise.genai.mapping.identity_agent.hitl.schemas.TermResolution` that includes
+    ``season_map_replace`` (no ``hook_spec`` on the option — hook generation fills that later).
+    """
+    items = data.get("items")
+    if not isinstance(items, list) or not (0 <= item_index < len(items)):
+        raise KeyError("Invalid item index for HITL JSON")
+    row = items[item_index]
+    if not isinstance(row, dict):
+        raise TypeError("HITL item is not an object")
+    opts = row.get("options")
+    if not isinstance(opts, list):
+        raise TypeError("HITL item has no options list")
+    ix = int(choice_1_based) - 1
+    if not (0 <= ix < len(opts)):
+        raise KeyError("choice index out of range for options")
+    opt = opts[ix]
+    if not isinstance(opt, dict):
+        raise TypeError("HITL option is not an object")
+    res = opt.get("resolution")
+    if res is None:
+        res = {}
+        opt["resolution"] = res
+    elif not isinstance(res, dict):
+        raise TypeError("option.resolution must be an object or null")
+    res["season_map_replace"] = season_map_replace

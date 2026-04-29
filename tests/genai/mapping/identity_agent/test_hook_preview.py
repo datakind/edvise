@@ -162,6 +162,7 @@ def test_write_identity_hook_preview_json_includes_review_context(tmp_path: Path
     assert rc["hitl_question"] == "Confirm encoding?"
     assert rc["hitl_context"] == "samples: a,b"
     assert rc["reviewer_note"] == "prefer ISO dates"
+    assert rc["season_map_replace"] == [{"raw": "9", "canonical": "FALL"}]
     assert rc["table"] == "student"
     assert rc["config_snippet"]["term_config"]["term_col"] == "term"
     assert rc["target"]["field"] == "hook_spec"

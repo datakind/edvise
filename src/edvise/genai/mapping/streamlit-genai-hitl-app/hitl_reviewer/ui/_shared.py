@@ -272,6 +272,7 @@ def render_action_bar(
     approve_fn: Callable[[], None] | None,
     after_uc_approve_success: Callable[[], None] | None,
     success_silver_filename: str | None,
+    before_nav_rerun: Callable[[], None] | None = None,
 ) -> None:
     if pre_bar_caption is not None:
         st.caption(pre_bar_caption)
@@ -293,6 +294,8 @@ def render_action_bar(
                     if cur <= 0
                     else "Previous grain item (another table) in this JSON file.",
                 ):
+                    if before_nav_rerun is not None:
+                        before_nav_rerun()
                     st.session_state[nav_key] = max(0, cur - 1)
                     st.rerun()
             with c_next:
@@ -310,6 +313,8 @@ def render_action_bar(
                     if cur >= n_items - 1
                     else "Next grain item (another table) in this JSON file.",
                 ):
+                    if before_nav_rerun is not None:
+                        before_nav_rerun()
                     st.session_state[nav_key] = min(n_items - 1, cur + 1)
                     st.rerun()
             with _nav_pad:

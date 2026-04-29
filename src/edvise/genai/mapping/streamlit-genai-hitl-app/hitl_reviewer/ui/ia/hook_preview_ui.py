@@ -85,6 +85,10 @@ def render_ia_hook_preview_cards(
                     if isinstance(note, str) and note.strip():
                         st.markdown("Reviewer note:")
                         st.markdown(note.strip())
+                    smr = rc.get("season_map_replace")
+                    if isinstance(smr, list) and smr:
+                        st.markdown("**Season map** (`season_map_replace`)")
+                        st.json(smr)
                     hx = rc.get("hitl_context")
                     if hx is not None:
                         st.markdown("HITL evidence:")

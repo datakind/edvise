@@ -314,9 +314,15 @@ def render_ia_grain_hitl_cards(
         )
         reentry_sel = str(sel_opt.get("reentry") or "").lower()
         custom_key = f"ia-grain-custom-{sk}-{i}"
-        if custom_key not in st.session_state:
+        custom_store_key = f"ia-grain-custom-store-{sk}"
+        if custom_store_key not in st.session_state:
+            st.session_state[custom_store_key] = {}
+        custom_store: dict[int, str] = st.session_state[custom_store_key]
+        if i not in custom_store:
             existing = item.get("reviewer_note")
-            st.session_state[custom_key] = str(existing or "") if existing else ""
+            custom_store[i] = str(existing or "") if existing else ""
+        if custom_key not in st.session_state:
+            st.session_state[custom_key] = custom_store[i]
 
         if reentry_sel == "generate_hook":
             if sel_opt.get("resolution") is None:
@@ -333,6 +339,13 @@ def render_ia_grain_hitl_cards(
                     height=120,
                     disabled=not uc_group_pending,
                 )
+
+        def _flush_ia_grain_custom_note_to_store() -> None:
+            if str(sel_opt.get("reentry") or "").lower() != "generate_hook":
+                return
+            st_local = st.session_state.setdefault(custom_store_key, {})
+            if custom_key in st.session_state:
+                st_local[i] = str(st.session_state[custom_key])
 
         opened_k, all_nav_seen = mark_hitl_nav_visit(
             store_key=f"ia-grain-nav-visit-{sk}",
@@ -396,6 +409,7 @@ def render_ia_grain_hitl_cards(
             approve_fn=approve_uc_if_complete,
             after_uc_approve_success=after_uc_approve_success,
             success_silver_filename="identity_grain_hitl.json",
+            before_nav_rerun=_flush_ia_grain_custom_note_to_store,
         )
 
 

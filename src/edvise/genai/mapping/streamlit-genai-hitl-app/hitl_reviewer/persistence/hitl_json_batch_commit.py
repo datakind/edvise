@@ -13,6 +13,7 @@ from typing import Any
 import streamlit as st
 
 from hitl_reviewer.persistence.silver_hitl_paths import (
+    merge_season_map_replace_into_selected_option,
     set_item_choice,
     set_item_direct_edit_field_mapping,
     set_item_reviewer_note,
@@ -23,6 +24,48 @@ from hitl_reviewer.platform.unity_volume_files import (
 )
 
 _WRITE_BLOCKED_MSG = "This UC gate is not **pending** (already approved or rejected); silver JSON writes are disabled."
+
+
+def _validated_season_map_replace_from_dataframe(
+    df: object,
+) -> tuple[list[dict[str, str]] | None, str | None]:
+    """
+    Build and validate ``season_map_replace`` rows from the Streamlit ``data_editor`` dataframe.
+
+    Returns ``(rows, None)`` on success, or ``(None, error_message)``.
+    """
+    import pandas as pd
+
+    try:
+        from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
+            SeasonMapEntry,
+        )
+    except ImportError:
+        return None, "``edvise`` SeasonMapEntry schema is not available in this environment."
+
+    if df is None:
+        return None, "Season map table is missing — reload the page and try again."
+    if not isinstance(df, pd.DataFrame):
+        return None, "Invalid season map table state."
+
+    rows_out: list[dict[str, str]] = []
+    for _, r in df.iterrows():
+        raw = str(r.get("raw", "")).strip()
+        can = str(r.get("canonical", "")).strip()
+        if not raw and not can:
+            continue
+        if not raw:
+            return None, "Each non-empty season row needs a **raw** token."
+        if not can:
+            return None, f"Season row for raw `{raw}` needs a **canonical** label."
+        try:
+            ent = SeasonMapEntry.model_validate(
+                {"raw": raw, "canonical": can.upper()}
+            )
+        except Exception as e:  # noqa: BLE001
+            return None, f"Season map row `{raw}` → `{can}`: {e}"
+        rows_out.append(ent.model_dump(mode="json"))
+    return rows_out, None
 
 
 def _is_grain_domain_item(item: dict[str, Any]) -> bool:
@@ -74,6 +117,25 @@ def _ia_hook_option_requires_reviewer_note(sel_opt: dict[str, Any]) -> bool:
     return sel_opt.get("resolution") is None
 
 
+def _ia_hook_custom_reviewer_note(
+    *, store_key: str, fi: int, widget_key: str
+) -> str | None:
+    """
+    Resolve draft text for hook custom handling.
+
+    Streamlit drops widget session keys when the textarea is not rendered (e.g. after
+    **Next**); ``session_state[store_key][fi]`` is flushed on Prev/Next. While the widget
+    is mounted, its session key wins so **Approve** sees edits not yet copied to the store.
+    """
+    store = st.session_state.get(store_key)
+    s: str | None = None
+    if isinstance(store, dict) and fi in store:
+        s = str(store[fi]).strip() or None
+    if widget_key in st.session_state:
+        return (st.session_state.get(widget_key) or "").strip() or None
+    return s
+
+
 def persist_ia_grain_hitl_from_session(
     *, silver_path: str, sk: str, allow_silver_write: bool = True
 ) -> tuple[bool, str]:
@@ -114,7 +176,11 @@ def persist_ia_grain_hitl_from_session(
             note: str | None = None
             if reentry == "generate_hook":
                 ck = f"ia-grain-custom-{sk}-{fi}"
-                note = (st.session_state.get(ck) or "").strip() or None
+                note = _ia_hook_custom_reviewer_note(
+                    store_key=f"ia-grain-custom-store-{sk}",
+                    fi=fi,
+                    widget_key=ck,
+                )
                 if _ia_hook_option_requires_reviewer_note(sel_opt) and not note:
                     tbl = row.get("table") or fi
                     return (
@@ -149,7 +215,9 @@ def persist_ia_term_hitl_from_session(
 ) -> tuple[bool, str]:
     """
     Merge session ``ia-term-sel-{sk}-{file_index}`` (and custom notes) for every term item
-    into one JSON write. Fails if any term row still has no ``choice`` and no session selection.
+    into one JSON write. When the selected option has a partial ``resolution`` with
+    ``season_map_replace``, merges the Season map table from session into that option.
+    Fails if any term row still has no ``choice`` and no session selection.
     """
     if not allow_silver_write:
         return False, _WRITE_BLOCKED_MSG
@@ -184,7 +252,11 @@ def persist_ia_term_hitl_from_session(
             note: str | None = None
             if reentry == "generate_hook":
                 ck = f"ia-term-custom-{sk}-{fi}"
-                note = (st.session_state.get(ck) or "").strip() or None
+                note = _ia_hook_custom_reviewer_note(
+                    store_key=f"ia-term-custom-store-{sk}",
+                    fi=fi,
+                    widget_key=ck,
+                )
                 if _ia_hook_option_requires_reviewer_note(sel_opt) and not note:
                     tbl = row.get("table") or fi
                     return (
@@ -194,6 +266,29 @@ def persist_ia_term_hitl_from_session(
                     )
             try:
                 set_item_choice(fresh, fi, choice_1)
+                res_chk = sel_opt.get("resolution") if isinstance(sel_opt, dict) else None
+                if (
+                    reentry == "generate_hook"
+                    and isinstance(res_chk, dict)
+                    and "season_map_replace" in res_chk
+                ):
+                    smr_key = f"ia-term-smr-{sk}-{fi}-{sel_j}"
+                    df_smr = st.session_state.get(smr_key)
+                    smr_list, smr_err = _validated_season_map_replace_from_dataframe(
+                        df_smr
+                    )
+                    if smr_err:
+                        return False, smr_err
+                    if not smr_list:
+                        tbl = row.get("table") or fi
+                        return (
+                            False,
+                            f"Table ``{tbl}``: add at least one **raw** → **canonical** row "
+                            "under Season map.",
+                        )
+                    merge_season_map_replace_into_selected_option(
+                        fresh, fi, choice_1, smr_list
+                    )
                 set_item_reviewer_note(fresh, fi, note)
             except (KeyError, TypeError) as e:
                 return False, str(e)
