@@ -507,6 +507,10 @@ completion encodings (e.g. bachelor's graduation term on the same row).
   is set). Prefixes must be unique across streams.
 - **Materialized names:** `{output_prefix}_edvise_term_academic_year`, `{output_prefix}_edvise_term_season`, …
   Do not treat entry `_edvise_term_*` as degree-completion timing when a completion stream applies.
+- **Datetime vs term-like completion:** Use `completion_term_streams` when the extra column is **term-like**
+  (codes, labels, YYYYMM-style strings, split year/season, …). When completion timing is **already** a calendar
+  **datetime** column (authoritative conferral/completion date), **omit** a stream for it — Schema Mapping maps
+  conferral targets to that datetime directly; materializing `{prefix}_edvise_*` from the same column would be redundant.
 - Duplicating `season_map` / `hook_spec` per stream is fine; reuse `hook_group_id` when encodings match.
 
 Illustrative snippet (see injected Pydantic for full fields):

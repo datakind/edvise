@@ -251,10 +251,15 @@ this hierarchy **before** choosing raw term codes.
 - Do **not** use raw institutional `term` strings on `degree` as the preferred source when
   `_edvise_term_academic_year` is present on that table — raw `term` is only a fallback proxy.
 
-**(2) Preferred — completion-prefixed IA columns on wide `student`**
-- When **dtypes** on the cohort base table include `{prefix}_edvise_term_academic_year` / `{prefix}_edvise_term_season`
-  (see `completion_term_normalization_notes` in the summarized contract), map the matching conferral target to
-  **`{prefix}_edvise_term_academic_year`** on **student** with `row_selection.strategy`: `"any_row"`.
+**(2) Preferred — wide `student`: calendar datetime first, else completion-prefixed IA**
+- **Datetime first:** When the cohort base table has a **`datetime64[ns]`** column that directly represents conferral /
+  completion calendar timing for the target (e.g. official graduation date), map the conferral target to **that column**
+  with `row_selection.strategy`: `"any_row"`. When **both** that datetime column and `{prefix}_edvise_term_*` from a
+  completion stream appear on **student**, **prefer the datetime column** — true calendar dates outweigh term-derived
+  proxies for SMA; IA may still materialize `{prefix}_…` for other consistency checks.
+- **Else — completion IA:** When no suitable conferral **datetime** column exists on **student**, but **dtypes**
+  include `{prefix}_edvise_term_academic_year` / `{prefix}_edvise_term_season` (see `completion_term_normalization_notes`),
+  map to **`{prefix}_edvise_term_academic_year`** on **student** with `"any_row"`.
 - Do **not** map conferral targets to unprefixed `_edvise_term_*` on student when those encode **entry/cohort only**
   and a completion stream exists for the outcome — unprefixed columns are not interchangeable with `{prefix}_edvise_term_*`.
 
@@ -528,11 +533,11 @@ DATETIME AND DATE TARGET FIELDS
       - Cohort (student) entity: matriculation_date
       - Course entity: course_begin_date, course_end_date
 
-  (2) OUTCOME CONFERRAL-STYLE — **not** STRICT: manifest sources are IA timing columns (string dtypes), then Step 2b
-      → `datetime64[ns]`. Apply the **full order** in **COHORT conferral-style DATETIME targets** above — briefly:
-      prefer `_edvise_term_academic_year` on the award row (e.g. `degree`) **or** `{{prefix}}_edvise_term_academic_year`
-      on wide `student` when `completion_term_normalization_notes` / dtypes justify it; only then raw `term` / coded
-      encodings. Step 2b typically uses `term_components_to_datetime` when the manifest sources IA columns.
+  (2) OUTCOME CONFERRAL-STYLE — **not** STRICT (manifest sources are often non-datetime IA columns → Step 2b →
+      `datetime64[ns]`). Apply **COHORT conferral-style DATETIME targets** above: on wide `student`, **prefer a true
+      conferral `datetime64[ns]` column over `{{prefix}}_edvise_term_*`** when both exist; otherwise award-row IA,
+      then prefixed completion IA, then coded fallbacks. Step 2b typically uses `term_components_to_datetime` when the
+      manifest sources IA columns (not when the manifest sources calendar datetime directly).
       - Cohort (student) entity: bachelors_degree_conferral_date, associates_degree_conferral_date,
         certificate1_date, certificate2_date, certificate3_date
 
