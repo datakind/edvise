@@ -16,6 +16,7 @@ import streamlit as st
 from hitl_reviewer.platform.databricks_uc_sql import (
     approve_or_reject,
     get_warehouse_id,
+    hitl_group_identity_where_sql,
     hitl_reviews_fqn,
     pipeline_runs_fqn,
     run_query,
@@ -110,6 +111,16 @@ def validate_catalog(catalog: str) -> str:
 
 def _safe_key(s: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]+", "-", str(s))[:80]
+
+
+def _uc_gate_button_key(
+    kind: str, onboard_run_id: str, phase: str, artifact_type: str
+) -> str:
+    """Sanitized Streamlit widget keys for UC approve/reject (phase/at may contain odd characters)."""
+    return (
+        f"{kind}-{_safe_key(str(onboard_run_id))}-{_safe_key(str(phase))}-"
+        f"{_safe_key(str(artifact_type))}"
+    )
 
 
 def init_reviewer_in_session() -> None:
@@ -277,6 +288,12 @@ def load_hitl_group_rows(
     t_h = hitl_reviews_fqn(catalog)
     t_p = pipeline_runs_fqn(catalog)
     c_sql = sql_str(str(catalog).strip())
+    _, _, _, where_h = hitl_group_identity_where_sql(
+        onboard_run_id=onboard_run_id,
+        phase=phase,
+        artifact_type=artifact_type,
+        table_alias="h",
+    )
     q = f"""
     SELECT
       h.onboard_run_id,
@@ -289,11 +306,9 @@ def load_hitl_group_rows(
       p.institution_id
     FROM {t_h} h
     LEFT JOIN {t_p} p
-      ON h.onboard_run_id = p.onboard_run_id
+      ON trim(cast(h.onboard_run_id AS STRING)) = trim(cast(p.onboard_run_id AS STRING))
      AND p.`catalog` = {c_sql}
-    WHERE h.onboard_run_id = {sql_str(str(onboard_run_id).strip())}
-      AND h.phase = {sql_str(str(phase).strip())}
-      AND h.artifact_type = {sql_str(str(artifact_type).strip())}
+    WHERE {where_h}
     ORDER BY h.artifact_path
     """
     return run_query(q)
@@ -885,7 +900,8 @@ def render_one_hitl_group(
                 "Use **Reject UC** only if you intend to block the gate."
             )
             if st.button(
-                "Reject UC", key=f"r-{onboard_run_id}-{phase}-{artifact_type}"
+                "Reject UC",
+                key=_uc_gate_button_key("r", onboard_run_id, phase, artifact_type),
             ):
                 try:
                     approve_or_reject(
@@ -911,7 +927,7 @@ def render_one_hitl_group(
             with c1:
                 if st.button(
                     "Approve UC",
-                    key=f"a-{onboard_run_id}-{phase}-{artifact_type}",
+                    key=_uc_gate_button_key("a", onboard_run_id, phase, artifact_type),
                     type="primary",
                 ):
                     try:
@@ -935,7 +951,8 @@ def render_one_hitl_group(
                         st.error(str(ex))
             with c2:
                 if st.button(
-                    "Reject UC", key=f"r-{onboard_run_id}-{phase}-{artifact_type}-sma"
+                    "Reject UC",
+                    key=_uc_gate_button_key("r-legacy", onboard_run_id, phase, artifact_type),
                 ):
                     try:
                         approve_or_reject(
