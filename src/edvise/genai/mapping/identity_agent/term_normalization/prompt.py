@@ -339,6 +339,14 @@ Each HITLItem must have:
   sample values and the **proposed** mapping in plain language (e.g. "Jan–Apr → Spring, …").
   In `confirm_extraction`, `season_map_replace` must list **every** raw token the drafted
   `season_extractor` can return (e.g. all 12 English month names when using `strftime('%B').lower()`).
+- For **YYYYMM-style numeric terms** (e.g. `201308.0` — year from the first four digits; month or season
+  fragment from digits 5–6, e.g. `'01'`, `'05'`, `'08'`): pre-fill the **`custom`** option’s partial
+  `resolution.season_map_replace` with a **best-guess** mapping for **every** distinct two-digit month code
+  observed in samples (not an empty list). Use this **default US semester-start heuristic** unless the
+  institution’s calendar in the evidence clearly contradicts it: months `01`–`04` → `SPRING`, `05`–`07` →
+  `SUMMER`, `08`–`11` → `FALL`, `12` → `WINTER`. State in `hitl_context` that the mapping is a draft for
+  reviewer confirmation. The drafted `season_extractor` must return the **same raw strings** as the `raw`
+  keys (e.g. `str(term)[4:6]` after normalizing `term` to a string without a trailing `.0`).
 - `hitl_context`: the raw values or samples that triggered the flag. Give the reviewer
   the evidence they need without requiring them to look at the data.
 - `options`: 2–5 options. Last option must always be `option_id: "custom"` with
@@ -711,7 +719,7 @@ Shape:
         {
           "option_id": "custom",
           "label": "<...>",
-          "description": "Reviewer provides explicit instructions; optional partial season_map_replace if mapping is known.",
+          "description": "Reviewer confirms extraction + hooks; partial season_map_replace must be pre-filled with best-guess raw→canonical rows when month/season tokens are known from samples (never empty placeholders).",
           "resolution": null,
           "reentry": "generate_hook"
         }
@@ -762,6 +770,10 @@ VALIDITY RULES
     `season_map_replace` rows (calendar month order), or an explicit verified month→code mapping.
     Do not ship a compact `season_extractor` expression that mis-maps any month relative to the
     stated Jan–Apr / May–Jul / Aug–Nov / Dec bands.
+  - **YYYYMM / six-digit term codes:** When digits 5–6 encode the academic month/season fragment,
+    **always** emit a non-empty best-guess `season_map_replace` on the `custom` partial resolution for
+    every observed code (see Step 5 — US semester heuristic). Empty `season_map_replace` on that option is
+    invalid when samples already show the codes.
 
   Example (correct — raw tokens in the extractor match `season_map_replace` keys):
 

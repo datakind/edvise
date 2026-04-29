@@ -123,3 +123,12 @@ def merge_season_map_replace_into_selected_option(
     elif not isinstance(res, dict):
         raise TypeError("option.resolution must be an object or null")
     res["season_map_replace"] = season_map_replace
+
+
+def ia_term_season_map_session_key(sk: str, file_index: int, sel_j: int) -> str:
+    """
+    Streamlit ``session_state`` key for the term ``season_map_replace`` table.
+
+    Must stay in sync with :func:`hitl_reviewer.persistence.hitl_json_batch_commit.persist_ia_term_hitl_from_session`.
+    """
+    return f"ia-term-smr-{sk}-{file_index}-{sel_j}"

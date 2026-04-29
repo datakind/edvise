@@ -30,9 +30,11 @@ from hitl_reviewer.persistence.hitl_json_batch_commit import (
     persist_ia_term_hitl_from_session,
 )
 from hitl_reviewer.persistence.silver_hitl_paths import (
+    ia_term_season_map_session_key,
     set_item_choice,
     set_item_reviewer_note,
 )
+from hitl_reviewer.ui.ia.term_season_map_guess import build_season_map_seed_dataframe
 from hitl_reviewer.platform.unity_volume_files import (
     read_unity_file_text,
     write_unity_file_text,
@@ -249,37 +251,30 @@ def render_ia_term_hitl_cards(
                 )
 
             res_partial = sel_opt.get("resolution") if isinstance(sel_opt, dict) else None
+            smr_store_key = f"ia-term-smr-store-{sk}"
             if isinstance(res_partial, dict) and "season_map_replace" in res_partial:
                 st.subheader("Season map (`season_map_replace`)")
                 st.caption(
                     "Each **raw** token must match what `season_extractor` returns; "
                     "**canonical** is one of FALL, SPRING, SUMMER, WINTER. "
-                    "Saved with **Approve** onto this option’s `resolution` for the resolver and hook run."
+                    "Prefilled rows use a default US semester month-code heuristic when the JSON "
+                    "was empty — edit as needed. Saved with **Approve** (survives Prev/Next via session cache)."
                 )
-                smr_key = f"ia-term-smr-{sk}-{i}-{sel_j}"
+                smr_key = ia_term_season_map_session_key(sk, i, sel_j)
+                loc = f"{i}-{sel_j}"
                 if smr_key not in st.session_state:
-                    seed = res_partial.get("season_map_replace")
-                    rows: list[dict[str, str]] = []
-                    if isinstance(seed, list):
-                        for e in seed:
-                            if isinstance(e, dict):
-                                can = str(e.get("canonical") or "").strip().upper()
-                                if can not in (
-                                    "FALL",
-                                    "SPRING",
-                                    "SUMMER",
-                                    "WINTER",
-                                ):
-                                    can = "SPRING"
-                                rows.append(
-                                    {
-                                        "raw": str(e.get("raw", "")),
-                                        "canonical": can,
-                                    }
-                                )
-                    if not rows:
-                        rows = [{"raw": "", "canonical": "SPRING"}]
-                    st.session_state[smr_key] = pd.DataFrame(rows)
+                    bucket = st.session_state.setdefault(smr_store_key, {})
+                    prior = bucket.get(loc)
+                    if isinstance(prior, pd.DataFrame):
+                        st.session_state[smr_key] = prior.copy()
+                    else:
+                        st.session_state[smr_key] = build_season_map_seed_dataframe(
+                            resolution_season_map_replace=res_partial.get(
+                                "season_map_replace"
+                            ),
+                            hitl_question=q,
+                            hitl_context=item.get("hitl_context"),
+                        )
                 edited_smr = st.data_editor(
                     st.session_state[smr_key],
                     num_rows="dynamic",
@@ -297,9 +292,9 @@ def render_ia_term_hitl_cards(
                     },
                     hide_index=True,
                     disabled=not uc_group_pending,
-                    key=f"{smr_key}-editor",
                 )
                 st.session_state[smr_key] = edited_smr
+                st.session_state.setdefault(smr_store_key, {})[loc] = edited_smr.copy()
 
         def _flush_ia_term_custom_note_to_store() -> None:
             if str(sel_opt.get("reentry") or "").lower() != "generate_hook":
@@ -307,6 +302,25 @@ def render_ia_term_hitl_cards(
             st_local = st.session_state.setdefault(custom_store_key, {})
             if custom_key in st.session_state:
                 st_local[i] = str(st.session_state[custom_key])
+
+        def _flush_ia_term_smr_to_store() -> None:
+            if str(sel_opt.get("reentry") or "").lower() != "generate_hook":
+                return
+            rp = sel_opt.get("resolution") if isinstance(sel_opt, dict) else None
+            if not isinstance(rp, dict) or "season_map_replace" not in rp:
+                return
+            smk = ia_term_season_map_session_key(sk, i, sel_j)
+            smr_store_key_local = f"ia-term-smr-store-{sk}"
+            if smk in st.session_state:
+                df = st.session_state.get(smk)
+                if isinstance(df, pd.DataFrame):
+                    st.session_state.setdefault(smr_store_key_local, {})[
+                        f"{i}-{sel_j}"
+                    ] = df.copy()
+
+        def _flush_ia_term_nav_state() -> None:
+            _flush_ia_term_custom_note_to_store()
+            _flush_ia_term_smr_to_store()
 
         opened_k, all_nav_seen = mark_hitl_nav_visit(
             store_key=f"ia-term-nav-visit-{sk}",
@@ -369,7 +383,7 @@ def render_ia_term_hitl_cards(
             approve_fn=approve_uc_if_complete,
             after_uc_approve_success=after_uc_approve_success,
             success_silver_filename="identity_term_hitl.json",
-            before_nav_rerun=_flush_ia_term_custom_note_to_store,
+            before_nav_rerun=_flush_ia_term_nav_state,
         )
 
 

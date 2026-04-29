@@ -10,9 +10,11 @@ import json
 from collections.abc import Callable
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 
 from hitl_reviewer.persistence.silver_hitl_paths import (
+    ia_term_season_map_session_key,
     merge_season_map_replace_into_selected_option,
     set_item_choice,
     set_item_direct_edit_field_mapping,
@@ -34,8 +36,6 @@ def _validated_season_map_replace_from_dataframe(
 
     Returns ``(rows, None)`` on success, or ``(None, error_message)``.
     """
-    import pandas as pd
-
     try:
         from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
             SeasonMapEntry,
@@ -115,6 +115,25 @@ def _ia_hook_option_requires_reviewer_note(sel_opt: dict[str, Any]) -> bool:
     :func:`build_hook_generation_user_message` behavior.
     """
     return sel_opt.get("resolution") is None
+
+
+def _ia_term_season_map_dataframe(*, sk: str, fi: int, sel_j: int) -> pd.DataFrame | None:
+    """
+    Resolve the season-map ``data_editor`` state while the widget may be unmounted (Prev/Next).
+
+    Prefer the live widget key; fall back to ``ia-term-smr-store-{sk}[f"{fi}-{sel_j}"]``.
+    """
+    smk = ia_term_season_map_session_key(sk, fi, sel_j)
+    if smk in st.session_state:
+        live = st.session_state.get(smk)
+        if isinstance(live, pd.DataFrame):
+            return live
+    bucket = st.session_state.get(f"ia-term-smr-store-{sk}")
+    if isinstance(bucket, dict):
+        cached = bucket.get(f"{fi}-{sel_j}")
+        if isinstance(cached, pd.DataFrame):
+            return cached
+    return None
 
 
 def _ia_hook_custom_reviewer_note(
@@ -272,8 +291,7 @@ def persist_ia_term_hitl_from_session(
                     and isinstance(res_chk, dict)
                     and "season_map_replace" in res_chk
                 ):
-                    smr_key = f"ia-term-smr-{sk}-{fi}-{sel_j}"
-                    df_smr = st.session_state.get(smr_key)
+                    df_smr = _ia_term_season_map_dataframe(sk=sk, fi=fi, sel_j=sel_j)
                     smr_list, smr_err = _validated_season_map_replace_from_dataframe(
                         df_smr
                     )
