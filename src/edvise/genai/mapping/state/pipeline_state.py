@@ -15,10 +15,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
 
-from edvise.genai.mapping.shared.pipeline_artifacts import (
-    new_onboard_run_id,
-    resolve_onboard_run_id as resolve_onboard_run_id_from_runtime,
-)
 from edvise.genai.mapping.state._sql import (
     HITL_REVIEWS,
     PIPELINE_PHASES,
@@ -399,21 +395,22 @@ def resolve_onboard_run_id(
     force_new_onboard_run: bool = False,
 ) -> str:
     """
-    Resolve the active ``onboard_run_id`` for this institution.
+    Resolve the active ``onboard_run_id`` for volume paths (``runs/onboard/{onboard_run_id}/``).
 
-    If ``onboard_run_id_override`` is passed non-empty (manual override / job parameter), it is
-    returned unchanged.
+    If ``onboard_run_id_override`` is passed non-empty (manual override / explicit folder name), it
+    is returned unchanged.
 
-    Otherwise the id is **pinned to the current Databricks job run** when available (Spark conf
-    ``spark.databricks.job.runId``, then ``DATABRICKS_JOB_RUN_ID``), matching
-    :func:`~edvise.genai.mapping.shared.pipeline_artifacts.resolve_onboard_run_id`. Local runs
-    should set ``GENAI_ONBOARD_RUN_ID`` (or receive an opaque id from ``create_if_missing``).
+    Otherwise the convention is ``{institution_id}_{YYYYMMDD}`` with optional numeric suffix for
+    additional same-day **onboard** runs after a terminal ``complete``. Rows are read from
+    ``pipeline_runs`` (``execute_run_id IS NULL``). A non-terminal row (``running``, ``awaiting_hitl``,
+    ``timed_out``, ``failed``) **reuses** its ``onboard_run_id`` so retries/repairs keep one folder.
 
-    ``catalog`` is unused for minting but kept for a stable call signature alongside other
-    bootstrap helpers.
+    ``db_run_id`` on ``pipeline_runs`` is separate: set from ``--db_run_id`` / Spark for correlation
+    with Databricks Jobs UI — it does **not** have to match this string (often it is the numeric
+    ``job.run_id`` while ``onboard_run_id`` stays institution + date).
 
-    Set ``force_new_onboard_run=True`` to mint a fresh opaque id (:func:`new_onboard_run_id`) —
-    use when intentionally abandoning the current job-scoped folder (e.g. isolate from retries).
+    Set ``force_new_onboard_run=True`` to mint the next same-day suffixed id without reusing a
+    ``failed`` row — use for an intentional clean folder (not Databricks repair of the same run).
     """
     LOGGER.debug(
         "resolve_onboard_run_id catalog=%r institution_id=%r force_new_onboard_run=%s",
@@ -429,13 +426,31 @@ def resolve_onboard_run_id(
     if not inst:
         raise ValueError("institution_id must be non-empty")
 
-    if force_new_onboard_run:
-        return new_onboard_run_id()
+    base_id = f"{inst}_{date.today().strftime('%Y%m%d')}"
 
-    rid = resolve_onboard_run_id_from_runtime(None, create_if_missing=True)
-    if rid is None:
-        raise RuntimeError("resolve_onboard_run_id_from_runtime returned None with create_if_missing=True")
-    return rid
+    if force_new_onboard_run:
+        n = count_pipeline_runs_created_today(catalog, inst)
+        if n == 0:
+            return base_id
+        return f"{base_id}_{n + 1}"
+
+    latest = get_latest_pipeline_run_created_today(catalog, inst)
+    if latest is None:
+        return base_id
+
+    st = str(latest.get("status") or "").strip()
+    rid = str(latest.get("onboard_run_id") or "").strip()
+    if not rid:
+        return base_id
+
+    if st in ("running", "awaiting_hitl", "timed_out", "failed"):
+        return rid
+    if st == "complete":
+        n = count_pipeline_runs_created_today(catalog, inst)
+        return f"{base_id}_{n + 1}"
+    # Unknown legacy status: start a fresh suffixed id rather than reusing ambiguous rows.
+    n = count_pipeline_runs_created_today(catalog, inst)
+    return f"{base_id}_{n + 1}"
 
 
 def new_execute_run_id() -> str:
@@ -833,9 +848,9 @@ def bootstrap_resolved_onboard_run_id(
     """
     Reconcile stale ``running`` / ``awaiting_hitl`` rows, then resolve the active run id.
 
-    Pass ``onboard_run_id_arg`` as empty/None to use :func:`resolve_onboard_run_id` (Databricks job
-    run id when on cluster, else ``GENAI_ONBOARD_RUN_ID`` / opaque mint). See
-    ``force_new_onboard_run`` on :func:`resolve_onboard_run_id`.
+    Pass ``onboard_run_id_arg`` as empty/None to use :func:`resolve_onboard_run_id` (institution +
+    calendar day + suffix from ``pipeline_runs``). See ``force_new_onboard_run`` on
+    :func:`resolve_onboard_run_id`.
     """
     idle = (
         stale_idle_minutes

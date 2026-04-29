@@ -53,7 +53,7 @@ GENAI_PIPELINE_RUN_ID_ENV: Final[str] = GENAI_ONBOARD_RUN_ID_ENV
 """Alias of :data:`GENAI_ONBOARD_RUN_ID_ENV` (default ``env_manual_var`` for :func:`resolve_onboard_run_id`)."""
 
 DATABRICKS_JOB_RUN_ID_ENV: Final[str] = "DATABRICKS_JOB_RUN_ID"
-"""Job UI / parameters can inject the numeric job run id (e.g. from a job parameter)."""
+"""Databricks does **not** set this automatically — add it on the job (e.g. ``{{job.run_id}}``)."""
 
 GENAI_GIT_TAG_ENV: Final[str] = "GENAI_GIT_TAG"
 GIT_TAG_ENV: Final[str] = "GIT_TAG"

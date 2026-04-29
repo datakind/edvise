@@ -209,33 +209,104 @@ def test_table_setup_runs_ddl(monkeypatch) -> None:
 
 
 def test_resolve_onboard_run_id_explicit_override(monkeypatch) -> None:
-    monkeypatch.delenv("DATABRICKS_JOB_RUN_ID", raising=False)
-    monkeypatch.delenv("GENAI_ONBOARD_RUN_ID", raising=False)
-    monkeypatch.delenv("GENAI_PIPELINE_RUN_ID", raising=False)
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
     assert pipeline_state.resolve_onboard_run_id("c", "inst", "  my_run  ") == "my_run"
+    assert fake.statements == []
 
 
-def test_resolve_onboard_run_id_uses_databricks_job_env(monkeypatch) -> None:
-    monkeypatch.delenv("GENAI_ONBOARD_RUN_ID", raising=False)
-    monkeypatch.delenv("GENAI_PIPELINE_RUN_ID", raising=False)
-    monkeypatch.setenv("DATABRICKS_JOB_RUN_ID", "987654321")
-    assert pipeline_state.resolve_onboard_run_id("c", "foo", None) == "987654321"
+def test_resolve_onboard_run_id_no_row_today(monkeypatch) -> None:
+    fake = _FakeSpark()
+    fake.set_sql_result_queue([_Result([])])
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    from datetime import date
+
+    base = f"foo_{date.today().strftime('%Y%m%d')}"
+    assert pipeline_state.resolve_onboard_run_id("c", "foo", None) == base
+    assert "to_date(created_at) = current_date()" in fake.statements[0]
 
 
-def test_resolve_onboard_run_id_uses_genai_env_when_no_job(monkeypatch) -> None:
-    monkeypatch.delenv("DATABRICKS_JOB_RUN_ID", raising=False)
-    monkeypatch.setenv("GENAI_ONBOARD_RUN_ID", "local_run")
-    assert pipeline_state.resolve_onboard_run_id("c", "foo", None) == "local_run"
+def test_resolve_onboard_run_id_resume_timed_out(monkeypatch) -> None:
+    fake = _FakeSpark()
+    latest = {
+        "institution_id": "foo",
+        "onboard_run_id": "foo_20990101",
+        "catalog": "c",
+        "status": "timed_out",
+        "created_at": None,
+        "updated_at": None,
+    }
+    fake.set_sql_result_queue([_Result([_Row(latest)])])
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    assert pipeline_state.resolve_onboard_run_id("c", "foo", None) == "foo_20990101"
 
 
-def test_resolve_onboard_run_id_force_new_mints_opaque(monkeypatch) -> None:
-    monkeypatch.setattr(pipeline_state, "new_onboard_run_id", lambda: "opaque_forced")
+def test_resolve_onboard_run_id_resume_after_failed(monkeypatch) -> None:
+    fake = _FakeSpark()
+    latest = {
+        "institution_id": "foo",
+        "onboard_run_id": "foo_20990101",
+        "catalog": "c",
+        "status": "failed",
+        "created_at": None,
+        "updated_at": None,
+    }
+    fake.set_sql_result_queue([_Result([_Row(latest)])])
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    assert pipeline_state.resolve_onboard_run_id("c", "foo", None) == "foo_20990101"
+
+
+def test_resolve_onboard_run_id_force_new_after_failed(monkeypatch) -> None:
+    fake = _FakeSpark()
+    fake.set_sql_result_queue([_Result([_Row({"n": 1})])])
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    from datetime import date
+
+    base = f"foo_{date.today().strftime('%Y%m%d')}"
     assert (
         pipeline_state.resolve_onboard_run_id(
             "c", "foo", None, force_new_onboard_run=True
         )
-        == "opaque_forced"
+        == f"{base}_2"
     )
+
+
+def test_resolve_onboard_run_id_force_new_no_runs_today(monkeypatch) -> None:
+    fake = _FakeSpark()
+    fake.set_sql_result_queue([_Result([_Row({"n": 0})])])
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    from datetime import date
+
+    base = f"foo_{date.today().strftime('%Y%m%d')}"
+    assert (
+        pipeline_state.resolve_onboard_run_id(
+            "c", "foo", None, force_new_onboard_run=True
+        )
+        == base
+    )
+
+
+def test_resolve_onboard_run_id_new_suffix_after_complete(monkeypatch) -> None:
+    fake = _FakeSpark()
+    latest = {
+        "institution_id": "foo",
+        "onboard_run_id": "foo_20990101",
+        "catalog": "c",
+        "status": "complete",
+        "created_at": None,
+        "updated_at": None,
+    }
+    fake.set_sql_result_queue(
+        [
+            _Result([_Row(latest)]),
+            _Result([_Row({"n": 2})]),
+        ]
+    )
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    from datetime import date
+
+    base = f"foo_{date.today().strftime('%Y%m%d')}"
+    assert pipeline_state.resolve_onboard_run_id("c", "foo", None) == f"{base}_3"
 
 
 def test_reconcile_stale_emits_merge_and_update(monkeypatch) -> None:
