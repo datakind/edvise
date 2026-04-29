@@ -899,8 +899,8 @@ if __name__ == "__main__":
         "--new_onboard_run",
         action="store_true",
         help=(
-            "Onboard mode only: mint the next same-day suffixed onboard_run_id instead of reusing "
-            "a failed run (clean artifact folder; use for intentional restart, not Databricks repair)."
+            "Onboard mode only: mint a fresh opaque onboard_run_id instead of the Databricks job "
+            "run id / GENAI_ONBOARD_RUN_ID (clean artifact folder; intentional restart, not repair)."
         ),
     )
     args = parser.parse_args()

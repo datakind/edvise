@@ -15,6 +15,10 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
 
+from edvise.genai.mapping.shared.pipeline_artifacts import (
+    new_onboard_run_id,
+    resolve_onboard_run_id as resolve_onboard_run_id_from_runtime,
+)
 from edvise.genai.mapping.state._sql import (
     HITL_REVIEWS,
     PIPELINE_PHASES,
@@ -397,15 +401,26 @@ def resolve_onboard_run_id(
     """
     Resolve the active ``onboard_run_id`` for this institution.
 
-    If ``onboard_run_id_override`` is passed non-empty (manual override / explicit job id), it is
-    returned unchanged. Otherwise the convention is ``{institution_id}_{YYYYMMDD}`` with optional
-    numeric suffix for additional same-day runs after a terminal ``complete``. A ``failed`` row
-    reuses the same ``onboard_run_id`` so Databricks job repairs keep a single artifact folder.
+    If ``onboard_run_id_override`` is passed non-empty (manual override / job parameter), it is
+    returned unchanged.
 
-    Set ``force_new_onboard_run=True`` to mint the next same-day suffixed id without reusing a
-    ``failed`` (or other) row—use when intentionally abandoning the current attempt for a clean
-    ``runs/onboard/…`` folder.
+    Otherwise the id is **pinned to the current Databricks job run** when available (Spark conf
+    ``spark.databricks.job.runId``, then ``DATABRICKS_JOB_RUN_ID``), matching
+    :func:`~edvise.genai.mapping.shared.pipeline_artifacts.resolve_onboard_run_id`. Local runs
+    should set ``GENAI_ONBOARD_RUN_ID`` (or receive an opaque id from ``create_if_missing``).
+
+    ``catalog`` is unused for minting but kept for a stable call signature alongside other
+    bootstrap helpers.
+
+    Set ``force_new_onboard_run=True`` to mint a fresh opaque id (:func:`new_onboard_run_id`) —
+    use when intentionally abandoning the current job-scoped folder (e.g. isolate from retries).
     """
+    LOGGER.debug(
+        "resolve_onboard_run_id catalog=%r institution_id=%r force_new_onboard_run=%s",
+        catalog,
+        institution_id,
+        force_new_onboard_run,
+    )
     override = (onboard_run_id_override or "").strip()
     if override:
         return override
@@ -414,31 +429,13 @@ def resolve_onboard_run_id(
     if not inst:
         raise ValueError("institution_id must be non-empty")
 
-    base_id = f"{inst}_{date.today().strftime('%Y%m%d')}"
-
     if force_new_onboard_run:
-        n = count_pipeline_runs_created_today(catalog, inst)
-        if n == 0:
-            return base_id
-        return f"{base_id}_{n + 1}"
+        return new_onboard_run_id()
 
-    latest = get_latest_pipeline_run_created_today(catalog, inst)
-    if latest is None:
-        return base_id
-
-    st = str(latest.get("status") or "").strip()
-    rid = str(latest.get("onboard_run_id") or "").strip()
-    if not rid:
-        return base_id
-
-    if st in ("running", "awaiting_hitl", "timed_out", "failed"):
-        return rid
-    if st == "complete":
-        n = count_pipeline_runs_created_today(catalog, inst)
-        return f"{base_id}_{n + 1}"
-    # Unknown legacy status: start a fresh suffixed id rather than reusing ambiguous rows.
-    n = count_pipeline_runs_created_today(catalog, inst)
-    return f"{base_id}_{n + 1}"
+    rid = resolve_onboard_run_id_from_runtime(None, create_if_missing=True)
+    if rid is None:
+        raise RuntimeError("resolve_onboard_run_id_from_runtime returned None with create_if_missing=True")
+    return rid
 
 
 def new_execute_run_id() -> str:
@@ -836,9 +833,9 @@ def bootstrap_resolved_onboard_run_id(
     """
     Reconcile stale ``running`` / ``awaiting_hitl`` rows, then resolve the active run id.
 
-    Pass ``onboard_run_id_arg`` as empty/None to use :func:`resolve_onboard_run_id`
-    (implicit resume of ``running`` / ``awaiting_hitl`` / ``timed_out`` / ``failed``, or a new
-    suffixed id after ``complete``). See ``force_new_onboard_run`` on :func:`resolve_onboard_run_id`.
+    Pass ``onboard_run_id_arg`` as empty/None to use :func:`resolve_onboard_run_id` (Databricks job
+    run id when on cluster, else ``GENAI_ONBOARD_RUN_ID`` / opaque mint). See
+    ``force_new_onboard_run`` on :func:`resolve_onboard_run_id`.
     """
     idle = (
         stale_idle_minutes
