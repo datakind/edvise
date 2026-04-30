@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 
 class ExecutionGapError(Exception):
-    """Raised when a plan contains a NEW_UTILITY_NEEDED step."""
+    """Raised when a plan has hook_required or an unimplemented transformation gap."""
 
     pass
 
@@ -112,11 +112,6 @@ def dispatch_step(
         Transformed Series
     """
     fn = step.function_name
-
-    if fn == "NEW_UTILITY_NEEDED":
-        raise ExecutionGapError(
-            f"NEW_UTILITY_NEEDED: {getattr(step, 'description', '(no description)')}"
-        )
 
     if fn in (
         "birthyear_to_age_bucket",

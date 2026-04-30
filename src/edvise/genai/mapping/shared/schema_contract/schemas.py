@@ -50,26 +50,17 @@ class TermNormalizationSummary(BaseModel):
     snake_case normalization as ``clean_dataset``, and which column was wired as ``CleanSpec.term_column``.
 
     SMA uses this for mapping context (e.g. cohort entry_term vs raw institutional codes).
-
-    When ``materialized_column_prefix`` is set, normalized columns use that prefix on the frame
-    (completion streams on wide student), distinct from entry ``_edvise_term_*``.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     stream_role: str | None = Field(
         default=None,
-        description=(
-            "Optional role id — e.g. 'entry' for primary term_config, or 'completion_bachelors' "
-            "for a completion stream."
-        ),
+        description="Optional role id — e.g. 'entry' for cohort term (IdentityAgent output).",
     )
     materialized_column_prefix: str | None = Field(
         default=None,
-        description=(
-            "Matches TermOrderConfig.output_prefix when set (e.g. '_completion_bachelors'). "
-            "Null for legacy entry-only columns."
-        ),
+        description="Reserved for future prefixed term materializations; null for entry-only IA.",
     )
     mode: Literal["single_column", "year_season_columns"]
     term_extraction: Literal["standard", "hook_required"]
@@ -108,7 +99,7 @@ class TermNormalizationSummary(BaseModel):
 
 
 class SchemaContractTrainingBlock(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     file_path: str
     num_rows: int
@@ -120,13 +111,6 @@ class SchemaContractTrainingBlock(BaseModel):
         description=(
             "IdentityAgent term source columns (normalized) when a TermOrderConfig was supplied "
             "for enriched contract build; omit or null when term normalization was not configured."
-        ),
-    )
-    completion_term_normalizations: list[TermNormalizationSummary] = Field(
-        default_factory=list,
-        description=(
-            "Per-stream summaries for completion_term_streams (same shape as term_normalization). "
-            "Empty when only entry term normalization applies."
         ),
     )
 

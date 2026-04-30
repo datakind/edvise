@@ -35,9 +35,10 @@ class EdviseTermColumnSet:
 
 def edvise_term_column_set(output_prefix: str | None) -> EdviseTermColumnSet:
     """
-    Map optional IA ``output_prefix`` (e.g. ``_completion_bachelors``) to concrete column names.
+    Map optional materialized prefix to Edvise term work column names.
 
-    Primary entry normalization uses ``output_prefix=None`` → legacy ``_year``, ``_edvise_term_*``.
+    IdentityAgent emits entry-only configs (unprefixed ``_edvise_term_*``). A non-null prefix is
+    still honored when present on legacy term_config dicts so older cleaned frames remain readable.
     """
     if not output_prefix:
         return EdviseTermColumnSet(
@@ -207,7 +208,7 @@ def add_edvise_term_order(
 
     Returns
     -------
-    pd.DataFrame with added columns (names depend on ``term_config["output_prefix"]`` — see
+    pd.DataFrame with added columns (names depend on optional ``output_prefix`` in dict — see
     :func:`edvise_term_column_set`).
     """
     cols = edvise_term_column_set(term_config.get("output_prefix"))
@@ -477,8 +478,6 @@ def _resolve_hook_year_season_callables(
 
 def term_normalization_summary_for_enriched_contract(
     config: TermOrderConfig,
-    *,
-    stream_role: str | None = None,
 ) -> TermNormalizationSummary:
     """
     Build :class:`~edvise.genai.mapping.shared.schema_contract.schemas.TermNormalizationSummary`
@@ -490,17 +489,9 @@ def term_normalization_summary_for_enriched_contract(
         mode: Literal["single_column", "year_season_columns"] = "single_column"
     else:
         mode = "year_season_columns"
-    if stream_role is None:
-        resolved_role = (
-            "entry"
-            if not config.output_prefix
-            else config.output_prefix.strip("_").replace("__", "_")
-        )
-    else:
-        resolved_role = stream_role
     return TermNormalizationSummary(
-        stream_role=resolved_role,
-        materialized_column_prefix=config.output_prefix,
+        stream_role="entry",
+        materialized_column_prefix=None,
         mode=mode,
         term_extraction=config.term_extraction,
         term_col=d.get("term_col"),

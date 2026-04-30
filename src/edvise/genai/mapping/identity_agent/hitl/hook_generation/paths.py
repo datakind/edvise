@@ -20,9 +20,12 @@ def default_hook_module_relpath(institution_id: str, domain: HITLDomain) -> str:
         basename = "dedup_hooks.py"
     elif domain == HITLDomain.IDENTITY_TERM:
         basename = "term_hooks.py"
+    elif domain == HITLDomain.TRANSFORM:
+        # SMA onboard run root — single module promoted as ``transform_hooks.py``.
+        return "transform_hooks.py"
     else:
         raise ValueError(
-            f"Hook modules are only defined for grain and term, not {domain!r}"
+            f"Hook modules are only defined for grain, term, and transform, not {domain!r}"
         )
     return f"identity_hooks/{institution_id}/{basename}"
 

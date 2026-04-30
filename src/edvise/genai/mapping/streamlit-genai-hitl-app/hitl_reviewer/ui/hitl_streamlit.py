@@ -36,6 +36,7 @@ from hitl_reviewer.ui.ia.term_review_ui import (
 )
 from hitl_reviewer.ui.ia.hook_preview_ui import (
     is_ia_hook_preview_phase,
+    is_sma_transform_hook_preview_phase,
     render_ia_hook_preview_cards,
 )
 from hitl_reviewer.ui.sma.review_ui import is_sma_phase, render_sma_hitl_cards
@@ -394,7 +395,9 @@ def render_silver_hitl_editor(
     is_sma = is_sma_phase(phase, artifact_type)
     is_ia_grain = is_ia_grain_phase(phase, artifact_type)
     is_ia_term = is_ia_term_phase(phase, artifact_type)
-    is_ia_hook_pv = is_ia_hook_preview_phase(phase, artifact_type)
+    is_hook_preview = is_ia_hook_preview_phase(
+        phase, artifact_type
+    ) or is_sma_transform_hook_preview_phase(phase, artifact_type)
 
     sk = f"{_safe_key(onboard_run_id)}-{_safe_key(phase)}-{_safe_key(artifact_type)}"
     # Same session key as ``st.text_input(..., key=f"path-{sk}")`` in ``render_one_hitl_group`` (Path details).
@@ -426,7 +429,7 @@ def render_silver_hitl_editor(
         st.error(f"Invalid JSON: {e}")
         return
 
-    if is_ia_hook_pv:
+    if is_hook_preview:
         render_ia_hook_preview_cards(
             data=data,
             silver_path=silver_path,
@@ -494,6 +497,16 @@ def render_silver_hitl_editor(
         return
 
     if is_sma:
+        ph_lc = str(phase).strip().lower()
+        if ph_lc == "sma_gate_2_hook_required":
+            pend_ph = ph_lc
+            pend_types = (
+                "cohort_transformation_hook_hitl",
+                "course_transformation_hook_hitl",
+            )
+        else:
+            pend_ph = "sma_gate_1"
+            pend_types = ("cohort_manifest", "course_manifest")
         render_sma_hitl_cards(
             data=data,
             items=items,
@@ -511,6 +524,8 @@ def render_silver_hitl_editor(
                 "approved",
             ),
             after_uc_approve_success=after_uc_approve_success,
+            pending_pair_phase=pend_ph,
+            pending_pair_artifact_types=pend_types,
         )
         return
 
@@ -869,8 +884,10 @@ def render_one_hitl_group(
             _is_sma = is_sma_phase(str(phase), str(artifact_type))
             _is_ia_g = is_ia_grain_phase(str(phase), str(artifact_type))
             _is_ia_t = is_ia_term_phase(str(phase), str(artifact_type))
-            _is_ia_hp = is_ia_hook_preview_phase(str(phase), str(artifact_type))
-            if _is_sma or _is_ia_g or _is_ia_t or _is_ia_hp:
+            _is_hook_pv = is_ia_hook_preview_phase(
+                str(phase), str(artifact_type)
+            ) or is_sma_transform_hook_preview_phase(str(phase), str(artifact_type))
+            if _is_sma or _is_ia_g or _is_ia_t or _is_hook_pv:
                 _pl = "Silver JSON path" + (
                     " (read-only — UC gate not pending)" if sub_pending.empty else ""
                 )
@@ -906,7 +923,9 @@ def render_one_hitl_group(
         st.divider()
         is_ia_grain_row = is_ia_grain_phase(str(phase), str(artifact_type))
         is_ia_term_row = is_ia_term_phase(str(phase), str(artifact_type))
-        is_ia_hook_pv_row = is_ia_hook_preview_phase(str(phase), str(artifact_type))
+        is_hook_pv_row = is_ia_hook_preview_phase(
+            str(phase), str(artifact_type)
+        ) or is_sma_transform_hook_preview_phase(str(phase), str(artifact_type))
         is_sma_row = is_sma_phase(str(phase), str(artifact_type))
         if sub_pending.empty:
             st.caption(
@@ -916,7 +935,7 @@ def render_one_hitl_group(
         elif (
             is_ia_grain_row
             or is_ia_term_row
-            or is_ia_hook_pv_row
+            or             is_hook_pv_row
             or is_sma_row
         ):
             st.caption(

@@ -356,49 +356,6 @@ def test_apply_term_order_from_contract_yyyytt_with_season_map():
     assert "_season" in out.columns
 
 
-def test_apply_term_order_from_contract_entry_plus_completion_streams():
-    df = pd.DataFrame(
-        {
-            "term": ["2018FA", "2019SP"],
-            "deg_comp_term": ["2019FA", pd.NA],
-            "k": [1, 2],
-        }
-    )
-    entry = TermOrderConfig(
-        term_col="term",
-        season_map=[
-            {"raw": "SP", "canonical": "SPRING"},
-            {"raw": "FA", "canonical": "FALL"},
-        ],
-        term_extraction="standard",
-    )
-    completion = TermOrderConfig(
-        term_col="deg_comp_term",
-        season_map=[
-            {"raw": "SP", "canonical": "SPRING"},
-            {"raw": "FA", "canonical": "FALL"},
-        ],
-        term_extraction="standard",
-        output_prefix="_completion_bachelors",
-    )
-    tp = TermContract(
-        institution_id="x",
-        table="t",
-        term_config=entry,
-        completion_term_streams=[completion],
-        confidence=0.95,
-        hitl_flag=False,
-        reasoning="test",
-    )
-    out = apply_term_order_from_contract(df, tp)
-    assert "_edvise_term_academic_year" in out.columns
-    assert "_completion_bachelors_edvise_term_academic_year" in out.columns
-    assert (
-        str(out.loc[0, "_edvise_term_academic_year"])
-        != str(out.loc[0, "_completion_bachelors_edvise_term_academic_year"])
-    )
-
-
 def test_apply_grain_execution_order_dedup_then_term():
     df = pd.DataFrame(
         {

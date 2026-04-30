@@ -302,9 +302,9 @@ def run_onboard_start(
 
 def _iter_term_order_configs_with_hooks(t_contract: Any) -> Iterator[Any]:
     """
-    Primary ``term_config`` plus each ``completion_term_streams`` entry that uses hooks.
+    Primary ``term_config`` when it uses hooks.
 
-    Used when merging HookSpecs for ``term_hooks.py`` so completion columns are not dropped.
+    Used when merging HookSpecs for ``term_hooks.py``.
     """
     from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermContract
 
@@ -317,12 +317,6 @@ def _iter_term_order_configs_with_hooks(t_contract: Any) -> Iterator[Any]:
         and tcfg.hook_spec is not None
     ):
         yield tcfg
-    for stream in t_contract.completion_term_streams or []:
-        if (
-            stream.term_extraction == "hook_required"
-            and stream.hook_spec is not None
-        ):
-            yield stream
 
 
 def run_onboard_gate_1(
@@ -528,10 +522,8 @@ def run_onboard_gate_1(
             db_run_id=db_run_id,
         )
 
-    # Resolver JSON lists hook_spec on primary term_config and on completion_term_streams.
-    # Merge those specs with term_pairs before a single materialize. Previously we materialized
-    # twice: the second pass only scanned primary term_config and overwrote term_hooks.py,
-    # dropping completion-stream functions and sometimes truncating the merged HITL output.
+    # Resolver JSON lists hook_spec on term_config. Merge embedded specs with term_pairs before
+    # a single materialize.
     term_contract_by_dataset = load_term_contracts_from_resolver_config(
         paths.term_output, expected_institution_id=institution_id
     )

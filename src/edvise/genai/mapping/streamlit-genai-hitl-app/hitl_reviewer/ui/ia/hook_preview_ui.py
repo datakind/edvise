@@ -1,5 +1,8 @@
 """
-IA hook preview JSON (post–LLM hook generation, pre–apply) for ``ia_gate_1_hooks``.
+Hook preview JSON (post–LLM hook generation, pre–materialize).
+
+- ``ia_gate_1_hooks`` — IdentityAgent grain/term HookSpecs
+- ``sma_gate_2_hook_preview`` — Schema Mapping Agent transform HookSpecs (cohort/course)
 """
 
 from __future__ import annotations
@@ -42,6 +45,17 @@ def is_ia_hook_preview_phase(phase: str, artifact_type: str) -> bool:
         "term_hook_preview",
         "grain_hook",
         "term_hook",
+    )
+
+
+def is_sma_transform_hook_preview_phase(phase: str, artifact_type: str) -> bool:
+    ph = str(phase).strip().lower()
+    at = str(artifact_type).strip().lower()
+    if ph != "sma_gate_2_hook_preview":
+        return False
+    return at in (
+        "cohort_transformation_hook_preview",
+        "course_transformation_hook_preview",
     )
 
 
@@ -108,6 +122,20 @@ def render_ia_hook_preview_cards(
                     if isinstance(cs, dict) and cs:
                         st.markdown("**Config snippet** (`grain_contract` or `term_config`):")
                         st.json(cs)
+                    et = (str(rc.get("entity_type") or "")).strip()
+                    tf = (str(rc.get("target_field") or "")).strip()
+                    if et and tf:
+                        st.caption(f"SMA · entity `{et}` · target_field `{tf}`")
+                    ftp = rc.get("field_transformation_plan")
+                    if isinstance(ftp, dict) and ftp:
+                        st.markdown(
+                            "**Field transformation plan** (Step 2b / `hook_required`):"
+                        )
+                        st.json(ftp)
+                    mm = rc.get("manifest_mapping_record")
+                    if isinstance(mm, dict) and mm:
+                        st.markdown("**Manifest mapping record**:")
+                        st.json(mm)
                     st.divider()
                 if isinstance(hs, dict):
                     rel_file = (hs.get("file") or "").strip()

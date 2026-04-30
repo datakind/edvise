@@ -48,11 +48,6 @@ class TermOrderConfig(BaseModel):
     Institution term encoding consumed by ``add_edvise_term_order`` (order + labels)
     and optionally ``add_edvise_term_labels`` when ``_year`` / ``_season`` already exist.
 
-    ``output_prefix`` — when set (e.g. ``_completion_bachelors``), all materialized work columns
-    use that prefix (``_completion_bachelors_edvise_term_academic_year``, …) so entry vs completion
-    term normalization can coexist on the same wide ``student`` frame. Omit for legacy entry-only
-    columns (``_edvise_term_academic_year``, …).
-
     Source columns are mutually exclusive:
     - term_col: single column encoding both year and season (e.g. "2018FA", "Fall 2019")
     - year_col + season_col: pre-separated year and season columns
@@ -112,14 +107,6 @@ class TermOrderConfig(BaseModel):
             "Same HookSpec shape as DedupPolicy.hook_spec."
         ),
     )
-    output_prefix: str | None = Field(
-        default=None,
-        description=(
-            "Snake-case prefix for all columns produced by add_edvise_term_order on this stream "
-            "(e.g. '_completion_bachelors'). Required for completion streams on student-grain data "
-            "so columns do not overwrite entry _edvise_term_*."
-        ),
-    )
 
     @model_validator(mode="after")
     def _source_columns_valid(self) -> TermOrderConfig:
@@ -139,31 +126,6 @@ class TermOrderConfig(BaseModel):
         if has_partial_split:
             raise ValueError(
                 "year_col and season_col must be provided together, not individually."
-            )
-        return self
-
-    @model_validator(mode="after")
-    def _output_prefix_shape(self) -> TermOrderConfig:
-        if self.output_prefix is not None:
-            p = self.output_prefix.strip()
-            if not p.startswith("_"):
-                raise ValueError("output_prefix must start with '_' (e.g. '_completion_bachelors').")
-            tail = p[1:]
-            if not tail or not tail[0].isalpha():
-                raise ValueError(
-                    "output_prefix must be like '_completion_bachelors' (underscore + identifier)."
-                )
-            for ch in tail:
-                if not (ch.isalnum() or ch == "_"):
-                    raise ValueError(f"output_prefix has invalid character {ch!r}: {p!r}")
-        return self
-
-    @model_validator(mode="after")
-    def _completion_must_not_drop_rows(self) -> TermOrderConfig:
-        if self.output_prefix is not None and (self.exclude_tokens or []):
-            raise ValueError(
-                "When output_prefix is set (completion/auxiliary stream), exclude_tokens must be "
-                "empty — row drops based on entry-style prefixes are unsafe on student-grain frames."
             )
         return self
 
@@ -206,13 +168,6 @@ class TermContract(BaseModel):
         default=None,
         description="Executable term config for add_edvise_term_order (term order + labels), or null if not applicable.",
     )
-    completion_term_streams: list[TermOrderConfig] = Field(
-        default_factory=list,
-        description=(
-            "Additional term normalization passes on the same dataset (e.g. completion term codes). "
-            "Each entry must set output_prefix and distinct raw source columns from entry term_config."
-        ),
-    )
     confidence: float = Field(
         ...,
         ge=0.0,
@@ -229,27 +184,6 @@ class TermContract(BaseModel):
     reasoning: str = Field(
         description="2-3 sentence summary of term column selection and format inference."
     )
-
-    @model_validator(mode="after")
-    def _completion_streams_require_prefix_and_primary_has_none(self) -> TermContract:
-        if self.term_config is not None and self.term_config.output_prefix is not None:
-            raise ValueError(
-                "Primary term_config (entry) must omit output_prefix; use completion_term_streams "
-                "for prefixed completion columns."
-            )
-        seen: set[str] = set()
-        for cfg in self.completion_term_streams:
-            if cfg.output_prefix is None:
-                raise ValueError(
-                    "Each completion_term_streams TermOrderConfig must set output_prefix "
-                    "(e.g. '_completion_bachelors')."
-                )
-            if cfg.output_prefix in seen:
-                raise ValueError(
-                    f"Duplicate completion term output_prefix {cfg.output_prefix!r}."
-                )
-            seen.add(cfg.output_prefix)
-        return self
 
     @model_validator(mode="after")
     def low_confidence_requires_hitl(self) -> TermContract:

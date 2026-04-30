@@ -584,7 +584,7 @@ def execute_transformation_map(
                 (e.g. RawEdviseCourseDataSchema).
                 Cohort: ``Config.unique``; course: ``COURSE_MANIFEST_GRAIN_KEYS`` plus
                 optional targets (see ``_derive_entity_keys``).
-        raise_on_gap: If True, raise ExecutionGapError on first NEW_UTILITY_NEEDED
+        raise_on_gap: If True, raise ExecutionGapError on first plan with hook_required
         spark_session: Optional Spark session (reserved for future use)
 
     Returns:
@@ -642,18 +642,19 @@ def execute_transformation_map(
             )
             continue
 
-        if not plan.steps and not record.source_column:
-            logger.debug(f"[{i}/{n_plans}] {target} — unmappable, skipping")
-            skipped.append(target)
-            continue
-
-        gap_steps = [s for s in plan.steps if s.function_name == "NEW_UTILITY_NEEDED"]
-        if gap_steps:
-            msg = f"Field '{target}' has {len(gap_steps)} NEW_UTILITY_NEEDED step(s)"
+        if plan.hook_required:
+            msg = (
+                f"Field '{target}' — hook_required (no covering utility chain; see reviewer_notes)"
+            )
             logger.warning(f"[{i}/{n_plans}] {target} — {msg}")
             if raise_on_gap:
                 raise ExecutionGapError(msg)
             gaps.append(target)
+            continue
+
+        if not plan.steps and not record.source_column:
+            logger.debug(f"[{i}/{n_plans}] {target} — unmappable, skipping")
+            skipped.append(target)
             continue
 
         try:
@@ -724,11 +725,6 @@ def _execute_step(
     from edvise.genai.mapping.schema_mapping_agent.transformation import utilities as u
 
     fn = step.function_name
-
-    if fn == "NEW_UTILITY_NEEDED":
-        raise ExecutionGapError(
-            f"NEW_UTILITY_NEEDED: {getattr(step, 'description', '(no description)')}"
-        )
 
     extra_kwargs: dict[str, pd.Series] = {}
     if hasattr(step, "extra_columns") and step.extra_columns:

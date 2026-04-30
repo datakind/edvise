@@ -5,7 +5,9 @@ Failures are logged and do not block the job (same spirit as
 :func:`~edvise.genai.mapping.shared.pipeline_artifacts.merge_genai_pipeline_artifact_rows`).
 
 UC HITL polling helpers (:func:`wait_for_ia_gate_1_hitl`, :func:`wait_for_ia_gate_1_hooks_hitl`,
-:func:`wait_for_sma_gate_1_hitl`) are blocking and raise on timeout or rejection. Timeouts persist
+:func:`wait_for_sma_gate_1_hitl`, :func:`wait_for_sma_gate_2_hook_preview_hitl`,
+:func:`wait_for_sma_gate_2_hook_required_hitl`) are blocking and
+raise on timeout or rejection. Timeouts persist
 ``timed_out`` on ``pipeline_runs`` / ``pipeline_phases`` (resumable); other failures may use
 :func:`mark_pipeline_failed`.
 """
@@ -19,6 +21,9 @@ from pathlib import Path
 from edvise.genai.mapping.identity_agent.hitl.schemas import InstitutionHITLItems
 from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
     InstitutionSMAHITLItems,
+)
+from edvise.genai.mapping.schema_mapping_agent.hitl.transformation_hook_hitl import (
+    InstitutionSMATransformationHookHITLItems,
 )
 from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json
 from edvise.genai.mapping.state import pipeline_state
@@ -35,6 +40,8 @@ PHASE_IA_GATE_1: str = "ia_gate_1"
 PHASE_IA_GATE_1_HOOKS: str = "ia_gate_1_hooks"
 PHASE_SMA_START: str = "sma_start"
 PHASE_SMA_GATE_1: str = "sma_gate_1"
+PHASE_SMA_GATE_2_HOOK_PREVIEW: str = "sma_gate_2_hook_preview"
+PHASE_SMA_GATE_2_HOOK_REQUIRED: str = "sma_gate_2_hook_required"
 AUTO_APPROVER: str = "pipeline_auto_approve_empty_hitl"
 
 
@@ -61,6 +68,14 @@ def _hitl_artifact_has_actionable_items(
     if at in {"cohort_manifest", "course_manifest"}:
         env = read_pydantic_json(Path(artifact_path), InstitutionSMAHITLItems)
         return len(env.gate_pending) > 0
+    if at in {
+        "cohort_transformation_hook_hitl",
+        "course_transformation_hook_hitl",
+    }:
+        env = read_pydantic_json(
+            Path(artifact_path), InstitutionSMATransformationHookHITLItems
+        )
+        return len(env.pending) > 0
     return True
 
 
@@ -373,6 +388,204 @@ def after_ia_onboard_gate_1_hooks_approved(
     )
     _state_safe(
         "pipeline_runs -> running (post hook-preview HITL)",
+        pipeline_state.update_pipeline_run_status,
+        catalog,
+        institution_id,
+        onboard_run_id,
+        "running",
+    )
+
+
+def register_sma_gate_2_hook_preview_artifacts(
+    catalog: str,
+    institution_id: str,
+    onboard_run_id: str,
+    *,
+    cohort_transformation_hook_preview_path: Path,
+    course_transformation_hook_preview_path: Path,
+) -> None:
+    """
+    Register SMA Step 2b transform HookSpec preview JSON under ``sma_gate_2_hook_preview``.
+
+    Empty ``specs`` lists auto-approve like IA ``grain_hook_preview`` / ``term_hook_preview``.
+    """
+    c = cohort_transformation_hook_preview_path.as_posix()
+    co = course_transformation_hook_preview_path.as_posix()
+    _state_safe(
+        "sma_gate_2_hook_preview -> awaiting_hitl",
+        pipeline_state.log_phase_transition,
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_HOOK_PREVIEW,
+        "awaiting_hitl",
+    )
+    _state_safe(
+        "pipeline_runs -> awaiting_hitl (SMA transform hook preview)",
+        pipeline_state.update_pipeline_run_status,
+        catalog,
+        institution_id,
+        onboard_run_id,
+        "awaiting_hitl",
+    )
+    _state_safe(
+        "register_hitl (SMA gate 2 hook preview)",
+        pipeline_state.register_hitl_artifacts,
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_HOOK_PREVIEW,
+        [
+            {"artifact_type": "cohort_transformation_hook_preview", "artifact_path": c},
+            {"artifact_type": "course_transformation_hook_preview", "artifact_path": co},
+        ],
+    )
+    _auto_approve_hook_preview_if_empty(
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_HOOK_PREVIEW,
+        "cohort_transformation_hook_preview",
+        cohort_transformation_hook_preview_path,
+    )
+    _auto_approve_hook_preview_if_empty(
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_HOOK_PREVIEW,
+        "course_transformation_hook_preview",
+        course_transformation_hook_preview_path,
+    )
+
+
+def wait_for_sma_gate_2_hook_preview_hitl(
+    catalog: str,
+    onboard_run_id: str,
+    *,
+    institution_id: str,
+    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+) -> bool:
+    """Block until UC rows for ``sma_gate_2_hook_preview`` are approved."""
+    return poll_uc_hitl_until_approved_or_timeout(
+        catalog,
+        institution_id,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_HOOK_PREVIEW,
+        poll_interval_seconds=poll_interval_seconds,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def after_sma_gate_2_hook_preview_approved(
+    catalog: str, institution_id: str, onboard_run_id: str
+) -> None:
+    """Log SMA transform hook-preview gate complete and set pipeline run status to ``running``."""
+    _state_safe(
+        "sma_gate_2_hook_preview complete",
+        pipeline_state.log_phase_transition,
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_HOOK_PREVIEW,
+        "complete",
+    )
+    _state_safe(
+        "pipeline_runs -> running (post SMA transform hook preview)",
+        pipeline_state.update_pipeline_run_status,
+        catalog,
+        institution_id,
+        onboard_run_id,
+        "running",
+    )
+
+
+def register_sma_gate_2_hook_required_artifacts(
+    catalog: str,
+    institution_id: str,
+    onboard_run_id: str,
+    *,
+    cohort_transformation_hook_hitl_path: Path,
+    course_transformation_hook_hitl_path: Path,
+) -> None:
+    """
+    Register Step 2b ``hook_required`` review JSON paths under ``sma_gate_2_hook_required``.
+
+    Empty ``items`` lists auto-approve like empty SMA manifest HITL artifacts.
+    """
+    c = cohort_transformation_hook_hitl_path.as_posix()
+    co = course_transformation_hook_hitl_path.as_posix()
+    _state_safe(
+        "sma_gate_2_hook_required -> awaiting_hitl",
+        pipeline_state.log_phase_transition,
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_HOOK_REQUIRED,
+        "awaiting_hitl",
+    )
+    _state_safe(
+        "pipeline_runs -> awaiting_hitl (SMA transformation hook HITL)",
+        pipeline_state.update_pipeline_run_status,
+        catalog,
+        institution_id,
+        onboard_run_id,
+        "awaiting_hitl",
+    )
+    _state_safe(
+        "register_hitl (SMA gate 2 hook_required)",
+        pipeline_state.register_hitl_artifacts,
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_HOOK_REQUIRED,
+        [
+            {"artifact_type": "cohort_transformation_hook_hitl", "artifact_path": c},
+            {"artifact_type": "course_transformation_hook_hitl", "artifact_path": co},
+        ],
+    )
+    _auto_approve_hitl_artifact_if_empty(
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_HOOK_REQUIRED,
+        "cohort_transformation_hook_hitl",
+        cohort_transformation_hook_hitl_path,
+    )
+    _auto_approve_hitl_artifact_if_empty(
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_HOOK_REQUIRED,
+        "course_transformation_hook_hitl",
+        course_transformation_hook_hitl_path,
+    )
+
+
+def wait_for_sma_gate_2_hook_required_hitl(
+    catalog: str,
+    onboard_run_id: str,
+    *,
+    institution_id: str,
+    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+) -> bool:
+    """Block until UC rows for ``sma_gate_2_hook_required`` are approved."""
+    return poll_uc_hitl_until_approved_or_timeout(
+        catalog,
+        institution_id,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_HOOK_REQUIRED,
+        poll_interval_seconds=poll_interval_seconds,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def after_sma_gate_2_hook_required_approved(
+    catalog: str, institution_id: str, onboard_run_id: str
+) -> None:
+    """Log transformation-hook gate complete and set pipeline run status back to ``running``."""
+    _state_safe(
+        "sma_gate_2_hook_required complete",
+        pipeline_state.log_phase_transition,
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_HOOK_REQUIRED,
+        "complete",
+    )
+    _state_safe(
+        "pipeline_runs -> running (post SMA transformation hook HITL)",
         pipeline_state.update_pipeline_run_status,
         catalog,
         institution_id,

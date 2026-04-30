@@ -604,8 +604,7 @@ def apply_term_order_from_contract(
     Apply term-stage :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermContract` when
     ``term_config`` is set; otherwise return ``df`` unchanged.
 
-    Runs primary ``term_config`` (entry) then each ``completion_term_streams`` config so completion
-    columns do not overwrite entry ``_edvise_term_*`` when ``output_prefix`` is set on streams.
+    Runs primary ``term_config`` (entry / cohort term) when present.
 
     Delegates to :func:`~edvise.genai.mapping.identity_agent.term_normalization.term_order.apply_term_order_from_config`.
     Grain-stage :class:`~edvise.genai.mapping.identity_agent.grain_inference.schemas.GrainContract` has no term fields.
@@ -616,10 +615,6 @@ def apply_term_order_from_contract(
     if term_pass.term_config is not None:
         out = apply_term_order_from_config(
             out, term_pass.term_config, hook_modules_root=hook_modules_root
-        )
-    for stream in term_pass.completion_term_streams:
-        out = apply_term_order_from_config(
-            out, stream, hook_modules_root=hook_modules_root
         )
     return out
 

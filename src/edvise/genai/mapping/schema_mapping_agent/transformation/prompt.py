@@ -58,6 +58,38 @@ COURSE academic_year AND academic_term — transformation steps (mirror manifest
 """
 
 
+def _step2b_cohort_completion_in_raw_edvise_rules() -> str:
+    """Step 2b: how Edvise models cohort completion (matches RawEdviseStudentDataSchema)."""
+    return """
+COHORT completion — exact RawEdvise student columns (`RawEdviseStudentDataSchema`, raw_edvise_student.py)
+
+**Term / cohort start (required; not completion):** `entry_year` (string, YEAR pattern), `entry_term`
+(category — `TERM_CATEGORIES`). Degree/certificate **completion timing** is only the datetime columns listed next,
+not another term-style field on this schema.
+
+**Degree and certificate completion — datetime (optional, nullable, `datetime64[ns]` when present):**
+1. `bachelors_degree_conferral_date`
+2. `associates_degree_conferral_date`
+3. `certificate1_date`
+4. `certificate2_date`
+5. `certificate3_date`
+
+Those five are the **only** RawEdvise columns that carry completion **timing** as timestamps.
+
+**Completion-related metadata — string (optional, nullable):**
+1. `conferred_credential_type`
+2. `major_at_completion`
+
+*(Other datetimes on the schema are not completion — e.g. `matriculation_date` is matriculation / entry timing.)*
+
+**Transformation plans for conferral / certificate dates**
+- Follow **COHORT degree- and certificate-related DATETIME** rules below — joins to degree/award rows,
+  `_edvise_term_*` on that row when contracted, student-side **datetime** when it is true conferral timing,
+  raw award codes for Step 2b parsing when IA columns are missing.
+- Do **not** treat `entry_term` / student `_edvise_term_*` as conferral completion proxies.
+"""
+
+
 def _step2b_cross_table_degree_datetime_rules() -> str:
     """Step 2b: degree conferral / certificate dates from joined lookup tables."""
     return """
@@ -65,7 +97,9 @@ COHORT degree- and certificate-related DATETIME fields (cross-table joins to deg
 
 These targets include e.g. `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
 `certificate1_date`, `certificate2_date`, `certificate3_date` when the mapping manifest uses a
-lookup table (e.g. `degree`) with filters and `row_selection`, **or** completion-prefixed IA columns on wide `student`.
+lookup table (e.g. `degree`) with filters and `row_selection`, or a **true calendar datetime / date**
+column on wide `student`. The manifest must **not** source conferral-style targets from `student._edvise_term_*`
+(entry semantics — handle timing via degree-row IA columns, award-row raw codes, or Step 2b parsing).
 
 **(1) Manifest `source_column` is IdentityAgent term metadata — REQUIRED shape**
 - If the manifest's `source_column` for the field is `_edvise_term_academic_year` (or another IA
@@ -77,10 +111,8 @@ lookup table (e.g. `degree`) with filters and `row_selection`, **or** completion
     these targets — even when `schema_contract` sample_values for `term` look easy to parse. Parsing
     `term` when the manifest sourced `_edvise_term_academic_year` ignores the manifest and breaks
     alignment with IdentityAgent normalization.
-- If the manifest sources **`{prefix}_edvise_term_academic_year`** on **student** (completion stream —
-  see `completion_term_normalization_notes` in the summarized schema contract), bind the paired season column:
-  `extra_columns`: `{"season_series": "{prefix}_edvise_term_season"}` (same utility chain). Do **not**
-  use unprefixed `_edvise_term_season` when the manifest sourced a prefixed academic-year column.
+- Do **not** use `term_components_to_datetime` with **`student._edvise_term_*`** for these conferral targets;
+  if the manifest incorrectly points there, prefer empty `steps` with **reviewer_notes** calling out the manifest fix.
 
 **(2) Manifest `source_column` is a raw code or date column — format-driven**
 - Only if the manifest explicitly maps `source_column` to `term`, a literal date column, or another
@@ -104,43 +136,20 @@ def get_transformation_utilities_context() -> str:
 
 # ── Prompt assembly ────────────────────────────────────────────────────────────
 
+STEP2B_PROMPT_SECTION_KEYS: tuple[str, ...] = (
+    "preamble",
+    "reference_transformation_maps",
+    "mapping_manifest",
+    "schema_contract",
+    "target_schemas",
+    "transformation_map_schema",
+    "transformation_utilities",
+    "rules",
+)
 
-def collect_step2b_prompt_sections(
-    institution_id: str,
-    output_path: str,
-    institution_mapping_manifest: dict,
-    institution_schema_contract: dict,
-    cohort_schema_class: Any,
-    course_schema_class: Any,
-    reference_transformation_maps: list[dict],
-    reference_institution_ids: list[str] | None = None,
-) -> dict[str, str]:
-    """
-    Named sections for Step 2b (reference maps, manifest, contract, schemas, utilities source, rules).
 
-    ``reference_institution_ids`` labels each reference block (parallel to ``reference_transformation_maps``);
-    defaults to each map's top-level ``institution_id`` when omitted.
-    """
-    contract_summary = summarize_schema_contract(institution_schema_contract)
-    cohort_descriptor = extract_schema_descriptor(cohort_schema_class)
-    course_descriptor = extract_schema_descriptor(course_schema_class)
-
-    if reference_institution_ids is None:
-        reference_institution_ids = [
-            m.get("institution_id", f"reference_{i}")
-            for i, m in enumerate(reference_transformation_maps)
-        ]
-
-    reference_blocks = "\n\n".join(
-        f'<reference_transformation_map institution="{ref_id}" role="structural_reference_only">\n'
-        f"{json.dumps(tmap, indent=2)}\n"
-        f"</reference_transformation_map>"
-        for ref_id, tmap in zip(
-            reference_institution_ids, reference_transformation_maps
-        )
-    )
-
-    preamble = f"""Please act as the SchemaMappingAgent and generate a transformation map for institution_id={institution_id} at:
+def _step2b_preamble(institution_id: str, output_path: str) -> str:
+    return f"""Please act as the SchemaMappingAgent and generate a transformation map for institution_id={institution_id} at:
 {output_path}
 
 The transformation map is a pure value transformation specification.
@@ -150,16 +159,41 @@ Transformation steps receive a plain Series and must only transform values,
 never resolve sources or perform joins.
 """
 
-    mapping_manifest = (
+
+def _step2b_reference_maps(
+    reference_institution_ids: list[str],
+    reference_transformation_maps: list[dict],
+) -> str:
+    return "\n\n".join(
+        f'<reference_transformation_map institution="{ref_id}" role="structural_reference_only">\n'
+        f"{json.dumps(tmap, indent=2)}\n"
+        f"</reference_transformation_map>"
+        for ref_id, tmap in zip(
+            reference_institution_ids, reference_transformation_maps
+        )
+    )
+
+
+def _step2b_mapping_manifest(institution_id: str, institution_mapping_manifest: dict) -> str:
+    return (
         f'<mapping_manifest institution="{institution_id}">\n'
         f"{json.dumps(institution_mapping_manifest, indent=2)}\n"
         "</mapping_manifest>"
     )
-    schema_contract = (
+
+
+def _step2b_schema_contract(institution_id: str, institution_schema_contract: dict) -> str:
+    contract_summary = summarize_schema_contract(institution_schema_contract)
+    return (
         f'<schema_contract institution="{institution_id}">\n'
         f"{json.dumps(contract_summary, indent=2)}\n"
         "</schema_contract>"
     )
+
+
+def _step2b_target_schemas(cohort_schema_class: Any, course_schema_class: Any) -> str:
+    cohort_descriptor = extract_schema_descriptor(cohort_schema_class)
+    course_descriptor = extract_schema_descriptor(course_schema_class)
     target_cohort = (
         '<target_schema name="RawEdviseStudentDataSchema" entity="cohort">\n'
         f"{json.dumps(cohort_descriptor, indent=2)}\n"
@@ -170,17 +204,27 @@ never resolve sources or perform joins.
         f"{json.dumps(course_descriptor, indent=2)}\n"
         "</target_schema>"
     )
-    tmap_schema = (
+    return f"{target_cohort}\n\n{target_course}"
+
+
+def _step2b_tmap_schema() -> str:
+    return (
         "<transformation_map_schema>\n"
         f"{get_transformation_map_schema_context()}\n"
         "</transformation_map_schema>"
     )
-    utilities_src = (
+
+
+def _step2b_utilities() -> str:
+    return (
         "<transformation_utilities>\n"
         f"{get_transformation_utilities_context()}\n"
         "</transformation_utilities>"
     )
-    rules = f"""<rules>
+
+
+def _step2b_rules() -> str:
+    return f"""<rules>
 STRUCTURE
 - Match the reference transformation map shape: transformation_maps with cohort + course sections,
   each containing entity_type, target_schema, plans array.
@@ -198,10 +242,15 @@ TRANSFORMATION STEPS
 - Each step must specify function_name (matching a utility function), column (source column name from manifest),
   and optional rationale
 - Steps are applied in order to the resolved source Series from the manifest
-- Use NEW_UTILITY_NEEDED when no existing utility can produce the correct output, even in combination with other steps.
-  Do not approximate with a nearby utility. Provide: description (what the function should do),
-  rationale (why no existing utility covers it),
-  notes (any relevant data patterns, example input/output values, or implementation hints).
+
+HOOK REQUIRED
+- When no existing utility or combination of utilities can produce the correct output,
+  set "hook_required": true on the plan and provide a full explanation in reviewer_notes:
+  what transformation is needed, what was attempted, and why no existing utility covers it.
+  (Same vocabulary as IdentityAgent's hook_required — custom hook work, distinct from built-in utilities.)
+- hook_required is a first-class plan field — not a step type, not a step in the steps array.
+- steps may be empty or contain a best-effort partial chain alongside hook_required: true.
+- Do not use hook_required as a shortcut — always attempt a utility chain first.
 
 MANIFEST ALIGNMENT
 - Generate plans only for target_fields that have mappings in the mapping manifest
@@ -222,7 +271,7 @@ SOURCE COLUMN FORMAT AWARENESS
 - Do not assume a column's format from its name alone — verify against sample_values in the schema contract
 - For cross-table degree/certificate datetime fields, follow **COHORT degree- and certificate-related DATETIME**
   rules below: do not pick utilities from raw `term` sample_values when the manifest sourced
-  `_edvise_term_academic_year` or `{prefix}_edvise_term_academic_year`
+  `_edvise_term_academic_year` (or another manifest-listed IA academic-year column on that row)
 
 OUTPUT DTYPES
 - Set output_dtype to the RawEdvise / pandas name: "string", "Int64", "Float64" (extension dtypes — not numpy int64/float64), "category" (Pandera categoricals: entry_term, academic_term, pell_recipient_year1, term_pell_recipient), "boolean", "datetime64[ns]".
@@ -236,16 +285,17 @@ STEP ORDERING
   not after. The map keys must match the values that actually arrive at that step.
 - Apply type casting steps (cast_string, cast_nullable_int, etc.) after value transformations
   unless an earlier step requires a specific type as input
-- Apply domain-specific normalization (normalize_grade, etc.) as needed; canonical term season and academic year come from IdentityAgent columns (`_edvise_term_*` or `{prefix}_edvise_term_*` for completion streams), not SMA string parsers
+- Apply domain-specific normalization (normalize_grade, etc.) as needed; canonical term season and academic year come from IdentityAgent `_edvise_term_*` columns (or other manifest-listed IA term columns), not SMA string parsers
 
 {_step2b_cohort_entry_term_transformation_rules()}
 {_step2b_course_academic_term_transformation_rules()}
+{_step2b_cohort_completion_in_raw_edvise_rules()}
 {_step2b_cross_table_degree_datetime_rules()}
 EXTRA COLUMNS
 - Some utilities require extra_columns
   (e.g., birthyear_to_age_bucket needs reference_year_series, conditional_credits needs grade_series,
-  term_components_to_datetime needs season_series bound to the manifest's paired IA column —
-  ``_edvise_term_season`` or ``{prefix}_edvise_term_season`` when academic year uses a completion prefix)
+  term_components_to_datetime needs season_series bound to the manifest's paired IA season column —
+  typically ``_edvise_term_season`` alongside ``_edvise_term_academic_year``)
 - Specify extra_columns as a dict mapping parameter names to source column names: {{"param_name": "column_name"}}
 - These columns are resolved from the base DataFrame before the step runs
 
@@ -298,35 +348,9 @@ JSON OUTPUT (strict, machine-parseable)
 
 Generate the complete transformation map JSON now.
 Output only that object — valid JSON throughout."""
-    return {
-        "preamble": preamble,
-        "reference_transformation_maps": reference_blocks,
-        "mapping_manifest": mapping_manifest,
-        "schema_contract": schema_contract,
-        "target_schema_cohort": target_cohort,
-        "target_schema_course": target_course,
-        "transformation_map_schema": tmap_schema,
-        "transformation_utilities": utilities_src,
-        "rules": rules,
-    }
 
 
-def assemble_step2b_prompt_from_sections(sections: dict[str, str]) -> str:
-    order = (
-        "preamble",
-        "reference_transformation_maps",
-        "mapping_manifest",
-        "schema_contract",
-        "target_schema_cohort",
-        "target_schema_course",
-        "transformation_map_schema",
-        "transformation_utilities",
-        "rules",
-    )
-    return "\n\n".join(sections[k] for k in order)
-
-
-def audit_step2b_prompt(
+def get_step2b_prompt_sections(
     institution_id: str,
     output_path: str,
     institution_mapping_manifest: dict,
@@ -335,26 +359,39 @@ def audit_step2b_prompt(
     course_schema_class: Any,
     reference_transformation_maps: list[dict],
     reference_institution_ids: list[str] | None = None,
-    *,
-    log: bool = True,
-) -> dict[str, Any]:
-    """Local estimated token counts for Step 2b (single user blob)."""
-    sections = collect_step2b_prompt_sections(
-        institution_id,
-        output_path,
-        institution_mapping_manifest,
-        institution_schema_contract,
-        cohort_schema_class,
-        course_schema_class,
-        reference_transformation_maps,
-        reference_institution_ids,
-    )
-    return audit_prompt_sections(
-        sections,
-        builder="schema_mapping_agent.step2b",
-        institution_id=institution_id,
-        log=log,
-    )
+) -> dict[str, str]:
+    """Named sections for Step 2b prompt (mirrors IA get_*_sections pattern)."""
+    if reference_institution_ids is None:
+        reference_institution_ids = [
+            m.get("institution_id", f"reference_{i}")
+            for i, m in enumerate(reference_transformation_maps)
+        ]
+
+    return {
+        "preamble": _step2b_preamble(institution_id, output_path),
+        "reference_transformation_maps": _step2b_reference_maps(
+            reference_institution_ids,
+            reference_transformation_maps,
+        ),
+        "mapping_manifest": _step2b_mapping_manifest(
+            institution_id, institution_mapping_manifest
+        ),
+        "schema_contract": _step2b_schema_contract(
+            institution_id, institution_schema_contract
+        ),
+        "target_schemas": _step2b_target_schemas(
+            cohort_schema_class, course_schema_class
+        ),
+        "transformation_map_schema": _step2b_tmap_schema(),
+        "transformation_utilities": _step2b_utilities(),
+        "rules": _step2b_rules(),
+    }
+
+
+def join_step2b_prompt_sections(sections: dict[str, str]) -> str:
+    """Join sections in STEP2B_PROMPT_SECTION_KEYS order."""
+    parts = [sections[k] for k in STEP2B_PROMPT_SECTION_KEYS]
+    return parts[0] + "\n\n---\n" + "\n\n---\n".join(parts[1:])
 
 
 def build_step2b_prompt(
@@ -383,7 +420,7 @@ def build_step2b_prompt(
                                         reference_transformation_maps. Defaults to each map's
                                         ``institution_id`` if not provided.
     """
-    sections = collect_step2b_prompt_sections(
+    sections = get_step2b_prompt_sections(
         institution_id,
         output_path,
         institution_mapping_manifest,
@@ -393,7 +430,39 @@ def build_step2b_prompt(
         reference_transformation_maps,
         reference_institution_ids,
     )
-    return assemble_step2b_prompt_from_sections(sections)
+    return join_step2b_prompt_sections(sections)
+
+
+def audit_step2b_prompt(
+    institution_id: str,
+    output_path: str,
+    institution_mapping_manifest: dict,
+    institution_schema_contract: dict,
+    cohort_schema_class: Any,
+    course_schema_class: Any,
+    reference_transformation_maps: list[dict],
+    reference_institution_ids: list[str] | None = None,
+    *,
+    log: bool = True,
+) -> dict[str, Any]:
+    """Local estimated token counts for Step 2b (single user blob)."""
+    sections = get_step2b_prompt_sections(
+        institution_id,
+        output_path,
+        institution_mapping_manifest,
+        institution_schema_contract,
+        cohort_schema_class,
+        course_schema_class,
+        reference_transformation_maps,
+        reference_institution_ids,
+    )
+    prefixed = {f"user.{k}": v for k, v in sections.items()}
+    return audit_prompt_sections(
+        prefixed,
+        builder="schema_mapping_agent.step2b",
+        institution_id=institution_id,
+        log=log,
+    )
 
 
 # ── Convenience loader ─────────────────────────────────────────────────────────

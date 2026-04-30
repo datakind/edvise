@@ -14,6 +14,12 @@ Usage (Databricks job parameters):
 
 On Databricks, onboard mode best-effort updates ``{catalog}.genai_mapping`` pipeline state
 (see :mod:`edvise.genai.mapping.state.job_state`); table setup and Spark are required.
+
+After Step 2b, ``gate_2`` registers ``sma_gate_2_hook_preview`` for generated ``HookSpec`` previews
+(``cohort_transformation_hook_preview.json`` / ``course_transformation_hook_preview.json``), then
+materializes ``transform_hooks.py`` after UC approval. When any plan has ``hook_required: true``,
+``sma_gate_2_hook_required`` gates ``cohort_transformation_hook_hitl.json`` /
+``course_transformation_hook_hitl.json`` as before.
 """
 
 import os
@@ -79,6 +85,10 @@ class SMAPaths:
     mapping_validation_manifest: Path
     cohort_hitl_manifest: Path
     course_hitl_manifest: Path
+    cohort_transformation_hook_hitl: Path
+    course_transformation_hook_hitl: Path
+    cohort_transformation_hook_preview: Path
+    course_transformation_hook_preview: Path
     transformation_map: Path
     transform_hooks: Path  # optional, placeholder
     run_log: Path
@@ -132,6 +142,14 @@ def resolve_run_paths(
         mapping_validation_manifest=run_root / "mapping_validation_manifest.json",
         cohort_hitl_manifest=run_root / "cohort_hitl_manifest.json",
         course_hitl_manifest=run_root / "course_hitl_manifest.json",
+        cohort_transformation_hook_hitl=run_root
+        / "cohort_transformation_hook_hitl.json",
+        course_transformation_hook_hitl=run_root
+        / "course_transformation_hook_hitl.json",
+        cohort_transformation_hook_preview=run_root
+        / "cohort_transformation_hook_preview.json",
+        course_transformation_hook_preview=run_root
+        / "course_transformation_hook_preview.json",
         transformation_map=run_root / "transformation_map.json",
         transform_hooks=run_root / "transform_hooks.py",
         run_log=run_root / "run_log.json",
@@ -492,7 +510,7 @@ def run_onboard_start(
 
 # ---------------------------------------------------------------------------
 # Onboard — resume_from="gate_2"
-# Resolve HITL -> gate check -> 2b LLM -> execute -> Pandera -> write outputs -> exit
+# Resolve manifest HITL -> 2b LLM -> hook_required HITL (UC) -> resolve plans -> execute -> exit
 # ---------------------------------------------------------------------------
 
 
@@ -601,6 +619,153 @@ def run_onboard_gate_2(
         LOGGER.warning(
             "[onboard/gate_2] Transformation map validation warning: %s", err
         )
+
+    def _sma_hook_llm_complete(system: str, user: str) -> str:
+        prompt = f"{system.strip()}\n\n---\n\n{user.strip()}"
+        result = _run_once(_DEFAULT_SMA_GATEWAY_MODEL_ID, prompt, client)
+        if not result.get("success"):
+            raise RuntimeError(result.get("error") or "SMA transform hook LLM failed")
+        resp = result.get("response")
+        if not isinstance(resp, str) or not resp.strip():
+            raise RuntimeError("SMA transform hook LLM returned empty response")
+        return resp
+
+    from edvise.genai.mapping.identity_agent.hitl.hook_generation.materialize import (
+        materialize_hook_specs_to_file,
+    )
+    from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
+    from edvise.genai.mapping.schema_mapping_agent.hitl.transform_hook_generation import (
+        generate_sma_transform_hook_preview_rows_for_entity,
+        load_hook_specs_from_sma_preview_path,
+    )
+    from edvise.genai.mapping.schema_mapping_agent.hitl.transform_hook_preview import (
+        write_sma_transform_hook_preview_json,
+    )
+    from edvise.genai.mapping.schema_mapping_agent.hitl.transformation_hook_hitl import (
+        apply_transformation_hook_hitl_resolutions,
+        build_transformation_hook_hitl_envelope_for_entity,
+        check_transformation_hook_hitl_gate,
+        write_transformation_hook_hitl_envelope,
+    )
+
+    LOGGER.info("[onboard/gate_2] Transform hook generation (preview)")
+    cohort_preview_rows = generate_sma_transform_hook_preview_rows_for_entity(
+        transformation_data,
+        manifest_2a,
+        institution_id=institution_id,
+        entity_type="cohort",
+        llm_complete=_sma_hook_llm_complete,
+    )
+    course_preview_rows = generate_sma_transform_hook_preview_rows_for_entity(
+        transformation_data,
+        manifest_2a,
+        institution_id=institution_id,
+        entity_type="course",
+        llm_complete=_sma_hook_llm_complete,
+    )
+    write_sma_transform_hook_preview_json(
+        output_path=paths.cohort_transformation_hook_preview,
+        institution_id=institution_id,
+        domain="schema_mapping_transform_cohort",
+        spec_rows=cohort_preview_rows,
+    )
+    write_sma_transform_hook_preview_json(
+        output_path=paths.course_transformation_hook_preview,
+        institution_id=institution_id,
+        domain="schema_mapping_transform_course",
+        spec_rows=course_preview_rows,
+    )
+    LOGGER.info(
+        "[onboard/gate_2] Transform hook preview — cohort_specs=%d course_specs=%d",
+        len(cohort_preview_rows),
+        len(course_preview_rows),
+    )
+    _pipeline_job_state.register_sma_gate_2_hook_preview_artifacts(
+        catalog,
+        institution_id,
+        onboard_run_id,
+        cohort_transformation_hook_preview_path=paths.cohort_transformation_hook_preview,
+        course_transformation_hook_preview_path=paths.course_transformation_hook_preview,
+    )
+    LOGGER.info(
+        "[onboard/gate_2] Waiting for Unity Catalog HITL approval (sma_gate_2_hook_preview)"
+    )
+    _pipeline_job_state.wait_for_sma_gate_2_hook_preview_hitl(
+        catalog,
+        onboard_run_id,
+        institution_id=institution_id,
+        poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+        timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+    )
+    _pipeline_job_state.after_sma_gate_2_hook_preview_approved(
+        catalog, institution_id, onboard_run_id
+    )
+    preview_hook_specs = (
+        load_hook_specs_from_sma_preview_path(paths.cohort_transformation_hook_preview)
+        + load_hook_specs_from_sma_preview_path(paths.course_transformation_hook_preview)
+    )
+    if preview_hook_specs:
+        materialize_hook_specs_to_file(
+            preview_hook_specs,
+            repo_root=paths.run_root,
+            domain=HITLDomain.TRANSFORM,
+        )
+        LOGGER.info(
+            "[onboard/gate_2] Materialized transform_hooks.py (%d HookSpec(s))",
+            len(preview_hook_specs),
+        )
+
+    cohort_hook_env = build_transformation_hook_hitl_envelope_for_entity(
+        transformation_data,
+        institution_id=institution_id,
+        entity_type="cohort",
+    )
+    course_hook_env = build_transformation_hook_hitl_envelope_for_entity(
+        transformation_data,
+        institution_id=institution_id,
+        entity_type="course",
+    )
+    write_transformation_hook_hitl_envelope(
+        paths.cohort_transformation_hook_hitl, cohort_hook_env
+    )
+    write_transformation_hook_hitl_envelope(
+        paths.course_transformation_hook_hitl, course_hook_env
+    )
+    LOGGER.info(
+        "[onboard/gate_2] Transformation hook_required HITL — cohort_items=%d course_items=%d",
+        len(cohort_hook_env.items),
+        len(course_hook_env.items),
+    )
+    _pipeline_job_state.register_sma_gate_2_hook_required_artifacts(
+        catalog,
+        institution_id,
+        onboard_run_id,
+        cohort_transformation_hook_hitl_path=paths.cohort_transformation_hook_hitl,
+        course_transformation_hook_hitl_path=paths.course_transformation_hook_hitl,
+    )
+    LOGGER.info(
+        "[onboard/gate_2] Waiting for Unity Catalog HITL approval (sma_gate_2_hook_required)"
+    )
+    _pipeline_job_state.wait_for_sma_gate_2_hook_required_hitl(
+        catalog,
+        onboard_run_id,
+        institution_id=institution_id,
+        poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+        timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+    )
+    for _hook_hitl_path in (
+        paths.cohort_transformation_hook_hitl,
+        paths.course_transformation_hook_hitl,
+    ):
+        check_transformation_hook_hitl_gate(_hook_hitl_path)
+    _pipeline_job_state.after_sma_gate_2_hook_required_approved(
+        catalog, institution_id, onboard_run_id
+    )
+    transformation_data = apply_transformation_hook_hitl_resolutions(
+        transformation_data,
+        cohort_hitl_path=paths.cohort_transformation_hook_hitl,
+        course_hitl_path=paths.course_transformation_hook_hitl,
+    )
 
     tmaps = transformation_data.get("transformation_maps") or {}
     for _entity in ("cohort", "course"):

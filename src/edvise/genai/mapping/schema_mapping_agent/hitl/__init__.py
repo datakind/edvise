@@ -17,6 +17,17 @@ from edvise.genai.mapping.schema_mapping_agent.hitl.resolver import (
     check_sma_hitl_gate,
     resolve_sma_items,
 )
+from edvise.genai.mapping.schema_mapping_agent.hitl.transformation_hook_hitl import (
+    InstitutionSMATransformationHookHITLItems,
+    SMATransformationHookHITLItem,
+    SMATransformationHookHITLOption,
+    SMATransformationHookResolution,
+    apply_transformation_hook_hitl_resolutions,
+    build_transformation_hook_hitl_envelope_for_entity,
+    check_transformation_hook_hitl_gate,
+    default_transformation_hook_hitl_options,
+    write_transformation_hook_hitl_envelope,
+)
 from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
     HITL_CONFIDENCE_THRESHOLD,
     InstitutionSMAHITLItems,
@@ -32,8 +43,17 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import ColumnAli
 __all__ = [
     "ColumnAlias",
     "HITL_CONFIDENCE_THRESHOLD",
+    "InstitutionSMATransformationHookHITLItems",
     "InstitutionSMAHITLItems",
     "SMAFailureMode",
+    "SMATransformationHookHITLItem",
+    "SMATransformationHookHITLOption",
+    "SMATransformationHookResolution",
+    "apply_transformation_hook_hitl_resolutions",
+    "build_transformation_hook_hitl_envelope_for_entity",
+    "check_transformation_hook_hitl_gate",
+    "default_transformation_hook_hitl_options",
+    "write_transformation_hook_hitl_envelope",
     "SMAHITLItem",
     "SMAHITLOption",
     "SMAReentryDepth",

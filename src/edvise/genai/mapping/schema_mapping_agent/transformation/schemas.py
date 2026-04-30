@@ -224,17 +224,6 @@ class TermComponentsToDatetimeStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
-class NewUtilityNeededStep(StrictBaseModel):
-    function_name: Literal["NEW_UTILITY_NEEDED"]
-    description: str
-    rationale: Optional[str] = None
-    notes: Optional[str] = None
-
-    @property
-    def is_gap(self) -> bool:
-        return True
-
-
 TransformationStep = Annotated[
     Union[
         CastNullableIntStep,
@@ -265,7 +254,6 @@ TransformationStep = Annotated[
         BirthyearToAgeBucketStep,
         ConditionalCreditsStep,
         TermComponentsToDatetimeStep,
-        NewUtilityNeededStep,
     ],
     Field(discriminator="function_name"),
 ]
@@ -308,6 +296,17 @@ class FieldTransformationPlan(StrictBaseModel):
     validation_notes: Optional[str] = Field(
         default=None,
         description="Notes about validation concerns or issues with the transformation plan",
+    )
+    hook_required: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Set to true when no existing utility or combination of utilities can produce "
+            "the correct output (same idea as IdentityAgent's hook_required path — custom work, not "
+            "a built-in transform). Include a full explanation in reviewer_notes: what "
+            "transformation is needed, what was attempted, and why no existing utility covers it. "
+            "hook_required is a plan-level flag — not a step type. steps may be empty or contain "
+            "a best-effort partial chain."
+        ),
     )
 
 
@@ -400,7 +399,6 @@ def get_transformation_map_schema_context() -> str:
         BirthyearToAgeBucketStep,
         ConditionalCreditsStep,
         TermComponentsToDatetimeStep,
-        NewUtilityNeededStep,
         FieldTransformationPlan,
         TransformationMap,
     ]

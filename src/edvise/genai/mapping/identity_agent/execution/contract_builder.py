@@ -499,7 +499,6 @@ def build_training_example_from_schema_contract(
     *,
     canonical_learner_column: str | None = None,
     term_order_config: TermOrderConfig | None = None,
-    completion_term_order_configs: list[TermOrderConfig] | None = None,
 ) -> Dict[str, Any]:
     if logical_name not in schema_contract["datasets"]:
         raise KeyError(
@@ -573,11 +572,6 @@ def build_training_example_from_schema_contract(
                 term_order_config
             ).model_dump(mode="json")
         )
-    if completion_term_order_configs:
-        example["completion_term_normalizations"] = [
-            term_normalization_summary_for_enriched_contract(cfg).model_dump(mode="json")
-            for cfg in completion_term_order_configs
-        ]
     return example
 
 
@@ -678,9 +672,6 @@ def _collect_training_examples(
     dataset_name_suffix: str,
     term_order_config_by_dataset: Optional[dict[str, TermOrderConfig | None]],
     canonical_learner_column: Literal["student_id", "learner_id"],
-    completion_term_order_configs_by_dataset: Optional[
-        dict[str, list[TermOrderConfig]]
-    ] = None,
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """Load full-file column metadata and build per-dataset training dicts.
 
@@ -710,9 +701,6 @@ def _collect_training_examples(
         term_oc: TermOrderConfig | None = None
         if term_order_config_by_dataset is not None:
             term_oc = term_order_config_by_dataset.get(logical_name)
-        comp_cfgs: list[TermOrderConfig] | None = None
-        if completion_term_order_configs_by_dataset is not None:
-            comp_cfgs = completion_term_order_configs_by_dataset.get(logical_name)
         file_path = resolve_genai_data_path(
             school_config.bronze_volumes_path, dataset_config.files[0]
         )
@@ -731,7 +719,6 @@ def _collect_training_examples(
             file_path=file_path,
             canonical_learner_column=canonical_learner_column,
             term_order_config=term_oc,
-            completion_term_order_configs=comp_cfgs,
         )
         school_examples.append(example)
 
@@ -793,7 +780,6 @@ def process_school_dataset(
             dataset_name_suffix=dataset_name_suffix,
             term_order_config_by_dataset=term_order_config_by_dataset,
             canonical_learner_column=canonical_learner_column,
-            completion_term_order_configs_by_dataset=None,
         )
         example = examples[0]
         logger.debug(
@@ -837,9 +823,6 @@ def build_enriched_schema_contract_for_institution(
     grain_contracts_by_dataset: Optional[dict[str, GrainContract]] = None,
     canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
     term_order_config_by_dataset: Optional[dict[str, TermOrderConfig | None]] = None,
-    completion_term_order_configs_by_dataset: Optional[
-        dict[str, list[TermOrderConfig]]
-    ] = None,
     cleaning_cfg: Optional[CleaningConfig] = None,
     dedupe_fn_by_dataset: Optional[
         dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
@@ -865,9 +848,6 @@ def build_enriched_schema_contract_for_institution(
     ``term_order_config_by_dataset`` (logical dataset name → :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermOrderConfig`)
     is optional; when set, each dataset's ``training.term_normalization`` records which source
     column(s) IdentityAgent used for term order (single ``term_col`` vs split ``year_col``/``season_col``).
-
-    ``completion_term_order_configs_by_dataset`` lists additional :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermOrderConfig`
-    passes per dataset (completion streams with ``output_prefix``). Written to ``training.completion_term_normalizations``.
 
     ``training_sample_size`` optionally caps rows used only for ``training.column_details``
     statistics; default ``None`` uses the full cleaned frame. Set e.g. ``10_000`` for faster runs on
@@ -925,7 +905,6 @@ def build_enriched_schema_contract_for_institution(
         dataset_name_suffix=dataset_name_suffix,
         term_order_config_by_dataset=term_order_config_by_dataset,
         canonical_learner_column=canonical_learner_column,
-        completion_term_order_configs_by_dataset=completion_term_order_configs_by_dataset,
     )
 
     enriched = _build_enriched_schema_contract(
@@ -951,9 +930,6 @@ def build_enriched_schema_contract_for_dataset(
     grain_contracts_by_dataset: Optional[dict[str, GrainContract]] = None,
     canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
     term_order_config_by_dataset: Optional[dict[str, TermOrderConfig | None]] = None,
-    completion_term_order_configs_by_dataset: Optional[
-        dict[str, list[TermOrderConfig]]
-    ] = None,
     cleaning_cfg: Optional[CleaningConfig] = None,
     dedupe_fn_by_dataset: Optional[
         dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
@@ -981,7 +957,6 @@ def build_enriched_schema_contract_for_dataset(
         grain_contracts_by_dataset=grain_contracts_by_dataset,
         canonical_learner_column=canonical_learner_column,
         term_order_config_by_dataset=term_order_config_by_dataset,
-        completion_term_order_configs_by_dataset=completion_term_order_configs_by_dataset,
         cleaning_cfg=cleaning_cfg,
         dedupe_fn_by_dataset=dedupe_fn_by_dataset,
         hook_modules_root=hook_modules_root,
@@ -1032,9 +1007,6 @@ def _build_enriched_schema_contract(
             term_norm = matching_example.get("term_normalization")
             if term_norm is not None:
                 training_block["term_normalization"] = term_norm
-            comp_norm = matching_example.get("completion_term_normalizations")
-            if comp_norm:
-                training_block["completion_term_normalizations"] = comp_norm
             merged_datasets[logical_name]["training"] = training_block
 
     base_contract = schema_contracts[0][1]

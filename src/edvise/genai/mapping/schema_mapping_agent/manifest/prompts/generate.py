@@ -68,18 +68,6 @@ def _term_normalization_note_for_prompt(tn: TermNormalizationSummary) -> str:
     )
 
 
-def _completion_term_normalization_note_for_prompt(
-    tn: TermNormalizationSummary,
-) -> str:
-    """One line per IdentityAgent completion stream (prefixed `_edvise_term_*` on wide student)."""
-    core = _term_normalization_note_for_prompt(tn)
-    p = tn.materialized_column_prefix
-    r = tn.stream_role or "completion"
-    if p:
-        return f"[{r}] {core} Materialized `{p}_edvise_term_*`."
-    return f"[{r}] {core}"
-
-
 def summarize_schema_contract(
     contract: dict[str, Any] | EnrichedSchemaContractForSMA,
 ) -> dict:
@@ -91,9 +79,8 @@ def summarize_schema_contract(
 
     Keeps: column names, dtypes (from each dataset's frozen ``dtypes`` map), null %,
     unique values (if present), sample values from ``training.column_details``,
-    and one-line ``term_normalization_note`` / ``completion_term_normalization_notes`` when
-    IdentityAgent populated ``training.term_normalization`` and/or
-    ``training.completion_term_normalizations`` (not the full structs).
+    and one-line ``term_normalization_note`` when IdentityAgent populated
+    ``training.term_normalization`` (not the full struct).
     Drops: column_order_hash, normalization maps, file paths, boolean_map, null_tokens.
     """
     parsed = (
@@ -139,11 +126,6 @@ def summarize_schema_contract(
             ds_summary["term_normalization_note"] = _term_normalization_note_for_prompt(
                 tn
             )
-        ctns = table_info.training.completion_term_normalizations
-        if ctns:
-            ds_summary["completion_term_normalization_notes"] = [
-                _completion_term_normalization_note_for_prompt(x) for x in ctns
-            ]
         summary["datasets"][table_name] = ds_summary
 
     return summary
@@ -233,9 +215,8 @@ COHORT entry_year AND entry_term — decision hierarchy (apply in order)
 def _step2a_cohort_degree_conferral_datetime_rules() -> str:
     """Step 2a: prefer IA term columns on degree/award lookup for conferral-style datetime targets."""
     t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
-    return (
-        """
-COHORT conferral-style DATETIME targets (student → `degree` or similar award lookup) — decision hierarchy
+    return f"""
+COHORT conferral-style DATETIME targets (student → award / degree lookup) — decision hierarchy
 
 Targets: `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
 `certificate1_date`, `certificate2_date`, `certificate3_date` (see DATETIME AND DATE TARGET FIELDS).
@@ -243,40 +224,47 @@ Targets: `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
 These are **OUTCOME CONFERRAL-STYLE** in the schema (may be built from non-datetime sources); still apply
 this hierarchy **before** choosing raw term codes.
 
-**(1) Preferred — `_edvise_term_academic_year` on the award / degree lookup row**
-- When the schema contract **dtypes** for the lookup table (e.g. `degree`) include
-  `_edvise_term_academic_year`, set `source_column` to **`_edvise_term_academic_year`** on that lookup table
-  with the appropriate join (typically `student` → `degree` on `learner_id` / `student_id`), plus
-  `row_selection` filters (e.g. `awarded_degree` **isin**) and `first_by` / `nth` on `_term_order` as needed.
-- Do **not** use raw institutional `term` strings on `degree` as the preferred source when
-  `_edvise_term_academic_year` is present on that table — raw `term` is only a fallback proxy.
+**(1) Preferred — IA-materialized `_edvise_term_academic_year` on the award / degree lookup row**
+- When the schema contract **dtypes** for the award / degree lookup table include `_edvise_term_academic_year`,
+  set `source_column` to **`_edvise_term_academic_year`** on that table with the appropriate join from the student
+  table (standard learner / student keys), plus `row_selection` filters (e.g. awarded-degree predicates) and
+  `first_by` / `nth` on `_term_order` as needed.
+- Do **not** use a raw term column on the lookup row as the preferred source when `_edvise_term_academic_year`
+  is present there — raw encoding is only a fallback proxy per **(3)**.
 
-**(2) Preferred — wide `student`: calendar datetime first, else completion-prefixed IA**
-- **Datetime first:** When the cohort base table has a **`datetime64[ns]`** column that directly represents conferral /
-  completion calendar timing for the target (e.g. official graduation date), map the conferral target to **that column**
-  with `row_selection.strategy`: `"any_row"`. When **both** that datetime column and `{prefix}_edvise_term_*` from a
-  completion stream appear on **student**, **prefer the datetime column** — true calendar dates outweigh term-derived
-  proxies for SMA; IA may still materialize `{prefix}_…` for other consistency checks.
-- **Else — completion IA:** When no suitable conferral **datetime** column exists on **student**, but **dtypes**
-  include `{prefix}_edvise_term_academic_year` / `{prefix}_edvise_term_season` (see `completion_term_normalization_notes`),
-  map to **`{prefix}_edvise_term_academic_year`** on **student** with `"any_row"`.
-- Do **not** map conferral targets to unprefixed `_edvise_term_*` on student when those encode **entry/cohort only**
-  and a completion stream exists for the outcome — unprefixed columns are not interchangeable with `{prefix}_edvise_term_*`.
+**(2) Wide student row**
+
+**(2a) True calendar datetime on the wide student row**
+- If a **`datetime64[ns]`** (or unambiguous date) column on the student table directly represents conferral /
+  completion timing for the target, map the conferral target to that column with `source_table` = student and
+  `row_selection.strategy`: `"any_row"`. Use **full confidence** when the mapping is unambiguous.
+
+**(2b) Raw term code on the wide student row**
+- When **no** award / degree lookup table is joinable and the only available source is a **raw term code** column
+  on the student table (e.g. a compact numeric encoding, a season+year string, or any non-datetime format): map from
+  that column with `source_table` = student, `row_selection.strategy`: `"any_row"`, **lower confidence** (typically ≤ {t}),
+  and **validation_notes** that Step 2b must parse / coerce to `datetime64[ns]` from the raw encoding.
+- **Column grounding:** derive the format interpretation from **that column's own** `sample_values` in the schema
+  contract — never infer format from any other term-related column on the same table, even when multiple columns
+  appear to encode terms. Different columns on the same table may use entirely different term encodings.
+
+- **Do not** map conferral-style targets to **`_edvise_term_academic_year`** or **`_edvise_term_season`** on **student**
+  when those carry entry / cohort semantics on the wide row — they are not degree completion, even when samples look
+  correlated with outcomes.
+- Prefer **(1)** when the lookup path exists; when **(1)** is unavailable and neither **(2a)** nor **(2b)** applies,
+  use **(3)** or **(4)** as appropriate.
 
 **(3) Fallback — IA column missing on the lookup table**
-- Map from raw `term` or other coded timing columns on the award row **only** when `_edvise_term_academic_year`
-  is not present in the contract for that table.
-- Use lower confidence (typically ≤ """
-        + f"{t}"
-        + """), **validation_notes** that parsing / coercing to datetime is required, and flag **HITL** when
+- Map from a raw term code or other coded timing column on the **award / degree lookup row** **only** when
+  `_edvise_term_academic_year` is not present in the contract for that table (Step 2b builds the datetime pipeline
+  from those sources).
+- Use lower confidence (typically ≤ {t}), **validation_notes** that parsing / coercing to datetime is required, and flag **HITL** when
   the proxy is weak.
 
 **(4) Unmapped — upstream IdentityAgent gap**
 - If no defensible timing column exists, leave unmappable; **validation_notes** should state that
-  IdentityAgent should materialize `_edvise_term_*` on the degree/award table and/or completion-prefixed
-  columns on student (or provide a datetime source).
+  IdentityAgent should materialize `_edvise_term_*` on the degree/award table and/or provide a datetime source.
 """
-    )
 
 
 def _step2a_course_academic_term_rules() -> str:
@@ -534,10 +522,11 @@ DATETIME AND DATE TARGET FIELDS
       - Course entity: course_begin_date, course_end_date
 
   (2) OUTCOME CONFERRAL-STYLE — **not** STRICT (manifest sources are often non-datetime IA columns → Step 2b →
-      `datetime64[ns]`). Apply **COHORT conferral-style DATETIME targets** above: on wide `student`, **prefer a true
-      conferral `datetime64[ns]` column over `{{prefix}}_edvise_term_*`** when both exist; otherwise award-row IA,
-      then prefixed completion IA, then coded fallbacks. Step 2b typically uses `term_components_to_datetime` when the
-      manifest sources IA columns (not when the manifest sources calendar datetime directly).
+      `datetime64[ns]`). Apply **COHORT conferral-style DATETIME targets** above: on wide `student`, only a true
+      conferral `datetime64[ns]` column qualifies — **never** `student._edvise_term_*` (entry semantics). Prefer
+      award-row `_edvise_term_academic_year` (+ join/filters), then raw/coded timing on the **award** row for Step 2b.
+      Step 2b typically uses `term_components_to_datetime` when the manifest sources IA columns on the degree row
+      (not when the manifest sources calendar datetime directly).
       - Cohort (student) entity: bachelors_degree_conferral_date, associates_degree_conferral_date,
         certificate1_date, certificate2_date, certificate3_date
 

@@ -14,7 +14,6 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
 from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
     FieldTransformationPlan,
     MapValuesStep,
-    NewUtilityNeededStep,
     TermComponentsToDatetimeStep,
     TransformationMap,
     TransformationStep,
@@ -62,16 +61,26 @@ def test_transformation_step_term_components_to_datetime():
     assert step.extra_columns["season_series"] == "_edvise_term_season"
 
 
-def test_transformation_step_new_utility_needed_gap_property():
+def test_transformation_step_rejects_retired_new_utility_discriminator():
     adapter = TypeAdapter(TransformationStep)
-    step = adapter.validate_python(
-        {
-            "function_name": "NEW_UTILITY_NEEDED",
-            "description": "Need fuzzy date parser",
-        }
+    with pytest.raises(ValidationError):
+        adapter.validate_python(
+            {
+                "function_name": "NEW_UTILITY_NEEDED",
+                "description": "Need fuzzy date parser",
+            }
+        )
+
+
+def test_field_transformation_plan_hook_required():
+    plan = FieldTransformationPlan(
+        target_field="completion_term",
+        output_dtype="category",
+        hook_required=True,
+        reviewer_notes="YYYYMM custom season split not covered by utilities.",
+        steps=[],
     )
-    assert isinstance(step, NewUtilityNeededStep)
-    assert step.is_gap is True
+    assert plan.hook_required is True
 
 
 def test_transformation_step_invalid_discriminator():

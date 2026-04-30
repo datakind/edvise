@@ -325,17 +325,13 @@ def count_term_hook_required_streams(
 ) -> int:
     """
     Count :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermOrderConfig`
-    instances (primary ``term_config`` plus each ``completion_term_streams`` entry) with
-    ``term_extraction == 'hook_required'``.
+    instances (primary ``term_config`` only) with ``term_extraction == 'hook_required'``.
     """
     n = 0
     for tc in term_contract_by_dataset.values():
         tcfg = tc.term_config
         if tcfg is not None and tcfg.term_extraction == "hook_required":
             n += 1
-        for stream in tc.completion_term_streams or []:
-            if stream.term_extraction == "hook_required":
-                n += 1
     return n
 
 
@@ -345,13 +341,13 @@ def validate_term_hook_hitl_covers_hook_required(
     term_contract_by_dataset: dict[str, TermContract],
 ) -> None:
     """
-    Ensure every hook-required term stream can go through hook generation.
+    Ensure every hook-required ``term_config`` can go through hook generation.
 
     Hook generation runs only for resolved HITL items whose selected option has
     ``reentry=GENERATE_HOOK`` (:func:`get_hook_items`). If ``identity_term_output.json`` lists more
-    ``hook_required`` streams than there are such items (after hook-group deduplication), the batch
+    ``hook_required`` tables than there are such items (after hook-group deduplication), the batch
     drafts in the resolver JSON are not sufficient — the pipeline would skip hook gen for some
-    streams or rely on unstale drafts.
+    tables or rely on unstale drafts.
 
     Raises
     ------
@@ -372,10 +368,10 @@ def validate_term_hook_hitl_covers_hook_required(
         )
     if n_items < n_streams:
         raise HITLValidationError(
-            f"identity_term_output.json has {n_streams} hook_required term stream(s) "
-            f"(primary term_config + completion_term_streams) but only {n_items} "
+            f"identity_term_output.json has {n_streams} hook_required term_config(s) "
+            f"but only {n_items} "
             "GENERATE_HOOK HITL item(s) after hook_group_id deduplication. Each hook_required "
-            "stream needs a hook-generation review path, or multiple streams must explicitly "
+            "table needs a hook-generation review path, or multiple tables must explicitly "
             "share one item via hook_group_id / hook_group_tables. Batch-only hook_spec drafts "
             "do not satisfy hook generation."
         )

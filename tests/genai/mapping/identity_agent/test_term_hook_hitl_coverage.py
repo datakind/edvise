@@ -1,4 +1,4 @@
-"""Guardrails: hook_required streams vs GENERATE_HOOK HITL items."""
+"""Guardrails: hook_required term_config vs GENERATE_HOOK HITL items."""
 
 import json
 
@@ -88,7 +88,6 @@ def test_validate_term_hook_hitl_skips_when_no_hook_required(tmp_path) -> None:
             season_map=[{"raw": "Fall", "canonical": "FALL"}],
             term_extraction="standard",
         ),
-        completion_term_streams=[],
         confidence=0.9,
         hitl_flag=False,
         reasoning="r",
@@ -122,7 +121,6 @@ def test_validate_term_hook_hitl_passes_when_streams_match_generate_hook_items(
             term_extraction="hook_required",
             hook_spec=_hs(),
         ),
-        completion_term_streams=[],
         confidence=0.9,
         hitl_flag=True,
         reasoning="r",
@@ -143,11 +141,11 @@ def test_validate_term_hook_hitl_passes_when_streams_match_generate_hook_items(
     )
 
 
-def test_validate_term_hook_hitl_raises_when_hook_streams_exceed_hitl_items(
+def test_validate_term_hook_hitl_raises_when_hook_tables_exceed_hitl_items(
     tmp_path,
 ) -> None:
-    """Primary + completion hook_required (2 streams) but only one GENERATE_HOOK item."""
-    tc = TermContract(
+    """Two hook_required datasets but only one GENERATE_HOOK item (after dedupe)."""
+    tc_student = TermContract(
         institution_id="u",
         table="student",
         term_config=TermOrderConfig(
@@ -156,15 +154,19 @@ def test_validate_term_hook_hitl_raises_when_hook_streams_exceed_hitl_items(
             term_extraction="hook_required",
             hook_spec=_hs(),
         ),
-        completion_term_streams=[
-            TermOrderConfig(
-                term_col="DEG",
-                season_map=[],
-                term_extraction="hook_required",
-                hook_spec=_hs(),
-                output_prefix="_c",
-            ),
-        ],
+        confidence=0.75,
+        hitl_flag=True,
+        reasoning="r",
+    )
+    tc_course = TermContract(
+        institution_id="u",
+        table="course",
+        term_config=TermOrderConfig(
+            term_col="DEG",
+            season_map=[],
+            term_extraction="hook_required",
+            hook_spec=_hs(),
+        ),
         confidence=0.75,
         hitl_flag=True,
         reasoning="r",
@@ -182,7 +184,7 @@ def test_validate_term_hook_hitl_raises_when_hook_streams_exceed_hitl_items(
     with pytest.raises(HITLValidationError, match="only 1"):
         validate_term_hook_hitl_covers_hook_required(
             term_hitl_path=p,
-            term_contract_by_dataset={"student": tc},
+            term_contract_by_dataset={"student": tc_student, "course": tc_course},
         )
 
 
@@ -197,7 +199,6 @@ def test_validate_term_hook_hitl_raises_when_no_generate_hook_items(tmp_path) ->
             term_extraction="hook_required",
             hook_spec=_hs(),
         ),
-        completion_term_streams=[],
         confidence=0.9,
         hitl_flag=True,
         reasoning="r",

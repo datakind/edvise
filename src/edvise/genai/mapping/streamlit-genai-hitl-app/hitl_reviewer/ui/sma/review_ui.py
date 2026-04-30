@@ -36,12 +36,16 @@ from hitl_reviewer.platform.unity_volume_files import read_unity_file_text
 
 
 def is_sma_phase(phase: str, artifact_type: str) -> bool:
-    return str(phase).strip().lower() == "sma_gate_1" and str(
-        artifact_type
-    ).strip().lower() in (
-        "cohort_manifest",
-        "course_manifest",
-    )
+    ph = str(phase).strip().lower()
+    at = str(artifact_type).strip().lower()
+    if ph == "sma_gate_1" and at in ("cohort_manifest", "course_manifest"):
+        return True
+    if ph == "sma_gate_2_hook_required" and at in (
+        "cohort_transformation_hook_hitl",
+        "course_transformation_hook_hitl",
+    ):
+        return True
+    return False
 
 
 def _sma_wrapped_prose_block(text: str) -> None:
@@ -57,37 +61,45 @@ def _sma_wrapped_prose_block(text: str) -> None:
 
 def invalidate_sma_run_pending_cache(onboard_run_id: str) -> None:
     rid = str(onboard_run_id).strip()
-    for suffix in ("total", "order"):
-        k = f"sma-run-pending-{suffix}-{rid}"
-        if k in st.session_state:
+    for k in list(st.session_state.keys()):
+        if not isinstance(k, str):
+            continue
+        if k == f"sma-run-pending-total-{rid}" or k.startswith(
+            f"sma-run-pending-order-{rid}"
+        ):
             del st.session_state[k]
 
 
 def sma_run_pending_ordered_pairs(
-    pending_df: pd.DataFrame, onboard_run_id: str
+    pending_df: pd.DataFrame,
+    onboard_run_id: str,
+    *,
+    phase: str = "sma_gate_1",
+    artifact_types: tuple[str, ...] = ("cohort_manifest", "course_manifest"),
 ) -> list[tuple[str, int]]:
     """
     Pending SMA HITL items (``choice`` unset, has ``options``) across manifests for the run.
 
-    Order: ``cohort_manifest`` artifact rows first, then ``course_manifest``, each file's
-    ``items`` in list order. Used for run-wide ``X of Y pending``.
+    Order: first artifact type in ``artifact_types``, then second, each file's ``items`` in list
+    order. Used for run-wide ``X of Y pending``.
     """
     rid = str(onboard_run_id).strip()
-    cache_key = f"sma-run-pending-order-{rid}"
+    ph_lc = str(phase).strip().lower()
+    cache_key = f"sma-run-pending-order-{rid}-{ph_lc}-{'|'.join(artifact_types)}"
     if cache_key in st.session_state:
         return list(st.session_state[cache_key])
     sub = pending_df[
         (pending_df["onboard_run_id"].astype(str) == rid)
-        & (pending_df["phase"].astype(str).str.lower() == "sma_gate_1")
+        & (pending_df["phase"].astype(str).str.lower() == ph_lc)
         & (
             pending_df["artifact_type"]
             .astype(str)
             .str.lower()
-            .isin(["cohort_manifest", "course_manifest"])
+            .isin(list(artifact_types))
         )
     ]
     ordered: list[tuple[str, int]] = []
-    for at in ("cohort_manifest", "course_manifest"):
+    for at in artifact_types:
         rows = sub[sub["artifact_type"].astype(str).str.lower() == at]
         if rows.empty:
             continue
@@ -156,6 +168,10 @@ def render_sma_review_context(*, item: dict) -> None:
                 unsafe_allow_html=True,
             )
             _sma_wrapped_prose_block(rationale)
+        psnap = item.get("plan_snapshot")
+        if isinstance(psnap, dict) and psnap:
+            with st.expander("Transformation plan snapshot (hook_required)", expanded=False):
+                st.json(psnap)
         if val_notes:
             st.markdown(
                 '<p class="hitl-ctx-block"><strong>Predicted validation notes</strong></p>',
@@ -400,6 +416,11 @@ def render_sma_hitl_cards(
     uc_group_pending: bool = False,
     approve_uc_if_complete: Callable[[], None] | None = None,
     after_uc_approve_success: Callable[[], None] | None = None,
+    pending_pair_phase: str = "sma_gate_1",
+    pending_pair_artifact_types: tuple[str, ...] = (
+        "cohort_manifest",
+        "course_manifest",
+    ),
 ) -> None:
     """Full SMA manifest HITL UI, including Save + optional UC approve (``ssave{sk}``)."""
     inject_hitl_css()
@@ -441,7 +462,12 @@ def render_sma_hitl_cards(
         y_pending = len(pending_ixs)
         run_line = ""
         if pending_df is not None and not pending_df.empty:
-            ordered = sma_run_pending_ordered_pairs(pending_df, str(onboard_run_id))
+            ordered = sma_run_pending_ordered_pairs(
+                pending_df,
+                str(onboard_run_id),
+                phase=pending_pair_phase,
+                artifact_types=pending_pair_artifact_types,
+            )
             y_run = len(ordered)
             pr = (silver_path.strip(), int(i))
             if y_run > 0 and pr in ordered:

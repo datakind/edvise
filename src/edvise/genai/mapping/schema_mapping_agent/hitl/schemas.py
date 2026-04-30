@@ -28,7 +28,10 @@ File layout per institution:
         run_log.json            ← append-only audit trail (shared with IdentityAgent)
 
 Scope: Schema Mapping Agent (2a) only.
-2b HITL (map_values, transformation plan corrections) is future scope.
+Step 2b ``hook_required``: generated HookSpecs are previewed under UC phase ``sma_gate_2_hook_preview``
+(see :mod:`~edvise.genai.mapping.schema_mapping_agent.hitl.transform_hook_generation`), then
+option-choice HITL uses :mod:`~edvise.genai.mapping.schema_mapping_agent.hitl.transformation_hook_hitl`
+and UC phase ``sma_gate_2_hook_required``.
 """
 
 from __future__ import annotations

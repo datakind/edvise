@@ -289,7 +289,8 @@ def test_summarize_schema_contract_includes_term_normalization():
     assert "term_normalization" not in summary["datasets"]["students"]
 
 
-def test_summarize_schema_contract_includes_completion_term_normalizations():
+def test_summarize_schema_contract_drops_legacy_completion_term_normalizations():
+    """Old enriched JSON may carry ``completion_term_normalizations``; SMA summary is entry-only."""
     raw = {
         "school_id": "s1",
         "school_name": "School One",
@@ -344,7 +345,5 @@ def test_summarize_schema_contract_includes_completion_term_normalizations():
         },
     }
     summary = summarize_schema_contract(raw)
-    notes = summary["datasets"]["students"]["completion_term_normalization_notes"]
-    assert len(notes) == 1
-    assert "_completion_bachelors" in notes[0]
-    assert "bachelors_grad_term" in notes[0]
+    assert "completion_term_normalization_notes" not in summary["datasets"]["students"]
+    assert "entry_term" in summary["datasets"]["students"]["term_normalization_note"]
