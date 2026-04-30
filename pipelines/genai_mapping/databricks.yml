@@ -27,6 +27,8 @@ variables:
 run_as:
   service_principal_name: ${var.ds_run_as}
 
+# GenAI job ``pipeline_version`` matches PDP: dev targets default to ``git_commit``, prod to ``git_tag``.
+
 targets:
   dev:
     mode: development
@@ -37,11 +39,17 @@ targets:
     resources:
       jobs:
         edvise_genai_mapping_onboard_pipeline:
+          parameters:
+            - name: pipeline_version
+              default: ${var.git_commit}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_commit: ${var.git_commit}
         edvise_genai_mapping_execute_pipeline:
+          parameters:
+            - name: pipeline_version
+              default: ${var.git_commit}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
@@ -55,11 +63,17 @@ targets:
     resources:
       jobs:
         edvise_genai_mapping_onboard_pipeline:
+          parameters:
+            - name: pipeline_version
+              default: ${var.git_tag}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_tag: ${var.git_tag}
         edvise_genai_mapping_execute_pipeline:
+          parameters:
+            - name: pipeline_version
+              default: ${var.git_tag}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub

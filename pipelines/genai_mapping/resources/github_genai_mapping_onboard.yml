@@ -24,6 +24,8 @@ resources:
               - start
               - --inputs_toml_path
               - "{{job.parameters.inputs_toml_path}}"
+              - --pipeline_version
+              - "{{job.parameters.pipeline_version}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-genai-mapping-onboard-cluster
@@ -66,6 +68,8 @@ resources:
               - gate_1
               - --inputs_toml_path
               - "{{job.parameters.inputs_toml_path}}"
+              - --pipeline_version
+              - "{{job.parameters.pipeline_version}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-genai-mapping-onboard-cluster
@@ -90,6 +94,8 @@ resources:
               - "{{job.parameters.reference_id}}"
               - --inputs_toml_path
               - "{{job.parameters.inputs_toml_path}}"
+              - --pipeline_version
+              - "{{job.parameters.pipeline_version}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-genai-mapping-onboard-cluster
@@ -114,6 +120,8 @@ resources:
               - "{{job.parameters.reference_id}}"
               - --inputs_toml_path
               - "{{job.parameters.inputs_toml_path}}"
+              - --pipeline_version
+              - "{{job.parameters.pipeline_version}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-genai-mapping-onboard-cluster
@@ -147,6 +155,9 @@ resources:
           default: ${var.DB_workspace}
         - name: inputs_toml_path
           default: "inputs.toml"
+        # Bundle targets patch default: dev → git commit, prod → release tag (pipelines/genai_mapping/databricks.yml).
+        - name: pipeline_version
+          default: ""
         - name: reference_id
           default: ""
         - name: db_run_id
