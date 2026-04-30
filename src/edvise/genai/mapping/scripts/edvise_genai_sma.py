@@ -69,6 +69,7 @@ from edvise.genai.mapping.state.hitl_poller import (
     HITLTimeoutError,
 )
 from edvise.shared.logger import init_file_logging_at_path
+from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
 LOGGER = logging.getLogger("edvise_sma")
 
@@ -394,6 +395,31 @@ def _run_once(model_id: str, prompt: str, client) -> dict:
     return last
 
 
+def _sma_llm_complete_run_once(client):
+    """``(system, user) -> text`` for :func:`llm_complete_with_parse_retry` (combines like refinement)."""
+
+    def llm_complete(system: str, user: str) -> str:
+        s = (system or "").strip()
+        u = (user or "").strip()
+        if s and u:
+            combined = f"{s}\n\n---\n\n{u}"
+        elif u:
+            combined = u
+        elif s:
+            combined = s
+        else:
+            raise RuntimeError("SMA LLM call has empty system and user prompts")
+        result = _run_once(_DEFAULT_SMA_GATEWAY_MODEL_ID, combined, client)
+        if not result.get("success"):
+            raise RuntimeError(result.get("error") or "SMA LLM call failed")
+        resp = result.get("response")
+        if not isinstance(resp, str) or not resp.strip():
+            raise RuntimeError("SMA LLM returned empty response")
+        return resp
+
+    return llm_complete
+
+
 # ---------------------------------------------------------------------------
 # Onboard — resume_from="start"
 # Load IA outputs -> 2a LLM -> structural validation -> refinement LLM -> write HITL -> exit
@@ -462,20 +488,27 @@ def run_onboard_start(
         cohort_schema_class=RawEdviseStudentDataSchema,
         course_schema_class=RawEdviseCourseDataSchema,
     )
-    result_2a = _run_once(_DEFAULT_SMA_GATEWAY_MODEL_ID, prompt_2a, client)
-    if not result_2a["success"]:
-        raise RuntimeError(result_2a.get("error") or "Step 2a LLM failed")
 
-    manifest_2a = json.loads(result_2a["response"])
-    # Step 2a agent schema omits envelope-only fields (see MappingManifestEnvelope).
-    if isinstance(manifest_2a, dict):
-        manifest_2a["institution_id"] = institution_id
-        manifest_2a["pipeline_version"] = pipeline_version
-    ok, err = validate_envelope_dict(manifest_2a)
-    if not ok:
-        LOGGER.warning("[onboard/start] Manifest Pydantic validation warning: %s", err)
+    llm_sma = _sma_llm_complete_run_once(client)
 
-    envelope_2a = MappingManifestEnvelope.model_validate(manifest_2a)
+    def _parse_step2a_envelope(raw: str) -> MappingManifestEnvelope:
+        manifest_dict = json.loads(raw)
+        # Step 2a agent schema omits envelope-only fields (see MappingManifestEnvelope).
+        if isinstance(manifest_dict, dict):
+            manifest_dict["institution_id"] = institution_id
+            manifest_dict["pipeline_version"] = pipeline_version
+        ok, err = validate_envelope_dict(manifest_dict)
+        if not ok:
+            LOGGER.warning("[onboard/start] Manifest Pydantic validation warning: %s", err)
+        return MappingManifestEnvelope.model_validate(manifest_dict)
+
+    envelope_2a = llm_complete_with_parse_retry(
+        llm_sma,
+        "",
+        prompt_2a,
+        _parse_step2a_envelope,
+        logger=LOGGER,
+    )
     manifest_2a = envelope_2a.model_dump(mode="json", exclude_none=True)
 
     # Structural validation
@@ -500,15 +533,7 @@ def run_onboard_start(
     LOGGER.info("[onboard/start] Refinement LLM (4 calls)")
 
     def _refinement_llm_complete(system: str, user: str) -> str:
-        combined = system + "\n\n---\n\n" + user
-        r = _run_once(
-            _DEFAULT_SMA_GATEWAY_MODEL_ID,
-            combined,
-            client,
-        )
-        if not r.get("success"):
-            raise RuntimeError(r.get("error") or "SMA refinement LLM call failed")
-        return r["response"]
+        return llm_sma(system, user)
 
     for entity_key, entity_manifest in list(envelope_2a.manifests.items()):
         ek = entity_key.value if hasattr(entity_key, "value") else str(entity_key)
@@ -589,6 +614,8 @@ def run_onboard_gate_2(
     pipeline_version: str,
     db_run_id: str | None = None,
 ):
+    from pydantic import ValidationError
+
     from edvise.genai.mapping.schema_mapping_agent.manifest.hitl import (
         check_sma_hitl_gate,
         resolve_sma_items,
@@ -605,9 +632,6 @@ def run_onboard_gate_2(
     )
     from edvise.genai.mapping.schema_mapping_agent.transformation.dedupe_plans import (
         dedupe_transformation_plans_in_wrapper,
-    )
-    from edvise.genai.mapping.schema_mapping_agent.transformation.eval import (
-        validate_transformation_wrapper,
     )
     from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import load_json
     from edvise.genai.mapping.schema_mapping_agent.execution.field_executor import (
@@ -676,17 +700,69 @@ def run_onboard_gate_2(
         reference_institution_ids=[reference_id],
         institution_term_config=institution_term_config,
     )
-    result_2b = _run_once(_DEFAULT_SMA_GATEWAY_MODEL_ID, prompt_2b, client)
-    if not result_2b["success"]:
-        raise RuntimeError(result_2b.get("error") or "Step 2b LLM failed")
 
-    transformation_data = json.loads(result_2b["response"])
-    dedupe_transformation_plans_in_wrapper(transformation_data, log=LOGGER)
-    ok, err = validate_transformation_wrapper(transformation_data)
-    if not ok:
-        LOGGER.warning(
-            "[onboard/gate_2] Transformation map validation warning: %s", err
-        )
+    llm_sma = _sma_llm_complete_run_once(client)
+
+    def _parse_step2b_transformation_wrapper(raw: str) -> dict:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValidationError.from_exception_data(
+                "Step2bTransformationRoot",
+                [
+                    {
+                        "type": "dict_type",
+                        "loc": (),
+                        "msg": "Root JSON must be an object",
+                        "input": data,
+                    }
+                ],
+            )
+        dedupe_transformation_plans_in_wrapper(data, log=LOGGER)
+        data["institution_id"] = institution_id
+        data["pipeline_version"] = pipeline_version
+        tmaps = data.get("transformation_maps")
+        if not isinstance(tmaps, dict):
+            raise ValidationError.from_exception_data(
+                "TransformationMaps",
+                [
+                    {
+                        "type": "dict_type",
+                        "loc": ("transformation_maps",),
+                        "msg": "transformation_maps must be an object",
+                        "input": tmaps,
+                    }
+                ],
+            )
+        for entity_type in ("cohort", "course"):
+            sec = tmaps.get(entity_type)
+            if not isinstance(sec, dict):
+                raise ValidationError.from_exception_data(
+                    "TransformationSection",
+                    [
+                        {
+                            "type": "dict_type",
+                            "loc": ("transformation_maps", entity_type),
+                            "msg": "Expected an object",
+                            "input": sec,
+                        }
+                    ],
+                )
+            tm_dict = {
+                **sec,
+                "institution_id": institution_id,
+                "pipeline_version": pipeline_version,
+                "entity_type": entity_type,
+            }
+            TransformationMap.model_validate(tm_dict)
+        return data
+
+    transformation_data = llm_complete_with_parse_retry(
+        llm_sma,
+        "",
+        prompt_2b,
+        _parse_step2b_transformation_wrapper,
+        logger=LOGGER,
+    )
 
     from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.review import (
         apply_transformation_review_resolutions,
