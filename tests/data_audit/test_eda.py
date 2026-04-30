@@ -316,10 +316,35 @@ class TestEdaSummary:
 
     def test_enrollment_type_by_intensity(self, sample_cohort_data):
         assert EdaSummary(sample_cohort_data).enrollment_type_by_intensity == {
+            "total": 9,
             "categories": ["First-Time", "Transfer-In"],
             "series": [
-                {"name": "Full-Time", "data": [3.0, 5.0]},
-                {"name": "Part-Time", "data": [0.0, 1.0]},
+                {
+                    "name": "Full-Time",
+                    "data": [
+                        {
+                            "name": "First-Time",
+                            "count": 3,
+                            "percentage": 33.33,
+                        },
+                        {
+                            "name": "Transfer-In",
+                            "count": 5,
+                            "percentage": 55.56,
+                        },
+                    ],
+                },
+                {
+                    "name": "Part-Time",
+                    "data": [
+                        {"name": "First-Time", "count": 0, "percentage": 0},
+                        {
+                            "name": "Transfer-In",
+                            "count": 1,
+                            "percentage": 11.11,
+                        },
+                    ],
+                },
             ],
         }
 
