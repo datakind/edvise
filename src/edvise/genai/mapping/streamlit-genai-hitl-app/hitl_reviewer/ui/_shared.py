@@ -191,6 +191,63 @@ def render_hitl_header(
     )
 
 
+def render_prev_next_nav_row(
+    *,
+    nav_key: str,
+    cur: int,
+    n_items: int,
+    sk: str,
+    key_prefix: str,
+    before_nav_rerun: Callable[[], None] | None,
+    nav_row_key_suffix: str,
+    entity_label: str,
+) -> None:
+    """
+    Prev/Next row only. Used twice on tall IA cards (grain/term): once above long editors and once
+    in the bottom action bar so reviewers do not have to scroll past ``st.data_editor`` / tables.
+    """
+    if n_items <= 1:
+        return
+    ent = str(entity_label).strip() or "item"
+    c_prev, c_next, _nav_pad = st.columns([1, 1, 3], gap="small")
+    with c_prev:
+        pk = f"{key_prefix}-prev-{sk}{nav_row_key_suffix}"
+        if st.button(
+            "◀ Prev",
+            key=pk,
+            use_container_width=True,
+            disabled=cur <= 0,
+            help=(
+                f"First {ent} item in this file."
+                if cur <= 0
+                else f"Previous {ent} item in this JSON file."
+            ),
+        ):
+            if before_nav_rerun is not None:
+                before_nav_rerun()
+            st.session_state[nav_key] = max(0, cur - 1)
+            st.rerun()
+    with c_next:
+        nk = f"{key_prefix}-nxt-{sk}{nav_row_key_suffix}"
+        if st.button(
+            "Next ▶",
+            key=nk,
+            use_container_width=True,
+            disabled=cur >= n_items - 1,
+            help=(
+                f"Last {ent} item in this file — pick an option below, then Approve."
+                if cur >= n_items - 1
+                else f"Next {ent} item in this JSON file."
+            ),
+        ):
+            if before_nav_rerun is not None:
+                before_nav_rerun()
+            st.session_state[nav_key] = min(n_items - 1, cur + 1)
+            st.rerun()
+    with _nav_pad:
+        pass
+
+
 def init_sel_key(sel_key: str, choice: Any, n_opt: int) -> None:
     if sel_key not in st.session_state:
         if choice is None:
@@ -259,6 +316,8 @@ def render_action_bar(
     include_prev_next: bool,
     nav_prev_button_key: str | None,
     nav_next_button_key: str | None,
+    nav_entity_label: str = "item",
+    nav_row_key_suffix: str = "",
     primary_button_key: str,
     primary_button_label: str,
     primary_help: str,
@@ -276,49 +335,58 @@ def render_action_bar(
 ) -> None:
     if pre_bar_caption is not None:
         st.caption(pre_bar_caption)
+    ent = str(nav_entity_label).strip() or "item"
     with st.container(border=True):
         if include_prev_next and n_items > 1:
-            c_prev, c_next, _nav_pad = st.columns([1, 1, 3], gap="small")
-            with c_prev:
-                pk = (
-                    f"{key_prefix}-prev-{sk}"
-                    if nav_prev_button_key is None
-                    else nav_prev_button_key
+            if nav_prev_button_key is None and nav_next_button_key is None:
+                render_prev_next_nav_row(
+                    nav_key=nav_key,
+                    cur=cur,
+                    n_items=n_items,
+                    sk=sk,
+                    key_prefix=key_prefix,
+                    before_nav_rerun=before_nav_rerun,
+                    nav_row_key_suffix=nav_row_key_suffix,
+                    entity_label=ent,
                 )
-                if st.button(
-                    "◀ Prev",
-                    key=pk,
-                    use_container_width=True,
-                    disabled=cur <= 0,
-                    help="First grain item in this file."
-                    if cur <= 0
-                    else "Previous grain item (another table) in this JSON file.",
-                ):
-                    if before_nav_rerun is not None:
-                        before_nav_rerun()
-                    st.session_state[nav_key] = max(0, cur - 1)
-                    st.rerun()
-            with c_next:
-                nk = (
-                    f"{key_prefix}-nxt-{sk}"
-                    if nav_next_button_key is None
-                    else nav_next_button_key
-                )
-                if st.button(
-                    "Next ▶",
-                    key=nk,
-                    use_container_width=True,
-                    disabled=cur >= n_items - 1,
-                    help="Last grain item in this file — pick an option below, then Approve."
-                    if cur >= n_items - 1
-                    else "Next grain item (another table) in this JSON file.",
-                ):
-                    if before_nav_rerun is not None:
-                        before_nav_rerun()
-                    st.session_state[nav_key] = min(n_items - 1, cur + 1)
-                    st.rerun()
-            with _nav_pad:
-                pass
+            else:
+                c_prev, c_next, _nav_pad = st.columns([1, 1, 3], gap="small")
+                with c_prev:
+                    pk = nav_prev_button_key or f"{key_prefix}-prev-{sk}"
+                    if st.button(
+                        "◀ Prev",
+                        key=pk,
+                        use_container_width=True,
+                        disabled=cur <= 0,
+                        help=(
+                            f"First {ent} item in this file."
+                            if cur <= 0
+                            else f"Previous {ent} item (another table) in this JSON file."
+                        ),
+                    ):
+                        if before_nav_rerun is not None:
+                            before_nav_rerun()
+                        st.session_state[nav_key] = max(0, cur - 1)
+                        st.rerun()
+                with c_next:
+                    nk = nav_next_button_key or f"{key_prefix}-nxt-{sk}"
+                    if st.button(
+                        "Next ▶",
+                        key=nk,
+                        use_container_width=True,
+                        disabled=cur >= n_items - 1,
+                        help=(
+                            f"Last {ent} item in this file — pick an option below, then Approve."
+                            if cur >= n_items - 1
+                            else f"Next {ent} item (another table) in this JSON file."
+                        ),
+                    ):
+                        if before_nav_rerun is not None:
+                            before_nav_rerun()
+                        st.session_state[nav_key] = min(n_items - 1, cur + 1)
+                        st.rerun()
+                with _nav_pad:
+                    pass
             st.divider()
         c_save, c_rej = st.columns([2.6, 1.1], gap="small")
         with c_save:

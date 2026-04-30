@@ -25,6 +25,7 @@ from hitl_reviewer.ui._shared import (
     render_action_bar,
     render_hitl_header,
     render_option_cards,
+    render_prev_next_nav_row,
 )
 from hitl_reviewer.persistence.hitl_json_batch_commit import (
     persist_ia_term_hitl_from_session,
@@ -234,6 +235,43 @@ def render_ia_term_hitl_cards(
         if custom_key not in st.session_state:
             st.session_state[custom_key] = custom_store[i]
 
+        def _flush_ia_term_custom_note_to_store() -> None:
+            if str(sel_opt.get("reentry") or "").lower() != "generate_hook":
+                return
+            st_local = st.session_state.setdefault(custom_store_key, {})
+            if custom_key in st.session_state:
+                st_local[i] = str(st.session_state[custom_key])
+
+        def _flush_ia_term_smr_to_store() -> None:
+            if str(sel_opt.get("reentry") or "").lower() != "generate_hook":
+                return
+            rp = sel_opt.get("resolution") if isinstance(sel_opt, dict) else None
+            if not isinstance(rp, dict) or "season_map_replace" not in rp:
+                return
+            smk = ia_term_season_map_session_key(sk, i, sel_j)
+            smr_store_key_local = f"ia-term-smr-store-{sk}"
+            if smk in st.session_state:
+                df = st.session_state.get(smk)
+                if isinstance(df, pd.DataFrame):
+                    st.session_state.setdefault(smr_store_key_local, {})[
+                        f"{i}-{sel_j}"
+                    ] = df.copy()
+
+        def _flush_ia_term_nav_state() -> None:
+            _flush_ia_term_custom_note_to_store()
+            _flush_ia_term_smr_to_store()
+
+        render_prev_next_nav_row(
+            nav_key=nav_key,
+            cur=cur,
+            n_items=n_items,
+            sk=sk,
+            key_prefix="ia-term",
+            before_nav_rerun=_flush_ia_term_nav_state,
+            nav_row_key_suffix="-upper",
+            entity_label="term",
+        )
+
         if reentry_sel == "generate_hook":
             if sel_opt.get("resolution") is None:
                 st.text_area(
@@ -303,32 +341,6 @@ def render_ia_term_hitl_cards(
                 st.session_state[smr_key] = edited_smr.copy()
                 st.session_state.setdefault(smr_store_key, {})[loc] = edited_smr.copy()
 
-        def _flush_ia_term_custom_note_to_store() -> None:
-            if str(sel_opt.get("reentry") or "").lower() != "generate_hook":
-                return
-            st_local = st.session_state.setdefault(custom_store_key, {})
-            if custom_key in st.session_state:
-                st_local[i] = str(st.session_state[custom_key])
-
-        def _flush_ia_term_smr_to_store() -> None:
-            if str(sel_opt.get("reentry") or "").lower() != "generate_hook":
-                return
-            rp = sel_opt.get("resolution") if isinstance(sel_opt, dict) else None
-            if not isinstance(rp, dict) or "season_map_replace" not in rp:
-                return
-            smk = ia_term_season_map_session_key(sk, i, sel_j)
-            smr_store_key_local = f"ia-term-smr-store-{sk}"
-            if smk in st.session_state:
-                df = st.session_state.get(smk)
-                if isinstance(df, pd.DataFrame):
-                    st.session_state.setdefault(smr_store_key_local, {})[
-                        f"{i}-{sel_j}"
-                    ] = df.copy()
-
-        def _flush_ia_term_nav_state() -> None:
-            _flush_ia_term_custom_note_to_store()
-            _flush_ia_term_smr_to_store()
-
         opened_k, all_nav_seen = mark_hitl_nav_visit(
             store_key=f"ia-term-nav-visit-{sk}",
             silver_path=silver_path,
@@ -366,6 +378,8 @@ def render_ia_term_hitl_cards(
             include_prev_next=True,
             nav_prev_button_key=None,
             nav_next_button_key=None,
+            nav_entity_label="term",
+            nav_row_key_suffix="-lower",
             primary_button_key=f"ia-term-save-all-{sk}",
             primary_button_label="Approve",
             primary_help=_term_help,
