@@ -20,6 +20,7 @@ from hitl_reviewer.persistence.silver_hitl_paths import (
     set_item_choice,
     set_item_direct_edit_field_mapping,
     set_item_reviewer_note,
+    silver_volume_path_session_tag,
 )
 from hitl_reviewer.platform.unity_volume_files import (
     read_unity_file_text,
@@ -160,7 +161,7 @@ def persist_ia_grain_hitl_from_session(
     *, silver_path: str, sk: str, allow_silver_write: bool = True
 ) -> tuple[bool, str]:
     """
-    Merge session ``ia-grain-sel-{sk}-{file_index}`` (and custom notes) for every grain item
+    Merge session ``ia-grain-sel-{sk}-{path_tag}-{file_index}`` (and custom notes) for every grain item
     into one JSON write. Fails if any grain row still has no ``choice`` and no session selection.
     """
     if not allow_silver_write:
@@ -175,6 +176,7 @@ def persist_ia_grain_hitl_from_session(
     fis = _grain_item_file_indices(items)
     if not fis:
         return False, "No grain items with ``options`` in this file."
+    path_tag = silver_volume_path_session_tag(silver_path)
     for fi in fis:
         row = items[fi]
         if not isinstance(row, dict):
@@ -183,7 +185,7 @@ def persist_ia_grain_hitl_from_session(
         if not isinstance(opts, list) or len(opts) < 1:
             continue
         n_opt = len(opts)
-        sel_key = f"ia-grain-sel-{sk}-{fi}"
+        sel_key = f"ia-grain-sel-{sk}-{path_tag}-{fi}"
         disk_c = row.get("choice")
         if sel_key in st.session_state:
             try:
@@ -195,9 +197,9 @@ def persist_ia_grain_hitl_from_session(
             reentry = str(sel_opt.get("reentry") or "").lower()
             note: str | None = None
             if reentry == "generate_hook":
-                ck = f"ia-grain-custom-{sk}-{fi}"
+                ck = f"ia-grain-custom-{sk}-{path_tag}-{fi}"
                 note = _ia_hook_custom_reviewer_note(
-                    store_key=f"ia-grain-custom-store-{sk}",
+                    store_key=f"ia-grain-custom-store-{sk}-{path_tag}",
                     fi=fi,
                     widget_key=ck,
                 )

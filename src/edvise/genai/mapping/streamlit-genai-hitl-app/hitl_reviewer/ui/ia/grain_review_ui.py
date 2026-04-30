@@ -33,6 +33,7 @@ from hitl_reviewer.persistence.hitl_json_batch_commit import (
 from hitl_reviewer.persistence.silver_hitl_paths import (
     set_item_choice,
     set_item_reviewer_note,
+    silver_volume_path_session_tag,
 )
 from hitl_reviewer.platform.unity_volume_files import (
     read_unity_file_text,
@@ -237,13 +238,16 @@ def render_ia_grain_hitl_cards(
             )
             return
 
+        path_tag = silver_volume_path_session_tag(silver_path)
+        psk = f"{sk}-{path_tag}"
+
         inst_raw = (data.get("institution_id") or "").strip()
         run_total = (
             ia_grain_run_total_items(pending_df, str(onboard_run_id))
             if pending_df is not None
             else None
         )
-        nav_key = f"ia-grain-nav-{sk}"
+        nav_key = f"ia-grain-nav-{psk}"
         if nav_key not in st.session_state:
             st.session_state[nav_key] = 0
         n_items = len(idxs)
@@ -287,7 +291,7 @@ def render_ia_grain_hitl_cards(
         if not isinstance(options, list):
             options = []
         n_opt = len(options)
-        sel_key = f"ia-grain-sel-{sk}-{i}"
+        sel_key = f"ia-grain-sel-{psk}-{i}"
         init_sel_key(sel_key, item.get("choice"), n_opt)
 
         json_choice = item.get("choice")
@@ -302,7 +306,7 @@ def render_ia_grain_hitl_cards(
             json_choice=json_choice,
             uc_group_pending=uc_group_pending,
             key_prefix="ia-grain",
-            sk=sk,
+            sk=psk,
             file_index=i,
         )
 
@@ -313,8 +317,8 @@ def render_ia_grain_hitl_cards(
             else {}
         )
         reentry_sel = str(sel_opt.get("reentry") or "").lower()
-        custom_key = f"ia-grain-custom-{sk}-{i}"
-        custom_store_key = f"ia-grain-custom-store-{sk}"
+        custom_key = f"ia-grain-custom-{psk}-{i}"
+        custom_store_key = f"ia-grain-custom-store-{psk}"
         if custom_store_key not in st.session_state:
             st.session_state[custom_store_key] = {}
         custom_store: dict[int, str] = st.session_state[custom_store_key]
@@ -348,7 +352,7 @@ def render_ia_grain_hitl_cards(
                 st_local[i] = str(st.session_state[custom_key])
 
         opened_k, all_nav_seen = mark_hitl_nav_visit(
-            store_key=f"ia-grain-nav-visit-{sk}",
+            store_key=f"ia-grain-nav-visit-{psk}",
             silver_path=silver_path,
             cur=cur,
             n_items=n_items,
@@ -379,14 +383,14 @@ def render_ia_grain_hitl_cards(
             nav_key=nav_key,
             cur=cur,
             n_items=n_items,
-            sk=sk,
+            sk=psk,
             key_prefix="ia-grain",
             file_index=i,
             include_prev_next=True,
             nav_prev_button_key=None,
             nav_next_button_key=None,
             nav_entity_label="grain",
-            primary_button_key=f"ia-grain-save-all-{sk}",
+            primary_button_key=f"ia-grain-save-all-{psk}",
             primary_button_label="Approve",
             primary_help=_grain_help,
             pre_bar_caption=_grain_cap,

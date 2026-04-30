@@ -19,7 +19,19 @@ onboard; the Streamlit app reads and writes that same path.
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
+
+
+def silver_volume_path_session_tag(volume_path: str) -> str:
+    """
+    Stable short token for scoping Streamlit ``session_state`` keys to one silver JSON path.
+
+    The same UC ``hitl_reviews`` group can list multiple ``artifact_path`` values; without this,
+    Prev/Next indices and option selections from one file could bleed into another when paths differ.
+    """
+    raw = str(volume_path or "").strip().encode("utf-8", errors="replace")
+    return hashlib.sha256(raw).hexdigest()[:12]
 
 
 def artifact_path_contains_onboard_run_id(

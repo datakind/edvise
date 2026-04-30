@@ -192,14 +192,25 @@ def render_hitl_header(
 
 
 def init_sel_key(sel_key: str, choice: Any, n_opt: int) -> None:
-    if sel_key not in st.session_state:
+    if n_opt <= 0:
+        return
+
+    def _disk_ix() -> int:
         if choice is None:
-            st.session_state[sel_key] = 0
-        else:
-            try:
-                st.session_state[sel_key] = max(0, min(int(choice) - 1, n_opt - 1))
-            except (TypeError, ValueError):
-                st.session_state[sel_key] = 0
+            return 0
+        try:
+            return max(0, min(int(choice) - 1, n_opt - 1))
+        except (TypeError, ValueError):
+            return 0
+
+    if sel_key not in st.session_state:
+        st.session_state[sel_key] = _disk_ix()
+        return
+    try:
+        cur = int(st.session_state[sel_key])
+    except (TypeError, ValueError):
+        cur = _disk_ix()
+    st.session_state[sel_key] = max(0, min(cur, n_opt - 1))
 
 
 def render_option_cards(
