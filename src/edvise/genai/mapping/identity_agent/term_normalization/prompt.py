@@ -135,6 +135,25 @@ Use dtype and `unique_values` (or `sample_values` if `unique_values` is null) to
 - **YYYYTT** — 4-digit year + season code suffix: `"2018FA"`, `"2019SP"`, `"2018S1"` — year extractable via 4-digit regex, season matchable via suffix
 - **Season_YYYY** — spelled season + year: `"Fall 2019"`, `"Spring 2021"` — year extractable via 4-digit regex, season matchable via prefix
 
+**What standard mode actually implements** (combined `term_col`, no hooks — see `add_edvise_term_order`):
+
+- **Year:** first ``\\d{4}`` substring per cell (regex extract), coerced to integer.
+- **Season:** normalize whitespace/case, then match the **entire** string against each ``season_map``
+  ``raw`` key by **exact match**, then **leading** substring, then **trailing** substring (longer keys first).
+
+So **standard is not a general parser**: it is those two rules. Layouts work when they coincide with
+``Season_YYYY`` / ``Season YYYY``, ``YYYY`` + suffix codes, etc., **and** the first four-digit span is
+the intended **calendar year**.
+
+**Split columns:** If ``year_col`` and ``season_col`` are set (no ``term_col``), standard mode reads
+calendar year numerically from ``year_col`` and maps ``season_col`` through ``season_map`` — no regex
+year scan on a combined string.
+
+**Prefer ``hook_required``** when samples show: **YYYYMM**-style compact numerics that stringify with
+artifacts like ``.0`` (suffix season match breaks); **opaque** codes without a clear ``\\d{4}`` year;
+**datetime** dtypes; **two calendar years** in one token (ranges); or **any** case where the **first**
+``\\d{4}`` is **not** the calendar year you need.
+
 **Hook-required formats** (`term_extraction`: `"hook_required"`) — classify **per column** using **that column's** samples only:
 
 - `datetime` or `date` dtype — date-based extraction needed when standard regex routing does not apply
@@ -258,6 +277,25 @@ Use dtype and `unique_values` (or `sample_values` if `unique_values` is null) to
 
 - **YYYYTT** — 4-digit year + season code suffix: `"2018FA"`, `"2019SP"`, `"2018S1"` — year extractable via 4-digit regex, season matchable via suffix
 - **Season_YYYY** — spelled season + year: `"Fall 2019"`, `"Spring 2021"` — year extractable via 4-digit regex, season matchable via prefix
+
+**What standard mode actually implements** (combined `term_col`, no hooks — see `add_edvise_term_order`):
+
+- **Year:** first ``\\d{4}`` substring per cell (regex extract), coerced to integer.
+- **Season:** normalize whitespace/case, then match the **entire** string against each ``season_map``
+  ``raw`` key by **exact match**, then **leading** substring, then **trailing** substring (longer keys first).
+
+So **standard is not a general parser**: it is those two rules. Layouts work when they coincide with
+``Season_YYYY`` / ``Season YYYY``, ``YYYY`` + suffix codes, etc., **and** the first four-digit span is
+the intended **calendar year**.
+
+**Split columns:** If ``year_col`` and ``season_col`` are set (no ``term_col``), standard mode reads
+calendar year numerically from ``year_col`` and maps ``season_col`` through ``season_map`` — no regex
+year scan on a combined string.
+
+**Prefer ``hook_required``** when samples show: **YYYYMM**-style compact numerics that stringify with
+artifacts like ``.0`` (suffix season match breaks); **opaque** codes without a clear ``\\d{4}`` year;
+**datetime** dtypes; **two calendar years** in one token (ranges); or **any** case where the **first**
+``\\d{4}`` is **not** the calendar year you need.
 
 **Hook-required formats** (`term_extraction`: `"hook_required"`) — classify **per column** using **that column's** samples only:
 
