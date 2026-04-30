@@ -7,6 +7,9 @@ import inspect
 import json
 from typing import Any, cast
 
+from edvise.genai.mapping.shared.hitl.confidence import (
+    PIPELINE_HITL_CONFIDENCE_THRESHOLD,
+)
 from edvise.genai.mapping.shared.token_audit.prompt_token_audit import (
     audit_prompt_sections,
 )
@@ -114,13 +117,114 @@ column on wide `student`. The manifest must **not** source conferral-style targe
 - Do **not** use `term_components_to_datetime` with **`student._edvise_term_*`** for these conferral targets;
   if the manifest incorrectly points there, prefer empty `steps` with **reviewer_notes** calling out the manifest fix.
 
-**(2) Manifest `source_column` is a raw code or date column — format-driven**
-- Only if the manifest explicitly maps `source_column` to `term`, a literal date column, or another
-  raw code field (not `_edvise_term_academic_year`), choose utilities from `sample_values` /
-  `unique_values` (e.g. `strip_trailing_decimal` + `coerce_datetime` with `fmt` for YYYYMM).
+**(2) Manifest `source_column` is a raw term code column — format-driven with column grounding**
+
+COLUMN GROUNDING (critical): derive format exclusively from the manifest's `source_column`
+own `sample_values` in the schema contract. Never inherit format assumptions from any other
+term column visible in the schema contract, even if both columns appear on the same table.
+Different columns on the same table routinely use different term encodings.
+
+TERM CONFIG CONTEXT (when provided): If `institution_term_config` is present in the
+prompt, inspect the `season_map` for the dataset whose term column most plausibly
+matches the conferral source column's encoding. Use it to pre-fill the `map_values`
+mapping rather than inferring from sample_values alone — this raises confidence when
+the season map covers all observed fragments. Still flag `review_required: true` and
+`reason: inferred_season_mapping` when the match between term config and conferral
+column encoding is uncertain. Do NOT apply a season_map from a different encoding
+scheme (e.g. entry term Season_YYYY season_map applied to a YYYYMM conferral column).
+
+- **YYYYMM-style compact numeric** (e.g. sample_values show "202301.0", "202305.0"):
+  - `strip_trailing_decimal` → leaves "202301", "202305"
+  - Inspect digits 5–6 to classify: if they correspond to calendar months (01–12 with plausible
+    distribution across all 12), treat as true YYYYMM → `coerce_datetime(fmt="%Y%m")`.
+  - If digits 5–6 appear to be season codes (e.g. only "01", "05", "08" appear — sparse, not all
+    12 months): `strip_trailing_decimal` → `extract_year` → `map_values` (season fragment → canonical
+    label, inferred from sample_values) → `term_season_to_conferral_date` with `extra_columns`
+    `season_series` bound to the `map_values` output column (intermediate column must be available on
+    the resolved execution frame — document in reviewer_notes if the executor must alias it).
+  - Season fragment `map_values` is always flagged: `reason=inferred_season_mapping`, `context` includes
+    `sample_values` and inferred mapping dict, `review_required: true`, confidence ≤
+    PIPELINE_HITL_CONFIDENCE_THRESHOLD.
+
+- **Season_YYYY string** (e.g. "Fall 2023", "Spring 2022"):
+  - `strip_whitespace` → `map_values` (season token → canonical label) → `term_season_to_conferral_date`
+  - `map_values` is flagged: `reason=inferred_season_mapping` unless `unique_values` provides complete
+    explicit coverage.
+
+- **Opaque format** — cannot classify from sample_values alone:
+  - `hook_required: true`, empty `steps`, `reviewer_notes` explaining what was observed.
+
+**(2b) Raw term code on the wide student row (no degree lookup table)**
+
+TERM CONFIG CONTEXT (when provided): If `institution_term_config` is present in the
+prompt, inspect the `season_map` for the dataset whose term column most plausibly
+matches the conferral source column's encoding. Use it to pre-fill the `map_values`
+mapping rather than inferring from sample_values alone — this raises confidence when
+the season map covers all observed fragments. Still flag `review_required: true` and
+`reason: inferred_season_mapping` when the match between term config and conferral
+column encoding is uncertain. Do NOT apply a season_map from a different encoding
+scheme (e.g. entry term Season_YYYY season_map applied to a YYYYMM conferral column).
+
+- Same format classification and utility chain as **(2)** above.
+- `source_table` is the student base table, `row_selection.strategy`: `any_row`.
+- Always lower confidence, `review_required: true`.
+- `reviewer_notes` must state: proxy conferral date from student row term code, no degree lookup
+  available, lossiness is intentional.
 
 **(3) Unmappable / non-datetime source in manifest**
 - Empty `steps` and explain in `reviewer_notes`; do not invent a datetime pipeline.
+"""
+
+
+def _step2b_confidence_and_hitl_rules() -> str:
+    """Confidence scoring, review_required, flagged_steps, and plan-level HITL options for Step 2b."""
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
+    return f"""
+CONFIDENCE AND HITL (threshold = {t}, constant name PIPELINE_HITL_CONFIDENCE_THRESHOLD)
+
+CONFIDENCE SCORING
+- **1.0** — direct utility chain, no format ambiguity, source column dtype matches target exactly.
+- **0.9** — standard chain with a well-evidenced format assumption (e.g. `cast_string` on a string column).
+- **0.7–0.8** — inferred mapping from sample_values, ambiguous format, or proxy source column.
+- **≤ {t}** — `review_required` must be true; always set when:
+  - `map_values` mapping was inferred from sample_values rather than explicit schema evidence;
+  - format was ambiguous and a utility chain was chosen by best-guess;
+  - source column is a proxy (e.g. entry term columns used for conferral date);
+  - term code column required season fragment extraction and mapping.
+
+REVIEW REQUIRED
+- Set `review_required: true` on any plan where confidence ≤ PIPELINE_HITL_CONFIDENCE_THRESHOLD.
+- Also set `review_required: true` when a **specific step** was inferred even if overall confidence is
+  above the threshold — e.g. a `map_values` season mapping inferred from sample_values inside an
+  otherwise high-confidence chain.
+- Omit `review_required` (null) for high-confidence plans with no inferred steps.
+
+FLAGGED STEPS (`flagged_steps` on the plan)
+- For each plan where `review_required` is true, identify which specific steps drove uncertainty and list
+  them in `flagged_steps`.
+- Each entry must have:
+  - `step_index`: 0-based index in the plan's `steps` array;
+  - `function_name`: matches that step's `function_name`;
+  - `reason`: one of `inferred_season_mapping` | `inferred_value_mapping` | `ambiguous_format` |
+    `low_confidence_utility_chain` | `proxy_source`;
+  - `context`: evidence — sample_values inspected, inferred mapping dict, format assumptions made.
+- Multiple steps may be flagged in one plan.
+- Flagged steps are **evidence only** — reviewer resolution is always at the **plan** level.
+
+HITL OPTIONS (`hitl_options` on the plan)
+- Every plan with `review_required: true` must include **exactly three** options **in order**:
+  1. **approve** — reviewer accepts the proposed steps as-is.
+     `resolution`: `{{"approved": true}}`
+  2. **correct** — reviewer supplies corrected steps.
+     `resolution`: null (out-of-band correction) **or** pre-filled with the proposed steps for in-place editing.
+  3. **unmappable** — reviewer decides the field cannot be mapped.
+     `resolution`: `{{"steps": [], "output_dtype": null}}`
+- **Label** and **description** must be specific — name the target field and what is being confirmed
+  (e.g. "Confirm season fragment mapping for deg_comp_term", not a generic "Approve mapping").
+- Omit `hitl_options` (null) when `review_required` is omitted.
+
+See schema definitions for `FlaggedStep`, `TransformationHITLOption`, `TransformationHITLItem`, and
+`TransformationReview` in the transformation map schema context.
 """
 
 
@@ -134,6 +238,22 @@ def get_transformation_utilities_context() -> str:
     return inspect.getsource(utilities)
 
 
+def _step2b_term_config_context(institution_term_config: dict) -> str:
+    return (
+        "<institution_term_config>\n"
+        "IdentityAgent term normalization output for this institution. "
+        "Use ONLY to inform season fragment mapping decisions on raw term code "
+        "conferral date columns (cases 2 and 2b in COHORT degree- and "
+        "certificate-related DATETIME rules). Do NOT use to override the "
+        "manifest's source_column choice. Do NOT apply entry term season_map "
+        "to a conferral column without first verifying via sample_values that "
+        "both columns share the same encoding — different columns on the same "
+        "table routinely use different term encodings.\n"
+        f"{json.dumps(institution_term_config, indent=2)}\n"
+        "</institution_term_config>"
+    )
+
+
 # ── Prompt assembly ────────────────────────────────────────────────────────────
 
 STEP2B_PROMPT_SECTION_KEYS: tuple[str, ...] = (
@@ -141,6 +261,7 @@ STEP2B_PROMPT_SECTION_KEYS: tuple[str, ...] = (
     "reference_transformation_maps",
     "mapping_manifest",
     "schema_contract",
+    "term_config",
     "target_schemas",
     "transformation_map_schema",
     "transformation_utilities",
@@ -236,6 +357,9 @@ STRUCTURE
 - Do not include review_status on plans — the pipeline assigns it after validation
   and optional refinement
 - Generate separate transformation maps for cohort and course entities
+- When `review_required` is true: set `confidence`, non-empty `flagged_steps`, and exactly three
+  `hitl_options` (approve / correct / unmappable) per CONFIDENCE AND HITL RULES below; omit both
+  `flagged_steps` and `hitl_options` when `review_required` is omitted
 
 TRANSFORMATION STEPS
 - Use only utilities from the transformation_utilities library
@@ -287,6 +411,7 @@ STEP ORDERING
   unless an earlier step requires a specific type as input
 - Apply domain-specific normalization (normalize_grade, etc.) as needed; canonical term season and academic year come from IdentityAgent `_edvise_term_*` columns (or other manifest-listed IA term columns), not SMA string parsers
 
+{_step2b_confidence_and_hitl_rules()}
 {_step2b_cohort_entry_term_transformation_rules()}
 {_step2b_course_academic_term_transformation_rules()}
 {_step2b_cohort_completion_in_raw_edvise_rules()}
@@ -359,6 +484,7 @@ def get_step2b_prompt_sections(
     course_schema_class: Any,
     reference_transformation_maps: list[dict],
     reference_institution_ids: list[str] | None = None,
+    institution_term_config: dict | None = None,
 ) -> dict[str, str]:
     """Named sections for Step 2b prompt (mirrors IA get_*_sections pattern)."""
     if reference_institution_ids is None:
@@ -379,6 +505,11 @@ def get_step2b_prompt_sections(
         "schema_contract": _step2b_schema_contract(
             institution_id, institution_schema_contract
         ),
+        "term_config": (
+            _step2b_term_config_context(institution_term_config)
+            if institution_term_config is not None
+            else ""
+        ),
         "target_schemas": _step2b_target_schemas(
             cohort_schema_class, course_schema_class
         ),
@@ -390,7 +521,7 @@ def get_step2b_prompt_sections(
 
 def join_step2b_prompt_sections(sections: dict[str, str]) -> str:
     """Join sections in STEP2B_PROMPT_SECTION_KEYS order."""
-    parts = [sections[k] for k in STEP2B_PROMPT_SECTION_KEYS]
+    parts = [sections[k] for k in STEP2B_PROMPT_SECTION_KEYS if sections[k]]
     return parts[0] + "\n\n---\n" + "\n\n---\n".join(parts[1:])
 
 
@@ -403,6 +534,7 @@ def build_step2b_prompt(
     course_schema_class: Any,
     reference_transformation_maps: list[dict],
     reference_institution_ids: list[str] | None = None,
+    institution_term_config: dict | None = None,
 ) -> str:
     """
     Build the Step 2b transformation map prompt.
@@ -419,6 +551,10 @@ def build_step2b_prompt(
         reference_institution_ids:      Labels for reference XML blocks, parallel to
                                         reference_transformation_maps. Defaults to each map's
                                         ``institution_id`` if not provided.
+        institution_term_config:        Optional parsed IdentityAgent term normalization output
+                                        (InstitutionTermContract as dict). When provided, injected as context for
+                                        season fragment mapping on raw term code conferral date columns only.
+                                        Pass None (default) when term config is unavailable or not needed.
     """
     sections = get_step2b_prompt_sections(
         institution_id,
@@ -429,6 +565,7 @@ def build_step2b_prompt(
         course_schema_class,
         reference_transformation_maps,
         reference_institution_ids,
+        institution_term_config,
     )
     return join_step2b_prompt_sections(sections)
 
@@ -442,6 +579,7 @@ def audit_step2b_prompt(
     course_schema_class: Any,
     reference_transformation_maps: list[dict],
     reference_institution_ids: list[str] | None = None,
+    institution_term_config: dict | None = None,
     *,
     log: bool = True,
 ) -> dict[str, Any]:
@@ -455,6 +593,7 @@ def audit_step2b_prompt(
         course_schema_class,
         reference_transformation_maps,
         reference_institution_ids,
+        institution_term_config,
     )
     prefixed = {f"user.{k}": v for k, v in sections.items()}
     return audit_prompt_sections(

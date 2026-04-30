@@ -22,7 +22,7 @@ from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
     ensure_hook_spec_file,
 )
 from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
-from edvise.genai.mapping.schema_mapping_agent.hitl.transformation_hook_hitl import (
+from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook import (
     iter_hook_required_plans as _iter_hook_required_plans,
 )
 
@@ -40,7 +40,7 @@ def sma_transform_hook_item_id(
     entity_type: Literal["cohort", "course"],
     target_field: str,
 ) -> str:
-    """Stable id aligned with :mod:`transformation_hook_hitl` envelopes."""
+    """Stable id aligned with :mod:`~edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook` envelopes."""
     return f"{institution_id}_{entity_type}_{_slug_target(target_field)}_hook_required"
 
 

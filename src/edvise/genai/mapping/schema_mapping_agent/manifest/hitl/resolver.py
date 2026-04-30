@@ -2,7 +2,7 @@
 Schema Mapping Agent (2a) HITL on-disk helpers.
 
 Gate (:func:`check_sma_hitl_gate`) and apply (:func:`resolve_sma_items`) live here;
-Pydantic models are in :mod:`edvise.genai.mapping.schema_mapping_agent.hitl.schemas`.
+Pydantic models are in :mod:`edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas`.
 IdentityAgent equivalents: :mod:`edvise.genai.mapping.identity_agent.hitl.resolver`.
 """
 
@@ -13,8 +13,8 @@ import logging
 from pathlib import Path
 from typing import Literal
 
-from edvise.genai.mapping.schema_mapping_agent.hitl.artifacts import load_sma_hitl
-from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.artifacts import load_sma_hitl
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
     SMAHITLItem,
     SMAReentryDepth,
     add_alias_if_missing,

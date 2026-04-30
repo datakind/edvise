@@ -15,7 +15,10 @@ Usage (Databricks job parameters):
 On Databricks, onboard mode best-effort updates ``{catalog}.genai_mapping`` pipeline state
 (see :mod:`edvise.genai.mapping.state.job_state`); table setup and Spark are required.
 
-After Step 2b, ``gate_2`` registers ``sma_gate_2_hook_preview`` for generated ``HookSpec`` previews
+After Step 2b, ``gate_2`` registers ``sma_gate_2_transformation_review`` when plans need human review
+(``cohort_transformation_review.json`` / ``course_transformation_review.json`` — artifact types
+``cohort_transformation_review`` / ``course_transformation_review``), merges resolutions, then
+``sma_gate_2_hook_preview`` for ``HookSpec`` previews
 (``cohort_transformation_hook_preview.json`` / ``course_transformation_hook_preview.json``), then
 materializes ``transform_hooks.py`` after UC approval. When any plan has ``hook_required: true``,
 ``sma_gate_2_hook_required`` gates ``cohort_transformation_hook_hitl.json`` /
@@ -89,12 +92,15 @@ class SMAPaths:
     course_transformation_hook_hitl: Path
     cohort_transformation_hook_preview: Path
     course_transformation_hook_preview: Path
+    cohort_transformation_review: Path
+    course_transformation_review: Path
     transformation_map: Path
     transform_hooks: Path  # optional, placeholder
     run_log: Path
 
     # IA outputs this job reads from (same execute or onboard run segment)
     ia_enriched_schema_contract: Path
+    ia_identity_term_output: Path  # identity_term_output.json (optional Step 2b context)
     ia_cleaned_datasets: Path  # directory
 
     # Active folder (promoted artifacts, what execute mode reads from)
@@ -150,11 +156,14 @@ def resolve_run_paths(
         / "cohort_transformation_hook_preview.json",
         course_transformation_hook_preview=run_root
         / "course_transformation_hook_preview.json",
+        cohort_transformation_review=run_root / "cohort_transformation_review.json",
+        course_transformation_review=run_root / "course_transformation_review.json",
         transformation_map=run_root / "transformation_map.json",
         transform_hooks=run_root / "transform_hooks.py",
         run_log=run_root / "run_log.json",
         # IA outputs — same run segment under ``runs/onboard/...`` or ``runs/execute/...``
         ia_enriched_schema_contract=ia_run_root / "enriched_schema_contract.json",
+        ia_identity_term_output=ia_run_root / "identity_term_output.json",
         ia_cleaned_datasets=ia_run_root / "cleaned_datasets",
         # Active folder (flat under genai_mapping)
         active_root=active_root,
@@ -194,6 +203,60 @@ def _load_enriched_contract(path: Path) -> dict:
             "Run edvise_ia onboard/gate_1 first."
         )
     return json.loads(path.read_text())
+
+
+def _load_institution_term_config_optional(
+    path: Path, *, expected_institution_id: str
+) -> dict | None:
+    """
+    Load IdentityAgent ``identity_term_output.json`` as a dict for Step 2b optional term context.
+
+    The caller should pass the pipeline ``institution_id`` so we reject a file whose embedded
+    ``institution_id`` does not match (path alone is already scoped to that school's volume and
+    run segment — see :func:`resolve_run_paths`).
+
+    Returns None when the file is missing, invalid, or mismatched — Step 2b still runs without it.
+    """
+    if not path.is_file():
+        LOGGER.info(
+            "[step2b] No identity term output at %s — skipping institution_term_config",
+            path,
+        )
+        return None
+    try:
+        raw = json.loads(path.read_text())
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+        LOGGER.warning(
+            "[step2b] Could not read JSON from %s (%s) — skipping institution_term_config",
+            path,
+            e,
+        )
+        return None
+    from pydantic import ValidationError
+
+    from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
+        InstitutionTermContract,
+    )
+
+    try:
+        inst = InstitutionTermContract.model_validate(raw)
+    except ValidationError as e:
+        LOGGER.warning(
+            "[step2b] Invalid InstitutionTermContract in %s (%s) — skipping institution_term_config",
+            path,
+            e,
+        )
+        return None
+    if inst.institution_id != expected_institution_id:
+        LOGGER.warning(
+            "[step2b] identity_term_output institution_id %r != pipeline institution_id %r "
+            "(%s) — skipping institution_term_config",
+            inst.institution_id,
+            expected_institution_id,
+            path,
+        )
+        return None
+    return inst.model_dump(mode="json")
 
 
 def _load_cleaned_dataframes(
@@ -362,7 +425,7 @@ def run_onboard_start(
     from edvise.genai.mapping.schema_mapping_agent.manifest.validation import (
         validate_manifest as validate_manifest_structure,
     )
-    from edvise.genai.mapping.schema_mapping_agent.hitl import (
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl import (
         InstitutionSMAHITLItems,
         write_sma_hitl_artifact,
     )
@@ -510,7 +573,7 @@ def run_onboard_start(
 
 # ---------------------------------------------------------------------------
 # Onboard — resume_from="gate_2"
-# Resolve manifest HITL -> 2b LLM -> hook_required HITL (UC) -> resolve plans -> execute -> exit
+# Resolve manifest HITL -> 2b LLM -> transformation review HITL (UC) -> hook preview -> hook_required -> execute
 # ---------------------------------------------------------------------------
 
 
@@ -526,7 +589,7 @@ def run_onboard_gate_2(
     pipeline_version: str,
     db_run_id: str | None = None,
 ):
-    from edvise.genai.mapping.schema_mapping_agent.hitl import (
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl import (
         check_sma_hitl_gate,
         resolve_sma_items,
     )
@@ -595,6 +658,10 @@ def run_onboard_gate_2(
     reference_tm = load_json(str(ref_tm_path))
 
     enriched_contract = _load_enriched_contract(paths.ia_enriched_schema_contract)
+    institution_term_config = _load_institution_term_config_optional(
+        paths.ia_identity_term_output,
+        expected_institution_id=institution_id,
+    )
 
     # Step 2b — transformation map LLM
     LOGGER.info("[onboard/gate_2] Step 2b — transformation map LLM")
@@ -607,6 +674,7 @@ def run_onboard_gate_2(
         course_schema_class=RawEdviseCourseDataSchema,
         reference_transformation_maps=[reference_tm],
         reference_institution_ids=[reference_id],
+        institution_term_config=institution_term_config,
     )
     result_2b = _run_once(_DEFAULT_SMA_GATEWAY_MODEL_ID, prompt_2b, client)
     if not result_2b["success"]:
@@ -619,6 +687,64 @@ def run_onboard_gate_2(
         LOGGER.warning(
             "[onboard/gate_2] Transformation map validation warning: %s", err
         )
+
+    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.review import (
+        apply_transformation_review_resolutions,
+        build_transformation_review_hitl_file_for_entity,
+        check_transformation_review_hitl_gate,
+        write_transformation_review_hitl_file,
+    )
+
+    cohort_tr = build_transformation_review_hitl_file_for_entity(
+        transformation_data,
+        institution_id=institution_id,
+        entity_type="cohort",
+        pipeline_version=pipeline_version,
+    )
+    course_tr = build_transformation_review_hitl_file_for_entity(
+        transformation_data,
+        institution_id=institution_id,
+        entity_type="course",
+        pipeline_version=pipeline_version,
+    )
+    write_transformation_review_hitl_file(paths.cohort_transformation_review, cohort_tr)
+    write_transformation_review_hitl_file(paths.course_transformation_review, course_tr)
+    LOGGER.info(
+        "[onboard/gate_2] Transformation review HITL — cohort_items=%d course_items=%d",
+        len(cohort_tr.items),
+        len(course_tr.items),
+    )
+    _pipeline_job_state.register_sma_gate_2_transformation_review_artifacts(
+        catalog,
+        institution_id,
+        onboard_run_id,
+        cohort_transformation_review_path=paths.cohort_transformation_review,
+        course_transformation_review_path=paths.course_transformation_review,
+    )
+    LOGGER.info(
+        "[onboard/gate_2] Waiting for Unity Catalog HITL approval "
+        "(sma_gate_2_transformation_review)"
+    )
+    _pipeline_job_state.wait_for_sma_gate_2_transformation_review_hitl(
+        catalog,
+        onboard_run_id,
+        institution_id=institution_id,
+        poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+        timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+    )
+    for _tr_path in (
+        paths.cohort_transformation_review,
+        paths.course_transformation_review,
+    ):
+        check_transformation_review_hitl_gate(_tr_path)
+    _pipeline_job_state.after_sma_gate_2_transformation_review_approved(
+        catalog, institution_id, onboard_run_id
+    )
+    transformation_data = apply_transformation_review_resolutions(
+        transformation_data,
+        cohort_review_path=paths.cohort_transformation_review,
+        course_review_path=paths.course_transformation_review,
+    )
 
     def _sma_hook_llm_complete(system: str, user: str) -> str:
         prompt = f"{system.strip()}\n\n---\n\n{user.strip()}"
@@ -634,14 +760,14 @@ def run_onboard_gate_2(
         materialize_hook_specs_to_file,
     )
     from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
-    from edvise.genai.mapping.schema_mapping_agent.hitl.transform_hook_generation import (
+    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_generation import (
         generate_sma_transform_hook_preview_rows_for_entity,
         load_hook_specs_from_sma_preview_path,
     )
-    from edvise.genai.mapping.schema_mapping_agent.hitl.transform_hook_preview import (
+    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_preview import (
         write_sma_transform_hook_preview_json,
     )
-    from edvise.genai.mapping.schema_mapping_agent.hitl.transformation_hook_hitl import (
+    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook import (
         apply_transformation_hook_hitl_resolutions,
         build_transformation_hook_hitl_envelope_for_entity,
         check_transformation_hook_hitl_gate,

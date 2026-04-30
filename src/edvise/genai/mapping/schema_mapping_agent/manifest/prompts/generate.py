@@ -224,40 +224,36 @@ Targets: `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
 These are **OUTCOME CONFERRAL-STYLE** in the schema (may be built from non-datetime sources); still apply
 this hierarchy **before** choosing raw term codes.
 
-**(1) Preferred — IA-materialized `_edvise_term_academic_year` on the award / degree lookup row**
-- When the schema contract **dtypes** for the award / degree lookup table include `_edvise_term_academic_year`,
-  set `source_column` to **`_edvise_term_academic_year`** on that table with the appropriate join from the student
-  table (standard learner / student keys), plus `row_selection` filters (e.g. awarded-degree predicates) and
-  `first_by` / `nth` on `_term_order` as needed.
-- Do **not** use a raw term column on the lookup row as the preferred source when `_edvise_term_academic_year`
-  is present there — raw encoding is only a fallback proxy per **(3)**.
+**(1) Preferred — IdentityAgent-normalized term columns on the award / degree lookup row**
+- When the schema contract shows IdentityAgent-normalized academic-year (and paired season) columns on that lookup
+  table, map the conferral target to the academic-year column on that row with the appropriate join from the student
+  entity, plus `row_selection` filters and ordering keys as required by the manifest rules.
+- Do **not** prefer a raw term-code column on the lookup row when normalized columns are present there — raw encoding
+  is only a fallback proxy per **(3)**.
 
 **(2) Wide student row**
 
-**(2a) True calendar datetime on the wide student row**
-- If a **`datetime64[ns]`** (or unambiguous date) column on the student table directly represents conferral /
-  completion timing for the target, map the conferral target to that column with `source_table` = student and
-  `row_selection.strategy`: `"any_row"`. Use **full confidence** when the mapping is unambiguous.
+**(2a) True calendar datetime on wide student row — `datetime64[ns]` conferral source**
+- When a datetime column on the student base table directly represents conferral / completion timing for the target,
+  map to that column with `source_table` = student base table and `row_selection.strategy`: `"any_row"`.
+- Use **high confidence** when the semantic mapping is unambiguous.
 
-**(2b) Raw term code on the wide student row**
-- When **no** award / degree lookup table is joinable and the only available source is a **raw term code** column
-  on the student table (e.g. a compact numeric encoding, a season+year string, or any non-datetime format): map from
-  that column with `source_table` = student, `row_selection.strategy`: `"any_row"`, **lower confidence** (typically ≤ {t}),
-  and **validation_notes** that Step 2b must parse / coerce to `datetime64[ns]` from the raw encoding.
-- **Column grounding:** derive the format interpretation from **that column's own** `sample_values` in the schema
-  contract — never infer format from any other term-related column on the same table, even when multiple columns
-  appear to encode terms. Different columns on the same table may use entirely different term encodings.
+**(2b) Raw term code on wide student row — no degree lookup joinable**
+- When no award / degree lookup path is joinable and the only usable source is a **raw term code** column on the
+  student table: map from that column with `source_table` = student base table, `row_selection.strategy`: `"any_row"`,
+  **confidence ≤ {t}**, and **validation_notes** that Step 2b must parse/coerce using inline `map_values` plus
+  `term_season_to_conferral_date` (or an equivalent documented utility chain) as appropriate to the grounded format.
+- **Column grounding:** derive format **only** from that column's own `sample_values` in the schema contract — never
+  infer format from any other term column on the same table.
 
-- **Do not** map conferral-style targets to **`_edvise_term_academic_year`** or **`_edvise_term_season`** on **student**
-  when those carry entry / cohort semantics on the wide row — they are not degree completion, even when samples look
-  correlated with outcomes.
+- **Do not** map conferral-style targets to IdentityAgent entry-term columns on the student row when those encode
+  cohort / entry semantics — they are not degree completion, even when samples correlate with outcomes.
 - Prefer **(1)** when the lookup path exists; when **(1)** is unavailable and neither **(2a)** nor **(2b)** applies,
   use **(3)** or **(4)** as appropriate.
 
-**(3) Fallback — IA column missing on the lookup table**
-- Map from a raw term code or other coded timing column on the **award / degree lookup row** **only** when
-  `_edvise_term_academic_year` is not present in the contract for that table (Step 2b builds the datetime pipeline
-  from those sources).
+**(3) Fallback — normalized column missing on the lookup table**
+- Map from a raw term code or other coded timing column on the **award / degree lookup row** only when the
+  normalized academic-year path is unavailable on that table (Step 2b builds the datetime pipeline from those sources).
 - Use lower confidence (typically ≤ {t}), **validation_notes** that parsing / coercing to datetime is required, and flag **HITL** when
   the proxy is weak.
 

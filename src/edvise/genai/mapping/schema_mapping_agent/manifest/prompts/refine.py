@@ -54,7 +54,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import TypeAdapter
 
 if TYPE_CHECKING:
-    from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
         InstitutionSMAHITLItems,
     )
 
@@ -77,7 +77,7 @@ from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
 from .generate import strip_json_fences
 
-# Same value as ``hitl.schemas.HITL_CONFIDENCE_THRESHOLD`` — defined here so prompt + runtime
+# Same value as ``manifest.hitl.schemas.HITL_CONFIDENCE_THRESHOLD`` — defined here so prompt + runtime
 # code share one constant without importing ``hitl`` at module load (circular with ``artifacts``).
 HITL_CONFIDENCE_THRESHOLD = PIPELINE_HITL_CONFIDENCE_THRESHOLD
 
@@ -842,7 +842,7 @@ def _hitl_target_fields(
     hitl: list[Mapping[str, Any]] | list[Any],
 ) -> set[str]:
     """Target fields covered by Pass 1 flags and/or Pass 2 items."""
-    from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import SMAHITLItem
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import SMAHITLItem
 
     out: set[str] = set()
     for item in hitl:
@@ -941,7 +941,7 @@ def apply_refinement_review_status_safety_net(
     """
     Run :func:`_enforce_review_status_contract` and optionally print / log warnings.
 
-    ``hitl_flags`` may be Pass 1 dicts or validated :class:`~edvise.genai.mapping.schema_mapping_agent.hitl.schemas.SMAHITLItem` instances.
+    ``hitl_flags`` may be Pass 1 dicts or validated :class:`~edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas.SMAHITLItem` instances.
 
     ``refined_corrections`` is the Pass 1 slim-output map of target_field → correction deltas.
     When omitted (e.g. when re-checking artifacts without Pass 1 context), pass an empty dict
@@ -1050,9 +1050,9 @@ def run_sma_refinement(
 
     Returns
     -------
-    Refined manifest and complete :class:`~edvise.genai.mapping.schema_mapping_agent.hitl.schemas.InstitutionSMAHITLItems`.
+    Refined manifest and complete :class:`~edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas.InstitutionSMAHITLItems`.
     """
-    from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
         InstitutionSMAHITLItems,
         SMAHITLItem,
     )

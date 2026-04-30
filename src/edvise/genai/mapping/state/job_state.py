@@ -5,7 +5,8 @@ Failures are logged and do not block the job (same spirit as
 :func:`~edvise.genai.mapping.shared.pipeline_artifacts.merge_genai_pipeline_artifact_rows`).
 
 UC HITL polling helpers (:func:`wait_for_ia_gate_1_hitl`, :func:`wait_for_ia_gate_1_hooks_hitl`,
-:func:`wait_for_sma_gate_1_hitl`, :func:`wait_for_sma_gate_2_hook_preview_hitl`,
+:func:`wait_for_sma_gate_1_hitl`, :func:`wait_for_sma_gate_2_transformation_review_hitl`,
+:func:`wait_for_sma_gate_2_hook_preview_hitl`,
 :func:`wait_for_sma_gate_2_hook_required_hitl`) are blocking and
 raise on timeout or rejection. Timeouts persist
 ``timed_out`` on ``pipeline_runs`` / ``pipeline_phases`` (resumable); other failures may use
@@ -19,11 +20,14 @@ import logging
 from pathlib import Path
 
 from edvise.genai.mapping.identity_agent.hitl.schemas import InstitutionHITLItems
-from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
     InstitutionSMAHITLItems,
 )
-from edvise.genai.mapping.schema_mapping_agent.hitl.transformation_hook_hitl import (
+from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook import (
     InstitutionSMATransformationHookHITLItems,
+)
+from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.review import (
+    TransformationReviewHITLFile,
 )
 from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json
 from edvise.genai.mapping.state import pipeline_state
@@ -40,6 +44,7 @@ PHASE_IA_GATE_1: str = "ia_gate_1"
 PHASE_IA_GATE_1_HOOKS: str = "ia_gate_1_hooks"
 PHASE_SMA_START: str = "sma_start"
 PHASE_SMA_GATE_1: str = "sma_gate_1"
+PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW: str = "sma_gate_2_transformation_review"
 PHASE_SMA_GATE_2_HOOK_PREVIEW: str = "sma_gate_2_hook_preview"
 PHASE_SMA_GATE_2_HOOK_REQUIRED: str = "sma_gate_2_hook_required"
 AUTO_APPROVER: str = "pipeline_auto_approve_empty_hitl"
@@ -75,6 +80,9 @@ def _hitl_artifact_has_actionable_items(
         env = read_pydantic_json(
             Path(artifact_path), InstitutionSMATransformationHookHITLItems
         )
+        return len(env.pending) > 0
+    if at in {"cohort_transformation_review", "course_transformation_review"}:
+        env = read_pydantic_json(Path(artifact_path), TransformationReviewHITLFile)
         return len(env.pending) > 0
     return True
 
@@ -388,6 +396,106 @@ def after_ia_onboard_gate_1_hooks_approved(
     )
     _state_safe(
         "pipeline_runs -> running (post hook-preview HITL)",
+        pipeline_state.update_pipeline_run_status,
+        catalog,
+        institution_id,
+        onboard_run_id,
+        "running",
+    )
+
+
+def register_sma_gate_2_transformation_review_artifacts(
+    catalog: str,
+    institution_id: str,
+    onboard_run_id: str,
+    *,
+    cohort_transformation_review_path: Path,
+    course_transformation_review_path: Path,
+) -> None:
+    """
+    Register Step 2b ``review_required`` review JSON under ``sma_gate_2_transformation_review``.
+
+    Artifact types: ``cohort_transformation_review``, ``course_transformation_review``.
+    Empty ``items`` lists auto-approve like other SMA HITL artifacts.
+    """
+    c = cohort_transformation_review_path.as_posix()
+    co = course_transformation_review_path.as_posix()
+    _state_safe(
+        "sma_gate_2_transformation_review -> awaiting_hitl",
+        pipeline_state.log_phase_transition,
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW,
+        "awaiting_hitl",
+    )
+    _state_safe(
+        "pipeline_runs -> awaiting_hitl (SMA transformation review HITL)",
+        pipeline_state.update_pipeline_run_status,
+        catalog,
+        institution_id,
+        onboard_run_id,
+        "awaiting_hitl",
+    )
+    _state_safe(
+        "register_hitl (SMA gate 2 transformation review)",
+        pipeline_state.register_hitl_artifacts,
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW,
+        [
+            {"artifact_type": "cohort_transformation_review", "artifact_path": c},
+            {"artifact_type": "course_transformation_review", "artifact_path": co},
+        ],
+    )
+    _auto_approve_hitl_artifact_if_empty(
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW,
+        "cohort_transformation_review",
+        cohort_transformation_review_path,
+    )
+    _auto_approve_hitl_artifact_if_empty(
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW,
+        "course_transformation_review",
+        course_transformation_review_path,
+    )
+
+
+def wait_for_sma_gate_2_transformation_review_hitl(
+    catalog: str,
+    onboard_run_id: str,
+    *,
+    institution_id: str,
+    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+) -> bool:
+    """Block until UC rows for ``sma_gate_2_transformation_review`` are approved."""
+    return poll_uc_hitl_until_approved_or_timeout(
+        catalog,
+        institution_id,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW,
+        poll_interval_seconds=poll_interval_seconds,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def after_sma_gate_2_transformation_review_approved(
+    catalog: str, institution_id: str, onboard_run_id: str
+) -> None:
+    """Log transformation-review gate complete and set pipeline run status to ``running``."""
+    _state_safe(
+        "sma_gate_2_transformation_review complete",
+        pipeline_state.log_phase_transition,
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW,
+        "complete",
+    )
+    _state_safe(
+        "pipeline_runs -> running (post SMA transformation review HITL)",
         pipeline_state.update_pipeline_run_status,
         catalog,
         institution_id,

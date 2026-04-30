@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from edvise.genai.mapping.schema_mapping_agent.hitl.artifacts import (
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.artifacts import (
     SMA_HITL_BASENAME,
     SMA_MANIFEST_OUTPUT_BASENAME,
     load_sma_hitl,
@@ -14,7 +14,7 @@ from edvise.genai.mapping.schema_mapping_agent.hitl.artifacts import (
     write_sma_manifest_artifact,
     write_sma_hitl_and_manifest_artifacts,
 )
-from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
     InstitutionSMAHITLItems,
     SMAFailureMode,
     SMAHITLItem,
@@ -131,7 +131,7 @@ def test_unique_sma_hitl_items_by_item_id():
 
 
 def test_manifest_lazy_import_from_manifest_package():
-    """``manifest.hitl`` still resolves to SMA HITL (backward-compatible lazy attr)."""
+    """Lazy ``manifest.hitl`` resolves to Step 2a manifest HITL package."""
     from edvise.genai.mapping.schema_mapping_agent.manifest import hitl as sma_hitl
 
     assert sma_hitl.SMA_HITL_BASENAME == "sma_hitl.json"

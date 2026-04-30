@@ -1,7 +1,7 @@
 """
 On-disk SMA (2a) HITL + manifest outputs in the shapes expected by the resolver.
 
-See :mod:`edvise.genai.mapping.schema_mapping_agent.hitl.schemas` for the
+See :mod:`edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas` for the
 per-institution file layout (``sma_hitl.json``, ``sma_manifest_output.json``).
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
     InstitutionSMAHITLItems,
     SMAHITLItem,
 )

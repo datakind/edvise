@@ -39,7 +39,14 @@ from hitl_reviewer.ui.ia.hook_preview_ui import (
     is_sma_transform_hook_preview_phase,
     render_ia_hook_preview_cards,
 )
-from hitl_reviewer.ui.sma.review_ui import is_sma_phase, render_sma_hitl_cards
+from hitl_reviewer.ui.sma.manifest_review_ui import (
+    is_sma_phase,
+    render_sma_hitl_cards,
+)
+from hitl_reviewer.ui.sma.transformation_review_ui import (
+    is_sma_transformation_review_phase,
+    render_sma_transformation_review_cards,
+)
 from hitl_reviewer.persistence.silver_hitl_paths import (
     artifact_path_contains_onboard_run_id,
 )
@@ -398,6 +405,7 @@ def render_silver_hitl_editor(
     is_hook_preview = is_ia_hook_preview_phase(
         phase, artifact_type
     ) or is_sma_transform_hook_preview_phase(phase, artifact_type)
+    is_tr_review = is_sma_transformation_review_phase(str(phase), str(artifact_type))
 
     sk = f"{_safe_key(onboard_run_id)}-{_safe_key(phase)}-{_safe_key(artifact_type)}"
     # Same session key as ``st.text_input(..., key=f"path-{sk}")`` in ``render_one_hitl_group`` (Path details).
@@ -448,7 +456,36 @@ def render_silver_hitl_editor(
         return
 
     items = data.get("items")
-    if not isinstance(items, list) or not items:
+    if not isinstance(items, list):
+        items = []
+
+    if is_tr_review:
+        if not items:
+            st.info(
+                "No `items` in this transformation review JSON (empty file — nothing to review)."
+            )
+            return
+        render_sma_transformation_review_cards(
+            data=data,
+            items=items,
+            silver_path=silver_path,
+            sk=sk,
+            onboard_run_id=str(onboard_run_id),
+            pending_df=pending_df,
+            uc_group_pending=uc_group_pending,
+            approve_uc_if_complete=lambda: approve_or_reject(
+                catalog,
+                str(onboard_run_id),
+                str(phase),
+                str(artifact_type),
+                st.session_state["reviewer"],
+                "approved",
+            ),
+            after_uc_approve_success=after_uc_approve_success,
+        )
+        return
+
+    if not items:
         st.info(
             "No `items` in this HITL JSON, or the list is empty — nothing to select."
         )
@@ -882,12 +919,15 @@ def render_one_hitl_group(
                     st.code("\n".join(sorted(set(raw_paths))), language="text")
             sk = f"{_safe_key(str(onboard_run_id))}-{_safe_key(str(phase))}-{_safe_key(str(artifact_type))}"
             _is_sma = is_sma_phase(str(phase), str(artifact_type))
+            _is_sma_tr = is_sma_transformation_review_phase(
+                str(phase), str(artifact_type)
+            )
             _is_ia_g = is_ia_grain_phase(str(phase), str(artifact_type))
             _is_ia_t = is_ia_term_phase(str(phase), str(artifact_type))
             _is_hook_pv = is_ia_hook_preview_phase(
                 str(phase), str(artifact_type)
             ) or is_sma_transform_hook_preview_phase(str(phase), str(artifact_type))
-            if _is_sma or _is_ia_g or _is_ia_t or _is_hook_pv:
+            if _is_sma or _is_sma_tr or _is_ia_g or _is_ia_t or _is_hook_pv:
                 _pl = "Silver JSON path" + (
                     " (read-only — UC gate not pending)" if sub_pending.empty else ""
                 )
@@ -927,6 +967,9 @@ def render_one_hitl_group(
             str(phase), str(artifact_type)
         ) or is_sma_transform_hook_preview_phase(str(phase), str(artifact_type))
         is_sma_row = is_sma_phase(str(phase), str(artifact_type))
+        is_sma_tr_row = is_sma_transformation_review_phase(
+            str(phase), str(artifact_type)
+        )
         if sub_pending.empty:
             st.caption(
                 "This UC group is not **pending**. The editor above is **read-only**; silver JSON "
@@ -935,8 +978,9 @@ def render_one_hitl_group(
         elif (
             is_ia_grain_row
             or is_ia_term_row
-            or             is_hook_pv_row
+            or is_hook_pv_row
             or is_sma_row
+            or is_sma_tr_row
         ):
             st.caption(
                 "IA / SMA: **Save JSON & approve UC** (or **Approve** on grain/term/hook-preview cards) "

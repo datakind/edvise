@@ -9,7 +9,8 @@ All of those concerns live in:
     - execution.field_executor.execute_transformation_map (orchestration)
 
 Steps that need a second Series (birthyear_to_age_bucket,
-conditional_credits, term_components_to_datetime) are handled in
+conditional_credits, term_components_to_datetime, term_season_to_conferral_date)
+are handled in
 execution.field_executor._execute_step() before reaching this dispatcher.
 """
 
@@ -117,6 +118,7 @@ def dispatch_step(
         "birthyear_to_age_bucket",
         "conditional_credits",
         "term_components_to_datetime",
+        "term_season_to_conferral_date",
     ):
         raise ExecutionError(
             f"Step '{fn}' requires a second Series and must be handled by "

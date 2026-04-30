@@ -1,7 +1,8 @@
 """
 Batch-write HITL ``choice`` fields to silver JSON from Streamlit session state, plus optional UC approve.
 
-Used by IA grain, IA term, and SMA manifest editors in the HITL workbench (``pages/1_HITL_Review_History.py``).
+Used by IA grain, IA term, SMA manifest, and SMA transformation review editors in the HITL workbench
+(``pages/1_HITL_Review_History.py``).
 """
 
 from __future__ import annotations
@@ -319,6 +320,125 @@ def persist_ia_term_hitl_from_session(
                 f"No ``choice`` for table ``{tbl}`` — use Prev/Next to open each item and pick an "
                 "option (or set ``choice`` manually in JSON).",
             )
+    try:
+        out = json.dumps(fresh, indent=2, ensure_ascii=False) + "\n"
+        write_unity_file_text(silver_path, out, overwrite=True)
+    except Exception as e:  # noqa: BLE001
+        return False, f"Write failed: {e}"
+    return True, ""
+
+
+def persist_sma_transformation_review_from_session(
+    *,
+    silver_path: str,
+    sk: str,
+    option_item_indices: list[int],
+    allow_silver_write: bool = True,
+) -> tuple[bool, str]:
+    """
+    Write ``choice`` (1-based), sync ``status`` from the selected option's ``option_id``, and
+    when **correct** is selected merge ``steps`` from session key ``tr-steps-{sk}-{i}-{item_id}``.
+
+    Used by :mod:`hitl_reviewer.ui.sma.transformation_review_ui`.
+    """
+    if not allow_silver_write:
+        return False, _WRITE_BLOCKED_MSG
+    try:
+        fresh = json.loads(read_unity_file_text(silver_path))
+    except Exception as e:  # noqa: BLE001
+        return False, f"Re-read failed: {e}"
+    items = fresh.get("items")
+    if not isinstance(items, list):
+        return False, "Invalid HITL JSON: missing ``items`` array."
+
+    _status_from_option_id = {
+        "approve": "approved",
+        "correct": "corrected",
+        "unmappable": "unmappable",
+    }
+    _status_from_choice_index = {1: "approved", 2: "corrected", 3: "unmappable"}
+
+    for i in option_item_indices:
+        if not (0 <= i < len(items)):
+            return False, f"Invalid item index {i}."
+        item = items[i]
+        if not isinstance(item, dict):
+            continue
+        opts = item.get("options")
+        if not isinstance(opts, list) or len(opts) < 1:
+            continue
+        n = len(opts)
+        rk = f"sv{sk}item{i}{item.get('item_id', i)}"
+        try:
+            ix = int(st.session_state.get(rk, 0))
+        except (TypeError, ValueError):
+            ix = 0
+        ix = max(0, min(ix, n - 1))
+        choice_1 = ix + 1
+        try:
+            set_item_choice(fresh, i, choice_1)
+        except (KeyError, TypeError) as e:
+            return False, str(e)
+
+        row = items[i]
+        sel_opt = opts[ix] if isinstance(opts[ix], dict) else {}
+        oid = str(sel_opt.get("option_id") or "").strip().lower()
+        new_status = _status_from_option_id.get(
+            oid, _status_from_choice_index.get(choice_1, "pending")
+        )
+        row["status"] = new_status
+
+        if oid == "correct" or choice_1 == 2:
+            steps_key = f"tr-steps-{sk}-{i}-{row.get('item_id', i)}"
+            raw_txt = (st.session_state.get(steps_key) or "").strip()
+            if not raw_txt:
+                return (
+                    False,
+                    f"Item ``{row.get('item_id', i)!s}``: **Correct** requires non-empty steps JSON.",
+                )
+            try:
+                parsed = json.loads(raw_txt)
+            except json.JSONDecodeError as e:
+                return (
+                    False,
+                    f"Item ``{row.get('item_id', i)!s}``: invalid steps JSON: {e}",
+                )
+            if not isinstance(parsed, list):
+                return (
+                    False,
+                    f"Item ``{row.get('item_id', i)!s}``: steps must be a JSON array.",
+                )
+            try:
+                from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
+                    TransformationStep,
+                )
+                from pydantic import TypeAdapter
+
+                adapter = TypeAdapter(TransformationStep)
+                for si, step in enumerate(parsed):
+                    if not isinstance(step, dict):
+                        return (
+                            False,
+                            f"Item ``{row.get('item_id', i)!s}``: step[{si}] must be an object.",
+                        )
+                    adapter.validate_python(step)
+            except ImportError:
+                for si, step in enumerate(parsed):
+                    if not isinstance(step, dict) or not str(
+                        step.get("function_name") or ""
+                    ).strip():
+                        return (
+                            False,
+                            f"Item ``{row.get('item_id', i)!s}``: step[{si}] needs function_name (edvise "
+                            "not available for full validation).",
+                        )
+            except Exception as e:  # noqa: BLE001
+                return (
+                    False,
+                    f"Item ``{row.get('item_id', i)!s}``: step validation failed: {e}",
+                )
+            row["steps"] = parsed
+
     try:
         out = json.dumps(fresh, indent=2, ensure_ascii=False) + "\n"
         write_unity_file_text(silver_path, out, overwrite=True)
