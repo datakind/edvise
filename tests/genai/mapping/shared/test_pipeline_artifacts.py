@@ -10,10 +10,10 @@ from edvise.genai.mapping.shared.pipeline_artifacts import (
     GenaiPipelineLayout,
     LEGACY_GENAI_PIPELINE_RUN_ID_ENV,
     build_genai_pipeline_artifact_rows,
+    coerce_pipeline_version,
     discover_artifact_files,
     parse_uc_catalog_from_volume_path,
     resolve_onboard_run_id,
-    resolve_pipeline_version,
     versioned_genai_run_root,
     write_genai_pipeline_run_metadata,
 )
@@ -72,14 +72,14 @@ def test_resolve_onboard_run_id_prefers_databricks_job_env_over_manual(monkeypat
     assert resolve_onboard_run_id(None) == "987654321"
 
 
-def test_resolve_pipeline_version_explicit_and_env(monkeypatch):
-    assert resolve_pipeline_version("1.2.3") == "1.2.3"
+def test_coerce_pipeline_version_explicit_and_env(monkeypatch):
+    assert coerce_pipeline_version("1.2.3") == "1.2.3"
     monkeypatch.setenv("GENAI_GIT_TAG", "v0.1.0")
-    assert resolve_pipeline_version(None) == "v0.1.0"
+    assert coerce_pipeline_version(None) == "v0.1.0"
     monkeypatch.delenv("GENAI_GIT_TAG", raising=False)
     monkeypatch.delenv("GIT_TAG", raising=False)
     monkeypatch.delenv("GENAI_PIPELINE_VERSION", raising=False)
-    v = resolve_pipeline_version(None)
+    v = coerce_pipeline_version(None)
     assert v  # installed edvise version
 
 

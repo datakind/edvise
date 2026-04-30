@@ -6,6 +6,7 @@ Usage (Databricks job parameters):
     --catalog           dev_sst_02
     --mode              onboard | execute
     --resume_from       start | gate_1  (onboard only)
+    --pipeline_version  Release / git tag for artifacts (e.g. from ``git describe``); same idea as PDP jobs.
     --inputs_toml_path  Relative to ``…/bronze_volume/genai_mapping/`` or absolute ``/Volumes/…``.
                         If omitted or empty, uses ``inputs.toml`` under genai_mapping (requires ``--catalog``).
 
@@ -731,6 +732,7 @@ def run(
     resume_from: str = "start",
     inputs_toml_path: str | None = None,
     db_run_id: str | None = None,
+    pipeline_version: str | None = None,
 ):
     if mode == "onboard":
         if not (onboard_run_id or "").strip():
@@ -799,10 +801,13 @@ def run(
         str(institution_inputs_toml),
         schema=configs.genai.IdentityAgentInputsConfig,
     )
+    _pv_job = (pipeline_version or "").strip() or None
     school_config = _ia.to_school_mapping_config(
         uc_catalog=catalog,
         pipeline_mode=cast(Literal["onboard", "execute"], mode),
+        pipeline_version=_pv_job,
     )
+    LOGGER.info("pipeline_version=%s", school_config.pipeline_version)
 
     from edvise.configs.genai import resolve_genai_data_path
 
@@ -929,6 +934,14 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
+        "--pipeline_version",
+        default="",
+        help=(
+            "Edvise/git release id stamped on mapping artifacts (set from job parameters / CI, "
+            "e.g. git tag). Empty falls back to GENAI_GIT_TAG / installed edvise version."
+        ),
+    )
+    parser.add_argument(
         "--db_run_id",
         default="",
         help="Databricks job run id (orchestration id) stored on pipeline_runs.db_run_id; empty omits.",
@@ -993,6 +1006,7 @@ if __name__ == "__main__":
             resume_from=args.resume_from,
             inputs_toml_path=(args.inputs_toml_path or "").strip() or None,
             db_run_id=_db_run_id,
+            pipeline_version=(args.pipeline_version or "").strip() or None,
         )
     except BaseException:
         if args.mode == "execute" and _execute_run_id:

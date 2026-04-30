@@ -15,8 +15,9 @@ from pydantic import (
 
 from edvise.configs.custom import CleaningConfig
 from edvise.genai.mapping.shared.pipeline_artifacts import (
+    coerce_pipeline_version,
+    default_pipeline_version,
     resolve_onboard_run_id,
-    resolve_pipeline_version,
     versioned_genai_run_root,
 )
 
@@ -189,11 +190,12 @@ class SchoolMappingConfig(StrictBaseModel):
         ),
     )
     pipeline_version: str = Field(
-        default_factory=resolve_pipeline_version,
+        default_factory=default_pipeline_version,
         description=(
-            "Release / **git tag** (e.g. ``0.2.0``). Defaults to env "
-            "``GENAI_GIT_TAG`` / ``GIT_TAG`` / installed ``edvise`` package version. "
-            "See :func:`~edvise.genai.mapping.shared.pipeline_artifacts.resolve_pipeline_version`."
+            "Release / **git tag** (e.g. ``0.2.0``). GenAI Databricks jobs should set "
+            "``--pipeline_version``; otherwise defaults to env "
+            "``GENAI_GIT_TAG`` / ``GIT_TAG`` / ``GENAI_PIPELINE_VERSION`` / installed "
+            "``edvise`` version. See :func:`~edvise.genai.mapping.shared.pipeline_artifacts.coerce_pipeline_version`."
         ),
     )
     bronze_volumes_path: Optional[str] = Field(
@@ -391,7 +393,7 @@ class IdentityAgentInputsConfig(StrictBaseModel):
                 )
             datasets[name] = DatasetConfig(files=paths, primary_keys=None)
         rid = resolve_onboard_run_id(onboard_run_id, create_if_missing=False)
-        pv = resolve_pipeline_version(pipeline_version)
+        pv = coerce_pipeline_version(pipeline_version)
         return SchoolMappingConfig(
             institution_id=self.institution.id,
             datasets=datasets,

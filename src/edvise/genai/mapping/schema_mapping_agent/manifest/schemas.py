@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from edvise.genai.mapping.shared.pipeline_artifacts import resolve_pipeline_version
+from edvise.genai.mapping.shared.pipeline_artifacts import default_pipeline_version
 
 
 # =============================================================================
@@ -358,7 +358,7 @@ class MappingManifestEnvelope(StrictBaseModel):
     """
 
     pipeline_version: str = Field(
-        default_factory=resolve_pipeline_version,
+        default_factory=default_pipeline_version,
         description="Edvise/git release — set by the pipeline, not the LLM.",
     )
     institution_id: str = Field(..., description="Institution identifier")

@@ -17,7 +17,7 @@ from edvise.configs.genai import (
     resolve_genai_data_path,
     resolve_genai_inputs_toml_path,
 )
-from edvise.genai.mapping.shared.pipeline_artifacts import resolve_pipeline_version
+from edvise.genai.mapping.shared.pipeline_artifacts import default_pipeline_version
 from edvise.dataio.read import from_toml_file
 
 
@@ -61,7 +61,7 @@ def test_identity_agent_inputs_round_trip(tmp_path: Path) -> None:
         uc_catalog="dev_sst_02", pipeline_mode="onboard"
     )
     assert school.onboard_run_id is None
-    assert school.pipeline_version == resolve_pipeline_version()
+    assert school.pipeline_version == default_pipeline_version()
     assert school.institution_id == "synthetic_univ_alpha"
     assert school.datasets["student"] == DatasetConfig(
         files=["fixture_students.csv"],
@@ -236,7 +236,7 @@ def test_to_school_mapping_config_onboard_run_id_kwarg(
         onboard_run_id="run_xyz",
     )
     assert school.onboard_run_id == "run_xyz"
-    assert school.pipeline_version == resolve_pipeline_version()
+    assert school.pipeline_version == default_pipeline_version()
     root = school.genai_versioned_run_root()
     assert root is not None
     assert "run_xyz" in root

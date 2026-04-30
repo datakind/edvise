@@ -6,6 +6,7 @@ Usage (Databricks job parameters):
     --catalog           dev_sst_02
     --mode              onboard | execute
     --resume_from       start | gate_2  (onboard only)
+    --pipeline_version  Release / git tag for manifests and transformation maps (match edvise_ia job).
     --reference_id      required for onboard; few-shot from that school's
                         ``.../<ref_id>_silver/silver_volume/genai_mapping/active/{manifest_map,transformation_map}.json``
                         (same ``--catalog`` as the reference institution's volumes).
@@ -327,6 +328,7 @@ def run_onboard_start(
     spark_session,
     *,
     onboard_run_id: str,
+    pipeline_version: str,
 ):
     from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
         build_step2a_batched_prompt,
@@ -387,6 +389,7 @@ def run_onboard_start(
     # Step 2a agent schema omits envelope-only fields (see MappingManifestEnvelope).
     if isinstance(manifest_2a, dict):
         manifest_2a["institution_id"] = institution_id
+        manifest_2a["pipeline_version"] = pipeline_version
     ok, err = validate_envelope_dict(manifest_2a)
     if not ok:
         LOGGER.warning("[onboard/start] Manifest Pydantic validation warning: %s", err)
@@ -502,6 +505,7 @@ def run_onboard_gate_2(
     spark_session,
     *,
     onboard_run_id: str,
+    pipeline_version: str,
     db_run_id: str | None = None,
 ):
     from edvise.genai.mapping.schema_mapping_agent.hitl import (
@@ -598,6 +602,12 @@ def run_onboard_gate_2(
             "[onboard/gate_2] Transformation map validation warning: %s", err
         )
 
+    tmaps = transformation_data.get("transformation_maps") or {}
+    for _entity in ("cohort", "course"):
+        _sec = tmaps.get(_entity)
+        if isinstance(_sec, dict):
+            _sec["pipeline_version"] = pipeline_version
+
     paths.transformation_map.write_text(json.dumps(transformation_data, indent=2))
     LOGGER.info(
         "[onboard/gate_2] Wrote transformation map -> %s", paths.transformation_map
@@ -613,10 +623,12 @@ def run_onboard_gate_2(
     cohort_map_data = {
         **transformation_data["transformation_maps"]["cohort"],
         "institution_id": institution_id_from_tm,
+        "pipeline_version": pipeline_version,
     }
     course_map_data = {
         **transformation_data["transformation_maps"]["course"],
         "institution_id": institution_id_from_tm,
+        "pipeline_version": pipeline_version,
     }
 
     cohort_manifest = FieldMappingManifest.model_validate(
@@ -772,6 +784,7 @@ def run(
     reference_id: str = "",
     inputs_toml_path: str | None = None,
     db_run_id: str | None = None,
+    pipeline_version: str | None = None,
 ):
     if mode == "onboard":
         if not (onboard_run_id or "").strip():
@@ -835,10 +848,13 @@ def run(
         str(institution_inputs_toml),
         schema=configs.genai.IdentityAgentInputsConfig,
     )
+    _pv_job = (pipeline_version or "").strip() or None
     school_config = _ia.to_school_mapping_config(
         uc_catalog=catalog,
         pipeline_mode=cast(Literal["onboard", "execute"], mode),
+        pipeline_version=_pv_job,
     )
+    LOGGER.info("pipeline_version=%s", school_config.pipeline_version)
     input_file_paths: dict[str, list[str]] = {
         ds_name: [
             str(resolve_genai_data_path(school_config.bronze_volumes_path, f))
@@ -918,6 +934,7 @@ def run(
                     client=client,
                     spark_session=spark_session,
                     onboard_run_id=onboard_run_id,
+                    pipeline_version=school_config.pipeline_version,
                 )
             elif resume_from == "gate_2":
                 run_onboard_gate_2(
@@ -928,6 +945,7 @@ def run(
                     client=client,
                     spark_session=spark_session,
                     onboard_run_id=onboard_run_id,
+                    pipeline_version=school_config.pipeline_version,
                     db_run_id=db_run_id,
                 )
         except HITLTimeoutError:
@@ -951,6 +969,14 @@ if __name__ == "__main__":
     parser.add_argument("--mode", required=True, choices=["onboard", "execute"])
     parser.add_argument("--resume_from", default="start", choices=["start", "gate_2"])
     parser.add_argument("--reference_id", default="")
+    parser.add_argument(
+        "--pipeline_version",
+        default="",
+        help=(
+            "Edvise/git release id for manifest and transformation artifacts (align with edvise_ia). "
+            "Empty falls back to GENAI_GIT_TAG / installed edvise version."
+        ),
+    )
     parser.add_argument(
         "--inputs_toml_path",
         default="",
@@ -1025,6 +1051,7 @@ if __name__ == "__main__":
             reference_id=args.reference_id,
             inputs_toml_path=(args.inputs_toml_path or "").strip() or None,
             db_run_id=_db_run_id,
+            pipeline_version=(args.pipeline_version or "").strip() or None,
         )
     except BaseException:
         if args.mode == "execute" and _execute_run_id:

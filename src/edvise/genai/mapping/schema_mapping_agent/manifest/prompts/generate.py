@@ -25,7 +25,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
 from edvise.genai.mapping.shared.hitl.confidence import (
     PIPELINE_HITL_CONFIDENCE_THRESHOLD,
 )
-from edvise.genai.mapping.shared.pipeline_artifacts import resolve_pipeline_version
+from edvise.genai.mapping.shared.pipeline_artifacts import coerce_pipeline_version
 
 
 def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
@@ -623,7 +623,7 @@ def merge_step2a_entity_manifests(
             "(pass institution_id=... to merge_step2a_entity_manifests)"
         )
 
-    pv = resolve_pipeline_version(pipeline_version)
+    pv = coerce_pipeline_version(pipeline_version)
     if "pipeline_version" in cohort_pass:
         pv = str(cohort_pass.get("pipeline_version", pv))
     elif "pipeline_version" in course_pass:

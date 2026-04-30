@@ -160,17 +160,8 @@ def _sanitize_run_id_segment(run_id: str) -> str:
     return re.sub(r"[^\w.\-]+", "_", s)
 
 
-def resolve_pipeline_version(explicit: str | None = None) -> str:
-    """
-    Resolve release / **git tag** style version for UC rows and ``genai_pipeline_run.json``.
-
-    Precedence: **explicit** > ``GENAI_GIT_TAG`` > ``GIT_TAG`` > ``GENAI_PIPELINE_VERSION`` >
-    installed ``edvise`` distribution version (e.g. ``0.2.0`` from the wheel / ``pyproject.toml``).
-
-    In CI, set ``GENAI_GIT_TAG`` from ``git describe --tags --always`` if you need the exact tag.
-    """
-    if explicit is not None and str(explicit).strip():
-        return str(explicit).strip()
+def _pipeline_version_from_env_or_package() -> str:
+    """``GENAI_GIT_TAG`` / ``GIT_TAG`` / ``GENAI_PIPELINE_VERSION``, then installed ``edvise``."""
     for key in (GENAI_GIT_TAG_ENV, GIT_TAG_ENV, GENAI_PIPELINE_VERSION_ENV):
         v = os.environ.get(key)
         if v and str(v).strip():
@@ -179,6 +170,27 @@ def resolve_pipeline_version(explicit: str | None = None) -> str:
         return importlib.metadata.version("edvise")
     except importlib.metadata.PackageNotFoundError:
         return "0.0.0"
+
+
+def default_pipeline_version() -> str:
+    """
+    Fallback when ``pipeline_version`` is omitted from config or LLM envelope.
+
+    Databricks jobs should pass ``--pipeline_version`` (or set the env vars above) so artifacts
+    match the deployed release.
+    """
+    return _pipeline_version_from_env_or_package()
+
+
+def coerce_pipeline_version(explicit: str | None = None) -> str:
+    """
+    Effective release id: non-empty ``explicit`` (e.g. job ``--pipeline_version``), else env / package.
+
+    Prefer supplying an explicit value from job parameters (same pattern as PDP training jobs).
+    """
+    if explicit is not None and str(explicit).strip():
+        return str(explicit).strip()
+    return _pipeline_version_from_env_or_package()
 
 
 def write_genai_pipeline_run_metadata(
@@ -195,7 +207,7 @@ def write_genai_pipeline_run_metadata(
     """
     root = Path(run_root)
     root.mkdir(parents=True, exist_ok=True)
-    pv = resolve_pipeline_version(pipeline_version)
+    pv = coerce_pipeline_version(pipeline_version)
     payload = {
         "institution_id": str(institution_id).strip(),
         "onboard_run_id": str(onboard_run_id).strip(),
@@ -346,14 +358,14 @@ def build_genai_pipeline_artifact_rows(
     artifact_paths
         Map ``artifact_kind`` -> absolute path (see :func:`discover_artifact_files`).
     pipeline_version
-        Git tag / release (e.g. ``0.2.0``); see :func:`resolve_pipeline_version`.
+        Git tag / release (e.g. ``0.2.0``); see :func:`coerce_pipeline_version`.
     uc_catalog
         Unity Catalog name for the volume (e.g. from :func:`parse_uc_catalog_from_volume_path`).
         If None, parsed from ``bronze_volumes_path`` when it is a ``/Volumes/`` path.
     """
     inst = str(institution_id).strip()
     rid = str(onboard_run_id).strip()
-    pver = str(pipeline_version).strip() or resolve_pipeline_version()
+    pver = coerce_pipeline_version(pipeline_version)
     bronze = str(bronze_volumes_path).rstrip("/")
     cat = uc_catalog or parse_uc_catalog_from_volume_path(bronze) or ""
     now = datetime.now(timezone.utc)
@@ -495,7 +507,7 @@ def register_discovered_artifacts_to_uc(
 
     If ``run_root`` is None, uses :func:`versioned_genai_run_root`.
     """
-    pv = resolve_pipeline_version(pipeline_version)
+    pv = coerce_pipeline_version(pipeline_version)
     rr = (
         Path(run_root)
         if run_root is not None
@@ -530,7 +542,8 @@ __all__ = [
     "parse_uc_catalog_from_volume_path",
     "register_discovered_artifacts_to_uc",
     "resolve_onboard_run_id",
-    "resolve_pipeline_version",
+    "coerce_pipeline_version",
+    "default_pipeline_version",
     "versioned_genai_run_root",
     "write_genai_pipeline_run_metadata",
 ]
