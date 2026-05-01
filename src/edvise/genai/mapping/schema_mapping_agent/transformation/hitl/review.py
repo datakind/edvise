@@ -16,6 +16,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import ReviewStatus
+
 from edvise.genai.mapping.shared.hitl import raise_if_hitl_pending
 from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json
 from edvise.genai.mapping.shared.pipeline_artifacts import default_pipeline_version
@@ -193,6 +195,9 @@ def check_transformation_review_hitl_gate(hitl_path: str | Path) -> None:
 def _strip_review_metadata(plan: dict[str, Any]) -> None:
     for k in ("review_required", "flagged_steps", "hitl_options"):
         plan.pop(k, None)
+    # Match manifest HITL resolver: human-finalized records carry corrected_by_hitl.
+    # Keeps model confidence for audit while satisfying FieldTransformationPlan rules.
+    plan["review_status"] = ReviewStatus.corrected_by_hitl.value
 
 
 def _steps_to_jsonable(item: TransformationHITLItem) -> list[dict[str, Any]]:
@@ -209,9 +214,10 @@ def apply_transformation_review_resolutions(
     Deep-copy ``transformation_data`` and merge reviewer resolutions from review JSON files.
 
     Resolution rules (per item, using ``status`` or 1-based ``choice``):
-    - **approved** — leave ``steps`` as in ``transformation_data``; strip review metadata keys.
-    - **corrected** — replace ``plan['steps']`` from the item's ``steps`` field.
-    - **unmappable** — ``steps=[]``, ``output_dtype`` null; strip review metadata.
+    - **approved** — leave ``steps`` as in ``transformation_data``; strip pending-review keys;
+      set ``review_status`` to ``corrected_by_hitl`` (manifest HITL convention).
+    - **corrected** — replace ``plan['steps']`` from the item's ``steps`` field; same telemetry.
+    - **unmappable** — ``steps=[]``, ``output_dtype`` null; same telemetry.
     """
     out: dict[str, Any] = json.loads(json.dumps(transformation_data))
     tmaps = out.get("transformation_maps")

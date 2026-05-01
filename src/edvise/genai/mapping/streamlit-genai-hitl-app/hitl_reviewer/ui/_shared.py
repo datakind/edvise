@@ -291,6 +291,24 @@ def render_option_cards(
             st.rerun()
 
 
+def _hitl_nav_delta(
+    *,
+    nav_key: str,
+    n_items: int,
+    delta: int,
+    before_nav_rerun: Callable[[], None] | None,
+) -> None:
+    """Prev/Next handler: read current index from session (not caller closure) then clamp."""
+    if before_nav_rerun is not None:
+        before_nav_rerun()
+    try:
+        cur_v = int(st.session_state.get(nav_key, 0))
+    except (TypeError, ValueError):
+        cur_v = 0
+    nmax = max(1, int(n_items))
+    st.session_state[nav_key] = max(0, min(nmax - 1, cur_v + int(delta)))
+
+
 def render_action_bar(
     *,
     nav_key: str,
@@ -331,7 +349,7 @@ def render_action_bar(
                     if nav_prev_button_key is None
                     else nav_prev_button_key
                 )
-                if st.button(
+                st.button(
                     "◀ Prev",
                     key=pk,
                     use_container_width=True,
@@ -341,18 +359,21 @@ def render_action_bar(
                         if cur <= 0
                         else f"Previous {ent} item (another table) in this JSON file."
                     ),
-                ):
-                    if before_nav_rerun is not None:
-                        before_nav_rerun()
-                    st.session_state[nav_key] = max(0, cur - 1)
-                    st.rerun()
+                    on_click=_hitl_nav_delta,
+                    kwargs={
+                        "nav_key": nav_key,
+                        "n_items": n_items,
+                        "delta": -1,
+                        "before_nav_rerun": before_nav_rerun,
+                    },
+                )
             with c_next:
                 nk = (
                     f"{key_prefix}-nxt-{sk}"
                     if nav_next_button_key is None
                     else nav_next_button_key
                 )
-                if st.button(
+                st.button(
                     "Next ▶",
                     key=nk,
                     use_container_width=True,
@@ -362,11 +383,14 @@ def render_action_bar(
                         if cur >= n_items - 1
                         else f"Next {ent} item (another table) in this JSON file."
                     ),
-                ):
-                    if before_nav_rerun is not None:
-                        before_nav_rerun()
-                    st.session_state[nav_key] = min(n_items - 1, cur + 1)
-                    st.rerun()
+                    on_click=_hitl_nav_delta,
+                    kwargs={
+                        "nav_key": nav_key,
+                        "n_items": n_items,
+                        "delta": 1,
+                        "before_nav_rerun": before_nav_rerun,
+                    },
+                )
             with _nav_pad:
                 pass
             st.divider()

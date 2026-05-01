@@ -363,7 +363,10 @@ class FieldTransformationPlan(StrictBaseModel):
         default=None,
         description=(
             "Pipeline/HITL telemetry — set after validation and refinement, not by the "
-            "initial transformation LLM. Omit in agent output."
+            "initial transformation LLM. Omit in agent output. "
+            f"After transformation review UC gate, set to {ReviewStatus.corrected_by_hitl.value!r} "
+            "(same convention as manifest ``resolve_sma_items``) so low model confidence can remain "
+            "without ``review_required``."
         ),
     )
     reviewer_notes: Optional[str] = Field(
@@ -403,10 +406,13 @@ class FieldTransformationPlan(StrictBaseModel):
     @model_validator(mode="after")
     def confidence_review_and_hitl_consistency(self) -> FieldTransformationPlan:
         if self.confidence is not None and self.confidence <= PIPELINE_HITL_CONFIDENCE_THRESHOLD:
-            if self.review_required is not True:
+            hitl_finalized = self.review_status == ReviewStatus.corrected_by_hitl
+            if self.review_required is not True and not hitl_finalized:
                 raise ValueError(
                     "review_required must be True when confidence <= "
-                    f"{PIPELINE_HITL_CONFIDENCE_THRESHOLD} (got confidence={self.confidence})"
+                    f"{PIPELINE_HITL_CONFIDENCE_THRESHOLD} unless review_status is "
+                    f"{ReviewStatus.corrected_by_hitl.value!r} (transformation review HITL applied); "
+                    f"(got confidence={self.confidence})"
                 )
 
         if self.review_required is True:

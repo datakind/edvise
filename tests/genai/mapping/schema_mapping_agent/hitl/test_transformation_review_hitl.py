@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import ReviewStatus
 from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.review import (
     TransformationReviewHITLFile,
     apply_transformation_review_resolutions,
@@ -16,6 +17,7 @@ from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.review import
 from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
     MapValuesStep,
     TransformationHITLOption,
+    TransformationMap,
 )
 
 
@@ -132,6 +134,14 @@ def test_apply_transformation_review_approve_strips_metadata(tmp_path: Path):
     assert plan["steps"][0]["function_name"] == "cast_string"
     assert "review_required" not in plan
     assert "flagged_steps" not in plan
+    assert plan["confidence"] == pytest.approx(0.65)
+    assert plan["review_status"] == ReviewStatus.corrected_by_hitl.value
+    tm_dict = {
+        **out["transformation_maps"]["cohort"],
+        "institution_id": "test_u",
+        "pipeline_version": "1",
+    }
+    TransformationMap.model_validate(tm_dict)
 
 
 def test_apply_transformation_review_unmappable(tmp_path: Path):
@@ -158,6 +168,7 @@ def test_apply_transformation_review_unmappable(tmp_path: Path):
     plan = out["transformation_maps"]["cohort"]["plans"][0]
     assert plan["steps"] == []
     assert plan.get("output_dtype") is None
+    assert plan["review_status"] == ReviewStatus.corrected_by_hitl.value
 
 
 def test_apply_transformation_review_corrected_uses_item_steps(tmp_path: Path):
@@ -193,6 +204,8 @@ def test_apply_transformation_review_corrected_uses_item_steps(tmp_path: Path):
     plan = out["transformation_maps"]["cohort"]["plans"][0]
     assert plan["steps"][0]["function_name"] == "map_values"
     assert "review_required" not in plan
+    assert plan["confidence"] == pytest.approx(0.65)
+    assert plan["review_status"] == ReviewStatus.corrected_by_hitl.value
 
 
 def test_effective_status_from_choice_only():

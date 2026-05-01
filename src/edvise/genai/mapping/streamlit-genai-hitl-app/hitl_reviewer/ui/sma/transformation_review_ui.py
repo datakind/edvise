@@ -19,6 +19,7 @@ from edvise.utils.institution_naming import format_institution_display_name
 from hitl_reviewer.persistence.hitl_json_batch_commit import (
     persist_sma_transformation_review_from_session,
 )
+from hitl_reviewer.persistence.silver_hitl_paths import silver_volume_path_session_tag
 from hitl_reviewer.ui._shared import (
     init_sel_key,
     inject_hitl_css,
@@ -76,6 +77,8 @@ def render_sma_transformation_review_cards(
         f"Domain: **{html.escape(str(data.get('domain') or 'transformation_review'))}** · "
         f"entity: **{html.escape(str(data.get('entity_type') or '?'))}**"
     )
+    path_tag = silver_volume_path_session_tag(silver_path)
+    psk = f"{sk}-{path_tag}"
 
     option_item_indices: list[int] = []
     for ix, it in enumerate(items):
@@ -85,7 +88,7 @@ def render_sma_transformation_review_cards(
         if not opts or not isinstance(opts, list) or len(opts) < 1:
             continue
         option_item_indices.append(ix)
-        rk = f"sv{sk}item{ix}{it.get('item_id', ix)}"
+        rk = f"sv{psk}item{ix}{it.get('item_id', ix)}"
         if rk not in st.session_state:
             c_raw = it.get("choice")
             if c_raw is None:
@@ -103,7 +106,7 @@ def render_sma_transformation_review_cards(
         if isinstance(items[j], dict) and items[j].get("choice") is None
     ]
     nav_ixs = pending_ixs if pending_ixs else option_item_indices
-    cur_key = f"sma-tr-nav-{sk}"
+    cur_key = f"sma-tr-nav-{psk}"
     pre_bar_caption: str | None = None
     cur_nav = 0
     i = 0
@@ -208,7 +211,7 @@ def render_sma_transformation_review_cards(
         n = len(options)
         render_sma_option_descriptions(options=options)
 
-        sel_key = f"sv{sk}item{i}{item.get('item_id', i)}"
+        sel_key = f"sv{psk}item{i}{item.get('item_id', i)}"
         init_sel_key(sel_key, item.get("choice"), n)
         json_choice = item.get("choice")
         if json_choice is None:
@@ -230,7 +233,7 @@ def render_sma_transformation_review_cards(
             json_choice=json_choice,
             uc_group_pending=uc_group_pending,
             key_prefix="sma-tr",
-            sk=sk,
+            sk=psk,
             file_index=int(i),
             option_label_format="numbered",
             recommendation_badge_label="SMA recommendation",
@@ -246,7 +249,7 @@ def render_sma_transformation_review_cards(
             else {}
         )
         oid = str(cur_opt.get("option_id") or "").strip().lower()
-        steps_edit_key = f"tr-steps-{sk}-{i}-{item.get('item_id', i)}"
+        steps_edit_key = f"tr-steps-{psk}-{i}-{item.get('item_id', i)}"
         if steps_edit_key not in st.session_state:
             if isinstance(steps_raw, list):
                 st.session_state[steps_edit_key] = json.dumps(
@@ -274,7 +277,7 @@ def render_sma_transformation_review_cards(
     def _persist() -> tuple[bool, str]:
         return persist_sma_transformation_review_from_session(
             silver_path=silver_path,
-            sk=sk,
+            sk=psk,
             option_item_indices=option_item_indices,
             allow_silver_write=uc_group_pending,
         )
@@ -283,7 +286,7 @@ def render_sma_transformation_review_cards(
     sma_approve_blocked = False
     if nav_ixs and len(nav_ixs) > 1:
         sma_opened, sma_all_seen = mark_hitl_nav_visit(
-            store_key=f"sma-tr-nav-visit-{sk}",
+            store_key=f"sma-tr-nav-visit-{psk}",
             silver_path=silver_path,
             cur=cur_nav,
             n_items=len(nav_ixs),
@@ -305,13 +308,13 @@ def render_sma_transformation_review_cards(
         nav_key=cur_key,
         cur=cur_nav,
         n_items=nav_n,
-        sk=sk,
+        sk=psk,
         key_prefix="sma-tr",
         file_index=int(i) if nav_ixs else 0,
         include_prev_next=bool(nav_ixs),
-        nav_prev_button_key=f"prev-tr-{sk}",
-        nav_next_button_key=f"nxt-tr-{sk}",
-        primary_button_key=f"ssave-tr-{sk}",
+        nav_prev_button_key=f"prev-tr-{psk}",
+        nav_next_button_key=f"nxt-tr-{psk}",
+        primary_button_key=f"ssave-tr-{psk}",
         primary_button_label="Save JSON & approve UC",
         primary_help=_help,
         pre_bar_caption=pre_bar_caption,
