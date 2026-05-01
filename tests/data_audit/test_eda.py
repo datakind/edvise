@@ -316,10 +316,35 @@ class TestEdaSummary:
 
     def test_enrollment_type_by_intensity(self, sample_cohort_data):
         assert EdaSummary(sample_cohort_data).enrollment_type_by_intensity == {
+            "total": 9,
             "categories": ["First-Time", "Transfer-In"],
             "series": [
-                {"name": "Full-Time", "data": [3.0, 5.0]},
-                {"name": "Part-Time", "data": [0.0, 1.0]},
+                {
+                    "name": "Full-Time",
+                    "data": [
+                        {
+                            "name": "First-Time",
+                            "count": 3,
+                            "percentage": 33.33,
+                        },
+                        {
+                            "name": "Transfer-In",
+                            "count": 5,
+                            "percentage": 55.56,
+                        },
+                    ],
+                },
+                {
+                    "name": "Part-Time",
+                    "data": [
+                        {"name": "First-Time", "count": 0, "percentage": 0},
+                        {
+                            "name": "Transfer-In",
+                            "count": 1,
+                            "percentage": 11.11,
+                        },
+                    ],
+                },
             ],
         }
 
@@ -328,7 +353,7 @@ class TestEdaSummary:
 
     def test_pell_recipient_status(self, sample_cohort_data):
         assert EdaSummary(sample_cohort_data).pell_recipient_status == {
-            "series": [{"name": "All Students", "data": {"N": 1, "Nan": 6, "Y": 2}}]
+            "series": [{"name": "All Students", "data": {"No": 7, "Yes": 2}}]
         }
 
     def test_student_age_by_gender(self, sample_cohort_data):
@@ -351,13 +376,14 @@ class TestEdaSummary:
         }
 
     def test_pell_recipient_status_handles_nulls(self, sample_cohort_data):
-        """Test that NaN pell status values are properly excluded."""
+        """Missing pell status is imputed to No (same as N)"""
         sample_cohort_data.loc[0:2, "pell_status_first_year"] = pd.NA
         eda = EdaSummary(sample_cohort_data)
         result = eda.pell_recipient_status
         assert "series" in result
         data_keys = result["series"][0]["data"].keys()
         assert all(pd.notna(k) for k in data_keys)
+        assert set(data_keys) <= {"Yes", "No"}
 
     def test_student_age_by_gender_handles_nulls(self, sample_cohort_data):
         """Test that NaN gender values are properly excluded."""
