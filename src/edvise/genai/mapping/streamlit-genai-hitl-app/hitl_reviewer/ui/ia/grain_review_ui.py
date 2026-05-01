@@ -4,6 +4,8 @@ IA (Identity Agent) **grain** HITL reviewer (Streamlit).
 Structured ``hitl_context`` (candidate keys + variance profile) matches
 :class:`~edvise.genai.mapping.identity_agent.hitl.schemas.GrainAmbiguityHITLContext`.
 
+Primary action **Save JSON & approve UC** writes all grain choices to silver and approves the UC row.
+
 Silver path filename is ``identity_grain_hitl.json`` (see ``edvise_genai_ia.resolve_run_paths``).
 """
 
@@ -20,12 +22,14 @@ import streamlit as st
 
 from edvise.utils.institution_naming import format_institution_display_name
 from hitl_reviewer.ui._shared import (
+    HITL_FLASH_HINT_AFTER_UC,
     init_sel_key,
     inject_hitl_css,
     mark_hitl_nav_visit,
     render_action_bar,
     render_hitl_header,
     render_option_cards,
+    set_hitl_flash_banner,
 )
 from hitl_reviewer.persistence.hitl_json_batch_commit import (
     persist_ia_grain_hitl_from_session,
@@ -372,11 +376,12 @@ def render_ia_grain_hitl_cards(
         if n_items > 1:
             _grain_cap = (
                 f"This file has **{n_items}** grain item(s) (often one per table). Use **Prev/Next** "
-                "to open each one and pick an option — **Approve** saves every table’s choice in one write."
+                "to open each one and pick an option — **Save JSON & approve UC** writes every choice "
+                "in one shot."
             )
             if approve_blocked:
                 _grain_cap += (
-                    f" **Approve** is disabled until every item has been opened ({opened_k}/{n_items} so far)."
+                    f" That button stays disabled until every item has been opened ({opened_k}/{n_items} so far)."
                 )
 
         render_action_bar(
@@ -391,7 +396,7 @@ def render_ia_grain_hitl_cards(
             nav_next_button_key=None,
             nav_entity_label="grain",
             primary_button_key=f"ia-grain-save-all-{psk}",
-            primary_button_label="Approve",
+            primary_button_label="Save JSON & approve UC",
             primary_help=_grain_help,
             pre_bar_caption=_grain_cap,
             uc_group_pending=uc_group_pending,
@@ -445,4 +450,8 @@ def _persist_grain_reject(
     else:
         st.success("Item flagged and saved to silver volume.")
         invalidate_ia_grain_run_cache(onboard_run_id)
+        set_hitl_flash_banner(
+            "success",
+            "Grain item rejected in silver JSON (choice cleared). " + HITL_FLASH_HINT_AFTER_UC,
+        )
         st.rerun()

@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import streamlit as st
+from hitl_reviewer.ui._shared import render_hitl_flash_banner_if_any
 from hitl_reviewer.ui.hitl_streamlit import (
     HITL_RESULTS_DF_KEY,
     HITL_WORKBENCH_CAPTION,
@@ -24,6 +25,7 @@ st.set_page_config(page_title="HITL Review History", layout="wide")
 init_reviewer_in_session()
 init_sidebar_form_state()
 maybe_hydrate_sidebar_from_nav()
+render_hitl_flash_banner_if_any()
 
 c0, o0, ph0, at0 = get_nav_from_session_or_url()
 nav_group_line: str | None = None

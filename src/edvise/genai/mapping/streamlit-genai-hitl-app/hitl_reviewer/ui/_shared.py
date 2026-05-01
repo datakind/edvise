@@ -17,6 +17,37 @@ from hitl_reviewer.persistence.hitl_json_batch_commit import (
     try_approve_uc_after_json_write,
 )
 
+# Survives ``st.rerun()`` so reviewers see confirmation after Save / Approve (otherwise Streamlit
+# redraws and the prior ``st.success`` toast vanishes immediately).
+KEY_HITL_FLASH_BANNER = "hitl_flash_banner"
+
+# One hint everywhere UC approve + optional queue advance can dismiss the editor (pending-only table).
+HITL_FLASH_HINT_AFTER_UC = (
+    "If the editor closed, set status to **(any)** or refresh the table to confirm."
+)
+
+
+def set_hitl_flash_banner(
+    kind: Literal["success", "warning", "info"], message: str
+) -> None:
+    st.session_state[KEY_HITL_FLASH_BANNER] = {"kind": kind, "message": message}
+
+
+def render_hitl_flash_banner_if_any() -> None:
+    raw = st.session_state.pop(KEY_HITL_FLASH_BANNER, None)
+    if not isinstance(raw, dict):
+        return
+    msg = str(raw.get("message") or "").strip()
+    if not msg:
+        return
+    kind = raw.get("kind")
+    if kind == "warning":
+        st.warning(msg)
+    elif kind == "info":
+        st.info(msg)
+    else:
+        st.success(msg)
+
 
 def mark_hitl_nav_visit(
     *, store_key: str, silver_path: str, cur: int, n_items: int
@@ -286,6 +317,7 @@ def render_action_bar(
     after_uc_approve_success: Callable[[], None] | None,
     success_silver_filename: str | None,
     before_nav_rerun: Callable[[], None] | None = None,
+    saved_json_description: str = "manifest JSON",
 ) -> None:
     if pre_bar_caption is not None:
         st.caption(pre_bar_caption)
@@ -326,7 +358,7 @@ def render_action_bar(
                     use_container_width=True,
                     disabled=cur >= n_items - 1,
                     help=(
-                        f"Last {ent} item in this file — pick an option below, then Approve."
+                        f"Last {ent} item in this file — pick an option below, then use **Save JSON & approve UC**."
                         if cur >= n_items - 1
                         else f"Next {ent} item (another table) in this JSON file."
                     ),
@@ -373,23 +405,45 @@ def render_action_bar(
                                 f"Saved ``{success_silver_filename}`` and approved the UC row."
                             )
                             st.toast("JSON + UC complete.", icon="✅")
+                            set_hitl_flash_banner(
+                                "success",
+                                f"Saved `{success_silver_filename}` and approved the UC row. "
+                                + HITL_FLASH_HINT_AFTER_UC,
+                            )
                         elif not uc_group_pending:
                             st.success(
                                 f"Saved ``{success_silver_filename}``. UC row was not **pending**, so "
                                 "UC approve was skipped."
                             )
+                            set_hitl_flash_banner(
+                                "info",
+                                f"Saved `{success_silver_filename}`. UC approve was skipped (row was not pending).",
+                            )
                         else:
                             st.success(f"Saved ``{success_silver_filename}``.")
+                            set_hitl_flash_banner(
+                                "success",
+                                f"Saved `{success_silver_filename}`.",
+                            )
                         st.rerun()
                     else:
+                        _doc = (saved_json_description or "HITL JSON").strip() or "HITL JSON"
                         if uc_group_pending:
                             if after_uc_approve_success is not None:
                                 after_uc_approve_success()
-                            st.success("Saved manifest JSON and approved the UC row.")
+                            st.success(f"Saved {_doc} and approved the UC row.")
                             st.toast("JSON + UC complete.", icon="✅")
+                            set_hitl_flash_banner(
+                                "success",
+                                f"Saved {_doc} and approved the UC row. " + HITL_FLASH_HINT_AFTER_UC,
+                            )
                         else:
                             st.success(
-                                "Saved manifest JSON. UC was not pending, so UC approve was skipped."
+                                f"Saved {_doc}. UC was not pending, so UC approve was skipped."
+                            )
+                            set_hitl_flash_banner(
+                                "info",
+                                f"Saved {_doc}. UC approve was skipped (row was not pending).",
                             )
                         st.rerun()
         with c_rej:
@@ -404,7 +458,9 @@ def render_action_bar(
                     if reject_fn is not None:
                         reject_fn()
     if show_reject_item and success_silver_filename is not None and uc_group_pending:
-        _cap = "Approve saves your selections and marks this review complete."
+        _cap = (
+            "**Save JSON & approve UC** writes every item in this file and approves the pending UC row."
+        )
         if primary_extra_disabled:
-            _cap += " Approve stays disabled until every item in this file has been opened with Prev/Next."
+            _cap += " It stays disabled until every item in this file has been opened with Prev/Next."
         st.caption(_cap)

@@ -2,7 +2,7 @@
 IA (Identity Agent) **term** HITL reviewer (Streamlit).
 
 Same interaction model as :mod:`hitl_reviewer.ui.ia.grain_review_ui` (one item at a time,
-option cards, batch **Approve** write + optional UC approve).
+option cards, **Save JSON & approve UC** writes all items + UC approve).
 
 Silver path filename is ``identity_term_hitl.json`` (see ``edvise_genai_ia.resolve_run_paths``).
 """
@@ -19,12 +19,14 @@ import streamlit as st
 
 from edvise.utils.institution_naming import format_institution_display_name
 from hitl_reviewer.ui._shared import (
+    HITL_FLASH_HINT_AFTER_UC,
     init_sel_key,
     inject_hitl_css,
     mark_hitl_nav_visit,
     render_action_bar,
     render_hitl_header,
     render_option_cards,
+    set_hitl_flash_banner,
 )
 from hitl_reviewer.persistence.hitl_json_batch_commit import (
     persist_ia_term_hitl_from_session,
@@ -353,7 +355,8 @@ def render_ia_term_hitl_cards(
             )
             if approve_blocked:
                 _term_cap += (
-                    f" **Approve** is disabled until every item has been opened ({opened_k}/{n_items} so far)."
+                    f" **Save JSON & approve UC** stays disabled until every item has been opened "
+                    f"({opened_k}/{n_items} so far)."
                 )
 
         render_action_bar(
@@ -368,7 +371,7 @@ def render_ia_term_hitl_cards(
             nav_next_button_key=None,
             nav_entity_label="term",
             primary_button_key=f"ia-term-save-all-{sk}",
-            primary_button_label="Approve",
+            primary_button_label="Save JSON & approve UC",
             primary_help=_term_help,
             pre_bar_caption=_term_cap,
             uc_group_pending=uc_group_pending,
@@ -422,4 +425,8 @@ def _persist_term_reject(
     else:
         st.success("Item flagged and saved to silver volume.")
         invalidate_ia_term_run_cache(onboard_run_id)
+        set_hitl_flash_banner(
+            "success",
+            "Term item rejected in silver JSON (choice cleared). " + HITL_FLASH_HINT_AFTER_UC,
+        )
         st.rerun()

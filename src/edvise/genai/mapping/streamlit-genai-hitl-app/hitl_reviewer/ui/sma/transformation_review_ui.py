@@ -326,4 +326,5 @@ def render_sma_transformation_review_cards(
         approve_fn=approve_uc_if_complete,
         after_uc_approve_success=after_uc_approve_success,
         success_silver_filename=None,
+        saved_json_description="transformation review JSON",
     )

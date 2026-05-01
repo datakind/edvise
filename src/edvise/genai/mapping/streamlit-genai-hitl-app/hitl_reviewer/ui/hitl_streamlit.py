@@ -26,6 +26,7 @@ from hitl_reviewer.persistence.hitl_json_batch_commit import (
     persist_hitl_choice_radios_from_session,
     try_approve_uc_after_json_write,
 )
+from hitl_reviewer.ui._shared import HITL_FLASH_HINT_AFTER_UC, set_hitl_flash_banner
 from hitl_reviewer.ui.ia.grain_review_ui import (
     is_ia_grain_phase,
     render_ia_grain_hitl_cards,
@@ -656,11 +657,19 @@ def render_silver_hitl_editor(
             elif uc_group_pending:
                 if after_uc_approve_success is not None:
                     after_uc_approve_success()
-                st.success("Saved manifest JSON and approved the UC row.")
+                st.success("Saved HITL JSON and approved the UC row.")
                 st.toast("JSON + UC complete.", icon="✅")
+                set_hitl_flash_banner(
+                    "success",
+                    "Saved HITL JSON and approved the UC row. " + HITL_FLASH_HINT_AFTER_UC,
+                )
             else:
                 st.success(
-                    "Saved manifest JSON. UC was not pending, so UC approve was skipped."
+                    "Saved HITL JSON. UC was not pending, so UC approve was skipped."
+                )
+                set_hitl_flash_banner(
+                    "info",
+                    "Saved HITL JSON. UC approve was skipped (row was not pending).",
                 )
             st.rerun()
 
@@ -983,9 +992,8 @@ def render_one_hitl_group(
             or is_sma_tr_row
         ):
             st.caption(
-                "IA / SMA: **Save JSON & approve UC** (or **Approve** on grain/term/hook-preview cards) "
-                "approves this pending row. "
-                "Use **Reject UC** only if you intend to block the gate."
+                "IA / SMA / hook preview: primary action is **Save JSON & approve UC** in the editor "
+                "(writes silver JSON + UC). **Reject UC** below skips silver and only updates ``hitl_reviews``."
             )
             if st.button(
                 "Reject UC",
@@ -1005,6 +1013,10 @@ def render_one_hitl_group(
                         current_onboard_run_id=str(onboard_run_id),
                         current_phase=str(phase),
                         current_artifact_type=str(artifact_type),
+                    )
+                    set_hitl_flash_banner(
+                        "warning",
+                        "UC row rejected. " + HITL_FLASH_HINT_AFTER_UC,
                     )
                     st.toast("UC row rejected.", icon="⛔")
                     st.rerun()
@@ -1033,6 +1045,11 @@ def render_one_hitl_group(
                             current_phase=str(phase),
                             current_artifact_type=str(artifact_type),
                         )
+                        set_hitl_flash_banner(
+                            "success",
+                            "UC row approved (silver JSON was not changed here — only ``hitl_reviews``). "
+                            + HITL_FLASH_HINT_AFTER_UC,
+                        )
                         st.toast("UC row approved.", icon="✅")
                         st.rerun()
                     except Exception as ex:  # noqa: BLE001
@@ -1056,6 +1073,10 @@ def render_one_hitl_group(
                             current_onboard_run_id=str(onboard_run_id),
                             current_phase=str(phase),
                             current_artifact_type=str(artifact_type),
+                        )
+                        set_hitl_flash_banner(
+                            "warning",
+                            "UC row rejected. " + HITL_FLASH_HINT_AFTER_UC,
                         )
                         st.toast("UC row rejected.", icon="⛔")
                         st.rerun()

@@ -12,6 +12,8 @@ from typing import Any
 
 import streamlit as st
 
+from hitl_reviewer.ui._shared import HITL_FLASH_HINT_AFTER_UC, set_hitl_flash_banner
+
 
 def assemble_hook_spec_drafts_as_module_text(hook_spec: dict[str, Any]) -> str:
     """
@@ -171,6 +173,10 @@ def render_ia_hook_preview_cards(
             if after_uc_approve_success is not None:
                 after_uc_approve_success()
             st.success("Hook preview approved.")
+            set_hitl_flash_banner(
+                "success",
+                "Hook preview approved. " + HITL_FLASH_HINT_AFTER_UC,
+            )
             st.rerun()
         except Exception as ex:  # noqa: BLE001
             st.error(str(ex))
