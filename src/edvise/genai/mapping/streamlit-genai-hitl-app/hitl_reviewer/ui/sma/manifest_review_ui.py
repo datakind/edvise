@@ -558,6 +558,7 @@ def render_sma_hitl_cards(
             sk=sk,
             file_index=int(i),
             option_label_format="numbered",
+            recommendation_badge_label="SMA recommendation",
         )
         dem_key = f"sma-dem-{sk}-{i}-{item.get('item_id', i)}"
         if dem_key not in st.session_state:

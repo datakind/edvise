@@ -223,6 +223,23 @@ def test_check_gate_raises_when_pending(tmp_path: Path):
         check_transformation_review_hitl_gate(p)
 
 
+def test_transformation_review_hitl_file_accepts_integer_choice():
+    """Streamlit ``set_item_choice`` writes JSON numbers; model must accept them."""
+    data = _reviewable_wrapper()
+    item = build_transformation_review_hitl_file_for_entity(
+        data, institution_id="test_u", entity_type="cohort", pipeline_version="1"
+    ).items[0]
+    item_int = item.model_copy(update={"choice": 1})
+    raw = TransformationReviewHITLFile(
+        institution_id="test_u",
+        entity_type="cohort",
+        pipeline_version="1",
+        items=[item_int],
+    ).model_dump(mode="json")
+    env = TransformationReviewHITLFile.model_validate(raw)
+    assert env.items[0].choice == 1
+
+
 def test_check_gate_clear_when_choice_set(tmp_path: Path):
     data = _reviewable_wrapper()
     item = build_transformation_review_hitl_file_for_entity(

@@ -233,6 +233,7 @@ def render_sma_transformation_review_cards(
             sk=sk,
             file_index=int(i),
             option_label_format="numbered",
+            recommendation_badge_label="SMA recommendation",
         )
 
         try:

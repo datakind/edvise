@@ -475,7 +475,14 @@ class TransformationHITLItem(StrictBaseModel):
         ),
     )
     status: Literal["pending", "approved", "corrected", "unmappable"] = "pending"
-    choice: Optional[str] = None
+    # Streamlit HITL persists 1-based index as JSON int; manual edits may use strings.
+    choice: Optional[Union[str, int]] = Field(
+        default=None,
+        description=(
+            "1-based index into ``options`` (1=approve, 2=correct, 3=unmappable). "
+            "Stored as int by the generic option UI."
+        ),
+    )
 
     @model_validator(mode="after")
     def _options_must_be_approve_correct_unmappable(self) -> "TransformationHITLItem":

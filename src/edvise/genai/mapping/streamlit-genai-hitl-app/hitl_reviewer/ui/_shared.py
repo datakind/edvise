@@ -224,6 +224,7 @@ def render_option_cards(
     sk: str,
     file_index: int,
     option_label_format: Literal["raw", "numbered"] = "raw",
+    recommendation_badge_label: str = "IA recommendation",
 ) -> None:
     st.markdown("**Decision**")
     for j, opt in enumerate(options):
@@ -240,7 +241,7 @@ def render_option_cards(
         if is_rec and json_choice is not None:
             badge = " · ✦ Saved in JSON"
         elif is_rec:
-            badge = " · ✦ IA recommendation"
+            badge = f" · ✦ {recommendation_badge_label}"
         else:
             badge = ""
         btn_label = f"**{lab}**{badge}  \n{desc}"
