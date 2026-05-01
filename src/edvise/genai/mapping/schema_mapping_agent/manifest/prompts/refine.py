@@ -7,7 +7,9 @@ SMA refinement + HITL: prompts, orchestration, and post-parse safety nets (singl
 
 **Pass 2** — option generation: one LLM call per entity with all Pass 1 flags for
 that entity in a single ``items`` array (cohort + course = 2 Pass 2 calls per institution;
-4 gateway calls total per institution).
+4 gateway calls total per institution). Each TERMINAL option is checked with the same
+deterministic ``validate_manifest`` pass as post–Step 2a generate (scratch manifest);
+failures trigger :func:`~edvise.utils.llm_utils.llm_complete_with_parse_retry`.
 
 Also includes :func:`run_sma_refinement` (two-pass LLM calls) and
 :func:`apply_refinement_review_status_safety_net` (``review_status`` enforcement).
@@ -51,7 +53,7 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 if TYPE_CHECKING:
     from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
@@ -1004,8 +1006,14 @@ def _run_pass2_llm_call(
     entity_type: Literal["cohort", "course"],
     hitl_flags: list[dict[str, Any]],
     schema_contract: EnrichedSchemaContractForSMA,
+    refined_manifest: FieldMappingManifest,
     llm_complete: Callable[[str, str], str],
 ) -> dict[str, Any]:
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.option_validation import (
+        raise_if_pass2_terminal_options_invalid,
+    )
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import SMAHITLItem
+
     system = build_refinement_pass2_system_prompt()
     user = build_refinement_pass2_user_prompt(
         institution_id,
@@ -1013,11 +1021,50 @@ def _run_pass2_llm_call(
         hitl_flags,
         schema_contract,
     )
+
+    def _parse_pass2_with_terminal_validation(raw: str) -> dict[str, Any]:
+        data = _parse_sma_refinement_llm_dict(raw)
+        items_raw = data.get("items")
+        if items_raw is None:
+            raise ValidationError.from_exception_data(
+                "Pass2JSON",
+                [
+                    {
+                        "type": "missing",
+                        "loc": ("items",),
+                        "msg": (
+                            "Pass 2 output must include top-level key 'items' "
+                            "(array of SMAHITLItem)."
+                        ),
+                        "input": data,
+                    }
+                ],
+            )
+        if not isinstance(items_raw, list):
+            ve = ValueError("Pass 2 'items' must be a JSON array.")
+            raise ValidationError.from_exception_data(
+                "Pass2JSON",
+                [
+                    {
+                        "type": "value_error",
+                        "loc": ("items",),
+                        "msg": str(ve),
+                        "input": items_raw,
+                        "ctx": {"error": ve},
+                    }
+                ],
+            )
+        hitl_items = [SMAHITLItem.model_validate(item) for item in items_raw]
+        raise_if_pass2_terminal_options_invalid(
+            refined_manifest, hitl_items, schema_contract
+        )
+        return data
+
     return llm_complete_with_parse_retry(
         llm_complete,
         system,
         user,
-        _parse_sma_refinement_llm_dict,
+        _parse_pass2_with_terminal_validation,
         logger=_LOG,
     )
 
@@ -1098,6 +1145,7 @@ def run_sma_refinement(
         entity_type,
         hitl_flags,
         schema_contract,
+        refined_manifest,
         complete,
     )
     items_raw = pass2_raw.get("items")
