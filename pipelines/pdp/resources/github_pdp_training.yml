@@ -282,9 +282,9 @@ resources:
             - pypi:
                 package: mlflow~=2.22
             - pypi:
-                package: weasyprint~=60.2
+                package: weasyprint==68.1
             - pypi:
-                package: pydyf~=0.8.0
+                package: pydyf~=0.11.0
             - pypi:
                 package: markdown~=3.5
             - pypi:
