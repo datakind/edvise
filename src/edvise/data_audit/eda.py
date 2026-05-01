@@ -2143,10 +2143,10 @@ class EdaSummary:
 
         Returns:
             Dictionary with keys:
-                - categories: Sorted list of enrollment type names
-                - series: List of dictionaries with keys:
-                    - name: Enrollment intensity value (e.g., "Full-Time", "Part-Time")
-                    - data: List of counts per category
+                - total: Row count in the cross-tab (students with both fields)
+                - categories: Enrollment type names (stack axis)
+                - series: Per intensity, ``data`` is list of
+                  ``{ name, count, percentage }`` (percentage of total)
         """
         df = self.df_cohort.dropna(
             subset=["enrollment_type", "enrollment_intensity_first_term"]
@@ -2157,9 +2157,7 @@ class EdaSummary:
                 .astype(str)
                 .str.strip()
                 .str.title(),
-                enrollment_intensity_first_term=self.df_cohort[
-                    "enrollment_intensity_first_term"
-                ]
+                enrollment_intensity_first_term=df["enrollment_intensity_first_term"]
                 .astype(str)
                 .str.strip()
                 .str.title(),
@@ -2172,10 +2170,29 @@ class EdaSummary:
             .size()
             .unstack(fill_value=0)
         )
+        total = int(counts_df.to_numpy().sum())
+        if total == 0:
+            return {"total": 0, "categories": [], "series": []}
 
         return {
+            "total": total,
             "categories": counts_df.columns.tolist(),
-            "series": self._format_series_data(counts_df),
+            "series": [
+                {
+                    "name": str(intensity),
+                    "data": [
+                        {
+                            "name": str(cat),
+                            "count": int(counts_df.loc[intensity, cat]),
+                            "percentage": round(
+                                100 * counts_df.loc[intensity, cat] / total, 2
+                            ),
+                        }
+                        for cat in counts_df.columns
+                    ],
+                }
+                for intensity in counts_df.index
+            ],
         }
 
     @cached_property
@@ -2229,27 +2246,27 @@ class EdaSummary:
         """
         Compute Pell recipient status without first generation split.
 
+        Only ``Y`` / ``YES`` (case-insensitive, trimmed) count as recipients; every other
+        value, including missing, ``N``, and unknown codes, is counted as non-recipient (No).
+
         Returns:
             Dictionary with keys:
                 - series: Single series with counts per Pell status
         """
-        if "pell_status_first_year" not in self.df_cohort.columns:
-            return None
-        if self.df_cohort["pell_status_first_year"].dropna().empty:
-            return None
-
+        s = (
+            self.df_cohort["pell_status_first_year"]
+            .astype("string")
+            .fillna("")
+            .str.strip()
+            .str.upper()
+        )
         data = (
-            self.df_cohort.assign(
-                pell_status_first_year=self.df_cohort["pell_status_first_year"]
-                .astype(str)
-                .str.strip()
-                .str.title()
-            )
-            .dropna(subset=["pell_status_first_year"])
-            .groupby("pell_status_first_year", observed=True)
-            .size()
+            pd.Series(np.where(s.isin(("Y", "YES")), "Yes", "No"), index=s.index)
+            .value_counts()
             .to_dict()
         )
+        if not data:
+            return None
         return {
             "series": [{"name": "All Students", "data": data}],
         }
