@@ -1,0 +1,47 @@
+bundle:
+  name: Edvise NSC SFTP ingestion
+  uuid: b8f4e2c1-9a3d-4f1e-b7c2-1d4e8f9a0b2c
+
+include:
+  - resources/nsc_sftp_ingestion.yml
+
+variables:
+  git_commit:
+    description: "Commit SHA to fetch (dev/CI)"
+    default: ""
+  git_tag:
+    description: "Release tag to fetch for deployment (prod)"
+    default: ""
+  ds_run_as:
+    description: "Service principal / app ID used as run_as for the job"
+  service_account_executer:
+    description: "Human or technical user granted CAN_MANAGE on the job"
+  datakind_group_to_manage_workflow:
+    description: "Workspace group with CAN_MANAGE on the job"
+
+run_as:
+  service_principal_name: ${var.ds_run_as}
+
+targets:
+  dev:
+    mode: development
+    default: true
+    resources:
+      jobs:
+        nsc_sftp_automated_ingestion:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
+
+  prod:
+    mode: production
+    workspace:
+      root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
+    resources:
+      jobs:
+        nsc_sftp_automated_ingestion:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}
