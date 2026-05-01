@@ -7,7 +7,7 @@ Cluster image must include paramiko (and other deps) — see pyproject optional/
 
 Outputs:
   - Delta: ingestion_manifest, pending_ingest_queue
-  - Staged files under UC volume path from ingestion.constants.SFTP_TMP_DIR
+  - Staged files under UC volume path from nsc_sftp.constants.SFTP_TMP_DIR
 """
 
 from __future__ import annotations
@@ -20,14 +20,14 @@ from databricks.connect import DatabricksSession
 from pyspark.sql import functions as F
 
 from edvise import utils
-from edvise.ingestion.constants import (
+from edvise.ingestion.nsc_sftp.constants import (
     MANIFEST_TABLE_PATH,
     QUEUE_TABLE_PATH,
     SFTP_REMOTE_FOLDER,
     SFTP_SOURCE_SYSTEM,
     SFTP_TMP_DIR,
 )
-from edvise.ingestion.nsc_sftp_helpers import (
+from edvise.ingestion.nsc_sftp.helpers import (
     build_listing_df,
     download_new_files_and_queue,
     ensure_manifest_and_queue_tables,

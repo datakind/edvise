@@ -40,7 +40,7 @@ else:
         else:
             raise RuntimeError(
                 f"Unsupported Databricks workspace_id={workspace_id!r} for NSC ingestion. "
-                "Add a mapping in src/edvise/ingestion/constants.py."
+                "Add a mapping in src/edvise/ingestion/nsc_sftp/constants.py."
             )
 DEFAULT_SCHEMA = "default"
 

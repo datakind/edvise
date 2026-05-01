@@ -14,7 +14,7 @@ import pandas as pd
 from databricks.connect import DatabricksSession
 from pyspark.sql import functions as F
 
-from edvise.ingestion.constants import (
+from edvise.ingestion.nsc_sftp.constants import (
     CATALOG,
     COLUMN_RENAMES,
     INSTITUTION_LOOKUP_PATH,
@@ -24,7 +24,7 @@ from edvise.ingestion.constants import (
     SST_BASE_URL,
     SST_TOKEN_ENDPOINT,
 )
-from edvise.ingestion.nsc_sftp_helpers import (
+from edvise.ingestion.nsc_sftp.helpers import (
     process_and_save_file,
     update_manifest,
 )

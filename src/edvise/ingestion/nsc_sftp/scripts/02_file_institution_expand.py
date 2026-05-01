@@ -16,13 +16,13 @@ from databricks.connect import DatabricksSession
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
-from edvise.ingestion.constants import (
+from edvise.ingestion.nsc_sftp.constants import (
     COLUMN_RENAMES,
     INSTITUTION_COLUMN_PATTERN,
     PLAN_TABLE_PATH,
     QUEUE_TABLE_PATH,
 )
-from edvise.ingestion.nsc_sftp_helpers import ensure_plan_table, extract_institution_ids
+from edvise.ingestion.nsc_sftp.helpers import ensure_plan_table, extract_institution_ids
 
 try:
     dbutils  # noqa: F821
