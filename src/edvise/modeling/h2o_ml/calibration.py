@@ -17,7 +17,7 @@ class SklearnCalibratorWrapper:
     """
     Lightweight Platt (logistic) probability calibrator with automatic tuning (lambda-tuning).
 
-    We apply calibration when our model is underpredicting (calibration curve sits under the 1:1 slope line).
+    We apply calibration when our model is underpredicting (calibration curve sits over the 1:1 slope line).
     The intent behind adding calibration is to help improve recall. We avoid calibration when our model
     is overpredicting, since we want to capture as many students as possible for Edvise.
 

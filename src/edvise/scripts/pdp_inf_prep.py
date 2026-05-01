@@ -226,6 +226,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--config_file_path", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
     parser.add_argument(
+        "--term_filter",
+        type=str,
+        default=None,
+        help='JSON list of term/cohort labels (e.g. ["fall 2024-25"]). Omit or null for config default. Used for cohort and graduation models.',
+    )
+    parser.add_argument(
         "--job_type",
         type=str,
         choices=["inference"],

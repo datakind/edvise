@@ -350,8 +350,9 @@ def compute_gateway_course_ids_and_cips(
     Returns: (ids, cips, has_upper_level_gateway, lower_ids, lower_cips)
       - ids: all gateway course IDs (M/E)
       - cips: CIP 2-digit codes from LOWER-LEVEL rows only (same as lower_cips)
-      - has_upper_level_gateway: True if any gateway course has level >=200
-      - lower_ids: gateway IDs with level <200
+      - has_upper_level_gateway: True if any gateway course's course_number has first digit >= 2
+        (after leading letters); works for any digit length (e.g. 10000 vs 20000).
+      - lower_ids: gateway IDs where that first digit is < 2
       - lower_cips: CIP 2-digit codes for lower_ids
     """
 
@@ -380,10 +381,15 @@ def compute_gateway_course_ids_and_cips(
         )
         return list(series)
 
-    def _last_level(num: pd.Series) -> pd.Series:
-        """Parse last numeric token, then last up-to-3 digits as integer level."""
-        tok = _s(num).str.extract(r"(\d+)(?!.*\d)", expand=True)[0]
-        return pd.to_numeric(tok.str[-3:], errors="coerce")
+    def _first_digit_after_leading_letters(num: pd.Series) -> pd.Series:
+        """
+        First digit of the numeric part of ``course_number``, after any leading letters
+        (e.g. ``ENG``) and non-digits (spaces, hyphens). Independent of how many digits
+        follow: ``10000`` → 1, ``2000`` → 2, ``20000`` → 2.
+        """
+        s = _s(num)
+        extracted = s.str.extract(r"^(?:[A-Za-z]+[^0-9]*)?(\d)", expand=True)[0]
+        return pd.to_numeric(extracted, errors="coerce")
 
     def _starts_with_any(arr: list[str], prefixes: list[str]) -> bool:
         arr = list(arr)  # handles numpy arrays / pandas .unique()
@@ -404,9 +410,9 @@ def compute_gateway_course_ids_and_cips(
         LOGGER.info(" No Math/English gateway courses found.")
         return ([], [], False, [], [])
 
-    level = _last_level(df_course["course_number"])  # full-length
-    upper_mask = is_gateway & level.ge(200).fillna(False)
-    lower_mask = is_gateway & level.lt(200).fillna(False)
+    first_digit = _first_digit_after_leading_letters(df_course["course_number"])
+    upper_mask = is_gateway & first_digit.ge(2).fillna(False)
+    lower_mask = is_gateway & first_digit.lt(2).fillna(False)
     has_upper_level_gateway = bool(upper_mask.any())
 
     # ---- IDs ----
@@ -422,7 +428,10 @@ def compute_gateway_course_ids_and_cips(
         + _s(df_course.loc[lower_mask, "course_number"])
     ).str.strip()
     lower_ids = lower_ids_series[lower_ids_series.ne("")].drop_duplicates().tolist()
-    LOGGER.info(" Identified %d lower-level (<200) gateway IDs.", len(lower_ids))
+    LOGGER.info(
+        " Identified %d lower-level (first course-number digit <2) gateway IDs.",
+        len(lower_ids),
+    )
 
     # ---- CIP extraction from LOWER rows only ----
     if "course_cip" in df_course.columns:
@@ -433,7 +442,10 @@ def compute_gateway_course_ids_and_cips(
                 " ⚠️ 'course_cip' present but yielded no lower-level CIP codes."
             )
         else:
-            LOGGER.info(" CIPs restricted to lower-level (<200) rows: %s", cips)
+            LOGGER.info(
+                " CIPs restricted to lower-level (first course-number digit <2) rows: %s",
+                cips,
+            )
     else:
         cips, lower_cips = [], []
         LOGGER.info(" No 'course_cip' column; skipping CIP extraction.")
@@ -446,8 +458,8 @@ def compute_gateway_course_ids_and_cips(
         ).str.strip()
         upper_ids = upper_ids_series[upper_ids_series.ne("")].drop_duplicates().tolist()
         LOGGER.warning(
-            " ⚠️ Warning: courses with level >=200 flagged as gateway (%d found). Course IDs: %s. "
-            "This is unusual; contact the school for more information.",
+            " ⚠️ Warning: courses with first course-number digit >=2 flagged as gateway "
+            "(%d found). Course IDs: %s. This is unusual; contact the school for more information.",
             len(upper_ids),
             upper_ids,
         )
@@ -457,7 +469,9 @@ def compute_gateway_course_ids_and_cips(
             len(lower_cips),
         )
     else:
-        LOGGER.info(" No gateway courses with level >=200 were detected.")
+        LOGGER.info(
+            " No gateway courses with first course-number digit >=2 were detected."
+        )
 
     # ---- prefix sanity check (compact) ----
     pref_e = (
@@ -889,7 +903,7 @@ def validate_ids_terms_consistency(
     }
 
 
-def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
+def find_dupes(df: pd.DataFrame, primary_keys: list[str]) -> pd.DataFrame:
     """
     Find duplicate rows by key columns and print a summary of column-level conflicts
     within duplicate groups.
@@ -899,7 +913,7 @@ def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
     dupes : pd.DataFrame
         All rows involved in duplicate key groups (sorted by student_id)
     """
-    dupes = df[df.duplicated(subset=key_cols, keep=False)].copy()
+    dupes = df[df.duplicated(subset=primary_keys, keep=False)].copy()
 
     # Always sort by student_id (guard in case column missing)
     if "student_id" in dupes.columns:
@@ -910,7 +924,7 @@ def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
     pct_dupes = (dupe_rows / total_rows * 100) if total_rows > 0 else 0.0
 
     print(
-        f"{dupe_rows} duplicate rows based on {key_cols} "
+        f"{dupe_rows} duplicate rows based on {primary_keys} "
         f"({pct_dupes:.2f}% of {total_rows} total rows)"
     )
 
@@ -919,7 +933,7 @@ def find_dupes(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
         print(conflicts)
         return dupes
 
-    grp = dupes.groupby(key_cols, dropna=False)
+    grp = dupes.groupby(primary_keys, dropna=False)
 
     # does each column conflict within each dup group?
     conflict = grp.nunique(dropna=False) > 1
@@ -970,11 +984,24 @@ def check_earned_vs_attempted(
     anomalies["earned_gt_attempted"] = earned_gt_attempted[mask]
     anomalies["earned_when_no_attempt"] = earned_when_no_attempt[mask]
 
+    total_rows = len(df)
+    n_earned_gt = int(earned_gt_attempted.sum())
+    n_earned_no_attempt = int(earned_when_no_attempt.sum())
+    n_total = int(mask.sum())
     summary = pd.DataFrame(
         {
-            "earned_gt_attempted": [int(earned_gt_attempted.sum())],
-            "earned_when_no_attempt": [int(earned_when_no_attempt.sum())],
-            "total_anomalous_rows": [int(mask.sum())],
+            "earned_gt_attempted": [n_earned_gt],
+            "earned_gt_attempted_pct": [
+                round(100 * n_earned_gt / total_rows, 2) if total_rows else 0
+            ],
+            "earned_when_no_attempt": [n_earned_no_attempt],
+            "earned_when_no_attempt_pct": [
+                round(100 * n_earned_no_attempt / total_rows, 2) if total_rows else 0
+            ],
+            "total_anomalous_rows": [n_total],
+            "total_anomalous_rows_pct": [
+                round(100 * n_total / total_rows, 2) if total_rows else 0
+            ],
         }
     )
 
@@ -1140,13 +1167,22 @@ def validate_credit_consistency(
             | cchk["earned_negative"]
         ]
 
+        total_course_rows = len(cchk)
+        n_anomalies = int(len(course_anomalies))
         course_anomalies_summary = {
-            "rows_checked": int(len(cchk)),
-            "rows_with_anomalies": int(len(course_anomalies)),
+            "rows_checked": total_course_rows,
+            "rows_with_anomalies": n_anomalies,
+            "pct_of_data": round(100 * n_anomalies / total_course_rows, 2)
+            if total_course_rows
+            else 0,
         }
 
         if len(course_anomalies) > 0:
-            LOGGER.warning("Detected %d course-level anomalies", len(course_anomalies))
+            LOGGER.warning(
+                "Detected %d course-level anomalies (%.2f%% of course data)",
+                len(course_anomalies),
+                course_anomalies_summary["pct_of_data"],
+            )
         else:
             LOGGER.info("No course-level credit anomalies detected")
 
@@ -1218,9 +1254,12 @@ def validate_credit_consistency(
 
         mismatches = merged.loc[mismatch_mask]
 
+        total_sem = int(len(s))
+        n_mismatched = int(len(mismatches))
         reconciliation_summary = {
-            "total_semester_rows": int(len(s)),
-            "mismatched_rows": int(len(mismatches)),
+            "total_semester_rows": total_sem,
+            "mismatched_rows": n_mismatched,
+            "pct_of_data": round(100 * n_mismatched / total_sem, 2) if total_sem else 0,
         }
 
         # 🔹 Clean summary logging
@@ -1258,7 +1297,23 @@ def validate_credit_consistency(
         cohort_anomalies_summary = cohort_checks.get("summary")
 
         if isinstance(cohort_anomalies, pd.DataFrame) and len(cohort_anomalies) > 0:
-            LOGGER.warning("Detected %d cohort-level anomalies", len(cohort_anomalies))
+            pct = None
+            if (
+                cohort_anomalies_summary is not None
+                and isinstance(cohort_anomalies_summary, pd.DataFrame)
+                and "total_anomalous_rows_pct" in cohort_anomalies_summary.columns
+            ):
+                pct = cohort_anomalies_summary["total_anomalous_rows_pct"].iloc[0]
+            if pct is not None:
+                LOGGER.warning(
+                    "Detected %d cohort-level anomalies (%.2f%% of cohort data)",
+                    len(cohort_anomalies),
+                    pct,
+                )
+            else:
+                LOGGER.warning(
+                    "Detected %d cohort-level anomalies", len(cohort_anomalies)
+                )
         else:
             LOGGER.info("No cohort-level credit anomalies detected")
 
@@ -1413,21 +1468,37 @@ def check_pf_grade_consistency(
     anomalies["grade_pf_disagree"] = rows_with_grade_pf_disagree.loc[anomalies.index]
 
     # Summary
+    total_rows = len(df)
+    n_earned_failing = int(rows_with_earned_with_failing_pf.sum())
+    n_no_credits_passing = int(rows_with_no_credits_with_passing.sum())
+    n_grade_pf_disagree = int(rows_with_grade_pf_disagree.sum())
+    n_total = int(mask.sum())
     summary = pd.DataFrame(
         {
-            "earned_with_failing_grade": [int(rows_with_earned_with_failing_pf.sum())],
-            "no_credits_with_passing_grade": [
-                int(rows_with_no_credits_with_passing.sum())
+            "earned_with_failing_grade": [n_earned_failing],
+            "earned_with_failing_grade_pct": [
+                round(100 * n_earned_failing / total_rows, 2) if total_rows else 0
             ],
-            "grade_pf_disagree": [int(rows_with_grade_pf_disagree.sum())],
-            "total_anomalous_rows": [int(mask.sum())],
+            "no_credits_with_passing_grade": [n_no_credits_passing],
+            "no_credits_with_passing_grade_pct": [
+                round(100 * n_no_credits_passing / total_rows, 2) if total_rows else 0
+            ],
+            "grade_pf_disagree": [n_grade_pf_disagree],
+            "grade_pf_disagree_pct": [
+                round(100 * n_grade_pf_disagree / total_rows, 2) if total_rows else 0
+            ],
+            "total_anomalous_rows": [n_total],
+            "total_anomalous_rows_pct": [
+                round(100 * n_total / total_rows, 2) if total_rows else 0
+            ],
         }
     )
 
     if summary["total_anomalous_rows"].iloc[0] > 0:
         LOGGER.warning(
-            "Detected %d PF/grade consistency anomalies",
+            "Detected %d PF/grade consistency anomalies (%.2f%% of data)",
             summary["total_anomalous_rows"].iloc[0],
+            summary["total_anomalous_rows_pct"].iloc[0],
         )
     else:
         LOGGER.info("No PF/grade consistency anomalies detected")
@@ -1439,6 +1510,7 @@ def check_pf_grade_consistency(
 def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") -> None:
     """
     Logs value counts of the 'grade' column and flags if 'M' grades exceed 5%.
+    Also flags when grades contain only status codes (P, F, I, W, A, M, O) and no numeric grades.
 
     Args:
         df (pd.DataFrame): The course or student dataset.
@@ -1448,13 +1520,38 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
         - Value counts for all grades
         - Percentage of 'M' grades
         - Warning if 'M' grades exceed 5% of all non-null grades
+        - Warning if no numeric grades exist (only status-only grades like P, F, I, W, A, M, O)
     """
-    grade_col = validate_optional_column(df_course, grade_col, "grade", logger=LOGGER)
-    if grade_col is None:
+    # Status-only grades: P=Pass, F=Fail, I=Incomplete, W=Withdraw, A=Audit, M=Missing, O=Other.
+    status_only_grades = frozenset({"P", "F", "I", "W", "A", "M", "O"})
+    gpa_letter_grades = frozenset(
+        {"A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-"}
+    )
+
+    def grade_is_numeric(val: t.Any) -> bool:
+        """True if grade has a numeric GPA equivalent (float or GPA letter)."""
+        if pd.isna(val):
+            return False
+        s = str(val).strip().upper()
+        if not s:
+            return False
+        if s in status_only_grades:
+            return False
+        coerced = pd.to_numeric(s, errors="coerce")
+        if not pd.isna(coerced):
+            return True
+        if s in gpa_letter_grades:
+            return True
+        return False
+
+    resolved_grade_col = validate_optional_column(
+        df_course, grade_col, "grade", logger=LOGGER
+    )
+    if resolved_grade_col is None:
         return
 
-    grade_counts = df_course[grade_col].value_counts(dropna=False).sort_index()
-    total_grades = df_course[grade_col].notna().sum()
+    grade_counts = df_course[resolved_grade_col].value_counts(dropna=False).sort_index()
+    total_grades = df_course[resolved_grade_col].notna().sum()
 
     LOGGER.info("Grade value counts:\n%s", grade_counts.to_string())
 
@@ -1472,6 +1569,20 @@ def log_grade_distribution(df_course: pd.DataFrame, grade_col: str = "grade") ->
             LOGGER.info("'M' grades: %d (%.1f%% of non-null grades).", m_count, m_pct)
     else:
         LOGGER.info("'M' grade not found or no valid grade data available.")
+
+    if total_grades > 0:
+        grades_series = (
+            df_course[resolved_grade_col].astype("string").str.strip().str.upper()
+        )
+        any_numeric = grades_series.apply(grade_is_numeric).any()
+        if not any_numeric:
+            unique_vals = sorted(grades_series.dropna().unique())
+            LOGGER.warning(
+                "No numeric grades detected. Grades are only status codes (e.g. P=Pass, F=Fail, "
+                "I=Incomplete, W=Withdraw, A=Audit, M=Missing, O=Other). Unique values: %s. "
+                "Analytics that depend on numeric course grades (e.g. GPA, mean grade) will be unusable.",
+                unique_vals,
+            )
 
 
 def order_terms(
@@ -1646,13 +1757,15 @@ def check_bias_variables(
     check_variable_missingness(df, bias_vars)
 
 
-def duplicate_conflict_columns(df: pd.DataFrame, key_cols: list[str]) -> pd.DataFrame:
-    dup = df[df.duplicated(subset=key_cols, keep=False)]
+def duplicate_conflict_columns(
+    df: pd.DataFrame, primary_keys: list[str]
+) -> pd.DataFrame:
+    dup = df[df.duplicated(subset=primary_keys, keep=False)]
 
     if dup.empty:
         return pd.DataFrame(columns=["column", "pct_conflicting_groups"])
 
-    grp = dup.groupby(key_cols, dropna=False)
+    grp = dup.groupby(primary_keys, dropna=False)
 
     # For each group + column: does this column conflict?
     conflict = grp.nunique(dropna=False) > 1
@@ -1774,7 +1887,7 @@ class EdaSummary:
             df.reset_index(names="name")
             .assign(
                 data=lambda d: [
-                    [None if pd.isna(x) else float(x) for x in row]
+                    [None if pd.isna(x) else round(float(x), 2) for x in row]
                     for row in d.drop(columns="name").to_numpy()
                 ]
             )
@@ -1812,13 +1925,13 @@ class EdaSummary:
         """
         return {
             "name": "Avg. Year 1 GPA - All Students",
-            "value": float(
-                round(
+            "value": round(
+                float(
                     pd.to_numeric(
                         self.df_cohort["gpa_group_year_1"], errors="coerce"
-                    ).mean(),
-                    2,
-                )
+                    ).mean()
+                ),
+                2,
             ),
         }
 
@@ -1836,29 +1949,30 @@ class EdaSummary:
 
         gpa_df = (
             self.df_cohort.assign(
-                gpa=pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce")
-            )[["cohort", "enrollment_type", "gpa"]]
-            .dropna()
+                gpa=pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce"),
+                enrollment_type=self.df_cohort["enrollment_type"]
+                .astype(str)
+                .str.strip()
+                .str.title(),
+            )
+            .loc[
+                lambda d: (
+                    d["enrollment_type"].isin(["First-Time", "Re-Admit", "Transfer-In"])
+                    & d["gpa"].notna()
+                )
+            ][["cohort", "enrollment_type", "gpa"]]
             .groupby(["enrollment_type", "cohort"], observed=True)["gpa"]
             .mean()
             .unstack()
             .reindex(columns=self.cohort_years(formatted=False))
-            .round(2)
         )
 
-        series_data = gpa_df.rename(
-            index=lambda value: {
-                "FIRST-TIME": "First Time",
-                "RE-ADMIT": "Re-admit",
-                "TRANSFER-IN": "Transfer",
-            }.get(str(value), str(value).replace("-", " ").strip())
-        )
-        series_data = self._format_series_data(series_data)
+        series_data = self._format_series_data(gpa_df)
 
         return {
             "cohort_years": self.cohort_years(formatted=True),
             "series": series_data,
-            "min_gpa": float(round(gpa_df.replace(0, np.nan).min().min(), 2))
+            "min_gpa": round(float(gpa_df.replace(0, np.nan).min().min()), 2)
             if pd.notna(gpa_df.replace(0, np.nan).min().min())
             else None,
         }
@@ -1877,85 +1991,118 @@ class EdaSummary:
 
         gpa_df = (
             self.df_cohort.assign(
-                gpa=pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce")
-            )[["cohort", "enrollment_intensity_first_term", "gpa"]]
-            .dropna()
+                gpa=pd.to_numeric(self.df_cohort["gpa_group_year_1"], errors="coerce"),
+                enrollment_intensity_first_term=self.df_cohort[
+                    "enrollment_intensity_first_term"
+                ]
+                .astype(str)
+                .str.strip()
+                .str.title(),
+            )
+            .loc[
+                lambda d: (
+                    d["enrollment_intensity_first_term"].isin(
+                        ["Full-Time", "Part-Time"]
+                    )
+                    & d["gpa"].notna()
+                )
+            ][["cohort", "enrollment_intensity_first_term", "gpa"]]
             .groupby(["enrollment_intensity_first_term", "cohort"], observed=True)[
                 "gpa"
             ]
             .mean()
             .unstack()
             .reindex(columns=self.cohort_years(formatted=False))
-            .round(2)
         )
 
-        series_data = gpa_df.rename(index=lambda value: str(value).replace("-", " "))
-        series_data = self._format_series_data(series_data)
+        series_data = self._format_series_data(gpa_df)
 
         return {
             "cohort_years": self.cohort_years(formatted=True),
             "series": series_data,
-            "min_gpa": float(round(gpa_df.replace(0, np.nan).min().min(), 2)),
-        }
-
-    def _term_counts_by_cohort(self, df: pd.DataFrame) -> dict[str, t.Any]:
-        """
-        Build term counts by cohort for a given DataFrame.
-        """
-        counts_df = (
-            df.groupby(["cohort", "cohort_term"], observed=True)
-            .size()
-            .unstack(level=1, fill_value=0)
-            .reindex(index=self.cohort_years(formatted=False), fill_value=0)
-            .astype(int)
-        )
-        counts_df.columns = counts_df.columns.str.capitalize()
-
-        ordered_terms = [
-            t for t in ("Fall", "Winter", "Spring", "Summer") if t in counts_df.columns
-        ]
-
-        return {
-            "years": self.cohort_years(formatted=True),
-            "terms": (
-                counts_df.reindex(columns=ordered_terms)
-                .T.rename_axis("key")
-                .reset_index()
-                .assign(
-                    label=lambda d: d["key"].str.title(),
-                    data=lambda d: (
-                        d.drop(columns=["key", "label"]).astype(int).to_numpy().tolist()
-                    ),
-                )
-                .loc[:, ["key", "label", "data"]]
-                .to_dict(orient="records")
-            ),
+            "min_gpa": round(float(gpa_df.replace(0, np.nan).min().min()), 2),
         }
 
     @cached_property
     @required_columns(cohort=["cohort_term"])
     def students_by_cohort_term(self) -> dict[str, t.Any]:
         """
-        Compute student counts by term across cohort years.
-
-        Returns:
-            Dictionary keyed by cohort year, with values being
-            dictionaries of term -> count. Only terms with count > 0 are included.
-            Example: {'2020 - 2021': {'fall': 42, 'spring': 40}, '2021 - 2022': {'fall': 50}}
+        Student counts by term across cohort years. Only terms with count > 0 anywhere are included.
         """
-        return self._term_counts_by_cohort(self.df_cohort)
+        df = self.df_cohort
+        counts_df = (
+            df.assign(cohort_term=df["cohort_term"].astype(str).str.strip().str.title())
+            .groupby(["cohort", "cohort_term"], observed=True)
+            .size()
+            .unstack(level=1, fill_value=0)
+            .reindex(index=self.cohort_years(formatted=False), fill_value=0)
+            .astype(int)
+        )
+        ordered_terms = ["Fall", "Winter", "Spring", "Summer"]
+        reindexed = counts_df.reindex(columns=ordered_terms, fill_value=0).astype(int)
+        terms_with_data = [term for term in ordered_terms if reindexed[term].sum() > 0]
+        years = self.cohort_years(formatted=True)
+        year_totals = reindexed.sum(axis=1).tolist()
+        by_year = []
+        for i, year in enumerate(years):
+            total = int(year_totals[i])
+            terms_for_year = []
+            for term_name in terms_with_data:
+                count = int(reindexed.iloc[i][term_name])
+                pct = round(100 * count / total, 2) if total else 0
+                terms_for_year.append(
+                    {"count": count, "percentage": pct, "name": term_name}
+                )
+            by_year.append({"year": year, "total": total, "terms": terms_for_year})
+        return {"years": years, "by_year": by_year}
 
     @cached_property
-    @required_columns(course=["cohort_term"])
+    @required_columns(course=["academic_year", "academic_term"])
     def course_enrollments(self) -> dict[str, t.Any]:
         """
-        Compute course enrollment counts by term across cohort years.
-        Returns empty dict when df_course is None (no course file in batch).
+        Course enrollment counts by academic_term across academic_year (when courses were offered).
+        Returns empty dict when df_course is None.
         """
         if self.df_course is None:
             return {}
 
-        return self._term_counts_by_cohort(self.df_course)
+        df = self.df_course
+        years_raw = (
+            df["academic_year"].dropna().astype(str).sort_values().drop_duplicates()
+        )
+        years_formatted = [
+            y.replace("-", " - ", 1) if "-" in y else y for y in years_raw
+        ]
+        years_raw = years_raw.tolist()
+        counts_df = (
+            df.dropna(subset=["academic_term"])
+            .assign(
+                academic_term=lambda d: (
+                    d["academic_term"].astype(str).str.strip().str.title()
+                )
+            )
+            .groupby(["academic_year", "academic_term"], observed=True)
+            .size()
+            .unstack(level=1, fill_value=0)
+            .reindex(index=years_raw, fill_value=0)
+            .astype(int)
+        )
+        ordered_terms = ["Fall", "Winter", "Spring", "Summer"]
+        reindexed = counts_df.reindex(columns=ordered_terms, fill_value=0).astype(int)
+        terms_with_data = [term for term in ordered_terms if reindexed[term].sum() > 0]
+        year_totals = reindexed.sum(axis=1).tolist()
+        by_year = []
+        for i, year in enumerate(years_formatted):
+            total = int(year_totals[i])
+            terms_for_year = []
+            for term_name in terms_with_data:
+                count = int(reindexed.iloc[i][term_name])
+                pct = round(100 * count / total, 2) if total else 0
+                terms_for_year.append(
+                    {"count": count, "percentage": pct, "name": term_name}
+                )
+            by_year.append({"year": year, "total": total, "terms": terms_for_year})
+        return {"years": years_formatted, "by_year": by_year}
 
     @cached_property
     @required_columns(cohort=["credential_type_sought_year_1"])
@@ -1968,20 +2115,24 @@ class EdaSummary:
                 - total: Total number of students with a degree type
                 - degrees: List of { count, percentage, name } per degree type
         """
-        total = int(self.df_cohort["credential_type_sought_year_1"].notna().sum())
+        value_counts = (
+            self.df_cohort["credential_type_sought_year_1"]
+            .fillna("Unknown")
+            .astype(str)
+            .str.strip()
+            .str.title()
+            .str.replace("'S", "'s", regex=False)
+            .value_counts()
+        )
+        total = int(value_counts.sum())
         if total == 0:
             return {"total": 0, "degrees": []}
 
-        value_counts = self.df_cohort["credential_type_sought_year_1"].value_counts()
-        degree_df = value_counts.rename("count").to_frame()
-        degree_df["percentage"] = ((degree_df["count"] / total) * 100).round(2)
-        degrees = t.cast(
-            list[dict[str, int | float | str]],
-            degree_df.reset_index(names="name")
-            .loc[:, ["count", "percentage", "name"]]
-            .assign(count=lambda d: d["count"].astype(int))
-            .to_dict(orient="records"),
-        )
+        degree_df = value_counts.rename("count").to_frame().reset_index(names="name")
+        degree_df["percentage"] = (degree_df["count"] / total * 100).round(2)
+        degree_df["count"] = degree_df["count"].astype(int)
+        degrees = degree_df[["name", "count", "percentage"]].to_dict(orient="records")
+
         return {"total": total, "degrees": degrees}
 
     @cached_property
@@ -1992,34 +2143,56 @@ class EdaSummary:
 
         Returns:
             Dictionary with keys:
-                - categories: Sorted list of enrollment type names
-                - series: List of dictionaries with keys:
-                    - name: Enrollment intensity value (e.g., "Full-Time", "Part-Time")
-                    - data: List of counts per category
+                - total: Row count in the cross-tab (students with both fields)
+                - categories: Enrollment type names (stack axis)
+                - series: Per intensity, ``data`` is list of
+                  ``{ name, count, percentage }`` (percentage of total)
         """
+        df = self.df_cohort.dropna(
+            subset=["enrollment_type", "enrollment_intensity_first_term"]
+        )
         counts_df = (
-            self.df_cohort[["enrollment_type", "enrollment_intensity_first_term"]]
+            df.assign(
+                enrollment_type=df["enrollment_type"]
+                .astype(str)
+                .str.strip()
+                .str.title(),
+                enrollment_intensity_first_term=df["enrollment_intensity_first_term"]
+                .astype(str)
+                .str.strip()
+                .str.title(),
+            )[["enrollment_type", "enrollment_intensity_first_term"]]
             .dropna()
             .groupby(
-                ["enrollment_intensity_first_term", "enrollment_type"], observed=True
+                ["enrollment_intensity_first_term", "enrollment_type"],
+                observed=True,
             )
             .size()
             .unstack(fill_value=0)
         )
+        total = int(counts_df.to_numpy().sum())
+        if total == 0:
+            return {"total": 0, "categories": [], "series": []}
 
         return {
-            "categories": (
-                counts_df.columns.to_series()
-                .map(
-                    lambda value: {
-                        "FIRST-TIME": "First Time",
-                        "RE-ADMIT": "Re-admit",
-                        "TRANSFER-IN": "Transfer",
-                    }.get(str(value), str(value).replace("-", " ").strip())
-                )
-                .tolist()
-            ),
-            "series": self._format_series_data(counts_df),
+            "total": total,
+            "categories": counts_df.columns.tolist(),
+            "series": [
+                {
+                    "name": str(intensity),
+                    "data": [
+                        {
+                            "name": str(cat),
+                            "count": int(counts_df.loc[intensity, cat]),
+                            "percentage": round(
+                                100 * counts_df.loc[intensity, cat] / total, 2
+                            ),
+                        }
+                        for cat in counts_df.columns
+                    ],
+                }
+                for intensity in counts_df.index
+            ],
         }
 
     @cached_property
@@ -2036,6 +2209,7 @@ class EdaSummary:
                     - data: List of counts per category
         """
         df = self.df_cohort
+        df = df.dropna(subset=["first_gen", "pell_status_first_year"])
         if "first_gen" not in df.columns or "pell_status_first_year" not in df.columns:
             return None
         if (
@@ -2045,8 +2219,17 @@ class EdaSummary:
             return None
 
         pell_df = (
-            df[["pell_status_first_year", "first_gen"]]
-            .assign(first_gen=lambda d: d["first_gen"].fillna("N"))
+            df.assign(
+                pell_status_first_year=df["pell_status_first_year"]
+                .astype(str)
+                .str.strip()
+                .str.title(),
+                first_gen=df["first_gen"]
+                .fillna("N")
+                .astype(str)
+                .str.upper()
+                .map({"Y": "Yes", "N": "No"}),
+            )[["pell_status_first_year", "first_gen"]]
             .dropna(subset=["pell_status_first_year"])
             .value_counts()
             .unstack(fill_value=0)
@@ -2063,21 +2246,27 @@ class EdaSummary:
         """
         Compute Pell recipient status without first generation split.
 
+        Only ``Y`` / ``YES`` (case-insensitive, trimmed) count as recipients; every other
+        value, including missing, ``N``, and unknown codes, is counted as non-recipient (No).
+
         Returns:
             Dictionary with keys:
                 - series: Single series with counts per Pell status
         """
-        if "pell_status_first_year" not in self.df_cohort.columns:
-            return None
-        if self.df_cohort["pell_status_first_year"].dropna().empty:
-            return None
-
+        s = (
+            self.df_cohort["pell_status_first_year"]
+            .astype("string")
+            .fillna("")
+            .str.strip()
+            .str.upper()
+        )
         data = (
-            self.df_cohort.dropna(subset=["pell_status_first_year"])
-            .groupby("pell_status_first_year", observed=True)
-            .size()
+            pd.Series(np.where(s.isin(("Y", "YES")), "Yes", "No"), index=s.index)
+            .value_counts()
             .to_dict()
         )
+        if not data:
+            return None
         return {
             "series": [{"name": "All Students", "data": data}],
         }
@@ -2097,7 +2286,14 @@ class EdaSummary:
         """
 
         age_group_df = (
-            self.df_cohort[["gender", "student_age"]]
+            self.df_cohort.assign(
+                gender=self.df_cohort["gender"].astype(str).str.strip().str.title(),
+                student_age=self.df_cohort["student_age"]
+                .astype(str)
+                .str.strip()
+                .str.title(),
+            )[["gender", "student_age"]]
+            .loc[lambda d: d["gender"] != "Uk"]
             .dropna()
             .value_counts()
             .unstack(fill_value=0)
@@ -2120,17 +2316,17 @@ class EdaSummary:
                 - series: List of dicts with "name" (Pell status) and "data" (counts per category)
         """
 
-        pell_map = {"Y": "Yes", "N": "No"}
         race_df = (
-            self.df_cohort[["race", "pell_status_first_year"]]
+            self.df_cohort.assign(
+                race=self.df_cohort["race"].astype(str).str.strip().str.title(),
+                pell_status_first_year=self.df_cohort["pell_status_first_year"]
+                .astype(str)
+                .str.upper()
+                .map({"Y": "Yes", "N": "No"}),
+            )[["race", "pell_status_first_year"]]
             .dropna()
-            .assign(
-                pell_status_first_year=lambda d: (
-                    d["pell_status_first_year"].astype(str).replace(pell_map)
-                )
-            )
+            .loc[lambda d: d["pell_status_first_year"].isin(["Yes", "No"])]
         )
-        race_df = race_df[race_df["pell_status_first_year"].isin(["Yes", "No"])]
 
         counts_df = (
             race_df.groupby(["pell_status_first_year", "race"], observed=True)

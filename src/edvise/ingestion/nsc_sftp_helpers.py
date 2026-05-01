@@ -94,6 +94,10 @@ def ensure_manifest_and_queue_tables(spark: pyspark.sql.SparkSession) -> None:
           file_name STRING,
           file_size BIGINT,
           file_modified_time TIMESTAMP,
+          run_id STRING,
+          cohort ARRAY<STRING>,
+          cohort_term_pairs ARRAY<STRUCT<cohort: STRING, cohort_term: STRING>>,
+          student_count BIGINT,
           ingested_at TIMESTAMP,
           processed_at TIMESTAMP,
           status STRING,
@@ -184,29 +188,64 @@ def upsert_new_to_manifest(
         spark: Spark session
         df_listing: DataFrame with file listing (must have file_fingerprint column)
     """
-    df_manifest_insert = (
-        df_listing.select(
-            "file_fingerprint",
-            "source_system",
-            "sftp_path",
-            "file_name",
-            "file_size",
-            "file_modified_time",
-        )
-        .withColumn("ingested_at", F.lit(None).cast("timestamp"))
-        .withColumn("processed_at", F.lit(None).cast("timestamp"))
-        .withColumn("status", F.lit("NEW"))
-        .withColumn("error_message", F.lit(None).cast("string"))
+    target_cols = set(spark.table(MANIFEST_TABLE_PATH).columns)
+
+    df_manifest_insert = df_listing.select(
+        "file_fingerprint",
+        "source_system",
+        "sftp_path",
+        "file_name",
+        "file_size",
+        "file_modified_time",
     )
 
+    # Only set optional columns if they exist on the target table. We avoid ALTER TABLE
+    # here by staying backward-compatible with older manifest schemas.
+    if "run_id" in target_cols:
+        df_manifest_insert = df_manifest_insert.withColumn(
+            "run_id", F.lit(None).cast("string")
+        )
+    if "cohort" in target_cols:
+        df_manifest_insert = df_manifest_insert.withColumn(
+            "cohort", F.lit(None).cast("array<string>")
+        )
+    if "cohort_term_pairs" in target_cols:
+        df_manifest_insert = df_manifest_insert.withColumn(
+            "cohort_term_pairs",
+            F.lit(None).cast("array<struct<cohort:string,cohort_term:string>>"),
+        )
+    if "student_count" in target_cols:
+        df_manifest_insert = df_manifest_insert.withColumn(
+            "student_count", F.lit(None).cast("bigint")
+        )
+
+    if "ingested_at" in target_cols:
+        df_manifest_insert = df_manifest_insert.withColumn(
+            "ingested_at", F.lit(None).cast("timestamp")
+        )
+    if "processed_at" in target_cols:
+        df_manifest_insert = df_manifest_insert.withColumn(
+            "processed_at", F.lit(None).cast("timestamp")
+        )
+    if "status" in target_cols:
+        df_manifest_insert = df_manifest_insert.withColumn("status", F.lit("NEW"))
+    if "error_message" in target_cols:
+        df_manifest_insert = df_manifest_insert.withColumn(
+            "error_message", F.lit(None).cast("string")
+        )
+
     df_manifest_insert.createOrReplaceTempView("incoming_manifest_rows")
+
+    cols = df_manifest_insert.columns
+    cols_sql = ", ".join([f"`{c}`" for c in cols])
+    vals_sql = ", ".join([f"s.`{c}`" for c in cols])
 
     spark.sql(
         f"""
         MERGE INTO {MANIFEST_TABLE_PATH} AS t
         USING incoming_manifest_rows AS s
         ON t.file_fingerprint = s.file_fingerprint
-        WHEN NOT MATCHED THEN INSERT *
+        WHEN NOT MATCHED THEN INSERT ({cols_sql}) VALUES ({vals_sql})
         """
     )
 
@@ -463,6 +502,10 @@ def update_manifest(
     *,
     status: str,
     error_message: Optional[str],
+    run_id: Optional[str] = None,
+    cohort: Optional[list[str]] = None,
+    cohort_term_pairs: Optional[list[dict[str, str]]] = None,
+    student_count: Optional[int] = None,
 ) -> None:
     """
     Update ingestion_manifest for a file_fingerprint.
@@ -481,37 +524,85 @@ def update_manifest(
 
     now_ts = datetime.now(timezone.utc)
 
+    target_cols = set(spark.table(manifest_table).columns)
+
     # ingested_at only set when we finish BRONZE_WRITTEN
-    row = {
+    row: dict[str, object] = {
         "file_fingerprint": file_fingerprint,
         "status": status,
         "error_message": error_message,
-        "ingested_at": now_ts if status == "BRONZE_WRITTEN" else None,
-        "processed_at": now_ts,
     }
 
-    schema = T.StructType(
-        [
-            T.StructField("file_fingerprint", T.StringType(), False),
-            T.StructField("status", T.StringType(), False),
-            T.StructField("error_message", T.StringType(), True),
-            T.StructField("ingested_at", T.TimestampType(), True),
-            T.StructField("processed_at", T.TimestampType(), False),
-        ]
-    )
+    fields = [
+        T.StructField("file_fingerprint", T.StringType(), False),
+        T.StructField("status", T.StringType(), False),
+        T.StructField("error_message", T.StringType(), True),
+    ]
+    if "run_id" in target_cols:
+        row["run_id"] = run_id
+        fields.append(T.StructField("run_id", T.StringType(), True))
+    if "cohort" in target_cols:
+        row["cohort"] = cohort
+        fields.append(T.StructField("cohort", T.ArrayType(T.StringType()), True))
+    if "cohort_term_pairs" in target_cols:
+        row["cohort_term_pairs"] = cohort_term_pairs
+        fields.append(
+            T.StructField(
+                "cohort_term_pairs",
+                T.ArrayType(
+                    T.StructType(
+                        [
+                            T.StructField("cohort", T.StringType(), True),
+                            T.StructField("cohort_term", T.StringType(), True),
+                        ]
+                    )
+                ),
+                True,
+            )
+        )
+    if "student_count" in target_cols:
+        row["student_count"] = student_count
+        fields.append(T.StructField("student_count", T.LongType(), True))
+    if "ingested_at" in target_cols:
+        row["ingested_at"] = now_ts if status == "BRONZE_WRITTEN" else None
+        fields.append(T.StructField("ingested_at", T.TimestampType(), True))
+    if "processed_at" in target_cols:
+        row["processed_at"] = now_ts
+        fields.append(T.StructField("processed_at", T.TimestampType(), False))
+
+    schema = T.StructType(fields)
     df = spark.createDataFrame([row], schema=schema)
     df.createOrReplaceTempView("manifest_updates")
 
+    set_clauses = [
+        "t.status = s.status",
+        "t.error_message = s.error_message",
+    ]
+    if "run_id" in target_cols:
+        set_clauses.append("t.run_id = COALESCE(s.run_id, t.run_id)")
+    if "cohort" in target_cols:
+        set_clauses.append("t.cohort = COALESCE(s.cohort, t.cohort)")
+    if "cohort_term_pairs" in target_cols:
+        set_clauses.append(
+            "t.cohort_term_pairs = COALESCE(s.cohort_term_pairs, t.cohort_term_pairs)"
+        )
+    if "student_count" in target_cols:
+        set_clauses.append(
+            "t.student_count = COALESCE(s.student_count, t.student_count)"
+        )
+    if "ingested_at" in target_cols:
+        set_clauses.append("t.ingested_at = COALESCE(s.ingested_at, t.ingested_at)")
+    if "processed_at" in target_cols:
+        set_clauses.append("t.processed_at = s.processed_at")
+
+    set_sql = ",\n          ".join(set_clauses)
     spark.sql(
         f"""
         MERGE INTO {manifest_table} AS t
         USING manifest_updates AS s
         ON t.file_fingerprint = s.file_fingerprint
         WHEN MATCHED THEN UPDATE SET
-          t.status = s.status,
-          t.error_message = s.error_message,
-          t.ingested_at = COALESCE(s.ingested_at, t.ingested_at),
-          t.processed_at = s.processed_at
+          {set_sql}
         """
     )
 
