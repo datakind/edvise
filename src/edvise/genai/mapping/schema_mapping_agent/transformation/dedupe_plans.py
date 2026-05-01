@@ -44,6 +44,18 @@ def _merge_plan_group(
             m = o.get(key)
             merged = _merge_distinct_texts(merged, m)
         out[key] = merged
+
+    # Duplicate plans share steps/output_dtype but the model sometimes emits a second row
+    # with review_required / HITL payload. Keeping only `base` would drop that metadata
+    # and fail FieldTransformationPlan (confidence <= threshold => review_required True).
+    candidates = [base, *others]
+    hitl_src = next((p for p in candidates if p.get("review_required") is True), None)
+    if hitl_src is not None:
+        out["review_required"] = True
+        for k in ("confidence", "flagged_steps", "hitl_options"):
+            if hitl_src.get(k) is not None:
+                out[k] = hitl_src[k]
+
     return out
 
 
