@@ -646,11 +646,13 @@ def clean_dataset(
     )
 
     # 8) optional dataset-specific dedupe hook (semantic / policy dedup)
-    dedupe_hook_ran = bool(spec.dedupe_fn and callable(spec.dedupe_fn))
-    if dedupe_hook_ran:
+    dedupe_fn_hook = spec.dedupe_fn
+    dedupe_hook_ran = False
+    if dedupe_fn_hook is not None and callable(dedupe_fn_hook):
+        dedupe_hook_ran = True
         LOGGER.info("%s - Applying dedupe_fn", dataset_name)
         before_dedupe_fn = len(g)
-        g = spec.dedupe_fn(g)
+        g = dedupe_fn_hook(g)
         LOGGER.info(
             "%s - After dedupe_fn: %d rows removed | shape=%s",
             dataset_name,
