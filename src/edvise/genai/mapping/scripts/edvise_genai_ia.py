@@ -581,6 +581,7 @@ def run_onboard_gate_1(
         grain_contracts_by_dataset=grain_map,
         term_column_by_dataset=term_column_by_dataset or None,
         term_order_fn_by_dataset=term_order_fn_by_dataset or None,
+        hook_modules_root=paths.run_root,
     )
 
     # Write cleaned Parquet

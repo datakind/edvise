@@ -110,15 +110,22 @@ If you need HITL because the grain is ambiguous (should it be `(student, class)`
   }
   ```
 
-### Repeat course enrollment — grade and credit preservation
+### Repeat course enrollment — grade and credit preservation (policy)
 
-When a course table has multiple rows per (student, course_identifier, term) that differ on
-grade, credits_earned, credits_attempted, or similar measure columns, do NOT collapse by filtering on grade values
-(A > B > C loses longitudinal information). Do NOT offer grade-value filtering as an option.
+**Mandatory for course / enrollment-detail tables** when rows share the same semantic grain key
+(student + course identifier + term or equivalent; see **Course / enrollment-detail tables**) but
+differ on **measure** columns (grade, GPA, credits_earned, credits_attempted, or similar):
 
-Instead, use `dedup_strategy: "suffix_identifier"` to make the course identifier unique by
-appending a positional suffix (-1, -2, ...) to the identifier column. All rows are preserved.
-No rows are dropped.
+You **must** use `dedup_strategy: "suffix_identifier"` and **must not** drop collision rows.
+Using `temporal_collapse`, `true_duplicate`, `categorical_priority` on grade/credits/measures, or
+any other row-removing dedup to pick a "winning" enrollment row is a **policy violation** — each
+row is a distinct academic fact (attempts, repeats, concurrent sections, etc.).
+
+Do **not** collapse by filtering or prioritizing grade values (e.g. A > B > C). Do **not** collapse
+by credits (e.g. max credits_earned). Do **not** offer those as HITL options.
+
+Make the **course-identifier** grain column unique with a positional suffix (-1, -2, …). **All**
+collision rows are preserved; none are dropped.
 
 Emit the contract as:
 - `dedup_policy.strategy`: `"suffix_identifier"`
@@ -425,19 +432,35 @@ def _identity_reasoning_steps() -> str:
    d) **Zero variance across all columns:**
       True duplicates, safe to drop.
 
-   e) **Mixed variance across measure columns only (gpa, credits, grade):**
-      Competing values, business rule needed for which row to keep. Flag for HITL.
+   e) **Variance on measure columns only (gpa, credits_earned, credits_attempted, grade, …):**
+
+      - **Course / enrollment-detail grain** (student + course identifier + term or equivalent;
+        see **Repeat course enrollment — grade and credit preservation (policy)**): collisions that
+        differ **only** on measures are **not** a "which row to keep" problem. You **must** emit
+        **`suffix_identifier`**. **`temporal_collapse`**, **`true_duplicate`**, measure-based
+        **`categorical_priority`**, and **any** dedup that drops collision rows are **forbidden**
+        (policy violation). HITL is **only** for an ambiguous **`suffix_column`** among valid
+        **grain** course-identifier columns — never to justify dropping measure-differing rows.
+
+      - **Other table kinds:** follow DOMAIN PRIORS for that class. If grain/dedup is still unclear,
+        use **`policy_required`** and HITL; do **not** invent measure-based row drops when DOMAIN PRIORS
+        already prescribe **`suffix_identifier`** for course enrollment.
 
 3. Apply domain priors (see above) — these override data inference when they conflict.
 
-4. Determine dedup policy — PRIORITY: prefer collapse to clean grain over multi-row ambiguity
+4. Determine dedup policy — PRIORITY: prefer collapse to one row per semantic grain **unless**
+   DOMAIN PRIORS **forbid** dropping rows (**Repeat course enrollment — grade and credit preservation
+   (policy)**): there you **must** use **`suffix_identifier`**, not collapse.
 
    **Collision scale (first):** If **Collision scale** (before step 8) applies, prefer
    `policy_required` and HITL about whether duplicates are intentional — do not default to
    `temporal_collapse` with sort options.
 
    **Validity check:** If the candidate key has `non_unique_rows` > 0, you CANNOT use `no_dedup`.
-   Use `temporal_collapse`, `true_duplicate`, or `policy_required` instead.
+   When **Repeat course enrollment** applies (measure-only variance on course grain), you **must**
+   use **`suffix_identifier`** and **must not** use **`temporal_collapse`** or **`true_duplicate`**
+   to shrink row count. Otherwise use `temporal_collapse`, `true_duplicate`, `policy_required`,
+   `categorical_priority`, or `suffix_identifier` as DOMAIN PRIORS require.
 
    Use exactly one of these string literals for `dedup_policy.strategy`:
 
@@ -564,6 +587,9 @@ collation and not a partial guess).
   - a **measure** column (GPA, credits, counts, etc.) **only** when the policy question is
     explicitly about keeping the **highest** or **lowest** value — not as a default tiebreak
     when the real issue is high-cardinality label variance.
+    **Never** for **Repeat course enrollment** measure-only collisions: those **require**
+    **`suffix_identifier`**; sorting on a measure to drop rows is a **policy violation**
+    (DOMAIN PRIORS).
 
 - **Prohibit** `dedup_sort_by` on free-text **label or name** columns
   (e.g. `program_at_first_enrollment`, `major_at_first_enrollment`, `degree_name`,
