@@ -405,7 +405,9 @@ def merge_genai_pipeline_artifact_rows(
     try:
         from delta.tables import DeltaTable  # type: ignore
     except Exception as e:
-        LOGGER.warning("merge_genai_pipeline_artifact_rows: PySpark/Delta unavailable (%s)", e)
+        LOGGER.warning(
+            "merge_genai_pipeline_artifact_rows: PySpark/Delta unavailable (%s)", e
+        )
         return False
 
     try:

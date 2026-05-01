@@ -76,7 +76,9 @@ def _token_from_databricks_sdk_default_auth() -> str | None:
     try:
         from databricks.sdk.core import Config
     except ImportError:
-        _LOG.debug("databricks-sdk not installed; cannot resolve runtime workspace token")
+        _LOG.debug(
+            "databricks-sdk not installed; cannot resolve runtime workspace token"
+        )
         return None
     try:
         headers = Config().authenticate()
@@ -143,7 +145,12 @@ def make_databricks_gateway_llm_complete(
     def complete(system: str, user: str) -> str:
         messages = cast(
             list[ChatCompletionMessageParam],
-            [{"role": "user", "content": llm_complete_combined_message_content(system, user)}],
+            [
+                {
+                    "role": "user",
+                    "content": llm_complete_combined_message_content(system, user),
+                }
+            ],
         )
         resp = client.chat.completions.create(
             model=resolved_model,
@@ -220,7 +227,10 @@ def invoke_with_openai_retries(
         try:
             return fn()
         except BaseException as exc:
-            if not is_retryable_openai_gateway_error(exc) or attempt >= max_attempts - 1:
+            if (
+                not is_retryable_openai_gateway_error(exc)
+                or attempt >= max_attempts - 1
+            ):
                 raise
             delay = min(
                 max_backoff_s,

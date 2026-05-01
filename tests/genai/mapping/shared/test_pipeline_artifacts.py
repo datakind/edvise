@@ -28,9 +28,7 @@ def test_versioned_genai_run_root():
         "/Volumes/cat/foo_bronze/bronze_volume",
         "run_abc",
     )
-    assert root == Path(
-        "/Volumes/cat/foo_bronze/bronze_volume/genai_pipeline/run_abc"
-    )
+    assert root == Path("/Volumes/cat/foo_bronze/bronze_volume/genai_pipeline/run_abc")
 
 
 def test_versioned_genai_run_root_rejects_empty_run_id():

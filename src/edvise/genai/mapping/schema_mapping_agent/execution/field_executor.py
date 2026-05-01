@@ -144,9 +144,7 @@ def _derive_entity_keys(
         )
 
     entity_keys = [
-        target_to_source[tf]
-        for tf in combined
-        if target_to_source.get(tf) is not None
+        target_to_source[tf] for tf in combined if target_to_source.get(tf) is not None
     ]
 
     # Conditional section key: course_section_id is excluded from Config.unique so

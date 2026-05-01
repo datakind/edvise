@@ -106,9 +106,9 @@ def test_bronze_volume_path_for_institution_empty_catalog_raises() -> None:
 
 
 def test_bronze_volume_path_for_institution_with_catalog() -> None:
-    assert bronze_volume_path_for_institution("synthetic_univ_beta", catalog="my_cat") == (
-        "/Volumes/my_cat/synthetic_univ_beta_bronze/bronze_volume"
-    )
+    assert bronze_volume_path_for_institution(
+        "synthetic_univ_beta", catalog="my_cat"
+    ) == ("/Volumes/my_cat/synthetic_univ_beta_bronze/bronze_volume")
 
 
 def test_ia_inputs_toml_under_bronze() -> None:
