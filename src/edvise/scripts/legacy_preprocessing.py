@@ -120,6 +120,11 @@ def load_module_from_file(py_file: Path, institution_pipeline_dir: Path):
     ``__package__`` so ``from .helpers import ...`` resolves.
     """
     _ensure_edvise_src_on_path()
+    # SSI clone root (parent of ``.../student-success-intervention/pipelines``) for
+    # ``import pipelines.<inst>.<model>.helpers`` — same as each file’s ``parents[3]`` trick.
+    ssi_root = str(_normalize_fs_path(SSI_PIPELINES_WORKSPACE_ROOT).parent)
+    if ssi_root not in sys.path:
+        sys.path.insert(0, ssi_root)
     inst_s = str(institution_pipeline_dir.resolve())
     model_dir = py_file.resolve().parent
     if str(model_dir) not in sys.path:
