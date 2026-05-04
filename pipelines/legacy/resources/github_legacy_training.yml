@@ -161,7 +161,7 @@ resources:
         enabled: true
       parameters:
         - name: pipeline_version
-          default: ${var.pipeline_version}
+          default: ${var.pipeline_git_ref}
         - name: databricks_institution_name
           default: ${var.databricks_institution_name}
         - name: db_run_id
