@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import inspect
 import logging
 import os
 import sys
@@ -39,21 +40,99 @@ import tempfile
 from pathlib import Path
 
 
-def _ensure_edvise_src_on_sys_path() -> None:
-    """Databricks GIT tasks do not install ``edvise``; add ``<repo>/src`` like ``training_h2o``."""
-    candidates: list[Path] = []
+def _edvise_src_from_repo_layout(script_path: Path) -> Path:
+    """``.../src/edvise/scripts/<this>.py`` -> ``.../src``."""
+    return script_path.resolve().parents[2]
+
+
+def _walk_parents_for_edvise_src(start: Path) -> list[Path]:
+    """Find ``<repo>/src`` by walking parents for ``src/edvise``."""
+    found: list[Path] = []
+    for base in (start, *start.parents):
+        to_check = [base / "src"]
+        if base.name == "src":
+            to_check.append(base)
+        for cand in to_check:
+            if (
+                cand.is_dir()
+                and (cand / "edvise").is_dir()
+                and (cand / "edvise" / "__init__.py").is_file()
+            ):
+                found.append(cand.resolve())
+    return found
+
+
+def _resolve_this_script_path() -> Path | None:
+    """
+    Path to this file.
+
+    Databricks sometimes runs this module via ``exec(compile(...))``, so ``__file__`` may be
+    missing; the code object's ``co_filename`` still carries the repo path from ``compile``.
+    """
     try:
-        script = Path(__file__).resolve()
-        candidates.append(script.parents[2])
+        return Path(__file__).resolve()
     except NameError:
         pass
-    cwd_src = (Path(os.getcwd()) / "src").resolve()
-    if cwd_src.is_dir():
-        candidates.append(cwd_src)
+    frame = inspect.currentframe()
+    while frame is not None:
+        g = frame.f_globals
+        gf = g.get("__file__")
+        if isinstance(gf, str) and gf.endswith("legacy_preprocessing.py"):
+            return Path(gf).resolve()
+        cf = frame.f_code.co_filename
+        if cf and not cf.startswith("<") and cf.endswith("legacy_preprocessing.py"):
+            return Path(cf).resolve()
+        frame = frame.f_back
+    if sys.argv and sys.argv[0].endswith("legacy_preprocessing.py"):
+        return Path(sys.argv[0]).resolve()
+    return None
+
+
+def _ensure_edvise_src_on_sys_path() -> None:
+    """Databricks GIT / notebook-style runs do not install ``edvise``; add ``<repo>/src``."""
+    candidates: list[Path] = []
+
+    sp = _resolve_this_script_path()
+    if sp is not None:
+        candidates.append(_edvise_src_from_repo_layout(sp))
+
+    cwd = Path(os.getcwd()).resolve()
+    candidates.extend(_walk_parents_for_edvise_src(cwd))
+
+    if sys.argv and sys.argv[0].endswith(".py"):
+        try:
+            candidates.extend(
+                _walk_parents_for_edvise_src(Path(sys.argv[0]).resolve().parent)
+            )
+        except OSError:
+            pass
+
+    cwd_src = cwd / "src"
+    if (cwd_src / "edvise").is_dir():
+        candidates.append(cwd_src.resolve())
+
+    seen: set[str] = set()
     for root in candidates:
-        if (root / "edvise").is_dir() and str(root) not in sys.path:
-            sys.path.insert(0, str(root))
+        root_s = str(root)
+        if root_s in seen:
+            continue
+        seen.add(root_s)
+        if (root / "edvise").is_dir() and root_s not in sys.path:
+            sys.path.insert(0, root_s)
             return
+
+    try:
+        import edvise  # noqa: F401
+
+        return
+    except ModuleNotFoundError:
+        pass
+
+    raise RuntimeError(
+        "legacy_preprocessing: could not locate ``edvise`` (add <repo>/src to sys.path). "
+        f"script_path={sp!r} cwd={os.getcwd()!r} argv={sys.argv[:3]!r} "
+        f"candidates_tried={candidates!r}"
+    )
 
 
 _ensure_edvise_src_on_sys_path()
