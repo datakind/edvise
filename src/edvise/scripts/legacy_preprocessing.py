@@ -93,12 +93,25 @@ def resolve_workspace_preprocessing_py(
     )
 
 
+def _ensure_edvise_src_on_path() -> None:
+    """
+    Workspace ``preprocessing.py`` files often ``import edvise`` like the Git entry scripts.
+    Those scripts prepend repo ``src/`` to ``sys.path``; dynamic loads do not inherit that
+    unless we add it here (``cwd`` may not be the Git checkout root on Databricks).
+    """
+    src_dir = Path(__file__).resolve().parents[2]
+    s = str(src_dir)
+    if s not in sys.path:
+        sys.path.insert(0, s)
+
+
 def load_module_from_file(py_file: Path, institution_pipeline_dir: Path):
     """
     Load ``preprocessing.py``; same-folder imports work. If the file lives in a model
     subfolder, also put the institution directory on ``sys.path`` and set
     ``__package__`` so ``from .helpers import ...`` resolves.
     """
+    _ensure_edvise_src_on_path()
     inst_s = str(institution_pipeline_dir.resolve())
     model_dir = py_file.resolve().parent
     if str(model_dir) not in sys.path:
