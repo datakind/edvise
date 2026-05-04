@@ -145,6 +145,8 @@ def render_ia_term_hitl_cards(
     uc_group_pending: bool = False,
     approve_uc_if_complete: Callable[[], None] | None = None,
     after_uc_approve_success: Callable[[], None] | None = None,
+    reject_uc_fn: Callable[[], None] | None = None,
+    reject_uc_button_key: str | None = None,
 ) -> None:
     inject_hitl_css()
     _col_l, _ = st.columns([6, 1])
@@ -395,6 +397,8 @@ def render_ia_term_hitl_cards(
             after_uc_approve_success=after_uc_approve_success,
             success_silver_filename="identity_term_hitl.json",
             before_nav_rerun=_flush_ia_term_nav_state,
+            reject_uc_fn=reject_uc_fn,
+            reject_uc_button_key=reject_uc_button_key,
         )
 
 

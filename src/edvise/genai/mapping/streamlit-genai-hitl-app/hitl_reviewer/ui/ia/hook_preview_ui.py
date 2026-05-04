@@ -69,8 +69,10 @@ def render_ia_hook_preview_cards(
     uc_group_pending: bool,
     approve_uc_if_complete: Callable[[], None],
     after_uc_approve_success: Callable[[], None] | None,
+    reject_uc_fn: Callable[[], None] | None = None,
+    reject_uc_button_key: str | None = None,
 ) -> None:
-    """Display ``specs[]`` from hook preview JSON and UC approve (reject is on the parent bar)."""
+    """Display ``specs[]`` from hook preview JSON and UC approve / reject."""
     specs = data.get("specs")
     st.subheader("Hook preview")
     st.caption(
@@ -162,21 +164,47 @@ def render_ia_hook_preview_cards(
                 else:
                     st.write(row)
 
-    if st.button(
-        "Approve UC (hook preview)",
-        key=f"hk-apr-{sk}",
-        type="primary",
-        disabled=not uc_group_pending,
-    ):
-        try:
-            approve_uc_if_complete()
-            if after_uc_approve_success is not None:
-                after_uc_approve_success()
-            st.success("Hook preview approved.")
-            set_hitl_flash_banner(
-                "success",
-                "Hook preview approved. " + HITL_FLASH_HINT_AFTER_UC,
-            )
-            st.rerun()
-        except Exception as ex:  # noqa: BLE001
-            st.error(str(ex))
+    c_apr, c_rej = st.columns([1.4, 1], gap="small")
+    with c_apr:
+        if st.button(
+            "Approve UC (hook preview)",
+            key=f"hk-apr-{sk}",
+            type="primary",
+            use_container_width=True,
+            disabled=not uc_group_pending,
+        ):
+            try:
+                approve_uc_if_complete()
+                if after_uc_approve_success is not None:
+                    after_uc_approve_success()
+                st.success("Hook preview approved.")
+                set_hitl_flash_banner(
+                    "success",
+                    "Hook preview approved. " + HITL_FLASH_HINT_AFTER_UC,
+                )
+                st.rerun()
+            except Exception as ex:  # noqa: BLE001
+                st.error(str(ex))
+    with c_rej:
+        if (
+            reject_uc_fn is not None
+            and (reject_uc_button_key or "").strip()
+            and uc_group_pending
+        ):
+            if st.button(
+                "Reject UC",
+                key=str(reject_uc_button_key).strip(),
+                type="secondary",
+                use_container_width=True,
+                disabled=not uc_group_pending,
+                help="Skips silver edits and only updates ``hitl_reviews``.",
+            ):
+                try:
+                    reject_uc_fn()
+                except Exception as ex:  # noqa: BLE001
+                    st.error(str(ex))
+    if reject_uc_fn is not None and uc_group_pending:
+        st.caption(
+            "**Approve UC** updates ``hitl_reviews`` only (no silver JSON write from this screen). "
+            "**Reject UC** does the same with a rejected status."
+        )

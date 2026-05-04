@@ -422,6 +422,8 @@ def render_sma_hitl_cards(
         "cohort_manifest",
         "course_manifest",
     ),
+    reject_uc_fn: Callable[[], None] | None = None,
+    reject_uc_button_key: str | None = None,
 ) -> None:
     """Full SMA manifest HITL UI, including Save + optional UC approve (``ssave{sk}``)."""
     inject_hitl_css()
@@ -654,4 +656,6 @@ def render_sma_hitl_cards(
         approve_fn=approve_uc_if_complete,
         after_uc_approve_success=after_uc_approve_success,
         success_silver_filename=None,
+        reject_uc_fn=reject_uc_fn,
+        reject_uc_button_key=reject_uc_button_key,
     )

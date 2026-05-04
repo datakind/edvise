@@ -65,6 +65,8 @@ def render_sma_transformation_review_cards(
     uc_group_pending: bool = False,
     approve_uc_if_complete: Callable[[], None] | None = None,
     after_uc_approve_success: Callable[[], None] | None = None,
+    reject_uc_fn: Callable[[], None] | None = None,
+    reject_uc_button_key: str | None = None,
 ) -> None:
     """HITL UI for ``cohort_transformation_review.json`` / ``course_transformation_review.json``."""
     inject_hitl_css()
@@ -330,4 +332,6 @@ def render_sma_transformation_review_cards(
         after_uc_approve_success=after_uc_approve_success,
         success_silver_filename=None,
         saved_json_description="transformation review JSON",
+        reject_uc_fn=reject_uc_fn,
+        reject_uc_button_key=reject_uc_button_key,
     )

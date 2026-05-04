@@ -23,7 +23,8 @@ KEY_HITL_FLASH_BANNER = "hitl_flash_banner"
 
 # One hint everywhere UC approve + optional queue advance can dismiss the editor (pending-only table).
 HITL_FLASH_HINT_AFTER_UC = (
-    "If the editor closed, set status to **(any)** or refresh the table to confirm."
+    "If the row disappeared, the sidebar **status** filter may be **pending** only — set it to **(any)** "
+    "and click **Refresh data** to see **approved**. If the editor closed, the workbench may have advanced to the next pending group."
 )
 
 
@@ -336,6 +337,8 @@ def render_action_bar(
     success_silver_filename: str | None,
     before_nav_rerun: Callable[[], None] | None = None,
     saved_json_description: str = "manifest JSON",
+    reject_uc_fn: Callable[[], None] | None = None,
+    reject_uc_button_key: str | None = None,
 ) -> None:
     if pre_bar_caption is not None:
         st.caption(pre_bar_caption)
@@ -404,6 +407,8 @@ def render_action_bar(
                 disabled=not uc_group_pending or primary_extra_disabled,
                 help=primary_help,
             ):
+                if before_nav_rerun is not None:
+                    before_nav_rerun()
                 ok, err = persist_fn()
                 if not ok:
                     st.error(err)
@@ -444,15 +449,18 @@ def render_action_bar(
                                 f"Saved `{success_silver_filename}`. UC approve was skipped (row was not pending).",
                             )
                         else:
-                            st.success(f"Saved ``{success_silver_filename}``.")
+                            st.warning(
+                                f"Saved ``{success_silver_filename}``, but UC approve was not run "
+                                "(internal: missing approve callback — report this)."
+                            )
                             set_hitl_flash_banner(
-                                "success",
-                                f"Saved `{success_silver_filename}`.",
+                                "warning",
+                                f"Saved `{success_silver_filename}` without UC approve (missing callback).",
                             )
                         st.rerun()
                     else:
                         _doc = (saved_json_description or "HITL JSON").strip() or "HITL JSON"
-                        if uc_group_pending:
+                        if uc_group_pending and approve_fn is not None:
                             if after_uc_approve_success is not None:
                                 after_uc_approve_success()
                             st.success(f"Saved {_doc} and approved the UC row.")
@@ -460,6 +468,15 @@ def render_action_bar(
                             set_hitl_flash_banner(
                                 "success",
                                 f"Saved {_doc} and approved the UC row. " + HITL_FLASH_HINT_AFTER_UC,
+                            )
+                        elif uc_group_pending:
+                            st.warning(
+                                f"Saved {_doc}, but UC approve was not run "
+                                "(internal: missing approve callback — report this)."
+                            )
+                            set_hitl_flash_banner(
+                                "warning",
+                                f"Saved {_doc} without UC approve (missing callback).",
                             )
                         else:
                             st.success(
@@ -481,10 +498,43 @@ def render_action_bar(
                 ):
                     if reject_fn is not None:
                         reject_fn()
-    if show_reject_item and success_silver_filename is not None and uc_group_pending:
+            if (
+                reject_uc_fn is not None
+                and (reject_uc_button_key or "").strip()
+                and uc_group_pending
+            ):
+                if st.button(
+                    "Reject UC",
+                    key=str(reject_uc_button_key).strip(),
+                    type="secondary",
+                    use_container_width=True,
+                    disabled=not uc_group_pending,
+                    help=(
+                        "Skip silver JSON for this gate and mark the Unity Catalog ``hitl_reviews`` "
+                        "row rejected."
+                    ),
+                ):
+                    try:
+                        reject_uc_fn()
+                    except Exception as ex:  # noqa: BLE001
+                        st.error(str(ex))
+    if success_silver_filename is not None and uc_group_pending and (
+        show_reject_item or reject_uc_fn is not None
+    ):
         _cap = (
             "**Save JSON & approve UC** writes every item in this file and approves the pending UC row."
         )
         if primary_extra_disabled:
             _cap += " It stays disabled until every item in this file has been opened with Prev/Next."
+        if show_reject_item and reject_uc_fn is not None:
+            _cap += (
+                " **Reject item** updates silver for the **current** row only; **Reject UC** skips the "
+                "file and only updates ``hitl_reviews``."
+            )
+        elif reject_uc_fn is not None:
+            _cap += " **Reject UC** skips silver and only updates ``hitl_reviews``."
         st.caption(_cap)
+    elif reject_uc_fn is not None and uc_group_pending and success_silver_filename is None:
+        st.caption(
+            "**Reject UC** skips silver JSON for this gate and only updates ``hitl_reviews``."
+        )

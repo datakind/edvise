@@ -409,6 +409,32 @@ def render_silver_hitl_editor(
     is_tr_review = is_sma_transformation_review_phase(str(phase), str(artifact_type))
 
     sk = f"{_safe_key(onboard_run_id)}-{_safe_key(phase)}-{_safe_key(artifact_type)}"
+    reject_uc_key = _uc_gate_button_key(
+        "r", str(onboard_run_id), str(phase), str(artifact_type)
+    )
+
+    def _reject_uc_row() -> None:
+        approve_or_reject(
+            catalog,
+            str(onboard_run_id),
+            str(phase),
+            str(artifact_type),
+            st.session_state["reviewer"],
+            "rejected",
+        )
+        advance_to_next_pending_group(
+            catalog=str(catalog),
+            current_onboard_run_id=str(onboard_run_id),
+            current_phase=str(phase),
+            current_artifact_type=str(artifact_type),
+        )
+        set_hitl_flash_banner(
+            "warning",
+            "UC row rejected. " + HITL_FLASH_HINT_AFTER_UC,
+        )
+        st.toast("UC row rejected.", icon="⛔")
+        st.rerun()
+
     # Same session key as ``st.text_input(..., key=f"path-{sk}")`` in ``render_one_hitl_group`` (Path details).
     silver_path = (
         st.session_state.get(f"path-{sk}") or default_artifact_path or ""
@@ -453,6 +479,8 @@ def render_silver_hitl_editor(
                 "approved",
             ),
             after_uc_approve_success=after_uc_approve_success,
+            reject_uc_fn=_reject_uc_row,
+            reject_uc_button_key=reject_uc_key,
         )
         return
 
@@ -483,6 +511,8 @@ def render_silver_hitl_editor(
                 "approved",
             ),
             after_uc_approve_success=after_uc_approve_success,
+            reject_uc_fn=_reject_uc_row,
+            reject_uc_button_key=reject_uc_key,
         )
         return
 
@@ -510,6 +540,8 @@ def render_silver_hitl_editor(
                 "approved",
             ),
             after_uc_approve_success=after_uc_approve_success,
+            reject_uc_fn=_reject_uc_row,
+            reject_uc_button_key=reject_uc_key,
         )
         return
 
@@ -531,6 +563,8 @@ def render_silver_hitl_editor(
                 "approved",
             ),
             after_uc_approve_success=after_uc_approve_success,
+            reject_uc_fn=_reject_uc_row,
+            reject_uc_button_key=reject_uc_key,
         )
         return
 
@@ -564,6 +598,8 @@ def render_silver_hitl_editor(
             after_uc_approve_success=after_uc_approve_success,
             pending_pair_phase=pend_ph,
             pending_pair_artifact_types=pend_types,
+            reject_uc_fn=_reject_uc_row,
+            reject_uc_button_key=reject_uc_key,
         )
         return
 
@@ -984,45 +1020,13 @@ def render_one_hitl_group(
                 "This UC group is not **pending**. The editor above is **read-only**; silver JSON "
                 "cannot be changed from this app after the gate is approved or rejected."
             )
-        elif (
+        elif not (
             is_ia_grain_row
             or is_ia_term_row
             or is_hook_pv_row
             or is_sma_row
             or is_sma_tr_row
         ):
-            st.caption(
-                "IA / SMA / hook preview: primary action is **Save JSON & approve UC** in the editor "
-                "(writes silver JSON + UC). **Reject UC** below skips silver and only updates ``hitl_reviews``."
-            )
-            if st.button(
-                "Reject UC",
-                key=_uc_gate_button_key("r", onboard_run_id, phase, artifact_type),
-            ):
-                try:
-                    approve_or_reject(
-                        catalog,
-                        str(onboard_run_id),
-                        str(phase),
-                        str(artifact_type),
-                        st.session_state["reviewer"],
-                        "rejected",
-                    )
-                    advance_to_next_pending_group(
-                        catalog=str(catalog),
-                        current_onboard_run_id=str(onboard_run_id),
-                        current_phase=str(phase),
-                        current_artifact_type=str(artifact_type),
-                    )
-                    set_hitl_flash_banner(
-                        "warning",
-                        "UC row rejected. " + HITL_FLASH_HINT_AFTER_UC,
-                    )
-                    st.toast("UC row rejected.", icon="⛔")
-                    st.rerun()
-                except Exception as ex:  # noqa: BLE001
-                    st.error(str(ex))
-        else:
             c1, c2, c3 = st.columns(3)
             with c1:
                 if st.button(
