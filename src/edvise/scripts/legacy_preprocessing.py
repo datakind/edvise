@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import inspect
 import logging
 import sys
 from pathlib import Path
@@ -98,8 +99,15 @@ def _ensure_edvise_src_on_path() -> None:
     Workspace ``preprocessing.py`` files often ``import edvise`` like the Git entry scripts.
     Those scripts prepend repo ``src/`` to ``sys.path``; dynamic loads do not inherit that
     unless we add it here (``cwd`` may not be the Git checkout root on Databricks).
+
+    Databricks sometimes runs ``legacy_preprocessing`` via ``exec(compile(...))``, which
+    leaves ``__file__`` undefined; fall back to ``inspect.getfile`` for this module path.
     """
-    src_dir = Path(__file__).resolve().parents[2]
+    try:
+        script_path = Path(__file__).resolve()
+    except NameError:
+        script_path = Path(inspect.getfile(_ensure_edvise_src_on_path)).resolve()
+    src_dir = script_path.parents[2]
     s = str(src_dir)
     if s not in sys.path:
         sys.path.insert(0, s)
