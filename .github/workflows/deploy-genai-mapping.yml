@@ -1,0 +1,136 @@
+# GenAI mapping bundle: manual deploy to dev and/or staging (vars/secrets aligned with PDP-style bundle deploy).
+#
+# Secrets — dev:
+#   DATABRICKS_GENAI_MAPPING_DEV_HOST, DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID, DATABRICKS_GENAI_MAPPING_DEV_CLIENT_SECRET
+#   GENAI_MAPPING_DEV_SERVICE_ACCOUNT_EXECUTER, GENAI_MAPPING_DEV_DS_RUN_AS
+# Secrets — staging (prod bundle target → staging_sst_01):
+#   DATABRICKS_STAGING_HOST, DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID, DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_SECRET
+#   GENAI_MAPPING_STAGING_SERVICE_ACCOUNT_EXECUTER, GENAI_MAPPING_STAGING_DS_RUN_AS
+# Shared: GROUP_TO_MANAGE
+
+name: deploy-genai-mapping
+
+on:
+  push:
+    branches:
+      - feat/gen_ai_hitl_ui_build
+  workflow_dispatch:
+    inputs:
+      deploy_dev:
+        description: "Deploy to dev_sst_02 (bundle target dev)"
+        type: boolean
+        default: true
+      deploy_staging:
+        description: "Deploy to staging_sst_01 (bundle target prod)"
+        type: boolean
+        default: false
+      staging_git_tag:
+        description: "Release tag for staging (e.g. v0.2.0). Required when deploy_staging is checked."
+        type: string
+        default: ""
+
+concurrency:
+  group: deploy-genai-mapping-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    if: ${{ !inputs.deploy_dev && !inputs.deploy_staging }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "::error::Select deploy_dev and/or deploy_staging"
+          exit 1
+
+  deploy-dev:
+    if: ${{ inputs.deploy_dev }}
+    name: Deploy GenAI mapping bundle to dev (dev_sst_02)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.11"
+
+      - name: Install uv and Databricks CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+          databricks -v
+        shell: bash
+
+      - name: Install project dependencies (uv)
+        run: |
+          uv venv
+          uv pip install .
+
+      - name: Deploy bundle (dev)
+        working-directory: pipelines/genai_mapping
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_CLIENT_SECRET }}
+          SA_EXECUTER: ${{ secrets.GENAI_MAPPING_DEV_SERVICE_ACCOUNT_EXECUTER }}
+          DS_RUN_AS: ${{ secrets.GENAI_MAPPING_DEV_DS_RUN_AS }}
+          GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
+        run: |
+          databricks current-user me
+          databricks bundle deploy \
+            --target=dev \
+            --force-lock \
+            --var "git_commit=${GITHUB_SHA}" \
+            --var "service_account_executer=$SA_EXECUTER" \
+            --var "ds_run_as=$DS_RUN_AS" \
+            --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
+
+  deploy-staging:
+    if: ${{ inputs.deploy_staging }}
+    name: Deploy GenAI mapping bundle to staging (staging_sst_01)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11.11"
+
+      - name: Install uv and Databricks CLI
+        run: |
+          python -m pip install --upgrade pip
+          pip install uv
+          curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
+          databricks -v
+        shell: bash
+
+      - name: Install project dependencies (uv)
+        run: |
+          uv venv
+          uv pip install .
+
+      - name: Deploy bundle (prod target → staging_sst_01)
+        working-directory: pipelines/genai_mapping
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_STAGING_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_SECRET }}
+          SA_EXECUTER: ${{ secrets.GENAI_MAPPING_STAGING_SERVICE_ACCOUNT_EXECUTER }}
+          DS_RUN_AS: ${{ secrets.GENAI_MAPPING_STAGING_DS_RUN_AS }}
+          GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
+        run: |
+          TAG="${{ inputs.staging_git_tag }}"
+          if [ -z "$TAG" ]; then
+            echo "::error::Set workflow input staging_git_tag when deploying staging (e.g. v0.2.0)"
+            exit 1
+          fi
+          databricks current-user me
+          databricks bundle deploy \
+            --target=prod \
+            --force-lock \
+            --var "git_tag=$TAG" \
+            --var "service_account_executer=$SA_EXECUTER" \
+            --var "ds_run_as=$DS_RUN_AS" \
+            --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
