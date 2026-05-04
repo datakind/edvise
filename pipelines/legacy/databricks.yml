@@ -1,11 +1,10 @@
 bundle:
-  name: Edvise pdp training pipeline
-  uuid: 99992898-07ae-4641-b086-dd3ba80ffc2f
+  name: Edvise legacy H2O pipeline
+  uuid: f4a8b7c2-3d9e-41f2-b8c5-1e6d7a9f0b2c
 
 include:
-  - resources/github_pdp_training.yml
-  - resources/github_pdp_inference.yml
-  - resources/synthetic/github_synth_cleanup.yml
+  - resources/github_legacy_training.yml
+  - resources/github_legacy_inference.yml
 
 variables:
   git_commit:
@@ -27,19 +26,24 @@ variables:
   ds_run_as:
     description: "Account to run the pipeline (Databricks SP client/app ID)"
   databricks_institution_name:
-    description: "Institution ID to use for the pdp training"
+    description: "Institution ID for legacy training and inference"
   config_file_name:
-    description: "Name of the config file to use for the pdp training"
+    description: "Name of the legacy config TOML in bronze training_inputs"
     default: "config.toml"
+  features_table_name:
+    description: "Name of the features table TOML in bronze training_inputs"
+    default: "features_table.toml"
+  legacy_preprocessing_model_subdir:
+    description: "Optional subfolder under pipelines/<inst>/ (e.g. transfer_model). Empty = preprocessing.py at inst root or auto-pick single */preprocessing.py"
+    default: ""
+  legacy_preprocessing_enabled:
+    description: "If true, run legacy_preprocessing before training_h2o; set false if modeling tables are pre-built"
+    default: "true"
   datakind_group_to_manage_workflow:
     description: "Group with permissions to manage the job"
   model_name:
-    description: "Name of the model once it's registered and ready to be used for inference"
+    description: "Registered model name for legacy inference"
     default: ""
-  training_slack_webhook_id:
-    description: "Slack webhook ID for training pipeline failure notifications"
-  inference_slack_webhook_id:
-    description: "Slack webhook ID for inference pipeline failure notifications"
 
 run_as:
   service_principal_name: ${var.ds_run_as}
@@ -49,11 +53,9 @@ targets:
     mode: development
     variables:
       DB_workspace: "dev_sst_02"
-      training_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"    # edvise-data-crew channel on dev_sst_02                            
-      inference_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"   # edvise-data-crew channel on dev_sst_02  
     resources:
       jobs:
-        github_sourced_pdp_training_pipeline:
+        edvise_github_sourced_legacy_training_pipeline:
           parameters:
             - name: pipeline_version
               default: ${var.git_commit}
@@ -61,12 +63,7 @@ targets:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_commit: ${var.git_commit}
-        edvise_github_sourced_pdp_inference_pipeline:
-          git_source:
-            git_url: https://github.com/datakind/edvise
-            git_provider: gitHub
-            git_commit: ${var.git_commit}
-        edvise_cleanup_synthetic:
+        edvise_github_sourced_legacy_inference_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
@@ -77,11 +74,9 @@ targets:
     mode: production
     variables:
       DB_workspace: "staging_sst_01"
-      training_slack_webhook_id: "0fb252f8-f343-4be7-91de-b55f5408a031"  # edvise-data-crew channel on staging_sst_01                                        
-      inference_slack_webhook_id: "c51b737e-988d-45dd-ad9b-6f9024a6b56b"  # edvise-support channel on staging_sst_01  
     resources:
       jobs:
-        github_sourced_pdp_training_pipeline:
+        edvise_github_sourced_legacy_training_pipeline:
           parameters:
             - name: pipeline_version
               default: ${var.git_tag}
@@ -89,12 +84,7 @@ targets:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_tag: ${var.git_tag}
-        edvise_github_sourced_pdp_inference_pipeline:
-          git_source:
-            git_url: https://github.com/datakind/edvise
-            git_provider: gitHub
-            git_tag: ${var.git_tag}
-        edvise_cleanup_synthetic:
+        edvise_github_sourced_legacy_inference_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub

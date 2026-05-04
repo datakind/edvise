@@ -147,9 +147,9 @@ resources:
               - "{{job.parameters.datakind_notification_email}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
           libraries:
-            - pypi: 
+            - pypi:
                 package: pandas==2.2.3
-            - pypi: 
+            - pypi:
                 package: pyarrow~=16.0
       job_clusters:
         - job_cluster_key: edvise-legacy-inference-pipeline-cluster
@@ -199,7 +199,7 @@ resources:
         - name: DK_CC_EMAIL
           default: ${var.datakind_notification_email}
       permissions:
-        - group_name: ${var.datakind_group_to_manage_workflow} 
+        - group_name: ${var.datakind_group_to_manage_workflow}
           level: CAN_MANAGE
         - service_principal_name: ${var.ds_run_as}
           level: CAN_MANAGE
