@@ -63,6 +63,9 @@ variables:
   model_name:
     description: "Registered model name for legacy inference (Unity Catalog / MLflow)"
     default: ""
+  pipeline_version:
+    description: "Git commit (dev) or tag (prod) passed to training_h2o --pipeline_version"
+    default: ""
 
 run_as:
   service_principal_name: ${var.ds_run_as}
@@ -72,12 +75,10 @@ targets:
     mode: development
     variables:
       DB_workspace: "dev_sst_02"
+      pipeline_version: ${var.git_commit}
     resources:
       jobs:
         edvise_github_sourced_legacy_training_pipeline:
-          parameters:
-            - name: pipeline_version
-              default: ${var.git_commit}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
@@ -93,12 +94,10 @@ targets:
     mode: production
     variables:
       DB_workspace: "staging_sst_01"
+      pipeline_version: ${var.git_tag}
     resources:
       jobs:
         edvise_github_sourced_legacy_training_pipeline:
-          parameters:
-            - name: pipeline_version
-              default: ${var.git_tag}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
