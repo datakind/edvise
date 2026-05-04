@@ -12,6 +12,7 @@ from .run_log import (
     RunLog,
     SMARRunEvent,
     append_run_log_event,
+    resolve_task_run_id,
 )
 from .time import utc_now_iso
 
@@ -23,6 +24,7 @@ __all__ = [
     "RunLog",
     "SMARRunEvent",
     "append_run_log_event",
+    "resolve_task_run_id",
     "raise_if_hitl_pending",
     "read_pydantic_json",
     "utc_now_iso",

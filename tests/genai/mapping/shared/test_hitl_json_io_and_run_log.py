@@ -16,6 +16,7 @@ from edvise.genai.mapping.shared.hitl.run_log import (
     RunLog,
     SMARRunEvent,
     append_run_log_event,
+    resolve_task_run_id,
 )
 from edvise.genai.mapping.shared.hitl.time import utc_now_iso
 
@@ -79,3 +80,60 @@ def test_append_run_log_mixed_events(tmp_path: Path) -> None:
     assert isinstance(loaded.events[0], RunEvent)
     assert isinstance(loaded.events[1], SMARRunEvent)
     assert loaded.events[1].target_field == "term"
+
+
+def test_resolve_task_run_id_prefers_task_specific_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("DATABRICKS_TASK_RUN_ID", raising=False)
+    monkeypatch.delenv("DATABRICKS_RUN_ID", raising=False)
+    monkeypatch.setenv("DATABRICKS_TASK_RUN_ID", "task-env")
+    monkeypatch.setenv("DATABRICKS_RUN_ID", "run-env")
+    assert resolve_task_run_id() == "task-env"
+
+
+def test_append_run_log_event_injects_task_run_id_from_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DATABRICKS_TASK_RUN_ID", "tr-999")
+    log_path = tmp_path / "run_log.json"
+    append_run_log_event(
+        log_path,
+        "inst_a",
+        RunEvent(
+            timestamp="t1",
+            resolved_by=None,
+            agent="identity_agent",
+            domain="grain",
+            item_id="i1",
+            choice=1,
+            option_id="opt",
+            reentry="terminal",
+        ),
+    )
+    loaded = read_pydantic_json(log_path, RunLog)
+    assert loaded.events[0].task_run_id == "tr-999"
+
+
+def test_append_run_log_event_keeps_explicit_task_run_id_over_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("DATABRICKS_TASK_RUN_ID", "from-env")
+    log_path = tmp_path / "run_log.json"
+    append_run_log_event(
+        log_path,
+        "inst_a",
+        RunEvent(
+            timestamp="t1",
+            resolved_by=None,
+            agent="identity_agent",
+            domain="grain",
+            item_id="i1",
+            choice=1,
+            option_id="opt",
+            reentry="terminal",
+            task_run_id="explicit-id",
+        ),
+    )
+    loaded = read_pydantic_json(log_path, RunLog)
+    assert loaded.events[0].task_run_id == "explicit-id"

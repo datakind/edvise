@@ -7,6 +7,8 @@ JSON on disk stays backward compatible: existing identity-only logs still valida
 
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -36,6 +38,7 @@ class RunEvent(BaseModel):
     option_id: str
     reentry: str  # "terminal" or "generate_hook"
     db_run_id: str | None = None
+    task_run_id: str | None = None
 
 
 class SMARRunEvent(BaseModel):
@@ -58,6 +61,7 @@ class SMARRunEvent(BaseModel):
     option_id: str
     reentry: str  # "terminal" or "direct_edit"
     db_run_id: str | None = None
+    task_run_id: str | None = None
 
 
 class RunLog(BaseModel):
@@ -77,6 +81,48 @@ class RunLog(BaseModel):
 PipelineRunEvent = RunEvent | SMARRunEvent
 
 
+def resolve_task_run_id() -> str | None:
+    """
+    Best-effort current Databricks *task* run id (workflow task), for run_log correlation.
+
+    Tries env vars set on task clusters, then notebook/job context JSON. Never raises;
+    returns ``None`` when not running on Databricks or when the id is unavailable.
+    """
+    for key in ("DATABRICKS_TASK_RUN_ID", "DATABRICKS_RUN_ID"):
+        raw = os.environ.get(key)
+        if raw is not None and str(raw).strip():
+            return str(raw).strip()
+
+    try:
+        from databricks.sdk.runtime import dbutils
+    except Exception:
+        return None
+
+    try:
+        ctx_json = (
+            dbutils.notebook.entry_point.getDbutils().notebook().getContext().toJson()
+        )
+        data = json.loads(ctx_json)
+    except Exception:
+        return None
+
+    if isinstance(data.get("tags"), dict):
+        tags = data["tags"]
+        for k in ("taskRunId", "runId", "run_id"):
+            val = tags.get(k)
+            if val is not None and str(val).strip():
+                return str(val).strip()
+
+    extra = data.get("extraContext")
+    if isinstance(extra, dict):
+        for k in ("taskRunId", "runId"):
+            val = extra.get(k)
+            if val is not None and str(val).strip():
+                return str(val).strip()
+
+    return None
+
+
 def append_run_log_event(
     run_log_path: Path,
     institution_id: str,
@@ -84,11 +130,19 @@ def append_run_log_event(
 ) -> None:
     """
     Append one event to ``run_log_path``. Creates the file if missing; never removes events.
+
+    When ``event.task_run_id`` is unset, fills it from :func:`resolve_task_run_id` so local
+    runs stay ``null`` and Databricks tasks record the task run id without threading it
+    through every resolver.
     """
     if run_log_path.exists():
         run_log = read_pydantic_json(run_log_path, RunLog)
     else:
         run_log = RunLog(institution_id=institution_id)
+
+    tid = resolve_task_run_id()
+    if event.task_run_id is None and tid is not None:
+        event = event.model_copy(update={"task_run_id": tid})
 
     run_log.events.append(event)
     write_pydantic_json(run_log_path, run_log)
@@ -100,4 +154,5 @@ __all__ = [
     "RunLog",
     "SMARRunEvent",
     "append_run_log_event",
+    "resolve_task_run_id",
 ]
