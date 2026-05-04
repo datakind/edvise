@@ -36,6 +36,24 @@ def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
     )
 
 
+# Injected into extract_schema_descriptor JSON for RawEdviseStudentDataSchema prompts
+# (SMA + downstream steps). Pandera Field descriptions are often unset; these spell out
+# cohort-time vs outcome semantics for the mapping agent.
+_RAW_EDVISE_STUDENT_FIELD_SEMANTIC_NOTES: dict[str, str] = {
+    "intended_program_type": (
+        "Cohort entry snapshot: program or credential the student intended to pursue when "
+        "entering (aligned with entry_year/entry_term). Not the current/latest primary program."
+    ),
+    "declared_major_at_entry": (
+        "Cohort entry snapshot: declared major (or primary field of study) at program entry. "
+        "Not the latest major row from longitudinal history or current major."
+    ),
+    "major_at_completion": (
+        "Outcome: field of study at completion/exit — distinct from declared_major_at_entry."
+    ),
+}
+
+
 def extract_schema_descriptor(schema_class: Any) -> dict[str, Any]:
     """Extract a compact field descriptor from a Pandera DataFrameModel for prompt injection."""
     fields = {}
@@ -52,7 +70,12 @@ def extract_schema_descriptor(schema_class: Any) -> dict[str, Any]:
 
         fields[field_name] = descriptor
 
-    return {"schema_name": schema_class.__name__, "fields": fields}
+    out: dict[str, Any] = {"schema_name": schema_class.__name__, "fields": fields}
+    if schema_class.__name__ == "RawEdviseStudentDataSchema":
+        for fname, note in _RAW_EDVISE_STUDENT_FIELD_SEMANTIC_NOTES.items():
+            if fname in out["fields"]:
+                out["fields"][fname]["semantic_note"] = note
+    return out
 
 
 # ── Schema contract summarization ─────────────────────────────────────────────
@@ -212,6 +235,44 @@ COHORT entry_year AND entry_term — decision hierarchy (apply in order)
     )
 
 
+def _step2a_cohort_entry_program_and_major_rules() -> str:
+    """Step 2a: intended_program_type / declared_major_at_entry must be entry-time, not latest."""
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
+    return f"""
+COHORT intended_program_type AND declared_major_at_entry — entry snapshot semantics
+
+These fields describe the student **at cohort/program entry** (same conceptual moment as
+`entry_year` / `entry_term`). They are **not** the student's **current** primary program or
+**latest** declared major from SIS or longitudinal tables.
+
+**(1) Preferred — explicit entry / admit / starting fields on the student (cohort) row**
+- Map from columns whose names or dictionary definitions clearly mean **starting**, **entry**,
+  **admit**, **first-term**, or **cohort** program or major intent.
+- With student-grain base table: `row_selection.strategy`: `"any_row"`.
+
+**(2) Only longitudinal (term-level) program or major history exists**
+- Resolve the value **at or before** the entry term: use the same term-order key as for
+  `entry_year` / `entry_term` (`_term_order` / `first_by` with filters), not `last_by` or the
+  latest term row.
+- If your join path is the same **first enrollment term** proxy as in the entry-term fallback
+  hierarchy, use **similarly low confidence** (typically ≤ {t}), **HITL**, and state the proxy
+  in **rationale** / **validation_notes**.
+
+**(3) Current-state-only sources**
+- If the only usable columns clearly mean **current** program or major (e.g. live primary major
+  with no historical table), you may map with **confidence ≤ {t}**, **HITL**, and **validation_notes**
+  that the source is a **proxy** for entry intent — not a true entry snapshot.
+
+**(4) Contrast with outcome fields**
+- Do **not** map these targets from **`major_at_completion`** sources or other completion/exit fields.
+- `major_at_completion` is outcome semantics and belongs only on that target.
+
+**(5) Unmappable**
+- Prefer unmappable (per UNMAPPABLE FIELDS) over forcing **latest** or **completion** data into
+  `intended_program_type` or `declared_major_at_entry`.
+"""
+
+
 def _step2a_cohort_degree_conferral_datetime_rules() -> str:
     """Step 2a: prefer IA term columns on degree/award lookup for conferral-style datetime targets."""
     t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
@@ -309,12 +370,14 @@ def _step2a_rules_after_structure(
     if term_rules == "cohort_and_course":
         term_blocks = (
             _step2a_cohort_entry_term_rules()
+            + _step2a_cohort_entry_program_and_major_rules()
             + _step2a_cohort_degree_conferral_datetime_rules()
             + _step2a_course_academic_term_rules()
         )
     elif term_rules == "cohort_only":
         term_blocks = (
             _step2a_cohort_entry_term_rules()
+            + _step2a_cohort_entry_program_and_major_rules()
             + _step2a_cohort_degree_conferral_datetime_rules()
         )
     else:

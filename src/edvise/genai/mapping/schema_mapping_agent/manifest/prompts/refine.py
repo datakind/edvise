@@ -319,6 +319,35 @@ MULTIPLE VALIDATION ERRORS ON THE SAME FIELD (Pass 2):
   FieldMappingRecord that resolves every flagged issue on that field.
 """
 
+_COHORT_TARGET_SEMANTICS_FOR_REFINEMENT = """
+## Cohort target semantics (RawEdviseStudentDataSchema)
+
+When the manifest section is **cohort** (student / RawEdviseStudentDataSchema):
+
+- **`intended_program_type`** and **`declared_major_at_entry`** are **entry-time snapshots**
+  (conceptually aligned with `entry_year` / `entry_term`). Using **current** primary program/major,
+  **`last_by` / latest term** row selection, or **completion / exit** fields for these targets is a
+  **semantic error** — not merely weak confidence.
+- Prefer corrections that map to **admit / entry / first-term / cohort** sources, or longitudinal
+  data filtered to **at or before entry** (`first_by` on term order, not latest). Document any
+  remaining proxy in **validation_notes**.
+- If Step 2a mapped either field from an obvious **current-only** column or latest-row semantics,
+  do **not** leave it as **auto_approved** when an entry-aligned source exists in the contract;
+  apply **refined_by_llm** / **refined_and_proposed_for_hitl** or **proposed_for_hitl** as appropriate.
+- Never use **`major_at_completion`** mapping logic for **`declared_major_at_entry`** unless the
+  source column is provably entry-time (unusual).
+"""
+
+_COHORT_SEMANTICS_PASS2 = """
+## Cohort entry vs outcome (Pass 2 options)
+
+For flags on **`intended_program_type`** or **`declared_major_at_entry`**, TERMINAL options should
+favor **entry / admit / first-term** sources. If the flagged mapping used **current** or **latest**
+major/program semantics, option 1 should normally be the entry-aligned alternative; describe any
+remaining proxy honestly. Options for **`major_at_completion`** must not be reused as substitutes
+for **`declared_major_at_entry`** unless the column meaning supports entry time.
+"""
+
 _PASS1_OUTPUT_FORMAT = """
 OUTPUT FORMAT — respond with a single JSON object, no preamble, no markdown:
 {
@@ -385,6 +414,8 @@ generating options (that is Pass 2).
 
 {_AUTO_FIX_RULES}
 
+{_COHORT_TARGET_SEMANTICS_FOR_REFINEMENT}
+
 ## Output format
 
 {output_format}
@@ -430,6 +461,8 @@ escape hatch on every item.
 ## Collapsing multiple errors per field
 
 {_FIELD_COLLAPSE_RULE}
+
+{_COHORT_SEMANTICS_PASS2}
 
 CRITICAL — current_field_mapping:
   current_field_mapping in each item must be copied unchanged from the corresponding Pass 1 hitl_flag.

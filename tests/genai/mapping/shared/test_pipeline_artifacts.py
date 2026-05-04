@@ -98,6 +98,7 @@ def test_discover_artifact_files(tmp_path: Path):
     (sm / "sma_hitl_cohort.json").write_text("{}")
     (enc / f"{inst}_schema_contract.json").write_text("{}")
     (run / "run_log.json").write_text("{}")
+    (run / "repair_log.json").write_text("{}")
     write_genai_pipeline_run_metadata(
         run,
         institution_id=inst,
@@ -113,6 +114,7 @@ def test_discover_artifact_files(tmp_path: Path):
         "sma_hitl",
         "enriched_schema_contract",
         "run_log",
+        "repair_log",
         "pipeline_run_metadata",
     }
 

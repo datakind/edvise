@@ -14,6 +14,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.artifacts import (
 )
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.resolver import (
     SMAHITLResolverError,
+    apply_2a_manifest_repair,
     check_sma_hitl_gate,
     resolve_sma_items,
 )
@@ -29,6 +30,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
 )
 
 __all__ = [
+    "apply_2a_manifest_repair",
     "HITL_CONFIDENCE_THRESHOLD",
     "InstitutionSMAHITLItems",
     "SMAFailureMode",

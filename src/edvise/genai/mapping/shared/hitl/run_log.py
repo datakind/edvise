@@ -3,13 +3,19 @@ Append-only ``run_log.json`` for an institution — shared across IdentityAgent 
 
 Events are a union of :class:`RunEvent` (identity HITL) and :class:`SMARRunEvent` (SMA 2a HITL).
 JSON on disk stays backward compatible: existing identity-only logs still validate.
+
+Append-only ``repair_log.json`` (same directory as ``run_log.json`` in an SMA run) records
+:class:`ManifestRepairEvent` rows for 2a manifest repairs. Additional repair event models can
+be added later as a discriminated union on ``repair_type`` without changing the 2a shape.
 """
 
 from __future__ import annotations
 
 import json
 import os
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Literal, TypeAlias
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -81,6 +87,49 @@ class RunLog(BaseModel):
 PipelineRunEvent = RunEvent | SMARRunEvent
 
 
+class ManifestRepairEvent(BaseModel):
+    """
+    Audit row for a Schema Mapping Agent 2a manifest repair.
+
+    ``repair_type`` is fixed for this model; future repair kinds should use sibling
+    event models and a union on ``repair_type`` in :class:`RepairLog`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    timestamp: datetime
+    repaired_by: str
+    agent: Literal["schema_mapping_agent"]
+    repair_type: Literal["2a_manifest"]
+    entity_type: Literal["cohort", "course"]
+    target_field: str
+    original_value: dict[str, Any]
+    corrected_value: dict[str, Any]
+    reviewer_notes: str | None
+    rerun_scope: Literal["2b_full"]
+    original_db_run_id: str
+    original_task_run_id: str | None
+    repair_task_run_id: str | None
+
+
+# When adding non-2a repairs, widen to a discriminated union, e.g.
+# ``Annotated[ManifestRepairEvent | IAGrainRepairEvent, Field(discriminator="repair_type")]``.
+RepairLogEvent: TypeAlias = ManifestRepairEvent
+
+
+class RepairLog(BaseModel):
+    """
+    Append-only repair audit for one institution (SMA run directory).
+
+    Written beside ``run_log.json`` under the schema-mapping-agent run root.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    institution_id: str
+    events: list[RepairLogEvent] = Field(default_factory=list)
+
+
 def resolve_task_run_id() -> str | None:
     """
     Best-effort current Databricks *task* run id (workflow task), for run_log correlation.
@@ -148,11 +197,39 @@ def append_run_log_event(
     write_pydantic_json(run_log_path, run_log)
 
 
+def append_repair_event(
+    repair_log_path: Path,
+    institution_id: str,
+    event: RepairLogEvent,
+) -> None:
+    """
+    Append one event to ``repair_log_path``. Creates the file if missing.
+
+    When ``event.repair_task_run_id`` is unset, fills it from :func:`resolve_task_run_id`
+    (same behavior as :func:`append_run_log_event`).
+    """
+    if repair_log_path.exists():
+        repair_log = read_pydantic_json(repair_log_path, RepairLog)
+    else:
+        repair_log = RepairLog(institution_id=institution_id)
+
+    tid = resolve_task_run_id()
+    if event.repair_task_run_id is None and tid is not None:
+        event = event.model_copy(update={"repair_task_run_id": tid})
+
+    repair_log.events.append(event)
+    write_pydantic_json(repair_log_path, repair_log)
+
+
 __all__ = [
+    "ManifestRepairEvent",
     "PipelineRunEvent",
+    "RepairLog",
+    "RepairLogEvent",
     "RunEvent",
     "RunLog",
     "SMARRunEvent",
+    "append_repair_event",
     "append_run_log_event",
     "resolve_task_run_id",
 ]

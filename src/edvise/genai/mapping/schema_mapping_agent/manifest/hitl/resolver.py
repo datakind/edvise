@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.artifacts import load_sma_hitl
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
@@ -28,7 +29,12 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
 )
 from edvise.genai.mapping.shared.hitl import raise_if_hitl_pending
 from edvise.genai.mapping.shared.hitl.json_io import write_pydantic_json
-from edvise.genai.mapping.shared.hitl.run_log import SMARRunEvent, append_run_log_event
+from edvise.genai.mapping.shared.hitl.run_log import (
+    ManifestRepairEvent,
+    SMARRunEvent,
+    append_repair_event,
+    append_run_log_event,
+)
 from edvise.genai.mapping.shared.hitl.time import utc_now_iso
 
 logger = logging.getLogger(__name__)
@@ -117,6 +123,26 @@ def _save_manifest_for_entity(
         write_pydantic_json(manifest_path, envelope)
     else:
         write_pydantic_json(manifest_path, fm)
+
+
+def _merge_2a_repair_mapping(
+    original: FieldMappingRecord,
+    corrected: FieldMappingRecord,
+    *,
+    reviewer_notes: str | None,
+) -> FieldMappingRecord:
+    """
+    Apply a 2a manifest repair: use ``corrected`` for structural mapping fields,
+    keep ``confidence`` and ``rationale`` from ``original``, set review telemetry.
+    """
+    return corrected.model_copy(
+        update={
+            "confidence": original.confidence,
+            "rationale": original.rationale,
+            "review_status": ReviewStatus.corrected_by_repair,
+            "reviewer_notes": reviewer_notes,
+        }
+    )
 
 
 def _mapping_index_for_target(
@@ -261,4 +287,89 @@ def resolve_sma_items(
     return applied_count
 
 
-__all__ = ["SMAHITLResolverError", "check_sma_hitl_gate", "resolve_sma_items"]
+def apply_2a_manifest_repair(
+    manifest_path: str | Path,
+    entity_type: Literal["cohort", "course"],
+    target_field: str,
+    corrected_field_mapping: FieldMappingRecord | dict[str, Any],
+    *,
+    repair_log_path: str | Path,
+    repaired_by: str,
+    original_db_run_id: str,
+    original_task_run_id: str | None = None,
+    reviewer_notes: str | None = None,
+    repair_task_run_id: str | None = None,
+    institution_id: str | None = None,
+) -> None:
+    """
+    Apply a post-gate 2a manifest correction and append :class:`ManifestRepairEvent`.
+
+    The written mapping row uses ``corrected_field_mapping`` for all fields except
+    ``confidence`` and ``rationale``, which are taken from the existing manifest entry.
+    Sets ``review_status`` to :attr:`ReviewStatus.corrected_by_repair`.
+
+    ``manifest_path`` may be a :class:`MappingManifestEnvelope` or a standalone
+    :class:`FieldMappingManifest`; when standalone, pass ``institution_id`` (required).
+
+    Does not trigger UI or 2b re-runs — callers own orchestration.
+    """
+    manifest_path = Path(manifest_path)
+    env_wrapper, fm, entity_key = _load_manifest_for_entity(manifest_path, entity_type)
+
+    resolved_institution_id = (
+        env_wrapper.institution_id if env_wrapper is not None else institution_id
+    )
+    if not resolved_institution_id:
+        raise SMAHITLResolverError(
+            "institution_id is required when the manifest is not a MappingManifestEnvelope "
+            f"({manifest_path})"
+        )
+
+    if isinstance(corrected_field_mapping, dict):
+        corrected = FieldMappingRecord.model_validate(corrected_field_mapping)
+    else:
+        corrected = corrected_field_mapping
+
+    idx = _mapping_index_for_target(fm.mappings, target_field)
+    original = fm.mappings[idx]
+    if original.target_field != corrected.target_field:
+        raise SMAHITLResolverError(
+            f"corrected_field_mapping.target_field {corrected.target_field!r} must match "
+            f"repair target {target_field!r}"
+        )
+
+    merged = _merge_2a_repair_mapping(
+        original, corrected, reviewer_notes=reviewer_notes
+    )
+    fm.mappings[idx] = merged
+    _save_manifest_for_entity(manifest_path, env_wrapper, fm, entity_key)
+
+    event = ManifestRepairEvent(
+        timestamp=datetime.now(timezone.utc),
+        repaired_by=repaired_by,
+        agent="schema_mapping_agent",
+        repair_type="2a_manifest",
+        entity_type=entity_type,
+        target_field=target_field,
+        original_value=original.model_dump(mode="json"),
+        corrected_value=merged.model_dump(mode="json"),
+        reviewer_notes=reviewer_notes,
+        rerun_scope="2b_full",
+        original_db_run_id=original_db_run_id,
+        original_task_run_id=original_task_run_id,
+        repair_task_run_id=repair_task_run_id,
+    )
+    append_repair_event(Path(repair_log_path), resolved_institution_id, event)
+    logger.info(
+        "SMA 2a manifest repair applied target_field=%s institution_id=%s",
+        target_field,
+        resolved_institution_id,
+    )
+
+
+__all__ = [
+    "SMAHITLResolverError",
+    "apply_2a_manifest_repair",
+    "check_sma_hitl_gate",
+    "resolve_sma_items",
+]

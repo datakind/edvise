@@ -23,6 +23,7 @@ Typical subfolders under the run root:
 - ``enriched_schema_contracts/`` — ``{institution_id}_schema_contract.json``
 - ``genai_pipeline_run.json`` — run metadata (see :func:`write_genai_pipeline_run_metadata`)
 - ``run_log.json`` (optional; :mod:`edvise.genai.mapping.shared.hitl.run_log`)
+- ``repair_log.json`` (optional; 2a manifest repairs; same module)
 
 Unity Catalog: :func:`merge_genai_pipeline_artifact_rows` registers file paths (not JSON bodies).
 A Streamlit app under ``genai/mapping/streamlit-genai-hitl-app/`` can browse these registry rows.
@@ -285,6 +286,7 @@ _ARTIFACT_KIND_BY_BASENAME: dict[str, str] = {
     "sma_hitl.json": "sma_hitl",
     "sma_manifest_output.json": "sma_manifest_output",
     "run_log.json": "run_log",
+    "repair_log.json": "repair_log",
     "genai_pipeline_run.json": "pipeline_run_metadata",
 }
 
