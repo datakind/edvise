@@ -17,6 +17,14 @@ import os
 import re
 import sys
 
+from edvise.ingestion.nsc_sftp.constants import (
+    configure_nsc_catalog,
+    parse_spark_python_task_params,
+    resolve_nsc_catalog,
+)
+
+configure_nsc_catalog(resolve_nsc_catalog(sys.argv))
+
 from databricks.connect import DatabricksSession
 from pyspark.sql import functions as F
 
@@ -36,21 +44,6 @@ from edvise.ingestion.nsc_sftp.helpers import (
     upsert_new_to_manifest,
 )
 from edvise.utils.sftp import connect_sftp, list_receive_files
-
-
-def _spark_python_task_args(argv: list[str]) -> dict[str, str]:
-    """Parse ``--key value`` pairs from ``spark_python_task.parameters``."""
-    out: dict[str, str] = {}
-    i = 0
-    args = argv[1:]
-    while i < len(args):
-        a = args[i]
-        if a.startswith("--") and i + 1 < len(args):
-            out[a[2:].replace("-", "_")] = args[i + 1]
-            i += 2
-        else:
-            i += 1
-    return out
 
 
 try:
@@ -74,7 +67,7 @@ host = dbutils.secrets.get(scope=asset_scope, key="nsc-sftp-host")
 user = dbutils.secrets.get(scope=asset_scope, key="nsc-sftp-user")
 password = dbutils.secrets.get(scope=asset_scope, key="nsc-sftp-password")
 
-_argv = _spark_python_task_args(sys.argv)
+_argv = parse_spark_python_task_params(sys.argv)
 cohort_file_name = utils.databricks.get_db_widget_param(
     "cohort_file_name", default=_argv.get("cohort_file_name", "")
 )

@@ -9,6 +9,11 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
+
+from edvise.ingestion.nsc_sftp.constants import configure_nsc_catalog, resolve_nsc_catalog
+
+configure_nsc_catalog(resolve_nsc_catalog(sys.argv))
 
 import pandas as pd
 from databricks.connect import DatabricksSession

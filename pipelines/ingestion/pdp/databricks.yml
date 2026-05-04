@@ -12,6 +12,8 @@ variables:
   git_tag:
     description: "Release tag to fetch for deployment (prod)"
     default: ""
+  DB_workspace:
+    description: "Unity Catalog name for NSC ingestion (tables and staging volume)"
   ds_run_as:
     description: "Service principal / app ID used as run_as for the job"
   service_account_executer:
@@ -26,6 +28,8 @@ targets:
   dev:
     mode: development
     default: true
+    variables:
+      DB_workspace: "dev_sst_02"
     resources:
       jobs:
         nsc_sftp_automated_ingestion:
@@ -36,6 +40,8 @@ targets:
 
   prod:
     mode: production
+    variables:
+      DB_workspace: "staging_sst_01"
     workspace:
       root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
     resources:

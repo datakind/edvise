@@ -10,7 +10,12 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 from datetime import datetime, timezone
+
+from edvise.ingestion.nsc_sftp.constants import configure_nsc_catalog, resolve_nsc_catalog
+
+configure_nsc_catalog(resolve_nsc_catalog(sys.argv))
 
 from databricks.connect import DatabricksSession
 from pyspark.sql import functions as F

@@ -1,47 +1,18 @@
 """
 Constants for NSC SFTP ingestion pipeline.
 
-These values are fixed and don't vary between runs or environments.
-For environment-specific values (like secret scope names), see gcp_config.yaml.
+Unity Catalog name must match the job's DB_workspace parameter (see
+configure_nsc_catalog / resolve_nsc_catalog). Other values here are fixed or
+scoped to default schema.
 """
 
-from typing import Any
-from unittest.mock import MagicMock
+from __future__ import annotations
 
-dbutils: Any
+import os
+import sys
 
-# Databricks catalog and schema
-try:
-    from databricks.sdk.runtime import dbutils as _dbutils
-except Exception:
-    # Local/offline context: allow imports/tests to run without Databricks.
-    dbutils = MagicMock()
-    CATALOG = "dev_sst_02"
-else:
-    dbutils = _dbutils
-    try:
-        workspace_id = str(
-            dbutils.notebook.entry_point.getDbutils()
-            .notebook()
-            .getContext()
-            .workspaceId()
-            .get()
-        )
-    except Exception:
-        # Databricks SDK is importable, but we're not running in a notebook/runtime
-        # context where workspace ID is available.
-        dbutils = MagicMock()
-        CATALOG = "dev_sst_02"
-    else:
-        if workspace_id == "4437281602191762":
-            CATALOG = "dev_sst_02"
-        elif workspace_id == "2052166062819251":
-            CATALOG = "staging_sst_01"
-        else:
-            raise RuntimeError(
-                f"Unsupported Databricks workspace_id={workspace_id!r} for NSC ingestion. "
-                "Add a mapping in src/edvise/ingestion/nsc_sftp/constants.py."
-            )
+# Unity Catalog name — set by configure_nsc_catalog (usually from job parameter DB_workspace).
+DEFAULT_CATALOG_FOR_LOCAL = "dev_sst_02"
 DEFAULT_SCHEMA = "default"
 
 # Table names (without catalog.schema prefix)
@@ -49,18 +20,80 @@ MANIFEST_TABLE = "ingestion_manifest"
 QUEUE_TABLE = "pending_ingest_queue"
 PLAN_TABLE = "institution_ingest_plan"
 
-# Full table paths
-MANIFEST_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{MANIFEST_TABLE}"
-QUEUE_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{QUEUE_TABLE}"
-PLAN_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{PLAN_TABLE}"
+SFTP_TMP_VOLUME_NAME = "tmp"
+
+CATALOG: str
+MANIFEST_TABLE_PATH: str
+QUEUE_TABLE_PATH: str
+PLAN_TABLE_PATH: str
+SFTP_TMP_VOLUME_FQN: str
+SFTP_TMP_DIR: str
+
+
+def configure_nsc_catalog(catalog: str) -> None:
+    """Set Unity Catalog name and derived table/volume paths (once per process)."""
+    global CATALOG, MANIFEST_TABLE_PATH, QUEUE_TABLE_PATH, PLAN_TABLE_PATH
+    global SFTP_TMP_VOLUME_FQN, SFTP_TMP_DIR
+    cat = str(catalog).strip()
+    if not cat:
+        raise ValueError(
+            "NSC ingestion catalog is empty. Pass job parameter DB_workspace "
+            "(Unity Catalog name), set widget DB_workspace, or NSC_DB_WORKSPACE."
+        )
+    CATALOG = cat
+    MANIFEST_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{MANIFEST_TABLE}"
+    QUEUE_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{QUEUE_TABLE}"
+    PLAN_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{PLAN_TABLE}"
+    SFTP_TMP_VOLUME_FQN = f"{CATALOG}.{DEFAULT_SCHEMA}.{SFTP_TMP_VOLUME_NAME}"
+    SFTP_TMP_DIR = (
+        f"/Volumes/{CATALOG}/{DEFAULT_SCHEMA}/{SFTP_TMP_VOLUME_NAME}"
+    )
+
+
+def parse_spark_python_task_params(argv: list[str] | None = None) -> dict[str, str]:
+    """Parse ``--key value`` pairs from ``spark_python_task.parameters``."""
+    if argv is None:
+        argv = sys.argv
+    out: dict[str, str] = {}
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a.startswith("--") and i + 1 < len(argv):
+            out[a[2:].replace("-", "_")] = argv[i + 1]
+            i += 2
+        else:
+            i += 1
+    return out
+
+
+def resolve_nsc_catalog(argv: list[str] | None = None) -> str:
+    """
+    Resolve Unity Catalog name in order: task argv ``--DB_workspace``, notebook widget
+    ``DB_workspace``, env ``NSC_DB_WORKSPACE``, else DEFAULT_CATALOG_FOR_LOCAL.
+    """
+    argv = sys.argv if argv is None else argv
+    pairs = parse_spark_python_task_params(argv)
+    raw = pairs.get("DB_workspace", "").strip()
+    if raw:
+        return raw
+    try:
+        from edvise.utils.databricks import get_db_widget_param
+
+        w = get_db_widget_param("DB_workspace", default="")
+        if str(w).strip():
+            return str(w).strip()
+    except Exception:
+        pass
+    env = os.environ.get("NSC_DB_WORKSPACE", "").strip()
+    if env:
+        return env
+    return DEFAULT_CATALOG_FOR_LOCAL
+
 
 # SFTP settings
 SFTP_REMOTE_FOLDER = "./receive"
 SFTP_SOURCE_SYSTEM = "NSC"
 SFTP_PORT = 22
-SFTP_TMP_VOLUME_NAME = "tmp"
-SFTP_TMP_VOLUME_FQN = f"{CATALOG}.{DEFAULT_SCHEMA}.{SFTP_TMP_VOLUME_NAME}"
-SFTP_TMP_DIR = f"/Volumes/{CATALOG}/{DEFAULT_SCHEMA}/{SFTP_TMP_VOLUME_NAME}"
 SFTP_DOWNLOAD_CHUNK_MB = 150
 SFTP_VERIFY_DOWNLOAD = "size"  # Options: "size", "sha256", "md5", "none"
 
@@ -89,3 +122,5 @@ COLUMN_RENAMES = {
     "completeddevmathy_1": "completed_dev_math_y_1",
     "completeddevenglishy_1": "completed_dev_english_y_1",
 }
+
+configure_nsc_catalog(DEFAULT_CATALOG_FOR_LOCAL)

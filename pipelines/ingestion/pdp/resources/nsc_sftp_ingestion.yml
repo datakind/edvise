@@ -1,5 +1,5 @@
 # NSC SFTP automated ingestion: Git-sourced spark_python_task chain (scripts 01→02→03).
-# Prerequisites: Unity Catalog tables/volumes per edvise.ingestion.nsc_sftp.constants,
+# Prerequisites: Job parameter DB_workspace (Unity Catalog), matching UC tables/volumes,
 # secret scope nsc-sftp-asset (SFTP + SST API key), and cluster egress for SFTP/APIs.
 
 resources:
@@ -11,6 +11,8 @@ resources:
         enabled: true
 
       parameters:
+        - name: DB_workspace
+          default: ${var.DB_workspace}
         - name: cohort_file_name
           default: ""
         - name: course_file_name
@@ -22,6 +24,8 @@ resources:
             python_file: src/edvise/ingestion/nsc_sftp/scripts/01_sftp_receive_scan.py
             source: GIT
             parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
               - --cohort_file_name
               - "{{job.parameters.cohort_file_name}}"
               - --course_file_name
@@ -49,6 +53,9 @@ resources:
           spark_python_task:
             python_file: src/edvise/ingestion/nsc_sftp/scripts/02_file_institution_expand.py
             source: GIT
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
           job_cluster_key: nsc-sftp-ingestion-cluster
           libraries:
             - pypi:
@@ -70,6 +77,9 @@ resources:
           spark_python_task:
             python_file: src/edvise/ingestion/nsc_sftp/scripts/03_per_institution_bronze_ingest.py
             source: GIT
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
           job_cluster_key: nsc-sftp-ingestion-cluster
           libraries:
             - pypi:
