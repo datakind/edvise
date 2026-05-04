@@ -71,8 +71,6 @@ resources:
               - "{{job.parameters.pipeline_version}}"
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
-              - --config_file_path
-              - ""
               - --config_file_name
               - "{{job.parameters.config_file_name}}"
               - --databricks_institution_name
@@ -97,8 +95,6 @@ resources:
               - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
               - --schema_type
               - "legacy"
-              - --features_table_path
-              - ""
           job_cluster_key: edvise-legacy-training-pipeline-cluster
           libraries:
             - pypi:
