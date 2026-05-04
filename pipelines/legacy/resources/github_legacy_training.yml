@@ -48,6 +48,10 @@ resources:
                 package: pyarrow~=16.0
             - pypi:
                 package: polars~=0.20
+            - pypi:
+                package: h2o==3.46.0.7
+            - pypi:
+                package: shap~=0.46.0
         - task_key: training_h2o
           depends_on:
             - task_key: legacy_preprocessing

@@ -71,6 +71,11 @@ resources:
                 package: pyarrow~=16.0
             - pypi:
                 package: polars~=0.20
+            # edvise.modeling pulls in h2o_ml (h2o) at import time; match inference_h2o task.
+            - pypi:
+                package: h2o==3.46.0.7
+            - pypi:
+                package: shap~=0.46.0
 
         - task_key: inference_h2o
           depends_on:
