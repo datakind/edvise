@@ -128,3 +128,56 @@ def approve_or_reject(
     WHERE {where_match}
     """
     execute_statement(q)
+    _verify_hitl_group_status_after_update(
+        table_fqn=t,
+        where_match=where_match,
+        expected_status=decision,
+        n_rows_expected=n_before,
+    )
+
+
+def _verify_hitl_group_status_after_update(
+    *,
+    table_fqn: str,
+    where_match: str,
+    expected_status: str,
+    n_rows_expected: int,
+) -> None:
+    """
+    Read-after-write check: ``UPDATE`` does not always surface write failures the same way as ``SELECT``.
+
+    Ensures every matching row now has ``status == expected_status`` so the workbench does not
+    assume approval cleared **pending** when UC did not stick.
+    """
+    exp = str(expected_status).strip().lower()
+    q_count = f"""
+    SELECT COUNT(*) AS c
+    FROM {table_fqn}
+    WHERE {where_match}
+      AND lower(trim(cast(status AS STRING))) = {sql_str(exp)}
+    """
+    c_df = run_query(q_count)
+    n_ok = int(c_df["c"].iloc[0]) if not c_df.empty else 0
+    if n_ok == n_rows_expected and n_rows_expected > 0:
+        return
+
+    q_dist = f"""
+    SELECT DISTINCT trim(cast(status AS STRING)) AS s
+    FROM {table_fqn}
+    WHERE {where_match}
+    """
+    dist_df = run_query(q_dist)
+    if dist_df.empty or dist_df["s"].isna().all():
+        got = "(no rows)"
+    else:
+        got = sorted(
+            {str(x).strip() for x in dist_df["s"].dropna().astype(str).tolist()}
+        )
+    raise RuntimeError(
+        "Unity Catalog ``hitl_reviews`` update did not verify after write: "
+        f"expected **{n_rows_expected}** row(s) with status **{expected_status}**, "
+        f"found **{n_ok}** matching; distinct status values for this group: **{got}**. "
+        "Re-run **Refresh data**, confirm the sidebar **Unity Catalog** matches the table, "
+        "and check warehouse permissions. If silver JSON was already saved, you can retry "
+        "**Save JSON & approve UC** (approve is idempotent for an already-approved row)."
+    )
