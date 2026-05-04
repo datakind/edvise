@@ -4,7 +4,7 @@ resources:
       name: edvise_github_sourced_legacy_training_pipeline
       max_concurrent_runs: 5
       tasks:
-        # School preprocessing must be importable via a Unity Catalog wheel (or equivalent) on the cluster libraries.
+        # SSI workspace preprocessing.py (root hardcoded in legacy_preprocessing.py).
         - task_key: legacy_preprocessing
           spark_python_task:
             python_file: src/edvise/scripts/legacy_preprocessing.py
@@ -14,8 +14,10 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
               - --run_type
               - "train"
-              - --preprocessing_module
-              - "{{job.parameters.preprocessing_module}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --legacy_preprocessing_model_subdir
+              - "{{job.parameters.legacy_preprocessing_model_subdir}}"
               - --legacy_preprocessing_enabled
               - "{{job.parameters.legacy_preprocessing_enabled}}"
           job_cluster_key: edvise-legacy-training-pipeline-cluster
@@ -152,8 +154,8 @@ resources:
           default: ${var.service_account_executer}
         - name: features_table_name
           default: ${var.features_table_name}
-        - name: preprocessing_module
-          default: ${var.preprocessing_module}
+        - name: legacy_preprocessing_model_subdir
+          default: ${var.legacy_preprocessing_model_subdir}
         - name: legacy_preprocessing_enabled
           default: ${var.legacy_preprocessing_enabled}
       permissions:
