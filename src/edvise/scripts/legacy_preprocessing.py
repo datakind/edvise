@@ -32,12 +32,31 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
-import inspect
 import logging
 import os
 import sys
 import tempfile
 from pathlib import Path
+
+
+def _ensure_edvise_src_on_sys_path() -> None:
+    """Databricks GIT tasks do not install ``edvise``; add ``<repo>/src`` like ``training_h2o``."""
+    candidates: list[Path] = []
+    try:
+        script = Path(__file__).resolve()
+        candidates.append(script.parents[2])
+    except NameError:
+        pass
+    cwd_src = (Path(os.getcwd()) / "src").resolve()
+    if cwd_src.is_dir():
+        candidates.append(cwd_src)
+    for root in candidates:
+        if (root / "edvise").is_dir() and str(root) not in sys.path:
+            sys.path.insert(0, str(root))
+            return
+
+
+_ensure_edvise_src_on_sys_path()
 
 import tomlkit
 
@@ -164,14 +183,8 @@ def resolve_ssi_training_workspace_toml_paths(
 
 
 def _ensure_edvise_src_on_path() -> None:
-    try:
-        script_path = Path(__file__).resolve()
-    except NameError:
-        script_path = Path(inspect.getfile(_ensure_edvise_src_on_path)).resolve()
-    src_dir = script_path.parents[2]
-    s = str(src_dir)
-    if s not in sys.path:
-        sys.path.insert(0, s)
+    """Ensure ``edvise`` is importable before loading workspace ``preprocessing.py``."""
+    _ensure_edvise_src_on_sys_path()
 
 
 def load_module_from_file(py_file: Path, institution_pipeline_dir: Path):
