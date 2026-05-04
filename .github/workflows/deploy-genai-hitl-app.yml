@@ -1,5 +1,5 @@
 # Databricks App: GenAI HITL reviewer (Streamlit, UC hitl_reviews).
-# OAuth: DATABRICKS_GENAI_MAPPING_DEV_CLIENT_*. Host: DATABRICKS_DEV_HOST (same as PDP dev).
+# Databricks auth: same as PDP dev (DATABRICKS_DEV_HOST + DATABRICKS_DEV_CLIENT_ID / DATABRICKS_DEV_CLIENT_SECRET).
 # SQL warehouse: DATABRICKS_DEV_SQL_WAREHOUSE_ID.
 #
 # Run: Actions → "Deploy GenAI HITL app (dev)" → Run workflow (choose branch, e.g. your PR branch).
@@ -62,15 +62,11 @@ jobs:
         working-directory: src/edvise/genai/mapping/streamlit-genai-hitl-app
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
-          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID }}
-          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_CLIENT_SECRET }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
           SQL_WAREHOUSE_ID: ${{ secrets.DATABRICKS_DEV_SQL_WAREHOUSE_ID }}
           GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
         run: |
-          if [[ "${DATABRICKS_HOST}" == *"gserviceaccount.com"* ]]; then
-            echo "::error::DATABRICKS_DEV_HOST must be the Databricks workspace URL, not a GCP service account domain."
-            exit 1
-          fi
           databricks current-user me
           databricks bundle deploy \
             --target=dev \
