@@ -844,7 +844,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--pipeline_version", type=str, required=False)
     parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
-    parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument(
+        "--config_file_path",
+        type=str,
+        default="",
+        help="PDP: path to config TOML (typically bronze). Legacy: leave empty; resolved from SSI workspace.",
+    )
     parser.add_argument("--db_run_id", type=str, required=False)
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--gold_table_path", type=str, required=True)
@@ -853,9 +858,89 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--schema_type", type=str, choices=["pdp", "legacy"], required=True
     )
-    parser.add_argument("--features_table_path", type=str, required=False)
+    parser.add_argument(
+        "--features_table_path",
+        type=str,
+        default="",
+        help="Legacy: leave empty; resolved from SSI workspace next to preprocessing.py.",
+    )
+    parser.add_argument(
+        "--databricks_institution_name",
+        type=str,
+        default="",
+        help="Legacy only: institution folder under SSI pipelines/ for workspace TOML resolution.",
+    )
+    parser.add_argument(
+        "--ssi_workspace_model_name",
+        type=str,
+        default="",
+        help="Legacy only: SSI folder under pipelines/<inst>/ with preprocessing.py.",
+    )
+    parser.add_argument(
+        "--features_table_name",
+        type=str,
+        default="features_table.toml",
+        help="Legacy only: basename in default features path <model_name>/<features_table_name>.",
+    )
+    parser.add_argument(
+        "--ssi_config_toml_relative_to_institution",
+        type=str,
+        default="",
+        help="Legacy only: config TOML under pipelines/<inst>/; empty = <model_name>/<config_file_name>.",
+    )
+    parser.add_argument(
+        "--ssi_features_toml_relative_to_institution",
+        type=str,
+        default="",
+        help="Legacy only: features TOML under pipelines/<inst>/; empty = <model_name>/<features_table_name>.",
+    )
+    parser.add_argument(
+        "--ssi_pipelines_workspace_root",
+        type=str,
+        default="",
+        help="Legacy only: optional override for .../student-success-intervention/pipelines path.",
+    )
 
     return parser.parse_args()
+
+
+def _apply_legacy_training_workspace_toml_paths(args: argparse.Namespace) -> None:
+    """For schema_type=legacy, load config and features TOMLs from SSI workspace (not bronze)."""
+    if args.schema_type != "legacy":
+        return
+    from edvise.scripts.legacy_preprocessing import (
+        resolve_ssi_training_workspace_toml_paths,
+    )
+
+    inst = (args.databricks_institution_name or "").strip()
+    if not inst:
+        raise SystemExit(
+            "--databricks_institution_name is required when --schema_type=legacy"
+        )
+    mn = (args.ssi_workspace_model_name or "").strip()
+    if not mn:
+        raise SystemExit(
+            "--ssi_workspace_model_name is required when --schema_type=legacy"
+        )
+    ws = (args.ssi_pipelines_workspace_root or "").strip() or None
+    cfg_rel = (args.ssi_config_toml_relative_to_institution or "").strip() or None
+    feat_rel = (args.ssi_features_toml_relative_to_institution or "").strip() or None
+    cfg_path, feat_path = resolve_ssi_training_workspace_toml_paths(
+        inst,
+        mn,
+        args.config_file_name,
+        args.features_table_name,
+        workspace_root=ws,
+        ssi_config_toml_relative_to_institution=cfg_rel,
+        ssi_features_toml_relative_to_institution=feat_rel,
+    )
+    args.config_file_path = cfg_path
+    args.features_table_path = feat_path
+    logging.info(
+        "Legacy training: config from SSI workspace %s, features %s",
+        cfg_path,
+        feat_path,
+    )
 
 
 if __name__ == "__main__":
@@ -863,6 +948,10 @@ if __name__ == "__main__":
     if not getattr(args, "job_type", None):
         args.job_type = "training"
         logging.info("No --job_type passed; defaulting to job_type='training'.")
+    if args.schema_type == "legacy":
+        _apply_legacy_training_workspace_toml_paths(args)
+    elif not (args.config_file_path or "").strip():
+        raise SystemExit("--config_file_path is required when --schema_type=pdp")
     # try:
     #     if args.legacy_schemas_path:
     #         sys.path.append(args.legacy_schemas_path)

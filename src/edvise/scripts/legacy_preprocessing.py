@@ -1,25 +1,31 @@
 """
 Run school-specific legacy preprocessing before ``training_h2o`` or ``inference_h2o``.
 
-Loads ``preprocessing.py`` from the Databricks workspace under the SSI service principal’s
-fixed ``student-success-intervention/pipelines`` tree (see ``SSI_PIPELINES_WORKSPACE_ROOT``).
+**SSI workspace layout (fixed)**
 
-**Training:** ``--config_file_path`` is typically the institution config on the bronze volume
-(training inputs). **Inference:** run after ``legacy_inference_inputs`` so
-``--config_file_path`` is the same config snapshot used for training (resolved from the
-model run under the silver volume). In both cases, ``--run_type`` is forwarded to the
-school ``run()`` (``train`` vs ``predict``).
+Workspace root defaults to ``…/student-success-intervention/pipelines`` (override with
+``--ssi_pipelines_workspace_root``).
 
-Resolution under ``<root>/<databricks_institution_name>/``:
+- **Preprocessing** is always at
+  ``<workspace_root>/<databricks_institution_name>/<ssi_workspace_model_name>/preprocessing.py``.
 
-- If ``--legacy_preprocessing_model_subdir`` is set: ``<subdir>/preprocessing.py``.
-- Else: ``preprocessing.py`` at the institution root, or exactly one ``*/preprocessing.py``.
+- **Training** — config and features TOMLs live under the institution folder
+  ``<workspace_root>/<databricks_institution_name>/``. Relative paths (no ``..``):
 
-Institution **data** paths in ``config.toml`` still use UC volume URIs
-(e.g. ``/Volumes/<catalog>/..._bronze/bronze_volume/...``).
+  - If ``--ssi_config_toml_relative_to_institution`` is empty, default is
+    ``<ssi_workspace_model_name>/<config_file_name>`` (e.g. ``john_jay_col_graduation_6years_time_cuny_transfer/config.toml``).
 
-Disable preprocessing with job parameter ``legacy_preprocessing_enabled`` set to ``false``
-when modeling tables are produced elsewhere.
+  - If ``--ssi_features_toml_relative_to_institution`` is empty, default is
+    ``<ssi_workspace_model_name>/<features_table_name>`` (e.g. ``john_jay_col_graduation_6years_time_cuny_transfer/features_table.toml``).
+
+  Set the two ``ssi_*_relative_to_institution`` parameters to point elsewhere under the
+  institution directory (e.g. ``shared/features_table.toml``).
+
+``--config_file_path`` is required for ``run_type=predict`` (from ``legacy_inference_inputs``);
+``run_type=train`` ignores it and uses the workspace paths above.
+
+``databricks_institution_name`` must still match the first folder under ``pipelines/`` for
+Unity Catalog naming; it is the same segment used in the SSI repo layout.
 """
 
 from __future__ import annotations
@@ -31,17 +37,17 @@ import logging
 import sys
 from pathlib import Path
 
-logging.basicConfig(level=logging.INFO, force=True)
-LOGGER = logging.getLogger(__name__)
-
-# SSI repo ``pipelines/`` directory for the pipeline job SP (institution = next path segment).
-SSI_PIPELINES_WORKSPACE_ROOT = (
+DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT = (
     "/Workspace/Users/6c8d8d76-1399-4065-aeb5-9474d32773cf/"
     "student-success-intervention/pipelines"
 )
+SSI_PIPELINES_WORKSPACE_ROOT = DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
+
+logging.basicConfig(level=logging.INFO, force=True)
+LOGGER = logging.getLogger(__name__)
 
 
-def _normalize_fs_path(raw: str) -> Path:
+def normalize_fs_path(raw: str) -> Path:
     p = raw.strip()
     if p.startswith("dbfs:/Workspace"):
         p = "/Workspace" + p[len("dbfs:/Workspace") :]
@@ -50,59 +56,107 @@ def _normalize_fs_path(raw: str) -> Path:
     return Path(p)
 
 
-def resolve_workspace_preprocessing_py(
+def _normalize_relative_under_institution(rel: str) -> str:
+    rel_norm = rel.strip().replace("\\", "/").lstrip("/")
+    if not rel_norm:
+        raise ValueError("Relative path under institution must not be empty.")
+    if any(p == ".." for p in rel_norm.split("/")):
+        raise ValueError(f"Relative path must not contain '..': {rel!r}")
+    return rel_norm
+
+
+def resolve_ssi_preprocessing_py(
     institution_id: str,
-    model_subdir: str | None,
+    ssi_workspace_model_name: str,
     *,
-    workspace_root: str = SSI_PIPELINES_WORKSPACE_ROOT,
+    workspace_root: str | None = None,
 ) -> tuple[Path, Path]:
     """
-    Returns ``(preprocessing_py, institution_pipeline_dir)`` where
-    ``institution_pipeline_dir`` is ``.../pipelines/<institution_id>/``.
+    ``preprocessing.py`` at ``pipelines/<inst>/<model_name>/preprocessing.py``.
 
-    ``workspace_root`` defaults to ``SSI_PIPELINES_WORKSPACE_ROOT``; override for tests only.
+    Returns ``(preprocessing_py, institution_base)`` where ``institution_base`` is
+    ``pipelines/<inst>/``.
     """
-    root = _normalize_fs_path(workspace_root)
+    root = (workspace_root or "").strip() or DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
+    root_r = normalize_fs_path(root).resolve()
     inst = institution_id.strip()
+    mn = (ssi_workspace_model_name or "").strip()
     if not inst:
-        raise ValueError("institution_id / databricks_institution_name must be non-empty.")
-    base = root / inst
-
-    sub = (model_subdir or "").strip()
-    if sub:
-        candidate = base / sub / "preprocessing.py"
-        if not candidate.is_file():
-            raise FileNotFoundError(
-                f"Expected preprocessing at {candidate} (legacy_preprocessing_model_subdir={sub!r})."
-            )
-        return candidate, base
-
-    direct = base / "preprocessing.py"
-    if direct.is_file():
-        return direct, base
-
-    nested = sorted(p for p in base.glob("*/preprocessing.py") if p.is_file())
-    if len(nested) == 1:
-        return nested[0], base
-    if len(nested) > 1:
-        raise FileNotFoundError(
-            "Multiple preprocessing.py files under "
-            f"{base}: {nested}. Set --legacy_preprocessing_model_subdir to disambiguate."
+        raise ValueError("databricks_institution_name must be non-empty.")
+    if not mn:
+        raise ValueError(
+            "ssi_workspace_model_name must be non-empty (folder under pipelines/<inst>/ "
+            "that contains preprocessing.py)."
         )
-    raise FileNotFoundError(
-        f"No preprocessing.py under {base} (tried {direct} and one subfolder)."
+    institution_base = (root_r / inst).resolve()
+    try:
+        institution_base.relative_to(root_r)
+    except ValueError as e:
+        raise ValueError(
+            f"Institution path {institution_base} is not under pipelines root {root_r}"
+        ) from e
+
+    py = (institution_base / mn / "preprocessing.py").resolve()
+    try:
+        py.relative_to(institution_base)
+    except ValueError as e:
+        raise ValueError(
+            f"preprocessing.py path {py} escapes institution directory {institution_base}"
+        ) from e
+    if not py.is_file():
+        raise FileNotFoundError(
+            f"Expected preprocessing.py at {py} "
+            f"(institution={inst!r}, ssi_workspace_model_name={mn!r})."
+        )
+    return py, institution_base
+
+
+def resolve_ssi_training_workspace_toml_paths(
+    institution_id: str,
+    ssi_workspace_model_name: str,
+    config_file_name: str,
+    features_table_name: str,
+    *,
+    workspace_root: str | None = None,
+    ssi_config_toml_relative_to_institution: str | None = None,
+    ssi_features_toml_relative_to_institution: str | None = None,
+) -> tuple[str, str]:
+    """
+    Absolute paths to training config and features TOMLs under ``pipelines/<inst>/``.
+    """
+    _, institution_base = resolve_ssi_preprocessing_py(
+        institution_id,
+        ssi_workspace_model_name,
+        workspace_root=workspace_root,
     )
+    mn = (ssi_workspace_model_name or "").strip()
+    cfg_rel = (ssi_config_toml_relative_to_institution or "").strip() or (
+        f"{mn}/{config_file_name.strip()}"
+    )
+    feat_rel = (ssi_features_toml_relative_to_institution or "").strip() or (
+        f"{mn}/{features_table_name.strip()}"
+    )
+    cfg_norm = _normalize_relative_under_institution(cfg_rel)
+    feat_norm = _normalize_relative_under_institution(feat_rel)
+
+    inst_r = institution_base.resolve()
+    cfg_p = (inst_r / cfg_norm).resolve()
+    feat_p = (inst_r / feat_norm).resolve()
+    for label, p in (("config", cfg_p), ("features", feat_p)):
+        try:
+            p.relative_to(inst_r)
+        except ValueError as e:
+            raise ValueError(
+                f"{label} path {p} is not under institution directory {inst_r}"
+            ) from e
+    if not cfg_p.is_file():
+        raise FileNotFoundError(f"Training config TOML not found: {cfg_p}")
+    if not feat_p.is_file():
+        raise FileNotFoundError(f"Features table TOML not found: {feat_p}")
+    return str(cfg_p), str(feat_p)
 
 
 def _ensure_edvise_src_on_path() -> None:
-    """
-    Workspace ``preprocessing.py`` files often ``import edvise`` like the Git entry scripts.
-    Those scripts prepend repo ``src/`` to ``sys.path``; dynamic loads do not inherit that
-    unless we add it here (``cwd`` may not be the Git checkout root on Databricks).
-
-    Databricks sometimes runs ``legacy_preprocessing`` via ``exec(compile(...))``, which
-    leaves ``__file__`` undefined; fall back to ``inspect.getfile`` for this module path.
-    """
     try:
         script_path = Path(__file__).resolve()
     except NameError:
@@ -114,15 +168,8 @@ def _ensure_edvise_src_on_path() -> None:
 
 
 def load_module_from_file(py_file: Path, institution_pipeline_dir: Path):
-    """
-    Load ``preprocessing.py``; same-folder imports work. If the file lives in a model
-    subfolder, also put the institution directory on ``sys.path`` and set
-    ``__package__`` so ``from .helpers import ...`` resolves.
-    """
     _ensure_edvise_src_on_path()
-    # SSI clone root (parent of ``.../student-success-intervention/pipelines``) for
-    # ``import pipelines.<inst>.<model>.helpers`` — same as each file’s ``parents[3]`` trick.
-    ssi_root = str(_normalize_fs_path(SSI_PIPELINES_WORKSPACE_ROOT).parent)
+    ssi_root = str(normalize_fs_path(SSI_PIPELINES_WORKSPACE_ROOT).parent)
     if ssi_root not in sys.path:
         sys.path.insert(0, ssi_root)
     inst_s = str(institution_pipeline_dir.resolve())
@@ -150,8 +197,39 @@ def main() -> None:
     )
     parser.add_argument(
         "--config_file_path",
-        required=True,
-        help="Path to institution config.toml (same as training_h2o).",
+        default="",
+        help="Required for run_type=predict. Ignored for train.",
+    )
+    parser.add_argument(
+        "--config_file_name",
+        default="config.toml",
+        help="Basename used in default config path <model_name>/<config_file_name> (train).",
+    )
+    parser.add_argument(
+        "--features_table_name",
+        default="features_table.toml",
+        help="Basename used in default features path <model_name>/<features_table_name> (train).",
+    )
+    parser.add_argument(
+        "--ssi_config_toml_relative_to_institution",
+        default="",
+        help=(
+            "Train: path under pipelines/<inst>/ to config TOML. "
+            "Empty → <ssi_workspace_model_name>/<config_file_name>."
+        ),
+    )
+    parser.add_argument(
+        "--ssi_features_toml_relative_to_institution",
+        default="",
+        help=(
+            "Train: path under pipelines/<inst>/ to features TOML. "
+            "Empty → <ssi_workspace_model_name>/<features_table_name>."
+        ),
+    )
+    parser.add_argument(
+        "--ssi_pipelines_workspace_root",
+        default="",
+        help="Override …/student-success-intervention/pipelines.",
     )
     parser.add_argument(
         "--run_type",
@@ -162,20 +240,17 @@ def main() -> None:
     parser.add_argument(
         "--databricks_institution_name",
         default="",
-        help="Institution folder under pipelines/ (e.g. john_jay_col). Required when preprocessing runs.",
+        help="Institution folder under pipelines/ (matches SSI repo).",
     )
     parser.add_argument(
-        "--legacy_preprocessing_model_subdir",
+        "--ssi_workspace_model_name",
         default="",
-        help=(
-            "Optional subfolder under pipelines/<inst>/ containing preprocessing.py "
-            "(e.g. transfer_model). Empty = preprocessing.py at institution root or exactly one */preprocessing.py."
-        ),
+        help="Subfolder under pipelines/<inst>/ containing preprocessing.py (e.g. john_jay_col_graduation_6years_time_cuny_transfer).",
     )
     parser.add_argument(
         "--legacy_preprocessing_enabled",
         default="true",
-        help='If "false", exit without running (for schools with pre-built tables).',
+        help='If "false", exit without running.',
     )
     args = parser.parse_args()
 
@@ -189,17 +264,52 @@ def main() -> None:
 
     inst = (args.databricks_institution_name or "").strip()
     if not inst:
+        raise SystemExit("--databricks_institution_name is required when preprocessing runs.")
+    model_name = (args.ssi_workspace_model_name or "").strip()
+    if not model_name:
         raise SystemExit(
-            "--databricks_institution_name is required when legacy_preprocessing runs."
+            "--ssi_workspace_model_name is required when preprocessing runs "
+            "(folder under pipelines/<inst>/ with preprocessing.py)."
         )
-    sub = (args.legacy_preprocessing_model_subdir or "").strip() or None
+
+    ws = (args.ssi_pipelines_workspace_root or "").strip() or None
+    root = ws or DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
+
+    if args.run_type == "train":
+        cfg_rel = (args.ssi_config_toml_relative_to_institution or "").strip() or None
+        feat_rel = (args.ssi_features_toml_relative_to_institution or "").strip() or None
+        effective_config, effective_features = resolve_ssi_training_workspace_toml_paths(
+            inst,
+            model_name,
+            args.config_file_name,
+            args.features_table_name,
+            workspace_root=ws,
+            ssi_config_toml_relative_to_institution=cfg_rel,
+            ssi_features_toml_relative_to_institution=feat_rel,
+        )
+        LOGGER.info(
+            "Training: SSI config %s, features %s",
+            effective_config,
+            effective_features,
+        )
+    else:
+        p = (args.config_file_path or "").strip()
+        if not p:
+            raise SystemExit("--config_file_path is required when run_type=predict.")
+        effective_config = p
+
     LOGGER.info(
-        "Resolving preprocessing under workspace root %s for institution %r",
-        SSI_PIPELINES_WORKSPACE_ROOT,
+        "Loading preprocessing from pipelines/%s/%s/preprocessing.py (root=%s)",
         inst,
+        model_name,
+        (args.ssi_pipelines_workspace_root or "").strip() or SSI_PIPELINES_WORKSPACE_ROOT,
     )
-    py_file, inst_dir = resolve_workspace_preprocessing_py(inst, sub)
-    LOGGER.info("Loading preprocessing from workspace file: %s", py_file)
+    py_file, inst_dir = resolve_ssi_preprocessing_py(
+        inst,
+        model_name,
+        workspace_root=root,
+    )
+    LOGGER.info("Workspace preprocessing file: %s", py_file)
     mod = load_module_from_file(py_file, inst_dir)
     label = str(py_file)
 
@@ -209,10 +319,10 @@ def main() -> None:
     LOGGER.info(
         "Running %s.run(config_file_path=%r, run_type=%r)",
         label,
-        args.config_file_path,
+        effective_config,
         args.run_type,
     )
-    run(config_file_path=args.config_file_path, run_type=args.run_type)
+    run(config_file_path=effective_config, run_type=args.run_type)
 
 
 if __name__ == "__main__":
