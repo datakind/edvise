@@ -172,6 +172,7 @@ Respond with **one JSON object only** — no markdown fences, no preamble. The o
 }
 
 Rules:
+- **Exactly two functions** in ``functions`` — one year role, one season role. Each ``name`` (and matching ``def``) must contain the substring ``year`` or ``season`` respectively (case-insensitive); the loader rejects a single combined function or a year extractor whose name omits ``year`` (e.g. only ``season_extractor_…``).
 - **draft** for each function must be the **full** ``def`` block (signature + body), syntactically valid Python, not a bare expression.
 - **Annotations vs in-function imports:** Same as grain hooks: if imports (e.g. ``pandas``) are only inside the function body, use **quoted** annotations for ``pd.`` / ``np.`` types on the ``def`` line, or built-in-only annotations — never unquoted ``pd.DataFrame`` on the signature with ``import pandas`` below it.
 - **name** must match the ``def`` name in **draft**.

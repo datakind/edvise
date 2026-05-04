@@ -393,6 +393,65 @@ def add_edvise_term_labels(
     return out
 
 
+def _function_names_for_year_season_resolution(
+    functions: list[Any],
+) -> tuple[list[str], list[str]]:
+    """
+    Classify ``HookSpec.functions``-shaped rows into year-role and season-role names.
+
+    Prefer canonical prefixes ``year_extractor`` / ``season_extractor`` (case-insensitive) so a
+    year function whose slug contains ``..._date_season_...`` is not misclassified: those names
+    match both substring rules ``year`` and ``season``, which would otherwise exclude them from
+    both roles.
+
+    Fallback: exactly one name containing ``year`` but not listed as a season substring candidate,
+    and vice versa (legacy hooks without the extractor prefixes).
+    """
+    names: list[str] = []
+    for f in functions:
+        if isinstance(f, dict):
+            n = f.get("name")
+        else:
+            n = getattr(f, "name", None)
+        if isinstance(n, str) and n.strip():
+            names.append(n)
+
+    y_pref = [n for n in names if n.lower().startswith("year_extractor")]
+    s_pref = [n for n in names if n.lower().startswith("season_extractor")]
+    if len(y_pref) == 1 and len(s_pref) == 1:
+        return y_pref, s_pref
+
+    year_like = [n for n in names if "year" in n.lower()]
+    season_like = [n for n in names if "season" in n.lower()]
+    year_names = [n for n in year_like if n not in season_like]
+    season_names = [n for n in season_like if n not in year_like]
+    return year_names, season_names
+
+
+def resolve_year_season_hook_function_names(
+    hook_spec: HookSpec | dict[str, Any],
+) -> tuple[str, str]:
+    """
+    Return ``(year_extractor_function_name, season_extractor_function_name)`` from ``hook_spec``.
+
+    Used by :func:`load_term_extractors_from_hook_spec` and by hook-generation validation so
+    malformed specs fail before materialize/apply.
+    """
+    hs = (
+        hook_spec.model_dump(mode="json")
+        if isinstance(hook_spec, HookSpec)
+        else dict(hook_spec)
+    )
+    year_names, season_names = _function_names_for_year_season_resolution(hs.get("functions") or [])
+    if len(year_names) != 1 or len(season_names) != 1:
+        raise ValueError(
+            "hook_spec.functions must name exactly one function with 'year' and one with 'season' "
+            f"in the identifier (disambiguated when both appear); got year-like {year_names!r}, "
+            f"season-like {season_names!r}"
+        )
+    return year_names[0], season_names[0]
+
+
 def load_term_extractors_from_hook_spec(
     hook_spec: HookSpec | dict[str, Any],
     *,
@@ -401,10 +460,10 @@ def load_term_extractors_from_hook_spec(
     """
     Import the materialized hook module and return ``(year_extractor, season_extractor)`` callables.
 
-    Chooses functions by name: exactly one ``functions[]`` entry whose ``name`` contains ``year``
-    (case-insensitive) and exactly one whose ``name`` contains ``season``. Typical names are
-    ``year_extractor_<table>`` and ``season_extractor_<table>``, or one shared pair after HITL
-    ``apply_hook_spec`` has written the same ``hook_spec`` to every dataset in the hook group.
+    Chooses functions by name: prefers ``year_extractor*`` / ``season_extractor*`` prefixes; else
+    exactly one ``name`` containing ``year`` and one containing ``season`` (case-insensitive),
+    excluding names that appear in both substring lists. Typical names are
+    ``year_extractor_<slug>`` and ``season_extractor_<slug>`` (slugs may contain ``date_season``).
     """
     from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
         resolve_hook_module_path,
@@ -425,24 +484,11 @@ def load_term_extractors_from_hook_spec(
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
 
-    funcs = hs.get("functions") or []
-    year_like = [f["name"] for f in funcs if "year" in f["name"].lower()]
-    season_like = [f["name"] for f in funcs if "season" in f["name"].lower()]
-    # Names containing both substrings are ambiguous (e.g. year_season_hook).
-    year_names = [n for n in year_like if n not in season_like]
-    season_names = [n for n in season_like if n not in year_like]
-    if len(year_names) != 1 or len(season_names) != 1:
-        raise ValueError(
-            "hook_spec.functions must name exactly one function with 'year' and one with 'season' "
-            f"in the identifier (disambiguated when both appear); got year-like {year_names!r}, "
-            f"season-like {season_names!r}"
-        )
-    y = getattr(mod, year_names[0], None)
-    s = getattr(mod, season_names[0], None)
+    yn, sn = resolve_year_season_hook_function_names(hook_spec)
+    y = getattr(mod, yn, None)
+    s = getattr(mod, sn, None)
     if not callable(y) or not callable(s):
-        raise ValueError(
-            f"Module {path} missing callables {year_names[0]!r} / {season_names[0]!r}"
-        )
+        raise ValueError(f"Module {path} missing callables {yn!r} / {sn!r}")
     return y, s
 
 

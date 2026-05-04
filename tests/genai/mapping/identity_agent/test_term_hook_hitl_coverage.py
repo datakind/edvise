@@ -12,6 +12,9 @@ from edvise.genai.mapping.identity_agent.hitl.resolver import (
     HITLValidationError,
     validate_term_hook_hitl_covers_hook_required,
 )
+from edvise.genai.mapping.identity_agent.term_normalization.term_order import (
+    resolve_year_season_hook_function_names,
+)
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
     HITLDomain,
     HITLItem,
@@ -235,6 +238,28 @@ def test_validate_term_hook_hitl_passes_when_one_generate_hook_covers_group_tabl
         term_hitl_path=p,
         term_contract_by_dataset={"student": tc_student, "course": tc_course},
     )
+
+
+def test_resolve_year_season_names_prefers_prefix_when_slug_contains_date_season() -> None:
+    """Slug ``..._date_season_...`` puts ``season`` inside the year symbol; prefix must win."""
+    yn, sn = resolve_year_season_hook_function_names(
+        {
+            "functions": [
+                {
+                    "name": "year_extractor_nsc_transfers_date_season_policy",
+                    "description": "y",
+                    "draft": "def year_extractor_nsc_transfers_date_season_policy(term: str) -> int:\n    return 1\n",
+                },
+                {
+                    "name": "season_extractor_nsc_transfers_date_season_policy",
+                    "description": "s",
+                    "draft": "def season_extractor_nsc_transfers_date_season_policy(term: str) -> str:\n    return 'january'\n",
+                },
+            ]
+        }
+    )
+    assert yn == "year_extractor_nsc_transfers_date_season_policy"
+    assert sn == "season_extractor_nsc_transfers_date_season_policy"
 
 
 def test_validate_term_hook_hitl_raises_when_no_generate_hook_items(tmp_path) -> None:

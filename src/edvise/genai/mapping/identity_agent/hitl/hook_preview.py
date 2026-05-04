@@ -10,6 +10,9 @@ from typing import Any
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
 from edvise.genai.mapping.identity_agent.hitl.schemas import GrainAmbiguityHITLContext, HITLItem
+from edvise.genai.mapping.identity_agent.term_normalization.term_order import (
+    resolve_year_season_hook_function_names,
+)
 
 
 def _hitl_context_json(ctx: Any) -> Any:
@@ -46,20 +49,10 @@ def hook_slug_from_item_id(item_id: str, *, institution_id: str | None = None) -
 
 def _year_season_function_old_names(functions: list[dict[str, Any]]) -> tuple[str, str] | None:
     """Match :func:`~edvise.genai.mapping.identity_agent.term_normalization.term_order.load_term_extractors_from_hook_spec` naming rules."""
-    names: list[str] = []
-    for fn in functions:
-        if not isinstance(fn, dict):
-            continue
-        n = fn.get("name")
-        if isinstance(n, str) and n:
-            names.append(n)
-    year_like = [n for n in names if "year" in n.lower()]
-    season_like = [n for n in names if "season" in n.lower()]
-    year_names = [n for n in year_like if n not in season_like]
-    season_names = [n for n in season_like if n not in year_like]
-    if len(year_names) != 1 or len(season_names) != 1:
+    try:
+        return resolve_year_season_hook_function_names({"functions": functions})
+    except ValueError:
         return None
-    return year_names[0], season_names[0]
 
 
 def _rewrite_def_line(draft: str, old_name: str, new_name: str) -> str:
