@@ -181,11 +181,60 @@ def test_validate_term_hook_hitl_raises_when_hook_tables_exceed_hitl_items(
             ).model_dump(mode="json")
         )
     )
-    with pytest.raises(HITLValidationError, match="only 1"):
+    with pytest.raises(HITLValidationError, match="course"):
         validate_term_hook_hitl_covers_hook_required(
             term_hitl_path=p,
             term_contract_by_dataset={"student": tc_student, "course": tc_course},
         )
+
+
+def test_validate_term_hook_hitl_passes_when_one_generate_hook_covers_group_tables(
+    tmp_path,
+) -> None:
+    """Two hook_required datasets sharing one GENERATE_HOOK item via hook_group_tables."""
+    tc_student = TermContract(
+        institution_id="u",
+        table="student",
+        term_config=TermOrderConfig(
+            term_col="TERM_DESC",
+            season_map=[],
+            term_extraction="hook_required",
+            hook_spec=_hs(),
+        ),
+        confidence=0.75,
+        hitl_flag=True,
+        reasoning="r",
+    )
+    tc_course = TermContract(
+        institution_id="u",
+        table="course",
+        term_config=TermOrderConfig(
+            term_col="DEG",
+            season_map=[],
+            term_extraction="hook_required",
+            hook_spec=_hs(),
+        ),
+        confidence=0.75,
+        hitl_flag=True,
+        reasoning="r",
+    )
+    shared = _term_item_generate_hook("shared_term_hook")
+    shared.hook_group_id = "shared_nsc_encoding"
+    shared.hook_group_tables = ["student", "course"]
+    p = tmp_path / "hitl.json"
+    p.write_text(
+        json.dumps(
+            InstitutionHITLItems(
+                institution_id="u",
+                domain="term",
+                items=[shared],
+            ).model_dump(mode="json")
+        )
+    )
+    validate_term_hook_hitl_covers_hook_required(
+        term_hitl_path=p,
+        term_contract_by_dataset={"student": tc_student, "course": tc_course},
+    )
 
 
 def test_validate_term_hook_hitl_raises_when_no_generate_hook_items(tmp_path) -> None:

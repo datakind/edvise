@@ -85,10 +85,13 @@ def hitl_group_identity_where_sql(
             "onboard_run_id, phase, and artifact_type must be non-empty after stripping"
         )
     p = f"{table_alias.strip()}." if (table_alias or "").strip() else ""
+    # Case-insensitive phase / artifact_type: UC rows and nav URLs often disagree on casing
+    # (e.g. ``term`` vs ``TERM``). Strict equality left ``UPDATE`` matching zero rows while the
+    # workbench still showed a pending row.
     w = f"""
     trim(cast({p}onboard_run_id AS STRING)) = {sql_str(oid)}
-      AND trim(cast({p}phase AS STRING)) = {sql_str(ph)}
-      AND trim(cast({p}artifact_type AS STRING)) = {sql_str(at)}
+      AND lower(trim(cast({p}phase AS STRING))) = lower({sql_str(ph)})
+      AND lower(trim(cast({p}artifact_type AS STRING))) = lower({sql_str(at)})
     """.strip()
     return oid, ph, at, w
 

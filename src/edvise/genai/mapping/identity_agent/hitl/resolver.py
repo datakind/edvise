@@ -283,23 +283,8 @@ def resolve_items(
 # ---------------------------------------------------------------------------
 
 
-def get_hook_items(hitl_path: str | Path) -> list[HITLItem]:
-    """
-    Returns one representative HITLItem per hook group (or per ungrouped item)
-    where the selected option has reentry=GENERATE_HOOK.
-
-    Items sharing a hook_group_id need only one hook generation call.
-    Pass the representative item's hitl_context to the hook generation prompt.
-    Pass the generated HookSpec to apply_hook_spec(apply_to_group=True) to fan
-    the result out to all members of the group.
-
-    Notebook usage:
-        hook_items = get_hook_items("institutions/<institution_id>/identity_grain_hitl.json")
-        hook_items = get_hook_items("institutions/<institution_id>/identity_term_hitl.json")
-    """
-    hitl_path = Path(hitl_path)
-    envelope = _load_hitl(hitl_path)
-
+def _get_hook_items_from_envelope(envelope: InstitutionHITLItems) -> list[HITLItem]:
+    """One representative :class:`HITLItem` per hook group with ``reentry=GENERATE_HOOK``."""
     seen_groups: set[str] = set()
     result: list[HITLItem] = []
 
@@ -320,6 +305,37 @@ def get_hook_items(hitl_path: str | Path) -> list[HITLItem]:
     return result
 
 
+def get_hook_items(hitl_path: str | Path) -> list[HITLItem]:
+    """
+    Returns one representative HITLItem per hook group (or per ungrouped item)
+    where the selected option has reentry=GENERATE_HOOK.
+
+    Items sharing a hook_group_id need only one hook generation call.
+    Pass the representative item's hitl_context to the hook generation prompt.
+    Pass the generated HookSpec to apply_hook_spec(apply_to_group=True) to fan
+    the result out to all members of the group.
+
+    Notebook usage:
+        hook_items = get_hook_items("institutions/<institution_id>/identity_grain_hitl.json")
+        hook_items = get_hook_items("institutions/<institution_id>/identity_term_hitl.json")
+    """
+    hitl_path = Path(hitl_path)
+    envelope = _load_hitl(hitl_path)
+    return _get_hook_items_from_envelope(envelope)
+
+
+def _hook_required_dataset_names(
+    term_contract_by_dataset: dict[str, TermContract],
+) -> set[str]:
+    """Logical dataset keys whose primary ``term_config`` uses ``term_extraction == 'hook_required'``."""
+    out: set[str] = set()
+    for dataset, tc in term_contract_by_dataset.items():
+        tcfg = tc.term_config
+        if tcfg is not None and tcfg.term_extraction == "hook_required":
+            out.add(dataset)
+    return out
+
+
 def count_term_hook_required_streams(
     term_contract_by_dataset: dict[str, TermContract],
 ) -> int:
@@ -327,12 +343,7 @@ def count_term_hook_required_streams(
     Count :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermOrderConfig`
     instances (primary ``term_config`` only) with ``term_extraction == 'hook_required'``.
     """
-    n = 0
-    for tc in term_contract_by_dataset.values():
-        tcfg = tc.term_config
-        if tcfg is not None and tcfg.term_extraction == "hook_required":
-            n += 1
-    return n
+    return len(_hook_required_dataset_names(term_contract_by_dataset))
 
 
 def validate_term_hook_hitl_covers_hook_required(
@@ -344,36 +355,43 @@ def validate_term_hook_hitl_covers_hook_required(
     Ensure every hook-required ``term_config`` can go through hook generation.
 
     Hook generation runs only for resolved HITL items whose selected option has
-    ``reentry=GENERATE_HOOK`` (:func:`get_hook_items`). If ``identity_term_output.json`` lists more
-    ``hook_required`` tables than there are such items (after hook-group deduplication), the batch
-    drafts in the resolver JSON are not sufficient — the pipeline would skip hook gen for some
-    tables or rely on unstale drafts.
+    ``reentry=GENERATE_HOOK`` (:func:`get_hook_items`). Multiple ``hook_required`` datasets may
+    share one generation call when :func:`apply_hook_spec` fan-out covers them (same
+    ``hook_group_id``, ``hook_group_tables``, and/or one HITL row per table in the group).
+
+    This check compares **dataset coverage** (union of tables targeted by each hook group) to
+    ``hook_required`` keys in ``identity_term_output.json``, not raw item counts after deduplication.
 
     Raises
     ------
     HITLValidationError
-        When counts are inconsistent (unless there are zero hook-required streams).
+        When any hook-required dataset lacks coverage (unless there are zero hook-required streams).
     """
-    n_streams = count_term_hook_required_streams(term_contract_by_dataset)
-    if n_streams == 0:
+    hook_required = _hook_required_dataset_names(term_contract_by_dataset)
+    if not hook_required:
         return
-    items = get_hook_items(term_hitl_path)
-    n_items = len(items)
-    if n_items == 0:
+    envelope = _load_hitl(Path(term_hitl_path))
+    items = _get_hook_items_from_envelope(envelope)
+    if not items:
+        n_streams = len(hook_required)
         raise HITLValidationError(
             f"identity_term_output.json has {n_streams} TermOrderConfig(s) with "
             "term_extraction='hook_required', but identity_term_hitl.json has no resolved items "
             "with reentry='generate_hook'. Hook generation would emit zero HookSpecs — fix term "
             "config (e.g. drop erroneous hook_required) or add/review HITL hook items."
         )
-    if n_items < n_streams:
+    covered: set[str] = set()
+    for item in items:
+        covered.update(_term_target_tables_for_item(envelope, item))
+    missing = hook_required - covered
+    if missing:
+        miss = ", ".join(sorted(missing))
         raise HITLValidationError(
-            f"identity_term_output.json has {n_streams} hook_required term_config(s) "
-            f"but only {n_items} "
-            "GENERATE_HOOK HITL item(s) after hook_group_id deduplication. Each hook_required "
-            "table needs a hook-generation review path, or multiple tables must explicitly "
-            "share one item via hook_group_id / hook_group_tables. Batch-only hook_spec drafts "
-            "do not satisfy hook generation."
+            "identity_term_output.json has term_extraction='hook_required' for dataset(s) "
+            f"{{{miss}}}, but no resolved GENERATE_HOOK HITL path covers them after hook_group "
+            "fan-out. Each hook_required table must appear on a generate_hook item's table, in "
+            "hook_group_tables for its hook_group_id, or on another IDENTITY_TERM row sharing that "
+            "hook_group_id. Batch-only hook_spec drafts do not satisfy hook generation."
         )
 
 

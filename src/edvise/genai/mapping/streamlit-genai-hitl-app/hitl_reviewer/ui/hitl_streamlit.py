@@ -138,12 +138,12 @@ def _mask_same_uc_group(
 ) -> pd.Series:
     """Align with SQL ``trim(cast(... AS STRING))`` / manual edits: strip UC join keys."""
     oid = str(onboard_run_id).strip()
-    ph = str(phase).strip()
-    at = str(artifact_type).strip()
+    ph = str(phase).strip().lower()
+    at = str(artifact_type).strip().lower()
     return (
         (df["onboard_run_id"].astype(str).str.strip() == oid)
-        & (df["phase"].astype(str).str.strip() == ph)
-        & (df["artifact_type"].astype(str).str.strip() == at)
+        & (df["phase"].astype(str).str.strip().str.lower() == ph)
+        & (df["artifact_type"].astype(str).str.strip().str.lower() == at)
     )
 
 
@@ -285,11 +285,17 @@ def load_hitl_rows(
     where: list[str] = []
     c_sql = sql_str(str(catalog).strip())
     if (onboard_run_id or "").strip():
-        where.append(f"h.onboard_run_id = {sql_str(onboard_run_id.strip())}")
+        where.append(
+            f"trim(cast(h.onboard_run_id AS STRING)) = trim({sql_str(onboard_run_id.strip())})"
+        )
     if (phase or "").strip():
-        where.append(f"h.phase = {sql_str(phase.strip())}")
+        where.append(
+            f"lower(trim(cast(h.phase AS STRING))) = lower({sql_str(phase.strip())})"
+        )
     if (status or "").strip():
-        where.append(f"h.status = {sql_str(status.strip())}")
+        where.append(
+            f"lower(trim(cast(h.status AS STRING))) = lower({sql_str(status.strip())})"
+        )
     w = f"WHERE {' AND '.join(where)}" if where else ""
     lim = max(1, min(int(limit), 5000))
     q = f"""
@@ -689,7 +695,13 @@ def render_silver_hitl_editor(
                 approve_uc_if_complete=_approve_uc,
             )
             if not ap_ok:
-                st.warning(f"JSON saved, but UC approve failed: {ap_err}")
+                _uc_fail = (ap_err or "").strip() or "Unknown error."
+                set_hitl_flash_banner(
+                    "warning",
+                    "JSON was saved, but the Unity Catalog gate did not finalize: "
+                    f"{_uc_fail} Use **Refresh data** after fixing; you can retry **Save** if silver already looks correct.",
+                )
+                st.rerun()
             elif uc_group_pending:
                 if after_uc_approve_success is not None:
                     after_uc_approve_success()
@@ -1060,7 +1072,7 @@ def render_one_hitl_group(
                         st.error(str(ex))
             with c2:
                 if st.button(
-                    "Reject UC",
+                    "Reject gate",
                     key=_uc_gate_button_key("r-legacy", onboard_run_id, phase, artifact_type),
                 ):
                     try:

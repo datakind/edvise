@@ -419,13 +419,20 @@ def render_action_bar(
                         approve_uc_if_complete=approve_fn,
                     )
                     if not ap_ok:
+                        _uc_fail = (ap_err or "").strip() or "Unknown error."
                         if success_silver_filename is not None:
-                            st.warning(
-                                "Silver JSON saved, but UC approve failed (fix and retry or use "
-                                f"SQL): {ap_err}"
+                            _lead = (
+                                f"Silver JSON was saved, but the Unity Catalog gate did not finalize: {_uc_fail}"
                             )
                         else:
-                            st.warning(f"JSON saved, but UC approve failed: {ap_err}")
+                            _lead = (
+                                f"JSON was saved, but the Unity Catalog gate did not finalize: {_uc_fail}"
+                            )
+                        set_hitl_flash_banner(
+                            "warning",
+                            _lead + " Use **Refresh data** after fixing; you can retry **Save** if silver already looks correct.",
+                        )
+                        st.rerun()
                     elif success_silver_filename is not None:
                         if uc_group_pending and approve_fn is not None:
                             if after_uc_approve_success is not None:
@@ -488,36 +495,40 @@ def render_action_bar(
                             )
                         st.rerun()
         with c_rej:
-            if show_reject_item:
-                if st.button(
-                    "Reject item",
-                    key=f"{key_prefix}-reject-{sk}-{file_index}",
-                    type="secondary",
-                    use_container_width=True,
-                    disabled=not uc_group_pending,
-                ):
-                    if reject_fn is not None:
-                        reject_fn()
             if (
                 reject_uc_fn is not None
                 and (reject_uc_button_key or "").strip()
                 and uc_group_pending
             ):
                 if st.button(
-                    "Reject UC",
+                    "Reject gate",
                     key=str(reject_uc_button_key).strip(),
                     type="secondary",
                     use_container_width=True,
                     disabled=not uc_group_pending,
                     help=(
-                        "Skip silver JSON for this gate and mark the Unity Catalog ``hitl_reviews`` "
-                        "row rejected."
+                        "Mark this **review gate** rejected in Unity Catalog (``hitl_reviews`` only). "
+                        "Does not edit the silver JSON file."
                     ),
                 ):
                     try:
                         reject_uc_fn()
                     except Exception as ex:  # noqa: BLE001
                         st.error(str(ex))
+            if show_reject_item and reject_fn is not None and uc_group_pending:
+                with st.popover("Advanced…", use_container_width=True):
+                    st.caption(
+                        "**Flag current item in silver** clears this item’s ``choice`` and adds a note "
+                        "in the JSON file. The **gate stays pending** in Unity Catalog until you "
+                        "**Save JSON & approve UC** or click **Reject gate**."
+                    )
+                    if st.button(
+                        "Flag current item (silver only)",
+                        key=f"{key_prefix}-reject-item-{sk}-{file_index}",
+                        type="secondary",
+                        use_container_width=True,
+                    ):
+                        reject_fn()
     if success_silver_filename is not None and uc_group_pending and (
         show_reject_item or reject_uc_fn is not None
     ):
@@ -528,13 +539,13 @@ def render_action_bar(
             _cap += " It stays disabled until every item in this file has been opened with Prev/Next."
         if show_reject_item and reject_uc_fn is not None:
             _cap += (
-                " **Reject item** updates silver for the **current** row only; **Reject UC** skips the "
-                "file and only updates ``hitl_reviews``."
+                " **Reject gate** updates Unity Catalog only. **Advanced → Flag current item** edits "
+                "silver for the **current** row only and does **not** clear pending by itself."
             )
         elif reject_uc_fn is not None:
-            _cap += " **Reject UC** skips silver and only updates ``hitl_reviews``."
+            _cap += " **Reject gate** skips silver and only updates ``hitl_reviews``."
         st.caption(_cap)
     elif reject_uc_fn is not None and uc_group_pending and success_silver_filename is None:
         st.caption(
-            "**Reject UC** skips silver JSON for this gate and only updates ``hitl_reviews``."
+            "**Reject gate** skips silver JSON for this gate and only updates ``hitl_reviews``."
         )

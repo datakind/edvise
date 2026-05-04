@@ -192,12 +192,12 @@ def render_ia_hook_preview_cards(
             and uc_group_pending
         ):
             if st.button(
-                "Reject UC",
+                "Reject gate",
                 key=str(reject_uc_button_key).strip(),
                 type="secondary",
                 use_container_width=True,
                 disabled=not uc_group_pending,
-                help="Skips silver edits and only updates ``hitl_reviews``.",
+                help="Skips silver edits; updates ``hitl_reviews`` only.",
             ):
                 try:
                     reject_uc_fn()
@@ -206,5 +206,5 @@ def render_ia_hook_preview_cards(
     if reject_uc_fn is not None and uc_group_pending:
         st.caption(
             "**Approve UC** updates ``hitl_reviews`` only (no silver JSON write from this screen). "
-            "**Reject UC** does the same with a rejected status."
+            "**Reject gate** marks the row rejected there as well."
         )
