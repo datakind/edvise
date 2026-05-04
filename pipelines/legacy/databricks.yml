@@ -27,33 +27,23 @@ variables:
     description: "Account to run the pipeline (Databricks SP client/app ID)"
   databricks_institution_name:
     description: "Institution ID for legacy training and inference (SSI pipelines/<this>/)"
-  ssi_workspace_model_name:
-    description: >
-      Subfolder under student-success-intervention/pipelines/<databricks_institution_name>/
-      that contains preprocessing.py (e.g. john_jay_col_graduation_6years_time_cuny_transfer). Not the UC registered model_name.
-    default: ""
   config_file_name:
     description: >
-      Basename of config TOML for default path pipelines/<inst>/<ssi_workspace_model_name>/<config_file_name>.
+      Basename of config TOML for default path pipelines/<inst>/<model_name>/<config_file_name>.
     default: "config.toml"
   features_table_name:
     description: >
-      Basename of features TOML for default path pipelines/<inst>/<ssi_workspace_model_name>/<features_table_name>.
+      Basename of features TOML for default path pipelines/<inst>/<model_name>/<features_table_name>.
     default: "features_table.toml"
   ssi_config_toml_relative_to_institution:
     description: >
       Optional path under pipelines/<inst>/ to config TOML (forward slashes, no '..'). Empty uses
-      <ssi_workspace_model_name>/<config_file_name>.
+      <model_name>/<config_file_name>.
     default: ""
   ssi_features_toml_relative_to_institution:
     description: >
       Optional path under pipelines/<inst>/ to features TOML. Empty uses
-      <ssi_workspace_model_name>/<features_table_name> (set to e.g. shared/features_table.toml when shared).
-    default: ""
-  ssi_pipelines_workspace_root:
-    description: >
-      Optional override for the Databricks workspace path to student-success-intervention/pipelines.
-      Empty uses DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT in legacy_preprocessing.
+      <model_name>/<features_table_name> (set to e.g. shared/features_table.toml when shared).
     default: ""
   legacy_preprocessing_enabled:
     description: "If true, run legacy_preprocessing before training_h2o; set false if modeling tables are pre-built"
@@ -61,7 +51,9 @@ variables:
   datakind_group_to_manage_workflow:
     description: "Group with permissions to manage the job"
   model_name:
-    description: "Registered model name for legacy inference (Unity Catalog / MLflow)"
+    description: >
+      Unity Catalog / MLflow registered model name for inference, and the SSI workspace subfolder
+      under pipelines/<databricks_institution_name>/ that contains preprocessing.py (same string).
     default: ""
 
 run_as:

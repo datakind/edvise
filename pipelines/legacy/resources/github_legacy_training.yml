@@ -22,10 +22,8 @@ resources:
               - "{{job.parameters.ssi_config_toml_relative_to_institution}}"
               - --ssi_features_toml_relative_to_institution
               - "{{job.parameters.ssi_features_toml_relative_to_institution}}"
-              - --ssi_pipelines_workspace_root
-              - "{{job.parameters.ssi_pipelines_workspace_root}}"
-              - --ssi_workspace_model_name
-              - "{{job.parameters.ssi_workspace_model_name}}"
+              - --model_name
+              - "{{job.parameters.model_name}}"
               - --legacy_preprocessing_enabled
               - "{{job.parameters.legacy_preprocessing_enabled}}"
           job_cluster_key: edvise-legacy-training-pipeline-cluster
@@ -75,16 +73,14 @@ resources:
               - "{{job.parameters.config_file_name}}"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
-              - --ssi_workspace_model_name
-              - "{{job.parameters.ssi_workspace_model_name}}"
+              - --model_name
+              - "{{job.parameters.model_name}}"
               - --features_table_name
               - "{{job.parameters.features_table_name}}"
               - --ssi_config_toml_relative_to_institution
               - "{{job.parameters.ssi_config_toml_relative_to_institution}}"
               - --ssi_features_toml_relative_to_institution
               - "{{job.parameters.ssi_features_toml_relative_to_institution}}"
-              - --ssi_pipelines_workspace_root
-              - "{{job.parameters.ssi_pipelines_workspace_root}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
               - --ds_run_as
@@ -174,12 +170,10 @@ resources:
           default: ${var.service_account_executer}
         - name: features_table_name
           default: ${var.features_table_name}
-        - name: ssi_workspace_model_name
-          default: ${var.ssi_workspace_model_name}
+        - name: model_name
+          default: ${var.model_name}
         - name: legacy_preprocessing_enabled
           default: ${var.legacy_preprocessing_enabled}
-        - name: ssi_pipelines_workspace_root
-          default: ${var.ssi_pipelines_workspace_root}
         - name: ssi_config_toml_relative_to_institution
           default: ${var.ssi_config_toml_relative_to_institution}
         - name: ssi_features_toml_relative_to_institution

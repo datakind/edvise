@@ -871,10 +871,13 @@ def parse_arguments() -> argparse.Namespace:
         help="Legacy only: institution folder under SSI pipelines/ for workspace TOML resolution.",
     )
     parser.add_argument(
-        "--ssi_workspace_model_name",
+        "--model_name",
         type=str,
         default="",
-        help="Legacy only: SSI folder under pipelines/<inst>/ with preprocessing.py.",
+        help=(
+            "Legacy only: SSI folder under pipelines/<inst>/ with preprocessing.py; "
+            "same string as the registered Unity Catalog model name."
+        ),
     )
     parser.add_argument(
         "--features_table_name",
@@ -917,11 +920,9 @@ def _apply_legacy_training_workspace_toml_paths(args: argparse.Namespace) -> Non
         raise SystemExit(
             "--databricks_institution_name is required when --schema_type=legacy"
         )
-    mn = (args.ssi_workspace_model_name or "").strip()
+    mn = (args.model_name or "").strip()
     if not mn:
-        raise SystemExit(
-            "--ssi_workspace_model_name is required when --schema_type=legacy"
-        )
+        raise SystemExit("--model_name is required when --schema_type=legacy")
     ws = (args.ssi_pipelines_workspace_root or "").strip() or None
     cfg_rel = (args.ssi_config_toml_relative_to_institution or "").strip() or None
     feat_rel = (args.ssi_features_toml_relative_to_institution or "").strip() or None

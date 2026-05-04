@@ -7,16 +7,16 @@ Workspace root defaults to ``…/student-success-intervention/pipelines`` (overr
 ``--ssi_pipelines_workspace_root``).
 
 - **Preprocessing** is always at
-  ``<workspace_root>/<databricks_institution_name>/<ssi_workspace_model_name>/preprocessing.py``.
+  ``<workspace_root>/<databricks_institution_name>/<model_name>/preprocessing.py``.
 
 - **Training** — config and features TOMLs live under the institution folder
   ``<workspace_root>/<databricks_institution_name>/``. Relative paths (no ``..``):
 
   - If ``--ssi_config_toml_relative_to_institution`` is empty, default is
-    ``<ssi_workspace_model_name>/<config_file_name>`` (e.g. ``john_jay_col_graduation_6years_time_cuny_transfer/config.toml``).
+    ``<model_name>/<config_file_name>`` (e.g. ``john_jay_col_graduation_6years_time_cuny_transfer/config.toml``).
 
   - If ``--ssi_features_toml_relative_to_institution`` is empty, default is
-    ``<ssi_workspace_model_name>/<features_table_name>`` (e.g. ``john_jay_col_graduation_6years_time_cuny_transfer/features_table.toml``).
+    ``<model_name>/<features_table_name>`` (e.g. ``john_jay_col_graduation_6years_time_cuny_transfer/features_table.toml``).
 
   Set the two ``ssi_*_relative_to_institution`` parameters to point elsewhere under the
   institution directory (e.g. ``shared/features_table.toml``).
@@ -67,7 +67,7 @@ def _normalize_relative_under_institution(rel: str) -> str:
 
 def resolve_ssi_preprocessing_py(
     institution_id: str,
-    ssi_workspace_model_name: str,
+    model_name: str,
     *,
     workspace_root: str | None = None,
 ) -> tuple[Path, Path]:
@@ -80,12 +80,12 @@ def resolve_ssi_preprocessing_py(
     root = (workspace_root or "").strip() or DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
     root_r = normalize_fs_path(root).resolve()
     inst = institution_id.strip()
-    mn = (ssi_workspace_model_name or "").strip()
+    mn = (model_name or "").strip()
     if not inst:
         raise ValueError("databricks_institution_name must be non-empty.")
     if not mn:
         raise ValueError(
-            "ssi_workspace_model_name must be non-empty (folder under pipelines/<inst>/ "
+            "model_name must be non-empty (folder under pipelines/<inst>/ "
             "that contains preprocessing.py)."
         )
     institution_base = (root_r / inst).resolve()
@@ -106,14 +106,14 @@ def resolve_ssi_preprocessing_py(
     if not py.is_file():
         raise FileNotFoundError(
             f"Expected preprocessing.py at {py} "
-            f"(institution={inst!r}, ssi_workspace_model_name={mn!r})."
+            f"(institution={inst!r}, model_name={mn!r})."
         )
     return py, institution_base
 
 
 def resolve_ssi_training_workspace_toml_paths(
     institution_id: str,
-    ssi_workspace_model_name: str,
+    model_name: str,
     config_file_name: str,
     features_table_name: str,
     *,
@@ -126,10 +126,10 @@ def resolve_ssi_training_workspace_toml_paths(
     """
     _, institution_base = resolve_ssi_preprocessing_py(
         institution_id,
-        ssi_workspace_model_name,
+        model_name,
         workspace_root=workspace_root,
     )
-    mn = (ssi_workspace_model_name or "").strip()
+    mn = (model_name or "").strip()
     cfg_rel = (ssi_config_toml_relative_to_institution or "").strip() or (
         f"{mn}/{config_file_name.strip()}"
     )
@@ -215,7 +215,7 @@ def main() -> None:
         default="",
         help=(
             "Train: path under pipelines/<inst>/ to config TOML. "
-            "Empty → <ssi_workspace_model_name>/<config_file_name>."
+            "Empty → <model_name>/<config_file_name>."
         ),
     )
     parser.add_argument(
@@ -223,7 +223,7 @@ def main() -> None:
         default="",
         help=(
             "Train: path under pipelines/<inst>/ to features TOML. "
-            "Empty → <ssi_workspace_model_name>/<features_table_name>."
+            "Empty → <model_name>/<features_table_name>."
         ),
     )
     parser.add_argument(
@@ -243,9 +243,13 @@ def main() -> None:
         help="Institution folder under pipelines/ (matches SSI repo).",
     )
     parser.add_argument(
-        "--ssi_workspace_model_name",
+        "--model_name",
         default="",
-        help="Subfolder under pipelines/<inst>/ containing preprocessing.py (e.g. john_jay_col_graduation_6years_time_cuny_transfer).",
+        help=(
+            "Subfolder under pipelines/<inst>/ containing preprocessing.py "
+            "(e.g. john_jay_col_graduation_6years_time_cuny_transfer); same string as the "
+            "registered Unity Catalog model name for legacy jobs."
+        ),
     )
     parser.add_argument(
         "--legacy_preprocessing_enabled",
@@ -265,10 +269,10 @@ def main() -> None:
     inst = (args.databricks_institution_name or "").strip()
     if not inst:
         raise SystemExit("--databricks_institution_name is required when preprocessing runs.")
-    model_name = (args.ssi_workspace_model_name or "").strip()
+    model_name = (args.model_name or "").strip()
     if not model_name:
         raise SystemExit(
-            "--ssi_workspace_model_name is required when preprocessing runs "
+            "--model_name is required when preprocessing runs "
             "(folder under pipelines/<inst>/ with preprocessing.py)."
         )
 

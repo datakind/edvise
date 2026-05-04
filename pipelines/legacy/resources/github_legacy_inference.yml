@@ -39,8 +39,8 @@ resources:
               - "predict"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
-              - --ssi_workspace_model_name
-              - "{{job.parameters.ssi_workspace_model_name}}"
+              - --model_name
+              - "{{job.parameters.model_name}}"
               - --legacy_preprocessing_enabled
               - "{{job.parameters.legacy_preprocessing_enabled}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
@@ -190,8 +190,6 @@ resources:
           default: ${var.config_file_name}
         - name: features_table_name
           default: ${var.features_table_name}
-        - name: ssi_workspace_model_name
-          default: ${var.ssi_workspace_model_name}
         - name: legacy_preprocessing_enabled
           default: ${var.legacy_preprocessing_enabled}
         - name: gcp_bucket_name
