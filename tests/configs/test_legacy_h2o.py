@@ -71,3 +71,34 @@ def test_bad_legacy_cfgs(cfg_str, context):
     with context:
         result = legacy.LegacyProjectConfig.model_validate(cfg)
         assert isinstance(result, pyd.BaseModel)
+
+
+def test_substitute_uc_catalog_in_string():
+    assert legacy.substitute_uc_catalog_in_string(
+        "CATALOG.foo.bar", "dev_sst_02"
+    ) == "dev_sst_02.foo.bar"
+    assert legacy.substitute_uc_catalog_in_string(
+        "/Volumes/CATALOG/inst_bronze/x.csv", "dev_sst_02"
+    ) == "/Volumes/dev_sst_02/inst_bronze/x.csv"
+    assert legacy.substitute_uc_catalog_in_string(
+        "dbfs:/Volumes/CATALOG/inst_bronze/x.csv", "dev_sst_02"
+    ) == "dbfs:/Volumes/dev_sst_02/inst_bronze/x.csv"
+    assert legacy.substitute_uc_catalog_in_string("unchanged", "x") == "unchanged"
+
+
+def test_apply_runtime_uc_catalog_on_template():
+    template_path = (
+        pathlib.Path(__file__).parents[2] / "configs" / "legacy_h2o" / "config-TEMPLATE.toml"
+    )
+    with template_path.open("rb") as f:
+        raw = tomllib.load(f)
+    cfg = legacy.LegacyProjectConfig.model_validate(raw)
+    resolved = legacy.apply_runtime_uc_catalog(cfg, "dev_sst_02")
+    student = resolved.datasets.bronze["raw_student"]
+    assert student.train_file_path
+    assert "/Volumes/dev_sst_02/" in student.train_file_path
+    assert "CATALOG" not in student.train_file_path
+    mt = resolved.datasets.silver.modeling.train_table_path
+    assert mt is not None
+    assert mt.startswith("dev_sst_02.")
+    assert "CATALOG" not in mt

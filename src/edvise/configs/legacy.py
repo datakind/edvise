@@ -14,6 +14,75 @@ _ALLOWED_PRIMARY_METRICS = {
     "mean_per_class_error",
 }
 
+# Unity Catalog workspace catalog placeholder in legacy TOMLs (replaced at runtime).
+_UC_CATALOG_PLACEHOLDER = "CATALOG"
+
+
+def substitute_uc_catalog_in_string(value: str, uc_catalog: str) -> str:
+    """
+    Replace the ``CATALOG`` placeholder with the runtime workspace catalog name.
+
+    Handles:
+
+    - Three-part table names: ``CATALOG.schema.table``
+    - Volume paths: ``/Volumes/CATALOG/...`` and ``dbfs:/Volumes/CATALOG/...``
+    """
+    if _UC_CATALOG_PLACEHOLDER not in value:
+        return value
+    out = value.replace(
+        f"dbfs:/Volumes/{_UC_CATALOG_PLACEHOLDER}/",
+        f"dbfs:/Volumes/{uc_catalog}/",
+    )
+    out = out.replace(f"/Volumes/{_UC_CATALOG_PLACEHOLDER}/", f"/Volumes/{uc_catalog}/")
+    if out.startswith(f"{_UC_CATALOG_PLACEHOLDER}."):
+        out = f"{uc_catalog}.{out[len(_UC_CATALOG_PLACEHOLDER) + 1 :]}"
+    return out
+
+
+def deep_substitute_uc_catalog_placeholders(obj: t.Any, uc_catalog: str) -> t.Any:
+    """Apply :func:`substitute_uc_catalog_in_string` to every string in nested dict/list structures."""
+    if isinstance(obj, str):
+        return substitute_uc_catalog_in_string(obj, uc_catalog)
+    if isinstance(obj, dict):
+        return {
+            k: deep_substitute_uc_catalog_placeholders(v, uc_catalog)
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [deep_substitute_uc_catalog_placeholders(x, uc_catalog) for x in obj]
+    return obj
+
+
+def _strip_computed_fields_for_roundtrip(obj: t.Any) -> t.Any:
+    """Remove pydantic ``computed_field`` keys so ``model_validate`` accepts the dict."""
+    if isinstance(obj, dict):
+        return {
+            k: _strip_computed_fields_for_roundtrip(v)
+            for k, v in obj.items()
+            if k not in ("non_feature_cols", "mlflow_model_uri")
+        }
+    if isinstance(obj, list):
+        return [_strip_computed_fields_for_roundtrip(x) for x in obj]
+    return obj
+
+
+def apply_runtime_uc_catalog(
+    cfg: "LegacyProjectConfig", uc_catalog: str
+) -> "LegacyProjectConfig":
+    """
+    Return a copy of ``cfg`` with ``CATALOG`` placeholders resolved to ``uc_catalog``.
+
+    Typically ``uc_catalog`` is the job's ``--DB_workspace`` (e.g. ``dev_sst_02``).
+    """
+    catalog = uc_catalog.strip()
+    if not catalog:
+        return cfg
+    dumped = deep_substitute_uc_catalog_placeholders(
+        cfg.model_dump(mode="python"), catalog
+    )
+    dumped = _strip_computed_fields_for_roundtrip(dumped)
+    return LegacyProjectConfig.model_validate(dumped)
+
 
 class LegacyProjectConfig(pyd.BaseModel):
     """Configuration schema for SST legacy (non-PDP) projects."""

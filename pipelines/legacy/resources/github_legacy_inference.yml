@@ -37,6 +37,8 @@ resources:
               - "{{tasks.inference_setup.values.config_file_path}}"
               - --run_type
               - "predict"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
               - --model_name

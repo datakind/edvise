@@ -121,6 +121,10 @@ class TrainingTask:
             self.args.config_file_path,
             schema=self.spec.cfg_schema,
         )
+        if self.spec.schema_type == "legacy":
+            self.cfg = configs.legacy.apply_runtime_uc_catalog(
+                self.cfg, self.args.DB_workspace
+            )
         self.client = MlflowClient()
         h2o_utils.safe_h2o_init()
         os.environ["MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR"] = "false"
@@ -538,6 +542,10 @@ class TrainingTask:
             self.args.config_file_path,
             schema=self.spec.cfg_schema,
         )
+        if self.spec.schema_type == "legacy":
+            self.cfg = configs.legacy.apply_runtime_uc_catalog(
+                self.cfg, self.args.DB_workspace
+            )
 
     def make_predictions(self, df_modeling: pd.DataFrame) -> None:
         # Get threshold from config

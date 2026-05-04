@@ -109,6 +109,10 @@ class ModelInferenceTask:
             self.args.config_file_path,
             schema=self.spec.cfg_schema,
         )
+        if self.spec.schema_type == "legacy":
+            self.cfg = configs.legacy.apply_runtime_uc_catalog(
+                self.cfg, self.args.DB_workspace
+            )
         self.features_table_path = self.spec.features_table_path
         # Populated by load_mlflow_model()
         self.model_run_id: str | None = None

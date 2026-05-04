@@ -12,6 +12,8 @@ resources:
             parameters:
               - --run_type
               - "train"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
               - --config_file_name

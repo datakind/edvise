@@ -34,8 +34,15 @@ import argparse
 import importlib.util
 import inspect
 import logging
+import os
 import sys
+import tempfile
 from pathlib import Path
+
+import tomlkit
+
+from edvise.configs.legacy import deep_substitute_uc_catalog_placeholders
+from edvise.dataio.read import from_toml_file
 
 DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT = (
     "/Workspace/Users/6c8d8d76-1399-4065-aeb5-9474d32773cf/"
@@ -191,6 +198,50 @@ def load_module_from_file(py_file: Path, institution_pipeline_dir: Path):
     return mod
 
 
+def _legacy_toml_has_uc_placeholder(text: str) -> bool:
+    return (
+        "CATALOG." in text
+        or "/Volumes/CATALOG/" in text
+        or "dbfs:/Volumes/CATALOG/" in text
+    )
+
+
+def materialize_legacy_config_with_uc_catalog(
+    config_file_path: str, uc_catalog: str
+) -> str:
+    """
+    When the TOML uses ``CATALOG`` placeholders and ``uc_catalog`` is non-empty,
+    write a temp file with substitutions and return its path; otherwise return the
+    original path unchanged.
+    """
+    cat = (uc_catalog or "").strip()
+    if not cat:
+        return config_file_path
+    path = Path(config_file_path)
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        LOGGER.warning(
+            "Could not read %s for CATALOG resolution: %s", config_file_path, exc
+        )
+        return config_file_path
+    if not _legacy_toml_has_uc_placeholder(text):
+        return config_file_path
+    data = from_toml_file(str(path.resolve()))
+    patched = deep_substitute_uc_catalog_placeholders(data, cat)
+    fd, tmp_path = tempfile.mkstemp(prefix="edvise_legacy_cfg_", suffix=".toml")
+    try:
+        os.write(fd, tomlkit.dumps(patched).encode("utf-8"))
+    finally:
+        os.close(fd)
+    LOGGER.info(
+        "Resolved CATALOG placeholders to uc_catalog=%r; using temp config %s",
+        cat,
+        tmp_path,
+    )
+    return tmp_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Legacy H2O preprocessing via SSI workspace preprocessing.py."
@@ -256,6 +307,15 @@ def main() -> None:
         default="true",
         help='If "false", exit without running.',
     )
+    parser.add_argument(
+        "--DB_workspace",
+        default="",
+        help=(
+            "Unity Catalog workspace name (e.g. dev_sst_02). When set, "
+            "CATALOG placeholders in the config TOML are rewritten before "
+            "school preprocessing runs."
+        ),
+    )
     args = parser.parse_args()
 
     enabled = str(args.legacy_preprocessing_enabled).strip().lower()
@@ -301,6 +361,10 @@ def main() -> None:
         if not p:
             raise SystemExit("--config_file_path is required when run_type=predict.")
         effective_config = p
+
+    effective_config = materialize_legacy_config_with_uc_catalog(
+        effective_config, args.DB_workspace
+    )
 
     LOGGER.info(
         "Loading preprocessing from pipelines/%s/%s/preprocessing.py (root=%s)",
