@@ -1,7 +1,7 @@
 # GenAI mapping bundle: manual deploy to dev and/or staging (vars/secrets aligned with PDP-style bundle deploy).
 #
-# Secrets — dev:
-#   DATABRICKS_GENAI_MAPPING_DEV_HOST, DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID, DATABRICKS_GENAI_MAPPING_DEV_CLIENT_SECRET
+# Secrets — dev (host same as PDP dev: DATABRICKS_DEV_HOST):
+#   DATABRICKS_DEV_HOST, DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID, DATABRICKS_GENAI_MAPPING_DEV_CLIENT_SECRET
 #   GENAI_MAPPING_DEV_SERVICE_ACCOUNT_EXECUTER, GENAI_MAPPING_DEV_DS_RUN_AS
 # Secrets — staging (prod bundle target → staging_sst_01):
 #   DATABRICKS_STAGING_HOST, DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID, DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_SECRET
@@ -11,9 +11,6 @@
 name: deploy-genai-mapping
 
 on:
-  push:
-    branches:
-      - feat/gen_ai_hitl_ui_build
   workflow_dispatch:
     inputs:
       deploy_dev:
@@ -70,13 +67,17 @@ jobs:
       - name: Deploy bundle (dev)
         working-directory: pipelines/genai_mapping
         env:
-          DATABRICKS_HOST: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_HOST }}
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_CLIENT_SECRET }}
           SA_EXECUTER: ${{ secrets.GENAI_MAPPING_DEV_SERVICE_ACCOUNT_EXECUTER }}
           DS_RUN_AS: ${{ secrets.GENAI_MAPPING_DEV_DS_RUN_AS }}
           GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
         run: |
+          if [[ "${DATABRICKS_HOST}" == *"gserviceaccount.com"* ]]; then
+            echo "::error::DATABRICKS_DEV_HOST must be the Databricks workspace URL. gserviceaccount.com belongs in GENAI_MAPPING_DEV_SERVICE_ACCOUNT_EXECUTER, not the host."
+            exit 1
+          fi
           databricks current-user me
           databricks bundle deploy \
             --target=dev \
