@@ -395,11 +395,6 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--legacy_preprocessing_enabled",
-        default="true",
-        help='If "false", exit without running.',
-    )
-    parser.add_argument(
         "--DB_workspace",
         default="",
         help=(
@@ -409,14 +404,6 @@ def main() -> None:
         ),
     )
     args = parser.parse_args()
-
-    enabled = str(args.legacy_preprocessing_enabled).strip().lower()
-    if enabled in ("false", "0", "no", "off"):
-        LOGGER.info(
-            "legacy_preprocessing_enabled=%s — skipping preprocessing.",
-            args.legacy_preprocessing_enabled,
-        )
-        return
 
     inst = (args.databricks_institution_name or "").strip()
     if not inst:

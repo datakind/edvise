@@ -32,6 +32,15 @@ resources:
               - "{{job.parameters.bronze_file_overrides_manifest_path}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
           libraries:
+            # edvise.utils __init__ imports dataio.read (pandera, etc.)
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+            - pypi:
+                package: pyarrow~=16.0
+            - pypi:
+                package: tomli==2.2.1
             - pypi:
                 package: mlflow~=2.22
             - pypi:
@@ -57,8 +66,6 @@ resources:
               - "{{job.parameters.databricks_institution_name}}"
               - --model_name
               - "{{job.parameters.model_name}}"
-              - --legacy_preprocessing_enabled
-              - "{{job.parameters.legacy_preprocessing_enabled}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -119,6 +126,8 @@ resources:
               - "legacy"
               - --features_table_path
               - "{{tasks.inference_setup.values.features_table_path}}"
+              - --term_filter
+              - "{{job.parameters.term_filter}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -206,8 +215,6 @@ resources:
           default: ${var.config_file_name}
         - name: features_table_name
           default: ${var.features_table_name}
-        - name: legacy_preprocessing_enabled
-          default: ${var.legacy_preprocessing_enabled}
         - name: gcp_bucket_name
           default: databricks-2052166062819251-unitycatalog
         - name: gcp_blob_prefix
@@ -222,6 +229,8 @@ resources:
           default: ${var.datakind_notification_email}
         - name: DK_CC_EMAIL
           default: ${var.datakind_notification_email}
+        - name: term_filter
+          default: ""
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
           level: CAN_MANAGE

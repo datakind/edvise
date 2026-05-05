@@ -45,9 +45,6 @@ variables:
       Optional path under pipelines/<inst>/ to features TOML. Empty uses
       <model_name>/<features_table_name> (set to e.g. shared/features_table.toml when shared).
     default: ""
-  legacy_preprocessing_enabled:
-    description: "If true, run legacy_preprocessing before training_h2o; set false if modeling tables are pre-built"
-    default: "true"
   datakind_group_to_manage_workflow:
     description: "Group with permissions to manage the job"
   model_name:

@@ -54,6 +54,10 @@ from edvise.shared.validation import (
     validate_tables_exist,
     ExpectedTable,
 )
+from edvise.student_selection.filter_inference import (
+    filter_inference_term,
+    parse_term_filter_param,
+)
 
 # Shared predictions pipeline (your extracted module)
 from edvise.scripts.predictions_h2o import (
@@ -113,6 +117,35 @@ class ModelInferenceTask:
             self.cfg = configs.legacy.apply_runtime_uc_catalog(
                 self.cfg, self.args.DB_workspace
             )
+            term_override = parse_term_filter_param(
+                getattr(self.args, "term_filter", "") or None
+            )
+            if term_override is not None:
+                if self.cfg.inference is None:
+                    self.cfg = self.cfg.model_copy(
+                        update={
+                            "inference": configs.legacy.InferenceConfig(
+                                term=term_override
+                            )
+                        }
+                    )
+                else:
+                    self.cfg = self.cfg.model_copy(
+                        update={
+                            "inference": self.cfg.inference.model_copy(
+                                update={"term": term_override}
+                            )
+                        }
+                    )
+                logging.info(
+                    "Legacy inference term source: job param; term_filter=%s",
+                    term_override,
+                )
+            elif self.cfg.inference is not None:
+                logging.info(
+                    "Legacy inference term source: config; term=%s",
+                    getattr(self.cfg.inference, "term", None),
+                )
         self.features_table_path = self.spec.features_table_path
         # Populated by load_mlflow_model()
         self.model_run_id: str | None = None
@@ -299,6 +332,21 @@ class ModelInferenceTask:
                 raise ValueError(
                     "Legacy inference requires either table_path or predict_table_path / "
                     "file_path or predict_file_path in cfg.datasets.silver.model_features"
+                )
+
+            term_labels = (
+                [str(x).strip() for x in self.cfg.inference.term if str(x).strip()]
+                if self.cfg.inference and self.cfg.inference.term
+                else []
+            )
+            if term_labels:
+                logging.info(
+                    "Legacy: filtering model_features to academic_term/academic_year in %s",
+                    term_labels,
+                )
+                df_processed = filter_inference_term(
+                    df_processed,
+                    term_list=term_labels,
                 )
         else:
             # PDP: use run-specific path
@@ -505,6 +553,16 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument(
         "--schema_type", type=str, choices=["pdp", "legacy"], required=True
+    )
+    parser.add_argument(
+        "--term_filter",
+        type=str,
+        default="",
+        help=(
+            'Legacy only: optional JSON list of term labels (e.g. ["fall 2024-25"]). '
+            "Empty uses [inference].term from config (same semantics as PDP "
+            "`pdp_inf_prep --term_filter`). Ignored when --schema_type=pdp."
+        ),
     )
     return parser.parse_args()
 

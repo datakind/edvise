@@ -26,8 +26,6 @@ resources:
               - "{{job.parameters.ssi_features_toml_relative_to_institution}}"
               - --model_name
               - "{{job.parameters.model_name}}"
-              - --legacy_preprocessing_enabled
-              - "{{job.parameters.legacy_preprocessing_enabled}}"
           job_cluster_key: edvise-legacy-training-pipeline-cluster
           libraries:
             - pypi:
@@ -174,8 +172,6 @@ resources:
           default: ${var.features_table_name}
         - name: model_name
           default: ${var.model_name}
-        - name: legacy_preprocessing_enabled
-          default: ${var.legacy_preprocessing_enabled}
         - name: ssi_config_toml_relative_to_institution
           default: ${var.ssi_config_toml_relative_to_institution}
         - name: ssi_features_toml_relative_to_institution
