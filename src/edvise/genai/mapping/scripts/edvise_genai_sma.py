@@ -1031,7 +1031,13 @@ def run_onboard_gate_2(
     # Write output data
     _write_output_data(paths.output_data, cohort_result, course_result)
     LOGGER.info("[onboard/gate_2] Promoting artifacts to active/")
-    promote_genai_mapping_to_active(paths)
+    promote_genai_mapping_to_active(
+        paths,
+        institution_id=institution_id,
+        onboard_run_id=onboard_run_id,
+        pipeline_version=pipeline_version,
+        uc_catalog=catalog,
+    )
     LOGGER.info("[onboard/gate_2] Complete. Exiting.")
     _pipeline_job_state.after_sma_onboard_gate_2_success(
         catalog, institution_id, onboard_run_id

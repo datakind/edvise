@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 import pytest
@@ -66,10 +67,18 @@ def test_resolve_onboard_run_id_prefers_new_env_over_legacy(monkeypatch):
     assert resolve_onboard_run_id(None) == "new"
 
 
-def test_resolve_onboard_run_id_prefers_databricks_job_env_over_manual(monkeypatch):
+def test_resolve_onboard_run_id_manual_env_over_databricks_job_env(monkeypatch):
     monkeypatch.setenv("GENAI_ONBOARD_RUN_ID", "manual")
     monkeypatch.setenv("DATABRICKS_JOB_RUN_ID", "987654321")
-    assert resolve_onboard_run_id(None) == "987654321"
+    assert resolve_onboard_run_id(None) == "manual"
+
+
+def test_resolve_onboard_run_id_mints_uuid_when_missing(monkeypatch):
+    monkeypatch.delenv("GENAI_ONBOARD_RUN_ID", raising=False)
+    monkeypatch.delenv(LEGACY_GENAI_PIPELINE_RUN_ID_ENV, raising=False)
+    monkeypatch.delenv("DATABRICKS_JOB_RUN_ID", raising=False)
+    rid = resolve_onboard_run_id(None, create_if_missing=True)
+    assert uuid.UUID(rid).version == 4
 
 
 def test_coerce_pipeline_version_explicit_and_env(monkeypatch):

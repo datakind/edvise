@@ -37,6 +37,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -54,17 +55,11 @@ GENAI_PIPELINE_RUN_ID_ENV: Final[str] = GENAI_ONBOARD_RUN_ID_ENV
 """Alias of :data:`GENAI_ONBOARD_RUN_ID_ENV` (default ``env_manual_var`` for :func:`resolve_onboard_run_id`)."""
 
 DATABRICKS_JOB_RUN_ID_ENV: Final[str] = "DATABRICKS_JOB_RUN_ID"
-"""Databricks does **not** set this automatically — add it on the job (e.g. ``{{job.run_id}}``)."""
+"""Legacy env name; no longer used to pick ``onboard_run_id`` (use ``db_run_id`` / UC state). Kept for job param docs."""
 
 GENAI_GIT_TAG_ENV: Final[str] = "GENAI_GIT_TAG"
 GIT_TAG_ENV: Final[str] = "GIT_TAG"
 GENAI_PIPELINE_VERSION_ENV: Final[str] = "GENAI_PIPELINE_VERSION"
-
-# Spark conf keys that expose the current Databricks job run id (try in order).
-_SPARK_CONF_JOB_RUN_ID_KEYS: Final[tuple[str, ...]] = (
-    "spark.databricks.job.runId",
-    "spark.databricks.jobRunId",
-)
 
 # Under ``bronze_volumes_path`` (Unity Catalog volume root for the school).
 _GENAI_ROOT_DIR: Final[str] = "genai_pipeline"
@@ -73,42 +68,14 @@ GENAI_PIPELINE_RUN_METADATA_BASENAME: Final[str] = "genai_pipeline_run.json"
 """Run-level JSON: ``pipeline_version`` (git/edvise), ``onboard_run_id``, ``institution_id``."""
 
 
+def new_genai_run_id() -> str:
+    """Return a new UUID v4 string (shared by onboard and execute pipeline run folder ids)."""
+    return str(uuid.uuid4())
+
+
 def new_onboard_run_id() -> str:
-    """Return a new opaque run id (UTC timestamp + short random suffix)."""
-    from uuid import uuid4
-
-    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return f"{ts}_{uuid4().hex[:8]}"
-
-
-def _databricks_job_run_id_from_spark() -> str | None:
-    """
-    Best-effort read of the current Databricks **job run id** from an active Spark session.
-
-    Returns None if not on Databricks, no session, or conf keys are unset.
-    """
-    try:
-        from pyspark.sql import SparkSession  # type: ignore
-    except Exception:
-        return None
-    try:
-        spark = SparkSession.getActiveSession()
-        if spark is None:
-            return None
-        for key in _SPARK_CONF_JOB_RUN_ID_KEYS:
-            try:
-                raw = spark.conf.get(key, None)
-            except Exception:
-                raw = None
-            if raw is None:
-                continue
-            s = str(raw).strip()
-            if s:
-                LOGGER.debug("onboard_run_id from Spark conf %s=%s", key, s)
-                return s
-    except Exception as e:
-        LOGGER.debug("Could not read Databricks job run id from Spark (%s)", e)
-    return None
+    """Return a new opaque onboard run id (same format as :func:`new_genai_run_id`)."""
+    return new_genai_run_id()
 
 
 def resolve_onboard_run_id(
@@ -124,22 +91,18 @@ def resolve_onboard_run_id(
     Precedence (first wins):
 
     1. **explicit** non-empty string
-    2. **Databricks job run id** from active Spark session conf (``spark.databricks.job.runId``, …)
-    3. **``os.environ[env_job_run_var]``** — inject in the job (e.g. job parameter bound to the run id)
-    4. **``os.environ[env_manual_var]``** (default ``GENAI_ONBOARD_RUN_ID``) — local / manual override
-    5. **``os.environ[GENAI_PIPELINE_RUN_ID]``** — legacy manual override when (4) is unset
-    6. If ``create_if_missing`` is True: :func:`new_onboard_run_id`
+    2. **``os.environ[env_manual_var]``** (default ``GENAI_ONBOARD_RUN_ID``) — local / manual override
+    3. **``os.environ[GENAI_PIPELINE_RUN_ID]``** — legacy manual override when (2) is unset
+    4. If ``create_if_missing`` is True: :func:`new_genai_run_id`
+
+    Databricks job run correlation uses ``pipeline_runs.db_run_id`` (and ``--db_run_id``), not the
+    folder segment. The ``env_job_run_var`` parameter is retained for API compatibility but ignored.
 
     When nothing matches and ``create_if_missing`` is False, returns None (legacy unversioned layout).
     """
+    _ = env_job_run_var  # deprecated; kept for callers passing custom env key names
     if explicit is not None and str(explicit).strip():
         return str(explicit).strip()
-    spark_rid = _databricks_job_run_id_from_spark()
-    if spark_rid:
-        return spark_rid
-    env_job = os.environ.get(env_job_run_var)
-    if env_job and str(env_job).strip():
-        return str(env_job).strip()
     env_manual = os.environ.get(env_manual_var)
     if env_manual and str(env_manual).strip():
         return str(env_manual).strip()
@@ -147,7 +110,7 @@ def resolve_onboard_run_id(
     if legacy_manual and str(legacy_manual).strip():
         return str(legacy_manual).strip()
     if create_if_missing:
-        rid = new_onboard_run_id()
+        rid = new_genai_run_id()
         LOGGER.info("Assigned new GENAI onboard_run_id=%s", rid)
         return rid
     return None
@@ -540,6 +503,7 @@ __all__ = [
     "build_genai_pipeline_artifact_rows",
     "discover_artifact_files",
     "merge_genai_pipeline_artifact_rows",
+    "new_genai_run_id",
     "new_onboard_run_id",
     "parse_uc_catalog_from_volume_path",
     "register_discovered_artifacts_to_uc",

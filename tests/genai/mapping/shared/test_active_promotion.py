@@ -7,7 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from edvise.genai.mapping.shared.active_promotion import promote_genai_mapping_to_active
+from edvise.genai.mapping.shared.active_promotion import (
+    GENAI_ACTIVE_REGISTRY_BASENAME,
+    promote_genai_mapping_to_active,
+    read_genai_active_registry,
+)
 
 
 @dataclass
@@ -53,7 +57,13 @@ def test_promote_genai_mapping_to_active_copies_required_and_optional(
         transform_hooks=sma / "transform_hooks.py",
     )
 
-    promote_genai_mapping_to_active(paths)
+    promote_genai_mapping_to_active(
+        paths,
+        institution_id="demo_col",
+        onboard_run_id="school_20260101",
+        pipeline_version="1.0.0",
+        uc_catalog="dev_cat",
+    )
 
     assert paths.active_enriched_schema_contract.read_text() == '{"ia": true}'
     assert paths.active_manifest_map.read_text() == '{"m": 1}'
@@ -61,6 +71,16 @@ def test_promote_genai_mapping_to_active_copies_required_and_optional(
     assert paths.active_transform_hooks.read_text() == "# hooks"
     assert (active / "grain_output.json").read_text() == "{}"
     assert (active / "term_output.json").read_text() == "{}"
+
+    reg = read_genai_active_registry(active)
+    assert reg is not None
+    assert reg["schema_version"] == 1
+    assert reg["onboard_run_id"] == "school_20260101"
+    assert reg["institution_id"] == "demo_col"
+    assert reg["pipeline_version"] == "1.0.0"
+    assert reg["uc_catalog"] == "dev_cat"
+    assert "promoted_at" in reg
+    assert (active / GENAI_ACTIVE_REGISTRY_BASENAME).is_file()
 
 
 def test_promote_genai_mapping_to_active_copies_identity_hooks_subtree(
@@ -94,7 +114,11 @@ def test_promote_genai_mapping_to_active_copies_identity_hooks_subtree(
         transform_hooks=sma / "transform_hooks.py",
     )
 
-    promote_genai_mapping_to_active(paths)
+    promote_genai_mapping_to_active(
+        paths,
+        institution_id="u",
+        onboard_run_id="school_hooks",
+    )
 
     assert (
         active / "identity_hooks" / "test_univ" / "dedup_hooks.py"
@@ -131,4 +155,8 @@ def test_promote_genai_mapping_to_active_missing_required_raises(
     )
 
     with pytest.raises(FileNotFoundError, match="transformation_map"):
-        promote_genai_mapping_to_active(paths)
+        promote_genai_mapping_to_active(
+            paths,
+            institution_id="i",
+            onboard_run_id="r2",
+        )

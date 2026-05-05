@@ -1,15 +1,25 @@
 """
 Promote GenAI mapping onboard artifacts into ``genai_mapping/active/`` (execute-mode layout).
+
+After a successful promotion, writes :data:`GENAI_ACTIVE_REGISTRY_BASENAME` (model-registry style
+metadata: source ``onboard_run_id``, ``institution_id``, ``promoted_at``, etc.).
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 LOGGER = logging.getLogger(__name__)
+
+GENAI_ACTIVE_REGISTRY_BASENAME: str = "genai_active_registry.json"
+"""JSON sidecar under ``active/`` recording which onboard run produced the promoted artifacts."""
+
+_ACTIVE_REGISTRY_SCHEMA_VERSION: int = 1
 
 _IDENTITY_OPTIONAL_ACTIVE: tuple[tuple[str, str], ...] = (
     ("identity_grain_output.json", "grain_output.json"),
@@ -35,6 +45,53 @@ class _ActivePromotionPaths(Protocol):
     transform_hooks: Path
 
 
+def read_genai_active_registry(active_root: str | Path) -> dict[str, Any] | None:
+    """
+    Load ``genai_active_registry.json`` from ``active_root`` if present.
+
+    Returns None when the file is missing (e.g. legacy promotions before this metadata existed).
+    """
+    p = Path(active_root) / GENAI_ACTIVE_REGISTRY_BASENAME
+    if not p.is_file():
+        return None
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = json.dumps(payload, indent=2) + "\n"
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
+
+
+def _write_genai_active_registry(
+    active_root: Path,
+    *,
+    institution_id: str,
+    onboard_run_id: str,
+    pipeline_version: str | None,
+    uc_catalog: str | None,
+) -> None:
+    inst = str(institution_id).strip()
+    rid = str(onboard_run_id).strip()
+    if not inst or not rid:
+        raise ValueError("institution_id and onboard_run_id must be non-empty")
+    payload: dict[str, Any] = {
+        "schema_version": _ACTIVE_REGISTRY_SCHEMA_VERSION,
+        "onboard_run_id": rid,
+        "institution_id": inst,
+        "promoted_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    if pipeline_version and str(pipeline_version).strip():
+        payload["pipeline_version"] = str(pipeline_version).strip()
+    if uc_catalog and str(uc_catalog).strip():
+        payload["uc_catalog"] = str(uc_catalog).strip()
+    dest = active_root / GENAI_ACTIVE_REGISTRY_BASENAME
+    _atomic_write_json(dest, payload)
+    LOGGER.info("Wrote %s (onboard_run_id=%r)", dest, rid)
+
+
 def _promote_identity_hooks_subtree(*, ia_root: Path, active_root: Path) -> None:
     """
     Copy materialized IA hook modules so ``hook_spec.file`` paths such as
@@ -48,7 +105,14 @@ def _promote_identity_hooks_subtree(*, ia_root: Path, active_root: Path) -> None
     LOGGER.info("Promoted identity_hooks tree %s -> %s", src, dst)
 
 
-def promote_genai_mapping_to_active(paths: _ActivePromotionPaths) -> None:
+def promote_genai_mapping_to_active(
+    paths: _ActivePromotionPaths,
+    *,
+    institution_id: str,
+    onboard_run_id: str,
+    pipeline_version: str | None = None,
+    uc_catalog: str | None = None,
+) -> None:
     """
     After a successful SMA onboard ``gate_2``, copy canonical artifacts from the run tree into
     ``paths.active_root`` so ``mode=execute`` can load them.
@@ -57,6 +121,9 @@ def promote_genai_mapping_to_active(paths: _ActivePromotionPaths) -> None:
     ``transformation_map.json``. Optional: ``transform_hooks.py`` if present; identity-agent
     outputs when present; ``identity_hooks/`` subtree when materialized hook modules exist
     (matches :func:`~edvise.genai.mapping.identity_agent.hitl.hook_generation.paths.default_hook_module_relpath`).
+
+    Writes :data:`GENAI_ACTIVE_REGISTRY_BASENAME` last (atomic) so ``active/`` records the source
+    ``onboard_run_id`` for this promotion.
     """
     paths.active_root.mkdir(parents=True, exist_ok=True)
     ia_root = paths.ia_enriched_schema_contract.parent
@@ -85,3 +152,11 @@ def promote_genai_mapping_to_active(paths: _ActivePromotionPaths) -> None:
         if src.is_file():
             shutil.copy2(src, dst)
             LOGGER.info("Promoted %s -> %s", src, dst)
+
+    _write_genai_active_registry(
+        paths.active_root,
+        institution_id=institution_id,
+        onboard_run_id=onboard_run_id,
+        pipeline_version=pipeline_version,
+        uc_catalog=uc_catalog,
+    )

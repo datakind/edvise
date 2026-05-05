@@ -10,12 +10,12 @@ All DML uses :meth:`pyspark.sql.SparkSession.sql` (no Delta Python API, no panda
 from __future__ import annotations
 
 import logging
-import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
 
 from edvise.genai.mapping.shared.pipeline_artifacts import (
+    new_genai_run_id,
     new_onboard_run_id,
     resolve_onboard_run_id as resolve_onboard_run_id_from_runtime,
 )
@@ -443,16 +443,14 @@ def resolve_onboard_run_id(
 
     * **Repair:** if ``pipeline_runs`` already has an onboard row for this ``db_run_id``, return
       that row's ``onboard_run_id`` (same folder as the first attempt).
-    * **New job run same calendar day:** mint ``{institution_id}_{YYYYMMDD}_1``, ``_2``, ``_3``, …
-      from how many onboard rows were **created today** (see :func:`count_pipeline_runs_created_today`)
-      — each distinct ``db_run_id`` gets its own folder name before the row exists.
+    * **New job run:** mint a new UUID v4 string (same as :func:`new_genai_run_id` / execute runs).
 
     ``db_run_id`` remains stored on ``pipeline_runs`` for Jobs correlation; it is not required to
     equal the folder segment string.
 
     When ``db_run_id`` is missing (local runs), falls back to
-    :func:`~edvise.genai.mapping.shared.pipeline_artifacts.resolve_onboard_run_id` (Spark conf,
-    ``DATABRICKS_JOB_RUN_ID``, ``GENAI_ONBOARD_RUN_ID``, or an opaque mint).
+    :func:`~edvise.genai.mapping.shared.pipeline_artifacts.resolve_onboard_run_id`
+    (``GENAI_ONBOARD_RUN_ID`` / legacy env, or :func:`~edvise.genai.mapping.shared.pipeline_artifacts.new_genai_run_id`).
 
     Set ``force_new_onboard_run=True`` to mint a fresh opaque folder (:func:`new_onboard_run_id`),
     skipping ``db_run_id`` lookup — rare escape hatch (normally start a new job).
@@ -476,14 +474,12 @@ def resolve_onboard_run_id(
         return new_onboard_run_id()
 
     db = (db_run_id or "").strip()
-    base_id = f"{inst}_{date.today().strftime('%Y%m%d')}"
 
     if db:
         existing = get_onboard_run_id_for_db_run(catalog, inst, db)
         if existing:
             return existing
-        n = count_pipeline_runs_created_today(catalog, inst)
-        return f"{base_id}_{n + 1}"
+        return new_genai_run_id()
 
     rid = resolve_onboard_run_id_from_runtime(None, create_if_missing=True)
     if rid is None:
@@ -495,7 +491,7 @@ def resolve_onboard_run_id(
 
 def new_execute_run_id() -> str:
     """Return a new UUID string for ``execute_run_id`` (execute-mode silver run folder)."""
-    return str(uuid.uuid4())
+    return new_genai_run_id()
 
 
 def get_latest_complete_onboard_run(
