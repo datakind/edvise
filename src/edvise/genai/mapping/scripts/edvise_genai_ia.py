@@ -1025,22 +1025,9 @@ def run(
             )
 
         run_execute(institution_id, paths, school_config)
-
-        try:
-            _pipeline_state.update_execute_pipeline_run_status(
-                catalog,
-                institution_id,
-                str(execute_run_id).strip(),
-                "complete",
-                db_run_id=db_run_id,
-            )
-        except Exception as e:  # noqa: BLE001
-            LOGGER.warning(
-                "Could not mark pipeline_runs complete after IA execute: catalog=%s execute_run_id=%s (%s)",
-                catalog,
-                execute_run_id,
-                e,
-            )
+        # Leave execute pipeline_runs status non-terminal (initial ``running``) until SMA execute
+        # finishes; otherwise ``bootstrap_execute_run`` in the SMA task mints a new execute_run_id
+        # and cleaned Parquet paths no longer match IA's output.
 
     elif mode == "onboard":
         if resume_from not in ("start", "gate_1"):

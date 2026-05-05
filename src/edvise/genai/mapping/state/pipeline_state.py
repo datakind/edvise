@@ -971,6 +971,9 @@ def bootstrap_execute_run(
     If today's latest **execute** ``pipeline_runs`` row is non-terminal, reuse its
     ``execute_run_id`` and ``onboard_run_id`` (artifact source). Otherwise mint a new
     ``execute_run_id`` and insert a row linking to the latest completed **onboard** run.
+
+    IA and SMA execute are separate job tasks but share one ``execute_run_id``; the row must stay
+    non-terminal until SMA finishes, or the later task will bootstrap a new id and miss IA paths.
     """
     idle = (
         stale_idle_minutes

@@ -1138,7 +1138,7 @@ def run_sma_refinement(
     llm_complete:
         Callable ``(system_prompt, user_prompt) -> raw_text`` compatible with the
         Databricks gateway pattern. If omitted, uses the default gateway client
-        (requires ``DATABRICKS_TOKEN`` and gateway env configuration).
+        (Databricks SDK default auth and gateway env configuration).
 
     Returns
     -------

@@ -70,8 +70,10 @@ def _token_from_authorization_header(headers: dict[str, str]) -> str | None:
 
 def _token_from_databricks_sdk_default_auth() -> str | None:
     """
-    On Databricks compute, ``Config().authenticate()`` often works when ``DATABRICKS_TOKEN``
-    is unset (metadata service / OAuth for the job or notebook identity).
+    Resolve a short-lived workspace bearer via ``Config().authenticate()`` (Databricks SDK).
+
+    Typical sources: job/cluster identity metadata service, OAuth M2M / service principal,
+    or a local ``databricks auth login`` profile when ``DATABRICKS_HOST`` is set.
     """
     try:
         from databricks.sdk.core import Config
@@ -90,23 +92,21 @@ def _token_from_databricks_sdk_default_auth() -> str | None:
 
 def require_databricks_token() -> str:
     """
-    Return a workspace token for the gateway ``api_key`` (PAT or OAuth bearer from the SDK).
+    Return a workspace bearer for the gateway ``api_key`` via :func:`_token_from_databricks_sdk_default_auth`.
 
-    Order: ``DATABRICKS_TOKEN`` env, then :func:`_token_from_databricks_sdk_default_auth`
-    (Databricks jobs / Repos when the env var is not injected).
+    Personal access tokens (``DATABRICKS_TOKEN``) are not used for this path.
 
     ``OPENAI_API_KEY`` is not used for this gateway.
     """
-    token = (os.environ.get("DATABRICKS_TOKEN") or "").strip()
-    if token:
-        return token
     from_sdk = _token_from_databricks_sdk_default_auth()
     if from_sdk:
         return from_sdk
     msg = (
-        "No Databricks workspace token for the MLflow AI gateway: set DATABRICKS_TOKEN "
-        "(e.g. PAT or secret-backed env) or run on Databricks with databricks-sdk default "
-        "credentials so Config().authenticate() succeeds. OPENAI_API_KEY is not used here."
+        "No Databricks workspace token for the MLflow AI gateway: databricks-sdk "
+        "Config().authenticate() did not return a Bearer token. Run on Databricks compute "
+        "with job/cluster identity, configure OAuth / service principal credentials, or "
+        "use ``databricks auth login`` locally with DATABRICKS_HOST set. "
+        "OPENAI_API_KEY is not used here."
     )
     raise ValueError(msg)
 
