@@ -12,11 +12,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from edvise.genai.mapping.shared.pipeline_artifacts import (
-    new_genai_run_id,
-    new_onboard_run_id,
     resolve_onboard_run_id as resolve_onboard_run_id_from_runtime,
 )
 from edvise.genai.mapping.state._sql import (
@@ -391,6 +389,49 @@ def count_pipeline_runs_created_today(catalog: str, institution_id: str) -> int:
     return n
 
 
+def count_execute_pipeline_runs_created_today(catalog: str, institution_id: str) -> int:
+    """Count execute-mode ``pipeline_runs`` rows (``execute_run_id`` set) created today."""
+    c = str(catalog).strip()
+    inst = str(institution_id).strip()
+    if not inst:
+        raise ValueError("institution_id must be non-empty")
+
+    t = qualified_table(c, PIPELINE_RUNS)
+    q = f"""
+    SELECT COUNT(1) AS n FROM {t}
+    WHERE institution_id = {lit(inst)}
+      AND `catalog` = {lit(c)}
+      AND to_date(created_at) = current_date()
+      AND execute_run_id IS NOT NULL
+    """
+    n = int(_spark().sql(q).collect()[0]["n"])
+    return n
+
+
+def new_genai_run_id(
+    catalog: str,
+    institution_id: str,
+    *,
+    kind: Literal["onboard", "execute"],
+) -> str:
+    """
+    Mint ``{institution_id}_{YYYYMMDD}_{n}`` using today's row counts in ``pipeline_runs``.
+
+    Onboard and execute use **separate** counters (onboard rows vs execute rows), so sequence
+    numbers are independent; paths still differ under ``runs/onboard/`` vs ``runs/execute/``.
+    """
+    c = str(catalog).strip()
+    inst = str(institution_id).strip()
+    if not c or not inst:
+        raise ValueError("catalog and institution_id must be non-empty")
+    base_id = f"{inst}_{date.today().strftime('%Y%m%d')}"
+    if kind == "onboard":
+        n = count_pipeline_runs_created_today(catalog, inst)
+    else:
+        n = count_execute_pipeline_runs_created_today(catalog, inst)
+    return f"{base_id}_{n + 1}"
+
+
 def get_onboard_run_id_for_db_run(
     catalog: str,
     institution_id: str,
@@ -443,17 +484,19 @@ def resolve_onboard_run_id(
 
     * **Repair:** if ``pipeline_runs`` already has an onboard row for this ``db_run_id``, return
       that row's ``onboard_run_id`` (same folder as the first attempt).
-    * **New job run:** mint a new UUID v4 string (same as :func:`new_genai_run_id` / execute runs).
+    * **New job run same calendar day:** mint ``{institution_id}_{YYYYMMDD}_1``, ``_2``, ``_3``, …
+      from how many **onboard** rows were **created today** (see :func:`count_pipeline_runs_created_today`)
+      — each distinct ``db_run_id`` gets its own folder name before the row exists.
 
     ``db_run_id`` remains stored on ``pipeline_runs`` for Jobs correlation; it is not required to
     equal the folder segment string.
 
     When ``db_run_id`` is missing (local runs), falls back to
     :func:`~edvise.genai.mapping.shared.pipeline_artifacts.resolve_onboard_run_id`
-    (``GENAI_ONBOARD_RUN_ID`` / legacy env, or :func:`~edvise.genai.mapping.shared.pipeline_artifacts.new_genai_run_id`).
+    (``GENAI_ONBOARD_RUN_ID`` / legacy env, or a local opaque id).
 
-    Set ``force_new_onboard_run=True`` to mint a fresh opaque folder (:func:`new_onboard_run_id`),
-    skipping ``db_run_id`` lookup — rare escape hatch (normally start a new job).
+    Set ``force_new_onboard_run=True`` to mint the next sequential **onboard** id for today via
+    :func:`new_genai_run_id` (same shape as the ``db_run_id`` branch), skipping ``db_run_id`` lookup.
     """
     LOGGER.debug(
         "resolve_onboard_run_id catalog=%r institution_id=%r db_run_id=%r force_new_onboard_run=%s",
@@ -471,7 +514,7 @@ def resolve_onboard_run_id(
         raise ValueError("institution_id must be non-empty")
 
     if force_new_onboard_run:
-        return new_onboard_run_id()
+        return new_genai_run_id(catalog, institution_id, kind="onboard")
 
     db = (db_run_id or "").strip()
 
@@ -479,7 +522,7 @@ def resolve_onboard_run_id(
         existing = get_onboard_run_id_for_db_run(catalog, inst, db)
         if existing:
             return existing
-        return new_genai_run_id()
+        return new_genai_run_id(catalog, institution_id, kind="onboard")
 
     rid = resolve_onboard_run_id_from_runtime(None, create_if_missing=True)
     if rid is None:
@@ -489,9 +532,9 @@ def resolve_onboard_run_id(
     return rid
 
 
-def new_execute_run_id() -> str:
-    """Return a new UUID string for ``execute_run_id`` (execute-mode silver run folder)."""
-    return new_genai_run_id()
+def new_execute_run_id(catalog: str, institution_id: str) -> str:
+    """Mint ``execute_run_id`` (same ``{institution_id}_{YYYYMMDD}_{n}`` shape as onboard)."""
+    return new_genai_run_id(catalog, institution_id, kind="execute")
 
 
 def get_latest_complete_onboard_run(
@@ -966,7 +1009,7 @@ def bootstrap_execute_run(
             "Completed onboard row is missing onboard_run_id; cannot start execute."
         )
 
-    ex_id = new_execute_run_id()
+    ex_id = new_execute_run_id(catalog, institution_id)
     create_execute_pipeline_run(
         catalog,
         institution_id,

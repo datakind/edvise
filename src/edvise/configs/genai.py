@@ -180,9 +180,10 @@ class SchoolMappingConfig(StrictBaseModel):
         default=None,
         validation_alias=AliasChoices("onboard_run_id", "pipeline_run_id"),
         description=(
-            "Onboard run folder id (UUID v4 when minted; artifact paths + UC registry). "
+            "Onboard run folder id (``{institution_id}_{YYYYMMDD}_{n}`` when minted with UC; "
+            "artifact paths + UC registry). "
             "Resolved by :func:`~edvise.genai.mapping.shared.pipeline_artifacts.resolve_onboard_run_id` "
-            "(``GENAI_ONBOARD_RUN_ID`` / legacy ``GENAI_PIPELINE_RUN_ID``, or mint when allowed). "
+            "(``GENAI_ONBOARD_RUN_ID`` / legacy ``GENAI_PIPELINE_RUN_ID``, or local opaque mint when allowed). "
             "Databricks job correlation uses ``pipeline_runs.db_run_id``, not this path segment. "
             "When set with ``bronze_volumes_path``, outputs live under "
             "``genai_pipeline/<onboard_run_id>/`` (institution is implied by the volume root). "

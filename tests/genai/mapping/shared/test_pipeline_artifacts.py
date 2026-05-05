@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import uuid
+import re
 from pathlib import Path
 
 import pytest
@@ -73,12 +73,12 @@ def test_resolve_onboard_run_id_manual_env_over_databricks_job_env(monkeypatch):
     assert resolve_onboard_run_id(None) == "manual"
 
 
-def test_resolve_onboard_run_id_mints_uuid_when_missing(monkeypatch):
+def test_resolve_onboard_run_id_mints_local_opaque_when_missing(monkeypatch):
     monkeypatch.delenv("GENAI_ONBOARD_RUN_ID", raising=False)
     monkeypatch.delenv(LEGACY_GENAI_PIPELINE_RUN_ID_ENV, raising=False)
     monkeypatch.delenv("DATABRICKS_JOB_RUN_ID", raising=False)
     rid = resolve_onboard_run_id(None, create_if_missing=True)
-    assert uuid.UUID(rid).version == 4
+    assert re.match(r"^\d{8}T\d{6}Z_[0-9a-f]{8}$", rid)
 
 
 def test_coerce_pipeline_version_explicit_and_env(monkeypatch):

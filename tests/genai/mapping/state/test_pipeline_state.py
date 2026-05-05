@@ -217,29 +217,33 @@ def test_resolve_onboard_run_id_explicit_override(monkeypatch) -> None:
 
 def test_resolve_onboard_run_id_new_db_first_of_day(monkeypatch) -> None:
     fake = _FakeSpark()
-    fake.set_sql_result_queue([_Result([])])
+    fake.set_sql_result_queue([_Result([]), _Result([_Row({"n": 0})])])
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
-    monkeypatch.setattr(pipeline_state, "new_genai_run_id", lambda: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
+    from datetime import date
+
+    base = f"foo_{date.today().strftime('%Y%m%d')}"
     assert (
         pipeline_state.resolve_onboard_run_id(
             "c", "foo", None, db_run_id="987654321"
         )
-        == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        == f"{base}_1"
     )
     assert "onboard_run_id FROM" in fake.statements[0]
-    assert len(fake.statements) == 1
+    assert "COUNT(1)" in fake.statements[1]
 
 
 def test_resolve_onboard_run_id_second_db_same_day(monkeypatch) -> None:
     fake = _FakeSpark()
-    fake.set_sql_result_queue([_Result([])])
+    fake.set_sql_result_queue([_Result([]), _Result([_Row({"n": 1})])])
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
-    monkeypatch.setattr(pipeline_state, "new_genai_run_id", lambda: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    from datetime import date
+
+    base = f"foo_{date.today().strftime('%Y%m%d')}"
     assert (
         pipeline_state.resolve_onboard_run_id(
             "c", "foo", None, db_run_id="222"
         )
-        == "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+        == f"{base}_2"
     )
 
 
@@ -262,17 +266,22 @@ def test_resolve_onboard_run_id_db_run_id_over_runtime_env(monkeypatch) -> None:
     monkeypatch.delenv("DATABRICKS_JOB_RUN_ID", raising=False)
     monkeypatch.setenv("GENAI_ONBOARD_RUN_ID", "would_be_this_without_db")
     fake = _FakeSpark()
-    fake.set_sql_result_queue([_Result([])])
+    fake.set_sql_result_queue([_Result([]), _Result([_Row({"n": 0})])])
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
-    monkeypatch.setattr(pipeline_state, "new_genai_run_id", lambda: "cccccccc-cccc-cccc-cccc-cccccccccccc")
-    assert (
-        pipeline_state.resolve_onboard_run_id("c", "foo", None, db_run_id="111")
-        == "cccccccc-cccc-cccc-cccc-cccccccccccc"
-    )
+    from datetime import date
+
+    base = f"foo_{date.today().strftime('%Y%m%d')}"
+    assert pipeline_state.resolve_onboard_run_id("c", "foo", None, db_run_id="111") == f"{base}_1"
 
 
 def test_resolve_onboard_run_id_force_new_ignores_db_run_id(monkeypatch) -> None:
-    monkeypatch.setattr(pipeline_state, "new_onboard_run_id", lambda: "opaque_forced")
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    monkeypatch.setattr(
+        pipeline_state,
+        "new_genai_run_id",
+        lambda c, i, kind="onboard": "forced_id",
+    )
     assert (
         pipeline_state.resolve_onboard_run_id(
             "c",
@@ -281,7 +290,7 @@ def test_resolve_onboard_run_id_force_new_ignores_db_run_id(monkeypatch) -> None
             db_run_id="999",
             force_new_onboard_run=True,
         )
-        == "opaque_forced"
+        == "forced_id"
     )
 
 
@@ -391,7 +400,11 @@ def test_bootstrap_execute_run_mints(monkeypatch) -> None:
     monkeypatch.setattr(
         pipeline_state, "create_state_tables", lambda *args, **kwargs: None
     )
-    monkeypatch.setattr(pipeline_state, "new_execute_run_id", lambda: "exec-uuid-1")
+    monkeypatch.setattr(
+        pipeline_state,
+        "new_execute_run_id",
+        lambda catalog, institution_id: "exec-uuid-1",
+    )
     onboard_row = _Row(
         {
             "onboard_run_id": "src_onboard",
@@ -405,6 +418,7 @@ def test_bootstrap_execute_run_mints(monkeypatch) -> None:
             _Result([]),
             _Result([]),
             _Result([onboard_row]),
+            _Result([_Row({"n": 0})]),
             _Result([]),
         ]
     )

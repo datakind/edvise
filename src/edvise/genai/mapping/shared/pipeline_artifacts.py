@@ -37,7 +37,7 @@ import json
 import logging
 import os
 import re
-import uuid
+import secrets
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -68,14 +68,15 @@ GENAI_PIPELINE_RUN_METADATA_BASENAME: Final[str] = "genai_pipeline_run.json"
 """Run-level JSON: ``pipeline_version`` (git/edvise), ``onboard_run_id``, ``institution_id``."""
 
 
-def new_genai_run_id() -> str:
-    """Return a new UUID v4 string (shared by onboard and execute pipeline run folder ids)."""
-    return str(uuid.uuid4())
-
-
 def new_onboard_run_id() -> str:
-    """Return a new opaque onboard run id (same format as :func:`new_genai_run_id`)."""
-    return new_genai_run_id()
+    """
+    Local-only opaque id when catalog/UC counters are unavailable (no Spark).
+
+    Shape is UTC ``%Y%m%dT%H%M%SZ`` plus an 8-char hex suffix — not the ``inst_YYYYMMDD_n`` form.
+    For Databricks runs prefer :func:`~edvise.genai.mapping.state.pipeline_state.new_genai_run_id`.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"{ts}_{secrets.token_hex(4)}"
 
 
 def resolve_onboard_run_id(
@@ -93,7 +94,7 @@ def resolve_onboard_run_id(
     1. **explicit** non-empty string
     2. **``os.environ[env_manual_var]``** (default ``GENAI_ONBOARD_RUN_ID``) — local / manual override
     3. **``os.environ[GENAI_PIPELINE_RUN_ID]``** — legacy manual override when (2) is unset
-    4. If ``create_if_missing`` is True: :func:`new_genai_run_id`
+    4. If ``create_if_missing`` is True: :func:`new_onboard_run_id` (local opaque; not ``inst_YYYYMMDD_n``)
 
     Databricks job run correlation uses ``pipeline_runs.db_run_id`` (and ``--db_run_id``), not the
     folder segment. The ``env_job_run_var`` parameter is retained for API compatibility but ignored.
@@ -110,7 +111,7 @@ def resolve_onboard_run_id(
     if legacy_manual and str(legacy_manual).strip():
         return str(legacy_manual).strip()
     if create_if_missing:
-        rid = new_genai_run_id()
+        rid = new_onboard_run_id()
         LOGGER.info("Assigned new GENAI onboard_run_id=%s", rid)
         return rid
     return None
@@ -503,7 +504,6 @@ __all__ = [
     "build_genai_pipeline_artifact_rows",
     "discover_artifact_files",
     "merge_genai_pipeline_artifact_rows",
-    "new_genai_run_id",
     "new_onboard_run_id",
     "parse_uc_catalog_from_volume_path",
     "register_discovered_artifacts_to_uc",
