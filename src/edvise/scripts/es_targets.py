@@ -29,6 +29,7 @@ from edvise.shared.logger import (
 )
 from edvise.shared.validation import require, warn_if
 from edvise.targets.invoke import compute_target_from_config
+from edvise.targets.retention_edvise import assign_retention_column
 
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
@@ -47,9 +48,16 @@ class ESTargetsTask:
         if preproc is None or preproc.target is None:
             raise ValueError("cfg.preprocessing.target must be configured.")
 
+        target_cfg = preproc.target
+        df = df_student_terms
+        if target_cfg.type_ == "retention":
+            df = assign_retention_column(
+                df, student_id_col=self.cfg.student_id_col
+            )
+
         return compute_target_from_config(
-            preproc.target,
-            df_student_terms,
+            target_cfg,
+            df,
             df_ckpt,
             student_id_col=self.cfg.student_id_col,
         )

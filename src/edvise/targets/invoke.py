@@ -16,12 +16,6 @@ def compute_target_from_config(
     *,
     student_id_col: str,
 ) -> pd.Series:
-    """
-    Dump ``target_cfg`` to kwargs (excluding ``name`` and ``type_``), pass ``df_checkpoint``
-    for ``credits_earned``, and pass ``student_id_col`` (from
-    :attr:`PDPProjectConfig.student_id_col` / :attr:`ESProjectConfig.student_id_col`) to
-    ``compute_target`` as ``student_id_cols``. Returns the target :class:`pandas.Series` .
-    """
     if target_cfg is None:
         raise ValueError("target config is required (cfg.preprocessing.target).")
 
