@@ -13,6 +13,9 @@ variables:
   git_tag:
     description: "Release tag to fetch for deployment (prod)"
     default: ""
+  pipeline_version:
+    description: "Default pipeline_version passed to genai mapping jobs"
+    default: ""
   DB_workspace:
     description: "Databricks workspace (Unity Catalog name)"
   ds_run_as:
@@ -27,29 +30,22 @@ variables:
 run_as:
   service_principal_name: ${var.ds_run_as}
 
-# GenAI job ``pipeline_version`` matches PDP: dev targets default to ``git_commit``, prod to ``git_tag``.
-
 targets:
   dev:
     mode: development
     default: true
     variables:
+      pipeline_version: ${var.git_commit}
       DB_workspace: "dev_sst_02"
       genai_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"  # edvise-data-crew channel on dev_sst_02
     resources:
       jobs:
         edvise_genai_mapping_onboard_pipeline:
-          parameters:
-            - name: pipeline_version
-              default: ${var.git_commit}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_commit: ${var.git_commit}
         edvise_genai_mapping_execute_pipeline:
-          parameters:
-            - name: pipeline_version
-              default: ${var.git_commit}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
@@ -58,22 +54,17 @@ targets:
   prod:
     mode: production
     variables:
+      pipeline_version: ${var.git_tag}
       DB_workspace: "staging_sst_01"
       genai_slack_webhook_id: "0fb252f8-f343-4be7-91de-b55f5408a031"  # edvise-data-crew channel on staging_sst_01
     resources:
       jobs:
         edvise_genai_mapping_onboard_pipeline:
-          parameters:
-            - name: pipeline_version
-              default: ${var.git_tag}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_tag: ${var.git_tag}
         edvise_genai_mapping_execute_pipeline:
-          parameters:
-            - name: pipeline_version
-              default: ${var.git_tag}
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub

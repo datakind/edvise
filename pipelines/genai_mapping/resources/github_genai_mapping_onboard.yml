@@ -155,9 +155,8 @@ resources:
           default: ${var.DB_workspace}
         - name: inputs_toml_path
           default: "inputs.toml"
-        # Bundle targets patch default: dev → git commit, prod → release tag (pipelines/genai_mapping/databricks.yml).
         - name: pipeline_version
-          default: ""
+          default: ${var.pipeline_version}
         - name: reference_id
           default: ""
         - name: db_run_id
