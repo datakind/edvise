@@ -16,14 +16,28 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --gcp_blob_prefix
+              - "{{job.parameters.gcp_blob_prefix}}"
               - --config_file_name
               - "{{job.parameters.config_file_name}}"
               - --features_table_name
               - "{{job.parameters.features_table_name}}"
+              - --bronze_file_overrides_json
+              - "{{job.parameters.bronze_file_overrides_json}}"
+              - --bronze_file_overrides_manifest_path
+              - "{{job.parameters.bronze_file_overrides_manifest_path}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
           libraries:
             - pypi:
                 package: mlflow~=2.22
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: tomlkit==0.13.3
 
         # SSI workspace preprocessing.py; config from silver training artifacts (inference_setup).
         - task_key: legacy_preprocessing
@@ -196,6 +210,12 @@ resources:
           default: ${var.legacy_preprocessing_enabled}
         - name: gcp_bucket_name
           default: databricks-2052166062819251-unitycatalog
+        - name: gcp_blob_prefix
+          default: validated
+        - name: bronze_file_overrides_json
+          default: ""
+        - name: bronze_file_overrides_manifest_path
+          default: ""
         - name: service_account_executer
           default: ${var.service_account_executer}
         - name: datakind_notification_email

@@ -4,14 +4,16 @@ For instance, copying files from Databricks volumes into GCP buckets.
 """
 
 import os
+from typing import Optional
+from urllib.parse import urlparse
 
-from databricks.sdk.runtime import dbutils  # noqa: F401
 from google.cloud import storage
-from google.cloud.storage.bucket import Bucket
+
+from edvise.utils.databricks import get_dbutils_or_none
 
 
 def save_file(
-    bucket: Bucket, src_volume_filepath: str, dest_bucket_pathname: str
+    bucket: "storage.Bucket", src_volume_filepath: str, dest_bucket_pathname: str
 ) -> None:
     """Save file from databricks volume to a GCP bucket path.
 
@@ -27,6 +29,106 @@ def save_file(
     if blob.exists():
         raise ValueError(dest_bucket_pathname + ": File already exists in bucket.")
     blob.upload_from_filename(src_volume_filepath)
+
+
+def parse_gcs_uri(gcs_uri: str) -> tuple[str, str]:
+    """
+    Parse a ``gs://`` URI into ``(bucket_name, blob_name)``.
+    """
+    parsed = urlparse(gcs_uri)
+    bucket_name = parsed.netloc
+    blob_name = parsed.path.lstrip("/")
+    if not bucket_name or not blob_name:
+        raise ValueError(f"Invalid GCS URI: {gcs_uri!r}")
+    return bucket_name, blob_name
+
+
+def get_storage_client(client: Optional[storage.Client] = None) -> storage.Client:
+    """Return an existing GCS client or create a new one."""
+    return client or storage.Client()
+
+
+def download_gcs_uri_to_filename(
+    gcs_uri: str,
+    destination_path: str,
+    *,
+    storage_client: Optional[storage.Client] = None,
+) -> str:
+    """
+    Download a ``gs://`` URI to an explicit local destination path.
+    """
+    bucket_name, blob_name = parse_gcs_uri(gcs_uri)
+    os.makedirs(os.path.dirname(destination_path), exist_ok=True)
+    client = get_storage_client(storage_client)
+    client.bucket(bucket_name).blob(blob_name).download_to_filename(destination_path)
+    return destination_path
+
+
+def download_gcs_uri_to_dir(
+    gcs_uri: str,
+    destination_dir: str,
+    *,
+    storage_client: Optional[storage.Client] = None,
+) -> str:
+    """
+    Download a ``gs://`` URI into ``destination_dir`` using the blob basename.
+    Returns the full downloaded file path.
+    """
+    _, blob_name = parse_gcs_uri(gcs_uri)
+    destination_path = os.path.join(destination_dir, os.path.basename(blob_name))
+    return download_gcs_uri_to_filename(
+        gcs_uri,
+        destination_path,
+        storage_client=storage_client,
+    )
+
+
+def resolve_input_source_to_local_path(
+    source: str,
+    destination_dir: str,
+    *,
+    gcp_bucket_name: str = "",
+    gcp_blob_prefix: str = "",
+    storage_client: Optional[storage.Client] = None,
+) -> str:
+    """
+    Resolve an input source into a local path.
+
+    Supported source formats:
+      - absolute path (``/Volumes/...``) or ``dbfs:/...`` path: returned unchanged
+      - ``gs://bucket/path``: downloaded to ``destination_dir``
+      - object name (e.g. ``foo/bar.csv``): resolved via
+        ``gs://{gcp_bucket_name}/{gcp_blob_prefix}/{object_name}``
+    """
+    value = source.strip()
+    if not value:
+        raise ValueError("Input source must be non-empty.")
+
+    if value.startswith("/") or value.startswith("dbfs:/"):
+        return value
+
+    if value.startswith("gs://"):
+        return download_gcs_uri_to_dir(
+            value,
+            destination_dir,
+            storage_client=storage_client,
+        )
+
+    if not gcp_bucket_name:
+        raise ValueError(
+            "gcp_bucket_name is required when source is not a path or gs:// URI."
+        )
+    if "://" in value:
+        raise ValueError(f"Unsupported source URI: {value!r}")
+
+    rel = value.lstrip("/")
+    prefix = gcp_blob_prefix.strip().strip("/")
+    blob_name = f"{prefix}/{rel}" if prefix else rel
+    return download_gcs_uri_to_dir(
+        f"gs://{gcp_bucket_name}/{blob_name}",
+        destination_dir,
+        storage_client=storage_client,
+    )
 
 
 def publish_inference_output_files(
@@ -56,6 +158,11 @@ def publish_inference_output_files(
     # Source: The Databricks volume path we want to read the files from.
     volume_path_top_level = f"/Volumes/{db_workspace}/{institution_name}_gold/gold_volume/inference_jobs/{sst_job_id}/ext"
     volume_path_inference_folder = f"{volume_path_top_level}/inference_output"
+    dbutils = get_dbutils_or_none()
+    if dbutils is None:
+        raise RuntimeError(
+            "Databricks dbutils are required to publish inference outputs."
+        )
 
     storage_client = storage.Client()
     bucket = storage_client.bucket(external_bucket_name)
