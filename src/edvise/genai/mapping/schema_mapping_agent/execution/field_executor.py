@@ -29,6 +29,7 @@ Key design principles:
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from typing import Any, Optional, Type
 
 import pandas as pd
@@ -43,6 +44,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.validation import (
     infer_manifest_base_table,
 )
 from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
+    FieldTransformationPlan,
     TransformationMap,
     TransformationStep,
 )
@@ -641,6 +643,130 @@ def _apply_grain_reduction(
     )
 
 
+def _accumulate_required_source_columns_for_plan(
+    record: FieldMappingRecord,
+    plan: FieldTransformationPlan,
+    required: dict[str, set[str]],
+    *,
+    base_table: str,
+    alias_map: dict[str, dict[str, str]],
+) -> None:
+    """
+    Collect dataset columns the field executor reads for this manifest record + plan.
+
+    Mirrors skip rules and sourcing paths in :func:`execute_transformation_map`.
+    """
+    for step in plan.steps:
+        extra = getattr(step, "extra_columns", None)
+        if extra:
+            for col in extra.values():
+                if col:
+                    required[base_table].add(col)
+
+    eff = _effective_source_column(record)
+    if not eff or not record.source_table:
+        return
+
+    rs = record.row_selection
+
+    if record.join:
+        j = record.join
+        base_side = j.base_table
+        lookup_side = j.lookup_table
+        base_keys = _resolve_join_keys(j.join_keys, base_side, alias_map)
+        lookup_keys = _resolve_join_keys(j.join_keys, lookup_side, alias_map)
+        required[base_side].update(base_keys)
+        required[lookup_side].update(lookup_keys)
+        required[lookup_side].add(eff)
+        if rs:
+            if rs.filter:
+                required[lookup_side].add(rs.filter.column)
+            if rs.order_by:
+                required[lookup_side].add(rs.order_by)
+            if (
+                rs.strategy == RowSelectionStrategy.where_not_null
+                and rs.condition_col
+            ):
+                required[base_side].add(rs.condition_col)
+        return
+
+    st = record.source_table
+    required[st].add(eff)
+    if not rs:
+        return
+    if rs.strategy == RowSelectionStrategy.first_by and rs.order_by:
+        required[st].add(rs.order_by)
+    if rs.strategy == RowSelectionStrategy.where_not_null and rs.condition_col:
+        required[st].add(rs.condition_col)
+    if rs.strategy == RowSelectionStrategy.nth and rs.order_by:
+        required[st].add(rs.order_by)
+
+
+def validate_source_columns_for_execute(
+    transformation_map: TransformationMap,
+    manifest: FieldMappingManifest,
+    schema: Type,
+    dataframes: dict[str, pd.DataFrame],
+) -> None:
+    """
+    Ensure cleaned dataframes contain every column SMA reads for this entity.
+
+    Raises ``ExecutionError`` with a concise report if any required column is missing.
+    Call using the same ``dataframes`` passed to :func:`execute_transformation_map`
+    (before the executor mutates the base frame).
+    """
+    alias_map = _build_alias_map(manifest)
+    manifest_index = {m.target_field: m for m in manifest.mappings}
+    base_table = infer_manifest_base_table(manifest)
+    if base_table not in dataframes:
+        raise ExecutionError(
+            f"Base table '{base_table}' not found in dataframes. "
+            f"Available: {sorted(dataframes.keys())}"
+        )
+    base_df_in = dataframes[base_table]
+    entity_keys_pre = _derive_entity_keys(manifest, schema, base_df=base_df_in)
+
+    required: dict[str, set[str]] = defaultdict(set)
+    for ek in entity_keys_pre:
+        required[base_table].add(ek)
+
+    for plan in transformation_map.plans:
+        record = manifest_index.get(plan.target_field)
+        if not record:
+            continue
+        if plan.hook_required:
+            continue
+        if not plan.steps and not record.source_column:
+            continue
+        _accumulate_required_source_columns_for_plan(
+            record,
+            plan,
+            required,
+            base_table=base_table,
+            alias_map=alias_map,
+        )
+
+    problems: list[str] = []
+    for ds in sorted(required.keys()):
+        cols = required[ds]
+        if ds not in dataframes:
+            problems.append(
+                f"{ds}: missing dataset (required columns: {sorted(cols)})"
+            )
+            continue
+        have = set(dataframes[ds].columns)
+        missing = sorted(c for c in cols if c not in have)
+        if missing:
+            problems.append(f"{ds}: missing columns {missing}")
+
+    if problems:
+        raise ExecutionError(
+            "Cleaned data is missing columns required by the active field mapping / "
+            "transformation plans — "
+            + "; ".join(problems)
+        )
+
+
 # =============================================================================
 # Transformation map execution
 # =============================================================================
@@ -681,6 +807,10 @@ def execute_transformation_map(
     Returns:
         ExecutionResult with assembled target DataFrame and execution metadata
     """
+    validate_source_columns_for_execute(
+        transformation_map, manifest, schema, dataframes
+    )
+
     alias_map = _build_alias_map(manifest)
     manifest_index = {m.target_field: m for m in manifest.mappings}
     base_table = infer_manifest_base_table(manifest)

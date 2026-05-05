@@ -662,6 +662,7 @@ def run_execute(
     from edvise.data_audit.custom_cleaning import (
         enforce_schema_contract,
         load_schema_contract,
+        normalize_columns,
     )
     from edvise.genai.mapping.identity_agent.dataset_io import (
         load_school_dataset_dataframe,
@@ -707,10 +708,12 @@ def run_execute(
         "student_id" if _clc == "student_id" else "learner_id"
     )
 
-    # Soft, non-blocking: compare raw file headers to onboard frozen ``normalized_columns`` keys.
+    # Soft, non-blocking: compare raw headers to onboard ``normalized_columns`` using the same
+    # ``normalize_columns`` as ``clean_dataset`` step 1 — so Title Case keys match snake_case files.
     soft_raw_header_warnings: list[str] = []
     LOGGER.info(
-        "[execute] Soft raw-header check vs contract normalized_columns (before cleaning)"
+        "[execute] Soft raw-header check vs contract normalized_columns "
+        "(normalize_columns, before cleaning)"
     )
     for ds_name in school_config.datasets:
         if ds_name not in schema_contract.get("datasets", {}):
@@ -729,25 +732,48 @@ def run_execute(
             soft_raw_header_warnings.append(w)
             LOGGER.warning("[execute] Soft header check — %s", w)
             continue
-        raw_stripped = {str(c).strip() for c in raw_df.columns}
-        expected_stripped = {str(k).strip() for k in nc.keys()}
+        raw_cols = [str(c).strip() for c in raw_df.columns]
+        norm_raw_idx, _ = normalize_columns(raw_cols)
+        raw_tokens = {str(t) for t in norm_raw_idx}
+
+        orig_keys = list(nc.keys())
+        norm_key_idx, _ = normalize_columns(orig_keys)
+        key_tokens = {str(t) for t in norm_key_idx}
+
+        frozen_vals = [str(v).strip() for v in nc.values()]
+        norm_val_idx, _ = normalize_columns(frozen_vals)
+        value_tokens = {str(t) for t in norm_val_idx}
+
+        allowlist = key_tokens | value_tokens
+
+        missing_key_tokens = key_tokens - raw_tokens
         missing_orig = sorted(
-            k for k in nc.keys() if str(k).strip() not in raw_stripped
+            orig_keys[i]
+            for i, tok in enumerate(norm_key_idx)
+            if str(tok) in missing_key_tokens
         )
-        unexpected_raw = sorted(h for h in raw_stripped if h not in expected_stripped)
+        unexpected_raw = sorted(
+            raw_cols[i]
+            for i, tok in enumerate(norm_raw_idx)
+            if str(tok) not in allowlist
+        )
         if missing_orig:
             w = (
-                f"{ds_name}: raw file missing onboard header(s) "
+                f"{ds_name}: after normalize_columns, raw file missing onboard source column(s) "
                 f"(normalized_columns keys): {missing_orig}"
             )
             soft_raw_header_warnings.append(w)
             LOGGER.warning("[execute] Soft header drift — %s", w)
         if unexpected_raw:
             preview = unexpected_raw if len(unexpected_raw) <= 40 else unexpected_raw[:40]
-            suffix = "" if len(unexpected_raw) <= 40 else f" … (+{len(unexpected_raw) - 40} more)"
+            suffix = (
+                ""
+                if len(unexpected_raw) <= 40
+                else f" … (+{len(unexpected_raw) - 40} more)"
+            )
             w = (
-                f"{ds_name}: raw file has header(s) not present at onboard: "
-                f"{preview}{suffix}"
+                f"{ds_name}: raw file has column(s) not explained by onboard "
+                f"(keys/values after normalize_columns): {preview}{suffix}"
             )
             soft_raw_header_warnings.append(w)
             LOGGER.info("[execute] Soft header note — %s", w)
@@ -859,9 +885,11 @@ def run_execute(
             "\n".join(f"  - {i}" for i in drift_issues),
         )
         if missing_datasets or has_missing_cols:
-            raise RuntimeError(
-                f"Schema drift check failed for {institution_id} — missing datasets or columns. "
-                "Review schema_drift_report.json. Trigger onboard if re-mapping is needed."
+            LOGGER.warning(
+                "[execute] Schema drift (missing datasets/columns) for %s — "
+                "continuing; see schema_drift_report.json. "
+                "SMA execute will fail if active mapping source columns are absent.",
+                institution_id,
             )
 
     LOGGER.info("[execute] Enforcing active frozen schema contract (enforce_schema_contract)")
