@@ -117,34 +117,24 @@ class ModelInferenceTask:
             self.cfg = configs.legacy.apply_runtime_uc_catalog(
                 self.cfg, self.args.DB_workspace
             )
-            term_override = parse_term_filter_param(
-                getattr(self.args, "term_filter", "") or None
+            # Same resolution as PDP ``pdp_inf_prep.InferencePrepTask`` (job param vs config).
+            param_cohort = parse_term_filter_param(
+                getattr(self.args, "term_filter", None)
             )
-            if term_override is not None:
+            if param_cohort is not None:
                 if self.cfg.inference is None:
-                    self.cfg = self.cfg.model_copy(
-                        update={
-                            "inference": configs.legacy.InferenceConfig(
-                                term=term_override
-                            )
-                        }
+                    self.cfg.inference = configs.legacy.InferenceConfig(
+                        cohort=param_cohort
                     )
                 else:
-                    self.cfg = self.cfg.model_copy(
-                        update={
-                            "inference": self.cfg.inference.model_copy(
-                                update={"term": term_override}
-                            )
-                        }
-                    )
+                    self.cfg.inference.term = param_cohort
                 logging.info(
-                    "Legacy inference term source: job param; term_filter=%s",
-                    term_override,
+                    "Inference cohort source: job param; term_filter=%s", param_cohort
                 )
-            elif self.cfg.inference is not None:
+            else:
                 logging.info(
-                    "Legacy inference term source: config; term=%s",
-                    getattr(self.cfg.inference, "term", None),
+                    "Inference cohort source: config; cohort=%s",
+                    self.cfg.inference.term if self.cfg.inference else None,
                 )
         self.features_table_path = self.spec.features_table_path
         # Populated by load_mlflow_model()
@@ -557,11 +547,11 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--term_filter",
         type=str,
-        default="",
+        default=None,
         help=(
-            'Legacy only: optional JSON list of term labels (e.g. ["fall 2024-25"]). '
-            "Empty uses [inference].term from config (same semantics as PDP "
-            "`pdp_inf_prep --term_filter`). Ignored when --schema_type=pdp."
+            'Legacy only: JSON list of term/cohort labels (e.g. ["fall 2024-25"]). '
+            "Omit or null for config default. Same semantics as PDP "
+            "`pdp_inf_prep --term_filter`. Ignored when --schema_type=pdp."
         ),
     )
     return parser.parse_args()
