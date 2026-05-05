@@ -222,6 +222,9 @@ def build_schema_contract_from_config(
         dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
     ] = None,
     canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
+    *,
+    generate_dtypes: bool = True,
+    build_frozen_contract: bool = True,
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
     Build schema contract from inputs.toml SchoolMappingConfig.
@@ -245,6 +248,12 @@ def build_schema_contract_from_config(
         canonical_learner_column: Person-key column after cleaning. GenAI defaults to
             ``\"learner_id\"``; custom data audit callers should pass ``\"student_id\"`` to match
             :func:`~edvise.data_audit.custom_cleaning.clean_dataset` defaults.
+        generate_dtypes: Forwarded to :func:`~edvise.data_audit.custom_cleaning.clean_dataset`.
+            Use ``False`` at inference together with a **previously frozen** contract and
+            :func:`~edvise.data_audit.custom_cleaning.enforce_schema_contract` (see
+            :func:`~edvise.data_audit.custom_cleaning.clean_dataset` docstring).
+        build_frozen_contract: When ``False``, skip :func:`~edvise.data_audit.custom_cleaning.build_schema_contract`
+            and return ``{}`` as the second value so callers keep an existing frozen JSON.
 
     Returns:
         Tuple of (cleaned_dataframes, schema_contract)
@@ -271,11 +280,19 @@ def build_schema_contract_from_config(
     specs: dict[str, dict[str, Any]] = {}
     envelope_student_id_aliases: list[str | None] = []
 
-    logger.info(
-        "Building schema contract for %s (%s)",
-        school_config.institution_name or school_config.institution_id,
-        school_config.institution_id,
-    )
+    if build_frozen_contract:
+        logger.info(
+            "Building schema contract for %s (%s)",
+            school_config.institution_name or school_config.institution_id,
+            school_config.institution_id,
+        )
+    else:
+        logger.info(
+            "Cleaning datasets for %s (%s) — inference pass (generate_dtypes=%s, no freeze)",
+            school_config.institution_name or school_config.institution_id,
+            school_config.institution_id,
+            generate_dtypes,
+        )
 
     for dataset_name, dataset_config in school_config.datasets.items():
         logical_name = (
@@ -342,7 +359,7 @@ def build_schema_contract_from_config(
             dataset_name=logical_name,
             inference_opts=dtype_opts,
             enforce_uniqueness=True,
-            generate_dtypes=True,
+            generate_dtypes=generate_dtypes,
             cleaning_cfg=merged_cleaning,
             canonical_learner_column=canonical_learner_column,
         )
@@ -357,13 +374,17 @@ def build_schema_contract_from_config(
         )
 
         cleaned_map[logical_name] = df_clean
-        # Same resolution as clean_spec unique keys, then canonical learner column for freeze_schema.
-        specs[logical_name] = {
-            "unique keys": unique_keys_for_contract,
-            "non-null columns": [],
-            "_orig_cols_": original_columns,
-            "term_column": term_col,
-        }
+        if build_frozen_contract:
+            # Same resolution as clean_spec unique keys, then canonical learner column for freeze_schema.
+            specs[logical_name] = {
+                "unique keys": unique_keys_for_contract,
+                "non-null columns": [],
+                "_orig_cols_": original_columns,
+                "term_column": term_col,
+            }
+
+    if not build_frozen_contract:
+        return cleaned_map, {}
 
     contract_null_tokens = (
         list(merged_global.null_tokens) if merged_global else ["(Blank)"]
