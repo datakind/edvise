@@ -395,6 +395,7 @@ Step 1 — Decide if a join is needed
   declare a join object on that mapping record. A cross-table mapping with no join
   is invalid and will cause a runtime error.
 - If source_column is in the entity base table, omit the join object entirely.
+- Omitted join ⇒ source_column is read only from the inferred base table (first join.base_table on the manifest, else the mode of source_table); source_table must match that base — otherwise declare a join (validation: CROSS_TABLE_REQUIRES_JOIN).
 
 Step 2 — Determine join_keys from grain reasoning
 - join_keys are not a property of the lookup table alone — they depend on the

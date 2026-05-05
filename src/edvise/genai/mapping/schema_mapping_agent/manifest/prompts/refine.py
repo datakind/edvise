@@ -85,6 +85,13 @@ HITL_CONFIDENCE_THRESHOLD = PIPELINE_HITL_CONFIDENCE_THRESHOLD
 
 _LOG = logging.getLogger(__name__)
 
+# Shared one-liner: executor + validation agree on base-table inference (see validate_manifest).
+_BASE_TABLE_JOIN_HINT = (
+    "Omitted join ⇒ source_column is read only from the inferred base table (any mapping's "
+    "join.base_table, else the mode of source_table). For CROSS_TABLE_REQUIRES_JOIN or "
+    "wrong-table sourcing, add a full join + lookup source_table and keys — not source_table alone."
+)
+
 
 def _parse_sma_refinement_llm_dict(raw: str) -> dict[str, Any]:
     """Parse gateway JSON (after fence strip) to a top-level object; use Pydantic errors for retry."""
@@ -264,9 +271,13 @@ REFINED_CORRECTIONS / HITL_FLAGS:
 OTHER:
   - Fields in the auto_approved_fields list must have field_statuses[target_field]="auto_approved"
     and NO refined_corrections entry and NO hitl_flags entry.
-""".format(threshold=HITL_CONFIDENCE_THRESHOLD)
+  - {base_table_join_hint}
+""".format(
+    threshold=HITL_CONFIDENCE_THRESHOLD,
+    base_table_join_hint=_BASE_TABLE_JOIN_HINT,
+)
 
-_OPTION_GENERATION_RULES = """
+_OPTION_GENERATION_RULES = f"""
 OPTION RULES — Pass 2 only; you receive all Pass 1 flags for one entity in one batch:
 
   CRITICAL — current_field_mapping:
@@ -295,6 +306,7 @@ BY FAILURE MODE:
     - Options are close-match column candidates ordered by similarity.
 
   join_structure:
+    - {_BASE_TABLE_JOIN_HINT}
     - Options are valid join key combinations from the schema contract.
     - Include column_alias on options that bridge a name mismatch.
     - Include "Remove join (same-table field)" as an option if applicable.

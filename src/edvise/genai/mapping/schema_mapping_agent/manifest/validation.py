@@ -6,6 +6,8 @@ refinement+HITL pass. Catches structural rule violations that the LLM
 cannot reliably self-detect (confident-but-wrong errors).
 
 Public API:
+    infer_manifest_base_table(manifest) → str
+        Execution-driving base table (shared with field_executor).
     validate_manifest(manifest, schema_contract)
         → list[ManifestValidationError]
 
@@ -17,7 +19,8 @@ Input contracts:
 
 ValidationError groups:
     COLUMN_EXISTENCE   — source column / table not found in schema contract
-    JOIN_STRUCTURE     — join declaration is missing, incorrect, or unresolvable
+    JOIN_STRUCTURE     — join missing/incorrect/unresolvable, or omitted when
+                         source_table != inferred execution base table
     ROW_SELECTION      — strategy references a column that doesn't exist
     MAP_UNMAP          — sourcing fields present on unmapped record or vice versa
     ENTITY_GRAIN       — manifest entity-grain field missing or unmapped in manifest
@@ -74,6 +77,26 @@ def _has_column(
     return column in _observed_columns(schema_contract, table)
 
 
+def infer_manifest_base_table(manifest: FieldMappingManifest) -> str:
+    """
+    Execution base (driving) table for this manifest.
+
+    Matches :func:`~edvise.genai.mapping.schema_mapping_agent.execution.field_executor.execute_transformation_map`:
+    first ``join.base_table`` when any mapping declares a join; otherwise the mode
+    of non-null ``source_table`` among mappings.
+    """
+    for m in manifest.mappings:
+        if m.join is not None:
+            return m.join.base_table
+    tables = [m.source_table for m in manifest.mappings if m.source_table]
+    if not tables:
+        raise ValueError(
+            f"Cannot infer base table for {manifest.entity_type} manifest: "
+            "no source_table on any mapping."
+        )
+    return max(set(tables), key=tables.count)
+
+
 # ---------------------------------------------------------------------------
 # ManifestValidationError
 # ---------------------------------------------------------------------------
@@ -121,6 +144,12 @@ class ManifestValidationErrorCode(str, Enum):
     # join is declared but join.base_table == join.lookup_table.
     # No join needed — same-table field.
     # Check: record.join is not None and record.join.base_table == record.join.lookup_table
+
+    CROSS_TABLE_REQUIRES_JOIN = "CROSS_TABLE_REQUIRES_JOIN"
+    # source_table differs from inferred execution base table but join is null —
+    # executor would read from base_df only (wrong table).
+    # Check: infer_manifest_base_table(manifest); record.join is None and
+    #   record.source_table != inferred_base_table (with source mapped).
 
     # ROW_SELECTION
     ROW_SELECTION_ORDER_BY_NOT_FOUND = "ROW_SELECTION_ORDER_BY_NOT_FOUND"
@@ -535,6 +564,39 @@ def _check_map_unmap_consistency(
         )
 
 
+def _check_same_table_source_matches_base(
+    record: FieldMappingRecord,
+    inferred_base_table: str,
+    errors: list[ManifestValidationError],
+) -> None:
+    """
+    JOIN_STRUCTURE — same-table execution path requires source_table == base table.
+
+    Skips cross-table records (join set), unmapped records, and records with no source_table.
+    """
+    if record.source_column is None:
+        return
+    if record.join is not None:
+        return
+    if record.source_table is None:
+        return
+    if record.source_table != inferred_base_table:
+        errors.append(
+            ManifestValidationError(
+                target_field=record.target_field,
+                error_code=ManifestValidationErrorCode.CROSS_TABLE_REQUIRES_JOIN,
+                detail=(
+                    f"source_table '{record.source_table}' differs from the inferred execution "
+                    f"base table '{inferred_base_table}' but join is null. "
+                    "Same-table fields are read only from the base DataFrame; declare "
+                    "join with join.base_table equal to the base table and "
+                    "join.lookup_table equal to the table where source_column lives."
+                ),
+                offending_value=record.source_table,
+            )
+        )
+
+
 def _record_effective_source(record: FieldMappingRecord) -> str | None:
     if record.corrected_source_column:
         return record.corrected_source_column
@@ -629,6 +691,11 @@ def validate_manifest(
         4. MAP_UNMAP         — sourcing consistency on mapped/unmapped fields
         5. ENTITY_GRAIN      — each manifest entity-grain field has a mappable source
 
+    Same-table vs cross-table (JOIN_STRUCTURE): when ``join`` is omitted, ``source_table``
+    must equal the inferred execution base table (first ``join.base_table`` if any join
+    exists, else the mode of mapped ``source_table`` values). Otherwise execution would
+    silently read from the wrong table.
+
     Parameters
     ----------
     manifest:
@@ -639,11 +706,19 @@ def validate_manifest(
     errors: list[ManifestValidationError] = []
     aliases = manifest.column_aliases
 
+    inferred_base: str | None = None
+    try:
+        inferred_base = infer_manifest_base_table(manifest)
+    except ValueError:
+        pass
+
     for record in manifest.mappings:
         _check_column_existence(record, schema_contract, errors)
         _check_join_structure(record, schema_contract, aliases, errors)
         _check_row_selection(record, schema_contract, errors)
         _check_map_unmap_consistency(record, errors)
+        if inferred_base is not None:
+            _check_same_table_source_matches_base(record, inferred_base, errors)
 
     _check_entity_grain_keys(manifest, errors)
 
@@ -659,5 +734,6 @@ __all__ = [
     "ManifestValidationErrorCode",
     "ValidationError",
     "ValidationErrorCode",
+    "infer_manifest_base_table",
     "validate_manifest",
 ]

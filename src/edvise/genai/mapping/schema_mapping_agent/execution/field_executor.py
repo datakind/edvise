@@ -39,6 +39,9 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     JoinFilter,
     RowSelectionStrategy,
 )
+from edvise.genai.mapping.schema_mapping_agent.manifest.validation import (
+    infer_manifest_base_table,
+)
 from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
     TransformationMap,
     TransformationStep,
@@ -184,6 +187,7 @@ def resolve_source_series(
     dataframes: dict[str, pd.DataFrame],
     alias_map: dict[str, dict[str, str]],
     base_df: pd.DataFrame,
+    base_table: str,
 ) -> Optional[pd.Series]:
     """
     Resolve the source Series for a field mapping record.
@@ -202,6 +206,7 @@ def resolve_source_series(
         dataframes: Dict of dataset_name -> DataFrame
         alias_map: {table: {source_col: canonical_col}} from manifest column_aliases
         base_df: Base DataFrame — used for length alignment validation
+        base_table: Name of the driving table (must match infer_manifest_base_table)
 
     Returns:
         Resolved pd.Series of len(base_df) or None if unmappable/constant
@@ -212,12 +217,13 @@ def resolve_source_series(
     if record.join:
         return _resolve_cross_table_series(record, dataframes, alias_map, base_df)
     else:
-        return _resolve_same_table_series(record, base_df)
+        return _resolve_same_table_series(record, base_df, base_table)
 
 
 def _resolve_same_table_series(
     record: FieldMappingRecord,
     base_df: pd.DataFrame,
+    base_table: str,
 ) -> pd.Series:
     """
     Direct column access from base_df.
@@ -228,10 +234,18 @@ def _resolve_same_table_series(
 
     Returns Series aligned to base_df — full base length, no grain reduction.
     """
+    if record.source_table != base_table:
+        raise KeyError(
+            f"Field '{record.target_field}': source_table '{record.source_table}' "
+            f"does not match execution base table '{base_table}' while join is null. "
+            "Declare join with join.base_table matching the base table and "
+            "join.lookup_table set to the table that contains source_column."
+        )
     if record.source_column not in base_df.columns:
         raise KeyError(
-            f"Column '{record.source_column}' not found in '{record.source_table}'. "
-            f"Available: {list(base_df.columns)}"
+            f"Column '{record.source_column}' not found in '{record.source_table}' "
+            f"(base table '{base_table}'). Available: {list(base_df.columns)}. "
+            "If this column exists on another dataset, use a cross-table join."
         )
 
     return base_df[record.source_column].reset_index(drop=True)
@@ -592,7 +606,7 @@ def execute_transformation_map(
     """
     alias_map = _build_alias_map(manifest)
     manifest_index = {m.target_field: m for m in manifest.mappings}
-    base_table = _infer_base_table(manifest)
+    base_table = infer_manifest_base_table(manifest)
     base_df = dataframes[base_table]
     entity_keys = _derive_entity_keys(manifest, schema, base_df=base_df)
     if not entity_keys:
@@ -661,7 +675,9 @@ def execute_transformation_map(
             logger.debug(f"[{i}/{n_plans}] {target} — resolving source series")
 
             # --- 1. Resolve source Series (always len(base_df)) ---
-            s = resolve_source_series(record, dataframes, alias_map, base_df)
+            s = resolve_source_series(
+                record, dataframes, alias_map, base_df, base_table
+            )
 
             if s is None:
                 s = pd.Series(
@@ -773,21 +789,6 @@ def _resolve_join_keys(
     table_aliases = alias_map.get(table, {})
     reverse = {v: k for k, v in table_aliases.items()}
     return [reverse.get(k, k) for k in canonical_keys]
-
-
-def _infer_base_table(manifest: FieldMappingManifest) -> str:
-    """
-    Identify the base (driving) table from manifest.
-    All join blocks declare the same base_table — take from first one found.
-    Falls back to most common source_table if no join blocks exist.
-    """
-    for m in manifest.mappings:
-        if m.join:
-            return m.join.base_table
-    tables = [m.source_table for m in manifest.mappings if m.source_table]
-    if not tables:
-        raise ValueError(f"Cannot infer base table for {manifest.entity_type} manifest")
-    return max(set(tables), key=tables.count)
 
 
 def _validate_table(table: str, dataframes: dict[str, pd.DataFrame]) -> None:
