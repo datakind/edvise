@@ -14,6 +14,7 @@ from edvise.genai.mapping.identity_agent.profiling import (
 )
 from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.shared.token_audit.prompt_token_audit import estimate_tokens
+from edvise.utils.data_cleaning import convert_to_snake_case
 
 from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
@@ -67,7 +68,11 @@ def run_identity_agent_with_hitl(
     )
 
     def _parse_and_backfill(raw: str) -> tuple[GrainContract, list[HITLItem]]:
-        contract, items = parse_grain_contract_with_hitl(raw)
+        normalized_cols = [convert_to_snake_case(c) for c in df.columns]
+        contract, items = parse_grain_contract_with_hitl(
+            raw,
+            available_columns_normalized=normalized_cols,
+        )
         items = backfill_hitl_uniqueness_scores_from_key_profile(items, key_profile)
         return contract, items
 

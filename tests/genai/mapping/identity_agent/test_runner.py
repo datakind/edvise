@@ -79,11 +79,19 @@ def _one_grain_hitl_item(*, table: str) -> dict:
     return it.model_dump(mode="json")
 
 
-def _contract_json(*, confidence: float, hitl_flag: bool, table: str = "t") -> str:
+def _contract_json(
+    *,
+    confidence: float,
+    hitl_flag: bool,
+    table: str = "t",
+    learner_id_alias: str | None = None,
+) -> str:
+    person_key = learner_id_alias if learner_id_alias else "student_id"
     payload: dict = {
         "institution_id": "inst",
         "table": table,
-        "post_clean_primary_key": ["student_id"],
+        "learner_id_alias": learner_id_alias,
+        "post_clean_primary_key": [person_key],
         "dedup_policy": {
             "strategy": "no_dedup",
             "sort_by": None,
@@ -91,7 +99,7 @@ def _contract_json(*, confidence: float, hitl_flag: bool, table: str = "t") -> s
             "notes": "",
         },
         "row_selection_required": True,
-        "join_keys_for_2a": ["student_id", "term"],
+        "join_keys_for_2a": [person_key, "term"],
         "confidence": confidence,
         "hitl_flag": hitl_flag,
         "hitl_question": None,
@@ -120,6 +128,39 @@ def test_run_identity_agent_calls_llm_and_parse():
     )
     assert c.table == "t"
     assert c.confidence == 0.9
+    assert items == []
+
+
+def test_run_identity_agent_retries_on_unknown_learner_id_alias():
+    df = pd.DataFrame({"student_id_randomized_datakind": [1]})
+    responses = [
+        _contract_json(
+            confidence=0.9,
+            hitl_flag=False,
+            learner_id_alias="wrong_student_id_column",
+        ),
+        _contract_json(
+            confidence=0.9,
+            hitl_flag=False,
+            learner_id_alias="Student ID Randomized Datakind",
+        ),
+    ]
+    calls = {"n": 0}
+
+    def llm(_system: str, _user: str) -> str:
+        idx = min(calls["n"], len(responses) - 1)
+        calls["n"] += 1
+        return responses[idx]
+
+    c, items = run_identity_agent_with_hitl(
+        institution_id="inst",
+        dataset_name="students",
+        key_profile=_kp(),
+        df=df,
+        llm_complete=llm,
+    )
+    assert calls["n"] == 2
+    assert c.learner_id_alias == "student_id_randomized_datakind"
     assert items == []
 
 

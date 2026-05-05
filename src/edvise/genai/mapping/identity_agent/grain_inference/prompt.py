@@ -1190,6 +1190,8 @@ def _grain_payload_as_dict(raw: RawContractInput) -> dict:
 
 def parse_grain_contract_with_hitl(
     raw: RawContractInput,
+    *,
+    available_columns_normalized: list[str] | None = None,
 ) -> tuple[GrainContract, list[HITLItem]]:
     """
     Parse grain-stage JSON into :class:`GrainContract` plus structured ``hitl_items``.
@@ -1217,7 +1219,12 @@ def parse_grain_contract_with_hitl(
         )
     items = [HITLItem.model_validate(x) for x in hitl_raw]
     try:
-        contract = GrainContract.model_validate(d)
+        context = None
+        if available_columns_normalized is not None:
+            context = {
+                "available_columns_normalized": list(available_columns_normalized)
+            }
+        contract = GrainContract.model_validate(d, context=context)
     except Exception:
         logger.debug(
             "Grain contract validation failed; raw (truncated): %s",

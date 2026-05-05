@@ -8,6 +8,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -17,6 +18,7 @@ from edvise.genai.mapping.identity_agent.utilities import (
     concat_model_sources,
     get_top_level_assign_source,
 )
+from edvise.utils.data_cleaning import convert_to_snake_case
 
 # Valid `dedup_policy.strategy` values (JSON must use these exact strings).
 DedupStrategy = Literal[
@@ -289,12 +291,33 @@ class GrainContract(BaseModel):
 
     @field_validator("learner_id_alias", mode="before")
     @classmethod
-    def _empty_learner_id_alias_to_none(cls, v: object) -> str | None:
+    def _empty_learner_id_alias_to_none(
+        cls, v: object, info: ValidationInfo
+    ) -> str | None:
         if v is None:
             return None
         if isinstance(v, str):
             s = v.strip()
-            return s if s else None
+            if not s:
+                return None
+            # Canonicalize to normalized column naming used by clean_dataset.
+            alias_norm = convert_to_snake_case(s)
+            ctx = info.context if isinstance(info.context, dict) else None
+            available = (
+                ctx.get("available_columns_normalized")
+                if isinstance(ctx, dict)
+                else None
+            )
+            if available is not None:
+                allowed = {str(c).strip() for c in available if str(c).strip()}
+                if alias_norm not in allowed:
+                    sample = sorted(allowed)[:20]
+                    raise ValueError(
+                        "learner_id_alias must match a dataset column after normalization; "
+                        f"got {s!r} (normalized: {alias_norm!r}). "
+                        f"Available normalized columns sample: {sample!r}"
+                    )
+            return alias_norm
         return v
 
     @model_validator(mode="after")
