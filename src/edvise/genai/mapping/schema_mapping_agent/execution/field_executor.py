@@ -251,6 +251,75 @@ def _resolve_same_table_series(
     return base_df[record.source_column].reset_index(drop=True)
 
 
+def _coerce_join_frames_for_merge(
+    left: pd.DataFrame,
+    right: pd.DataFrame,
+    left_on: list[str],
+    right_on: list[str],
+    *,
+    log_context: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Align incompatible join-key dtypes before ``DataFrame.merge``.
+
+    Pandas rejects merges when one key column is string-like and the other is
+    numeric or boolean (e.g. ``course_number`` as object vs nullable ``Int64``).
+    For identifier-style keys, casting both sides to pandas ``StringDtype`` makes
+    ``123`` and ``\"123\"`` compare equal while preserving nulls as ``<NA>``.
+
+    When no key pair needs bridging, returns ``(left, right)`` unchanged — no
+    extra copies and no ``astype``.
+    """
+
+    def _is_textualish(series: pd.Series) -> bool:
+        dt = series.dtype
+        return (
+            pd.api.types.is_string_dtype(dt)
+            or pd.api.types.is_object_dtype(dt)
+            or pd.api.types.is_categorical_dtype(dt)
+        )
+
+    def _needs_string_bridge(a: pd.Series, b: pd.Series) -> bool:
+        if a.dtype == b.dtype:
+            return False
+        a_num = pd.api.types.is_numeric_dtype(a.dtype)
+        b_num = pd.api.types.is_numeric_dtype(b.dtype)
+        a_bool = pd.api.types.is_bool_dtype(a.dtype)
+        b_bool = pd.api.types.is_bool_dtype(b.dtype)
+        a_txt = _is_textualish(a)
+        b_txt = _is_textualish(b)
+        if (a_txt and b_num) or (b_txt and a_num):
+            return True
+        if (a_txt and b_bool) or (b_txt and a_bool):
+            return True
+        if (a_bool and b_num) or (b_bool and a_num):
+            return True
+        return False
+
+    pairs_to_coerce = [
+        (lc, rc)
+        for lc, rc in zip(left_on, right_on)
+        if _needs_string_bridge(left[lc], right[rc])
+    ]
+    if not pairs_to_coerce:
+        return left, right
+
+    left_c = left.copy()
+    right_c = right.copy()
+    coerced: list[str] = []
+    for lcol, rcol in pairs_to_coerce:
+        left_c[lcol] = left_c[lcol].astype("string")
+        right_c[rcol] = right_c[rcol].astype("string")
+        coerced.append(f"{lcol}↔{rcol}")
+
+    logger.info(
+        "[%s] Join keys coerced to string for merge compatibility: %s",
+        log_context,
+        coerced,
+    )
+    return left_c, right_c
+
+
 def _resolve_cross_table_series(
     record: FieldMappingRecord,
     dataframes: dict[str, pd.DataFrame],
@@ -420,8 +489,16 @@ def _resolve_cross_table_series(
     _validate_columns(base_join_cols, base_df, join.base_table)
     _validate_columns(lookup_join_cols, lookup_df, join.lookup_table)
 
-    merged = base_df[base_join_cols].merge(
+    left_merge, lookup_merge = _coerce_join_frames_for_merge(
+        base_df[base_join_cols],
         lookup_df,
+        base_join_cols,
+        lookup_join_cols,
+        log_context=record.target_field,
+    )
+
+    merged = left_merge.merge(
+        lookup_merge,
         left_on=base_join_cols,
         right_on=lookup_join_cols,
         how="left",
