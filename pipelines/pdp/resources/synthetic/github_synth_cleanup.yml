@@ -60,6 +60,8 @@ resources:
           default: ${var.DB_workspace}
         - name: databricks_institution_name
           default: ${var.databricks_institution_name}
+        - name: schema_type
+          default: ${var.schema_type}
         - name: retention_days
           default: "0"
         - name: dry_run

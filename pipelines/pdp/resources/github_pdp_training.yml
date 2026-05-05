@@ -316,6 +316,8 @@ resources:
       parameters:
         - name: databricks_institution_name
           default: ${var.databricks_institution_name}
+        - name: schema_type
+          default: ${var.schema_type}
         - name: db_run_id
           default: "{{job.run_id}}"
         - name: DB_workspace
