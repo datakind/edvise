@@ -3,7 +3,7 @@ resources:
   jobs:
     edvise_genai_mapping_onboard_pipeline:
       name: edvise_genai_mapping_onboard
-      timeout_seconds: 7200
+      timeout_seconds: 14400 # 4 hours
       max_concurrent_runs: 5
       queue:
         enabled: true
