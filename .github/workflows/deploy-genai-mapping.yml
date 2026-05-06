@@ -7,6 +7,10 @@
 #   DATABRICKS_STAGING_HOST, DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID, DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_SECRET
 #   GENAI_MAPPING_STAGING_SERVICE_ACCOUNT_EXECUTER, GENAI_MAPPING_STAGING_DS_RUN_AS
 # Shared: GROUP_TO_MANAGE
+#
+# Auth: set DATABRICKS_AUTH_TYPE=oauth-m2m so the CLI uses the service principal OAuth
+# secret (not PAT). If DATABRICKS_TOKEN is empty/set locally, unified auth can fail with
+# "cannot configure default credentials" unless M2M is forced.
 
 name: deploy-genai-mapping
 
@@ -61,6 +65,7 @@ jobs:
       - name: Deploy bundle (dev)
         working-directory: pipelines/genai_mapping
         env:
+          DATABRICKS_AUTH_TYPE: oauth-m2m
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_CLIENT_SECRET }}
@@ -103,6 +108,7 @@ jobs:
       - name: Deploy bundle (prod target → staging_sst_01)
         working-directory: pipelines/genai_mapping
         env:
+          DATABRICKS_AUTH_TYPE: oauth-m2m
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_STAGING_HOST }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_SECRET }}
