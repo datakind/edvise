@@ -171,6 +171,30 @@ def init_reviewer_in_session() -> None:
         )
 
 
+def render_warehouse_sidebar(
+    *,
+    page_heading: str,
+    page_caption: str = "",
+) -> bool:
+    """
+    Minimal sidebar: SQL warehouse check only (no Unity Catalog or table filters).
+
+    Use when the page reads catalog from :func:`default_catalog` / environment instead of user input.
+    """
+    warehouse_ok = False
+    with st.sidebar:
+        st.subheader(page_heading)
+        if (page_caption or "").strip():
+            st.caption(page_caption.strip())
+        st.divider()
+        try:
+            get_warehouse_id()
+            warehouse_ok = True
+        except RuntimeError as e:
+            st.error(str(e))
+    return warehouse_ok
+
+
 def init_sidebar_form_state() -> None:
     """
     Seeds session keys used by `st.*(..., key=...)` *before* widgets are drawn.

@@ -60,7 +60,7 @@ def run_query(query: str) -> pd.DataFrame:
 def load_onboard_runs_hitl_complete(
     catalog: str,
     *,
-    limit: int = 200,
+    limit: int = 10_000,
 ) -> pd.DataFrame:
     """
     Onboard runs that have at least one ``hitl_reviews`` row and **no** ``pending`` rows.
@@ -71,7 +71,7 @@ def load_onboard_runs_hitl_complete(
     t_h = hitl_reviews_fqn(catalog)
     t_p = pipeline_runs_fqn(catalog)
     c_sql = sql_str(str(catalog).strip())
-    lim = max(1, min(int(limit), 2000))
+    lim = max(1, min(int(limit), 10_000))
     q = f"""
     WITH agg AS (
       SELECT

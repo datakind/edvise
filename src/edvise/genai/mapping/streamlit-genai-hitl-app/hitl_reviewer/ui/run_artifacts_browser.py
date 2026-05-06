@@ -14,6 +14,10 @@ from typing import Any
 import streamlit as st
 
 from edvise.configs import genai as genai_cfg
+from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
+    default_hook_module_relpath,
+)
+from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
 from hitl_reviewer.platform.unity_volume_files import read_unity_file_text
 
 _PREVIEW_CHAR_CAP = 120_000
@@ -53,10 +57,22 @@ def known_onboard_run_artifact_paths(
         ("identity_term_hitl.json", "IA term HITL"),
         ("identity_grain_hook_preview.json", "IA grain hook preview"),
         ("identity_term_hook_preview.json", "IA term hook preview"),
-        ("term_hooks.py", "IA term_hooks.py"),
-        ("grain_hooks.py", "IA grain_hooks.py"),
         ("profiling_output.json", "IA profiling output"),
         ("run_log.json", "IA run_log.json"),
+    ):
+        add("Identity agent (onboard run)", label, ia / fn)
+
+    # Canonical materialized modules (see :func:`default_hook_module_relpath`).
+    for domain, label in (
+        (HITLDomain.IDENTITY_GRAIN, "identity_hooks/…/dedup_hooks.py"),
+        (HITLDomain.IDENTITY_TERM, "identity_hooks/…/term_hooks.py"),
+    ):
+        rel = default_hook_module_relpath(inst, domain)
+        add("Identity hooks (onboard run)", label, ia / rel)
+
+    for fn, label in (
+        ("term_hooks.py", "term_hooks.py (legacy flat at IA root)"),
+        ("grain_hooks.py", "grain_hooks.py (legacy flat at IA root)"),
     ):
         add("Identity agent (onboard run)", label, ia / fn)
 
@@ -106,10 +122,22 @@ def known_active_artifact_paths(
         ("transform_hooks.py", "transform_hooks.py"),
         ("grain_output.json", "Grain output"),
         ("term_output.json", "Term output"),
-        ("grain_hooks.py", "grain_hooks.py"),
-        ("term_hooks.py", "term_hooks.py"),
     ):
         add(label, active / fn)
+
+    for domain, label in (
+        (HITLDomain.IDENTITY_GRAIN, "identity_hooks/…/dedup_hooks.py"),
+        (HITLDomain.IDENTITY_TERM, "identity_hooks/…/term_hooks.py"),
+    ):
+        rel = default_hook_module_relpath(inst, domain)
+        add(label, active / rel)
+
+    for fn, label in (
+        ("grain_hooks.py", "grain_hooks.py (legacy flat)"),
+        ("term_hooks.py", "term_hooks.py (legacy flat)"),
+    ):
+        add(label, active / fn)
+
     return items
 
 

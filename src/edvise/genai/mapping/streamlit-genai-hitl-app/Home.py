@@ -3,8 +3,8 @@ GenAI mapping — Unity Catalog ``hitl_reviews`` HITL reviewer UI (multipage).
 
 * **Home** (this file): short landing. Main work: **HITL Review** — ``pages/1_HITL_Review.py``
   (``hitl_reviews`` table, filters, and per-group silver JSON/UC on one page).
-* **Maps & outputs** — ``pages/2_Maps_and_Outputs.py``: onboard run maps/outputs for runs with **no pending** HITL,
-  plus **active/** for the same institution.
+* **Maps & outputs** — ``pages/2_Maps_and_Outputs.py``: institution dropdown, then **active/** or a **HITL-complete onboard run**,
+  with catalog from the environment (not a sidebar field on that page).
 
 HITL **choice** values live in JSON on the **silver** volume. **IA** / **SMA** write silver JSON
 while the UC group is **pending**; use **HITL Review** for the full flow. See module doc in previous

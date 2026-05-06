@@ -1,24 +1,27 @@
 """
-Maps & outputs: browse silver artifacts for onboard runs with **no pending** HITL rows, plus ``active/``.
+Maps & outputs: browse silver **active/** or an **onboard run** (HITL-complete) for an institution.
 
-Uses ``hitl_reviews`` aggregates and the same ``…/genai_mapping/`` layout as the pipeline jobs.
+Catalog comes from ``GENAI_HITL_CATALOG`` / default (not a sidebar control). Uses ``hitl_reviews`` aggregates
+and the same ``…/genai_mapping/`` layout as the pipeline jobs.
 """
 
 from __future__ import annotations
 
+import pandas as pd
 import streamlit as st
 from hitl_reviewer.platform.databricks_uc_sql import (
-    get_warehouse_id,
     load_onboard_runs_hitl_complete,
 )
 from hitl_reviewer.platform.volume_path_utils import institution_id_from_silver_volume_path
 from hitl_reviewer.ui.hitl_streamlit import (
+    default_catalog,
     init_reviewer_in_session,
     init_sidebar_form_state,
-    render_connection_sidebar,
+    render_warehouse_sidebar,
     validate_catalog,
 )
 from hitl_reviewer.ui.run_artifacts_browser import (
+    genai_mapping_root_uc,
     known_active_artifact_paths,
     known_onboard_run_artifact_paths,
     render_artifact_sections,
@@ -30,144 +33,112 @@ init_sidebar_form_state()
 
 st.title("Maps & outputs")
 st.caption(
-    "Pick an onboard run where **all** ``hitl_reviews`` rows are finalized (no ``pending``). "
-    "Then open expanders to preview maps and outputs on silver, and compare with **active/** "
-    "(promoted execute artifacts for the same institution)."
+    "Choose an **institution**, then browse **active/** (promoted execute artifacts) or an **onboard run** "
+    "whose HITL rows are all finalized (no ``pending``). Unity Catalog for queries is taken from the "
+    "environment, same as **HITL Review History** when that sidebar field is left at its default."
 )
 
-catalog, _sidebar, warehouse_ok = render_connection_sidebar(
-    show_table_query_filters=False,
+warehouse_ok = render_warehouse_sidebar(
     page_heading="Maps & outputs",
-    page_caption=(
-        "Unity Catalog for ``hitl_reviews`` / ``pipeline_runs``. "
-        "Use **HITL Review** in the sidebar to edit pending groups."
-    ),
+    page_caption="Warehouse must be configured (``DATABRICKS_WAREHOUSE_ID``). Catalog is not edited here.",
 )
 if not warehouse_ok:
     st.stop()
 
 try:
-    catalog = validate_catalog(catalog)
+    catalog = validate_catalog(default_catalog())
 except ValueError as e:
     st.error(str(e))
     st.stop()
 
-c1, c2, c3 = st.columns(3)
-with c1:
-    lim = st.number_input(
-        "Max runs to load",
-        min_value=20,
-        max_value=2000,
-        value=200,
-        step=20,
-        help="SQL LIMIT on distinct onboard_run_id groups.",
-    )
-with c2:
-    onboard_only = st.checkbox(
-        "Only paths under …/runs/onboard/…",
-        value=True,
-        help="Filters out groups whose sample HITL path looks like an execute run or other layout.",
-    )
-with c3:
-    inst_needle = st.text_input(
-        "institution_id contains (optional)",
-        value="",
-        help="Case-insensitive substring filter on resolved institution id.",
-    )
+st.caption(f"**Queries use catalog:** `{catalog}` (`GENAI_HITL_CATALOG` / default).")
 
-if st.button("Load HITL-complete runs", type="primary"):
-    st.session_state["maps_hitl_complete_df"] = None
-    st.session_state["maps_hitl_complete_err"] = None
+if st.button("Refresh run list from Unity Catalog"):
+    for k in ("maps_outputs_df", "maps_outputs_err"):
+        st.session_state.pop(k, None)
+    st.rerun()
+
+if "maps_outputs_df" not in st.session_state:
     try:
-        df = load_onboard_runs_hitl_complete(catalog, limit=int(lim))
-        if onboard_only and not df.empty and "sample_artifact_path" in df.columns:
-            sub = (
-                df["sample_artifact_path"]
-                .astype(str)
-                .str.contains("/runs/onboard/", case=False, na=False)
-            )
-            df = df.loc[sub].copy()
-        st.session_state["maps_hitl_complete_df"] = df
+        raw = load_onboard_runs_hitl_complete(catalog)
+        if raw.empty:
+            st.session_state["maps_outputs_df"] = raw
+        else:
+            ap = raw["sample_artifact_path"].astype(str)
+            onboard_mask = ap.str.contains("/runs/onboard/", case=False, na=False)
+            work = raw.loc[onboard_mask].copy()
+
+            def _resolve_institution(row: pd.Series) -> str:
+                explicit = str(row.get("institution_id") or "").strip()
+                if explicit:
+                    return explicit
+                p = str(row.get("sample_artifact_path") or "").strip()
+                return institution_id_from_silver_volume_path(p) or ""
+
+            work["_institution_id"] = work.apply(_resolve_institution, axis=1)
+            work = work[work["_institution_id"].astype(str).str.len() > 0]
+            st.session_state["maps_outputs_df"] = work
+        st.session_state["maps_outputs_err"] = None
     except Exception as e:  # noqa: BLE001
-        st.session_state["maps_hitl_complete_err"] = str(e)
+        st.session_state["maps_outputs_df"] = pd.DataFrame()
+        st.session_state["maps_outputs_err"] = str(e)
 
-err = st.session_state.get("maps_hitl_complete_err")
-if err:
-    st.error(err)
-
-df = st.session_state.get("maps_hitl_complete_df")
-if df is None:
-    st.info('Set filters and click **Load HITL-complete runs**.')
+if st.session_state.get("maps_outputs_err"):
+    st.error(st.session_state["maps_outputs_err"])
     st.stop()
 
+df: pd.DataFrame = st.session_state["maps_outputs_df"]
 if df.empty:
-    st.warning("No runs match the current filters.")
-    st.stop()
-
-view = df
-if (inst_needle or "").strip():
-    needle = inst_needle.strip().lower()
-
-    def _row_inst(r) -> str:
-        explicit = str(r.get("institution_id") or "").strip()
-        if explicit:
-            return explicit
-        p = str(r.get("sample_artifact_path") or "").strip()
-        return institution_id_from_silver_volume_path(p) or ""
-
-    inst_col = df.apply(_row_inst, axis=1)
-    view = df.loc[inst_col.astype(str).str.lower().str.contains(needle, na=False)].copy()
-    if view.empty:
-        st.warning("No rows match the institution filter.")
-        st.stop()
-
-st.subheader("Runs with HITL complete (no pending rows)")
-st.dataframe(
-    view,
-    use_container_width=True,
-    hide_index=True,
-    height=min(360, 60 + len(view) * 36),
-)
-
-opts = view["onboard_run_id"].astype(str).tolist()
-pick = st.selectbox("Choose onboard_run_id", options=opts, index=0)
-row = view.loc[view["onboard_run_id"].astype(str) == pick].iloc[0]
-
-resolved_inst = str(row.get("institution_id") or "").strip()
-if not resolved_inst:
-    resolved_inst = institution_id_from_silver_volume_path(
-        str(row.get("sample_artifact_path") or "")
-    ) or ""
-
-inst_final = st.text_input(
-    "Institution id (edit if missing or wrong)",
-    value=resolved_inst,
-    help="Drives ``/Volumes/…/<institution_id>_silver/…/genai_mapping/`` paths.",
-)
-inst_final = (inst_final or "").strip()
-if not inst_final:
-    st.warning("Institution id is required to build volume paths.")
-    st.stop()
-
-genai_root, onboard_paths = known_onboard_run_artifact_paths(
-    inst_final, catalog, str(pick).strip()
-)
-active_paths = known_active_artifact_paths(inst_final, catalog)
-
-st.divider()
-st.markdown(f"**Silver genai_mapping root:** `{genai_root}`")
-c_left, c_right = st.columns(2)
-with c_left:
-    render_artifact_sections(
-        title=f"Onboard run `{pick}`",
-        paths=onboard_paths,
+    st.warning(
+        "No onboard runs with HITL complete (and resolvable institution) found. "
+        "Try **Refresh run list** after more reviews finish, or confirm catalog and warehouse access."
     )
-with c_right:
+    st.stop()
+
+institutions = sorted(df["_institution_id"].astype(str).unique().tolist())
+inst_pick = st.selectbox("Institution", options=institutions, index=0)
+
+source = st.radio(
+    "Browse",
+    options=["Onboard run (HITL complete)", "active/"],
+    horizontal=True,
+)
+
+if source == "active/":
+    genai_root = genai_mapping_root_uc(inst_pick, catalog)
+    st.divider()
+    st.markdown(f"**Silver genai_mapping root:** `{genai_root}`")
     st.caption(
         "Promoted hook packages may also live under ``active/identity_hooks/…`` — browse that folder "
         "in Unity Catalog when your onboard run materialized IA hooks."
     )
     render_artifact_sections(
-        title=f"active/ (institution `{inst_final}`)",
-        paths=active_paths,
+        title=f"active/ — `{inst_pick}`",
+        paths=known_active_artifact_paths(inst_pick, catalog),
+    )
+else:
+    sub = df.loc[df["_institution_id"].astype(str) == inst_pick].copy()
+    sub = sub.sort_values(
+        "last_reviewed_at",
+        ascending=False,
+        na_position="last",
+    )
+    run_ids = (
+        sub.drop_duplicates(subset=["onboard_run_id"], keep="first")["onboard_run_id"]
+        .astype(str)
+        .tolist()
+    )
+    if not run_ids:
+        st.warning("No HITL-complete onboard runs found for this institution.")
+        st.stop()
+    run_pick = st.selectbox("Onboard run", options=run_ids, index=0)
+
+    genai_root, onboard_paths = known_onboard_run_artifact_paths(
+        inst_pick, catalog, str(run_pick).strip()
+    )
+    st.divider()
+    st.markdown(f"**Silver genai_mapping root:** `{genai_root}`")
+    render_artifact_sections(
+        title=f"Onboard run `{run_pick}` — `{inst_pick}`",
+        paths=onboard_paths,
     )
