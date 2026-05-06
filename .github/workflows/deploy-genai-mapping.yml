@@ -34,16 +34,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  guard:
-    if: ${{ !inputs.deploy_dev && !inputs.deploy_staging }}
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          echo "::error::Select deploy_dev and/or deploy_staging"
-          exit 1
-
   deploy-dev:
-    if: ${{ inputs.deploy_dev }}
     name: Deploy GenAI mapping bundle to dev (dev_sst_02)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -91,7 +82,6 @@ jobs:
             --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
 
   deploy-staging:
-    if: ${{ inputs.deploy_staging }}
     name: Deploy GenAI mapping bundle to staging (staging_sst_01)
     runs-on: ubuntu-latest
     timeout-minutes: 30
