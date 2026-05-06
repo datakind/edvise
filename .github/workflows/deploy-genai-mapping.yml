@@ -68,7 +68,6 @@ jobs:
           DS_RUN_AS: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID }}
           GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
         run: |
-          databricks current-user me
           databricks bundle deploy \
             --target=dev \
             --force-lock \
@@ -116,7 +115,6 @@ jobs:
             echo "::error::Set workflow input staging_git_tag when deploying staging (e.g. v0.2.0)"
             exit 1
           fi
-          databricks current-user me
           databricks bundle deploy \
             --target=prod \
             --force-lock \
