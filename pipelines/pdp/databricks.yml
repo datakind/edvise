@@ -5,7 +5,6 @@ bundle:
 include:
   - resources/github_pdp_training.yml
   - resources/github_pdp_inference.yml
-  - resources/github_validated_bronze_sync.yml
   - resources/synthetic/github_synth_cleanup.yml
 
 variables:
@@ -67,11 +66,6 @@ targets:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_commit: ${var.git_commit}
-        edvise_validated_gcs_to_bronze_sync:
-          git_source:
-            git_url: https://github.com/datakind/edvise
-            git_provider: gitHub
-            git_commit: ${var.git_commit}
         edvise_cleanup_synthetic:
           git_source:
             git_url: https://github.com/datakind/edvise
@@ -96,11 +90,6 @@ targets:
             git_provider: gitHub
             git_tag: ${var.git_tag}
         edvise_github_sourced_pdp_inference_pipeline:
-          git_source:
-            git_url: https://github.com/datakind/edvise
-            git_provider: gitHub
-            git_tag: ${var.git_tag}
-        edvise_validated_gcs_to_bronze_sync:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub

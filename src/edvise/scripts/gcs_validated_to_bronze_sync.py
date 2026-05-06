@@ -18,7 +18,7 @@ under ``gcs_source_prefix`` are copied (same additive behavior; no deletes).
 ``--require_at_least_one_file`` false. With ``--require_at_least_one_file`` true
 and 0 files, the run exits before writing the marker; ``main`` then raises.
 
-Intended to run as a single-task Databricks job (see pipelines/pdp/resources).
+Intended to run as a single-task Databricks job (see pipelines/validated-gcs-to-bronze-sync/resources).
 """
 
 from __future__ import annotations
