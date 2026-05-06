@@ -110,7 +110,7 @@ resources:
           depends_on:
             - task_key: feature_generation
           spark_python_task:
-            python_file: src/edvise/scripts/pdp_checkpoints.py
+            python_file: src/edvise/scripts/checkpoints.py
             source: GIT
             parameters:
               - --silver_volume_path
@@ -120,7 +120,9 @@ resources:
               - --job_type
               - "{{job.parameters.job_type}}"
               - --config_file_path
-              - "{{tasks.data_ingestion.values.config_file_path}}"              
+              - "{{tasks.data_ingestion.values.config_file_path}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
