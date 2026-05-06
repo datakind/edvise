@@ -57,6 +57,47 @@ def run_query(query: str) -> pd.DataFrame:
             return cursor.fetchall_arrow().to_pandas()
 
 
+def load_onboard_runs_hitl_complete(
+    catalog: str,
+    *,
+    limit: int = 200,
+) -> pd.DataFrame:
+    """
+    Onboard runs that have at least one ``hitl_reviews`` row and **no** ``pending`` rows.
+
+    Joins ``pipeline_runs`` for ``institution_id`` when present. ``sample_artifact_path`` is any
+    non-null path from that run (for inferring institution when the join misses).
+    """
+    t_h = hitl_reviews_fqn(catalog)
+    t_p = pipeline_runs_fqn(catalog)
+    c_sql = sql_str(str(catalog).strip())
+    lim = max(1, min(int(limit), 2000))
+    q = f"""
+    WITH agg AS (
+      SELECT
+        trim(cast(h.onboard_run_id AS STRING)) AS onboard_run_id,
+        max(trim(cast(p.institution_id AS STRING))) AS institution_id,
+        max(trim(cast(h.artifact_path AS STRING))) AS sample_artifact_path,
+        count(*) AS n_hitl_rows,
+        sum(CASE WHEN lower(trim(cast(h.status AS STRING))) = 'pending' THEN 1 ELSE 0 END) AS n_pending,
+        sum(CASE WHEN lower(trim(cast(h.status AS STRING))) = 'approved' THEN 1 ELSE 0 END) AS n_approved,
+        sum(CASE WHEN lower(trim(cast(h.status AS STRING))) = 'rejected' THEN 1 ELSE 0 END) AS n_rejected,
+        max(h.reviewed_at) AS last_reviewed_at
+      FROM {t_h} h
+      LEFT JOIN {t_p} p
+        ON trim(cast(h.onboard_run_id AS STRING)) = trim(cast(p.onboard_run_id AS STRING))
+       AND p.`catalog` = {c_sql}
+      GROUP BY trim(cast(h.onboard_run_id AS STRING))
+    )
+    SELECT *
+    FROM agg
+    WHERE n_pending = 0 AND n_hitl_rows > 0
+    ORDER BY last_reviewed_at DESC NULLS LAST
+    LIMIT {lim}
+    """
+    return run_query(q)
+
+
 def execute_statement(sql: str) -> None:
     with _connection() as connection:
         with connection.cursor() as cursor:

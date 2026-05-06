@@ -33,7 +33,11 @@ COHORT entry_year AND entry_term — transformation steps (mirror manifest hiera
 
 **(2) Fallback — manifest used a `term` / `course` join with `first_by` `_term_order`**
 - Same strip/cast on the resolved `_edvise_term_*` Series from the lookup row.
-- **reviewer_notes:** remind that semantics are **first term in history**, not necessarily cohort.
+- **reviewer_notes** or **validation_notes:** remind that semantics are **first term in history**, not necessarily cohort.
+- **HITL:** This manifest-contracted path is **not** a discretionary proxy — do **not** set
+  `review_required` or `flagged_steps` with `reason: proxy_source` solely because the Series is
+  student- or term-table grain. Use **confidence 0.9** when the chain is only `strip_whitespace` /
+  `cast_string` on IdentityAgent `_edvise_term_*` columns (same as a direct cohort-base mapping).
 
 **(3) Manifest could not use normalized columns — unmappable or raw term fallback**
 - If the manifest points at raw term codes and **validation_notes** flagged an IA gap, use extract
@@ -185,12 +189,26 @@ CONFIDENCE AND HITL (threshold = {t}, constant name PIPELINE_HITL_CONFIDENCE_THR
 CONFIDENCE SCORING
 - **1.0** — direct utility chain, no format ambiguity, source column dtype matches target exactly.
 - **0.9** — standard chain with a well-evidenced format assumption (e.g. `cast_string` on a string column).
-- **0.7–0.8** — inferred mapping from sample_values, ambiguous format, or proxy source column.
+  Includes **manifest-contracted** cohort `entry_year` / `entry_term` paths where the manifest
+  intentionally resolves `_edvise_term_*` from student or term joins (see COHORT entry_year AND
+  entry_term rules): strip/cast only — document semantic caveats in notes, not HITL.
+- **0.7–0.8** — inferred mapping from sample_values, ambiguous format, or an **ad-hoc** semantic
+  proxy not justified by the manifest rules (see below).
 - **≤ {t}** — `review_required` must be true; always set when:
   - `map_values` mapping was inferred from sample_values rather than explicit schema evidence;
   - format was ambiguous and a utility chain was chosen by best-guess;
-  - source column is a proxy (e.g. entry term columns used for conferral date);
+  - source column is an **uncontracted** semantic proxy — e.g. entry-term or student `_edvise_term_*`
+    used for **conferral / completion datetime** targets when the manifest does not document that
+    shortcut (see COHORT degree- and certificate-related DATETIME rules);
   - term code column required season fragment extraction and mapping.
+
+MAPPING PROXY VS MANIFEST-CONTRACTED SOURCE
+- **Do not** treat IdentityAgent term columns on student/lookup rows as `proxy_source` when the
+  mapping manifest (and Step 2b cohort entry rules) **explicitly** chose that source for
+  `entry_year` / `entry_term`. Lower grain or “first term in history” semantics belong in
+  `reviewer_notes` / `validation_notes` only.
+- Reserve `proxy_source` and HITL for cases where the pipeline is **stretching** semantics beyond
+  what the manifest documents (or beyond the conferral-proxy rules that already require review).
 
 REVIEW REQUIRED
 - Set `review_required: true` on any plan where confidence ≤ PIPELINE_HITL_CONFIDENCE_THRESHOLD.
@@ -206,7 +224,8 @@ FLAGGED STEPS (`flagged_steps` on the plan)
   - `step_index`: 0-based index in the plan's `steps` array;
   - `function_name`: matches that step's `function_name`;
   - `reason`: one of `inferred_season_mapping` | `inferred_value_mapping` | `ambiguous_format` |
-    `low_confidence_utility_chain` | `proxy_source`;
+    `low_confidence_utility_chain` | `proxy_source` (use `proxy_source` only for **uncontracted**
+    semantic stretch — not manifest-documented cohort entry term sourcing);
   - `context`: evidence — sample_values inspected, inferred mapping dict, format assumptions made.
 - Multiple steps may be flagged in one plan.
 - Flagged steps are **evidence only** — reviewer resolution is always at the **plan** level.

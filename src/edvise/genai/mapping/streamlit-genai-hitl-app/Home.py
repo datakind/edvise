@@ -2,7 +2,9 @@
 GenAI mapping — Unity Catalog ``hitl_reviews`` HITL reviewer UI (multipage).
 
 * **Home** (this file): short landing. Main work: **HITL Review History** — ``pages/1_HITL_Review_History.py``
-  (``hitl_reviews`` table, filters, and per-group silver JSON/UC on one page). Add more ``pages/`` as needed.
+  (``hitl_reviews`` table, filters, and per-group silver JSON/UC on one page).
+* **Maps & outputs** — ``pages/2_Maps_and_Outputs.py``: onboard run maps/outputs for runs with **no pending** HITL,
+  plus **active/** for the same institution.
 
 HITL **choice** values live in JSON on the **silver** volume. **IA** / **SMA** write silver JSON
 while the UC group is **pending**; use **HITL Review History** for the full flow. See module doc in previous
@@ -24,6 +26,7 @@ import streamlit as st
 from hitl_reviewer.platform.databricks_uc_sql import get_warehouse_id
 from hitl_reviewer.ui.hitl_streamlit import (
     HITL_WORKBENCH_PAGE,
+    MAPS_AND_OUTPUTS_PAGE,
     clear_hitl_workbench_group_nav,
     default_catalog,
     display_columns,
@@ -43,6 +46,11 @@ st.caption(
 st.page_link(
     HITL_WORKBENCH_PAGE,
     label=f"Open {_HITL_BENCH}",
+    use_container_width=True,
+)
+st.page_link(
+    MAPS_AND_OUTPUTS_PAGE,
+    label="Open Maps & outputs (HITL-complete runs + active/)",
     use_container_width=True,
 )
 

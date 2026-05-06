@@ -59,6 +59,7 @@ from hitl_reviewer.platform.unity_volume_files import read_unity_file_text
 HITL_WORKBENCH_PAGE = "pages/1_HITL_Review_History.py"
 HITL_REVIEW_HISTORY_PAGE = HITL_WORKBENCH_PAGE
 HITL_ITEMS_PAGE = HITL_WORKBENCH_PAGE
+MAPS_AND_OUTPUTS_PAGE = "pages/2_Maps_and_Outputs.py"
 
 HITL_WORKBENCH_CAPTION = (
     "The workbench table **defaults to ``status = pending``**. Set **status** to **(any)** and add run/phase "
