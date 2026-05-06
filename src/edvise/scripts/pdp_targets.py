@@ -1,8 +1,22 @@
-import logging
+"""Target generation for SST pipeline (PDP or Edvise ES configs).
+
+``--schema_type`` selects the project config model and optional preprocessing:
+
+- ``pdp``: :class:`edvise.configs.pdp.PDPProjectConfig` (default).
+- ``edvise`` or ``es``: :class:`edvise.configs.es.ESProjectConfig`, and when the
+  configured target type is ``retention``, :func:`assign_retention_column` runs
+  first so downstream retention logic matches PDP-style inputs.
+"""
+
+from __future__ import annotations
+
 import argparse
-import pandas as pd
+import logging
 import os
 import sys
+from typing import Type
+
+import pandas as pd
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
@@ -12,59 +26,79 @@ src_path = os.path.join(repo_root, "src")
 if os.path.isdir(src_path) and src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-# Debug info
 print("Script dir:", script_dir)
 print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.dataio.read import read_config
+from edvise.configs.es import ESProjectConfig
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.targets.invoke import compute_target_from_config
+from edvise.dataio.read import read_config
 from edvise.shared.logger import (
+    init_file_logging,
     local_fs_path,
     resolve_run_path,
-    init_file_logging,
 )
-from edvise.shared.validation import (
-    require,
-    warn_if,
-)
+from edvise.shared.validation import require, warn_if
+from edvise.targets.invoke import compute_target_from_config
+from edvise.targets.retention_edvise import assign_retention_column
 
-
-# Configure logging
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
 
-class PDPTargetsTask:
-    """Computes the target variable for the SST pipeline."""
+def _normalize_schema_type(raw: str) -> str:
+    return raw.strip().lower()
+
+
+def _project_config_class(schema_type: str) -> Type[PDPProjectConfig | ESProjectConfig]:
+    s = _normalize_schema_type(schema_type)
+    if s == "pdp":
+        return PDPProjectConfig
+    if s in ("edvise", "es"):
+        return ESProjectConfig
+    raise ValueError(
+        f"Unknown --schema_type {schema_type!r}; expected 'pdp', 'edvise', or 'es'."
+    )
+
+
+def _use_edvise_retention_preprocessing(schema_type: str) -> bool:
+    return _normalize_schema_type(schema_type) in ("edvise", "es")
+
+
+class TargetsTask:
+    """Computes the target variable for an SST pipeline run."""
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(self.args.config_file_path, schema=PDPProjectConfig)
+        cfg_cls = _project_config_class(args.schema_type)
+        self.cfg = read_config(self.args.config_file_path, schema=cfg_cls)
 
     def target_generation(
         self, df_student_terms: pd.DataFrame, df_ckpt: pd.DataFrame
     ) -> pd.Series:
-        """
-        Computes the target variable based on config.
-        Returns a Series indexed by student ID(s) with boolean values.
-        """
         preproc = self.cfg.preprocessing
         if preproc is None or preproc.target is None:
             raise ValueError("cfg.preprocessing.target must be configured.")
 
+        target_cfg = preproc.target
+        df = df_student_terms
+        if (
+            _use_edvise_retention_preprocessing(self.args.schema_type)
+            and target_cfg.type_ == "retention"
+        ):
+            df = assign_retention_column(
+                df, student_id_col=self.cfg.student_id_col
+            )
+
         return compute_target_from_config(
-            preproc.target,
-            df_student_terms,
+            target_cfg,
+            df,
             df_ckpt,
             student_id_col=self.cfg.student_id_col,
         )
 
-    def run(self):
-        """Executes the target computation pipeline and saves result."""
+    def run(self) -> None:
         logging.info("Loading student-terms data...")
-        # Resolve <silver>/<run_id>/<training|inference>/
         current_run_path = resolve_run_path(
             self.args, self.cfg, self.args.silver_volume_path
         )
@@ -91,7 +125,6 @@ class PDPTargetsTask:
         logging.info("Generating target labels...")
         target_series = self.target_generation(df_student_terms, df_ckpt)
 
-        # --- High-level input sanity ---
         require(not target_series.empty, "Target generation produced an empty Series.")
         require(
             target_series.dtype == bool,
@@ -102,7 +135,6 @@ class PDPTargetsTask:
             "Target Series index contains duplicates; expected one target per entity.",
         )
 
-        # Degenerate target (all True or all False) — warn, don’t fail
         vc = target_series.value_counts(dropna=False)
         logging.info("Target distribution:\n%s", vc.to_string())
 
@@ -112,21 +144,27 @@ class PDPTargetsTask:
         )
 
         logging.info("Saving target data...")
-        # Convert Series to DataFrame for saving
         df_target = target_series.reset_index().rename(
             columns={target_series.name: "target"}
         )
 
         out_path = os.path.join(current_run_path, "target.parquet")
         df_target.to_parquet(local_fs_path(out_path), index=False)
-        logging.info(f"Target file saved to {out_path}")
+        logging.info("Target file saved to %s", out_path)
 
 
 def parse_arguments() -> argparse.Namespace:
-    """Parses command line arguments."""
-    parser = argparse.ArgumentParser(description="Target generation for SST pipeline.")
+    parser = argparse.ArgumentParser(
+        description="Target generation for SST pipeline (PDP or Edvise ES)."
+    )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument(
+        "--schema_type",
+        type=str,
+        default="pdp",
+        help="pdp | edvise | es — selects config class and Edvise retention preprocessing.",
+    )
     parser.add_argument("--db_run_id", type=str, required=False)
     parser.add_argument(
         "--job_type", type=str, choices=["training", "inference"], required=False
@@ -139,25 +177,16 @@ if __name__ == "__main__":
     if not getattr(args, "job_type", None):
         args.job_type = "training"
         logging.info("No --job_type passed; defaulting to job_type='training'.")
-    # try:
-    #     if args.custom_schemas_path:
-    #         sys.path.append(args.custom_schemas_path)
-    #         schemas = importlib.import_module("schemas")
-    #         logging.info("Using custom schemas")
-    # except Exception:
-    #     logging.info("Using default schemas")
 
-    task = PDPTargetsTask(args)
-    # Attach per-run file logging under the resolved run folder
+    task = TargetsTask(args)
     log_path = init_file_logging(
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_targets.log",  # optional; omit to use default
+        log_file_name="targets.log",
     )
     logging.info("Logs will be written to %s", log_path)
     task.run()
-    # Ensure logs are written to disk
     for h in logging.getLogger().handlers:
         try:
             h.flush()
