@@ -56,7 +56,7 @@ from hitl_reviewer.platform.unity_volume_files import read_unity_file_text
 
 # Primary HITL workbench: ``hitl_reviews`` table and per-group JSON/UC on the **same** page.
 # Paths for ``st.page_link`` (relative to the main script, e.g. :file:`Home.py` for this app).
-HITL_WORKBENCH_PAGE = "pages/1_HITL_Review_History.py"
+HITL_WORKBENCH_PAGE = "pages/1_HITL_Review.py"
 HITL_REVIEW_HISTORY_PAGE = HITL_WORKBENCH_PAGE
 HITL_ITEMS_PAGE = HITL_WORKBENCH_PAGE
 MAPS_AND_OUTPUTS_PAGE = "pages/2_Maps_and_Outputs.py"
@@ -75,8 +75,10 @@ KEY_NAV_ONBOARD = "hitl_nav_onboard_run_id"
 KEY_NAV_PHASE = "hitl_nav_phase"
 KEY_NAV_ARTIFACT_TYPE = "hitl_nav_artifact_type"
 KEY_HYDRATE_SIG = "hitl_sidebar_hydrate_sig"
-# st.dataframe row selection in workbench: must match :file:`pages/1_HITL_Review_History.py`
+# st.dataframe row selection in workbench: must match :file:`pages/1_HITL_Review.py`
 HITL_RESULTS_DF_KEY = "hitl_workbench_results_df"
+# Home “What’s still pending?” table: selecting a row switches to the workbench page.
+HITL_HOME_PENDING_DF_KEY = "hitl_home_pending_results_df"
 
 _DISPLAY_COLS: tuple[str, ...] = (
     "institution_id",
@@ -254,7 +256,7 @@ def render_connection_sidebar(
             )
         else:
             st.caption(
-                "**Table filters and row limit** are on the **HITL Review History** workbench. "
+                "**Table filters and row limit** are on the **HITL Review** workbench. "
                 "Use **Unity Catalog** there for the HITL editor below."
             )
 
@@ -771,6 +773,54 @@ def apply_nav_from_results_dataframe_event(
     st.rerun()
 
 
+def apply_nav_from_home_pending_dataframe_event(
+    *,
+    full_df: pd.DataFrame,
+    catalog: str,
+    event: object,
+) -> None:
+    """
+    Home pending snapshot: selecting a row sets the HITL workbench group and navigates to
+    :data:`HITL_WORKBENCH_PAGE` (same keys as the workbench table, but uses ``st.switch_page``).
+    """
+    if full_df is None or full_df.empty or event is None:
+        return
+    sel = (
+        event.get("selection")
+        if isinstance(event, dict)
+        else getattr(event, "selection", None)
+    )
+    if not sel:
+        return
+    rows = sel.get("rows") if isinstance(sel, dict) else getattr(sel, "rows", None)
+    if not rows:
+        return
+    ri = int(rows[0])
+    if ri < 0 or ri >= len(full_df):
+        return
+    row = full_df.iloc[ri]
+    o = str(row.get("onboard_run_id", "") or "").strip()
+    ph = str(row.get("phase", "") or "").strip()
+    at = str(row.get("artifact_type", "") or "").strip()
+    if not o or not ph or not at:
+        return
+    c_use = str(catalog).strip()
+    c_cur, o_cur, ph_cur, at_cur = get_nav_from_session_or_url()
+    if (
+        c_cur
+        and o_cur
+        and ph_cur
+        and at_cur
+        and c_use == c_cur
+        and o == o_cur
+        and ph == ph_cur
+        and at == at_cur
+    ):
+        return
+    set_nav_selection(c_use, o, ph, at)
+    st.switch_page(HITL_WORKBENCH_PAGE)
+
+
 def set_nav_selection(
     catalog: str,
     onboard_run_id: str,
@@ -808,6 +858,7 @@ def clear_hitl_workbench_group_nav() -> None:
     ):
         st.session_state.pop(k, None)
     st.session_state.pop(HITL_RESULTS_DF_KEY, None)
+    st.session_state.pop(HITL_HOME_PENDING_DF_KEY, None)
     qp = st.query_params
     for qk in _NAV_QUERY_KEYS:
         if qk in qp:

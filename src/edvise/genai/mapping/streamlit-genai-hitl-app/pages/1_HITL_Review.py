@@ -21,7 +21,7 @@ from hitl_reviewer.ui.hitl_streamlit import (
     render_group_loop,
 )
 
-st.set_page_config(page_title="HITL Review History", layout="wide")
+st.set_page_config(page_title="HITL Review", layout="wide")
 init_reviewer_in_session()
 init_sidebar_form_state()
 maybe_hydrate_sidebar_from_nav()
@@ -36,7 +36,7 @@ if c0 and o0 and ph0 and at0:
 
 catalog, sidebar, warehouse_ok = render_connection_sidebar(
     show_table_query_filters=True,
-    page_heading="HITL Review History",
+    page_heading="HITL Review",
     page_caption=HITL_WORKBENCH_CAPTION,
     nav_group_line=nav_group_line,
 )

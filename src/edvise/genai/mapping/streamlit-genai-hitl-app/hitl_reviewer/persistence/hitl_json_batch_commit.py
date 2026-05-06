@@ -2,7 +2,7 @@
 Batch-write HITL ``choice`` fields to silver JSON from Streamlit session state, plus optional UC approve.
 
 Used by IA grain, IA term, SMA manifest, and SMA transformation review editors in the HITL workbench
-(``pages/1_HITL_Review_History.py``).
+(``pages/1_HITL_Review.py``).
 """
 
 from __future__ import annotations

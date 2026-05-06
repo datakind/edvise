@@ -40,7 +40,7 @@ catalog, _sidebar, warehouse_ok = render_connection_sidebar(
     page_heading="Maps & outputs",
     page_caption=(
         "Unity Catalog for ``hitl_reviews`` / ``pipeline_runs``. "
-        "Use **HITL Review History** in the sidebar to edit pending groups."
+        "Use **HITL Review** in the sidebar to edit pending groups."
     ),
 )
 if not warehouse_ok:
