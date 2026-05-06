@@ -28,6 +28,8 @@ resources:
             - pypi:
                 package: tomli==2.2.1
             - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
                 package: mlflow~=2.22
 
         # SSI workspace preprocessing.py; config from silver training artifacts (inference_setup).
