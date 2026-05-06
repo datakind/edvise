@@ -11,6 +11,9 @@
 name: deploy-genai-mapping
 
 on:
+  push:
+    branches:
+      - feat/gen_ai_hitl_ui_build
   workflow_dispatch:
     inputs:
       deploy_dev:
