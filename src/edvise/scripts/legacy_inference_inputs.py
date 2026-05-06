@@ -173,7 +173,10 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--model_name",
         required=True,
-        help="Name of the registered model (without UC path prefix)",
+        help=(
+            "Registered model short name, or full UC three-level name "
+            "(catalog.institution_gold.<short>)."
+        ),
     )
     parser.add_argument(
         "--DB_workspace", required=True, help="Databricks workspace name"

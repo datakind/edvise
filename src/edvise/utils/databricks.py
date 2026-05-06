@@ -42,6 +42,31 @@ def get_dbutils_or_none() -> t.Any | None:
         return None
 
 
+def normalize_legacy_uc_model_short_name(
+    model_name: str,
+    *,
+    workspace: str = "",
+    institution: str = "",
+) -> str:
+    """
+    Legacy jobs accept either the short registered name or the full UC three-level name
+    ``{catalog}.{institution}_gold.{short}``. Downstream code expects ``short`` (SSI
+    folder name and MLflow model suffix).
+    """
+    mn = (model_name or "").strip()
+    if not mn:
+        return mn
+    ws = (workspace or "").strip()
+    inst = (institution or "").strip()
+    if ws and inst:
+        prefix = f"{ws}.{inst}_gold."
+        if mn.startswith(prefix):
+            return mn[len(prefix) :]
+    if mn.count(".") >= 2:
+        return mn.rsplit(".", 1)[-1]
+    return mn
+
+
 def get_latest_uc_model_run_id(
     model_name: str,
     workspace: str,
@@ -52,6 +77,9 @@ def get_latest_uc_model_run_id(
     """
     Return latest Unity Catalog model version run_id for a given model.
     """
+    model_name = normalize_legacy_uc_model_short_name(
+        model_name, workspace=workspace, institution=institution
+    )
     client = MlflowClient(registry_uri=registry_uri)
     full_model_name = f"{workspace}.{institution}_gold.{model_name}"
     versions = client.search_model_versions(f"name='{full_model_name}'")

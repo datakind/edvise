@@ -883,8 +883,8 @@ def parse_arguments() -> argparse.Namespace:
         type=str,
         default="",
         help=(
-            "Legacy only: SSI folder under pipelines/<inst>/ with preprocessing.py; "
-            "same string as the registered Unity Catalog model name."
+            "Legacy only: SSI folder under pipelines/<inst>/ with preprocessing.py, or full UC "
+            "name catalog.inst_gold.<folder>; the short segment is used."
         ),
     )
     parser.add_argument(
@@ -921,13 +921,18 @@ def _apply_legacy_training_workspace_toml_paths(args: argparse.Namespace) -> Non
         copy_legacy_uc_config_for_training,
         resolve_legacy_training_toml_paths,
     )
+    from edvise.utils.databricks import normalize_legacy_uc_model_short_name
 
     inst = (args.databricks_institution_name or "").strip()
     if not inst:
         raise SystemExit(
             "--databricks_institution_name is required when --schema_type=legacy"
         )
-    mn = (args.model_name or "").strip()
+    mn = normalize_legacy_uc_model_short_name(
+        args.model_name or "",
+        workspace=(args.DB_workspace or ""),
+        institution=inst,
+    )
     if not mn:
         raise SystemExit("--model_name is required when --schema_type=legacy")
     ws = (args.ssi_pipelines_workspace_root or "").strip() or None

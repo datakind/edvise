@@ -46,8 +46,8 @@ variables:
     description: "Group with permissions to manage the job"
   model_name:
     description: >
-      Unity Catalog / MLflow registered model name for inference, and the SSI workspace subfolder
-      under pipelines/<databricks_institution_name>/ that contains preprocessing.py (same string).
+      Short registered model name (SSI folder under pipelines/<inst>/), or full UC name
+      <catalog>.<inst>_gold.<short>; jobs normalize to the short segment for paths and registry.
     default: ""
 
 run_as:

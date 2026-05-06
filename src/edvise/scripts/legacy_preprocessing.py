@@ -147,6 +147,7 @@ import tomlkit
 
 from edvise.configs.legacy import deep_substitute_uc_catalog_placeholders
 from edvise.dataio.read import from_toml_file
+from edvise.utils.databricks import normalize_legacy_uc_model_short_name
 
 DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT = (
     "/Workspace/Users/6c8d8d76-1399-4065-aeb5-9474d32773cf/"
@@ -458,8 +459,8 @@ def main() -> None:
         default="",
         help=(
             "Subfolder under pipelines/<inst>/ containing preprocessing.py "
-            "(e.g. john_jay_col_graduation_6years_time_cuny_transfer); same string as the "
-            "registered Unity Catalog model name for legacy jobs."
+            "(e.g. john_jay_col_graduation_6years_time_cuny_transfer), or the full UC name "
+            "catalog.inst_gold.<that_folder>; the short segment is used for SSI paths."
         ),
     )
     parser.add_argument(
@@ -486,7 +487,11 @@ def main() -> None:
     inst = (args.databricks_institution_name or "").strip()
     if not inst:
         raise SystemExit("--databricks_institution_name is required when preprocessing runs.")
-    model_name = (args.model_name or "").strip()
+    model_name = normalize_legacy_uc_model_short_name(
+        args.model_name or "",
+        workspace=(args.DB_workspace or ""),
+        institution=inst,
+    )
     if not model_name:
         raise SystemExit(
             "--model_name is required when preprocessing runs "
