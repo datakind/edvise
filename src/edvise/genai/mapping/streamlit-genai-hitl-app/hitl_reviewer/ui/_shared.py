@@ -292,12 +292,12 @@ def render_option_cards(
             st.rerun()
 
 
-def _hitl_nav_delta(
+def apply_hitl_nav_delta(
     *,
     nav_key: str,
     n_items: int,
     delta: int,
-    before_nav_rerun: Callable[[], None] | None,
+    before_nav_rerun: Callable[[], None] | None = None,
 ) -> None:
     """Prev/Next handler: read current index from session (not caller closure) then clamp."""
     if before_nav_rerun is not None:
@@ -362,7 +362,7 @@ def render_action_bar(
                         if cur <= 0
                         else f"Previous {ent} item (another table) in this JSON file."
                     ),
-                    on_click=_hitl_nav_delta,
+                    on_click=apply_hitl_nav_delta,
                     kwargs={
                         "nav_key": nav_key,
                         "n_items": n_items,
@@ -386,7 +386,7 @@ def render_action_bar(
                         if cur >= n_items - 1
                         else f"Next {ent} item (another table) in this JSON file."
                     ),
-                    on_click=_hitl_nav_delta,
+                    on_click=apply_hitl_nav_delta,
                     kwargs={
                         "nav_key": nav_key,
                         "n_items": n_items,
