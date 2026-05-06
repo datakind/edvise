@@ -161,7 +161,7 @@ resources:
           depends_on:
             - task_key: checkpoint
           spark_python_task:
-            python_file: src/edvise/scripts/pdp_targets.py
+            python_file: src/edvise/scripts/targets.py
             source: GIT
             parameters:
               - --silver_volume_path

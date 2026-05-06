@@ -1,5 +1,8 @@
 """Target generation for SST pipeline (PDP or Edvise ES configs).
 
+Module :mod:`edvise.scripts.targets` (file ``targets.py``) must not be confused with
+the :mod:`edvise.targets` package (compute/retention helpers).
+
 ``--schema_type`` selects the project config model and optional preprocessing:
 
 - ``pdp``: :class:`edvise.configs.pdp.PDPProjectConfig` (default).
