@@ -127,4 +127,4 @@ jobs:
             --var "git_tag=$TAG" \
             --var "service_account_executer=$SA_EXECUTER" \
             --var "ds_run_as=$DS_RUN_AS" \
-            --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
+            --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" 
