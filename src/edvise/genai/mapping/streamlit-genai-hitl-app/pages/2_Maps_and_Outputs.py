@@ -1,5 +1,5 @@
 """
-Maps & outputs: browse silver **active/** or an **onboard run** (HITL-complete) for an institution.
+Maps & outputs: browse silver **Active** (promoted) artifacts or an **onboard run** (HITL-complete) for an institution.
 
 Catalog comes from ``GENAI_HITL_CATALOG`` / default (not a sidebar control). Uses ``hitl_reviews`` aggregates
 and the same ``…/genai_mapping/`` layout as the pipeline jobs.
@@ -33,7 +33,8 @@ init_sidebar_form_state()
 
 st.title("Maps & outputs")
 st.caption(
-    "Choose an **institution**, then browse **active/** (promoted execute artifacts) or an **onboard run** "
+    "Choose an **institution**, then browse **Active** (promoted execute artifacts under ``genai_mapping/active/``) "
+    "or an **onboard run** "
     "whose HITL rows are all finalized (no ``pending``). Unity Catalog for queries is taken from the "
     "environment, same as **HITL Review History** when that sidebar field is left at its default."
 )
@@ -100,20 +101,19 @@ inst_pick = st.selectbox("Institution", options=institutions, index=0)
 
 source = st.radio(
     "Browse",
-    options=["Onboard run (HITL complete)", "active/"],
+    options=["Onboard run (HITL complete)", "Active"],
     horizontal=True,
 )
 
-if source == "active/":
+if source == "Active":
     genai_root = genai_mapping_root_uc(inst_pick, catalog)
     st.divider()
     st.markdown(f"**Silver genai_mapping root:** `{genai_root}`")
     st.caption(
-        "Promoted hook packages may also live under ``active/identity_hooks/…`` — browse that folder "
-        "in Unity Catalog when your onboard run materialized IA hooks."
+        "IA hook modules are listed below when present under ``genai_mapping/active/identity_hooks/…``."
     )
     render_artifact_sections(
-        title=f"active/ — `{inst_pick}`",
+        title=f"Active — `{inst_pick}`",
         paths=known_active_artifact_paths(inst_pick, catalog),
     )
 else:

@@ -3,7 +3,7 @@ GenAI mapping — Unity Catalog ``hitl_reviews`` HITL reviewer UI (multipage).
 
 * **Home** (this file): short landing. Main work: **HITL Review** — ``pages/1_HITL_Review.py``
   (``hitl_reviews`` table, filters, and per-group silver JSON/UC on one page).
-* **Maps & outputs** — ``pages/2_Maps_and_Outputs.py``: institution dropdown, then **active/** or a **HITL-complete onboard run**,
+* **Maps & outputs** — ``pages/2_Maps_and_Outputs.py``: institution dropdown, then **Active** or a **HITL-complete onboard run**,
   with catalog from the environment (not a sidebar field on that page).
 
 HITL **choice** values live in JSON on the **silver** volume. **IA** / **SMA** write silver JSON
@@ -53,7 +53,7 @@ st.page_link(
 )
 st.page_link(
     MAPS_AND_OUTPUTS_PAGE,
-    label="Open Maps & outputs (HITL-complete runs + active/)",
+    label="Open Maps & outputs (HITL-complete runs + Active)",
     use_container_width=True,
 )
 

@@ -1,5 +1,5 @@
 """
-Browse GenAI mapping artifacts on silver: onboard run outputs and ``active/`` promotion.
+Browse GenAI mapping artifacts on silver: onboard run outputs and Active-folder promotion.
 
 Uses the same path layout as ``edvise_genai_ia`` / ``edvise_genai_sma`` (``resolve_run_paths``).
 """
@@ -35,7 +35,7 @@ def known_onboard_run_artifact_paths(
     """
     Return ``(genai_mapping_root, [(section, label, absolute_path), ...])`` for one onboard run.
 
-    Paths are best-effort: missing files are still listed so reviewers can see expected layout.
+    Candidate paths for this run; the UI only shows entries that are successfully read from the volume.
     """
     inst = str(institution_id).strip()
     cat = str(catalog).strip()
@@ -71,12 +71,6 @@ def known_onboard_run_artifact_paths(
         add("Identity hooks (onboard run)", label, ia / rel)
 
     for fn, label in (
-        ("term_hooks.py", "term_hooks.py (legacy flat at IA root)"),
-        ("grain_hooks.py", "grain_hooks.py (legacy flat at IA root)"),
-    ):
-        add("Identity agent (onboard run)", label, ia / fn)
-
-    for fn, label in (
         ("manifest_map.json", "Manifest map"),
         ("transformation_map.json", "Transformation map"),
         ("mapping_validation_manifest.json", "Mapping validation manifest"),
@@ -105,14 +99,14 @@ def known_onboard_run_artifact_paths(
 def known_active_artifact_paths(
     institution_id: str, catalog: str
 ) -> list[tuple[str, str, str]]:
-    """``[(section, label, absolute_path), ...]`` under ``genai_mapping/active/``."""
+    """``[(section, label, absolute_path), ...]`` under ``genai_mapping/active/`` on the volume."""
     inst = str(institution_id).strip()
     cat = str(catalog).strip()
     active = Path(genai_mapping_root_uc(inst, cat)) / "active"
     items: list[tuple[str, str, str]] = []
 
     def add(label: str, p: Path) -> None:
-        items.append(("active/", label, str(p)))
+        items.append(("Active", label, str(p)))
 
     for fn, label in (
         ("genai_active_registry.json", "Promotion registry"),
@@ -132,24 +126,20 @@ def known_active_artifact_paths(
         rel = default_hook_module_relpath(inst, domain)
         add(label, active / rel)
 
-    for fn, label in (
-        ("grain_hooks.py", "grain_hooks.py (legacy flat)"),
-        ("term_hooks.py", "term_hooks.py (legacy flat)"),
-    ):
-        add(label, active / fn)
-
     return items
 
 
-def _safe_read_uc_file(abs_path: str) -> tuple[bool, str]:
+def _read_uc_file_if_accessible(abs_path: str) -> str | None:
+    """
+    Return file text if the Files API read succeeds, else ``None`` (missing, denied, wrong path, etc.).
+    """
     p = (abs_path or "").strip()
     if not p.startswith("/Volumes/"):
-        return False, "Not a /Volumes/ path."
+        return None
     try:
-        text = read_unity_file_text(p)
-    except Exception as e:  # noqa: BLE001
-        return False, str(e)
-    return True, text
+        return read_unity_file_text(p)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _preview_payload(text: str) -> tuple[str, Any | None]:
@@ -169,23 +159,22 @@ def _preview_payload(text: str) -> tuple[str, Any | None]:
         return preview, None
 
 
-def render_file_preview_expander(section: str, label: str, abs_path: str) -> None:
+def _render_directory_data_expander(section: str, label: str, abs_path: str) -> None:
     title = f"{section} — {label}"
     with st.expander(title, expanded=False):
         st.code(abs_path, language="text")
-        if Path(abs_path).name == "data":
-            st.info(
-                "Directory for execute-mode parquet outputs when present — open this path in "
-                "Databricks / Unity Catalog to list files."
-            )
-            return
-        ok, body = _safe_read_uc_file(abs_path)
-        if not ok:
-            st.warning(body)
-            return
+        st.info(
+            "Directory for execute-mode parquet outputs when present — open this path in "
+            "Databricks / Unity Catalog to list files."
+        )
+
+
+def _render_file_expander(section: str, label: str, abs_path: str, body: str) -> None:
+    title = f"{section} — {label}"
+    with st.expander(title, expanded=False):
+        st.code(abs_path, language="text")
         if not body.strip():
             st.caption("(empty file)")
-            return
         preview, as_json = _preview_payload(body)
         dl_key = hashlib.sha256(abs_path.encode("utf-8")).hexdigest()[:24]
         st.download_button(
@@ -197,7 +186,7 @@ def render_file_preview_expander(section: str, label: str, abs_path: str) -> Non
         if as_json is not None:
             st.json(as_json)
         else:
-            st.text(preview)
+            st.text(preview if body.strip() else "")
 
 
 def render_artifact_sections(
@@ -209,5 +198,18 @@ def render_artifact_sections(
     if not paths:
         st.caption("No paths to show.")
         return
+    shown = 0
     for section, label, abs_path in paths:
-        render_file_preview_expander(section, label, abs_path)
+        if Path(abs_path).name == "data":
+            _render_directory_data_expander(section, label, abs_path)
+            shown += 1
+            continue
+        body = _read_uc_file_if_accessible(abs_path)
+        if body is None:
+            continue
+        _render_file_expander(section, label, abs_path, body)
+        shown += 1
+    if shown == 0:
+        st.caption(
+            "No files could be read at the expected paths (missing, permissions, or not a volume path)."
+        )
