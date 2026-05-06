@@ -66,6 +66,8 @@ resources:
               - "{{job.parameters.databricks_institution_name}}"
               - --model_name
               - "{{job.parameters.model_name}}"
+              - --term_filter
+              - "{{job.parameters.term_filter}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -126,8 +128,6 @@ resources:
               - "legacy"
               - --features_table_path
               - "{{tasks.inference_setup.values.features_table_path}}"
-              - --term_filter
-              - "{{job.parameters.term_filter}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
           libraries:
             - pypi:

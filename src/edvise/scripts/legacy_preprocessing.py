@@ -9,20 +9,32 @@ Workspace root defaults to ``…/student-success-intervention/pipelines`` (overr
 - **Preprocessing** is always at
   ``<workspace_root>/<databricks_institution_name>/<model_name>/preprocessing.py``.
 
-- **Training** — config and features TOMLs live under the institution folder
-  ``<workspace_root>/<databricks_institution_name>/``. Relative paths (no ``..``):
+- **Training** — config and features TOMLs come from either Unity Catalog volumes or the
+  institution folder under the workspace root:
 
-  - If ``--ssi_config_toml_relative_to_institution`` is empty, default is
-    ``<model_name>/<config_file_name>`` (e.g. ``john_jay_col_graduation_6years_time_cuny_transfer/config.toml``).
+  - **UC (preferred for production):** set both ``--legacy_config_uc_path`` and
+    ``--legacy_features_uc_path`` to full paths (e.g. ``/Volumes/<catalog>/.../config.toml``).
+    SSI-relative parameters are then ignored for locating TOMLs.
 
-  - If ``--ssi_features_toml_relative_to_institution`` is empty, default is
-    ``<model_name>/<features_table_name>`` (e.g. ``john_jay_col_graduation_6years_time_cuny_transfer/features_table.toml``).
+  - **Git / workspace mirror:** if both UC args are empty, TOMLs live under
+    ``<workspace_root>/<databricks_institution_name>/`` with relative paths (no ``..``):
 
-  Set the two ``ssi_*_relative_to_institution`` parameters to point elsewhere under the
-  institution directory (e.g. ``shared/features_table.toml``).
+    - If ``--ssi_config_toml_relative_to_institution`` is empty, default is
+      ``<model_name>/<config_file_name>``.
+
+    - If ``--ssi_features_toml_relative_to_institution`` is empty, default is
+      ``<model_name>/<features_table_name>``.
+
+    Set the two ``ssi_*_relative_to_institution`` parameters to point elsewhere under the
+    institution directory (e.g. ``shared/features_table.toml``).
 
 ``--config_file_path`` is required for ``run_type=predict`` (from ``legacy_inference_inputs``);
 ``run_type=train`` ignores it and uses the workspace paths above.
+
+For ``run_type=predict``, optional ``--term_filter`` (JSON list of strings) overrides
+``[inference].term`` in the config when non-empty; omit or null to use the config.
+School ``run()`` may accept ``term_filter`` and apply cohort/term filtering before writing
+``model_features`` (so ``inference_h2o`` loads an already-filtered table).
 
 ``databricks_institution_name`` must still match the first folder under ``pipelines/`` for
 Unity Catalog naming; it is the same segment used in the SSI repo layout.
@@ -35,6 +47,7 @@ import importlib.util
 import inspect
 import logging
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -261,6 +274,77 @@ def resolve_ssi_training_workspace_toml_paths(
     return str(cfg_p), str(feat_p)
 
 
+def resolve_legacy_training_toml_paths(
+    institution_id: str,
+    model_name: str,
+    config_file_name: str,
+    features_table_name: str,
+    *,
+    workspace_root: str | None = None,
+    ssi_config_toml_relative_to_institution: str | None = None,
+    ssi_features_toml_relative_to_institution: str | None = None,
+    legacy_config_uc_path: str = "",
+    legacy_features_uc_path: str = "",
+) -> tuple[str, str]:
+    """
+    Resolve training config and features TOML paths for legacy jobs.
+
+    When both ``legacy_config_uc_path`` and ``legacy_features_uc_path`` are set, those
+    UC volume paths are used. Otherwise paths are resolved under the SSI workspace layout.
+    """
+    uc_c = (legacy_config_uc_path or "").strip()
+    uc_f = (legacy_features_uc_path or "").strip()
+    if uc_c and uc_f:
+        cfg_p = normalize_fs_path(uc_c).resolve()
+        feat_p = normalize_fs_path(uc_f).resolve()
+        if not cfg_p.is_file():
+            raise FileNotFoundError(
+                f"legacy_config_uc_path is not a file: {cfg_p}"
+            )
+        if not feat_p.is_file():
+            raise FileNotFoundError(
+                f"legacy_features_uc_path is not a file: {feat_p}"
+            )
+        return str(cfg_p), str(feat_p)
+    if uc_c or uc_f:
+        raise ValueError(
+            "Provide both legacy_config_uc_path and legacy_features_uc_path, or leave both empty."
+        )
+    return resolve_ssi_training_workspace_toml_paths(
+        institution_id,
+        model_name,
+        config_file_name,
+        features_table_name,
+        workspace_root=workspace_root,
+        ssi_config_toml_relative_to_institution=ssi_config_toml_relative_to_institution,
+        ssi_features_toml_relative_to_institution=ssi_features_toml_relative_to_institution,
+    )
+
+
+def copy_legacy_uc_config_for_training(config_uc_path: str) -> str:
+    """
+    Copy a UC (or any read-only) config TOML to a writable temp file.
+
+    ``training_h2o`` updates run metadata and pipeline_version in the config; using a copy
+    avoids mutating the canonical UC object.
+    """
+    src = normalize_fs_path(config_uc_path).resolve()
+    if not src.is_file():
+        raise FileNotFoundError(f"Config TOML not found: {src}")
+    fd, tmp_path = tempfile.mkstemp(prefix="edvise_legacy_train_cfg_", suffix=".toml")
+    try:
+        os.close(fd)
+        shutil.copy2(str(src), tmp_path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+    LOGGER.info("Copied UC legacy config %s -> %s (writable training copy)", src, tmp_path)
+    return tmp_path
+
+
 def _ensure_edvise_src_on_path() -> None:
     """Ensure ``edvise`` is importable before loading workspace ``preprocessing.py``."""
     _ensure_edvise_src_on_sys_path()
@@ -375,6 +459,22 @@ def main() -> None:
         help="Override …/student-success-intervention/pipelines.",
     )
     parser.add_argument(
+        "--legacy_config_uc_path",
+        default="",
+        help=(
+            "Train: optional full path to config TOML on UC / driver (e.g. /Volumes/.../config.toml). "
+            "If set, --legacy_features_uc_path must also be set; SSI TOML paths are not used."
+        ),
+    )
+    parser.add_argument(
+        "--legacy_features_uc_path",
+        default="",
+        help=(
+            "Train: optional full path to features_table TOML on UC / driver. "
+            "Pair with --legacy_config_uc_path."
+        ),
+    )
+    parser.add_argument(
         "--run_type",
         default="train",
         choices=("train", "predict"),
@@ -403,6 +503,16 @@ def main() -> None:
             "school preprocessing runs."
         ),
     )
+    parser.add_argument(
+        "--term_filter",
+        type=str,
+        default=None,
+        help=(
+            "Predict only: JSON list of term labels (e.g. [\"fall 2025\"]). "
+            "Omit or null to use [inference].term from config. Forwarded if "
+            "``preprocessing.run`` accepts a ``term_filter`` parameter."
+        ),
+    )
     args = parser.parse_args()
 
     inst = (args.databricks_institution_name or "").strip()
@@ -421,7 +531,7 @@ def main() -> None:
     if args.run_type == "train":
         cfg_rel = (args.ssi_config_toml_relative_to_institution or "").strip() or None
         feat_rel = (args.ssi_features_toml_relative_to_institution or "").strip() or None
-        effective_config, effective_features = resolve_ssi_training_workspace_toml_paths(
+        effective_config, effective_features = resolve_legacy_training_toml_paths(
             inst,
             model_name,
             args.config_file_name,
@@ -429,9 +539,11 @@ def main() -> None:
             workspace_root=ws,
             ssi_config_toml_relative_to_institution=cfg_rel,
             ssi_features_toml_relative_to_institution=feat_rel,
+            legacy_config_uc_path=args.legacy_config_uc_path,
+            legacy_features_uc_path=args.legacy_features_uc_path,
         )
         LOGGER.info(
-            "Training: SSI config %s, features %s",
+            "Training: legacy config %s, features %s",
             effective_config,
             effective_features,
         )
@@ -463,13 +575,27 @@ def main() -> None:
     run = getattr(mod, "run", None)
     if run is None:
         raise RuntimeError(f"{label!r} must define a run() function.")
-    LOGGER.info(
-        "Running %s.run(config_file_path=%r, run_type=%r)",
-        label,
-        effective_config,
-        args.run_type,
-    )
-    run(config_file_path=effective_config, run_type=args.run_type)
+    run_kwargs: dict = {
+        "config_file_path": effective_config,
+        "run_type": args.run_type,
+    }
+    if "term_filter" in inspect.signature(run).parameters:
+        run_kwargs["term_filter"] = getattr(args, "term_filter", None)
+        LOGGER.info(
+            "Running %s.run(config_file_path=%r, run_type=%r, term_filter=%r)",
+            label,
+            effective_config,
+            args.run_type,
+            run_kwargs.get("term_filter"),
+        )
+    else:
+        LOGGER.info(
+            "Running %s.run(config_file_path=%r, run_type=%r)",
+            label,
+            effective_config,
+            args.run_type,
+        )
+    run(**run_kwargs)
 
 
 if __name__ == "__main__":

@@ -911,16 +911,33 @@ def parse_arguments() -> argparse.Namespace:
         default="",
         help="Legacy only: optional override for .../student-success-intervention/pipelines path.",
     )
+    parser.add_argument(
+        "--legacy_config_uc_path",
+        type=str,
+        default="",
+        help=(
+            "Legacy only: full path to config TOML on UC/driver. "
+            "If set, --legacy_features_uc_path must also be set; SSI TOML resolution is skipped. "
+            "A writable copy is used so run metadata updates do not mutate UC."
+        ),
+    )
+    parser.add_argument(
+        "--legacy_features_uc_path",
+        type=str,
+        default="",
+        help="Legacy only: full path to features_table TOML; pair with --legacy_config_uc_path.",
+    )
 
     return parser.parse_args()
 
 
 def _apply_legacy_training_workspace_toml_paths(args: argparse.Namespace) -> None:
-    """For schema_type=legacy, load config and features TOMLs from SSI workspace (not bronze)."""
+    """For schema_type=legacy, load config and features TOMLs from UC or SSI workspace."""
     if args.schema_type != "legacy":
         return
     from edvise.scripts.legacy_preprocessing import (
-        resolve_ssi_training_workspace_toml_paths,
+        copy_legacy_uc_config_for_training,
+        resolve_legacy_training_toml_paths,
     )
 
     inst = (args.databricks_institution_name or "").strip()
@@ -934,21 +951,33 @@ def _apply_legacy_training_workspace_toml_paths(args: argparse.Namespace) -> Non
     ws = (args.ssi_pipelines_workspace_root or "").strip() or None
     cfg_rel = (args.ssi_config_toml_relative_to_institution or "").strip() or None
     feat_rel = (args.ssi_features_toml_relative_to_institution or "").strip() or None
-    cfg_path, feat_path = resolve_ssi_training_workspace_toml_paths(
-        inst,
-        mn,
-        args.config_file_name,
-        args.features_table_name,
-        workspace_root=ws,
-        ssi_config_toml_relative_to_institution=cfg_rel,
-        ssi_features_toml_relative_to_institution=feat_rel,
-    )
+    uc_c = (getattr(args, "legacy_config_uc_path", None) or "").strip()
+    uc_f = (getattr(args, "legacy_features_uc_path", None) or "").strip()
+    try:
+        cfg_path, feat_path = resolve_legacy_training_toml_paths(
+            inst,
+            mn,
+            args.config_file_name,
+            args.features_table_name,
+            workspace_root=ws,
+            ssi_config_toml_relative_to_institution=cfg_rel,
+            ssi_features_toml_relative_to_institution=feat_rel,
+            legacy_config_uc_path=uc_c,
+            legacy_features_uc_path=uc_f,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+
+    if uc_c and uc_f:
+        cfg_path = copy_legacy_uc_config_for_training(cfg_path)
+
     args.config_file_path = cfg_path
     args.features_table_path = feat_path
     logging.info(
-        "Legacy training: config from SSI workspace %s, features %s",
+        "Legacy training: config %s, features %s%s",
         cfg_path,
         feat_path,
+        " (UC sources; config is a writable copy)" if uc_c and uc_f else "",
     )
 
 

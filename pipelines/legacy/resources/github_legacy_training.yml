@@ -24,6 +24,10 @@ resources:
               - "{{job.parameters.ssi_config_toml_relative_to_institution}}"
               - --ssi_features_toml_relative_to_institution
               - "{{job.parameters.ssi_features_toml_relative_to_institution}}"
+              - --legacy_config_uc_path
+              - "{{job.parameters.legacy_config_uc_path}}"
+              - --legacy_features_uc_path
+              - "{{job.parameters.legacy_features_uc_path}}"
               - --model_name
               - "{{job.parameters.model_name}}"
           job_cluster_key: edvise-legacy-training-pipeline-cluster
@@ -81,6 +85,10 @@ resources:
               - "{{job.parameters.ssi_config_toml_relative_to_institution}}"
               - --ssi_features_toml_relative_to_institution
               - "{{job.parameters.ssi_features_toml_relative_to_institution}}"
+              - --legacy_config_uc_path
+              - "{{job.parameters.legacy_config_uc_path}}"
+              - --legacy_features_uc_path
+              - "{{job.parameters.legacy_features_uc_path}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
               - --ds_run_as
@@ -176,6 +184,10 @@ resources:
           default: ${var.ssi_config_toml_relative_to_institution}
         - name: ssi_features_toml_relative_to_institution
           default: ${var.ssi_features_toml_relative_to_institution}
+        - name: legacy_config_uc_path
+          default: ${var.legacy_config_uc_path}
+        - name: legacy_features_uc_path
+          default: ${var.legacy_features_uc_path}
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
           level: CAN_MANAGE

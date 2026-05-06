@@ -54,10 +54,6 @@ from edvise.shared.validation import (
     validate_tables_exist,
     ExpectedTable,
 )
-from edvise.student_selection.filter_inference import (
-    filter_inference_term,
-    parse_term_filter_param,
-)
 
 # Shared predictions pipeline (your extracted module)
 from edvise.scripts.predictions_h2o import (
@@ -117,25 +113,6 @@ class ModelInferenceTask:
             self.cfg = configs.legacy.apply_runtime_uc_catalog(
                 self.cfg, self.args.DB_workspace
             )
-            # Same resolution as PDP ``pdp_inf_prep.InferencePrepTask`` (job param vs config).
-            param_cohort = parse_term_filter_param(
-                getattr(self.args, "term_filter", None)
-            )
-            if param_cohort is not None:
-                if self.cfg.inference is None:
-                    self.cfg.inference = configs.legacy.InferenceConfig(
-                        cohort=param_cohort
-                    )
-                else:
-                    self.cfg.inference.term = param_cohort
-                logging.info(
-                    "Inference cohort source: job param; term_filter=%s", param_cohort
-                )
-            else:
-                logging.info(
-                    "Inference cohort source: config; cohort=%s",
-                    self.cfg.inference.term if self.cfg.inference else None,
-                )
         self.features_table_path = self.spec.features_table_path
         # Populated by load_mlflow_model()
         self.model_run_id: str | None = None
@@ -324,20 +301,11 @@ class ModelInferenceTask:
                     "file_path or predict_file_path in cfg.datasets.silver.model_features"
                 )
 
-            term_labels = (
-                [str(x).strip() for x in self.cfg.inference.term if str(x).strip()]
-                if self.cfg.inference and self.cfg.inference.term
-                else []
+            logging.info(
+                "Legacy: using model_features as written by preprocessing "
+                "(apply term/cohort filtering in predict-time preprocessing; "
+                "see legacy_preprocessing --term_filter)."
             )
-            if term_labels:
-                logging.info(
-                    "Legacy: filtering model_features to academic_term/academic_year in %s",
-                    term_labels,
-                )
-                df_processed = filter_inference_term(
-                    df_processed,
-                    term_list=term_labels,
-                )
         else:
             # PDP: use run-specific path
             preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
@@ -549,9 +517,8 @@ def parse_arguments() -> argparse.Namespace:
         type=str,
         default=None,
         help=(
-            'Legacy only: JSON list of term/cohort labels (e.g. ["fall 2024-25"]). '
-            "Omit or null for config default. Same semantics as PDP "
-            "`pdp_inf_prep --term_filter`. Ignored when --schema_type=pdp."
+            "Ignored by this script. Legacy: set on legacy_preprocessing instead. "
+            "Retained so PDP/older job definitions that pass --term_filter keep parsing."
         ),
     )
     return parser.parse_args()
