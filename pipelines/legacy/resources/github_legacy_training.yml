@@ -18,12 +18,6 @@ resources:
               - "{{job.parameters.databricks_institution_name}}"
               - --config_file_name
               - "{{job.parameters.config_file_name}}"
-              - --features_table_name
-              - "{{job.parameters.features_table_name}}"
-              - --ssi_config_toml_relative_to_institution
-              - "{{job.parameters.ssi_config_toml_relative_to_institution}}"
-              - --ssi_features_toml_relative_to_institution
-              - "{{job.parameters.ssi_features_toml_relative_to_institution}}"
               - --legacy_config_uc_path
               - "{{job.parameters.legacy_config_uc_path}}"
               - --legacy_features_uc_path
@@ -79,12 +73,6 @@ resources:
               - "{{job.parameters.databricks_institution_name}}"
               - --model_name
               - "{{job.parameters.model_name}}"
-              - --features_table_name
-              - "{{job.parameters.features_table_name}}"
-              - --ssi_config_toml_relative_to_institution
-              - "{{job.parameters.ssi_config_toml_relative_to_institution}}"
-              - --ssi_features_toml_relative_to_institution
-              - "{{job.parameters.ssi_features_toml_relative_to_institution}}"
               - --legacy_config_uc_path
               - "{{job.parameters.legacy_config_uc_path}}"
               - --legacy_features_uc_path
@@ -176,14 +164,8 @@ resources:
           default: ${var.datakind_notification_email}
         - name: service_account_executer
           default: ${var.service_account_executer}
-        - name: features_table_name
-          default: ${var.features_table_name}
         - name: model_name
           default: ${var.model_name}
-        - name: ssi_config_toml_relative_to_institution
-          default: ${var.ssi_config_toml_relative_to_institution}
-        - name: ssi_features_toml_relative_to_institution
-          default: ${var.ssi_features_toml_relative_to_institution}
         - name: legacy_config_uc_path
           default: ${var.legacy_config_uc_path}
         - name: legacy_features_uc_path

@@ -16,17 +16,10 @@ Workspace root defaults to ``…/student-success-intervention/pipelines`` (overr
     ``--legacy_features_uc_path`` to full paths (e.g. ``/Volumes/<catalog>/.../config.toml``).
     SSI-relative parameters are then ignored for locating TOMLs.
 
-  - **Git / workspace mirror:** if both UC args are empty, TOMLs live under
-    ``<workspace_root>/<databricks_institution_name>/`` with relative paths (no ``..``):
-
-    - If ``--ssi_config_toml_relative_to_institution`` is empty, default is
-      ``<model_name>/<config_file_name>``.
-
-    - If ``--ssi_features_toml_relative_to_institution`` is empty, default is
-      ``<model_name>/<features_table_name>``.
-
-    Set the two ``ssi_*_relative_to_institution`` parameters to point elsewhere under the
-    institution directory (e.g. ``shared/features_table.toml``).
+  - **Git / workspace mirror:** if both UC args are empty, TOMLs are read from
+    ``<workspace_root>/<databricks_institution_name>/<model_name>/<config_file_name>`` and
+    ``…/<model_name>/features_table.toml`` (override config basename with
+    ``--config_file_name``). Features basename is fixed unless you use UC paths.
 
 ``--config_file_path`` is required for ``run_type=predict`` (from ``legacy_inference_inputs``);
 ``run_type=train`` ignores it and uses the workspace paths above.
@@ -161,6 +154,11 @@ DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT = (
 )
 SSI_PIPELINES_WORKSPACE_ROOT = DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
 
+# Basename for features TOML under ``pipelines/<inst>/<model_name>/`` (SSI training only).
+# UC training uses ``legacy_features_uc_path`` (any filename). Inference loads the copy
+# persisted under the training run folder (discovered by ``features_table`` filename keyword).
+DEFAULT_LEGACY_FEATURES_TABLE_BASENAME = "features_table.toml"
+
 logging.basicConfig(level=logging.INFO, force=True)
 LOGGER = logging.getLogger(__name__)
 
@@ -233,14 +231,15 @@ def resolve_ssi_training_workspace_toml_paths(
     institution_id: str,
     model_name: str,
     config_file_name: str,
-    features_table_name: str,
     *,
     workspace_root: str | None = None,
-    ssi_config_toml_relative_to_institution: str | None = None,
-    ssi_features_toml_relative_to_institution: str | None = None,
+    features_table_basename: str = DEFAULT_LEGACY_FEATURES_TABLE_BASENAME,
 ) -> tuple[str, str]:
     """
     Absolute paths to training config and features TOMLs under ``pipelines/<inst>/``.
+
+    Layout: ``<institution_base>/<model_name>/<config_file_name>`` and
+    ``<institution_base>/<model_name>/<features_table_basename>``.
     """
     _, institution_base = resolve_ssi_preprocessing_py(
         institution_id,
@@ -248,12 +247,8 @@ def resolve_ssi_training_workspace_toml_paths(
         workspace_root=workspace_root,
     )
     mn = (model_name or "").strip()
-    cfg_rel = (ssi_config_toml_relative_to_institution or "").strip() or (
-        f"{mn}/{config_file_name.strip()}"
-    )
-    feat_rel = (ssi_features_toml_relative_to_institution or "").strip() or (
-        f"{mn}/{features_table_name.strip()}"
-    )
+    cfg_rel = f"{mn}/{config_file_name.strip()}"
+    feat_rel = f"{mn}/{features_table_basename.strip()}"
     cfg_norm = _normalize_relative_under_institution(cfg_rel)
     feat_norm = _normalize_relative_under_institution(feat_rel)
 
@@ -278,11 +273,8 @@ def resolve_legacy_training_toml_paths(
     institution_id: str,
     model_name: str,
     config_file_name: str,
-    features_table_name: str,
     *,
     workspace_root: str | None = None,
-    ssi_config_toml_relative_to_institution: str | None = None,
-    ssi_features_toml_relative_to_institution: str | None = None,
     legacy_config_uc_path: str = "",
     legacy_features_uc_path: str = "",
 ) -> tuple[str, str]:
@@ -314,10 +306,7 @@ def resolve_legacy_training_toml_paths(
         institution_id,
         model_name,
         config_file_name,
-        features_table_name,
         workspace_root=workspace_root,
-        ssi_config_toml_relative_to_institution=ssi_config_toml_relative_to_institution,
-        ssi_features_toml_relative_to_institution=ssi_features_toml_relative_to_institution,
     )
 
 
@@ -433,27 +422,6 @@ def main() -> None:
         help="Basename used in default config path <model_name>/<config_file_name> (train).",
     )
     parser.add_argument(
-        "--features_table_name",
-        default="features_table.toml",
-        help="Basename used in default features path <model_name>/<features_table_name> (train).",
-    )
-    parser.add_argument(
-        "--ssi_config_toml_relative_to_institution",
-        default="",
-        help=(
-            "Train: path under pipelines/<inst>/ to config TOML. "
-            "Empty → <model_name>/<config_file_name>."
-        ),
-    )
-    parser.add_argument(
-        "--ssi_features_toml_relative_to_institution",
-        default="",
-        help=(
-            "Train: path under pipelines/<inst>/ to features TOML. "
-            "Empty → <model_name>/<features_table_name>."
-        ),
-    )
-    parser.add_argument(
         "--ssi_pipelines_workspace_root",
         default="",
         help="Override …/student-success-intervention/pipelines.",
@@ -529,16 +497,11 @@ def main() -> None:
     root = ws or DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
 
     if args.run_type == "train":
-        cfg_rel = (args.ssi_config_toml_relative_to_institution or "").strip() or None
-        feat_rel = (args.ssi_features_toml_relative_to_institution or "").strip() or None
         effective_config, effective_features = resolve_legacy_training_toml_paths(
             inst,
             model_name,
             args.config_file_name,
-            args.features_table_name,
             workspace_root=ws,
-            ssi_config_toml_relative_to_institution=cfg_rel,
-            ssi_features_toml_relative_to_institution=feat_rel,
             legacy_config_uc_path=args.legacy_config_uc_path,
             legacy_features_uc_path=args.legacy_features_uc_path,
         )

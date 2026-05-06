@@ -888,24 +888,6 @@ def parse_arguments() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--features_table_name",
-        type=str,
-        default="features_table.toml",
-        help="Legacy only: basename in default features path <model_name>/<features_table_name>.",
-    )
-    parser.add_argument(
-        "--ssi_config_toml_relative_to_institution",
-        type=str,
-        default="",
-        help="Legacy only: config TOML under pipelines/<inst>/; empty = <model_name>/<config_file_name>.",
-    )
-    parser.add_argument(
-        "--ssi_features_toml_relative_to_institution",
-        type=str,
-        default="",
-        help="Legacy only: features TOML under pipelines/<inst>/; empty = <model_name>/<features_table_name>.",
-    )
-    parser.add_argument(
         "--ssi_pipelines_workspace_root",
         type=str,
         default="",
@@ -949,8 +931,6 @@ def _apply_legacy_training_workspace_toml_paths(args: argparse.Namespace) -> Non
     if not mn:
         raise SystemExit("--model_name is required when --schema_type=legacy")
     ws = (args.ssi_pipelines_workspace_root or "").strip() or None
-    cfg_rel = (args.ssi_config_toml_relative_to_institution or "").strip() or None
-    feat_rel = (args.ssi_features_toml_relative_to_institution or "").strip() or None
     uc_c = (getattr(args, "legacy_config_uc_path", None) or "").strip()
     uc_f = (getattr(args, "legacy_features_uc_path", None) or "").strip()
     try:
@@ -958,10 +938,7 @@ def _apply_legacy_training_workspace_toml_paths(args: argparse.Namespace) -> Non
             inst,
             mn,
             args.config_file_name,
-            args.features_table_name,
             workspace_root=ws,
-            ssi_config_toml_relative_to_institution=cfg_rel,
-            ssi_features_toml_relative_to_institution=feat_rel,
             legacy_config_uc_path=uc_c,
             legacy_features_uc_path=uc_f,
         )

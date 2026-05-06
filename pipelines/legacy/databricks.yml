@@ -29,22 +29,9 @@ variables:
     description: "Institution ID for legacy training and inference (SSI pipelines/<this>/)"
   config_file_name:
     description: >
-      Basename of config TOML for default path pipelines/<inst>/<model_name>/<config_file_name>.
+      Training only: basename of config TOML under pipelines/<inst>/<model_name>/.
+      Legacy inference resolves config and features_table from the registered model's silver run folder (same as PDP).
     default: "config.toml"
-  features_table_name:
-    description: >
-      Basename of features TOML for default path pipelines/<inst>/<model_name>/<features_table_name>.
-    default: "features_table.toml"
-  ssi_config_toml_relative_to_institution:
-    description: >
-      Optional path under pipelines/<inst>/ to config TOML (forward slashes, no '..'). Empty uses
-      <model_name>/<config_file_name>.
-    default: ""
-  ssi_features_toml_relative_to_institution:
-    description: >
-      Optional path under pipelines/<inst>/ to features TOML. Empty uses
-      <model_name>/<features_table_name> (set to e.g. shared/features_table.toml when shared).
-    default: ""
   legacy_config_uc_path:
     description: >
       Full UC/driver path to legacy config TOML for training (e.g. /Volumes/catalog/.../config.toml).
@@ -52,7 +39,8 @@ variables:
     default: ""
   legacy_features_uc_path:
     description: >
-      Full UC/driver path to legacy features_table TOML. Pair with legacy_config_uc_path.
+      Full UC/driver path to the legacy features TOML (any filename). Pair with legacy_config_uc_path.
+      Inference uses the copy stored under the training run folder, not this variable.
     default: ""
   datakind_group_to_manage_workflow:
     description: "Group with permissions to manage the job"
