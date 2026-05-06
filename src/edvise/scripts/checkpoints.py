@@ -111,14 +111,6 @@ class CheckpointsTask:
                 sort_cols=sort_cols,
                 include_cols=include_cols,
                 student_id_cols=student_id_col,
-                term_is_pre_cohort_col=cp.term_is_pre_cohort_col or "term_is_pre_cohort",
-                exclude_pre_cohort_terms=cp.exclude_pre_cohort_terms
-                if cp.exclude_pre_cohort_terms is not None
-                else True,
-                term_is_core_col=cp.term_is_core_col or "term_is_core",
-                exclude_non_core_terms=cp.exclude_non_core_terms
-                if cp.exclude_non_core_terms is not None
-                else True,
                 enrollment_year_col=cp.enrollment_year_col,
                 valid_enrollment_year=cp.valid_enrollment_year,
             )
