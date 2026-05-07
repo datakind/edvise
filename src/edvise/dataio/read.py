@@ -208,6 +208,8 @@ def _read_and_prepare_data(
 
     # Parse datetime
     for col in datetime_cols:
+        if col not in df.columns:
+            continue
         transformations[col] = utils.data_cleaning.parse_dttm_values(
             df, col=col, fmt=dttm_format or "%Y%m%d"
         )
