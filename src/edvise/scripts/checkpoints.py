@@ -1,8 +1,8 @@
 """Build ``checkpoint.parquet`` from ``student_terms.parquet`` for PDP or Edvise ES configs.
 
-Checkpoint dispatch uses ``checkpoint.type_`` (not ``isinstance`` on config classes) so the same
-logic applies whether the config was parsed as :class:`~edvise.configs.pdp.PDPProjectConfig` or
-:class:`~edvise.configs.es.ESProjectConfig` (those modules define duplicate checkpoint classes).
+Checkpoint dispatch uses ``isinstance`` against checkpoint classes from both
+:class:`~edvise.configs.pdp` and :class:`~edvise.configs.es` so whichever schema loaded the
+config resolves correctly (duplicate class definitions per module).
 
 See :mod:`edvise.scripts.targets` for ``--schema_type`` semantics.
 """
@@ -31,6 +31,8 @@ print("src_path:", src_path)
 print("sys.path:", sys.path)
 
 from edvise import checkpoints
+from edvise.configs import es as es_cfg
+from edvise.configs import pdp as pdp_cfg
 from edvise.configs.es import ESProjectConfig
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.dataio.read import read_config
@@ -103,19 +105,27 @@ class CheckpointsTask:
                 f"Checkpoint include_cols not found in student_terms: {missing_inc}",
             )
 
-        # Dispatch by type_ so ES and PDP config classes both work (duplicate class defs).
-        if cp.type_ == "nth":
+        # Prefer isinstance so branches match the subclass Pydantic built (not only type_ string).
+        if isinstance(cp, (pdp_cfg.CheckpointNthConfig, es_cfg.CheckpointNthConfig)):
             return checkpoints.nth_student_terms.nth_student_terms(
                 df_student_terms,
                 n=cp.n,
                 sort_cols=sort_cols,
                 include_cols=include_cols,
                 student_id_cols=student_id_col,
+                term_is_pre_cohort_col=cp.term_is_pre_cohort_col or "term_is_pre_cohort",
+                exclude_pre_cohort_terms=cp.exclude_pre_cohort_terms
+                if cp.exclude_pre_cohort_terms is not None
+                else True,
+                term_is_core_col=cp.term_is_core_col or "term_is_core",
+                exclude_non_core_terms=cp.exclude_non_core_terms
+                if cp.exclude_non_core_terms is not None
+                else True,
                 enrollment_year_col=cp.enrollment_year_col,
                 valid_enrollment_year=cp.valid_enrollment_year,
             )
 
-        if cp.type_ == "first":
+        if isinstance(cp, (pdp_cfg.CheckpointFirstConfig, es_cfg.CheckpointFirstConfig)):
             return checkpoints.nth_student_terms.first_student_terms(
                 df_student_terms,
                 sort_cols=sort_cols,
@@ -123,7 +133,13 @@ class CheckpointsTask:
                 student_id_cols=student_id_col,
             )
 
-        if cp.type_ == "first_at_num_credits_earned":
+        if isinstance(
+            cp,
+            (
+                pdp_cfg.CheckpointFirstAtNumCreditsEarnedConfig,
+                es_cfg.CheckpointFirstAtNumCreditsEarnedConfig,
+            ),
+        ):
             return checkpoints.nth_student_terms.first_student_terms_at_num_credits_earned(
                 df_student_terms,
                 min_num_credits=cp.min_num_credits,
@@ -133,7 +149,13 @@ class CheckpointsTask:
                 num_credits_col=cp.num_credits_col,
             )
 
-        if cp.type_ == "first_within_cohort":
+        if isinstance(
+            cp,
+            (
+                pdp_cfg.CheckpointFirstWithinCohortConfig,
+                es_cfg.CheckpointFirstWithinCohortConfig,
+            ),
+        ):
             return checkpoints.nth_student_terms.first_student_terms_within_cohort(
                 df_student_terms,
                 term_is_pre_cohort_col=cp.term_is_pre_cohort_col,
@@ -142,7 +164,9 @@ class CheckpointsTask:
                 student_id_cols=student_id_col,
             )
 
-        raise ValueError(f"Unknown checkpoint type: {cp.type_!r}")
+        raise ValueError(
+            f"Unknown checkpoint config type: {type(cp).__name__!r} (type_={cp.type_!r})"
+        )
 
     def run(self) -> None:
         current_run_path = resolve_run_path(
