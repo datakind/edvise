@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import typing as t
 from pathlib import Path
 
 from edvise.genai.mapping.identity_agent.hitl.schemas import InstitutionHITLItems
@@ -50,7 +51,9 @@ PHASE_SMA_GATE_2_HOOK_REQUIRED: str = "sma_gate_2_hook_required"
 AUTO_APPROVER: str = "pipeline_auto_approve_empty_hitl"
 
 
-def _state_safe(label: str, fn, *args, **kwargs) -> None:
+def _state_safe(
+    label: str, fn: t.Callable[..., object], *args: object, **kwargs: object
+) -> None:
     try:
         fn(*args, **kwargs)
     except Exception as e:  # noqa: BLE001 — intentional non-fatal
@@ -68,22 +71,24 @@ def _hitl_artifact_has_actionable_items(
     """
     at = str(artifact_type).strip().lower()
     if at in {"grain", "term"}:
-        env = read_pydantic_json(Path(artifact_path), InstitutionHITLItems)
-        return len(env.pending) > 0
+        env_ia = read_pydantic_json(Path(artifact_path), InstitutionHITLItems)
+        return len(env_ia.pending) > 0
     if at in {"cohort_manifest", "course_manifest"}:
-        env = read_pydantic_json(Path(artifact_path), InstitutionSMAHITLItems)
-        return len(env.gate_pending) > 0
+        env_sma = read_pydantic_json(Path(artifact_path), InstitutionSMAHITLItems)
+        return len(env_sma.gate_pending) > 0
     if at in {
         "cohort_transformation_hook_hitl",
         "course_transformation_hook_hitl",
     }:
-        env = read_pydantic_json(
+        env_hooks = read_pydantic_json(
             Path(artifact_path), InstitutionSMATransformationHookHITLItems
         )
-        return len(env.pending) > 0
+        return len(env_hooks.pending) > 0
     if at in {"cohort_transformation_review", "course_transformation_review"}:
-        env = read_pydantic_json(Path(artifact_path), TransformationReviewHITLFile)
-        return len(env.pending) > 0
+        env_review = read_pydantic_json(
+            Path(artifact_path), TransformationReviewHITLFile
+        )
+        return len(env_review.pending) > 0
     return True
 
 

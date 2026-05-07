@@ -275,7 +275,7 @@ def _coerce_join_frames_for_merge(
 
     def _is_textualish(series: pd.Series) -> bool:
         dt = series.dtype
-        return (
+        return bool(
             pd.api.types.is_string_dtype(dt)
             or pd.api.types.is_object_dtype(dt)
             or pd.api.types.is_categorical_dtype(dt)

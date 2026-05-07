@@ -318,7 +318,7 @@ class GrainContract(BaseModel):
                         f"Available normalized columns sample: {sample!r}"
                     )
             return alias_norm
-        return v
+        return str(v)
 
     @model_validator(mode="after")
     def low_confidence_requires_hitl(self) -> GrainContract:

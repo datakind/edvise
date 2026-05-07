@@ -421,7 +421,9 @@ def persist_sma_transformation_review_from_session(
                 )
                 from pydantic import TypeAdapter
 
-                adapter = TypeAdapter(TransformationStep)
+                adapter: TypeAdapter[TransformationStep] = TypeAdapter(
+                    TransformationStep
+                )
                 for si, step in enumerate(parsed):
                     if not isinstance(step, dict):
                         return (

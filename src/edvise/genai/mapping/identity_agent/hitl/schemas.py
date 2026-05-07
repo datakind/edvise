@@ -267,6 +267,8 @@ class GrainCandidateKeyEntry(BaseModel):
     def _coerce_uniqueness_score(cls, v: object) -> object:
         if v is None:
             return 0.0
+        if not isinstance(v, (int, float, str)):
+            return v
         try:
             f = float(v)
         except (TypeError, ValueError):

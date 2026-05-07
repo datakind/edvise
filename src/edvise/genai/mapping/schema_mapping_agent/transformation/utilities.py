@@ -609,11 +609,11 @@ def term_season_to_conferral_date(
     year_int = pd.to_numeric(year_str, errors="coerce")
     season_upper = season_series.astype("string").str.strip().str.upper()
 
-    def _to_date(idx: int):
+    def _to_date(idx: int) -> pd.Timestamp | None:
         y = year_int.iloc[idx]
         season = season_upper.iloc[idx]
         if pd.isna(y) or pd.isna(season) or season not in SEASON_END_MONTH_DAY:
-            return pd.NaT
+            return None
         month, day = SEASON_END_MONTH_DAY[season]
         return pd.Timestamp(year=int(y), month=month, day=day)
 

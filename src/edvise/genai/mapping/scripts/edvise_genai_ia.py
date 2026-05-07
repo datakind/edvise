@@ -22,7 +22,7 @@ import argparse
 import logging
 import json
 from pathlib import Path
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
@@ -152,12 +152,12 @@ def resolve_run_paths(
 def run_onboard_start(
     institution_id: str,
     paths: IAPaths,
-    school_config,
-    llm_complete,
+    school_config: Any,
+    llm_complete: Callable[[str, str], str],
     *,
     catalog: str,
     onboard_run_id: str,
-):
+) -> None:
     from edvise.genai.mapping.identity_agent.grain_inference import (
         build_identity_profiling_run_by_dataset,
         write_identity_profiling_artifacts,
@@ -326,13 +326,13 @@ def _iter_term_order_configs_with_hooks(t_contract: Any) -> Iterator[Any]:
 def run_onboard_gate_1(
     institution_id: str,
     paths: IAPaths,
-    school_config,
-    llm_complete,
+    school_config: Any,
+    llm_complete: Callable[[str, str], str],
     *,
     catalog: str,
     onboard_run_id: str,
     db_run_id: str | None = None,
-):
+) -> None:
     from collections import defaultdict
 
     from edvise.genai.mapping.identity_agent.hitl import (
@@ -512,6 +512,8 @@ def run_onboard_gate_1(
         canonical = ensure_hook_spec_file(
             spec, institution_id=institution_id, domain=HITLDomain.IDENTITY_TERM
         )
+        if not canonical.file:
+            raise ValueError(f"Term hook spec missing file for item_id={item_id!r}")
         term_specs_by_file[canonical.file].append(canonical)
     for item_id, spec in term_pairs:
         apply_hook_spec(
@@ -538,6 +540,10 @@ def run_onboard_gate_1(
                 institution_id=institution_id,
                 domain=HITLDomain.IDENTITY_TERM,
             )
+            if not spec_embedded.file:
+                raise ValueError(
+                    f"Embedded term hook spec missing file for dataset={_ds!r}"
+                )
             term_specs_by_file[spec_embedded.file].append(spec_embedded)
 
     for specs in term_specs_by_file.values():
@@ -560,7 +566,7 @@ def run_onboard_gate_1(
     # §7 — Build enriched schema contract + cleaned Parquet
     LOGGER.info("[onboard/gate_1] Building enriched schema contract")
     term_column_by_dataset: dict[str, str] = {}
-    term_order_fn_by_dataset: dict[str, object] = {}
+    term_order_fn_by_dataset: dict[str, Callable[[Any, str], Any] | None] = {}
     for ds, tp in term_contract_by_dataset.items():
         if ds not in grain_map:
             continue
@@ -618,7 +624,9 @@ def run_onboard_gate_1(
 # ---------------------------------------------------------------------------
 
 
-def _ia_hook_modules_root_for_execute(paths: IAPaths, school_config) -> Path | None:
+def _ia_hook_modules_root_for_execute(
+    paths: IAPaths, school_config: Any
+) -> Path | None:
     """
     Root directory for :func:`~edvise.genai.mapping.identity_agent.hitl.hook_generation.paths.resolve_hook_module_path`.
 
@@ -658,8 +666,8 @@ def _ia_hook_modules_root_for_execute(paths: IAPaths, school_config) -> Path | N
 def run_execute(
     institution_id: str,
     paths: IAPaths,
-    school_config,
-):
+    school_config: Any,
+) -> None:
     import json
     from typing import Literal
 
@@ -704,7 +712,7 @@ def run_execute(
             "Promote onboard artifacts to active/ before execute."
         )
 
-    schema_contract = load_schema_contract(paths.active_enriched_schema_contract)
+    schema_contract = load_schema_contract(str(paths.active_enriched_schema_contract))
     expected_datasets = set(schema_contract.get("datasets", {}).keys())
 
     _clc = schema_contract.get("canonical_learner_column") or "learner_id"
@@ -796,7 +804,7 @@ def run_execute(
     hook_modules_root_resolved = _ia_hook_modules_root_for_execute(paths, school_config)
 
     term_column_by_dataset: dict[str, str] = {}
-    term_order_fn_by_dataset: dict[str, object] = {}
+    term_order_fn_by_dataset: dict[str, Callable[[Any, str], Any] | None] = {}
     for ds, tp in term_contract_by_dataset.items():
         if ds not in grain_map:
             continue
@@ -927,7 +935,7 @@ def run(
     inputs_toml_path: str | None = None,
     db_run_id: str | None = None,
     pipeline_version: str | None = None,
-):
+) -> None:
     if mode == "onboard":
         if not (onboard_run_id or "").strip():
             raise ValueError("onboard_run_id is required when mode='onboard'")
@@ -1043,17 +1051,18 @@ def run(
                 f"Invalid resume_from={resume_from!r} for mode='onboard'. Must be 'start' or 'gate_1'."
             )
 
+        onboard_run_id_s = cast(str, onboard_run_id)
         _pipeline_job_state.ensure_ia_run_row(
             catalog,
             institution_id,
-            onboard_run_id,
+            onboard_run_id_s,
             create_run=(resume_from == "start"),
             db_run_id=db_run_id,
             input_file_paths_json=input_file_paths_json,
         )
         _pipeline_job_state.on_ia_onboard_begin(
             catalog,
-            onboard_run_id,
+            onboard_run_id_s,
             resume_from=resume_from,
             institution_id=institution_id,
             input_file_paths_json=input_file_paths_json,
@@ -1074,7 +1083,7 @@ def run(
                     school_config,
                     llm_complete,
                     catalog=catalog,
-                    onboard_run_id=onboard_run_id,
+                    onboard_run_id=onboard_run_id_s,
                 )
             elif resume_from == "gate_1":
                 run_onboard_gate_1(
@@ -1083,14 +1092,14 @@ def run(
                     school_config,
                     llm_complete,
                     catalog=catalog,
-                    onboard_run_id=onboard_run_id,
+                    onboard_run_id=onboard_run_id_s,
                     db_run_id=db_run_id,
                 )
         except HITLTimeoutError:
             raise
         except Exception:
             _pipeline_job_state.mark_pipeline_failed(
-                catalog, institution_id, onboard_run_id
+                catalog, institution_id, onboard_run_id_s
             )
             raise
 

@@ -155,7 +155,6 @@ def raise_if_pass2_terminal_options_invalid(
             {
                 "type": "value_error",
                 "loc": ("items",),
-                "msg": msg,
                 "input": None,
                 "ctx": {"error": ValueError(msg)},
             }

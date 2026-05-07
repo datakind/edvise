@@ -33,7 +33,7 @@ import argparse
 import json
 import logging
 from dataclasses import dataclass
-from typing import Literal, cast
+from typing import Any, Literal, cast
 from pathlib import Path
 
 # Layout: <git_root>/src/edvise/genai/mapping/scripts/<this_file>
@@ -201,13 +201,13 @@ def resolve_reference_sma_active_paths(
 # ---------------------------------------------------------------------------
 
 
-def _load_enriched_contract(path: Path) -> dict:
+def _load_enriched_contract(path: Path) -> dict[Any, Any]:
     if not path.is_file():
         raise FileNotFoundError(
             f"Enriched schema contract not found: {path}. "
             "Run edvise_ia onboard/gate_1 first."
         )
-    return json.loads(path.read_text())
+    return cast(dict[Any, Any], json.loads(path.read_text()))
 
 
 def _load_institution_term_config_optional(
@@ -282,7 +282,9 @@ def _load_cleaned_dataframes(
     return dataframes
 
 
-def _write_output_data(output_data_dir: Path, cohort_result, course_result) -> None:
+def _write_output_data(
+    output_data_dir: Path, cohort_result: Any, course_result: Any
+) -> None:
     output_data_dir.mkdir(parents=True, exist_ok=True)
     cohort_path = output_data_dir / "cohort.parquet"
     course_path = output_data_dir / "course.parquet"
@@ -296,7 +298,7 @@ def _write_output_data(output_data_dir: Path, cohort_result, course_result) -> N
     )
 
 
-def _run_pandera_validation(cohort_result, course_result) -> None:
+def _run_pandera_validation(cohort_result: Any, course_result: Any) -> None:
     import time
     import pandera
 
@@ -307,7 +309,7 @@ def _run_pandera_validation(cohort_result, course_result) -> None:
     )
     from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
 
-    def _validate(df, schema, label):
+    def _validate(df: Any, schema: Any, label: str) -> None:
         start = time.perf_counter()
         try:
             schema.validate(df, lazy=True)
@@ -345,7 +347,7 @@ def _run_pandera_validation(cohort_result, course_result) -> None:
         )
 
 
-def _build_openai_client(catalog: str):
+def _build_openai_client(catalog: str) -> Any:
     """Build OpenAI-compatible client for Databricks AI Gateway."""
     from openai import OpenAI
 
@@ -362,7 +364,7 @@ def _build_openai_client(catalog: str):
     )
 
 
-def _run_once(model_id: str, prompt: str, client) -> dict:
+def _run_once(model_id: str, prompt: str, client: Any) -> dict[str, Any]:
     """
     Call :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.eval.run_once` with
     retries for transient gateway / transport failures (same policy as IA ``llm_complete``).
@@ -375,7 +377,7 @@ def _run_once(model_id: str, prompt: str, client) -> dict:
     max_attempts = 5
     initial_backoff_s = 2.0
     max_backoff_s = 60.0
-    last: dict = {}
+    last: dict[str, Any] = {}
     for attempt in range(max_attempts):
         last = run_once(model_id, prompt, client)
         if last.get("success"):
@@ -435,12 +437,12 @@ def run_onboard_start(
     reference_id: str,
     catalog: str,
     paths: SMAPaths,
-    client,
-    spark_session,
+    client: Any,
+    spark_session: Any,
     *,
     onboard_run_id: str,
     pipeline_version: str,
-):
+) -> None:
     from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
         build_step2a_batched_prompt,
         load_json,
@@ -539,7 +541,7 @@ def run_onboard_start(
     LOGGER.info("[onboard/start] Refinement LLM (4 calls)")
 
     def _refinement_llm_complete(system: str, user: str) -> str:
-        return llm_sma(system, user)
+        return cast(str, llm_sma(system, user))
 
     for entity_key, entity_manifest in list(envelope_2a.manifests.items()):
         ek = entity_key.value if hasattr(entity_key, "value") else str(entity_key)
@@ -552,7 +554,7 @@ def run_onboard_start(
 
         refined_fm, hitl_env = run_sma_refinement(
             institution_id=institution_id,
-            entity_type=ek,
+            entity_type=cast(Literal["cohort", "course"], ek),
             manifest=entity_manifest,
             validation_errors=errs,
             schema_contract=schema_contract_sma,
@@ -586,7 +588,9 @@ def run_onboard_start(
             write_sma_hitl_artifact(
                 paths.run_root,
                 InstitutionSMAHITLItems(
-                    institution_id=institution_id, entity_type=entity_type, items=[]
+                    institution_id=institution_id,
+                    entity_type=cast(Literal["cohort", "course"], entity_type),
+                    items=[],
                 ),
                 basename=hitl_path.name,
             )
@@ -613,13 +617,13 @@ def run_onboard_gate_2(
     reference_id: str,
     catalog: str,
     paths: SMAPaths,
-    client,
-    spark_session,
+    client: Any,
+    spark_session: Any,
     *,
     onboard_run_id: str,
     pipeline_version: str,
     db_run_id: str | None = None,
-):
+) -> None:
     from pydantic import ValidationError
 
     from edvise.genai.mapping.schema_mapping_agent.manifest.hitl import (
@@ -712,14 +716,15 @@ def run_onboard_gate_2(
     def _parse_step2b_transformation_wrapper(raw: str) -> dict:
         data = json.loads(raw)
         if not isinstance(data, dict):
+            ve = ValueError("Root JSON must be an object")
             raise ValidationError.from_exception_data(
                 "Step2bTransformationRoot",
                 [
                     {
                         "type": "dict_type",
                         "loc": (),
-                        "msg": "Root JSON must be an object",
                         "input": data,
+                        "ctx": {"error": ve},
                     }
                 ],
             )
@@ -728,28 +733,30 @@ def run_onboard_gate_2(
         data["pipeline_version"] = pipeline_version
         tmaps = data.get("transformation_maps")
         if not isinstance(tmaps, dict):
+            ve = ValueError("transformation_maps must be an object")
             raise ValidationError.from_exception_data(
                 "TransformationMaps",
                 [
                     {
                         "type": "dict_type",
                         "loc": ("transformation_maps",),
-                        "msg": "transformation_maps must be an object",
                         "input": tmaps,
+                        "ctx": {"error": ve},
                     }
                 ],
             )
         for entity_type in ("cohort", "course"):
             sec = tmaps.get(entity_type)
             if not isinstance(sec, dict):
+                ve = ValueError("Expected an object")
                 raise ValidationError.from_exception_data(
                     "TransformationSection",
                     [
                         {
                             "type": "dict_type",
                             "loc": ("transformation_maps", entity_type),
-                            "msg": "Expected an object",
                             "input": sec,
+                            "ctx": {"error": ve},
                         }
                     ],
                 )
@@ -1056,8 +1063,8 @@ def run_onboard_gate_2(
 def run_execute(
     institution_id: str,
     paths: SMAPaths,
-    spark_session,
-):
+    spark_session: Any,
+) -> None:
     from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
         FieldMappingManifest,
         MappingManifestEnvelope,
@@ -1163,7 +1170,7 @@ def run(
     inputs_toml_path: str | None = None,
     db_run_id: str | None = None,
     pipeline_version: str | None = None,
-):
+) -> None:
     if mode == "onboard":
         if not (onboard_run_id or "").strip():
             raise ValueError("onboard_run_id is required when mode='onboard'")
@@ -1292,9 +1299,10 @@ def run(
         if not reference_id:
             raise ValueError("--reference_id is required for onboard mode.")
 
+        onboard_run_id_s = cast(str, onboard_run_id)
         _pipeline_job_state.on_sma_onboard_begin(
             catalog,
-            onboard_run_id,
+            onboard_run_id_s,
             resume_from=resume_from,
             institution_id=institution_id,
             input_file_paths_json=input_file_paths_json,
@@ -1311,7 +1319,7 @@ def run(
                     paths=paths,
                     client=client,
                     spark_session=spark_session,
-                    onboard_run_id=onboard_run_id,
+                    onboard_run_id=onboard_run_id_s,
                     pipeline_version=school_config.pipeline_version,
                 )
             elif resume_from == "gate_2":
@@ -1322,7 +1330,7 @@ def run(
                     paths=paths,
                     client=client,
                     spark_session=spark_session,
-                    onboard_run_id=onboard_run_id,
+                    onboard_run_id=onboard_run_id_s,
                     pipeline_version=school_config.pipeline_version,
                     db_run_id=db_run_id,
                 )
@@ -1330,7 +1338,7 @@ def run(
             raise
         except Exception:
             _pipeline_job_state.mark_pipeline_failed(
-                catalog, institution_id, onboard_run_id
+                catalog, institution_id, onboard_run_id_s
             )
             raise
 

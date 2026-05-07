@@ -1075,17 +1075,17 @@ def _run_pass2_llm_call(
         data = _parse_sma_refinement_llm_dict(raw)
         items_raw = data.get("items")
         if items_raw is None:
+            ve = ValueError(
+                "Pass 2 output must include top-level key 'items' (array of SMAHITLItem)."
+            )
             raise ValidationError.from_exception_data(
                 "Pass2JSON",
                 [
                     {
                         "type": "missing",
                         "loc": ("items",),
-                        "msg": (
-                            "Pass 2 output must include top-level key 'items' "
-                            "(array of SMAHITLItem)."
-                        ),
                         "input": data,
+                        "ctx": {"error": ve},
                     }
                 ],
             )
@@ -1097,7 +1097,6 @@ def _run_pass2_llm_call(
                     {
                         "type": "value_error",
                         "loc": ("items",),
-                        "msg": str(ve),
                         "input": items_raw,
                         "ctx": {"error": ve},
                     }

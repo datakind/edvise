@@ -237,7 +237,7 @@ def render_connection_sidebar(
         if (page_caption or "").strip():
             st.caption(page_caption.strip())
         if (nav_group_line or "").strip():
-            st.caption(nav_group_line.strip())
+            st.caption((nav_group_line or "").strip())
         st.divider()
         try:
             get_warehouse_id()
@@ -313,15 +313,15 @@ def load_hitl_rows(
     c_sql = sql_str(str(catalog).strip())
     if (onboard_run_id or "").strip():
         where.append(
-            f"trim(cast(h.onboard_run_id AS STRING)) = trim({sql_str(onboard_run_id.strip())})"
+            f"trim(cast(h.onboard_run_id AS STRING)) = trim({sql_str((onboard_run_id or '').strip())})"
         )
     if (phase or "").strip():
         where.append(
-            f"lower(trim(cast(h.phase AS STRING))) = lower({sql_str(phase.strip())})"
+            f"lower(trim(cast(h.phase AS STRING))) = lower({sql_str((phase or '').strip())})"
         )
     if (status or "").strip():
         where.append(
-            f"lower(trim(cast(h.status AS STRING))) = lower({sql_str(status.strip())})"
+            f"lower(trim(cast(h.status AS STRING))) = lower({sql_str((status or '').strip())})"
         )
     w = f"WHERE {' AND '.join(where)}" if where else ""
     lim = max(1, min(int(limit), 5000))
@@ -1087,12 +1087,15 @@ def render_one_hitl_group(
                 artifact_type=str(artifact_type),
                 pending_df=pending if not pending.empty else action_df,
                 uc_group_pending=not sub_pending.empty,
-                after_uc_approve_success=lambda: advance_to_next_pending_group(
-                    catalog=str(catalog),
-                    current_onboard_run_id=str(onboard_run_id),
-                    current_phase=str(phase),
-                    current_artifact_type=str(artifact_type),
-                ),
+                after_uc_approve_success=lambda: (
+                    advance_to_next_pending_group(
+                        catalog=str(catalog),
+                        current_onboard_run_id=str(onboard_run_id),
+                        current_phase=str(phase),
+                        current_artifact_type=str(artifact_type),
+                    ),
+                    None,
+                )[1],
             )
         st.divider()
         is_ia_grain_row = is_ia_grain_phase(str(phase), str(artifact_type))

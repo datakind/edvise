@@ -15,7 +15,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal, TypeAlias, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -148,9 +148,10 @@ def resolve_task_run_id() -> str | None:
         return None
 
     try:
-        ctx_json = (
-            dbutils.notebook.entry_point.getDbutils().notebook().getContext().toJson()
-        )
+        # dbutils typing varies between local stubs and runtime; treat as Any for this
+        # optional best-effort context read.
+        dbutils_any = cast(Any, dbutils)
+        ctx_json = dbutils_any.notebook.entry_point.getDbutils().notebook().getContext().toJson()
         data = json.loads(ctx_json)
     except Exception:
         return None
