@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 
-from edvise.genai.mapping.schema_mapping_agent.hitl.resolver import (
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.resolver import (
     SMAHITLResolverError,
     resolve_sma_items,
 )
-from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
     InstitutionSMAHITLItems,
     SMAFailureMode,
     SMAHITLItem,
@@ -39,7 +39,7 @@ def _fmr(**overrides):
 
 
 def test_resolve_sma_items_single_manifest(tmp_path):
-    from edvise.genai.mapping.schema_mapping_agent.hitl.artifacts import (
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.artifacts import (
         write_sma_hitl_artifact,
         write_sma_manifest_artifact,
     )
@@ -111,7 +111,7 @@ def test_resolve_sma_items_single_manifest(tmp_path):
 
 
 def test_resolve_sma_items_envelope(tmp_path):
-    from edvise.genai.mapping.schema_mapping_agent.hitl.artifacts import (
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.artifacts import (
         write_sma_hitl_artifact,
     )
 
@@ -183,7 +183,7 @@ def test_resolve_sma_items_envelope(tmp_path):
 
 
 def test_resolve_sma_items_institution_mismatch(tmp_path):
-    from edvise.genai.mapping.schema_mapping_agent.hitl.artifacts import (
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.artifacts import (
         write_sma_hitl_artifact,
     )
 

@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from edvise.utils.llm_utils import llm_complete_with_parse_retry
+
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
-from edvise.genai.mapping.identity_agent.hitl.schemas import HITLItem
+from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain, HITLItem
+from edvise.genai.mapping.identity_agent.term_normalization.term_order import (
+    resolve_year_season_hook_function_names,
+)
 
 from .parse import parse_hook_spec
 from .paths import ensure_hook_spec_file
@@ -40,11 +46,20 @@ def generate_hook_spec(
     user = build_hook_generation_user_message(
         item, snippet, normalized_columns=normalized_columns
     )
-    raw = llm_complete(system, user)
-    spec = parse_hook_spec(raw)
-    return ensure_hook_spec_file(
+    _log = logging.getLogger(__name__)
+    spec = llm_complete_with_parse_retry(
+        llm_complete,
+        system,
+        user,
+        parse_hook_spec,
+        logger=_log,
+    )
+    spec = ensure_hook_spec_file(
         spec, institution_id=item.institution_id, domain=item.domain
     )
+    if item.domain == HITLDomain.IDENTITY_TERM:
+        resolve_year_season_hook_function_names(spec)
+    return spec
 
 
 def generate_hook_specs_for_hook_items(

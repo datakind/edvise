@@ -9,7 +9,8 @@ All of those concerns live in:
     - execution.field_executor.execute_transformation_map (orchestration)
 
 Steps that need a second Series (birthyear_to_age_bucket,
-conditional_credits, term_components_to_datetime) are handled in
+conditional_credits, term_components_to_datetime, term_season_to_conferral_date)
+are handled in
 execution.field_executor._execute_step() before reaching this dispatcher.
 """
 
@@ -57,7 +58,7 @@ logger = logging.getLogger(__name__)
 
 
 class ExecutionGapError(Exception):
-    """Raised when a plan contains a NEW_UTILITY_NEEDED step."""
+    """Raised when a plan has hook_required or an unimplemented transformation gap."""
 
     pass
 
@@ -113,15 +114,11 @@ def dispatch_step(
     """
     fn = step.function_name
 
-    if fn == "NEW_UTILITY_NEEDED":
-        raise ExecutionGapError(
-            f"NEW_UTILITY_NEEDED: {getattr(step, 'description', '(no description)')}"
-        )
-
     if fn in (
         "birthyear_to_age_bucket",
         "conditional_credits",
         "term_components_to_datetime",
+        "term_season_to_conferral_date",
     ):
         raise ExecutionError(
             f"Step '{fn}' requires a second Series and must be handled by "

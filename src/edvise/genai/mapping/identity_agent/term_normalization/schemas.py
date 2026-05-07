@@ -17,6 +17,7 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     HookSpec,
 )  # noqa: F401
 from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
+from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 
 CANONICAL_SEASONS = {"FALL", "SPRING", "SUMMER", "WINTER"}
 
@@ -186,13 +187,10 @@ class TermContract(BaseModel):
 
     @model_validator(mode="after")
     def low_confidence_requires_hitl(self) -> TermContract:
-        from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
-            IDENTITY_CONFIDENCE_HITL_THRESHOLD,
-        )
-
-        if self.confidence <= IDENTITY_CONFIDENCE_HITL_THRESHOLD and not self.hitl_flag:
+        if self.confidence <= PIPELINE_HITL_CONFIDENCE_THRESHOLD and not self.hitl_flag:
             raise ValueError(
-                f"hitl_flag must be true when confidence is at or below {IDENTITY_CONFIDENCE_HITL_THRESHOLD}"
+                f"hitl_flag must be true when confidence is at or below "
+                f"{PIPELINE_HITL_CONFIDENCE_THRESHOLD}"
             )
         return self
 

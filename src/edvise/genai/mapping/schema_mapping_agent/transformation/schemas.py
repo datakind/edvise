@@ -7,7 +7,10 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import Field, field_validator, model_validator
 
-from edvise.genai.mapping.shared.pipeline_artifacts import resolve_pipeline_version
+from edvise.genai.mapping.shared.hitl.confidence import (
+    PIPELINE_HITL_CONFIDENCE_THRESHOLD,
+)
+from edvise.genai.mapping.shared.pipeline_artifacts import default_pipeline_version
 
 from ..manifest.schemas import (
     EntityType,
@@ -224,15 +227,18 @@ class TermComponentsToDatetimeStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
-class NewUtilityNeededStep(StrictBaseModel):
-    function_name: Literal["NEW_UTILITY_NEEDED"]
-    description: str
+class TermSeasonToConferralDateStep(StrictBaseModel):
+    function_name: Literal["term_season_to_conferral_date"]
+    column: str
+    extra_columns: Dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Required: canonical season Series bound to ``season_series`` "
+            "(e.g. output column of map_values on a season fragment). "
+            "``column`` must be the academic year string column (YYYY-YY or compatible)."
+        ),
+    )
     rationale: Optional[str] = None
-    notes: Optional[str] = None
-
-    @property
-    def is_gap(self) -> bool:
-        return True
 
 
 TransformationStep = Annotated[
@@ -265,10 +271,50 @@ TransformationStep = Annotated[
         BirthyearToAgeBucketStep,
         ConditionalCreditsStep,
         TermComponentsToDatetimeStep,
-        NewUtilityNeededStep,
+        TermSeasonToConferralDateStep,
     ],
     Field(discriminator="function_name"),
 ]
+
+
+class FlaggedStep(StrictBaseModel):
+    step_index: int = Field(
+        ...,
+        description="0-based index of the flagged step in the plan's steps array.",
+    )
+    function_name: str = Field(
+        ...,
+        description="Matches the flagged step's function_name.",
+    )
+    reason: Literal[
+        "inferred_season_mapping",
+        "inferred_value_mapping",
+        "ambiguous_format",
+        "low_confidence_utility_chain",
+        "proxy_source",
+    ]
+    context: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Evidence for the reviewer: sample_values, inferred_mapping, "
+            "format assumptions, or other step-specific context."
+        ),
+    )
+
+
+class TransformationHITLOption(StrictBaseModel):
+    option_id: Literal["approve", "correct", "unmappable"]
+    label: str
+    description: str
+    resolution: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "approve: {'approved': True}. "
+            "correct: {'steps': [...corrected steps...]}. "
+            "unmappable: {'steps': [], 'output_dtype': None}. "
+            "Null on 'correct' when reviewer supplies steps out-of-band."
+        ),
+    )
 
 
 class FieldTransformationPlan(StrictBaseModel):
@@ -294,11 +340,35 @@ class FieldTransformationPlan(StrictBaseModel):
             "Steps are pure Series → Series — no join or sourcing logic here."
         ),
     )
+    confidence: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Confidence in the transformation plan (0.0–1.0). "
+            "1.0 = direct utility chain, no ambiguity; "
+            "0.9 = standard chain with minor format assumption; "
+            "0.7–0.8 = inferred mapping from sample_values or ambiguous format; "
+            "≤ PIPELINE_HITL_CONFIDENCE_THRESHOLD = review_required must be true. "
+            "Omit (null) for unmappable fields with empty steps."
+        ),
+    )
+    review_required: Optional[bool] = Field(
+        default=None,
+        description=(
+            "True when confidence is at or below PIPELINE_HITL_CONFIDENCE_THRESHOLD, "
+            "or when the plan contains an inferred mapping that requires human "
+            "confirmation before execution. Omit (null) for high-confidence plans."
+        ),
+    )
     review_status: Optional[ReviewStatus] = Field(
         default=None,
         description=(
             "Pipeline/HITL telemetry — set after validation and refinement, not by the "
-            "initial transformation LLM. Omit in agent output."
+            "initial transformation LLM. Omit in agent output. "
+            f"After transformation review UC gate, set to {ReviewStatus.corrected_by_hitl.value!r} "
+            "(same convention as manifest ``resolve_sma_items``) so low model confidence can remain "
+            "without ``review_required``."
         ),
     )
     reviewer_notes: Optional[str] = Field(
@@ -309,6 +379,250 @@ class FieldTransformationPlan(StrictBaseModel):
         default=None,
         description="Notes about validation concerns or issues with the transformation plan",
     )
+    hook_required: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Set to true when no existing utility or combination of utilities can produce "
+            "the correct output (same idea as IdentityAgent's hook_required path — custom work, not "
+            "a built-in transform). Include a full explanation in reviewer_notes: what "
+            "transformation is needed, what was attempted, and why no existing utility covers it. "
+            "hook_required is a plan-level flag — not a step type. steps may be empty or contain "
+            "a best-effort partial chain."
+        ),
+    )
+    flagged_steps: Optional[List[FlaggedStep]] = Field(
+        default=None,
+        description=(
+            "When review_required is true: non-empty list of steps that drove uncertainty "
+            "(evidence only — resolution is plan-level). Omit (null) when review_required is omitted."
+        ),
+    )
+    hitl_options: Optional[List[TransformationHITLOption]] = Field(
+        default=None,
+        description=(
+            "When review_required is true: exactly three entries in order approve, correct, unmappable "
+            "with field-specific labels and descriptions. Omit (null) when review_required is omitted."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def confidence_review_and_hitl_consistency(self) -> FieldTransformationPlan:
+        if (
+            self.confidence is not None
+            and self.confidence <= PIPELINE_HITL_CONFIDENCE_THRESHOLD
+        ):
+            hitl_finalized = self.review_status == ReviewStatus.corrected_by_hitl
+            if self.review_required is not True and not hitl_finalized:
+                raise ValueError(
+                    "review_required must be True when confidence <= "
+                    f"{PIPELINE_HITL_CONFIDENCE_THRESHOLD} unless review_status is "
+                    f"{ReviewStatus.corrected_by_hitl.value!r} (transformation review HITL applied); "
+                    f"(got confidence={self.confidence})"
+                )
+
+        if self.review_required is True:
+            if self.confidence is None:
+                raise ValueError(
+                    "confidence must be set when review_required is True "
+                    f"(PIPELINE_HITL_CONFIDENCE_THRESHOLD={PIPELINE_HITL_CONFIDENCE_THRESHOLD})"
+                )
+            if not self.flagged_steps:
+                raise ValueError(
+                    "flagged_steps must be a non-empty list when review_required is True"
+                )
+            if not self.hitl_options or len(self.hitl_options) != 3:
+                raise ValueError(
+                    "hitl_options must contain exactly three options when review_required is True"
+                )
+            ho_ids = [o.option_id for o in self.hitl_options]
+            if ho_ids != ["approve", "correct", "unmappable"]:
+                raise ValueError(
+                    "hitl_options must be approve, correct, unmappable in that order "
+                    f"(got {ho_ids!r})"
+                )
+        else:
+            if self.flagged_steps is not None:
+                raise ValueError(
+                    "flagged_steps must be omitted (null) unless review_required is True"
+                )
+            if self.hitl_options is not None:
+                raise ValueError(
+                    "hitl_options must be omitted (null) unless review_required is True"
+                )
+        return self
+
+
+class TransformationHITLItem(StrictBaseModel):
+    item_id: str = Field(
+        ...,
+        description="Unique: <institution_id>_<entity_type>_<target_field>.",
+    )
+    institution_id: str
+    entity_type: EntityType
+    target_field: str
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    flagged_steps: List[FlaggedStep] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "One entry per uncertain step. Evidence for reviewer — "
+            "resolution is always at the plan level, not per step."
+        ),
+    )
+    steps: List[TransformationStep] = Field(
+        ...,
+        description=(
+            "Full proposed steps array — what the reviewer is approving or correcting."
+        ),
+    )
+    reviewer_notes: Optional[str] = None
+    validation_notes: Optional[str] = None
+    options: List[TransformationHITLOption] = Field(
+        ...,
+        min_length=3,
+        max_length=3,
+        description=(
+            "Always exactly three options in order: approve, correct, unmappable."
+        ),
+    )
+    status: Literal["pending", "approved", "corrected", "unmappable"] = "pending"
+    # Streamlit HITL persists 1-based index as JSON int; manual edits may use strings.
+    choice: Optional[Union[str, int]] = Field(
+        default=None,
+        description=(
+            "1-based index into ``options`` (1=approve, 2=correct, 3=unmappable). "
+            "Stored as int by the generic option UI."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _options_must_be_approve_correct_unmappable(self) -> "TransformationHITLItem":
+        ids = [o.option_id for o in self.options]
+        if ids != ["approve", "correct", "unmappable"]:
+            raise ValueError(
+                f"options must be exactly ['approve', 'correct', 'unmappable'] "
+                f"in that order, got {ids}"
+            )
+        return self
+
+
+class TransformationReview(StrictBaseModel):
+    institution_id: str
+    pipeline_version: str = Field(default_factory=default_pipeline_version)
+    reviewed: bool = False
+    hitl_items: List[TransformationHITLItem] = Field(
+        default_factory=list,
+        description="Low-confidence plans requiring reviewer confirmation.",
+    )
+
+    @property
+    def is_clear(self) -> bool:
+        """True when all hitl_items are resolved."""
+        return all(
+            i.status in ("approved", "corrected", "unmappable") for i in self.hitl_items
+        )
+
+    @property
+    def has_pending(self) -> bool:
+        return any(i.status == "pending" for i in self.hitl_items)
+
+
+def _default_transformation_hitl_options() -> List[TransformationHITLOption]:
+    return [
+        TransformationHITLOption(
+            option_id="approve",
+            label="Approve",
+            description="Run the proposed transformation steps as-is.",
+            resolution={"approved": True},
+        ),
+        TransformationHITLOption(
+            option_id="correct",
+            label="Correct",
+            description=(
+                "Replace with corrected steps via resolution or an out-of-band correction."
+            ),
+            resolution=None,
+        ),
+        TransformationHITLOption(
+            option_id="unmappable",
+            label="Unmappable",
+            description="Mark as unmappable: no steps and no output dtype.",
+            resolution={"steps": [], "output_dtype": None},
+        ),
+    ]
+
+
+def extract_transformation_review(
+    transformation_map: TransformationMap,
+    institution_id: str,
+) -> TransformationReview:
+    """
+    Extract all plans where review_required is True into a TransformationReview artifact.
+
+    Iterates both cohort and course TransformationMap entities. For each plan
+    where review_required is True, emits a TransformationHITLItem with:
+    - item_id: <institution_id>_<entity_type>_<target_field>
+    - flagged_steps: from the plan when present; otherwise a single placeholder flag
+    - options: from plan.hitl_options when present; otherwise generic approve/correct/unmappable
+
+    Returns TransformationReview with empty hitl_items when no plans require review.
+    Written to transformation_review.json by the pipeline alongside transformation_map.json.
+    """
+    raw_et = transformation_map.entity_type
+    entity_enum: EntityType = (
+        raw_et if isinstance(raw_et, EntityType) else EntityType(str(raw_et))
+    )
+
+    hitl_items: List[TransformationHITLItem] = []
+    for plan in transformation_map.plans:
+        if plan.review_required is not True:
+            continue
+        if plan.confidence is None:
+            raise ValueError(
+                f"target_field={plan.target_field!r}: review_required is True but confidence is null; "
+                "set confidence on the plan before extracting TransformationHITLItem records."
+            )
+        fn = plan.steps[0].function_name if plan.steps else ""
+        flagged_steps = plan.flagged_steps
+        if not flagged_steps:
+            flagged_steps = [
+                FlaggedStep(
+                    step_index=0,
+                    function_name=fn,
+                    reason="low_confidence_utility_chain",
+                    context={
+                        "pending_detailed_flagging": True,
+                        "note": (
+                            "Placeholder until enrichment populates per-step flags."
+                        ),
+                    },
+                )
+            ]
+        options = (
+            plan.hitl_options
+            if plan.hitl_options is not None
+            else _default_transformation_hitl_options()
+        )
+        hitl_items.append(
+            TransformationHITLItem(
+                item_id=(f"{institution_id}_{entity_enum.value}_{plan.target_field}"),
+                institution_id=institution_id,
+                entity_type=entity_enum,
+                target_field=plan.target_field,
+                confidence=plan.confidence,
+                flagged_steps=list(flagged_steps),
+                steps=list(plan.steps),
+                reviewer_notes=plan.reviewer_notes,
+                validation_notes=plan.validation_notes,
+                options=list(options),
+            )
+        )
+    return TransformationReview(
+        institution_id=institution_id,
+        pipeline_version=transformation_map.pipeline_version,
+        reviewed=False,
+        hitl_items=hitl_items,
+    )
 
 
 class TransformationMap(StrictBaseModel):
@@ -318,7 +632,7 @@ class TransformationMap(StrictBaseModel):
     """
 
     pipeline_version: str = Field(
-        default_factory=resolve_pipeline_version,
+        default_factory=default_pipeline_version,
         description="Edvise/git release — set by the pipeline, not the LLM.",
     )
     institution_id: str = Field(..., description="Institution identifier")
@@ -372,7 +686,7 @@ def _transformation_map_source_for_agent_prompt() -> str:
 def get_transformation_map_schema_context() -> str:
     """
     Focused schema reference for Agent 2b prompt context: TransformationStep models,
-    FieldTransformationPlan, and TransformationMap.
+    FieldTransformationPlan, HITL companion models, and TransformationMap.
     """
     models = [
         CastNullableIntStep,
@@ -400,8 +714,12 @@ def get_transformation_map_schema_context() -> str:
         BirthyearToAgeBucketStep,
         ConditionalCreditsStep,
         TermComponentsToDatetimeStep,
-        NewUtilityNeededStep,
+        TermSeasonToConferralDateStep,
         FieldTransformationPlan,
+        FlaggedStep,
+        TransformationHITLOption,
+        TransformationHITLItem,
+        TransformationReview,
         TransformationMap,
     ]
     sections = []

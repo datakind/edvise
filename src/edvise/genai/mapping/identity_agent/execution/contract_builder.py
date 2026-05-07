@@ -84,44 +84,44 @@ def merge_grain_learner_id_alias_into_school_config(
     grain_contracts_by_dataset: dict[str, GrainContract],
 ) -> SchoolMappingConfig:
     """
-    Set ``school_config.cleaning.student_id_alias`` from grain ``learner_id_alias`` when specified.
+    Set each ``DatasetConfig.student_id_alias`` from that dataset's grain ``learner_id_alias``.
 
-    Grain JSON uses ``learner_id_alias``; that value is written to ``CleaningConfig.student_id_alias``
-    for :func:`~edvise.data_audit.custom_cleaning.clean_dataset`, which maps the alias to the
-    canonical person column (``learner_id`` when using GenAI defaults).
+    Grain JSON uses ``learner_id_alias``; it is copied to the matching dataset's ``student_id_alias``
+    for :func:`~edvise.data_audit.custom_cleaning.clean_dataset`, which maps that alias to the
+    canonical person column (``learner_id`` when using GenAI defaults). Tables may differ; no
+    cross-dataset agreement is required.
 
-    All non-null ``learner_id_alias`` values across the given contracts must agree; otherwise
-    raises. When ``inputs.toml`` already sets a different alias, grain wins and a warning is logged.
+    When ``inputs.toml`` already sets a per-dataset ``student_id_alias`` that differs from grain,
+    grain wins and a warning is logged. School-level ``cleaning.student_id_alias`` is not modified
+    here; it remains the default for datasets without a per-dataset alias.
 
     Callers that build schema contracts **one dataset at a time** (e.g. manifest helpers) should
-    run this once per institution with the **full** grain map so ``cleaning`` matches every table,
-    then pass a single-dataset slice into :func:`merge_grain_contracts_into_school_config` /
+    run this once per institution with the **full** grain map, then pass a single-dataset slice
+    into :func:`merge_grain_contracts_into_school_config` /
     :func:`build_schema_contract_from_grain_contracts` for primary-key overrides.
     """
-    aliases: set[str] = set()
-    for gc in grain_contracts_by_dataset.values():
-        if gc.learner_id_alias:
-            aliases.add(gc.learner_id_alias.strip())
-    if not aliases:
+    datasets: dict[str, DatasetConfig] = dict(school_config.datasets)
+    any_update = False
+    for ds_name, gc in grain_contracts_by_dataset.items():
+        if not gc.learner_id_alias or not str(gc.learner_id_alias).strip():
+            continue
+        alias = gc.learner_id_alias.strip()
+        dc = datasets.get(ds_name)
+        if dc is None:
+            continue
+        existing = dc.student_id_alias
+        if existing and str(existing).strip() and str(existing).strip() != alias:
+            logger.warning(
+                "Overriding datasets[%r].student_id_alias %r with grain learner_id_alias %r",
+                ds_name,
+                existing,
+                alias,
+            )
+        datasets[ds_name] = dc.model_copy(update={"student_id_alias": alias})
+        any_update = True
+    if not any_update:
         return school_config
-    if len(aliases) > 1:
-        raise ValueError(
-            "Grain contracts disagree on learner_id_alias: "
-            f"{sorted(aliases)}. Resolve before merging into school config."
-        )
-    alias = next(iter(aliases))
-    existing = (
-        school_config.cleaning.student_id_alias if school_config.cleaning else None
-    )
-    if existing and existing != alias:
-        logger.warning(
-            "Overriding school_config.cleaning.student_id_alias %r with grain contract value %r",
-            existing,
-            alias,
-        )
-    base = school_config.cleaning or CleaningConfig()
-    new_cleaning = base.model_copy(update={"student_id_alias": alias})
-    return school_config.model_copy(update={"cleaning": new_cleaning})
+    return school_config.model_copy(update={"datasets": datasets})
 
 
 def merge_grain_contracts_into_school_config(
@@ -133,7 +133,7 @@ def merge_grain_contracts_into_school_config(
 ) -> SchoolMappingConfig:
     """
     Return a copy of ``school_config`` with ``primary_keys`` overridden from grain contracts,
-    and ``cleaning.student_id_alias`` set when grain contracts provide a consistent alias.
+    and per-dataset ``student_id_alias`` set from each grain contract's ``learner_id_alias``.
 
     Only datasets **present** in ``grain_contracts_by_dataset`` are updated; others keep
     ``inputs.toml`` primary keys.
@@ -149,8 +149,8 @@ def merge_grain_contracts_into_school_config(
             (default ``learner_id`` for GenAI; pass ``student_id`` for legacy audit-style configs).
 
     Returns:
-        New ``SchoolMappingConfig`` with updated ``DatasetConfig.primary_keys`` where provided
-        and optional ``cleaning.student_id_alias`` from grain.
+        New ``SchoolMappingConfig`` with updated ``DatasetConfig.primary_keys`` and optional
+        ``DatasetConfig.student_id_alias`` from grain where specified.
     """
     school_config = merge_grain_learner_id_alias_into_school_config(
         school_config, grain_contracts_by_dataset
@@ -248,6 +248,8 @@ def build_schema_contract_from_grain_contracts(
     ] = None,
     canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
     hook_modules_root: str | Path | None = None,
+    generate_dtypes: bool = True,
+    build_frozen_contract: bool = True,
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
     Build cleaned frames and a frozen schema contract (envelope uses ``student_id_alias`` from
@@ -255,6 +257,10 @@ def build_schema_contract_from_grain_contracts(
 
     Applies :func:`merge_grain_contracts_into_school_config` (primary keys + cleaning alias) then
     :func:`edvise.genai.mapping.shared.schema_contract.build_from_school_config.build_schema_contract_from_config`.
+
+    For inference without re-freezing, pass ``generate_dtypes=False`` and ``build_frozen_contract=False``
+    (same sequence as :func:`~edvise.data_audit.custom_cleaning.clean_dataset` then an existing
+    frozen contract + :func:`~edvise.data_audit.custom_cleaning.enforce_schema_contract`).
 
     Args:
         school_config: School mapping config (paths, cleaning, baseline primary_keys).
@@ -288,6 +294,8 @@ def build_schema_contract_from_grain_contracts(
             directory exists).
         dtype_opts, spark_session, sample_size, cleaning_cfg: Forwarded
             to :func:`~edvise.genai.mapping.shared.schema_contract.build_from_school_config.build_schema_contract_from_config`.
+        generate_dtypes, build_frozen_contract: Forwarded to
+            :func:`~edvise.genai.mapping.shared.schema_contract.build_from_school_config.build_schema_contract_from_config`.
 
     Returns:
         ``(cleaned_dataframes_by_logical_name, schema_contract_dict)`` — same as
@@ -327,6 +335,8 @@ def build_schema_contract_from_grain_contracts(
         term_order_fn_by_dataset=term_order_fn_by_dataset,
         dedupe_fn_by_dataset=merged_dedupe if merged_dedupe else None,
         canonical_learner_column=canonical_learner_column,
+        generate_dtypes=generate_dtypes,
+        build_frozen_contract=build_frozen_contract,
     )
 
 
@@ -515,9 +525,12 @@ def build_training_example_from_schema_contract(
     if clc not in ("student_id", "learner_id"):
         clc = "learner_id"
 
-    sid_alias = (
-        school_config.cleaning.student_id_alias if school_config.cleaning else None
-    )
+    dc = school_config.datasets.get(dataset_name)
+    sid_alias = None
+    if dc is not None and dc.student_id_alias and str(dc.student_id_alias).strip():
+        sid_alias = str(dc.student_id_alias).strip()
+    elif school_config.cleaning and school_config.cleaning.student_id_alias:
+        sid_alias = str(school_config.cleaning.student_id_alias).strip()
     column_details = _build_column_details(
         df=df,
         original_columns=original_columns,
@@ -840,7 +853,7 @@ def build_enriched_schema_contract_for_institution(
 
     For grain-driven primary keys, pass ``grain_contracts_by_dataset``. Pass a ``school_config``
     already updated via :func:`merge_grain_learner_id_alias_into_school_config` with the **full**
-    grain map so ``cleaning.student_id_alias`` matches multi-table workflows.
+    grain map so each dataset's ``student_id_alias`` matches grain ``learner_id_alias``.
 
     ``term_order_config_by_dataset`` (logical dataset name → :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermOrderConfig`)
     is optional; when set, each dataset's ``training.term_normalization`` records which source

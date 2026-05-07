@@ -54,6 +54,14 @@ class TermNormalizationSummary(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    stream_role: str | None = Field(
+        default=None,
+        description="Optional role id — e.g. 'entry' for cohort term (IdentityAgent output).",
+    )
+    materialized_column_prefix: str | None = Field(
+        default=None,
+        description="Reserved for future prefixed term materializations; null for entry-only IA.",
+    )
     mode: Literal["single_column", "year_season_columns"]
     term_extraction: Literal["standard", "hook_required"]
     term_col: str | None = Field(
@@ -91,7 +99,7 @@ class TermNormalizationSummary(BaseModel):
 
 
 class SchemaContractTrainingBlock(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     file_path: str
     num_rows: int

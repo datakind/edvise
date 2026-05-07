@@ -39,10 +39,11 @@ def __getattr__(name: str) -> Any:
             "edvise.genai.mapping.schema_mapping_agent.manifest.prompts.refine"
         )
     if name == "hitl":
-        # SMA HITL lives at package level (``schema_mapping_agent.hitl``), not under manifest.
-        return importlib.import_module("edvise.genai.mapping.schema_mapping_agent.hitl")
+        return importlib.import_module(
+            "edvise.genai.mapping.schema_mapping_agent.manifest.hitl"
+        )
     if name == "hitl_resolver":
         return importlib.import_module(
-            "edvise.genai.mapping.schema_mapping_agent.hitl.resolver"
+            "edvise.genai.mapping.schema_mapping_agent.manifest.hitl.resolver"
         )
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -28,7 +28,6 @@ from pydantic import ValidationError
 from .schemas import TransformationMap
 from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
 from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
-
 from ..manifest.eval import MODELS, _find_eval_project_root, folder_slug_2b, run_once
 from .prompt import build_step2b_prompt, load_json
 

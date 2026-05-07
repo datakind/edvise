@@ -22,7 +22,7 @@ DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL: str = (
     "https://4437281602191762.ai-gateway.gcp.databricks.com/mlflow/v1"
 )
 
-DEFAULT_GATEWAY_MODEL_ID: str = "claude-sonnet-test-genai-ai-data-cleaning"
+DEFAULT_GATEWAY_MODEL_ID: str = "claude-sonnet-edvise-genai"
 
 # System + user are concatenated into one role=user message (IA / SMA).
 LLM_COMPLETE_SYSTEM_USER_SEP: Final[str] = "\n\n---\n\n"
@@ -70,8 +70,10 @@ def _token_from_authorization_header(headers: dict[str, str]) -> str | None:
 
 def _token_from_databricks_sdk_default_auth() -> str | None:
     """
-    On Databricks compute, ``Config().authenticate()`` often works when ``DATABRICKS_TOKEN``
-    is unset (metadata service / OAuth for the job or notebook identity).
+    Resolve a short-lived workspace bearer via ``Config().authenticate()`` (Databricks SDK).
+
+    Typical sources: job/cluster identity metadata service, OAuth M2M / service principal,
+    or a local ``databricks auth login`` profile when ``DATABRICKS_HOST`` is set.
     """
     try:
         from databricks.sdk.core import Config
@@ -90,23 +92,21 @@ def _token_from_databricks_sdk_default_auth() -> str | None:
 
 def require_databricks_token() -> str:
     """
-    Return a workspace token for the gateway ``api_key`` (PAT or OAuth bearer from the SDK).
+    Return a workspace bearer for the gateway ``api_key`` via :func:`_token_from_databricks_sdk_default_auth`.
 
-    Order: ``DATABRICKS_TOKEN`` env, then :func:`_token_from_databricks_sdk_default_auth`
-    (Databricks jobs / Repos when the env var is not injected).
+    Personal access tokens (``DATABRICKS_TOKEN``) are not used for this path.
 
     ``OPENAI_API_KEY`` is not used for this gateway.
     """
-    token = (os.environ.get("DATABRICKS_TOKEN") or "").strip()
-    if token:
-        return token
     from_sdk = _token_from_databricks_sdk_default_auth()
     if from_sdk:
         return from_sdk
     msg = (
-        "No Databricks workspace token for the MLflow AI gateway: set DATABRICKS_TOKEN "
-        "(e.g. PAT or secret-backed env) or run on Databricks with databricks-sdk default "
-        "credentials so Config().authenticate() succeeds. OPENAI_API_KEY is not used here."
+        "No Databricks workspace token for the MLflow AI gateway: databricks-sdk "
+        "Config().authenticate() did not return a Bearer token. Run on Databricks compute "
+        "with job/cluster identity, configure OAuth / service principal credentials, or "
+        "use ``databricks auth login`` locally with DATABRICKS_HOST set. "
+        "OPENAI_API_KEY is not used here."
     )
     raise ValueError(msg)
 
@@ -157,9 +157,97 @@ def make_databricks_gateway_llm_complete(
             messages=messages,
             max_tokens=max_tokens,
         )
-        return resp.choices[0].message.content or ""
+        return _assistant_text_from_chat_completion_or_raise(
+            resp, log=_LOG, default_model=resolved_model
+        )
 
     return complete
+
+
+def _text_from_message_content(
+    content: object,
+) -> str:
+    """
+    Best-effort string from ``message.content`` (OpenAI is usually ``str | None``;
+    some routes may return list-shaped multimodal content).
+    """
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                if block.get("type") == "text" and "text" in block:
+                    parts.append(str(block.get("text", "")))
+                else:
+                    t = block.get("text")
+                    if t is not None:
+                        parts.append(str(t))
+            else:
+                tx = getattr(block, "text", None)
+                if tx is not None:
+                    parts.append(str(tx))
+        return "".join(parts)
+    return str(content)
+
+
+def _assistant_text_from_chat_completion_or_raise(
+    resp: object, *, log: logging.Logger, default_model: str | None = None
+) -> str:
+    """
+    Return the assistant's output text, or raise if there is nothing usable to parse as JSON.
+
+    A ``200`` response with ``content=None`` and no text was previously turned into ``""``,
+    which only surfaces as JSONDecodeError on empty input. We fail fast with diagnostics
+    and surface refusals (e.g. Claude) explicitly.
+    """
+    choices = getattr(resp, "choices", None) or []
+    if not choices:
+        msg = "AI Gateway returned no choices on chat.completions"
+        log.error("%s: model=%r", msg, getattr(resp, "model", default_model))
+        raise RuntimeError(msg) from None
+
+    ch0 = choices[0]
+    msg = ch0.message
+    raw = _text_from_message_content(getattr(msg, "content", None))
+    if raw.strip():
+        return raw
+
+    ref = getattr(msg, "refusal", None)
+    if isinstance(ref, str) and ref.strip():
+        short = ref.strip()[:2000]
+        log.error(
+            "AI Gateway: model refusal (not valid JSON for downstream parse): %s", short
+        )
+        raise RuntimeError(
+            "The model refused to return structured output. Refusal: "
+            + ref.strip()[:4000]
+        ) from None
+
+    u = getattr(resp, "usage", None)
+    udump: object
+    if u is not None and hasattr(u, "model_dump"):
+        udump = u.model_dump()  # type: ignore[assignment]
+    else:
+        udump = u
+    fr = getattr(ch0, "finish_reason", None)
+    mod = getattr(resp, "model", None) or default_model
+    c_raw = getattr(msg, "content", None)
+    log.error(
+        "AI Gateway: empty assistant message: finish_reason=%r model=%r usage=%r content=%r",
+        fr,
+        mod,
+        udump,
+        c_raw,
+    )
+    raise RuntimeError(
+        "AI Gateway returned an empty assistant message. "
+        f"finish_reason={fr!r}, model={mod!r}, usage={udump!r}. "
+        "The prompt may exceed the model context, max_tokens may be exhausted, "
+        "or the model emitted no text — try a smaller input batch or higher limits."
+    ) from None
 
 
 _T = TypeVar("_T")

@@ -198,6 +198,115 @@ def test_grain_resolution_applies_terminal_hook_spec():
     assert dp["hook_spec"] is not None
 
 
+def test_grain_resolution_categorical_priority_writes_dedup_policy():
+    cfg = {
+        "datasets": {
+            "t1": {
+                "grain_contract": {
+                    "institution_id": "u",
+                    "table": "t1",
+                    "post_clean_primary_key": ["k"],
+                    "dedup_policy": {
+                        "strategy": "temporal_collapse",
+                        "sort_by": "old_col",
+                        "sort_ascending": True,
+                        "keep": "first",
+                        "notes": "keep me",
+                    },
+                    "row_selection_required": False,
+                    "join_keys_for_2a": ["k"],
+                    "confidence": 0.9,
+                    "hitl_flag": True,
+                    "reasoning": "r",
+                }
+            }
+        }
+    }
+    res = GrainResolution(
+        dedup_strategy="categorical_priority",
+        priority_column="honors",
+        priority_order=["Summa", "Magna", "Cum Laude", ""],
+    )
+    _apply_grain_resolution(cfg, _grain_item(), res)
+    dp = cfg["datasets"]["t1"]["grain_contract"]["dedup_policy"]
+    assert dp["strategy"] == "categorical_priority"
+    assert dp["priority_column"] == "honors"
+    assert dp["priority_order"] == ["Summa", "Magna", "Cum Laude", ""]
+    assert dp["sort_by"] is None
+    assert dp["sort_ascending"] is None
+    assert dp["keep"] is None
+    assert dp["suffix_column"] is None
+    assert dp["notes"] == "keep me"
+    GrainContract.model_validate(
+        {
+            "institution_id": "u",
+            "table": "t1",
+            "post_clean_primary_key": ["k"],
+            "dedup_policy": {
+                "strategy": dp["strategy"],
+                "priority_column": dp["priority_column"],
+                "priority_order": dp["priority_order"],
+                "notes": dp["notes"],
+            },
+            "row_selection_required": False,
+            "join_keys_for_2a": ["k"],
+            "confidence": 0.9,
+            "hitl_flag": False,
+            "reasoning": "r",
+        }
+    )
+
+
+def test_grain_resolution_suffix_identifier_writes_dedup_policy():
+    cfg = {
+        "datasets": {
+            "t1": {
+                "grain_contract": {
+                    "institution_id": "u",
+                    "table": "t1",
+                    "post_clean_primary_key": ["k"],
+                    "dedup_policy": {
+                        "strategy": "no_dedup",
+                        "notes": "",
+                    },
+                    "row_selection_required": True,
+                    "join_keys_for_2a": ["k"],
+                    "confidence": 0.9,
+                    "hitl_flag": True,
+                    "reasoning": "r",
+                }
+            }
+        }
+    }
+    res = GrainResolution(
+        dedup_strategy="suffix_identifier",
+        suffix_column="class_nbr",
+    )
+    _apply_grain_resolution(cfg, _grain_item(), res)
+    dp = cfg["datasets"]["t1"]["grain_contract"]["dedup_policy"]
+    assert dp["strategy"] == "suffix_identifier"
+    assert dp["suffix_column"] == "class_nbr"
+    assert dp["sort_by"] is None
+    assert dp["priority_column"] is None
+    GrainContract.model_validate(
+        {
+            "institution_id": "u",
+            "table": "t1",
+            "post_clean_primary_key": ["k"],
+            "dedup_policy": {
+                "strategy": "suffix_identifier",
+                "suffix_column": "class_nbr",
+                "notes": "",
+            },
+            "row_selection_required": True,
+            "join_keys_for_2a": ["k"],
+            "confidence": 0.9,
+            "hitl_flag": False,
+            "reasoning": "r",
+        }
+    )
+
+
 def test_term_resolution_applies_terminal_hook_spec_after_override():
     cfg = {
         "datasets": {

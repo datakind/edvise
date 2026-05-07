@@ -13,10 +13,8 @@ import logging
 from collections.abc import Mapping
 from typing import Any, Union, cast
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
-    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
-    GrainContract,
-)
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
+from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.identity_agent.hitl.artifacts import (
     unique_hitl_items_by_item_id,
 )
@@ -59,6 +57,9 @@ Your job is to produce a `TermOrderConfig` that tells the cleaning layer how to 
 - `_edvise_term_season` — canonical season label: `FALL`, `SPRING`, `SUMMER`, or `WINTER`
 - `_edvise_term_academic_year` — e.g. `"2017-18"`
 - `_term_order` — chronological sort key: `year * 100 + season_rank` (rank = 1-indexed position in `season_map`)
+
+IdentityAgent term output is **one** `term_config` per table (cohort / entry term). Separate degree or
+completion encodings are not modeled here — handle those later via transforms (e.g. transform hooks), not extra term streams.
 
 `TermOrderConfig` (as a JSON-compatible dict) is consumed by:
 
@@ -134,11 +135,30 @@ Use dtype and `unique_values` (or `sample_values` if `unique_values` is null) to
 - **YYYYTT** — 4-digit year + season code suffix: `"2018FA"`, `"2019SP"`, `"2018S1"` — year extractable via 4-digit regex, season matchable via suffix
 - **Season_YYYY** — spelled season + year: `"Fall 2019"`, `"Spring 2021"` — year extractable via 4-digit regex, season matchable via prefix
 
-**Hook-required formats** (`term_extraction`: `"hook_required"`):
+**What standard mode actually implements** (combined `term_col`, no hooks — see `add_edvise_term_order`):
 
-- `datetime` or `date` dtype — date-based extraction needed
+- **Year:** first ``\\d{4}`` substring per cell (regex extract), coerced to integer.
+- **Season:** normalize whitespace/case, then match the **entire** string against each ``season_map``
+  ``raw`` key by **exact match**, then **leading** substring, then **trailing** substring (longer keys first).
+
+So **standard is not a general parser**: it is those two rules. Layouts work when they coincide with
+``Season_YYYY`` / ``Season YYYY``, ``YYYY`` + suffix codes, etc., **and** the first four-digit span is
+the intended **calendar year**.
+
+**Split columns:** If ``year_col`` and ``season_col`` are set (no ``term_col``), standard mode reads
+calendar year numerically from ``year_col`` and maps ``season_col`` through ``season_map`` — no regex
+year scan on a combined string.
+
+**Prefer ``hook_required``** when samples show: **YYYYMM**-style compact numerics that stringify with
+artifacts like ``.0`` (suffix season match breaks); **opaque** codes without a clear ``\\d{4}`` year;
+**datetime** dtypes; **two calendar years** in one token (ranges); or **any** case where the **first**
+``\\d{4}`` is **not** the calendar year you need.
+
+**Hook-required formats** (`term_extraction`: `"hook_required"`) — classify **per column** using **that column's** samples only:
+
+- `datetime` or `date` dtype — date-based extraction needed when standard regex routing does not apply
 - Opaque numeric codes — e.g. `"1192"`, `"1199"` with no visible year string or season token
-- `float` or `int` dtype with numeric codes — e.g. `1192.0` — treat as opaque numeric
+- `float` / `int` **only when** samples match opaque codes or compact numerics (e.g. **YYYYMM** like `202401.0`), **not** merely because the profiler labeled dtype float — string **`Season_YYYY`** columns stay **`standard`**
 
 ### Step 3 — Build `season_map`
 
@@ -166,18 +186,32 @@ Example for YYYYTT:
 
 ### Step 4 — Set `term_extraction` and populate `hook_spec` if needed
 
+**Column grounding (critical):** For the `term_col` you configure in `term_config`, infer encoding **only** from **that**
+column's row in the profile `columns` list (`sample_values`, `unique_values`, dtype). **Never**
+copy hook logic, `season_map`, or digit-slice patterns from one column onto another (e.g. do **not**
+apply **YYYYMM** extraction drafted for **DEGREE_EARNED_TERM** to **TERM_DESC** when **TERM_DESC**
+samples are **Season_YYYY** text like `"Fall 2024"`).
+
+**Reasoning vs JSON:** The dataset `reasoning` text must **agree** with `term_config.term_extraction`
+and season-map style for the **primary** term column — if reasoning describes **standard**
+Season_YYYY extraction, `term_config` must **not** use `hook_required` with numeric-month hooks.
+
 Set `term_extraction`: `"standard"` when:
 
 - A 4-digit year is extractable via regex from the raw value, **AND**
 - Season tokens are matchable via prefix or suffix against `season_map` keys
 
-Set `term_extraction`: `"hook_required"` when:
+Set `term_extraction`: `"hook_required"` when **that column's** profile matches:
 
-- dtype is `datetime` or `date`
-- Raw values are opaque numeric codes with no visible year string or season token
-- dtype is `float` or `int`
+- dtype is `datetime` or `date` **and** hooks are required per the date-column guidance below; OR
+- Raw values are **opaque numeric codes** (e.g. `"1192"`) with no visible four-digit year substring and no season token; OR
+- Values are **compact numeric term encodings** (e.g. **YYYYMM** as `201308.0`, `202401.0`) for **that** column's samples — extract year/season fragments by position on **those** values.
 
-When `term_extraction`: `"hook_required"`, always populate `hook_spec`. Draft extractor functions based on observed patterns in unique values.
+**Do not** set `hook_required` **solely** because dtype is `float` or `int` — **inspect**
+`sample_values` / `unique_values`. **Do not** set `hook_required` when samples clearly show
+**Season_YYYY** English tokens (`Fall`, `Spring`, …) plus a year — use **`standard`**.
+
+When `term_extraction`: `"hook_required"`, always populate `hook_spec`. Draft extractor functions from **that column's** observed patterns only.
 
 For **opaque numeric codes** (e.g. `"1192"` with no visible year in the string):
 
@@ -243,11 +277,30 @@ Use dtype and `unique_values` (or `sample_values` if `unique_values` is null) to
 - **YYYYTT** — 4-digit year + season code suffix: `"2018FA"`, `"2019SP"`, `"2018S1"` — year extractable via 4-digit regex, season matchable via suffix
 - **Season_YYYY** — spelled season + year: `"Fall 2019"`, `"Spring 2021"` — year extractable via 4-digit regex, season matchable via prefix
 
-**Hook-required formats** (`term_extraction`: `"hook_required"`):
+**What standard mode actually implements** (combined `term_col`, no hooks — see `add_edvise_term_order`):
 
-- `datetime` or `date` dtype — date-based extraction needed
+- **Year:** first ``\\d{4}`` substring per cell (regex extract), coerced to integer.
+- **Season:** normalize whitespace/case, then match the **entire** string against each ``season_map``
+  ``raw`` key by **exact match**, then **leading** substring, then **trailing** substring (longer keys first).
+
+So **standard is not a general parser**: it is those two rules. Layouts work when they coincide with
+``Season_YYYY`` / ``Season YYYY``, ``YYYY`` + suffix codes, etc., **and** the first four-digit span is
+the intended **calendar year**.
+
+**Split columns:** If ``year_col`` and ``season_col`` are set (no ``term_col``), standard mode reads
+calendar year numerically from ``year_col`` and maps ``season_col`` through ``season_map`` — no regex
+year scan on a combined string.
+
+**Prefer ``hook_required``** when samples show: **YYYYMM**-style compact numerics that stringify with
+artifacts like ``.0`` (suffix season match breaks); **opaque** codes without a clear ``\\d{4}`` year;
+**datetime** dtypes; **two calendar years** in one token (ranges); or **any** case where the **first**
+``\\d{4}`` is **not** the calendar year you need.
+
+**Hook-required formats** (`term_extraction`: `"hook_required"`) — classify **per column** using **that column's** samples only:
+
+- `datetime` or `date` dtype — date-based extraction needed when standard regex routing does not apply
 - Opaque numeric codes — e.g. `"1192"`, `"1199"` with no visible year string or season token
-- `float` or `int` dtype with numeric codes — e.g. `1192.0` — treat as opaque numeric
+- `float` / `int` **only when** samples match opaque codes or compact numerics (e.g. **YYYYMM** like `202401.0`), **not** merely because the profiler labeled dtype float — string **`Season_YYYY`** columns stay **`standard`**
 
 ### Step 3 — Build `season_map`
 
@@ -281,18 +334,32 @@ Example for YYYYTT:
 
 ### Step 4 — Set `term_extraction` and populate `hook_spec` if needed
 
+**Column grounding (critical):** For the `term_col` you configure in `term_config`, infer encoding **only** from **that**
+column's row in the profile `columns` list (`sample_values`, `unique_values`, dtype). **Never**
+copy hook logic, `season_map`, or digit-slice patterns from one column onto another (e.g. do **not**
+apply **YYYYMM** extraction drafted for **DEGREE_EARNED_TERM** to **TERM_DESC** when **TERM_DESC**
+samples are **Season_YYYY** text like `"Fall 2024"`).
+
+**Reasoning vs JSON:** The dataset `reasoning` text must **agree** with `term_config.term_extraction`
+and season-map style for the **primary** term column — if reasoning describes **standard**
+Season_YYYY extraction, `term_config` must **not** use `hook_required` with numeric-month hooks.
+
 Set `term_extraction`: `"standard"` when:
 
 - A 4-digit year is extractable via regex from the raw value, **AND**
 - Season tokens are matchable via prefix or suffix against `season_map` keys
 
-Set `term_extraction`: `"hook_required"` when:
+Set `term_extraction`: `"hook_required"` when **that column's** profile matches:
 
-- dtype is `datetime` or `date`
-- Raw values are opaque numeric codes with no visible year string or season token
-- dtype is `float` or `int`
+- dtype is `datetime` or `date` **and** hooks are required per the date-column guidance below; OR
+- Raw values are **opaque numeric codes** (e.g. `"1192"`) with no visible four-digit year substring and no season token; OR
+- Values are **compact numeric term encodings** (e.g. **YYYYMM** as `201308.0`, `202401.0`) for **that** column's samples — extract year/season fragments by position on **those** values.
 
-When `term_extraction`: `"hook_required"`, always populate `hook_spec`. Draft extractor functions based on observed patterns in unique values.
+**Do not** set `hook_required` **solely** because dtype is `float` or `int` — **inspect**
+`sample_values` / `unique_values`. **Do not** set `hook_required` when samples clearly show
+**Season_YYYY** English tokens (`Fall`, `Spring`, …) plus a year — use **`standard`**.
+
+When `term_extraction`: `"hook_required"`, always populate `hook_spec`. Draft extractor functions from **that column's** observed patterns only.
 
 For **opaque numeric codes** (e.g. `"1192"` with no visible year in the string):
 
@@ -338,6 +405,14 @@ Each HITLItem must have:
   sample values and the **proposed** mapping in plain language (e.g. "Jan–Apr → Spring, …").
   In `confirm_extraction`, `season_map_replace` must list **every** raw token the drafted
   `season_extractor` can return (e.g. all 12 English month names when using `strftime('%B').lower()`).
+- For **YYYYMM-style numeric terms** (e.g. `201308.0` — year from the first four digits; month or season
+  fragment from digits 5–6, e.g. `'01'`, `'05'`, `'08'`): pre-fill the **`custom`** option’s partial
+  `resolution.season_map_replace` with a **best-guess** mapping for **every** distinct two-digit month code
+  observed in samples (not an empty list). Use this **default US semester-start heuristic** unless the
+  institution’s calendar in the evidence clearly contradicts it: months `01`–`04` → `SPRING`, `05`–`07` →
+  `SUMMER`, `08`–`11` → `FALL`, `12` → `WINTER`. State in `hitl_context` that the mapping is a draft for
+  reviewer confirmation. The drafted `season_extractor` must return the **same raw strings** as the `raw`
+  keys (e.g. `str(term)[4:6]` after normalizing `term` to a string without a trailing `.0`).
 - `hitl_context`: the raw values or samples that triggered the flag. Give the reviewer
   the evidence they need without requiring them to look at the data.
 - `options`: 2–5 options. Last option must always be `option_id: "custom"` with
@@ -392,7 +467,7 @@ You do not need to emit academic year logic — just ensure `season_map` canonic
 
 
 def _tn_confidence_scoring() -> str:
-    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
     return f"""
 ## CONFIDENCE SCORING
 
@@ -409,7 +484,7 @@ Use a **number from 0.0 to 1.0** (same scale as Schema Mapping Agent field mappi
 
 
 def _tn_output_format() -> str:
-    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
     return (
         """
 ## OUTPUT FORMAT
@@ -546,6 +621,7 @@ You will receive a single JSON object with:
 
 Apply the same per-table reasoning rules as single-dataset term inference (term column selection,
 `season_map`, `term_extraction`, `hook_spec` when hook_required) **independently for each dataset**.
+Model **one** cohort / entry `term_config` per table; do not emit parallel completion term configs here.
 
 **Hook drafts (`year_extractor` / `season_extractor`):** Hooks run after `clean_dataset` dtype generation; `term` is the column as string and is often **ISO-like** for datetimes even when profiling showed `%m/%d/%Y` in the raw file. Draft with `pd.to_datetime(term)` **without** a fixed `format=` unless you need strict validation or ambiguous-date handling (see **date columns** under REASONING STEPS). Put **one-line Python expressions** in `functions[].draft` (not full `def` blocks); the downstream `generate_hook` step turns them into complete functions.
 
@@ -565,7 +641,7 @@ input. Do not omit datasets.
 
 
 def _tn_batch_output_format() -> str:
-    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
     return """
 ## OUTPUT FORMAT (batch)
 
@@ -627,7 +703,7 @@ Shape:
   },
   "hitl_items": [
     {
-      "item_id": "<institution_id>_<dataset_c>_<short_descriptor>",
+      "item_id": "<dataset_c>_<short_descriptor>",
       "institution_id": "<institution_id>",
       "table": "<dataset_c>",
       "domain": "identity_term",
@@ -664,7 +740,7 @@ Shape:
         {
           "option_id": "custom",
           "label": "<...>",
-          "description": "Reviewer provides explicit instructions; optional partial season_map_replace if mapping is known.",
+          "description": "Reviewer confirms extraction + hooks; partial season_map_replace must be pre-filled with best-guess raw→canonical rows when month/season tokens are known from samples (never empty placeholders).",
           "resolution": null,
           "reentry": "generate_hook"
         }
@@ -715,6 +791,10 @@ VALIDITY RULES
     `season_map_replace` rows (calendar month order), or an explicit verified month→code mapping.
     Do not ship a compact `season_extractor` expression that mis-maps any month relative to the
     stated Jan–Apr / May–Jul / Aug–Nov / Dec bands.
+  - **YYYYMM / six-digit term codes:** When digits 5–6 encode the academic month/season fragment,
+    **always** emit a non-empty best-guess `season_map_replace` on the `custom` partial resolution for
+    every observed code (see Step 5 — US semester heuristic). Empty `season_map_replace` on that option is
+    invalid when samples already show the codes.
 
   Example (correct — raw tokens in the extractor match `season_map_replace` keys):
 
@@ -781,7 +861,8 @@ VALIDITY RULES
   `resolution` object with concrete field mutations. For hook-confirmation items (`reentry`:
   `"generate_hook"`), the resolution must include the confirmed `hook_spec` inline — do not
   leave `resolution: null` on a non-custom option.
-- `item_id` must be unique across the entire response.
+- `item_id` must be unique across the entire response. Do **not** prefix `institution_id` —
+  `institution_id` is already on the envelope and each HITL item; repeating it in `item_id` is redundant.
 - Each nested object under `datasets` must set `"table"` to the same string as its key in `datasets`.
 """.replace("__PIPELINE_HITL_T__", f"{t}")
 
@@ -1067,6 +1148,31 @@ def _strip_term_batch_hitl_payload(d: dict) -> tuple[dict, list[HITLItem]]:
     return d, unique_hitl_items_by_item_id(collected)
 
 
+def _table_has_term_hitl_item(table: str, items: list[HITLItem]) -> bool:
+    """Whether ``items`` has at least one :class:`HITLItem` for ``table`` (primary or hook group)."""
+    for it in items:
+        if it.table == table:
+            return True
+        hgt = it.hook_group_tables
+        if hgt and table in hgt:
+            return True
+    return False
+
+
+def _assert_term_batch_hitl_items_match_flags(
+    inst: InstitutionTermContract, items: list[HITLItem]
+) -> None:
+    for dname, tc in inst.datasets.items():
+        if not tc.hitl_flag:
+            continue
+        if not _table_has_term_hitl_item(dname, items):
+            raise ValueError(
+                f"Term batch JSON: dataset {dname!r} has hitl_flag=true but there is no "
+                "HITLItem in hitl_items for that table. Emit at least one item in the top-level "
+                "hitl_items list (and keep per-dataset hitl_items as [] per the batch spec)."
+            )
+
+
 def parse_institution_term_contracts_with_hitl(
     raw: RawTermPassInput,
 ) -> tuple[InstitutionTermContract, list[HITLItem]]:
@@ -1078,7 +1184,9 @@ def parse_institution_term_contracts_with_hitl(
     try:
         d = _term_payload_as_dict(raw)
         d2, items = _strip_term_batch_hitl_payload(d)
-        return InstitutionTermContract.model_validate(d2), items
+        inst = InstitutionTermContract.model_validate(d2)
+        _assert_term_batch_hitl_items_match_flags(inst, items)
+        return inst, items
     except Exception:
         text = raw if isinstance(raw, str) else str(raw)[:500]
         logger.debug(

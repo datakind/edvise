@@ -19,10 +19,13 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     get_grain_hitl_item_schema_context,
 )
 from edvise.genai.mapping.identity_agent.utilities import strip_json_fences
-from edvise.genai.mapping.identity_agent.profiling import RankedCandidateProfiles
+from edvise.genai.mapping.identity_agent.profiling import (
+    RankedCandidateProfiles,
+    RawTableProfile,
+)
+from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 
 from .schemas import (
-    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
     GrainContract,
     InstitutionGrainContract,
     get_grain_contract_schema_context,
@@ -43,7 +46,12 @@ dataset. You will receive:
   - The dataset name and institution ID
   - The full column list with dtypes (one column per line: `name: dtype`)
   - A key profile: JSON from `RankedCandidateProfiles` — ranked `candidate_key_profiles` with uniqueness
-    scores and, for each candidate key, within-group variance for non-key columns on non-unique rows.
+    scores, `non_unique_rows` / `affected_groups` per key, and within-group variance
+    (non-key columns on non-unique rows).
+  - When provided, a **raw table profile** JSON (`RawTableProfile`) with `row_count` and per-column
+    `unique_count`, `unique_values` (when enumerable), and `sample_values` — use this for
+    **cardinality** and sort-column validity (see **`dedup_sort_by`: within-group variance** and
+    **Sort column validity and cardinality** in **REASONING STEPS**).
     **Profiling uses an in-memory full-row deduplicated copy of the table** (identical rows are dropped
     before stats). Uniqueness scores and `non_unique_rows` therefore describe key-level behavior on
     distinct rows, not literal duplicate full rows still present in the raw extract.
@@ -102,6 +110,61 @@ If you need HITL because the grain is ambiguous (should it be `(student, class)`
   }
   ```
 
+### Repeat course enrollment — grade and credit preservation (policy)
+
+**Mandatory for course / enrollment-detail tables** when rows share the same semantic grain key
+(student + course identifier + term or equivalent; see **Course / enrollment-detail tables**) but
+differ on **measure** columns (grade, GPA, credits_earned, credits_attempted, or similar):
+
+You **must** use `dedup_strategy: "suffix_identifier"` and **must not** drop collision rows.
+Using `temporal_collapse`, `true_duplicate`, `categorical_priority` on grade/credits/measures, or
+any other row-removing dedup to pick a "winning" enrollment row is a **policy violation** — each
+row is a distinct academic fact (attempts, repeats, concurrent sections, etc.).
+
+Do **not** collapse by filtering or prioritizing grade values (e.g. A > B > C). Do **not** collapse
+by credits (e.g. max credits_earned). Do **not** offer those as HITL options.
+
+Make the **course-identifier** grain column unique with a positional suffix (-1, -2, …). **All**
+collision rows are preserved; none are dropped.
+
+Emit the contract as:
+- `dedup_policy.strategy`: `"suffix_identifier"`
+- `dedup_policy.suffix_column`: **must be a column name that appears in `post_clean_primary_key`**
+  for this table. Choose **only** among grain columns — never pick a column outside the grain
+  because it is more human-readable. Set it to the grain column that **best identifies the course
+  offering** when duplicate grain keys differ only on measure columns. When several grain columns
+  are course identifiers (e.g. catalog code vs section id), prefer the **most human-readable**
+  among those **in `post_clean_primary_key`**. If no suitable course-identifier column exists in
+  the grain, **flag HITL** rather than inventing a `suffix_column` outside the grain.
+- `dedup_policy.sort_by`: null (suffix order is positional, not sorted)
+- `dedup_policy.keep`: null
+
+`suffix_identifier` is a first-class strategy implemented in `contract_utilities.py`. It requires
+no hook and no HITL unless the correct `suffix_column` is genuinely ambiguous across multiple
+equally valid **grain** candidates. If ambiguous, flag HITL with options naming each candidate column
+and set `reentry: "terminal"` (the resolution only needs to specify `suffix_column`).
+
+`row_selection_required` stays true for course tables that use `suffix_identifier` — the table
+remains multi-row per student after the suffix pass.
+
+**`suffix_identifier` scope (course grain vs. student grain)**
+
+- **Course-style tables:** the grain already includes a course-identifier column and multiple rows at
+  that grain differ on **measure** columns (grade, credits, etc.). `suffix_column` **must** appear in
+  `post_clean_primary_key`. Suffixing that column makes previously duplicate grain keys **unique** so
+  all rows are retained — each suffix is a disambiguating part of the key.
+  - Valid example: `post_clean_primary_key = [learner_id, course_identifier, term]` →
+    `suffix_column`: `"course_identifier"` (in grain — valid).
+  - Invalid example: same grain → `suffix_column`: `"course_title"` is **wrong** if `course_title` is
+    **not** in `post_clean_primary_key`, even when titles are more readable than codes.
+- **Student / demographic tables** where `student_id` (alone) is the grain: **do not** use
+  `suffix_identifier`. The strategy depends on suffixing a course-identifier column that is **already**
+  in the grain; a student-only grain has no such column, so the strategy does **not** apply. Appending
+  a suffix to `program_at_graduation` or another non-grain column does not fix duplicate student keys.
+  For multi-degree or multi-program rows, use `categorical_priority` (including credential suffix
+  detection under Degree / award / completion tables), **`candidate_key_override`** to widen the grain,
+  or **`policy_required` + HITL** — not `suffix_identifier`.
+
 ### Semester / term-summary tables
 - Expected grain is (student_id, term).
 - True duplicates on this key (within-group variance = 0 across all columns) should be
@@ -112,6 +175,12 @@ If you need HITL because the grain is ambiguous (should it be `(student, class)`
 
 When two or more non-temporal, non-measure columns have variance within the same candidate key:
 
+- **Before** you pick tiebreak columns, prioritize columns for collapse, or emit
+  `dedup_sort_by` / `temporal_collapse` in HITL or the contract, read
+  **`dedup_sort_by`: within-group variance**, **Collision scale** and
+  **Sort column validity and cardinality** in **REASONING STEPS**
+  (immediately after step 7, before HITL option generation in step 8). They apply to
+  every table type, not only degree tables.
 - Do NOT use `no_dedup` as a catch-all. You must still choose a collapse strategy or declare
   the grain is wider.
 - Prioritize **institutional semantic meaning**:
@@ -136,6 +205,89 @@ When two or more non-temporal, non-measure columns have variance within the same
   vs degree), the grain is either intentionally multi-row at that key or must include a
   degree/credential dimension — FLAG for HITL when the collapse policy is unclear.
 - row_selection is often required when the table remains multi-row per student after cleaning.
+
+**Credential suffix detection (variance values embed a degree type)**
+
+When a variance column's values embed a degree or credential (abbreviation **or** long-form name: B.S., M.S., *Bachelor of Science*, *Master of Arts*, Ph.D., *Doctor of Philosophy*, A.S., A.A.S., and similar), treat the column as a **degree-type** column **regardless of its column name** and use `categorical_priority` with `priority_order` from **Degree tier — categorical_priority** below: list **tier tokens** in descending order, where each token can be a **short suffix** *or* a **spelled-out phrase** that actually appears in `unique_values` — the same substring rules apply to both (a list entry is matched by exact equality, else as a **substring** of the cell; e.g. `B.S.` matches `Accounting, B.S.`; `Master of Science` in the list matches any cell containing that phrase). You do **not** need to list every distinct program title. When **all** values are the same tier, `priority_order` may be a single token such as `["B.S."]` or `["Bachelor of Science"]` as appropriate. Do **not** use `temporal_collapse` on a **non-varying** or effectively constant column to mimic this outcome.
+
+**Degree / credential column vs. major / concentration column**
+
+- **Degree / credential columns** — e.g. `program_at_graduation`, `degree_type`, `awarded_degree`, or **any** column whose values embed a degree or credential per above → use `categorical_priority` with `priority_order` in **Degree tier — categorical_priority** (abbreviations and/or long-form tokens; executor substring-matches list entries to cells; full enumeration of program names is not required).
+- **Major / concentration columns** — e.g. `major_at_graduation`, `major_at_first_enrollment` — major labels are **peer-level**; choosing one value over another for collapse is **arbitrarily** acceptable. Use `categorical_priority` with `priority_order` in any stable order, **or** state in `dedup_policy.notes` that the selection is arbitrary when documenting the policy.
+
+### Degree dedup — sort column validity
+
+Applies the same requirements as **`dedup_sort_by`: within-group variance**,
+**Collision scale** and **Sort column validity and
+cardinality** in **REASONING STEPS** (immediately before HITL / step 8). In degree/award work, that
+includes:
+prefer completion/award date or term; prefer `categorical_priority` with `priority_order` (or
+`reentry: "generate_hook"`) for degree-tier semantics where raw name sort is unreliable; prefer
+GPA/standing when policy is to keep the highest-standing credential. **Never** use
+`dedup_sort_by` on free-text name/label columns (`program_at_graduation`, `major_at_graduation`,
+`degree_name`, etc.); use `policy_required` + HITL when no valid sort column exists; do not
+offer standalone alphabetical tiebreaks without explicit institutional confirmation.
+
+### Degree tier — categorical_priority hierarchy
+
+When collapsing rows that differ on a degree-type or credential column
+(`program_at_graduation`, `degree_type`, `awarded_degree`, or similar), use
+`dedup_strategy: "categorical_priority"` with `priority_column` on that column and
+`priority_order` a **non-empty subsequence** of the **canonical** flat list, **highest first**
+(omit unused tokens; preserve the order of rungs): `["Ph.D.", "M.S.", "M.A.", "M.B.A.", "B.S.", "B.A.", "A.S.", "A.A.", "A.A.S.", "Certificate", "Diploma"]`. You may **substitute** or **augment** with **long-form** strings that appear in the data (e.g. `Doctor of Philosophy`, `Master of Science`, `Bachelor of Arts`) in the **same** rung positions — both styles are `priority_order` tokens; **substring matching applies to every token** whether it is an abbreviation or a full name (e.g. `B.S.` matches `Major, B.S.`; `Master of Science` matches `Program, Master of Science, awarded 2020`).
+*Rung map* (highest to lowest, **same** token order as the list): `Ph.D.` = doctoral; `M.S.…M.B.A.` = master’s; `B.S.…B.A.` = bachelor’s; `A.S.…A.A.S.` = associate’s; `Certificate` / `Diploma` last. If `unique_values` are mostly spelled out, prefer listing those phrases in the right rungs (you can mix one rung on abbreviations and another on long-form if the column is mixed).
+The executor: exact match first, then substring for any list entry vs. the cell string; if several entries match as substrings, **longest** wins, then the **earlier** index in `priority_order`.
+If values cannot be mapped to these tiers, use `policy_required` + HITL. Do not use
+`true_duplicate` or `no_dedup` when rows differ on a degree/credential column.
+*Example* (IIT-style all-undergraduate `program_at_graduation`): `["B.S.", "B.A.", "A.S.", "A.A.", "A.A.S."]` only — not every program title.
+
+### Categorical column variance — categorical_priority strategy
+
+When non-unique rows differ on a categorical column that has a meaningful institutional
+value hierarchy (e.g. honors distinction, degree tier, enrollment status), use
+`dedup_strategy: "categorical_priority"` rather than generating a hook.
+
+Required fields in `dedup_policy`:
+- `priority_column`: the column name with categorical variance
+- `priority_order`: explicit list from highest to lowest priority, e.g.
+  `["Summa Cum Laude", "Magna Cum Laude", "Cum Laude", ""]` or
+  (degree suffixes) `["B.S.", "A.A."]` — the executor also treats a value as a match
+  when it **contains** a list entry as a substring (see Pydantic field description). Unmatched
+  values are ranked last.
+- `sort_by`, `keep`: both null
+- `suffix_column`: null
+
+The kept row's value on all other columns is preserved as-is — no other column is
+controlled by this strategy. When a secondary column also has variance and its value
+from the kept row is acceptable, note this in `dedup_policy.notes`. When the secondary
+column's variance is NOT acceptable from the kept row alone, flag HITL.
+
+**Compound variance (two or more categorical columns)**
+
+When two columns both have variance, classify each:
+
+- **Dependent** (major is nested under program, sub_plan is nested under acad_plan):
+  Collapsing on the primary column resolves the secondary automatically. Use
+  `categorical_priority` on the primary column; note the dependency in `notes`.
+
+- **Independent with a clear primary** (honors and sub_plan where honors has institutional
+  priority): Use `categorical_priority` on the primary column. The secondary column
+  retains the value from the kept row — its diversity is lost. Note this explicitly
+  in `dedup_policy.notes` and in any HITL option descriptions.
+
+- **Independent with no clear primary**: Use `policy_required` and flag HITL. Options
+  must each propose a concrete `categorical_priority` resolution (naming `priority_column`
+  and a suggested `priority_order`) — never offer `no_dedup` when non_unique_rows > 0,
+  and never leave both options as `generate_hook`.
+
+When to use `generate_hook` instead:
+Hook generation is reserved for logic that cannot be expressed as a strategy + parameters:
+  - Conditional rules with branching (e.g. keep active row, fall back to most recent if none)
+  - Cross-table lookups required to resolve the duplicate
+  - Institution-specific encodings with no stable parameter form
+If the resolution can be expressed as an ordered list or a sort column, use a strategy.
+`reentry: "generate_hook"` should only appear on the `custom` escape-hatch option and
+genuinely bespoke cases — not as a shortcut when a strategy would suffice.
 
 ### Term dimension columns (course, semester, any grain that includes term)
 Mirror term **batch** normalization when choosing which column is the term dimension
@@ -257,7 +409,9 @@ def _identity_reasoning_steps() -> str:
 
       **Option i) All variance is noise; grain is as identified; collapse via tiebreak on ONE column**
          - Choose the column with clearest business semantics (e.g., honors over sub_plan
-           if honors is institutional priority).
+           if honors is institutional priority) — verify **dedup_sort_by: within-group variance**,
+           **Collision scale** and **Sort column validity and cardinality** (see before step 8)
+           before committing.
          - Accept that you're losing the other column's distinctions.
          - Example: (sid, plan, term, degree) is the grain; collapse on honors descending
            (keep Summa > Magna > Cum > none); **drop sub_plan distinctions** means one row per grain
@@ -278,15 +432,35 @@ def _identity_reasoning_steps() -> str:
    d) **Zero variance across all columns:**
       True duplicates, safe to drop.
 
-   e) **Mixed variance across measure columns only (gpa, credits, grade):**
-      Competing values, business rule needed for which row to keep. Flag for HITL.
+   e) **Variance on measure columns only (gpa, credits_earned, credits_attempted, grade, …):**
+
+      - **Course / enrollment-detail grain** (student + course identifier + term or equivalent;
+        see **Repeat course enrollment — grade and credit preservation (policy)**): collisions that
+        differ **only** on measures are **not** a "which row to keep" problem. You **must** emit
+        **`suffix_identifier`**. **`temporal_collapse`**, **`true_duplicate`**, measure-based
+        **`categorical_priority`**, and **any** dedup that drops collision rows are **forbidden**
+        (policy violation). HITL is **only** for an ambiguous **`suffix_column`** among valid
+        **grain** course-identifier columns — never to justify dropping measure-differing rows.
+
+      - **Other table kinds:** follow DOMAIN PRIORS for that class. If grain/dedup is still unclear,
+        use **`policy_required`** and HITL; do **not** invent measure-based row drops when DOMAIN PRIORS
+        already prescribe **`suffix_identifier`** for course enrollment.
 
 3. Apply domain priors (see above) — these override data inference when they conflict.
 
-4. Determine dedup policy — PRIORITY: prefer collapse to clean grain over multi-row ambiguity
+4. Determine dedup policy — PRIORITY: prefer collapse to one row per semantic grain **unless**
+   DOMAIN PRIORS **forbid** dropping rows (**Repeat course enrollment — grade and credit preservation
+   (policy)**): there you **must** use **`suffix_identifier`**, not collapse.
+
+   **Collision scale (first):** If **Collision scale** (before step 8) applies, prefer
+   `policy_required` and HITL about whether duplicates are intentional — do not default to
+   `temporal_collapse` with sort options.
 
    **Validity check:** If the candidate key has `non_unique_rows` > 0, you CANNOT use `no_dedup`.
-   Use `temporal_collapse`, `true_duplicate`, or `policy_required` instead.
+   When **Repeat course enrollment** applies (measure-only variance on course grain), you **must**
+   use **`suffix_identifier`** and **must not** use **`temporal_collapse`** or **`true_duplicate`**
+   to shrink row count. Otherwise use `temporal_collapse`, `true_duplicate`, `policy_required`,
+   `categorical_priority`, or `suffix_identifier` as DOMAIN PRIORS require.
 
    Use exactly one of these string literals for `dedup_policy.strategy`:
 
@@ -325,8 +499,119 @@ def _identity_reasoning_steps() -> str:
 
 7. Assign numeric `confidence` and `hitl_flag` per **CONFIDENCE SCORING** (next section).
 
+### Collision scale (read before `dedup_sort_by`, contract dedup, and HITL options — step 8)
+
+Before you generate any dedup option or `temporal_collapse` with a sort direction, use the key
+profile facts for the candidate key: `non_unique_rows`, `affected_groups`, and (when you can
+judge it) the duplicate share of the table — a tiny duplicate footprint is **not** the same as
+a widespread structural pattern.
+
+- **Small-collision threshold (treat as data quality, not structural dedup):** When
+  `non_unique_rows` is very small (e.g. `non_unique_rows` ≤ 5) **or** `affected_groups` = 1, or
+  when the duplicate count is a negligible share of a large table, **do not** treat the situation
+  as a reusable collapse/tiebreak pattern. Treat it as a **data quality** question: are these
+  rows **intentional** (e.g. dual enrollment, multiple awards) or **artifacts** (entry error,
+  system duplicate, bad join)?
+- In that case use `dedup_policy.strategy`: `policy_required`, set `hitl_flag` true, and frame
+  `hitl_questions` / HITL text around **whether the collision is expected and business-correct** —
+  **not** around which sort direction (earliest vs latest) to apply.
+- **Never** offer **first/last** `temporal_collapse` or alphabetical tiebreak options for
+  **single-group** collisions (`affected_groups` = 1) in this small-collision regime — there is
+  no meaningful “direction” to choose; the question is **policy**, not sort order.
+- It remains true that you cannot use `no_dedup` while the candidate key has
+  `non_unique_rows` greater than zero; route the ambiguity through `policy_required` and
+  HITL as above instead of fabricating sort-based options.
+
+### `dedup_sort_by`: within-group variance (read with Collision scale, before **Sort column validity and cardinality**)
+
+Before you emit any `temporal_collapse` option, contract field, or HITL resolution that sets
+`dedup_sort_by`, **verify** that the named column **actually differs within the affected
+duplicate groups** for that candidate key. Use the key profile: the column should appear in
+`within_group_variance`, **or** the profile (including row-level or duplicate-group detail, when
+present) must **explicitly** show that the column takes **different** values **across the
+non-unique** rows in those groups.
+
+- A column **constant** within every affected group (one value for both/all rows in each duplicate
+  group) carries **no** information about which row to keep. Sorting on it matches **arbitrary** row
+  selection. **Do not** use it as a tiebreak for `dedup_sort_by`.
+- **Semantic** plausibility is **not** enough — e.g. a graduation-date column on the table does
+  **not** qualify if duplicate rows **share the same** value in every colliding group. The column
+  must **vary within** those groups for the sort to be meaningful.
+- **No** substitute from the **full** column list: if **no** column that appears in
+  (or is justified from) `within_group_variance` is a **valid** sort target under the **existing**
+  cardinality, label, and temporal rules in **Sort column validity and cardinality** below, **do
+  not** pick a different column from the broader table list. Use **`policy_required`**, set
+  `hitl_flag` true, and route through **HITL** — do **not** "find" a tiebreak in columns that are
+  absent from within-group variance evidence. This **closes the escape hatch** where a
+  plausible-sounding name is used even though the column is flat across the colliding rows.
+
+### Sort column validity and cardinality (all table types) — read before HITL option generation (step 8)
+
+**Prerequisite:** A column must pass **`dedup_sort_by`: within-group variance** (immediately
+above) before you may treat it as a sort target here, in addition to the rules in this section.
+
+This applies to **every** table type whenever you set `dedup_sort_by` (contract or
+`HITLItem` resolution) for `temporal_collapse` (or the equivalent in option JSON).
+
+**Temporal columns** (term, date, year, semester) remain valid `dedup_sort_by` targets when
+time order is the policy — still subject to **Collision scale** when the duplicate footprint
+is tiny (do not invent “earliest vs latest” on time if the real question is whether a duplicate
+row is valid).
+
+**Cardinality (non-temporal columns)** — before setting `dedup_sort_by` on a **non-temporal**
+column, check **effective cardinality** and whether you can list a **complete** meaningful
+ordering from profile evidence **alone**. A **non-temporal** column is a **valid** sort
+target **only** if it has a **small, fully enumerable** value set and you can state a
+**complete** `categorical_priority` with `priority_order` (institutional hierarchy, not string
+collation and not a partial guess).
+
+- A column is **not** a valid sort target (do **not** use `dedup_sort_by` / `temporal_collapse`
+  on it; do **not** use `temporal_collapse` as a stand-in) when it has **high** effective
+  cardinality (roughly **10+** distinct values in the profile) **or** you **cannot** enumerate
+  a **complete** meaningful `priority_order` from the profile alone. In that case: use
+  `policy_required`, set `hitl_flag` true, and **do not** offer “first/last alphabetically” as a
+  fallback. **Do not** treat a couple of `sample_values` in `within_group_variance` as proof of
+  low cardinality or a sortable set — that field shows **what differs in collisions**, not a
+  basis for row ordering. Two program names in `sample_values` are still not an institutional
+  hierarchy. When you need distinct counts and full value lists, use `RawTableProfile` column
+  stats (`unique_count`, `unique_values`, `sample_values`) if present in the same run; the key
+  profile’s variance `sample_values` alone are **never** sufficient to justify
+  `temporal_collapse` on a non-temporal label column.
+
+- **Require** `dedup_sort_by` (where valid) to reference a column with meaningful ordering
+  semantics:
+  - a **temporal** column (term, date, semester, etc.), or
+  - a **categorical** column that you can express as `dedup_strategy: "categorical_priority"`
+    with an explicit, **complete** `priority_order` (institutional value hierarchy, not string
+    collation), or
+  - a **measure** column (GPA, credits, counts, etc.) **only** when the policy question is
+    explicitly about keeping the **highest** or **lowest** value — not as a default tiebreak
+    when the real issue is high-cardinality label variance.
+    **Never** for **Repeat course enrollment** measure-only collisions: those **require**
+    **`suffix_identifier`**; sorting on a measure to drop rows is a **policy violation**
+    (DOMAIN PRIORS).
+
+- **Prohibit** `dedup_sort_by` on free-text **label or name** columns
+  (e.g. `program_at_first_enrollment`, `major_at_first_enrollment`, `degree_name`,
+  `program_at_graduation`, `major_at_graduation`) where **alphabetical** order carries no
+  institutional meaning — the same class of mistake called out in **Degree dedup — sort column
+  validity** (DOMAIN PRIORS), unless the cardinality and hierarchy rules above are satisfied
+  (rare for raw labels).
+
+- When **no** column meets the above, do **not** fake a sort: use
+  `dedup_strategy: "policy_required"`, set `hitl_flag` true, and describe the ambiguity in
+  `hitl_items`. **HITL options must name actual tiebreak semantics** — e.g. "keep first/last
+  alphabetically" is **not** a valid standalone option unless the institution has **explicitly
+  confirmed** that alphabetic ordering is intentional policy. Combine with **Collision scale**
+  when duplicate volume is small: do not substitute sort options for a policy question.
+
 8. Emit `hitl_items` when `hitl_flag` is true
 
+   - **Collision scale:** When **Collision scale** classifies the duplicate footprint as
+     small (e.g. `affected_groups` = 1, or `non_unique_rows` below the threshold there), do
+     **not** emit HITL options that are only “keep earliest / latest” on a **non-temporal** column
+     or alphabetical first/last — HITL must target **whether the duplicate is expected** (and
+     related policy), per that section.
    - Emit one `HITLItem` per distinct ambiguity. A single table may have multiple items
      if independent questions arise (e.g. grain ambiguity + dedup policy).
 
@@ -438,14 +723,23 @@ def _identity_reasoning_steps() -> str:
      ordering you used there). **`rank` 2..n** list **alternative** grain keys the reviewer
      might adopt via `candidate_key_override` on an option — not a second guess of rank 1.
      Preserve each candidate's `uniqueness_score` from the profile for the same `columns`
-     list. You may mention the profiler's original ordering in `notes` if it helps reviewers
+     list (the pipeline **re-applies** the profiler's score for that column set when it
+     matches the key profile, so the artifact stays honest even if the model drifts). **Never**
+     use `0` to mean "weaker semantic grain" or "requires dedup" — that number is only the
+     **fraction of rows unique on that key** from profiling, not a quality judgment.
+     You may mention the profiler's original ordering in `notes` if it helps reviewers
      (e.g. "Profiler rank was 2").
+   - **Structured `hitl_context.candidate_keys`:** every object in `candidate_keys` **must**
+     include **`uniqueness_score`** as a **JSON number** on the **profiler scale: 0.0–1.0**
+     (e.g. `0.998`). The parser also accepts an equivalent **0–100 percent** (e.g. `99.8` →
+     `0.998`); do not double-scale. **Never** use JSON `null` or omit the field; if a column
+     set is not in the profile, use **0.0** (rare).
    - When `hitl_flag` is false, emit `hitl_items: []`.
 """
 
 
 def _identity_confidence_scoring() -> str:
-    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
     return f"""
 ## CONFIDENCE SCORING
 
@@ -492,7 +786,7 @@ identifier; set `learner_id_alias` accordingly; emit keys in `post_clean_primary
 
 
 def _identity_output_format() -> str:
-    t = IDENTITY_CONFIDENCE_HITL_THRESHOLD
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
     return (
         """
 ## OUTPUT FORMAT
@@ -512,10 +806,13 @@ in `post_clean_primary_key`, `join_keys_for_2a`, and `dedup_policy.sort_by`.
   "learner_id_alias": "<column name from column list, or null>",
   "post_clean_primary_key": ["<col1>", "<col2>"],
   "dedup_policy": {
-    "strategy": "<true_duplicate | temporal_collapse | no_dedup | policy_required>",
-    "sort_by": "<column_name or null>",
+    "strategy": "<true_duplicate | temporal_collapse | categorical_priority | suffix_identifier | no_dedup | policy_required>",
+    "sort_by": "<column_name or null — set only for temporal_collapse>",
     "sort_ascending": "<true | false | null — required when strategy is temporal_collapse>",
-    "keep": "<\"first\" | \"last\" or null — never any_row; prefer \"first\" with sort_ascending for temporal_collapse>",
+    "keep": "<\"first\" | \"last\" or null — never any_row; temporal_collapse must use \"first\" with sort_ascending for direction>",
+    "suffix_column": "<non-empty string in post_clean_primary_key or null — required for suffix_identifier only>",
+    "priority_column": "<non-empty string or null — required for categorical_priority only>",
+    "priority_order": "<non-empty JSON array of strings or null — required for categorical_priority: highest-priority value first>",
     "hook_spec": null,
     "notes": "<brief explanation>"
   },
@@ -549,10 +846,13 @@ HITLItem shape for grain:
       "description": "<explicit: grain columns + collapse rule + which columns are retained with one value per grain vs widened into the key — never imply a column is deleted from schema>",
       "resolution": {
         "candidate_key_override": null,
-        "dedup_strategy": "<true_duplicate | temporal_collapse | no_dedup>",
-        "dedup_sort_by": "<column or null>",
-        "dedup_sort_ascending": "<true for earliest | false for latest | null>",
+        "dedup_strategy": "<true_duplicate | temporal_collapse | categorical_priority | suffix_identifier | no_dedup>",
+        "dedup_sort_by": "<column or null — temporal_collapse only>",
+        "dedup_sort_ascending": "<true | false | null — temporal_collapse only; true=earliest, false=latest>",
         "dedup_keep": "first",
+        "priority_column": "<column or null — categorical_priority only>",
+        "priority_order": "<array of strings or null — categorical_priority only, highest first>",
+        "suffix_column": "<grain column or null — suffix_identifier only; must be in post_clean_primary_key>",
         "hook_spec": null
       },
       "reentry": "terminal"
@@ -590,8 +890,17 @@ HITLItem shape for grain:
 }
 ```
 
+HITL option `resolution` (non-custom, `reentry: "terminal"`) must match
+`GrainResolution` in the injected schema: for **`categorical_priority`**, set `dedup_strategy`,
+`priority_column`, and `priority_order` (leave sort fields and `suffix_column` null). For
+**`suffix_identifier`**, set `dedup_strategy` and `suffix_column` only. For
+**`temporal_collapse`**, set the three `dedup_sort_*` / `dedup_keep` fields as in **VALIDITY RULES**.
+
 When key-profiling output is available, use structured `hitl_context` instead of a string (same
-options/target shape as above; only `hitl_context` changes):
+options/target shape as above; only `hitl_context` changes).
+
+**Required fields on each `candidate_keys[]` object:** `rank`, `columns`, and **`uniqueness_score`**
+(numeric, 0.0–1.0, never `null`).
 
 `candidate_keys`: **fully re-ranked** by **semantic grain plausibility** (see **REASONING STEPS**
 and **HITL** bullets above)—`rank` **1** **matches `post_clean_primary_key`** from this response;
@@ -636,9 +945,24 @@ VALIDITY RULES
 
 - `hitl_flag: true` requires at least one corresponding item in the top-level `hitl_items`.
 - `hitl_flag: false` means no items for this table appear in `hitl_items`.
-- `no_dedup` is only valid when `non_unique_rows` = 0 for the candidate key in the key profile.
-  If any candidate key has `non_unique_rows` > 0, use `temporal_collapse`, `true_duplicate`,
-  or `policy_required` — never `no_dedup`.
+- `dedup_policy.strategy` must be exactly one of:
+  `true_duplicate` | `temporal_collapse` | `categorical_priority` | `suffix_identifier`
+  | `no_dedup` | `policy_required`
+  No other values are valid.
+- `categorical_priority` requires `priority_column` (non-null string) and `priority_order`
+  (non-null non-empty list). `sort_by`, `sort_ascending`, `keep`, and `suffix_column` must be null.
+- `suffix_identifier` requires `suffix_column` (non-null string). `sort_by`, `sort_ascending`,
+  `keep`, `priority_column`, and `priority_order` must be null.
+- `temporal_collapse` requires `sort_by` (non-null), `sort_ascending` (non-null bool),
+  and `keep: "first"`. `suffix_column`, `priority_column`, `priority_order` must be null.
+- `true_duplicate` and `no_dedup`: all of `sort_by`, `keep`, `suffix_column`,
+  `priority_column`, `priority_order` must be null.
+- `no_dedup` is only valid when `non_unique_rows` = 0 for the candidate key.
+- `policy_required` defers to HITL; `hitl_flag` must be true.
+- `reentry: "generate_hook"` is only valid on the `custom` escape-hatch option and
+  cases where the resolution logic requires branching or cross-table context that no
+  strategy can express. Do not use it when `categorical_priority` or `temporal_collapse`
+  would suffice.
 """
         + f"- `confidence` ≤ {t} requires `hitl_flag: true`.\n"
         + """
@@ -647,12 +971,18 @@ VALIDITY RULES
   genuinely wider — avoid padding.
 - Non-custom options must have a non-null `resolution`.
 - `item_id` must be unique — use `<institution_id>_<table>_<descriptor>`.
+- Structured `hitl_context`: every `hitl_context.candidate_keys[]` entry must have a numeric
+  `uniqueness_score` in 0.0–1.0 (or the same value as 0–100, e.g. 99.8 for 0.998); never
+  `null` (use the profiler value when the column set matches; use **0.0** only if no score is
+  available).
 """
     )
 
 
 def _identity_pydantic_schema_reference() -> str:
     """Inject Pydantic model source (Schema Mapping Agent pattern) for validated JSON shapes."""
+    # get_grain_contract_schema_context() reflects the live DedupPolicy/GrainContract models
+    # (e.g. priority_column, priority_order, suffix_column); no manual copy of field lists.
     return f"""
 ## AUTHORITATIVE PYDANTIC MODELS
 
@@ -720,11 +1050,22 @@ Column list (name: dtype, one per line):
 {column_list}
 
 Key profile JSON (`RankedCandidateProfiles` — ranked candidate keys, uniqueness, within-group variance):
-{key_profile_json}
+{key_profile_json}{raw_table_profile_block}
 """
 
 
 IDENTITY_AGENT_USER_TEMPLATE = _user_message_template()
+
+
+def _raw_table_profile_user_block(raw_table_profile: RawTableProfile | None) -> str:
+    if raw_table_profile is None:
+        return ""
+    return (
+        "\n\nRaw table profile JSON (`RawTableProfile` — table scale and per-column "
+        "cardinality: `row_count`, `unique_count`, `unique_values` when present, `sample_values`; "
+        "for **Sort column validity and cardinality** in the system prompt):\n"
+        + json.dumps(raw_table_profile.model_dump(mode="json"), indent=2)
+    )
 
 
 def format_column_list(df: pd.DataFrame) -> str:
@@ -739,8 +1080,10 @@ def get_identity_agent_user_sections(
     *,
     column_list: str,
     key_profile_json: str,
+    raw_table_profile: RawTableProfile | None = None,
 ) -> dict[str, str]:
     """Named sections of the grain user message (variable-size vs static instructions)."""
+    rtp_block = _raw_table_profile_user_block(raw_table_profile)
     return {
         "institution_and_dataset": f"Institution ID: {institution_id}\nDataset: {dataset_name}",
         "column_list_block": (
@@ -750,6 +1093,7 @@ def get_identity_agent_user_sections(
             "\nKey profile JSON (`RankedCandidateProfiles` — ranked candidate keys, uniqueness, "
             "within-group variance):\n" + key_profile_json
         ),
+        "raw_table_profile": rtp_block,
     }
 
 
@@ -760,11 +1104,15 @@ def build_identity_agent_user_message(
     *,
     column_list: str | None = None,
     df: pd.DataFrame | None = None,
+    raw_table_profile: RawTableProfile | None = None,
 ) -> str:
     """
     Build the user message body for IdentityAgent.
 
     Pass exactly one of ``column_list`` (pre-formatted) or ``df`` (columns inferred).
+    When ``raw_table_profile`` is set (same object from ``profile_candidate_keys``), the model
+    receives per-column ``unique_count`` / ``unique_values`` for cardinality rules in the
+    system prompt.
     """
     if df is not None and column_list is not None:
         raise ValueError("Pass only one of column_list or df")
@@ -781,6 +1129,7 @@ def build_identity_agent_user_message(
         dataset_name=dataset_name,
         column_list=resolved_columns,
         key_profile_json=key_profile_json,
+        raw_table_profile_block=_raw_table_profile_user_block(raw_table_profile),
     )
 
 
@@ -791,6 +1140,7 @@ def audit_identity_agent_prompt(
     *,
     column_list: str | None = None,
     df: pd.DataFrame | None = None,
+    raw_table_profile: RawTableProfile | None = None,
     log: bool = True,
 ) -> dict[str, Any]:
     """
@@ -818,6 +1168,7 @@ def audit_identity_agent_prompt(
         dataset_name,
         column_list=resolved_columns,
         key_profile_json=key_profile_json,
+        raw_table_profile=raw_table_profile,
     )
     combined: dict[str, str] = {f"system.{k}": v for k, v in sys_sections.items()}
     combined.update({f"user.{k}": v for k, v in user_sections.items()})
@@ -839,6 +1190,8 @@ def _grain_payload_as_dict(raw: RawContractInput) -> dict:
 
 def parse_grain_contract_with_hitl(
     raw: RawContractInput,
+    *,
+    available_columns_normalized: list[str] | None = None,
 ) -> tuple[GrainContract, list[HITLItem]]:
     """
     Parse grain-stage JSON into :class:`GrainContract` plus structured ``hitl_items``.
@@ -866,13 +1219,24 @@ def parse_grain_contract_with_hitl(
         )
     items = [HITLItem.model_validate(x) for x in hitl_raw]
     try:
-        return GrainContract.model_validate(d), items
+        context = None
+        if available_columns_normalized is not None:
+            context = {
+                "available_columns_normalized": list(available_columns_normalized)
+            }
+        contract = GrainContract.model_validate(d, context=context)
     except Exception:
         logger.debug(
             "Grain contract validation failed; raw (truncated): %s",
             str(raw)[:500] if not isinstance(raw, dict) else str(raw)[:500],
         )
         raise
+    if contract.hitl_flag and not items:
+        raise ValueError(
+            "Grain JSON has hitl_flag=true but hitl_items is missing, null, or empty. "
+            "When hitl_flag is true, emit at least one HITLItem in the top-level hitl_items array."
+        )
+    return contract, items
 
 
 def parse_grain_contract(raw: RawContractInput) -> GrainContract:

@@ -15,6 +15,7 @@ from edvise.genai.mapping.identity_agent.execution import (
     merge_grain_contracts_into_school_config,
     merge_grain_learner_id_alias_into_school_config,
 )
+from edvise.genai.mapping.identity_agent.execution import contract_utilities as cu
 from edvise.genai.mapping.identity_agent.grain_inference.deduplication import (
     drop_duplicate_keys,
 )
@@ -42,7 +43,7 @@ def _grain(**kwargs) -> GrainContract:
         dedup_policy=DedupPolicy(
             strategy="true_duplicate",
             sort_by=None,
-            keep="first",
+            keep=None,
             notes="",
         ),
         row_selection_required=False,
@@ -90,6 +91,104 @@ def test_true_duplicate_collapses():
     )
     out = apply_grain_dedup(df, c)
     assert len(out) == 1
+
+
+def test_apply_grain_dedup_suffix_identifier_appends_suffixes_and_preserves_row_count():
+    """suffix_identifier: within each (learner_id, class_number, term) group, course_name gets -1, -2, ...; no rows dropped."""
+    # Same grain + same catalog title: multiple rows can appear (e.g. concurrent attempts / bad ingest).
+    # Suffix disambiguates without dropping — unlike mixing unrelated titles under one class_number.
+    df = pd.DataFrame(
+        {
+            "learner_id": ["s001", "s001", "s001", "s002"],
+            "class_number": [101, 101, 101, 202],
+            "term": ["2024FA", "2024FA", "2024FA", "2024SP"],
+            "course_name": [
+                "Intro Biology",
+                "Intro Biology",
+                "Intro Biology",
+                "Statistics",
+            ],
+            "grade": ["A", "B", "W", "B"],
+        }
+    )
+    grain = ["learner_id", "class_number", "term"]
+    c = _grain(
+        post_clean_primary_key=grain,
+        join_keys_for_2a=grain,
+        dedup_policy=DedupPolicy(
+            strategy="suffix_identifier",
+            suffix_column="course_name",
+            notes="",
+        ),
+    )
+    out = apply_grain_dedup(df, c)
+    assert len(out) == len(df) == 4
+
+    triple = (
+        (out["learner_id"] == "s001")
+        & (out["class_number"] == 101)
+        & (out["term"] == "2024FA")
+    )
+    g1 = out[triple].reset_index(drop=True)
+    assert g1["course_name"].tolist() == [
+        "Intro Biology-1",
+        "Intro Biology-2",
+        "Intro Biology-3",
+    ]
+    assert g1["grade"].tolist() == ["A", "B", "W"]
+
+    g2 = out[out["learner_id"] == "s002"].reset_index(drop=True)
+    assert len(g2) == 1
+    assert g2["course_name"].iloc[0] == "Statistics"
+    assert g2["grade"].iloc[0] == "B"
+
+
+def test_apply_grain_dedup_suffix_identifier_on_int_column_stores_hyphenated_strings():
+    """Integer catalog/class ids must become string dtype so values like 37559-1 do not coerce via int()."""
+    df = pd.DataFrame(
+        {
+            "learner_id": ["s1", "s1"],
+            "class_number": [37559, 37559],
+            "term": ["2024FA", "2024FA"],
+            "grade": ["A", "B"],
+        }
+    )
+    assert df["class_number"].dtype.kind in "iu"
+    grain = ["learner_id", "class_number", "term"]
+    c = _grain(
+        post_clean_primary_key=grain,
+        join_keys_for_2a=grain,
+        dedup_policy=DedupPolicy(
+            strategy="suffix_identifier",
+            suffix_column="class_number",
+            notes="",
+        ),
+    )
+    out = apply_grain_dedup(df, c)
+    assert len(out) == 2
+    assert out["class_number"].tolist() == ["37559-1", "37559-2"]
+    assert pd.api.types.is_string_dtype(out["class_number"])
+
+
+def test_apply_categorical_priority_substring_and_longest_token():
+    """Substring match e.g. B.S. in 'Accounting, B.S.'; M.A. in 'X, M.B.A.' defers to M.B.A. when longer."""
+    po = ["M.S.", "B.S."]
+    out = cu.apply_categorical_priority(
+        pd.DataFrame(
+            {
+                "k": [1, 1],
+                "deg": ["Accounting, B.S.", "Psychology, M.S."],
+            }
+        ),
+        group_by=["k"],
+        priority_column="deg",
+        priority_order=po,
+    )
+    assert len(out) == 1
+    assert "M.S." in out["deg"].iloc[0]
+    # Longest included token wins (else "M.A." would match inside "M.B.A.").
+    assert cu._categorical_value_rank("Business, M.B.A.", ["M.A.", "M.B.A."]) == 1
+    assert cu._categorical_value_rank("Business, M.B.A.", ["M.B.A.", "M.A."]) == 0
 
 
 def test_temporal_collapse_keep_last():
@@ -272,7 +371,7 @@ def test_apply_grain_execution_order_dedup_then_term():
         dedup_policy=DedupPolicy(
             strategy="true_duplicate",
             sort_by=None,
-            keep="first",
+            keep=None,
             notes="",
         ),
     )
@@ -297,7 +396,7 @@ def test_apply_grain_dedup_learner_id_canonical_column():
         dedup_policy=DedupPolicy(
             strategy="true_duplicate",
             sort_by=None,
-            keep="first",
+            keep=None,
             notes="",
         ),
     )
@@ -312,7 +411,7 @@ def test_build_dedupe_fn_from_grain_contract():
         dedup_policy=DedupPolicy(
             strategy="true_duplicate",
             sort_by=None,
-            keep="first",
+            keep=None,
             notes="",
         ),
     )
@@ -353,7 +452,7 @@ def test_apply_grain_dedup_resolves_term_desc_prefix_to_term_descr():
         dedup_policy=DedupPolicy(
             strategy="true_duplicate",
             sort_by=None,
-            keep="first",
+            keep=None,
             notes="",
         ),
     )
@@ -711,7 +810,7 @@ def test_merge_preserves_institution_when_partial():
     assert out.datasets["students"].primary_keys == ["student_id"]
 
 
-def test_merge_sets_cleaning_student_id_alias_from_grain_learner_id_alias():
+def test_merge_sets_dataset_student_id_alias_from_grain_learner_id_alias():
     school = _school_config()
     gc = _merge_contract(
         "students",
@@ -719,8 +818,7 @@ def test_merge_sets_cleaning_student_id_alias_from_grain_learner_id_alias():
         learner_id_alias="student_id_randomized_datakind",
     )
     out = merge_grain_contracts_into_school_config(school, {"students": gc})
-    assert out.cleaning is not None
-    assert out.cleaning.student_id_alias == "student_id_randomized_datakind"
+    assert out.datasets["students"].student_id_alias == "student_id_randomized_datakind"
 
 
 def test_merge_grain_learner_id_alias_only_is_idempotent():
@@ -732,15 +830,18 @@ def test_merge_grain_learner_id_alias_only_is_idempotent():
     )
     once = merge_grain_learner_id_alias_into_school_config(school, {"students": gc})
     twice = merge_grain_learner_id_alias_into_school_config(once, {"students": gc})
-    assert twice.cleaning and twice.cleaning.student_id_alias == "col_a"
+    assert twice.datasets["students"].student_id_alias == "col_a"
 
 
-def test_merge_conflicting_grain_learner_id_alias_raises():
+def test_merge_distinct_grain_learner_id_alias_per_dataset_allowed():
     school = _school_config()
     a = _merge_contract("students", ["student_id"], learner_id_alias="a")
     b = _merge_contract("courses", ["student_id", "term"], learner_id_alias="b")
-    with pytest.raises(ValueError, match="disagree on learner_id_alias"):
-        merge_grain_contracts_into_school_config(school, {"students": a, "courses": b})
+    out = merge_grain_contracts_into_school_config(
+        school, {"students": a, "courses": b}
+    )
+    assert out.datasets["students"].student_id_alias == "a"
+    assert out.datasets["courses"].student_id_alias == "b"
 
 
 def test_merge_unknown_dataset_raises():

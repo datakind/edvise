@@ -13,9 +13,11 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
 )
 from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
     FieldTransformationPlan,
+    FlaggedStep,
     MapValuesStep,
-    NewUtilityNeededStep,
     TermComponentsToDatetimeStep,
+    TermSeasonToConferralDateStep,
+    TransformationHITLOption,
     TransformationMap,
     TransformationStep,
 )
@@ -62,16 +64,100 @@ def test_transformation_step_term_components_to_datetime():
     assert step.extra_columns["season_series"] == "_edvise_term_season"
 
 
-def test_transformation_step_new_utility_needed_gap_property():
+def test_transformation_step_term_season_to_conferral_date():
     adapter = TypeAdapter(TransformationStep)
     step = adapter.validate_python(
         {
-            "function_name": "NEW_UTILITY_NEEDED",
-            "description": "Need fuzzy date parser",
+            "function_name": "term_season_to_conferral_date",
+            "column": "_year_str",
+            "extra_columns": {"season_series": "_season_canon"},
         }
     )
-    assert isinstance(step, NewUtilityNeededStep)
-    assert step.is_gap is True
+    assert isinstance(step, TermSeasonToConferralDateStep)
+    assert step.extra_columns["season_series"] == "_season_canon"
+
+
+def test_transformation_step_rejects_retired_new_utility_discriminator():
+    adapter = TypeAdapter(TransformationStep)
+    with pytest.raises(ValidationError):
+        adapter.validate_python(
+            {
+                "function_name": "NEW_UTILITY_NEEDED",
+                "description": "Need fuzzy date parser",
+            }
+        )
+
+
+def test_field_transformation_plan_hook_required():
+    plan = FieldTransformationPlan(
+        target_field="completion_term",
+        output_dtype="category",
+        hook_required=True,
+        reviewer_notes="YYYYMM custom season split not covered by utilities.",
+        steps=[],
+    )
+    assert plan.hook_required is True
+
+
+def test_field_transformation_plan_review_required_requires_hitl_fields():
+    opts = [
+        TransformationHITLOption(
+            option_id="approve",
+            label="Approve mapping for deg_comp_term",
+            description="Confirm proposed steps as-is for deg_comp_term.",
+            resolution={"approved": True},
+        ),
+        TransformationHITLOption(
+            option_id="correct",
+            label="Correct steps",
+            description="Supply corrected transformation steps.",
+            resolution=None,
+        ),
+        TransformationHITLOption(
+            option_id="unmappable",
+            label="Unmappable",
+            description="Mark field unmappable.",
+            resolution={"steps": [], "output_dtype": None},
+        ),
+    ]
+    FieldTransformationPlan(
+        target_field="bachelors_degree_conferral_date",
+        output_dtype="datetime64[ns]",
+        confidence=0.65,
+        review_required=True,
+        steps=[
+            MapValuesStep(
+                function_name="map_values",
+                column="term_code",
+                mapping={"01": "SPRING"},
+            )
+        ],
+        flagged_steps=[
+            FlaggedStep(
+                step_index=0,
+                function_name="map_values",
+                reason="inferred_season_mapping",
+                context={
+                    "sample_values": ["202301.0"],
+                    "inferred_mapping": {"01": "SPRING"},
+                },
+            )
+        ],
+        hitl_options=opts,
+    )
+    with pytest.raises(ValidationError, match="flagged_steps must be omitted"):
+        FieldTransformationPlan(
+            target_field="x",
+            steps=[],
+            flagged_steps=[
+                FlaggedStep(
+                    step_index=0,
+                    function_name="cast_string",
+                    reason="ambiguous_format",
+                    context=None,
+                )
+            ],
+        )
 
 
 def test_transformation_step_invalid_discriminator():

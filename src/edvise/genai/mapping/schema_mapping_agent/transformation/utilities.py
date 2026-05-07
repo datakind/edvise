@@ -6,6 +6,11 @@ Most utilities are pure Series → Series (or scalar → Series for fill_constan
 take a second Series resolved from ``extra_columns``; see field_executor._execute_step.
 No DataFrame context, no cross-table joins — those are handled by field_executor.
 
+# Conferral Date
+``term_season_to_conferral_date`` and ``SEASON_END_MONTH_DAY`` build proxy end-of-term
+conferral datetimes from academic year strings (YYYY-YY) and canonical season labels;
+see definitions at the bottom of this module.
+
 Removed from previous version:
   - cross_table_lookup: join logic moved to JoinConfig on FieldMappingRecord
   - stems_lookup: STEM classification now handled via JoinConfig + map_values step
@@ -537,3 +542,84 @@ def term_components_to_datetime(
     )
 
     return term_components_to_datetime_from_series(s, season_series)
+
+
+# =============================================================================
+# Conferral Date
+# =============================================================================
+
+SEASON_END_MONTH_DAY: dict[str, tuple[int, int]] = {
+    "FALL": (12, 31),
+    "SPRING": (5, 31),
+    "SUMMER": (8, 31),
+    "WINTER": (3, 31),
+}
+"""
+Canonical end-of-term month/day proxy for conferral date construction.
+
+Graduation happens at the END of a term, not the beginning. These defaults
+follow a standard US semester/quarter calendar:
+  - FALL   → December 31
+  - SPRING → May 31
+  - SUMMER → August 31
+  - WINTER → March 31
+
+These are principled approximations. Institutions on non-standard calendars
+(quarter systems, trimester, international) may require a hook_required
+override with institution-specific month/day pairs. The lossiness is
+intentional and should be surfaced in reviewer_notes on any plan that uses
+this utility.
+"""
+
+
+def term_season_to_conferral_date(
+    s: pd.Series,
+    season_series: pd.Series,
+) -> pd.Series:
+    """
+    Convert academic year + canonical season label to a proxy conferral datetime.
+
+    Uses end-of-term conventions from SEASON_END_MONTH_DAY: graduation happens
+    at the end of a term, not the beginning. Proxy dates are defensible for
+    time-to-completion and cohort completion rate calculations.
+
+    Args:
+        s: String Series of academic years in YYYY-YY format
+           (e.g. "2022-23") — typically _edvise_term_academic_year or the
+           output of a prior extract_year step on a raw term code column.
+           The first 4-digit year substring is used as the calendar year.
+        season_series: String Series of canonical season labels
+           (FALL, SPRING, SUMMER, WINTER) — resolved from base DataFrame
+           via extra_columns. Typically _edvise_term_season or the output
+           of a prior map_values step on a raw season fragment.
+
+    Returns:
+        datetime64[ns] Series. Null input rows → pd.NaT.
+        Unrecognized season labels → pd.NaT.
+
+    Notes:
+        - This utility assumes US semester/quarter calendar defaults.
+          Quarter-system or non-US institutions may need hook_required override.
+        - Always surface lossiness in reviewer_notes on plans using this utility.
+        - Paired with map_values for raw season fragment → canonical label
+          conversion when _edvise_term_season is not available (e.g. raw term
+          code columns on the wide student row).
+    """
+    year_str = s.astype("string").str.extract(r"(\d{4})", expand=False)
+    year_int = pd.to_numeric(year_str, errors="coerce")
+    season_upper = season_series.astype("string").str.strip().str.upper()
+
+    def _to_date(idx: int) -> pd.Timestamp | None:
+        y = year_int.iloc[idx]
+        season = season_upper.iloc[idx]
+        if pd.isna(y) or pd.isna(season) or season not in SEASON_END_MONTH_DAY:
+            return None
+        month, day = SEASON_END_MONTH_DAY[season]
+        return pd.Timestamp(year=int(y), month=month, day=day)
+
+    result = pd.Series(
+        [_to_date(i) for i in range(len(s))],
+        index=s.index,
+        dtype="datetime64[ns]",
+    )
+    return result

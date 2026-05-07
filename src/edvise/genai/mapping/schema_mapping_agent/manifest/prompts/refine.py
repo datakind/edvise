@@ -7,7 +7,9 @@ SMA refinement + HITL: prompts, orchestration, and post-parse safety nets (singl
 
 **Pass 2** — option generation: one LLM call per entity with all Pass 1 flags for
 that entity in a single ``items`` array (cohort + course = 2 Pass 2 calls per institution;
-4 gateway calls total per institution).
+4 gateway calls total per institution). Each TERMINAL option is checked with the same
+deterministic ``validate_manifest`` pass as post–Step 2a generate (scratch manifest);
+failures trigger :func:`~edvise.utils.llm_utils.llm_complete_with_parse_retry`.
 
 Also includes :func:`run_sma_refinement` (two-pass LLM calls) and
 :func:`apply_refinement_review_status_safety_net` (``review_status`` enforcement).
@@ -47,11 +49,14 @@ does not require a fully initialized ``hitl`` package (see ``hitl.artifacts``).
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Literal
 
+from pydantic import TypeAdapter, ValidationError
+
 if TYPE_CHECKING:
-    from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
         InstitutionSMAHITLItems,
     )
 
@@ -70,11 +75,27 @@ from ..schemas import (
 )
 from ..validation import ManifestValidationError
 
+from edvise.utils.llm_utils import llm_complete_with_parse_retry
+
 from .generate import strip_json_fences
 
-# Same value as ``hitl.schemas.HITL_CONFIDENCE_THRESHOLD`` — defined here so prompt + runtime
+# Same value as ``manifest.hitl.schemas.HITL_CONFIDENCE_THRESHOLD`` — defined here so prompt + runtime
 # code share one constant without importing ``hitl`` at module load (circular with ``artifacts``).
 HITL_CONFIDENCE_THRESHOLD = PIPELINE_HITL_CONFIDENCE_THRESHOLD
+
+_LOG = logging.getLogger(__name__)
+
+# Shared one-liner: executor + validation agree on base-table inference (see validate_manifest).
+_BASE_TABLE_JOIN_HINT = (
+    "Omitted join ⇒ source_column is read only from the inferred base table (any mapping's "
+    "join.base_table, else the mode of source_table). For CROSS_TABLE_REQUIRES_JOIN or "
+    "wrong-table sourcing, add a full join + lookup source_table and keys — not source_table alone."
+)
+
+
+def _parse_sma_refinement_llm_dict(raw: str) -> dict[str, Any]:
+    """Parse gateway JSON (after fence strip) to a top-level object; use Pydantic errors for retry."""
+    return TypeAdapter(dict[str, Any]).validate_json(strip_json_fences(raw))
 
 
 # ---------------------------------------------------------------------------
@@ -250,9 +271,13 @@ REFINED_CORRECTIONS / HITL_FLAGS:
 OTHER:
   - Fields in the auto_approved_fields list must have field_statuses[target_field]="auto_approved"
     and NO refined_corrections entry and NO hitl_flags entry.
-""".format(threshold=HITL_CONFIDENCE_THRESHOLD)
+  - {base_table_join_hint}
+""".format(
+    threshold=HITL_CONFIDENCE_THRESHOLD,
+    base_table_join_hint=_BASE_TABLE_JOIN_HINT,
+)
 
-_OPTION_GENERATION_RULES = """
+_OPTION_GENERATION_RULES = f"""
 OPTION RULES — Pass 2 only; you receive all Pass 1 flags for one entity in one batch:
 
   CRITICAL — current_field_mapping:
@@ -281,6 +306,7 @@ BY FAILURE MODE:
     - Options are close-match column candidates ordered by similarity.
 
   join_structure:
+    - {_BASE_TABLE_JOIN_HINT}
     - Options are valid join key combinations from the schema contract.
     - Include column_alias on options that bridge a name mismatch.
     - Include "Remove join (same-table field)" as an option if applicable.
@@ -303,6 +329,35 @@ MULTIPLE VALIDATION ERRORS ON THE SAME FIELD (Pass 2):
   List all ManifestValidationError.detail strings in validation_errors.
   Generate options that fix all errors simultaneously — each option is a complete
   FieldMappingRecord that resolves every flagged issue on that field.
+"""
+
+_COHORT_TARGET_SEMANTICS_FOR_REFINEMENT = """
+## Cohort target semantics (RawEdviseStudentDataSchema)
+
+When the manifest section is **cohort** (student / RawEdviseStudentDataSchema):
+
+- **`intended_program_type`** and **`declared_major_at_entry`** are **entry-time snapshots**
+  (conceptually aligned with `entry_year` / `entry_term`). Using **current** primary program/major,
+  **`last_by` / latest term** row selection, or **completion / exit** fields for these targets is a
+  **semantic error** — not merely weak confidence.
+- Prefer corrections that map to **admit / entry / first-term / cohort** sources, or longitudinal
+  data filtered to **at or before entry** (`first_by` on term order, not latest). Document any
+  remaining proxy in **validation_notes**.
+- If Step 2a mapped either field from an obvious **current-only** column or latest-row semantics,
+  do **not** leave it as **auto_approved** when an entry-aligned source exists in the contract;
+  apply **refined_by_llm** / **refined_and_proposed_for_hitl** or **proposed_for_hitl** as appropriate.
+- Never use **`major_at_completion`** mapping logic for **`declared_major_at_entry`** unless the
+  source column is provably entry-time (unusual).
+"""
+
+_COHORT_SEMANTICS_PASS2 = """
+## Cohort entry vs outcome (Pass 2 options)
+
+For flags on **`intended_program_type`** or **`declared_major_at_entry`**, TERMINAL options should
+favor **entry / admit / first-term** sources. If the flagged mapping used **current** or **latest**
+major/program semantics, option 1 should normally be the entry-aligned alternative; describe any
+remaining proxy honestly. Options for **`major_at_completion`** must not be reused as substitutes
+for **`declared_major_at_entry`** unless the column meaning supports entry time.
 """
 
 _PASS1_OUTPUT_FORMAT = """
@@ -371,6 +426,8 @@ generating options (that is Pass 2).
 
 {_AUTO_FIX_RULES}
 
+{_COHORT_TARGET_SEMANTICS_FOR_REFINEMENT}
+
 ## Output format
 
 {output_format}
@@ -416,6 +473,8 @@ escape hatch on every item.
 ## Collapsing multiple errors per field
 
 {_FIELD_COLLAPSE_RULE}
+
+{_COHORT_SEMANTICS_PASS2}
 
 CRITICAL — current_field_mapping:
   current_field_mapping in each item must be copied unchanged from the corresponding Pass 1 hitl_flag.
@@ -830,7 +889,9 @@ def _hitl_target_fields(
     hitl: list[Mapping[str, Any]] | list[Any],
 ) -> set[str]:
     """Target fields covered by Pass 1 flags and/or Pass 2 items."""
-    from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import SMAHITLItem
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
+        SMAHITLItem,
+    )
 
     out: set[str] = set()
     for item in hitl:
@@ -929,7 +990,7 @@ def apply_refinement_review_status_safety_net(
     """
     Run :func:`_enforce_review_status_contract` and optionally print / log warnings.
 
-    ``hitl_flags`` may be Pass 1 dicts or validated :class:`~edvise.genai.mapping.schema_mapping_agent.hitl.schemas.SMAHITLItem` instances.
+    ``hitl_flags`` may be Pass 1 dicts or validated :class:`~edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas.SMAHITLItem` instances.
 
     ``refined_corrections`` is the Pass 1 slim-output map of target_field → correction deltas.
     When omitted (e.g. when re-checking artifacts without Pass 1 context), pass an empty dict
@@ -978,11 +1039,13 @@ def _run_pass1_llm_call(
         validation_errors,
         schema_contract,
     )
-    raw = llm_complete(system, user)
-    data = json.loads(strip_json_fences(raw))
-    if not isinstance(data, dict):
-        raise ValueError("Pass 1 LLM output must be a JSON object")
-    return data
+    return llm_complete_with_parse_retry(
+        llm_complete,
+        system,
+        user,
+        _parse_sma_refinement_llm_dict,
+        logger=_LOG,
+    )
 
 
 def _run_pass2_llm_call(
@@ -990,8 +1053,16 @@ def _run_pass2_llm_call(
     entity_type: Literal["cohort", "course"],
     hitl_flags: list[dict[str, Any]],
     schema_contract: EnrichedSchemaContractForSMA,
+    refined_manifest: FieldMappingManifest,
     llm_complete: Callable[[str, str], str],
 ) -> dict[str, Any]:
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.option_validation import (
+        raise_if_pass2_terminal_options_invalid,
+    )
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
+        SMAHITLItem,
+    )
+
     system = build_refinement_pass2_system_prompt()
     user = build_refinement_pass2_user_prompt(
         institution_id,
@@ -999,11 +1070,51 @@ def _run_pass2_llm_call(
         hitl_flags,
         schema_contract,
     )
-    raw = llm_complete(system, user)
-    data = json.loads(strip_json_fences(raw))
-    if not isinstance(data, dict):
-        raise ValueError("Pass 2 LLM output must be a JSON object")
-    return data
+
+    def _parse_pass2_with_terminal_validation(raw: str) -> dict[str, Any]:
+        data = _parse_sma_refinement_llm_dict(raw)
+        items_raw = data.get("items")
+        if items_raw is None:
+            ve = ValueError(
+                "Pass 2 output must include top-level key 'items' (array of SMAHITLItem)."
+            )
+            raise ValidationError.from_exception_data(
+                "Pass2JSON",
+                [
+                    {
+                        "type": "missing",
+                        "loc": ("items",),
+                        "input": data,
+                        "ctx": {"error": ve},
+                    }
+                ],
+            )
+        if not isinstance(items_raw, list):
+            ve = ValueError("Pass 2 'items' must be a JSON array.")
+            raise ValidationError.from_exception_data(
+                "Pass2JSON",
+                [
+                    {
+                        "type": "value_error",
+                        "loc": ("items",),
+                        "input": items_raw,
+                        "ctx": {"error": ve},
+                    }
+                ],
+            )
+        hitl_items = [SMAHITLItem.model_validate(item) for item in items_raw]
+        raise_if_pass2_terminal_options_invalid(
+            refined_manifest, hitl_items, schema_contract
+        )
+        return data
+
+    return llm_complete_with_parse_retry(
+        llm_complete,
+        system,
+        user,
+        _parse_pass2_with_terminal_validation,
+        logger=_LOG,
+    )
 
 
 def run_sma_refinement(
@@ -1030,13 +1141,13 @@ def run_sma_refinement(
     llm_complete:
         Callable ``(system_prompt, user_prompt) -> raw_text`` compatible with the
         Databricks gateway pattern. If omitted, uses the default gateway client
-        (requires ``DATABRICKS_TOKEN`` and gateway env configuration).
+        (Databricks SDK default auth and gateway env configuration).
 
     Returns
     -------
-    Refined manifest and complete :class:`~edvise.genai.mapping.schema_mapping_agent.hitl.schemas.InstitutionSMAHITLItems`.
+    Refined manifest and complete :class:`~edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas.InstitutionSMAHITLItems`.
     """
-    from edvise.genai.mapping.schema_mapping_agent.hitl.schemas import (
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
         InstitutionSMAHITLItems,
         SMAHITLItem,
     )
@@ -1082,6 +1193,7 @@ def run_sma_refinement(
         entity_type,
         hitl_flags,
         schema_contract,
+        refined_manifest,
         complete,
     )
     items_raw = pass2_raw.get("items")

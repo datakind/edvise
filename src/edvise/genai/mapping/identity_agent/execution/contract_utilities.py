@@ -63,8 +63,10 @@ def canonicalize_grain_contract_learner_id_alias(
     canonical_column: str = "learner_id",
 ) -> GrainContract:
     """
-    Rewrite ``post_clean_primary_key``, ``join_keys_for_2a``, and ``dedup_policy.sort_by`` so
-    references to the learner identifier column match the canonical name after cleaning
+    Rewrite ``post_clean_primary_key``, ``join_keys_for_2a``, and ``dedup_policy.sort_by``,
+    ``dedup_policy.suffix_column``, and ``dedup_policy.priority_column`` so references to the
+    learner identifier column match the
+    canonical name after cleaning
     (default ``learner_id`` for GenAI; pass ``canonical_column`` as ``"student_id"`` for audit frames).
 
     The dataframe passed to ``apply_grain_dedup`` already uses that canonical column;
@@ -93,10 +95,32 @@ def canonicalize_grain_contract_learner_id_alias(
                     dp.sort_by, alias, canonical_column=canonical_column
                 )
             )
+            new_suffix = (
+                None
+                if dp.suffix_column is None
+                else _map_key_after_canonical_learner_rename(
+                    dp.suffix_column, alias, canonical_column=canonical_column
+                )
+            )
+            new_priority = (
+                None
+                if dp.priority_column is None
+                else _map_key_after_canonical_learner_rename(
+                    dp.priority_column, alias, canonical_column=canonical_column
+                )
+            )
             new_dp = (
                 dp
                 if new_sort == dp.sort_by
-                else dp.model_copy(update={"sort_by": new_sort})
+                and new_suffix == dp.suffix_column
+                and new_priority == dp.priority_column
+                else dp.model_copy(
+                    update={
+                        "sort_by": new_sort,
+                        "suffix_column": new_suffix,
+                        "priority_column": new_priority,
+                    }
+                )
             )
             if (
                 pk == contract.post_clean_primary_key
@@ -132,10 +156,32 @@ def canonicalize_grain_contract_learner_id_alias(
         mapped_sort = _map_key_after_canonical_learner_rename(
             dp.sort_by, alias, canonical_column=canonical_column
         )
+    if dp.suffix_column is None:
+        mapped_suffix: str | None = None
+    else:
+        mapped_suffix = _map_key_after_canonical_learner_rename(
+            dp.suffix_column, alias, canonical_column=canonical_column
+        )
+    if dp.priority_column is None:
+        mapped_priority: str | None = None
+    else:
+        mapped_priority = _map_key_after_canonical_learner_rename(
+            dp.priority_column, alias, canonical_column=canonical_column
+        )
     new_dp = (
         dp
-        if mapped_sort == dp.sort_by
-        else dp.model_copy(update={"sort_by": mapped_sort})
+        if (
+            mapped_sort == dp.sort_by
+            and mapped_suffix == dp.suffix_column
+            and mapped_priority == dp.priority_column
+        )
+        else dp.model_copy(
+            update={
+                "sort_by": mapped_sort,
+                "suffix_column": mapped_suffix,
+                "priority_column": mapped_priority,
+            }
+        )
     )
 
     if (
@@ -214,6 +260,117 @@ def _validate_key_columns(df: pd.DataFrame, keys: list[str], *, label: str) -> N
     missing = [k for k in keys if k not in df.columns]
     if missing:
         raise ValueError(f"{label}: missing columns for grain key: {missing}")
+
+
+def suffix_repeat_course_identifier(
+    df: pd.DataFrame,
+    group_by: list[str],
+    suffix_column: str,
+) -> pd.DataFrame:
+    """
+    Within each ``group_by`` key group, append ``-1``, ``-2``, ... to ``suffix_column`` in
+    dataframe row order (no sorting) when the group has more than one row. Single-row groups
+    and all other columns are unchanged. Row count is preserved.
+    """
+    _validate_key_columns(df, group_by, label="suffix_repeat_course_identifier")
+    if suffix_column not in df.columns:
+        raise ValueError(
+            f"suffix_repeat_course_identifier: suffix_column {suffix_column!r} "
+            f"not in dataframe columns{sorted(df.columns)!r}"
+        )
+    out = df.copy()
+    if out.empty or len(out) < 2:
+        return out
+    # Values become strings like "37559-1". Integer (or other non-text) dtypes cannot store
+    # those literals — pandas would coerce and raise (e.g. int("37559-1")).
+    out[suffix_column] = out[suffix_column].astype("string")
+    grp = out.groupby(group_by, dropna=False, sort=False)
+    n_in_group = grp[suffix_column].transform("size")
+    rank_1based = grp.cumcount() + 1
+    should_suffix = n_in_group > 1
+    if not should_suffix.any():
+        return out
+    new_vals = [
+        f"{base}-{r}"
+        for base, r in zip(
+            out.loc[should_suffix, suffix_column].tolist(),
+            rank_1based[should_suffix].tolist(),
+        )
+    ]
+    out.loc[should_suffix, suffix_column] = new_vals
+    return out
+
+
+def _dedup_categorical_values_equal(a: object, b: object) -> bool:
+    if a is b:
+        return True
+    try:
+        if pd.isna(a) and pd.isna(b):
+            return True
+    except (TypeError, ValueError):
+        pass
+    try:
+        return bool(a == b)
+    except (TypeError, ValueError):
+        return False
+
+
+def _categorical_value_rank(value: object, priority_order: list[str]) -> int:
+    for i, p in enumerate(priority_order):
+        if _dedup_categorical_values_equal(value, p):
+            return i
+    if not isinstance(value, str):
+        return len(priority_order)
+    # Substring match, e.g. "B.S." in "Accounting, B.S."
+    # If several tokens match as substrings (e.g. "M.A." in "M.B.A.", "A.S." in "A.A.S."),
+    # use the longest matching token, then the earliest in `priority_order`.
+    best: tuple[int, int] | None = None  # (-len(p), i) minimization
+    for i, p in enumerate(priority_order):
+        if not isinstance(p, str) or not p:
+            continue
+        if p in value:
+            key = (-len(p), i)
+            if best is None or key < best:
+                best = key
+    if best is not None:
+        return best[1]
+    return len(priority_order)
+
+
+def apply_categorical_priority(
+    df: pd.DataFrame,
+    group_by: list[str],
+    priority_column: str,
+    priority_order: list[str],
+) -> pd.DataFrame:
+    """
+    Within each ``group_by`` key group, keep a single row: the one with the best (lowest)
+    rank on ``priority_column``, where ``priority_order`` lists values from highest to
+    lowest priority. A cell is matched by exact equality to an entry in ``priority_order``,
+    or, if there is no exact match, as a **substring** (longest token wins, then
+    first-listed). Values that match nothing are ranked last. Ties in rank resolve to
+    the first row in the sorted order (stable sort).
+    """
+    _validate_key_columns(df, group_by, label="apply_categorical_priority")
+    if priority_column not in df.columns:
+        raise ValueError(
+            f"apply_categorical_priority: priority_column {priority_column!r} not in "
+            f"columns {sorted(df.columns)!r}"
+        )
+    if not priority_order or not len(priority_order):
+        raise ValueError("apply_categorical_priority: priority_order must be non-empty")
+    if df.empty:
+        return df.copy()
+    work = df.copy()
+    work["_categorical_dedup_rank_"] = work[priority_column].map(
+        lambda v: _categorical_value_rank(v, priority_order)
+    )
+    sort_keys = list(group_by) + ["_categorical_dedup_rank_"]
+    work = work.sort_values(by=sort_keys, kind="mergesort")
+    out = work.drop_duplicates(subset=group_by, keep="first").drop(
+        columns=["_categorical_dedup_rank_"]
+    )
+    return out.reset_index(drop=True)
 
 
 def _grain_dedup_function_names(functions: list[Any]) -> list[str]:
@@ -323,12 +480,18 @@ def apply_grain_dedup(
       ``hook_modules_root`` (e.g. ``SchoolMappingConfig.bronze_volumes_path``), import the named
       dedup function, and run it **once per key-group** (``groupby`` on ``post_clean_primary_key``).
       The callable receives each group's ``DataFrame`` and must return a ``DataFrame``.
-    - ``true_duplicate``: ``drop_duplicates`` on the key (optional ``sort_by`` for
-      deterministic ordering before ``keep``).
+    - ``true_duplicate``: ``drop_duplicates`` on the key; contract must not set ``sort_by`` or
+      ``keep`` (defaults to first row per key in key order / pandas semantics).
     - ``temporal_collapse``: sort (when ``sort_by`` is set) then dedupe on the key. **Does not
       remove any columns** — only rows are collapsed; all original columns remain (Option B:
       "drop distinctions" = one value per grain per non-key column when applicable, not schema
       deletion). If ``sort_by`` is omitted, logs a warning and behaves like ``true_duplicate``.
+    - ``categorical_priority``: one row per key, chosen by ranking ``dedup_policy.priority_column``
+      values with ``dedup_policy.priority_order`` (highest-priority first in the list; exact
+      match, else substring: longest token wins, then first-listed).
+    - ``suffix_identifier``: no rows dropped. Within each key group, ``dedup_policy.suffix_column``
+      values are suffixed with ``-1``, ``-2``, ... in input row order so the identifier is unique
+      (e.g. repeat course enrollments).
 
     When ``dedupe_fn`` runs inside :func:`~edvise.data_audit.custom_cleaning.clean_dataset`,
     the frame already uses the canonical learner column (default ``learner_id`` for GenAI, or
@@ -370,6 +533,43 @@ def apply_grain_dedup(
         )
         return df.copy()
 
+    if policy.strategy == "categorical_priority":
+        pc = policy.priority_column
+        po = policy.priority_order
+        if not pc or not str(pc).strip() or not po or not len(po):
+            raise ValueError(
+                "apply_grain_dedup: categorical_priority requires non-null "
+                "dedup_policy.priority_column and non-empty priority_order (schema should enforce this)"
+            )
+        try:
+            priority_resolved = _resolve_grain_key_to_existing_column(pc, cols)
+        except ValueError as e:
+            raise ValueError(
+                f"apply_grain_dedup: dedup_policy.priority_column: {e}"
+            ) from e
+        return apply_categorical_priority(
+            df,
+            group_by=keys,
+            priority_column=priority_resolved,
+            priority_order=po,
+        )
+
+    if policy.strategy == "suffix_identifier":
+        sc = policy.suffix_column
+        if not sc or not str(sc).strip():
+            raise ValueError(
+                "apply_grain_dedup: suffix_identifier requires dedup_policy.suffix_column"
+            )
+        try:
+            suffix_resolved = _resolve_grain_key_to_existing_column(sc, cols)
+        except ValueError as e:
+            raise ValueError(
+                f"apply_grain_dedup: dedup_policy.suffix_column: {e}"
+            ) from e
+        return suffix_repeat_course_identifier(
+            df, group_by=keys, suffix_column=suffix_resolved
+        )
+
     sort_list: list[str] | None = None
     if policy.sort_by:
         try:
@@ -397,17 +597,26 @@ def apply_grain_dedup(
 def apply_term_order_from_contract(
     df: pd.DataFrame,
     term_pass: TermContract | None,
+    *,
+    hook_modules_root: str | Path | None = None,
 ) -> pd.DataFrame:
     """
     Apply term-stage :class:`~edvise.genai.mapping.identity_agent.term_normalization.schemas.TermContract` when
     ``term_config`` is set; otherwise return ``df`` unchanged.
 
+    Runs primary ``term_config`` (entry / cohort term) when present.
+
     Delegates to :func:`~edvise.genai.mapping.identity_agent.term_normalization.term_order.apply_term_order_from_config`.
     Grain-stage :class:`~edvise.genai.mapping.identity_agent.grain_inference.schemas.GrainContract` has no term fields.
     """
-    if term_pass is None or term_pass.term_config is None:
+    if term_pass is None:
         return df
-    return apply_term_order_from_config(df, term_pass.term_config)
+    out = df
+    if term_pass.term_config is not None:
+        out = apply_term_order_from_config(
+            out, term_pass.term_config, hook_modules_root=hook_modules_root
+        )
+    return out
 
 
 def apply_grain_execution(
@@ -425,7 +634,9 @@ def apply_grain_execution(
         canonical_learner_column=canonical_learner_column,
         hook_modules_root=hook_modules_root,
     )
-    return apply_term_order_from_contract(out, term_pass)
+    return apply_term_order_from_contract(
+        out, term_pass, hook_modules_root=hook_modules_root
+    )
 
 
 def build_dedupe_fn_from_grain_contract(

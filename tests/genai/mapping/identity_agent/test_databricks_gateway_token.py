@@ -9,12 +9,25 @@ from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway impo
 )
 
 
-def test_require_databricks_token_prefers_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DATABRICKS_TOKEN", "dapi_from_env")
-    assert require_databricks_token() == "dapi_from_env"
+def test_require_databricks_token_ignores_databricks_token_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """PAT-style ``DATABRICKS_TOKEN`` must not be used for the gateway client."""
+    monkeypatch.setenv("DATABRICKS_TOKEN", "dapi_should_not_be_used")
+
+    class _FakeConfig:
+        def authenticate(self) -> dict[str, str]:
+            return {"Authorization": "Bearer oauth-from-sdk"}
+
+    monkeypatch.setattr(
+        "databricks.sdk.core.Config",
+        lambda **_k: _FakeConfig(),
+    )
+
+    assert require_databricks_token() == "oauth-from-sdk"
 
 
-def test_require_databricks_token_sdk_bearer_fallback(
+def test_require_databricks_token_sdk_bearer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)

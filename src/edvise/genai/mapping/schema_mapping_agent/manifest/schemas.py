@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from edvise.genai.mapping.shared.pipeline_artifacts import resolve_pipeline_version
+from edvise.genai.mapping.shared.pipeline_artifacts import default_pipeline_version
 
 
 # =============================================================================
@@ -57,6 +57,9 @@ class ReviewStatus(str, Enum):
 
     corrected_by_hitl = "corrected_by_hitl"
     # Human reviewer made a correction at the HITL gate.
+
+    corrected_by_repair = "corrected_by_repair"
+    # Post-gate manifest repair (e.g. 2a) — see :mod:`edvise.genai.mapping.shared.hitl.run_log`.
 
 
 # =============================================================================
@@ -272,7 +275,8 @@ class FieldMappingRecord(StrictBaseModel):
         description=(
             "Pipeline-assigned review outcome. Never set by the generating agent. "
             "Assigned after validation: auto_approved, refined_by_llm, "
-            "refined_and_proposed_for_hitl, proposed_for_hitl, or corrected_by_hitl."
+            "refined_and_proposed_for_hitl, proposed_for_hitl, corrected_by_hitl, "
+            "or corrected_by_repair."
         ),
     )
     reviewer_notes: Optional[str] = Field(
@@ -358,7 +362,7 @@ class MappingManifestEnvelope(StrictBaseModel):
     """
 
     pipeline_version: str = Field(
-        default_factory=resolve_pipeline_version,
+        default_factory=default_pipeline_version,
         description="Edvise/git release — set by the pipeline, not the LLM.",
     )
     institution_id: str = Field(..., description="Institution identifier")

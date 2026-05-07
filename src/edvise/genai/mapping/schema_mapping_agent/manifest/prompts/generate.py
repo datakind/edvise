@@ -25,7 +25,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
 from edvise.genai.mapping.shared.hitl.confidence import (
     PIPELINE_HITL_CONFIDENCE_THRESHOLD,
 )
-from edvise.genai.mapping.shared.pipeline_artifacts import resolve_pipeline_version
+from edvise.genai.mapping.shared.pipeline_artifacts import coerce_pipeline_version
 
 
 def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
@@ -34,6 +34,24 @@ def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
         if compact
         else get_manifest_schema_context()
     )
+
+
+# Injected into extract_schema_descriptor JSON for RawEdviseStudentDataSchema prompts
+# (SMA + downstream steps). Pandera Field descriptions are often unset; these spell out
+# cohort-time vs outcome semantics for the mapping agent.
+_RAW_EDVISE_STUDENT_FIELD_SEMANTIC_NOTES: dict[str, str] = {
+    "intended_program_type": (
+        "Cohort entry snapshot: program or credential the student intended to pursue when "
+        "entering (aligned with entry_year/entry_term). Not the current/latest primary program."
+    ),
+    "declared_major_at_entry": (
+        "Cohort entry snapshot: declared major (or primary field of study) at program entry. "
+        "Not the latest major row from longitudinal history or current major."
+    ),
+    "major_at_completion": (
+        "Outcome: field of study at completion/exit — distinct from declared_major_at_entry."
+    ),
+}
 
 
 def extract_schema_descriptor(schema_class: Any) -> dict[str, Any]:
@@ -52,7 +70,12 @@ def extract_schema_descriptor(schema_class: Any) -> dict[str, Any]:
 
         fields[field_name] = descriptor
 
-    return {"schema_name": schema_class.__name__, "fields": fields}
+    out: dict[str, Any] = {"schema_name": schema_class.__name__, "fields": fields}
+    if schema_class.__name__ == "RawEdviseStudentDataSchema":
+        for fname, note in _RAW_EDVISE_STUDENT_FIELD_SEMANTIC_NOTES.items():
+            if fname in out["fields"]:
+                out["fields"][fname]["semantic_note"] = note
+    return out
 
 
 # ── Schema contract summarization ─────────────────────────────────────────────
@@ -79,8 +102,8 @@ def summarize_schema_contract(
 
     Keeps: column names, dtypes (from each dataset's frozen ``dtypes`` map), null %,
     unique values (if present), sample values from ``training.column_details``,
-    and a one-line ``term_normalization_note`` when IdentityAgent populated
-    ``training.term_normalization`` (not the full struct — that remains on the enriched contract only).
+    and one-line ``term_normalization_note`` when IdentityAgent populated
+    ``training.term_normalization`` (not the full struct).
     Drops: column_order_hash, normalization maps, file paths, boolean_map, null_tokens.
     """
     parsed = (
@@ -212,12 +235,49 @@ COHORT entry_year AND entry_term — decision hierarchy (apply in order)
     )
 
 
+def _step2a_cohort_entry_program_and_major_rules() -> str:
+    """Step 2a: intended_program_type / declared_major_at_entry must be entry-time, not latest."""
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
+    return f"""
+COHORT intended_program_type AND declared_major_at_entry — entry snapshot semantics
+
+These fields describe the student **at cohort/program entry** (same conceptual moment as
+`entry_year` / `entry_term`). They are **not** the student's **current** primary program or
+**latest** declared major from SIS or longitudinal tables.
+
+**(1) Preferred — explicit entry / admit / starting fields on the student (cohort) row**
+- Map from columns whose names or dictionary definitions clearly mean **starting**, **entry**,
+  **admit**, **first-term**, or **cohort** program or major intent.
+- With student-grain base table: `row_selection.strategy`: `"any_row"`.
+
+**(2) Only longitudinal (term-level) program or major history exists**
+- Resolve the value **at or before** the entry term: use the same term-order key as for
+  `entry_year` / `entry_term` (`_term_order` / `first_by` with filters), not `last_by` or the
+  latest term row.
+- If your join path is the same **first enrollment term** proxy as in the entry-term fallback
+  hierarchy, use **similarly low confidence** (typically ≤ {t}), **HITL**, and state the proxy
+  in **rationale** / **validation_notes**.
+
+**(3) Current-state-only sources**
+- If the only usable columns clearly mean **current** program or major (e.g. live primary major
+  with no historical table), you may map with **confidence ≤ {t}**, **HITL**, and **validation_notes**
+  that the source is a **proxy** for entry intent — not a true entry snapshot.
+
+**(4) Contrast with outcome fields**
+- Do **not** map these targets from **`major_at_completion`** sources or other completion/exit fields.
+- `major_at_completion` is outcome semantics and belongs only on that target.
+
+**(5) Unmappable**
+- Prefer unmappable (per UNMAPPABLE FIELDS) over forcing **latest** or **completion** data into
+  `intended_program_type` or `declared_major_at_entry`.
+"""
+
+
 def _step2a_cohort_degree_conferral_datetime_rules() -> str:
     """Step 2a: prefer IA term columns on degree/award lookup for conferral-style datetime targets."""
     t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
-    return (
-        """
-COHORT conferral-style DATETIME targets (student → `degree` or similar award lookup) — decision hierarchy
+    return f"""
+COHORT conferral-style DATETIME targets (student → award / degree lookup) — decision hierarchy
 
 Targets: `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
 `certificate1_date`, `certificate2_date`, `certificate3_date` (see DATETIME AND DATE TARGET FIELDS).
@@ -225,27 +285,43 @@ Targets: `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
 These are **OUTCOME CONFERRAL-STYLE** in the schema (may be built from non-datetime sources); still apply
 this hierarchy **before** choosing raw term codes.
 
-**(1) Preferred — `_edvise_term_academic_year` on the award / degree lookup row**
-- When the schema contract **dtypes** for the lookup table (e.g. `degree`) include
-  `_edvise_term_academic_year`, set `source_column` to **`_edvise_term_academic_year`** on that lookup table
-  with the appropriate join (typically `student` → `degree` on `learner_id` / `student_id`), plus
-  `row_selection` filters (e.g. `awarded_degree` **isin**) and `first_by` / `nth` on `_term_order` as needed.
-- Do **not** use raw institutional `term` strings on `degree` as the preferred source when
-  `_edvise_term_academic_year` is present on that table — raw `term` is only a fallback proxy.
+**(1) Preferred — IdentityAgent-normalized term columns on the award / degree lookup row**
+- When the schema contract shows IdentityAgent-normalized academic-year (and paired season) columns on that lookup
+  table, map the conferral target to the academic-year column on that row with the appropriate join from the student
+  entity, plus `row_selection` filters and ordering keys as required by the manifest rules.
+- Do **not** prefer a raw term-code column on the lookup row when normalized columns are present there — raw encoding
+  is only a fallback proxy per **(3)**.
 
-**(2) Fallback — IA column missing on the lookup table**
-- Map from raw `term` or other coded timing columns on the award row **only** when `_edvise_term_academic_year`
-  is not present in the contract for that table.
-- Use lower confidence (typically ≤ """
-        + f"{t}"
-        + """), **validation_notes** that parsing / coercing to datetime is required, and flag **HITL** when
+**(2) Wide student row**
+
+**(2a) True calendar datetime on wide student row — `datetime64[ns]` conferral source**
+- When a datetime column on the student base table directly represents conferral / completion timing for the target,
+  map to that column with `source_table` = student base table and `row_selection.strategy`: `"any_row"`.
+- Use **high confidence** when the semantic mapping is unambiguous.
+
+**(2b) Raw term code on wide student row — no degree lookup joinable**
+- When no award / degree lookup path is joinable and the only usable source is a **raw term code** column on the
+  student table: map from that column with `source_table` = student base table, `row_selection.strategy`: `"any_row"`,
+  **confidence ≤ {t}**, and **validation_notes** that Step 2b must parse/coerce using inline `map_values` plus
+  `term_season_to_conferral_date` (or an equivalent documented utility chain) as appropriate to the grounded format.
+- **Column grounding:** derive format **only** from that column's own `sample_values` in the schema contract — never
+  infer format from any other term column on the same table.
+
+- **Do not** map conferral-style targets to IdentityAgent entry-term columns on the student row when those encode
+  cohort / entry semantics — they are not degree completion, even when samples correlate with outcomes.
+- Prefer **(1)** when the lookup path exists; when **(1)** is unavailable and neither **(2a)** nor **(2b)** applies,
+  use **(3)** or **(4)** as appropriate.
+
+**(3) Fallback — normalized column missing on the lookup table**
+- Map from a raw term code or other coded timing column on the **award / degree lookup row** only when the
+  normalized academic-year path is unavailable on that table (Step 2b builds the datetime pipeline from those sources).
+- Use lower confidence (typically ≤ {t}), **validation_notes** that parsing / coercing to datetime is required, and flag **HITL** when
   the proxy is weak.
 
-**(3) Unmapped — upstream IdentityAgent gap**
+**(4) Unmapped — upstream IdentityAgent gap**
 - If no defensible timing column exists, leave unmappable; **validation_notes** should state that
-  IdentityAgent should materialize `_edvise_term_*` on the degree/award table (or provide a datetime source).
+  IdentityAgent should materialize `_edvise_term_*` on the degree/award table and/or provide a datetime source.
 """
-    )
 
 
 def _step2a_course_academic_term_rules() -> str:
@@ -294,12 +370,14 @@ def _step2a_rules_after_structure(
     if term_rules == "cohort_and_course":
         term_blocks = (
             _step2a_cohort_entry_term_rules()
+            + _step2a_cohort_entry_program_and_major_rules()
             + _step2a_cohort_degree_conferral_datetime_rules()
             + _step2a_course_academic_term_rules()
         )
     elif term_rules == "cohort_only":
         term_blocks = (
             _step2a_cohort_entry_term_rules()
+            + _step2a_cohort_entry_program_and_major_rules()
             + _step2a_cohort_degree_conferral_datetime_rules()
         )
     else:
@@ -317,6 +395,7 @@ Step 1 — Decide if a join is needed
   declare a join object on that mapping record. A cross-table mapping with no join
   is invalid and will cause a runtime error.
 - If source_column is in the entity base table, omit the join object entirely.
+- Omitted join ⇒ source_column is read only from the inferred base table (first join.base_table on the manifest, else the mode of source_table); source_table must match that base — otherwise declare a join (validation: CROSS_TABLE_REQUIRES_JOIN).
 
 Step 2 — Determine join_keys from grain reasoning
 - join_keys are not a property of the lookup table alone — they depend on the
@@ -493,6 +572,8 @@ TARGET SCHEMA AUTHORITY
 
 DATETIME AND DATE TARGET FIELDS
 - Pandera datetime targets fall into two groups; apply the correct rule by target_field name.
+  **Do not apply STRICT source-dtype rules to group (2)** — conferral targets intentionally map from IA term
+  metadata (often string dtypes in the contract) and rely on Step 2b to emit `datetime64[ns]`.
 
   (1) STRICT — source column dtype in the schema contract must already be datetime (e.g. datetime64[ns]). Do not map
       term codes, term labels, or non-datetime columns to these targets; leave unmappable (null source_column,
@@ -500,19 +581,20 @@ DATETIME AND DATE TARGET FIELDS
       - Cohort (student) entity: matriculation_date
       - Course entity: course_begin_date, course_end_date
 
-  (2) OUTCOME CONFERRAL-STYLE — map from the best available timing signal on the **award / degree lookup row**
-      when semantically appropriate. Follow **COHORT conferral-style DATETIME targets** above: prefer
-      `_edvise_term_academic_year` on the lookup table (e.g. `degree`) when the contract includes it; only then
-      fall back to raw `term` / coded encodings. Step 2b will typically combine year with season via
-      `term_components_to_datetime` when the manifest sources IA columns.
+  (2) OUTCOME CONFERRAL-STYLE — **not** STRICT (manifest sources are often non-datetime IA columns → Step 2b →
+      `datetime64[ns]`). Apply **COHORT conferral-style DATETIME targets** above: on wide `student`, only a true
+      conferral `datetime64[ns]` column qualifies — **never** `student._edvise_term_*` (entry semantics). Prefer
+      award-row `_edvise_term_academic_year` (+ join/filters), then raw/coded timing on the **award** row for Step 2b.
+      Step 2b typically uses `term_components_to_datetime` when the manifest sources IA columns on the degree row
+      (not when the manifest sources calendar datetime directly).
       - Cohort (student) entity: bachelors_degree_conferral_date, associates_degree_conferral_date,
         certificate1_date, certificate2_date, certificate3_date
 
 - For STRICT fields, do not treat numeric encodings (e.g. YYYYMM) as sufficient unless the contract lists that column
   as datetime — unmappable if only integers or strings without a datetime dtype.
-- For OUTCOME CONFERRAL-STYLE fields, raw `term` or YYYYMM-style encodings are **fallback** sources when
-  `_edvise_term_academic_year` is absent on the lookup table; use lower confidence and validation_notes when the
-  source is a term proxy rather than a true calendar conferral timestamp or when parsing is required."""
+- For OUTCOME CONFERRAL-STYLE fields, raw `term` or YYYYMM-style encodings are **fallback** sources only when the
+  preferred IA paths above are unavailable in the contract; use lower confidence and validation_notes when the source is a
+  term proxy rather than a true calendar conferral timestamp or when parsing is required."""
 
 
 def _step2a_json_output_rules() -> str:
@@ -590,7 +672,7 @@ def merge_step2a_entity_manifests(
             "(pass institution_id=... to merge_step2a_entity_manifests)"
         )
 
-    pv = resolve_pipeline_version(pipeline_version)
+    pv = coerce_pipeline_version(pipeline_version)
     if "pipeline_version" in cohort_pass:
         pv = str(cohort_pass.get("pipeline_version", pv))
     elif "pipeline_version" in course_pass:

@@ -51,6 +51,18 @@ def _merged_cleaning_cfg(
     return school_config.cleaning
 
 
+def _effective_cleaning_for_dataset(
+    merged_global: Optional[CleaningConfig],
+    dataset_config: DatasetConfig,
+) -> Optional[CleaningConfig]:
+    """Apply per-dataset ``student_id_alias`` over school/global cleaning defaults."""
+    ds_alias = dataset_config.student_id_alias
+    if ds_alias is not None and str(ds_alias).strip():
+        base = merged_global if merged_global is not None else CleaningConfig()
+        return base.model_copy(update={"student_id_alias": str(ds_alias).strip()})
+    return merged_global
+
+
 def _load_and_preprocess_dataset(
     dataset_config: DatasetConfig,
     spark_session: Optional[Any] = None,
@@ -210,6 +222,9 @@ def build_schema_contract_from_config(
         dict[str, Callable[[pd.DataFrame], pd.DataFrame]]
     ] = None,
     canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
+    *,
+    generate_dtypes: bool = True,
+    build_frozen_contract: bool = True,
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
     Build schema contract from inputs.toml SchoolMappingConfig.
@@ -233,6 +248,12 @@ def build_schema_contract_from_config(
         canonical_learner_column: Person-key column after cleaning. GenAI defaults to
             ``\"learner_id\"``; custom data audit callers should pass ``\"student_id\"`` to match
             :func:`~edvise.data_audit.custom_cleaning.clean_dataset` defaults.
+        generate_dtypes: Forwarded to :func:`~edvise.data_audit.custom_cleaning.clean_dataset`.
+            Use ``False`` at inference together with a **previously frozen** contract and
+            :func:`~edvise.data_audit.custom_cleaning.enforce_schema_contract` (see
+            :func:`~edvise.data_audit.custom_cleaning.clean_dataset` docstring).
+        build_frozen_contract: When ``False``, skip :func:`~edvise.data_audit.custom_cleaning.build_schema_contract`
+            and return ``{}`` as the second value so callers keep an existing frozen JSON.
 
     Returns:
         Tuple of (cleaned_dataframes, schema_contract)
@@ -243,8 +264,8 @@ def build_schema_contract_from_config(
     term_column_by_dataset = term_column_by_dataset or {}
     term_order_fn_by_dataset = term_order_fn_by_dataset or {}
     dedupe_fn_by_dataset = dedupe_fn_by_dataset or {}
-    merged_cleaning = _merged_cleaning_cfg(school_config, cleaning_cfg)
-    cfg_dtype_opts = dtype_opts_from_cleaning_config(merged_cleaning)
+    merged_global = _merged_cleaning_cfg(school_config, cleaning_cfg)
+    cfg_dtype_opts = dtype_opts_from_cleaning_config(merged_global)
     dtype_opts = replace(
         dtype_opts,
         forced_dtypes={**cfg_dtype_opts.forced_dtypes, **dtype_opts.forced_dtypes},
@@ -257,12 +278,21 @@ def build_schema_contract_from_config(
 
     cleaned_map: dict[str, pd.DataFrame] = {}
     specs: dict[str, dict[str, Any]] = {}
+    envelope_student_id_aliases: list[str | None] = []
 
-    logger.info(
-        "Building schema contract for %s (%s)",
-        school_config.institution_name or school_config.institution_id,
-        school_config.institution_id,
-    )
+    if build_frozen_contract:
+        logger.info(
+            "Building schema contract for %s (%s)",
+            school_config.institution_name or school_config.institution_id,
+            school_config.institution_id,
+        )
+    else:
+        logger.info(
+            "Cleaning datasets for %s (%s) — inference pass (generate_dtypes=%s, no freeze)",
+            school_config.institution_name or school_config.institution_id,
+            school_config.institution_id,
+            generate_dtypes,
+        )
 
     for dataset_name, dataset_config in school_config.datasets.items():
         logical_name = (
@@ -284,19 +314,23 @@ def build_schema_contract_from_config(
             )
         )
 
+        merged_cleaning = _effective_cleaning_for_dataset(merged_global, dataset_config)
+        sid_for_ds = merged_cleaning.student_id_alias if merged_cleaning else None
+        envelope_student_id_aliases.append(sid_for_ds)
+
         term_col = term_column_by_dataset.get(logical_name, "term")
 
         pk_config = list(dataset_config.primary_keys or [])
         pk_for_resolution = _primary_keys_for_column_resolution(
             pk_config,
-            merged_cleaning.student_id_alias if merged_cleaning else None,
+            sid_for_ds,
         )
         normalized_uks = _resolve_primary_keys_to_normalized(
             column_mapping, pk_for_resolution, logical_name
         )
         unique_keys_for_contract = _canonical_primary_keys_for_contract(
             normalized_uks,
-            merged_cleaning.student_id_alias if merged_cleaning else None,
+            sid_for_ds,
             canonical_learner_column=canonical_learner_column,
         )
 
@@ -321,7 +355,7 @@ def build_schema_contract_from_config(
             dataset_name=logical_name,
             inference_opts=dtype_opts,
             enforce_uniqueness=True,
-            generate_dtypes=True,
+            generate_dtypes=generate_dtypes,
             cleaning_cfg=merged_cleaning,
             canonical_learner_column=canonical_learner_column,
         )
@@ -336,23 +370,33 @@ def build_schema_contract_from_config(
         )
 
         cleaned_map[logical_name] = df_clean
-        # Same resolution as clean_spec unique keys, then canonical learner column for freeze_schema.
-        specs[logical_name] = {
-            "unique keys": unique_keys_for_contract,
-            "non-null columns": [],
-            "_orig_cols_": original_columns,
-            "term_column": term_col,
-        }
+        if build_frozen_contract:
+            # Same resolution as clean_spec unique keys, then canonical learner column for freeze_schema.
+            specs[logical_name] = {
+                "unique keys": unique_keys_for_contract,
+                "non-null columns": [],
+                "_orig_cols_": original_columns,
+                "term_column": term_col,
+            }
+
+    if not build_frozen_contract:
+        return cleaned_map, {}
 
     contract_null_tokens = (
-        list(merged_cleaning.null_tokens) if merged_cleaning else ["(Blank)"]
+        list(merged_global.null_tokens) if merged_global else ["(Blank)"]
+    )
+    distinct_sid = {
+        str(a).strip()
+        for a in envelope_student_id_aliases
+        if a is not None and str(a).strip()
+    }
+    envelope_student_id_alias: str | None = (
+        next(iter(distinct_sid)) if len(distinct_sid) == 1 else None
     )
     meta = SchemaContractMeta(
         created_at=datetime.now(timezone.utc).isoformat(),
         null_tokens=contract_null_tokens,
-        student_id_alias=(
-            merged_cleaning.student_id_alias if merged_cleaning else None
-        ),
+        student_id_alias=envelope_student_id_alias,
         canonical_learner_column=canonical_learner_column,
     )
     freeze_opts = SchemaFreezeOptions(include_column_order_hash=True)

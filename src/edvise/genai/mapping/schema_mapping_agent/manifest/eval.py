@@ -117,7 +117,11 @@ MODELS_WITH_PREFILL = {
 
 
 # ── inference ─────────────────────────────────────────────────────────────────
-def run_once(model: str, prompt: str, client: OpenAI) -> dict[str, Any]:
+def run_once(
+    model: str,
+    prompt: str,
+    client: OpenAI,
+) -> dict[str, Any]:
     start = time.perf_counter()
     try:
         full_text = ""
@@ -130,12 +134,13 @@ def run_once(model: str, prompt: str, client: OpenAI) -> dict[str, Any]:
             )  # prefill for JSON
         messages = cast(list[ChatCompletionMessageParam], messages_list)
 
-        resp = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            max_tokens=16000,
-            stream=True,
-        )
+        create_kwargs: dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": 16000,
+            "stream": True,
+        }
+        resp = client.chat.completions.create(**create_kwargs)
         for chunk in resp:
             # Safely extract content from chunk - handle cases where choices might be empty
             try:

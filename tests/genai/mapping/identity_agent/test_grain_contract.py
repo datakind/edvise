@@ -4,15 +4,29 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
+from edvise.genai.mapping.identity_agent.grain_inference.hitl_uniqueness_backfill import (
+    backfill_hitl_uniqueness_scores_from_key_profile,
+)
 from edvise.genai.mapping.identity_agent.grain_inference.prompt import (
     build_identity_agent_user_message,
     format_column_list,
     parse_grain_contract,
+    parse_grain_contract_with_hitl,
     parse_institution_grain_contracts,
     strip_json_fences,
 )
+from edvise.genai.mapping.identity_agent.hitl.schemas import (
+    GrainAmbiguityHITLContext,
+    GrainCandidateKeyEntry,
+    GrainResolution,
+    HITLDomain,
+    HITLItem,
+    HITLOption,
+    HITLTarget,
+    ReentryDepth,
+)
+from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
-    IDENTITY_CONFIDENCE_HITL_THRESHOLD,
     GrainContract,
     InstitutionGrainContract,
     build_institution_grain_contracts,
@@ -24,6 +38,8 @@ from edvise.genai.mapping.identity_agent.profiling import (
     CandidateKey,
     CandidateProfile,
     RankedCandidateProfiles,
+    RawColumnProfile,
+    RawTableProfile,
 )
 
 
@@ -62,6 +78,39 @@ def test_build_identity_agent_user_message_with_df():
     assert "students" in msg
     assert "student_id" in msg
     assert "candidate_key_profiles" in msg
+    assert "Raw table profile JSON" not in msg
+
+
+def test_build_identity_agent_user_message_includes_raw_table_profile_for_cardinality():
+    df = pd.DataFrame({"student_id": [1]})
+    rtp = RawTableProfile(
+        institution_id="school_a",
+        dataset="students",
+        row_count=1,
+        column_count=1,
+        columns=[
+            RawColumnProfile(
+                name="student_id",
+                dtype="int64",
+                null_rate=0.0,
+                null_rate_including_tokens=0.0,
+                unique_count=1,
+                unique_values=[1],
+                sample_values=[1],
+                is_term_candidate=False,
+            )
+        ],
+    )
+    msg = build_identity_agent_user_message(
+        "school_a",
+        "students",
+        _minimal_key_profile(),
+        df=df,
+        raw_table_profile=rtp,
+    )
+    assert "Raw table profile JSON" in msg
+    assert '"row_count": 1' in msg
+    assert "unique_count" in msg
 
 
 def test_build_identity_agent_user_message_column_list():
@@ -138,13 +187,13 @@ def test_parse_grain_contract_fenced_json():
         "dedup_policy": {
             "strategy": "true_duplicate",
             "sort_by": None,
-            "keep": "first",
+            "keep": None,
             "notes": "drop dupes",
         },
         "row_selection_required": False,
         "join_keys_for_2a": ["id"],
         "confidence": 0.72,
-        "hitl_flag": True,
+        "hitl_flag": False,
         "hitl_question": "Confirm?",
         "reasoning": "Demo table.",
     }
@@ -230,7 +279,7 @@ def test_low_confidence_requires_hitl():
         },
         "row_selection_required": True,
         "join_keys_for_2a": ["a", "b"],
-        "confidence": IDENTITY_CONFIDENCE_HITL_THRESHOLD - 0.01,
+        "confidence": PIPELINE_HITL_CONFIDENCE_THRESHOLD - 0.01,
         "hitl_flag": False,
         "hitl_question": None,
         "reasoning": "Ambiguous.",
@@ -240,7 +289,7 @@ def test_low_confidence_requires_hitl():
 
 
 def test_confidence_at_threshold_requires_hitl():
-    """At-or-below threshold: hitl_flag must be true (≤ comparison)."""
+    """Slightly below pipeline threshold: hitl_flag must be true."""
     raw = {
         "institution_id": "x",
         "table": "t",
@@ -253,10 +302,57 @@ def test_confidence_at_threshold_requires_hitl():
         },
         "row_selection_required": True,
         "join_keys_for_2a": ["a", "b"],
-        "confidence": IDENTITY_CONFIDENCE_HITL_THRESHOLD,
+        "confidence": PIPELINE_HITL_CONFIDENCE_THRESHOLD - 1e-6,
         "hitl_flag": False,
         "hitl_question": None,
-        "reasoning": "At threshold.",
+        "reasoning": "Slightly below threshold.",
+    }
+    with pytest.raises(ValueError, match="hitl_flag"):
+        parse_grain_contract(raw)
+
+
+def test_parse_grain_hitl_flag_true_requires_non_empty_hitl_items():
+    """When hitl_flag is true, top-level hitl_items must be non-empty (enforced in parse)."""
+    raw = {
+        "institution_id": "x",
+        "table": "t",
+        "learner_id_alias": None,
+        "post_clean_primary_key": ["a"],
+        "dedup_policy": {
+            "strategy": "no_dedup",
+            "sort_by": None,
+            "keep": None,
+            "notes": "",
+        },
+        "row_selection_required": True,
+        "join_keys_for_2a": ["a", "b"],
+        "confidence": 0.9,
+        "hitl_flag": True,
+        "reasoning": "r",
+        "hitl_items": [],
+    }
+    with pytest.raises(ValueError, match="hitl_flag=true"):
+        parse_grain_contract_with_hitl(raw)
+
+
+def test_confidence_exactly_at_pipeline_threshold_without_hitl_flag_fails():
+    """At PIPELINE_HITL_CONFIDENCE_THRESHOLD, hitl_flag must be true (validator uses <=)."""
+    raw = {
+        "institution_id": "x",
+        "table": "t",
+        "post_clean_primary_key": ["a"],
+        "dedup_policy": {
+            "strategy": "no_dedup",
+            "sort_by": None,
+            "keep": None,
+            "notes": "",
+        },
+        "row_selection_required": True,
+        "join_keys_for_2a": ["a", "b"],
+        "confidence": PIPELINE_HITL_CONFIDENCE_THRESHOLD,
+        "hitl_flag": False,
+        "hitl_question": None,
+        "reasoning": "On the threshold.",
     }
     with pytest.raises(ValueError, match="hitl_flag"):
         parse_grain_contract(raw)
@@ -304,3 +400,92 @@ def test_institution_grain_contracts_rejects_mismatched_institution_id():
     c = _minimal_grain("other", "t")
     with pytest.raises(ValueError, match="institution_id"):
         InstitutionGrainContract(institution_id="here", datasets={"t": c})
+
+
+def test_grain_candidate_key_entry_uniqueness_score_coerces_null():
+    a = GrainCandidateKeyEntry.model_validate(
+        {"rank": 1, "columns": ["a"], "uniqueness_score": None}
+    )
+    assert a.uniqueness_score == 0.0
+    b = GrainCandidateKeyEntry.model_validate({"rank": 1, "columns": ["a"]})
+    assert b.uniqueness_score == 0.0
+
+
+def test_grain_candidate_key_entry_uniqueness_score_accepts_percent_scale():
+    """LLMs often send 99.8 meaning 99.8%; must normalize to 0.998, not fail le=1.0."""
+    x = GrainCandidateKeyEntry.model_validate(
+        {"rank": 1, "columns": ["a"], "uniqueness_score": 99.8}
+    )
+    assert abs(x.uniqueness_score - 0.998) < 1e-9
+    y = GrainCandidateKeyEntry.model_validate(
+        {"rank": 2, "columns": ["a", "b"], "uniqueness_score": 100}
+    )
+    assert y.uniqueness_score == 1.0
+    z = GrainCandidateKeyEntry.model_validate(
+        {"rank": 1, "columns": ["a"], "uniqueness_score": 0.998}
+    )
+    assert z.uniqueness_score == 0.998
+
+
+def test_backfill_hitl_uniqueness_scores_replaces_invented_zero_from_profile():
+    """Model may emit 0 for 'semantic' rank-1; profile is source of truth for that column set."""
+    ck = CandidateKey(
+        columns=["student_id"],
+        uniqueness_score=0.5244,
+        null_rate=0.0,
+        rank=1,
+    )
+    key_profile = RankedCandidateProfiles(
+        candidate_key_profiles=[
+            CandidateProfile(
+                candidate_key=ck,
+                non_unique_rows=10,
+                affected_groups=2,
+                group_size_distribution={2: 5},
+                within_group_variance=[],
+            )
+        ]
+    )
+    item = HITLItem(
+        item_id="inst_t_q",
+        institution_id="inst",
+        table="t",
+        domain=HITLDomain.IDENTITY_GRAIN,
+        hitl_question="q",
+        hitl_context=GrainAmbiguityHITLContext(
+            candidate_keys=[
+                GrainCandidateKeyEntry(
+                    rank=1, columns=["student_id"], uniqueness_score=0.0, notes="wrong"
+                )
+            ],
+            variance_profile={},
+        ),
+        options=[
+            HITLOption(
+                option_id="nd",
+                label="nd",
+                description="d",
+                resolution=GrainResolution(dedup_strategy="no_dedup").model_dump(
+                    mode="json"
+                ),
+                reentry=ReentryDepth.TERMINAL,
+            ),
+            HITLOption(
+                option_id="custom",
+                label="Custom",
+                description="c",
+                resolution=None,
+                reentry=ReentryDepth.GENERATE_HOOK,
+            ),
+        ],
+        target=HITLTarget(
+            institution_id="inst",
+            table="t",
+            config="grain_contract",
+            field="dedup_policy",
+        ),
+    )
+    out = backfill_hitl_uniqueness_scores_from_key_profile([item], key_profile)
+    ctx = out[0].hitl_context
+    assert isinstance(ctx, GrainAmbiguityHITLContext)
+    assert ctx.candidate_keys[0].uniqueness_score == 0.5244
