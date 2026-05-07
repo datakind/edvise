@@ -14,7 +14,7 @@ from .column_names import (
 
 LOGGER = logging.getLogger(__name__)
 
-NON_NUMERIC_GRADES = {"A", "F", "I", "M", "O", "P", "W", "W1", "W2", "OTHER", "NC", "AUD", "ADW", "COVID_I", "MP", "NSW"}
+NON_NUMERIC_GRADES = {"A", "F", "I", "M", "O", "P", "W"}
 NON_PASS_FAIL_GRADES = {"A", "I", "M", "O", "W"}
 NON_COMPLETE_GRADES = {"I", "W"}
 
