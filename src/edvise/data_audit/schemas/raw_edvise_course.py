@@ -69,6 +69,7 @@ ALLOWED_LETTER_GRADES = {
     "ADW",
     "COVID_I",
     "MP",
+    "NSW"
 }
 
 CreditsField = pda.Field(nullable=False, ge=0.0)
