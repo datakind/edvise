@@ -1,3 +1,12 @@
+## 0.2.1 (2026-05-07)
+- fix: expanding feature name for hybrid courses feature (#131)
+- fix: metadata dashboard deployment (#132)
+- fix: classify gateway course level by first digit, not 200 threshold (#133)
+- fix: model naming convention (#135)
+- fix: bump weasyprint and pydyf due to datadog callout (#136)
+- fix: EdaSummary: normalize Pell recipient counts (Y/YES vs No) in `pell_recipient_status` (#138)
+- feat: change shape of EdaSummary's enrollment_type_by_intensity to in… (#139)
+
 ## 0.2.0 (2026-04-02)
 - feat: custom data assessment template (#87)
 - feat: add Pandera schemas for ES raw cohort and course (#110)
