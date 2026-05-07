@@ -24,12 +24,16 @@ from .column_names import (
     ES_STUDENT_FEATURE_SPEC_DEFAULT,
 )
 
+_TSpec = t.TypeVar("_TSpec")
+
 
 def has_data_col(df: pd.DataFrame, col: str | None) -> bool:
     return bool(col) and col in df.columns
 
 
-def merge_spec_fields[T](base: T, patch: t.Mapping[str, bool] | None) -> T:
+def merge_spec_fields(
+    base: _TSpec, patch: t.Mapping[str, bool] | None
+) -> _TSpec:
     """``patch`` keys replace same-named fields on ``base`` (typically a frozen dataclass)."""
     if not patch:
         return base
