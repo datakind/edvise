@@ -25,7 +25,7 @@ from edvise.data_audit.standardizer import (
     ESCourseStandardizer,
 )
 from edvise.utils.databricks import get_spark_session
-from edvise.dataio.path_management import pick_existing_path
+from edvise.dataio.path_management import path_exists, pick_existing_path
 from edvise.dataio.read import (
     read_config,
     read_raw_es_cohort_data,
@@ -100,17 +100,24 @@ class ESDataAuditTask:
         except Exception as e:
             LOGGER.exception("Failed to initialize file logging: %s", e)
 
-        # Determine file paths
-        cohort_dataset_raw_path = pick_existing_path(
-            self.args.cohort_dataset_validated_path,
-            f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
-            "cohort",
-        )
-        course_dataset_raw_path = pick_existing_path(
-            self.args.course_dataset_validated_path,
-            f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
-            "course",
-        )
+        # Resolve inputs: explicit pair > GenAI silver parquets > bronze/config paths
+        silver_root = self.args.silver_volume_path.rstrip("/")
+        genai_dir = os.path.join(silver_root, "genai_mapping", "pipeline_input")
+        cohort_dataset_raw_path = os.path.join(genai_dir, "cohort.parquet")
+        course_dataset_raw_path = os.path.join(genai_dir, "course.parquet")
+
+        #TODO: fix import when we set up flow
+        # cohort_dataset_raw_path = pick_existing_path(
+        #     self.args.cohort_dataset_validated_path,
+        #     f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
+        #     "cohort",
+        # )
+        # course_dataset_raw_path = pick_existing_path(
+        #     self.args.course_dataset_validated_path,
+        #     f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
+        #     "course",
+        # )
+        
 
         # --- Load RAW datasets w/o schema---
         LOGGER.info(" Loading raw cohort and course datasets:")

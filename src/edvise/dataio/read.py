@@ -190,11 +190,13 @@ def _read_and_prepare_data(
     elif table_path and not spark_session:
         raise ValueError("spark session must be given when reading data from table")
 
-    df = (
-        from_csv_file(file_path, spark_session, **kwargs)  # type: ignore
-        if file_path
-        else from_delta_table(table_path, spark_session)  # type: ignore
-    )
+    if file_path:
+        if str(file_path).lower().endswith(".parquet"):
+            df = read_resolved_parquet(str(file_path))
+        else:
+            df = from_csv_file(file_path, spark_session, **kwargs)  # type: ignore
+    else:
+        df = from_delta_table(table_path, spark_session)  # type: ignore
 
     df = df.rename(columns=utils.data_cleaning.convert_to_snake_case)
 
