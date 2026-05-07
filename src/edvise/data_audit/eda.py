@@ -350,8 +350,9 @@ def compute_gateway_course_ids_and_cips(
     Returns: (ids, cips, has_upper_level_gateway, lower_ids, lower_cips)
       - ids: all gateway course IDs (M/E)
       - cips: CIP 2-digit codes from LOWER-LEVEL rows only (same as lower_cips)
-      - has_upper_level_gateway: True if any gateway course has level >=200
-      - lower_ids: gateway IDs with level <200
+      - has_upper_level_gateway: True if any gateway course's course_number has first digit >= 2
+        (after leading letters); works for any digit length (e.g. 10000 vs 20000).
+      - lower_ids: gateway IDs where that first digit is < 2
       - lower_cips: CIP 2-digit codes for lower_ids
     """
 
@@ -380,10 +381,15 @@ def compute_gateway_course_ids_and_cips(
         )
         return list(series)
 
-    def _last_level(num: pd.Series) -> pd.Series:
-        """Parse last numeric token, then last up-to-3 digits as integer level."""
-        tok = _s(num).str.extract(r"(\d+)(?!.*\d)", expand=True)[0]
-        return pd.to_numeric(tok.str[-3:], errors="coerce")
+    def _first_digit_after_leading_letters(num: pd.Series) -> pd.Series:
+        """
+        First digit of the numeric part of ``course_number``, after any leading letters
+        (e.g. ``ENG``) and non-digits (spaces, hyphens). Independent of how many digits
+        follow: ``10000`` → 1, ``2000`` → 2, ``20000`` → 2.
+        """
+        s = _s(num)
+        extracted = s.str.extract(r"^(?:[A-Za-z]+[^0-9]*)?(\d)", expand=True)[0]
+        return pd.to_numeric(extracted, errors="coerce")
 
     def _starts_with_any(arr: list[str], prefixes: list[str]) -> bool:
         arr = list(arr)  # handles numpy arrays / pandas .unique()
@@ -404,9 +410,9 @@ def compute_gateway_course_ids_and_cips(
         LOGGER.info(" No Math/English gateway courses found.")
         return ([], [], False, [], [])
 
-    level = _last_level(df_course["course_number"])  # full-length
-    upper_mask = is_gateway & level.ge(200).fillna(False)
-    lower_mask = is_gateway & level.lt(200).fillna(False)
+    first_digit = _first_digit_after_leading_letters(df_course["course_number"])
+    upper_mask = is_gateway & first_digit.ge(2).fillna(False)
+    lower_mask = is_gateway & first_digit.lt(2).fillna(False)
     has_upper_level_gateway = bool(upper_mask.any())
 
     # ---- IDs ----
@@ -422,7 +428,10 @@ def compute_gateway_course_ids_and_cips(
         + _s(df_course.loc[lower_mask, "course_number"])
     ).str.strip()
     lower_ids = lower_ids_series[lower_ids_series.ne("")].drop_duplicates().tolist()
-    LOGGER.info(" Identified %d lower-level (<200) gateway IDs.", len(lower_ids))
+    LOGGER.info(
+        " Identified %d lower-level (first course-number digit <2) gateway IDs.",
+        len(lower_ids),
+    )
 
     # ---- CIP extraction from LOWER rows only ----
     if "course_cip" in df_course.columns:
@@ -433,7 +442,10 @@ def compute_gateway_course_ids_and_cips(
                 " ⚠️ 'course_cip' present but yielded no lower-level CIP codes."
             )
         else:
-            LOGGER.info(" CIPs restricted to lower-level (<200) rows: %s", cips)
+            LOGGER.info(
+                " CIPs restricted to lower-level (first course-number digit <2) rows: %s",
+                cips,
+            )
     else:
         cips, lower_cips = [], []
         LOGGER.info(" No 'course_cip' column; skipping CIP extraction.")
@@ -446,8 +458,8 @@ def compute_gateway_course_ids_and_cips(
         ).str.strip()
         upper_ids = upper_ids_series[upper_ids_series.ne("")].drop_duplicates().tolist()
         LOGGER.warning(
-            " ⚠️ Warning: courses with level >=200 flagged as gateway (%d found). Course IDs: %s. "
-            "This is unusual; contact the school for more information.",
+            " ⚠️ Warning: courses with first course-number digit >=2 flagged as gateway "
+            "(%d found). Course IDs: %s. This is unusual; contact the school for more information.",
             len(upper_ids),
             upper_ids,
         )
@@ -457,7 +469,9 @@ def compute_gateway_course_ids_and_cips(
             len(lower_cips),
         )
     else:
-        LOGGER.info(" No gateway courses with level >=200 were detected.")
+        LOGGER.info(
+            " No gateway courses with first course-number digit >=2 were detected."
+        )
 
     # ---- prefix sanity check (compact) ----
     pref_e = (
@@ -2129,10 +2143,10 @@ class EdaSummary:
 
         Returns:
             Dictionary with keys:
-                - categories: Sorted list of enrollment type names
-                - series: List of dictionaries with keys:
-                    - name: Enrollment intensity value (e.g., "Full-Time", "Part-Time")
-                    - data: List of counts per category
+                - total: Row count in the cross-tab (students with both fields)
+                - categories: Enrollment type names (stack axis)
+                - series: Per intensity, ``data`` is list of
+                  ``{ name, count, percentage }`` (percentage of total)
         """
         df = self.df_cohort.dropna(
             subset=["enrollment_type", "enrollment_intensity_first_term"]
@@ -2143,9 +2157,7 @@ class EdaSummary:
                 .astype(str)
                 .str.strip()
                 .str.title(),
-                enrollment_intensity_first_term=self.df_cohort[
-                    "enrollment_intensity_first_term"
-                ]
+                enrollment_intensity_first_term=df["enrollment_intensity_first_term"]
                 .astype(str)
                 .str.strip()
                 .str.title(),
@@ -2158,10 +2170,29 @@ class EdaSummary:
             .size()
             .unstack(fill_value=0)
         )
+        total = int(counts_df.to_numpy().sum())
+        if total == 0:
+            return {"total": 0, "categories": [], "series": []}
 
         return {
+            "total": total,
             "categories": counts_df.columns.tolist(),
-            "series": self._format_series_data(counts_df),
+            "series": [
+                {
+                    "name": str(intensity),
+                    "data": [
+                        {
+                            "name": str(cat),
+                            "count": int(counts_df.loc[intensity, cat]),
+                            "percentage": round(
+                                100 * counts_df.loc[intensity, cat] / total, 2
+                            ),
+                        }
+                        for cat in counts_df.columns
+                    ],
+                }
+                for intensity in counts_df.index
+            ],
         }
 
     @cached_property
@@ -2215,27 +2246,27 @@ class EdaSummary:
         """
         Compute Pell recipient status without first generation split.
 
+        Only ``Y`` / ``YES`` (case-insensitive, trimmed) count as recipients; every other
+        value, including missing, ``N``, and unknown codes, is counted as non-recipient (No).
+
         Returns:
             Dictionary with keys:
                 - series: Single series with counts per Pell status
         """
-        if "pell_status_first_year" not in self.df_cohort.columns:
-            return None
-        if self.df_cohort["pell_status_first_year"].dropna().empty:
-            return None
-
+        s = (
+            self.df_cohort["pell_status_first_year"]
+            .astype("string")
+            .fillna("")
+            .str.strip()
+            .str.upper()
+        )
         data = (
-            self.df_cohort.assign(
-                pell_status_first_year=self.df_cohort["pell_status_first_year"]
-                .astype(str)
-                .str.strip()
-                .str.title()
-            )
-            .dropna(subset=["pell_status_first_year"])
-            .groupby("pell_status_first_year", observed=True)
-            .size()
+            pd.Series(np.where(s.isin(("Y", "YES")), "Yes", "No"), index=s.index)
+            .value_counts()
             .to_dict()
         )
+        if not data:
+            return None
         return {
             "series": [{"name": "All Students", "data": data}],
         }

@@ -316,10 +316,35 @@ class TestEdaSummary:
 
     def test_enrollment_type_by_intensity(self, sample_cohort_data):
         assert EdaSummary(sample_cohort_data).enrollment_type_by_intensity == {
+            "total": 9,
             "categories": ["First-Time", "Transfer-In"],
             "series": [
-                {"name": "Full-Time", "data": [3.0, 5.0]},
-                {"name": "Part-Time", "data": [0.0, 1.0]},
+                {
+                    "name": "Full-Time",
+                    "data": [
+                        {
+                            "name": "First-Time",
+                            "count": 3,
+                            "percentage": 33.33,
+                        },
+                        {
+                            "name": "Transfer-In",
+                            "count": 5,
+                            "percentage": 55.56,
+                        },
+                    ],
+                },
+                {
+                    "name": "Part-Time",
+                    "data": [
+                        {"name": "First-Time", "count": 0, "percentage": 0},
+                        {
+                            "name": "Transfer-In",
+                            "count": 1,
+                            "percentage": 11.11,
+                        },
+                    ],
+                },
             ],
         }
 
@@ -328,7 +353,7 @@ class TestEdaSummary:
 
     def test_pell_recipient_status(self, sample_cohort_data):
         assert EdaSummary(sample_cohort_data).pell_recipient_status == {
-            "series": [{"name": "All Students", "data": {"N": 1, "Nan": 6, "Y": 2}}]
+            "series": [{"name": "All Students", "data": {"No": 7, "Yes": 2}}]
         }
 
     def test_student_age_by_gender(self, sample_cohort_data):
@@ -351,13 +376,14 @@ class TestEdaSummary:
         }
 
     def test_pell_recipient_status_handles_nulls(self, sample_cohort_data):
-        """Test that NaN pell status values are properly excluded."""
+        """Missing pell status is imputed to No (same as N)"""
         sample_cohort_data.loc[0:2, "pell_status_first_year"] = pd.NA
         eda = EdaSummary(sample_cohort_data)
         result = eda.pell_recipient_status
         assert "series" in result
         data_keys = result["series"][0]["data"].keys()
         assert all(pd.notna(k) for k in data_keys)
+        assert set(data_keys) <= {"Yes", "No"}
 
     def test_student_age_by_gender_handles_nulls(self, sample_cohort_data):
         """Test that NaN gender values are properly excluded."""
@@ -645,3 +671,96 @@ class TestValidateCreditConsistencyPercent:
         assert "pct_of_data" in result["reconciliation_summary"]
         assert result["reconciliation_summary"]["mismatched_rows"] == 1
         assert result["reconciliation_summary"]["pct_of_data"] == round(100 * 1 / 3, 2)
+
+
+@pytest.mark.parametrize(
+    "course_number,expect_upper_level",
+    [
+        ("1023", False),
+        ("10000", False),
+        ("0995", False),
+        ("0123", False),
+        ("2034", True),
+        ("30456", True),
+        ("20000", True),
+        ("501", True),
+        ("9012", True),
+    ],
+    ids=[
+        "1023",
+        "10000",
+        "0995",
+        "0123",
+        "2034",
+        "30456",
+        "20000",
+        "501",
+        "9012",
+    ],
+)
+def test_compute_gateway_course_ids_first_digit_single_row(
+    course_number, expect_upper_level
+):
+    """First digit of numeric part (<2 vs >=2) for varied lengths: 1023, 2034, 30456, etc."""
+    df = pd.DataFrame(
+        {
+            "math_or_english_gateway": ["M"],
+            "course_prefix": ["MATH"],
+            "course_number": [course_number],
+            "course_cip": ["27.0101"],
+        }
+    )
+    _, _, has_upper, lower_ids, _ = data_audit.eda.compute_gateway_course_ids_and_cips(
+        df
+    )
+    assert has_upper is expect_upper_level
+    full_id = f"MATH{course_number}"
+    if expect_upper_level:
+        assert full_id not in lower_ids
+    else:
+        assert full_id in lower_ids
+
+
+def test_compute_gateway_course_ids_mixed_varied_lengths_in_one_frame():
+    """Multiple course numbers in one batch: lower = first digit 0–1, upper = 2–9."""
+    df = pd.DataFrame(
+        {
+            "math_or_english_gateway": ["M"] * 7,
+            "course_prefix": ["MATH"] * 7,
+            "course_number": [
+                "1023",
+                "10000",
+                "0995",
+                "2034",
+                "30456",
+                "20000",
+                "501",
+            ],
+            "course_cip": ["27.0101"] * 7,
+        }
+    )
+    ids, _, has_upper, lower_ids, _ = (
+        data_audit.eda.compute_gateway_course_ids_and_cips(df)
+    )
+    assert has_upper is True
+    assert set(lower_ids) == {"MATH1023", "MATH10000", "MATH0995"}
+    assert len(ids) == 7
+    for n in ("2034", "30456", "20000", "501"):
+        assert f"MATH{n}" not in lower_ids
+
+
+def test_compute_gateway_course_ids_prefix_plus_digits_after_letters():
+    """Digits after a letter prefix in course_number still use first numeric digit."""
+    df = pd.DataFrame(
+        {
+            "math_or_english_gateway": ["E"],
+            "course_prefix": [""],
+            "course_number": ["ENG10000"],
+            "course_cip": ["23.0101"],
+        }
+    )
+    _, _, has_upper, lower_ids, _ = data_audit.eda.compute_gateway_course_ids_and_cips(
+        df
+    )
+    assert has_upper is False
+    assert "ENG10000" in lower_ids

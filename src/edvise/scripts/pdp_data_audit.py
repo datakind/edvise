@@ -376,8 +376,9 @@ class PDPDataAuditTask:
                     and len(lower_cips) <= 10
                 ):
                     LOGGER.warning(
-                        " Upper-level (>=200) gateway courses detected. Auto-populating config with LOWER-level (<200) "
-                        "gateway courses and CIP codes only. Please confirm with the school and adjust if needed."
+                        " Upper-level gateway courses detected (first digit of course number >=2). "
+                        "Auto-populating config with lower-level (first digit <2) gateway courses and CIP codes only. "
+                        "Please confirm with the school and adjust if needed."
                     )
                     update_key_courses_and_cips(
                         self.args.config_file_path,
