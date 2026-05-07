@@ -7,7 +7,9 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import Field, field_validator, model_validator
 
-from edvise.genai.mapping.shared.hitl.confidence import PIPELINE_HITL_CONFIDENCE_THRESHOLD
+from edvise.genai.mapping.shared.hitl.confidence import (
+    PIPELINE_HITL_CONFIDENCE_THRESHOLD,
+)
 from edvise.genai.mapping.shared.pipeline_artifacts import default_pipeline_version
 
 from ..manifest.schemas import (
@@ -405,7 +407,10 @@ class FieldTransformationPlan(StrictBaseModel):
 
     @model_validator(mode="after")
     def confidence_review_and_hitl_consistency(self) -> FieldTransformationPlan:
-        if self.confidence is not None and self.confidence <= PIPELINE_HITL_CONFIDENCE_THRESHOLD:
+        if (
+            self.confidence is not None
+            and self.confidence <= PIPELINE_HITL_CONFIDENCE_THRESHOLD
+        ):
             hitl_finalized = self.review_status == ReviewStatus.corrected_by_hitl
             if self.review_required is not True and not hitl_finalized:
                 raise ValueError(
@@ -514,8 +519,7 @@ class TransformationReview(StrictBaseModel):
     def is_clear(self) -> bool:
         """True when all hitl_items are resolved."""
         return all(
-            i.status in ("approved", "corrected", "unmappable")
-            for i in self.hitl_items
+            i.status in ("approved", "corrected", "unmappable") for i in self.hitl_items
         )
 
     @property
@@ -601,10 +605,7 @@ def extract_transformation_review(
         )
         hitl_items.append(
             TransformationHITLItem(
-                item_id=(
-                    f"{institution_id}_{entity_enum.value}_"
-                    f"{plan.target_field}"
-                ),
+                item_id=(f"{institution_id}_{entity_enum.value}_{plan.target_field}"),
                 institution_id=institution_id,
                 entity_type=entity_enum,
                 target_field=plan.target_field,

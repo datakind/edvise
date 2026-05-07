@@ -269,7 +269,9 @@ def build_transformation_hook_hitl_envelope_for_entity(
     )
 
 
-def write_transformation_hook_hitl_envelope(path: str | Path, env: InstitutionSMATransformationHookHITLItems) -> None:
+def write_transformation_hook_hitl_envelope(
+    path: str | Path, env: InstitutionSMATransformationHookHITLItems
+) -> None:
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(

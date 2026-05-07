@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
-from edvise.genai.mapping.identity_agent.hitl.schemas import GrainAmbiguityHITLContext, HITLItem
+from edvise.genai.mapping.identity_agent.hitl.schemas import (
+    GrainAmbiguityHITLContext,
+    HITLItem,
+)
 from edvise.genai.mapping.identity_agent.term_normalization.term_order import (
     resolve_year_season_hook_function_names,
 )
@@ -47,7 +50,9 @@ def hook_slug_from_item_id(item_id: str, *, institution_id: str | None = None) -
     return s
 
 
-def _year_season_function_old_names(functions: list[dict[str, Any]]) -> tuple[str, str] | None:
+def _year_season_function_old_names(
+    functions: list[dict[str, Any]],
+) -> tuple[str, str] | None:
     """Match :func:`~edvise.genai.mapping.identity_agent.term_normalization.term_order.load_term_extractors_from_hook_spec` naming rules."""
     try:
         return resolve_year_season_hook_function_names({"functions": functions})

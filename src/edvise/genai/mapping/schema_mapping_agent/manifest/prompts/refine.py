@@ -889,7 +889,9 @@ def _hitl_target_fields(
     hitl: list[Mapping[str, Any]] | list[Any],
 ) -> set[str]:
     """Target fields covered by Pass 1 flags and/or Pass 2 items."""
-    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import SMAHITLItem
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
+        SMAHITLItem,
+    )
 
     out: set[str] = set()
     for item in hitl:
@@ -1057,7 +1059,9 @@ def _run_pass2_llm_call(
     from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.option_validation import (
         raise_if_pass2_terminal_options_invalid,
     )
-    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import SMAHITLItem
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
+        SMAHITLItem,
+    )
 
     system = build_refinement_pass2_system_prompt()
     user = build_refinement_pass2_user_prompt(

@@ -223,9 +223,7 @@ def test_resolve_onboard_run_id_new_db_first_of_day(monkeypatch) -> None:
 
     base = f"foo_{date.today().strftime('%Y%m%d')}"
     assert (
-        pipeline_state.resolve_onboard_run_id(
-            "c", "foo", None, db_run_id="987654321"
-        )
+        pipeline_state.resolve_onboard_run_id("c", "foo", None, db_run_id="987654321")
         == f"{base}_1"
     )
     assert "onboard_run_id FROM" in fake.statements[0]
@@ -240,18 +238,14 @@ def test_resolve_onboard_run_id_second_db_same_day(monkeypatch) -> None:
 
     base = f"foo_{date.today().strftime('%Y%m%d')}"
     assert (
-        pipeline_state.resolve_onboard_run_id(
-            "c", "foo", None, db_run_id="222"
-        )
+        pipeline_state.resolve_onboard_run_id("c", "foo", None, db_run_id="222")
         == f"{base}_2"
     )
 
 
 def test_resolve_onboard_run_id_repair_reuses_uc_onboard(monkeypatch) -> None:
     fake = _FakeSpark()
-    fake.set_sql_result_queue(
-        [_Result([_Row({"onboard_run_id": "foo_20260429_2"})])]
-    )
+    fake.set_sql_result_queue([_Result([_Row({"onboard_run_id": "foo_20260429_2"})])])
     monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
     assert (
         pipeline_state.resolve_onboard_run_id(
@@ -271,7 +265,10 @@ def test_resolve_onboard_run_id_db_run_id_over_runtime_env(monkeypatch) -> None:
     from datetime import date
 
     base = f"foo_{date.today().strftime('%Y%m%d')}"
-    assert pipeline_state.resolve_onboard_run_id("c", "foo", None, db_run_id="111") == f"{base}_1"
+    assert (
+        pipeline_state.resolve_onboard_run_id("c", "foo", None, db_run_id="111")
+        == f"{base}_1"
+    )
 
 
 def test_resolve_onboard_run_id_force_new_ignores_db_run_id(monkeypatch) -> None:

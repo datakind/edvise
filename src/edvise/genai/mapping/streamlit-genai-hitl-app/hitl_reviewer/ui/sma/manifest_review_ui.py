@@ -171,7 +171,9 @@ def render_sma_review_context(*, item: dict) -> None:
             _sma_wrapped_prose_block(rationale)
         psnap = item.get("plan_snapshot")
         if isinstance(psnap, dict) and psnap:
-            with st.expander("Transformation plan snapshot (hook_required)", expanded=False):
+            with st.expander(
+                "Transformation plan snapshot (hook_required)", expanded=False
+            ):
                 st.json(psnap)
         if val_notes:
             st.markdown(
@@ -274,7 +276,9 @@ def render_sma_option_field_mapping_previews(*, options: list) -> None:
             sections.append((title, note))
             continue
         if not isinstance(fm, dict):
-            sections.append((title, f"(unrecognized field_mapping type: {type(fm).__name__})"))
+            sections.append(
+                (title, f"(unrecognized field_mapping type: {type(fm).__name__})")
+            )
             continue
         lines = _field_mapping_preview_lines(fm)
         if lines:

@@ -224,9 +224,7 @@ def apply_transformation_review_resolutions(
     if not isinstance(tmaps, dict):
         return out
 
-    def apply_file(
-        entity_type: Literal["cohort", "course"], path: Path | None
-    ) -> None:
+    def apply_file(entity_type: Literal["cohort", "course"], path: Path | None) -> None:
         if path is None or not path.is_file():
             return
         env = read_pydantic_json(path, TransformationReviewHITLFile)

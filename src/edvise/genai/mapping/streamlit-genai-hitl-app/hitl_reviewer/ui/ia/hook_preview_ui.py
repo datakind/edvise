@@ -59,9 +59,15 @@ def _render_hook_preview_spec_body(
 ) -> None:
     """One spec row: review context + module / raw JSON (widget keys include ``spec_index``)."""
     hs = row.get("hook_spec")
-    rc = row.get("review_context") if isinstance(row.get("review_context"), dict) else None
+    rc = (
+        row.get("review_context")
+        if isinstance(row.get("review_context"), dict)
+        else None
+    )
     if rc:
-        st.markdown("**Review context** (HITL item + config slice used for hook generation)")
+        st.markdown(
+            "**Review context** (HITL item + config slice used for hook generation)"
+        )
         q = (rc.get("hitl_question") or "").strip()
         if q:
             st.markdown(q)
@@ -71,7 +77,9 @@ def _render_hook_preview_spec_body(
         hg = rc.get("hook_group_id")
         hgt = rc.get("hook_group_tables")
         if hg or (isinstance(hgt, list) and hgt):
-            st.caption(f"hook group `{hg}` · tables {hgt if isinstance(hgt, list) else []}")
+            st.caption(
+                f"hook group `{hg}` · tables {hgt if isinstance(hgt, list) else []}"
+            )
         note = rc.get("reviewer_note")
         if isinstance(note, str) and note.strip():
             st.markdown("Reviewer note:")
@@ -182,7 +190,9 @@ def render_ia_hook_preview_cards(
     st.caption(silver_path)
 
     if not isinstance(specs, list) or not specs:
-        st.info("No generated hook specs in this file (`specs` empty). Approve to continue.")
+        st.info(
+            "No generated hook specs in this file (`specs` empty). Approve to continue."
+        )
     else:
         spec_ixs = [j for j, row in enumerate(specs) if isinstance(row, dict)]
         if not spec_ixs:
@@ -263,7 +273,9 @@ def render_ia_hook_preview_cards(
                             },
                         )
                 with st.container(border=True):
-                    _render_hook_preview_spec_body(row=row, spec_index=i, key_prefix=psk)
+                    _render_hook_preview_spec_body(
+                        row=row, spec_index=i, key_prefix=psk
+                    )
 
     c_apr, c_rej = st.columns([1.4, 1], gap="small")
     with c_apr:

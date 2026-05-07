@@ -124,8 +124,10 @@ def test_apply_grain_dedup_suffix_identifier_appends_suffixes_and_preserves_row_
     out = apply_grain_dedup(df, c)
     assert len(out) == len(df) == 4
 
-    triple = (out["learner_id"] == "s001") & (out["class_number"] == 101) & (
-        out["term"] == "2024FA"
+    triple = (
+        (out["learner_id"] == "s001")
+        & (out["class_number"] == 101)
+        & (out["term"] == "2024FA")
     )
     g1 = out[triple].reset_index(drop=True)
     assert g1["course_name"].tolist() == [
@@ -835,7 +837,9 @@ def test_merge_distinct_grain_learner_id_alias_per_dataset_allowed():
     school = _school_config()
     a = _merge_contract("students", ["student_id"], learner_id_alias="a")
     b = _merge_contract("courses", ["student_id", "term"], learner_id_alias="b")
-    out = merge_grain_contracts_into_school_config(school, {"students": a, "courses": b})
+    out = merge_grain_contracts_into_school_config(
+        school, {"students": a, "courses": b}
+    )
     assert out.datasets["students"].student_id_alias == "a"
     assert out.datasets["courses"].student_id_alias == "b"
 

@@ -102,7 +102,9 @@ class SMAPaths:
 
     # IA outputs this job reads from (same execute or onboard run segment)
     ia_enriched_schema_contract: Path
-    ia_identity_term_output: Path  # identity_term_output.json (optional Step 2b context)
+    ia_identity_term_output: (
+        Path  # identity_term_output.json (optional Step 2b context)
+    )
     ia_cleaned_datasets: Path  # directory
 
     # Active folder (promoted artifacts, what execute mode reads from)
@@ -501,7 +503,9 @@ def run_onboard_start(
             manifest_dict["pipeline_version"] = pipeline_version
         ok, err = validate_envelope_dict(manifest_dict)
         if not ok:
-            LOGGER.warning("[onboard/start] Manifest Pydantic validation warning: %s", err)
+            LOGGER.warning(
+                "[onboard/start] Manifest Pydantic validation warning: %s", err
+            )
         return MappingManifestEnvelope.model_validate(manifest_dict)
 
     envelope_2a = llm_complete_with_parse_retry(
@@ -904,10 +908,9 @@ def run_onboard_gate_2(
     _pipeline_job_state.after_sma_gate_2_hook_preview_approved(
         catalog, institution_id, onboard_run_id
     )
-    preview_hook_specs = (
-        load_hook_specs_from_sma_preview_path(paths.cohort_transformation_hook_preview)
-        + load_hook_specs_from_sma_preview_path(paths.course_transformation_hook_preview)
-    )
+    preview_hook_specs = load_hook_specs_from_sma_preview_path(
+        paths.cohort_transformation_hook_preview
+    ) + load_hook_specs_from_sma_preview_path(paths.course_transformation_hook_preview)
     if preview_hook_specs:
         materialize_hook_specs_to_file(
             preview_hook_specs,

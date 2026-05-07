@@ -14,7 +14,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.artifacts import load_sma_hitl
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.artifacts import (
+    load_sma_hitl,
+)
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
     SMAHITLItem,
     SMAReentryDepth,

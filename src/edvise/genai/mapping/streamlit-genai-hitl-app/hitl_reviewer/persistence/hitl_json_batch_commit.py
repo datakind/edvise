@@ -43,7 +43,10 @@ def _validated_season_map_replace_from_dataframe(
             SeasonMapEntry,
         )
     except ImportError:
-        return None, "``edvise`` SeasonMapEntry schema is not available in this environment."
+        return (
+            None,
+            "``edvise`` SeasonMapEntry schema is not available in this environment.",
+        )
 
     if df is None:
         return None, "Season map table is missing — reload the page and try again."
@@ -61,9 +64,7 @@ def _validated_season_map_replace_from_dataframe(
         if not can:
             return None, f"Season row for raw `{raw}` needs a **canonical** label."
         try:
-            ent = SeasonMapEntry.model_validate(
-                {"raw": raw, "canonical": can.upper()}
-            )
+            ent = SeasonMapEntry.model_validate({"raw": raw, "canonical": can.upper()})
         except Exception as e:  # noqa: BLE001
             return None, f"Season map row `{raw}` → `{can}`: {e}"
         rows_out.append(ent.model_dump(mode="json"))
@@ -119,7 +120,9 @@ def _ia_hook_option_requires_reviewer_note(sel_opt: dict[str, Any]) -> bool:
     return sel_opt.get("resolution") is None
 
 
-def _ia_term_season_map_dataframe(*, sk: str, fi: int, sel_j: int) -> pd.DataFrame | None:
+def _ia_term_season_map_dataframe(
+    *, sk: str, fi: int, sel_j: int
+) -> pd.DataFrame | None:
     """
     Resolve the season-map ``data_editor`` state while the widget may be unmounted (Prev/Next).
 
@@ -288,7 +291,9 @@ def persist_ia_term_hitl_from_session(
                     )
             try:
                 set_item_choice(fresh, fi, choice_1)
-                res_chk = sel_opt.get("resolution") if isinstance(sel_opt, dict) else None
+                res_chk = (
+                    sel_opt.get("resolution") if isinstance(sel_opt, dict) else None
+                )
                 if (
                     reentry == "generate_hook"
                     and isinstance(res_chk, dict)
@@ -426,9 +431,10 @@ def persist_sma_transformation_review_from_session(
                     adapter.validate_python(step)
             except ImportError:
                 for si, step in enumerate(parsed):
-                    if not isinstance(step, dict) or not str(
-                        step.get("function_name") or ""
-                    ).strip():
+                    if (
+                        not isinstance(step, dict)
+                        or not str(step.get("function_name") or "").strip()
+                    ):
                         return (
                             False,
                             f"Item ``{row.get('item_id', i)!s}``: step[{si}] needs function_name (edvise "

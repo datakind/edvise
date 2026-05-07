@@ -47,10 +47,15 @@ ARTIFACT_TYPES_TRANSFORMATION_REVIEW: tuple[str, ...] = (
 def is_sma_transformation_review_phase(phase: str, artifact_type: str) -> bool:
     ph = str(phase).strip().lower()
     at = str(artifact_type).strip().lower()
-    return ph == PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW and at in ARTIFACT_TYPES_TRANSFORMATION_REVIEW
+    return (
+        ph == PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW
+        and at in ARTIFACT_TYPES_TRANSFORMATION_REVIEW
+    )
 
 
-def _after_transformation_review_persist(*, silver_path: str, onboard_run_id: str) -> None:
+def _after_transformation_review_persist(
+    *, silver_path: str, onboard_run_id: str
+) -> None:
     invalidate_sma_run_pending_cache(str(onboard_run_id))
 
 
@@ -175,7 +180,7 @@ def render_sma_transformation_review_cards(
             else f"Item {i + 1}"
         )
         conf_html = (
-            f' · confidence <code>{html.escape(str(conf))}</code>'
+            f" · confidence <code>{html.escape(str(conf))}</code>"
             if conf is not None
             else ""
         )
@@ -302,7 +307,8 @@ def render_sma_transformation_review_cards(
     _help = _help_base
     if sma_approve_blocked:
         _help = (
-            f"Open each item with Prev/Next first ({sma_opened}/{len(nav_ixs)} viewed). " + _help_base
+            f"Open each item with Prev/Next first ({sma_opened}/{len(nav_ixs)} viewed). "
+            + _help_base
         )
 
     nav_n = max(1, len(nav_ixs) if nav_ixs else 1)

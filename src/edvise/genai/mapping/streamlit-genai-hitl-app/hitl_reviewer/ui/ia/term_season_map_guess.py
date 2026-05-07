@@ -30,7 +30,9 @@ _CANON_BY_MM: dict[str, str] = {
 }
 
 
-def guess_month_code_rows_from_hitl_text(hitl_question: str, hitl_context: Any) -> list[dict[str, str]]:
+def guess_month_code_rows_from_hitl_text(
+    hitl_question: str, hitl_context: Any
+) -> list[dict[str, str]]:
     """
     Infer distinct two-digit month tokens mentioned in HITL text and map them with the default US
     semester heuristic. Best-effort — reviewers should verify against institutional calendars.

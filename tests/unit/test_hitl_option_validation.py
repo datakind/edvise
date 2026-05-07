@@ -24,7 +24,9 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     RowSelectionConfig,
     RowSelectionStrategy,
 )
-from edvise.genai.mapping.shared.schema_contract import parse_enriched_schema_contract_for_sma
+from edvise.genai.mapping.shared.schema_contract import (
+    parse_enriched_schema_contract_for_sma,
+)
 
 
 def _cd(name: str) -> dict:

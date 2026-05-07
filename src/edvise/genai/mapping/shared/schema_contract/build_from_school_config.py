@@ -314,12 +314,8 @@ def build_schema_contract_from_config(
             )
         )
 
-        merged_cleaning = _effective_cleaning_for_dataset(
-            merged_global, dataset_config
-        )
-        sid_for_ds = (
-            merged_cleaning.student_id_alias if merged_cleaning else None
-        )
+        merged_cleaning = _effective_cleaning_for_dataset(merged_global, dataset_config)
+        sid_for_ds = merged_cleaning.student_id_alias if merged_cleaning else None
         envelope_student_id_aliases.append(sid_for_ds)
 
         term_col = term_column_by_dataset.get(logical_name, "term")

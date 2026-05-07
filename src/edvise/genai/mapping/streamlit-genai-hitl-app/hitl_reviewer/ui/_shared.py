@@ -421,16 +421,13 @@ def render_action_bar(
                     if not ap_ok:
                         _uc_fail = (ap_err or "").strip() or "Unknown error."
                         if success_silver_filename is not None:
-                            _lead = (
-                                f"Silver JSON was saved, but the Unity Catalog gate did not finalize: {_uc_fail}"
-                            )
+                            _lead = f"Silver JSON was saved, but the Unity Catalog gate did not finalize: {_uc_fail}"
                         else:
-                            _lead = (
-                                f"JSON was saved, but the Unity Catalog gate did not finalize: {_uc_fail}"
-                            )
+                            _lead = f"JSON was saved, but the Unity Catalog gate did not finalize: {_uc_fail}"
                         set_hitl_flash_banner(
                             "warning",
-                            _lead + " Use **Refresh data** after fixing; you can retry **Save** if silver already looks correct.",
+                            _lead
+                            + " Use **Refresh data** after fixing; you can retry **Save** if silver already looks correct.",
                         )
                         st.rerun()
                     elif success_silver_filename is not None:
@@ -466,7 +463,9 @@ def render_action_bar(
                             )
                         st.rerun()
                     else:
-                        _doc = (saved_json_description or "HITL JSON").strip() or "HITL JSON"
+                        _doc = (
+                            saved_json_description or "HITL JSON"
+                        ).strip() or "HITL JSON"
                         if uc_group_pending and approve_fn is not None:
                             if after_uc_approve_success is not None:
                                 after_uc_approve_success()
@@ -474,7 +473,8 @@ def render_action_bar(
                             st.toast("JSON + UC complete.", icon="✅")
                             set_hitl_flash_banner(
                                 "success",
-                                f"Saved {_doc} and approved the UC row. " + HITL_FLASH_HINT_AFTER_UC,
+                                f"Saved {_doc} and approved the UC row. "
+                                + HITL_FLASH_HINT_AFTER_UC,
                             )
                         elif uc_group_pending:
                             st.warning(
@@ -529,12 +529,12 @@ def render_action_bar(
                         use_container_width=True,
                     ):
                         reject_fn()
-    if success_silver_filename is not None and uc_group_pending and (
-        show_reject_item or reject_uc_fn is not None
+    if (
+        success_silver_filename is not None
+        and uc_group_pending
+        and (show_reject_item or reject_uc_fn is not None)
     ):
-        _cap = (
-            "**Save JSON & approve UC** writes every item in this file and approves the pending UC row."
-        )
+        _cap = "**Save JSON & approve UC** writes every item in this file and approves the pending UC row."
         if primary_extra_disabled:
             _cap += " It stays disabled until every item in this file has been opened with Prev/Next."
         if show_reject_item and reject_uc_fn is not None:
@@ -545,7 +545,11 @@ def render_action_bar(
         elif reject_uc_fn is not None:
             _cap += " **Reject gate** skips silver and only updates ``hitl_reviews``."
         st.caption(_cap)
-    elif reject_uc_fn is not None and uc_group_pending and success_silver_filename is None:
+    elif (
+        reject_uc_fn is not None
+        and uc_group_pending
+        and success_silver_filename is None
+    ):
         st.caption(
             "**Reject gate** skips silver JSON for this gate and only updates ``hitl_reviews``."
         )

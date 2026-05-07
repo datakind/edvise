@@ -79,7 +79,9 @@ class IAPaths:
     profiling_output: Path
     cleaned_datasets: Path  # directory, one .parquet per logical dataset
     run_log: Path
-    grain_hook_preview: Path  # UC ``ia_gate_1_hooks`` — generated HookSpecs before apply
+    grain_hook_preview: (
+        Path  # UC ``ia_gate_1_hooks`` — generated HookSpecs before apply
+    )
     term_hook_preview: Path
 
     # Active folder (promoted artifacts, what execute mode reads from)
@@ -306,7 +308,9 @@ def _iter_term_order_configs_with_hooks(t_contract: Any) -> Iterator[Any]:
 
     Used when merging HookSpecs for ``term_hooks.py``.
     """
-    from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermContract
+    from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
+        TermContract,
+    )
 
     if not isinstance(t_contract, TermContract):
         raise TypeError(f"expected TermContract, got {type(t_contract)!r}")
@@ -765,7 +769,9 @@ def run_execute(
             soft_raw_header_warnings.append(w)
             LOGGER.warning("[execute] Soft header drift — %s", w)
         if unexpected_raw:
-            preview = unexpected_raw if len(unexpected_raw) <= 40 else unexpected_raw[:40]
+            preview = (
+                unexpected_raw if len(unexpected_raw) <= 40 else unexpected_raw[:40]
+            )
             suffix = (
                 ""
                 if len(unexpected_raw) <= 40
@@ -787,9 +793,7 @@ def run_execute(
         paths.active_term_output, expected_institution_id=institution_id
     )
 
-    hook_modules_root_resolved = _ia_hook_modules_root_for_execute(
-        paths, school_config
-    )
+    hook_modules_root_resolved = _ia_hook_modules_root_for_execute(paths, school_config)
 
     term_column_by_dataset: dict[str, str] = {}
     term_order_fn_by_dataset: dict[str, object] = {}
@@ -837,7 +841,9 @@ def run_execute(
     if extra_datasets:
         drift_issues.append(f"Unexpected datasets: {sorted(extra_datasets)}")
 
-    LOGGER.info("[execute] Running schema drift check (post clean vs active frozen dtypes)")
+    LOGGER.info(
+        "[execute] Running schema drift check (post clean vs active frozen dtypes)"
+    )
     has_missing_cols = False
     for ds_name, df in cleaned_pre_enforce.items():
         if ds_name not in schema_contract.get("datasets", {}):
@@ -892,7 +898,9 @@ def run_execute(
                 institution_id,
             )
 
-    LOGGER.info("[execute] Enforcing active frozen schema contract (enforce_schema_contract)")
+    LOGGER.info(
+        "[execute] Enforcing active frozen schema contract (enforce_schema_contract)"
+    )
     cleaned = enforce_schema_contract(cleaned_pre_enforce, schema_contract)
     paths.cleaned_datasets.mkdir(parents=True, exist_ok=True)
     for logical_name, df in cleaned.items():

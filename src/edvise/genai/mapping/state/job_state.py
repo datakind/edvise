@@ -543,7 +543,10 @@ def register_sma_gate_2_hook_preview_artifacts(
         PHASE_SMA_GATE_2_HOOK_PREVIEW,
         [
             {"artifact_type": "cohort_transformation_hook_preview", "artifact_path": c},
-            {"artifact_type": "course_transformation_hook_preview", "artifact_path": co},
+            {
+                "artifact_type": "course_transformation_hook_preview",
+                "artifact_path": co,
+            },
         ],
     )
     _auto_approve_hook_preview_if_empty(

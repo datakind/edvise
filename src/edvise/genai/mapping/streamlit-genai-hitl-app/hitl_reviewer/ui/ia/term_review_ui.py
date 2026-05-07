@@ -280,7 +280,9 @@ def render_ia_term_hitl_cards(
                     disabled=not uc_group_pending,
                 )
 
-            res_partial = sel_opt.get("resolution") if isinstance(sel_opt, dict) else None
+            res_partial = (
+                sel_opt.get("resolution") if isinstance(sel_opt, dict) else None
+            )
             smr_store_key = f"ia-term-smr-store-{sk}"
             if isinstance(res_partial, dict) and "season_map_replace" in res_partial:
                 st.subheader("Season map (`season_map_replace`)")
@@ -352,9 +354,7 @@ def render_ia_term_hitl_cards(
             )
         _term_cap = None
         if n_items > 1:
-            _term_cap = (
-                f"This file has **{n_items}** term item(s). Use **Prev/Next** to review each one."
-            )
+            _term_cap = f"This file has **{n_items}** term item(s). Use **Prev/Next** to review each one."
             if approve_blocked:
                 _term_cap += (
                     f" **Save JSON & approve UC** stays disabled until every item has been opened "
@@ -431,6 +431,7 @@ def _persist_term_reject(
         invalidate_ia_term_run_cache(onboard_run_id)
         set_hitl_flash_banner(
             "success",
-            "Term item rejected in silver JSON (choice cleared). " + HITL_FLASH_HINT_AFTER_UC,
+            "Term item rejected in silver JSON (choice cleared). "
+            + HITL_FLASH_HINT_AFTER_UC,
         )
         st.rerun()

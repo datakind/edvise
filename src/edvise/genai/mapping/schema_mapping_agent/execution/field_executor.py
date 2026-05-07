@@ -683,10 +683,7 @@ def _accumulate_required_source_columns_for_plan(
                 required[lookup_side].add(rs.filter.column)
             if rs.order_by:
                 required[lookup_side].add(rs.order_by)
-            if (
-                rs.strategy == RowSelectionStrategy.where_not_null
-                and rs.condition_col
-            ):
+            if rs.strategy == RowSelectionStrategy.where_not_null and rs.condition_col:
                 required[base_side].add(rs.condition_col)
         return
 
@@ -750,9 +747,7 @@ def validate_source_columns_for_execute(
     for ds in sorted(required.keys()):
         cols = required[ds]
         if ds not in dataframes:
-            problems.append(
-                f"{ds}: missing dataset (required columns: {sorted(cols)})"
-            )
+            problems.append(f"{ds}: missing dataset (required columns: {sorted(cols)})")
             continue
         have = set(dataframes[ds].columns)
         missing = sorted(c for c in cols if c not in have)
@@ -762,8 +757,7 @@ def validate_source_columns_for_execute(
     if problems:
         raise ExecutionError(
             "Cleaned data is missing columns required by the active field mapping / "
-            "transformation plans — "
-            + "; ".join(problems)
+            "transformation plans — " + "; ".join(problems)
         )
 
 
@@ -864,9 +858,7 @@ def execute_transformation_map(
             continue
 
         if plan.hook_required:
-            msg = (
-                f"Field '{target}' — hook_required (no covering utility chain; see reviewer_notes)"
-            )
+            msg = f"Field '{target}' — hook_required (no covering utility chain; see reviewer_notes)"
             logger.warning(f"[{i}/{n_plans}] {target} — {msg}")
             if raise_on_gap:
                 raise ExecutionGapError(msg)

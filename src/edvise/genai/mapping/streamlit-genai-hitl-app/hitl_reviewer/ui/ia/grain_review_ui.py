@@ -382,9 +382,7 @@ def render_ia_grain_hitl_cards(
                 "in one shot."
             )
             if approve_blocked:
-                _grain_cap += (
-                    f" That button stays disabled until every item has been opened ({opened_k}/{n_items} so far)."
-                )
+                _grain_cap += f" That button stays disabled until every item has been opened ({opened_k}/{n_items} so far)."
 
         render_action_bar(
             nav_key=nav_key,
@@ -456,6 +454,7 @@ def _persist_grain_reject(
         invalidate_ia_grain_run_cache(onboard_run_id)
         set_hitl_flash_banner(
             "success",
-            "Grain item rejected in silver JSON (choice cleared). " + HITL_FLASH_HINT_AFTER_UC,
+            "Grain item rejected in silver JSON (choice cleared). "
+            + HITL_FLASH_HINT_AFTER_UC,
         )
         st.rerun()

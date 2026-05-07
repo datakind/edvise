@@ -240,7 +240,9 @@ def test_validate_term_hook_hitl_passes_when_one_generate_hook_covers_group_tabl
     )
 
 
-def test_resolve_year_season_names_prefers_prefix_when_slug_contains_date_season() -> None:
+def test_resolve_year_season_names_prefers_prefix_when_slug_contains_date_season() -> (
+    None
+):
     """Slug ``..._date_season_...`` puts ``season`` inside the year symbol; prefix must win."""
     yn, sn = resolve_year_season_hook_function_names(
         {

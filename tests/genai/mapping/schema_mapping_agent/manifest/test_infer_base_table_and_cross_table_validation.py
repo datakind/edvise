@@ -14,7 +14,9 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.validation import (
     infer_manifest_base_table,
     validate_manifest,
 )
-from edvise.genai.mapping.shared.schema_contract import parse_enriched_schema_contract_for_sma
+from edvise.genai.mapping.shared.schema_contract import (
+    parse_enriched_schema_contract_for_sma,
+)
 
 
 def _cd(name: str) -> dict:

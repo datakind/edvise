@@ -442,7 +442,9 @@ def resolve_year_season_hook_function_names(
         if isinstance(hook_spec, HookSpec)
         else dict(hook_spec)
     )
-    year_names, season_names = _function_names_for_year_season_resolution(hs.get("functions") or [])
+    year_names, season_names = _function_names_for_year_season_resolution(
+        hs.get("functions") or []
+    )
     if len(year_names) != 1 or len(season_names) != 1:
         raise ValueError(
             "hook_spec.functions must name exactly one function with 'year' and one with 'season' "

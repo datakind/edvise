@@ -137,7 +137,10 @@ def test_field_transformation_plan_review_required_requires_hitl_fields():
                 step_index=0,
                 function_name="map_values",
                 reason="inferred_season_mapping",
-                context={"sample_values": ["202301.0"], "inferred_mapping": {"01": "SPRING"}},
+                context={
+                    "sample_values": ["202301.0"],
+                    "inferred_mapping": {"01": "SPRING"},
+                },
             )
         ],
         hitl_options=opts,

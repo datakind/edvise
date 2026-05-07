@@ -17,7 +17,9 @@ from typing import Any, Literal
 from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
-from edvise.genai.mapping.identity_agent.hitl.hook_generation.parse import parse_hook_spec
+from edvise.genai.mapping.identity_agent.hitl.hook_generation.parse import (
+    parse_hook_spec,
+)
 from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
     ensure_hook_spec_file,
 )

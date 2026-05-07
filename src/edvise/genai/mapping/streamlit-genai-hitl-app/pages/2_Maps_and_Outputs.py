@@ -12,7 +12,9 @@ import streamlit as st
 from hitl_reviewer.platform.databricks_uc_sql import (
     load_onboard_runs_hitl_complete,
 )
-from hitl_reviewer.platform.volume_path_utils import institution_id_from_silver_volume_path
+from hitl_reviewer.platform.volume_path_utils import (
+    institution_id_from_silver_volume_path,
+)
 from hitl_reviewer.ui.hitl_streamlit import (
     default_catalog,
     init_reviewer_in_session,

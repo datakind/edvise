@@ -736,7 +736,8 @@ def render_silver_hitl_editor(
                 st.toast("JSON + UC complete.", icon="✅")
                 set_hitl_flash_banner(
                     "success",
-                    "Saved HITL JSON and approved the UC row. " + HITL_FLASH_HINT_AFTER_UC,
+                    "Saved HITL JSON and approved the UC row. "
+                    + HITL_FLASH_HINT_AFTER_UC,
                 )
             else:
                 st.success(
@@ -1149,7 +1150,9 @@ def render_one_hitl_group(
             with c2:
                 if st.button(
                     "Reject gate",
-                    key=_uc_gate_button_key("r-legacy", onboard_run_id, phase, artifact_type),
+                    key=_uc_gate_button_key(
+                        "r-legacy", onboard_run_id, phase, artifact_type
+                    ),
                 ):
                     try:
                         approve_or_reject(

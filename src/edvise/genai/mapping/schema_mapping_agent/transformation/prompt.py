@@ -314,7 +314,9 @@ def _step2b_reference_maps(
     )
 
 
-def _step2b_mapping_manifest(institution_id: str, institution_mapping_manifest: dict) -> str:
+def _step2b_mapping_manifest(
+    institution_id: str, institution_mapping_manifest: dict
+) -> str:
     return (
         f'<mapping_manifest institution="{institution_id}">\n'
         f"{json.dumps(institution_mapping_manifest, indent=2)}\n"
@@ -322,7 +324,9 @@ def _step2b_mapping_manifest(institution_id: str, institution_mapping_manifest: 
     )
 
 
-def _step2b_schema_contract(institution_id: str, institution_schema_contract: dict) -> str:
+def _step2b_schema_contract(
+    institution_id: str, institution_schema_contract: dict
+) -> str:
     contract_summary = summarize_schema_contract(institution_schema_contract)
     return (
         f'<schema_contract institution="{institution_id}">\n'

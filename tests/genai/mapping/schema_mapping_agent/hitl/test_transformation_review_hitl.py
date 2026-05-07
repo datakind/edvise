@@ -71,7 +71,9 @@ def _reviewable_wrapper(*, institution_id: str = "test_u") -> dict:
                                 "context": {},
                             }
                         ],
-                        "hitl_options": [o.model_dump(mode="json") for o in _hitl_opts()],
+                        "hitl_options": [
+                            o.model_dump(mode="json") for o in _hitl_opts()
+                        ],
                     }
                 ],
             },
@@ -184,9 +186,7 @@ def test_apply_transformation_review_corrected_uses_item_steps(tmp_path: Path):
             mapping={"Y": "yes"},
         )
     ]
-    resolved = base_item.model_copy(
-        update={"status": "corrected", "steps": new_steps}
-    )
+    resolved = base_item.model_copy(update={"status": "corrected", "steps": new_steps})
     cohort_path.write_text(
         json.dumps(
             TransformationReviewHITLFile(

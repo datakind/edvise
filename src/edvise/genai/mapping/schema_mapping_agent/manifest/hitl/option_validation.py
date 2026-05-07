@@ -41,7 +41,9 @@ def build_scratch_manifest_for_terminal_option(
             ``target_field`` absent from ``refined_manifest.mappings``.
     """
     if option.reentry != SMAReentryDepth.TERMINAL or option.field_mapping is None:
-        raise ValueError("scratch manifest requires a TERMINAL option with field_mapping")
+        raise ValueError(
+            "scratch manifest requires a TERMINAL option with field_mapping"
+        )
 
     scratch = refined_manifest.model_copy(deep=True)
     idx: int | None = None

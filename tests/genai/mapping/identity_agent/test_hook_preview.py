@@ -7,7 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec, HookFunctionSpec
+from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+    HookSpec,
+    HookFunctionSpec,
+)
 from edvise.genai.mapping.identity_agent.hitl.hook_preview import (
     apply_term_hook_spec_names_from_item_id,
     assemble_hook_spec_drafts_as_module_text,
@@ -67,7 +70,9 @@ def test_write_identity_hook_preview_json_requires_both_paths(tmp_path: Path) ->
         )
 
 
-def test_write_identity_hook_preview_json_includes_review_context(tmp_path: Path) -> None:
+def test_write_identity_hook_preview_json_includes_review_context(
+    tmp_path: Path,
+) -> None:
     hitl_path = tmp_path / "identity_term_hitl.json"
     config_path = tmp_path / "identity_term_output.json"
     hitl_path.write_text(
@@ -191,16 +196,14 @@ def test_term_preview_json_matches_slugged_hook_spec(tmp_path: Path) -> None:
                 name="year_extractor",
                 description="y",
                 draft=(
-                    "def year_extractor(term: str) -> int:\n"
-                    "    return int(term[:4])\n"
+                    "def year_extractor(term: str) -> int:\n    return int(term[:4])\n"
                 ),
             ),
             HookFunctionSpec(
                 name="season_extractor",
                 description="s",
                 draft=(
-                    "def season_extractor(term: str) -> str:\n"
-                    "    return term[-2:]\n"
+                    "def season_extractor(term: str) -> str:\n    return term[-2:]\n"
                 ),
             ),
         ],
@@ -221,8 +224,12 @@ def test_term_preview_json_matches_slugged_hook_spec(tmp_path: Path) -> None:
     by_name = {f["name"]: f for f in funcs}
     y = by_name["year_extractor_student_deg_comp_term_bachelors"]
     s = by_name["season_extractor_student_deg_comp_term_bachelors"]
-    assert "def year_extractor_student_deg_comp_term_bachelors(" in (y.get("draft") or "")
-    assert "def season_extractor_student_deg_comp_term_bachelors(" in (s.get("draft") or "")
+    assert "def year_extractor_student_deg_comp_term_bachelors(" in (
+        y.get("draft") or ""
+    )
+    assert "def season_extractor_student_deg_comp_term_bachelors(" in (
+        s.get("draft") or ""
+    )
 
 
 def test_assemble_hook_spec_drafts_as_module_text_joins_defs() -> None:
