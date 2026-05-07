@@ -9,6 +9,39 @@ from typing import Any, Dict, List, Optional
 from edvise.configs.pdp import PDPProjectConfig
 
 
+class _FlushTolerantStreamHandler(logging.StreamHandler):
+    """
+    Console handler that ignores flush failures.
+
+    Databricks notebook / ipykernel stdout can raise ``OSError`` (often errno 95,
+    *Operation not supported*) on ``flush()``, which otherwise surfaces as
+    ``--- Logging error ---`` and noisy tracebacks while the job continues.
+    """
+
+    def flush(self) -> None:
+        try:
+            super().flush()
+        except OSError:
+            pass
+
+
+class _FlushTolerantFileHandler(logging.FileHandler):
+    """
+    File handler that ignores flush failures on unsupported streams.
+
+    Unity Catalog volume / FUSE-backed log paths sometimes raise ``OSError``
+    (e.g. errno 95 *Operation not supported*) on ``flush()`` even when
+    ``write()`` succeeds; the stdlib would then emit ``--- Logging error ---``
+    for every log line.
+    """
+
+    def flush(self) -> None:
+        try:
+            super().flush()
+        except OSError:
+            pass
+
+
 class SimpleLogger:
     """
     A JSONL logger that temporarily moves the institution log file to /tmp,
@@ -148,7 +181,7 @@ def init_file_logging_at_path(
 
     Args:
         append: If True, new log lines are appended to the file (e.g. resume gate_1 after
-            start with the same pipeline_run_id). If False, the file is truncated on open.
+            start with the same onboard_run_id). If False, the file is truncated on open.
 
     Returns:
         str: local filesystem path to the log file.
@@ -169,12 +202,14 @@ def init_file_logging_at_path(
     for h in list(root.handlers):
         root.removeHandler(h)
 
-    console = logging.StreamHandler(stream=sys.__stdout__)
+    console = _FlushTolerantStreamHandler(stream=sys.__stdout__)
     console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
     root.addHandler(console)
 
     file_mode = "a" if append else "w"
-    fh = logging.FileHandler(local_path, mode=file_mode, encoding="utf-8", delay=True)
+    fh = _FlushTolerantFileHandler(
+        local_path, mode=file_mode, encoding="utf-8", delay=True
+    )
     fh.setFormatter(
         logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     )
