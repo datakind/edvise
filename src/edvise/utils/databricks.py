@@ -3,7 +3,6 @@ import mlflow
 import typing as t
 from typing import Any
 import pydantic as pyd
-import re
 
 LOGGER = logging.getLogger(__name__)
 
@@ -223,7 +222,3 @@ def find_bronze_volume_name(spark: SparkSession, catalog: str, schema: str) -> s
 
 
 # Re-export for backward compatibility (importing this module still loads Spark above).
-from edvise.utils.institution_naming import (  # noqa: E402
-    databricksify_inst_name,
-    reverse_databricksify_inst_name,
-)

@@ -31,7 +31,6 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     InstitutionGrainContract,
     build_institution_grain_contracts,
 )
-from edvise.genai.mapping.identity_agent.hitl.schemas import GrainCandidateKeyEntry
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     TermOrderConfig,
 )
