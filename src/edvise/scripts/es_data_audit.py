@@ -19,6 +19,7 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
+from edvise.data_audit.raw_course_grade_map import apply_raw_course_grade_map
 from edvise.data_audit.schemas import RawEdviseStudentDataSchema, RawEdviseCourseDataSchema
 from edvise.data_audit.standardizer import (
     ESCohortStandardizer,
@@ -80,6 +81,12 @@ class ESDataAuditTask:
         self.course_std = ESCourseStandardizer()
         self.course_converter_func: t.Optional[ConverterFunc] = course_converter_func
         self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
+
+    def _course_grade_map(self) -> dict[str, str] | None:
+        pre = self.cfg.preprocessing
+        if pre is None or pre.features is None:
+            return None
+        return pre.features.grade_map
 
     def run(self):
         """Executes the data preprocessing pipeline."""
@@ -156,6 +163,9 @@ class ESDataAuditTask:
                 " Failed to parse course data with all known datetime formats."
             )
 
+        course_grade_map = self._course_grade_map()
+        df_course_raw = apply_raw_course_grade_map(df_course_raw, course_grade_map)
+
         # Ensure files are non-empty
         for label, df in [
             ("Raw cohort", df_cohort_raw),
@@ -227,13 +237,25 @@ class ESDataAuditTask:
             " Reading and schema validating course data, handling any duplicates:"
         )
 
+        def _course_converter_chain(df: pd.DataFrame) -> pd.DataFrame:
+            df = apply_raw_course_grade_map(df, course_grade_map)
+            if self.course_converter_func is not None:
+                df = self.course_converter_func(df)
+            return df
+
+        course_converter = (
+            _course_converter_chain
+            if course_grade_map is not None or self.course_converter_func is not None
+            else None
+        )
+
         for fmt in dttm_formats:
             try:
                 df_course_validated = read_raw_es_course_data(
                     file_path=course_dataset_raw_path,
                     schema=RawEdviseCourseDataSchema,
                     dttm_format=fmt,
-                    converter_func=self.course_converter_func,
+                    converter_func=course_converter,
                     spark_session=self.spark,
                 )
                 break  # success — exit loop

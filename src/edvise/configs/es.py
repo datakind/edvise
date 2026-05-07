@@ -5,6 +5,7 @@ import warnings
 import pydantic as pyd
 
 # TODO: set field defaults using literals here instead?
+from edvise.data_audit.schemas.raw_edvise_course import ALLOWED_LETTER_GRADES
 from edvise.feature_generation import constants
 from edvise.utils import types
 
@@ -242,6 +243,37 @@ class FeaturesConfig(pyd.BaseModel):
             "for which custom features should be computed, can be a list or include nested lists"
         ),
     )
+    grade_map: t.Optional[dict[str, str]] = pyd.Field(
+        default=None,
+        description=(
+            "Maps raw grade codes from the institution upload to canonical Edvise grades "
+            "(subset of ALLOWED_LETTER_GRADES) or a numeric string in [0, 4]. "
+            "Applied in ES data audit before course schema validation. "
+            "Example: {\"W1\": \"W\", \"W2\": \"W\", \"OTHER\": \"O\", \"NC\": \"NC\"}."
+        ),
+    )
+
+    @pyd.field_validator("grade_map", mode="after")
+    @classmethod
+    def validate_grade_map_targets(cls, v: t.Optional[dict[str, str]]) -> t.Optional[dict[str, str]]:
+        if not v:
+            return v
+        allowed = ALLOWED_LETTER_GRADES
+        for src, tgt in v.items():
+            t_norm = str(tgt).strip().upper()
+            if t_norm in allowed:
+                continue
+            try:
+                fv = float(t_norm)
+                if 0.0 <= fv <= 4.0:
+                    continue
+            except (ValueError, TypeError):
+                pass
+            raise ValueError(
+                f"preprocessing.features.grade_map[{src!r}] -> {tgt!r}: "
+                f"target must be in ALLOWED_LETTER_GRADES or a numeric grade in [0.0, 4.0]"
+            )
+        return v
 
 
 class SelectionConfig(pyd.BaseModel):
