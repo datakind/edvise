@@ -1,4 +1,0 @@
-command:
-  - streamlit
-  - run
-  - Home.py
