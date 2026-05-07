@@ -151,7 +151,12 @@ def resolve_task_run_id() -> str | None:
         # dbutils typing varies between local stubs and runtime; treat as Any for this
         # optional best-effort context read.
         dbutils_any = cast(Any, dbutils)
-        ctx_json = dbutils_any.notebook.entry_point.getDbutils().notebook().getContext().toJson()
+        ctx_json = (
+            dbutils_any.notebook.entry_point.getDbutils()
+            .notebook()
+            .getContext()
+            .toJson()
+        )
         data = json.loads(ctx_json)
     except Exception:
         return None
