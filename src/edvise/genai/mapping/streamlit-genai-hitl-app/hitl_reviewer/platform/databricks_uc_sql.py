@@ -125,7 +125,8 @@ def hitl_group_identity_where_sql(
         raise ValueError(
             "onboard_run_id, phase, and artifact_type must be non-empty after stripping"
         )
-    p = f"{table_alias.strip()}." if (table_alias or "").strip() else ""
+    alias = (table_alias or "").strip()
+    p = f"{alias}." if alias else ""
     # Case-insensitive phase / artifact_type: UC rows and nav URLs often disagree on casing
     # (e.g. ``term`` vs ``TERM``). Strict equality left ``UPDATE`` matching zero rows while the
     # workbench still showed a pending row.
@@ -214,9 +215,10 @@ def _verify_hitl_group_status_after_update(
     if dist_df.empty or dist_df["s"].isna().all():
         got = "(no rows)"
     else:
-        got = sorted(
+        got_vals = sorted(
             {str(x).strip() for x in dist_df["s"].dropna().astype(str).tolist()}
         )
+        got = ", ".join(got_vals)
     raise RuntimeError(
         "Unity Catalog ``hitl_reviews`` update did not verify after write: "
         f"expected **{n_rows_expected}** row(s) with status **{expected_status}**, "

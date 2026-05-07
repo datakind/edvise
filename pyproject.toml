@@ -45,6 +45,7 @@ dev = [
     "ipykernel~=6.29",
     "jupyterlab~=4.2",
     "mypy~=1.11",
+    "pip>=24",
     "pytest~=8.3",
     "ruff~=0.9",
     "types-requests==2.32.4.20250913",

@@ -54,7 +54,10 @@ def read_genai_active_registry(active_root: str | Path) -> dict[str, Any] | None
     p = Path(active_root) / GENAI_ACTIVE_REGISTRY_BASENAME
     if not p.is_file():
         return None
-    return json.loads(p.read_text(encoding="utf-8"))
+    data = json.loads(p.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise TypeError(f"Expected JSON object in {p}")
+    return data
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:

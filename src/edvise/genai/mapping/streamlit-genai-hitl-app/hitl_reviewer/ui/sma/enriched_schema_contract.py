@@ -69,9 +69,16 @@ def extract_column_panel_fields(
     ds = (contract.get("datasets") or {}).get(dataset_name)
     if not isinstance(ds, dict):
         return None
-    dtypes = ds.get("dtypes") if isinstance(ds.get("dtypes"), dict) else {}
+    dtypes: dict[str, Any] = {}
+    maybe_dtypes = ds.get("dtypes")
+    if isinstance(maybe_dtypes, dict):
+        dtypes = maybe_dtypes
     dtype = str(dtypes.get(col, "") or "").strip() or "—"
-    training = ds.get("training") if isinstance(ds.get("training"), dict) else {}
+
+    training: dict[str, Any] = {}
+    maybe_training = ds.get("training")
+    if isinstance(maybe_training, dict):
+        training = maybe_training
     details = training.get("column_details")
     if not isinstance(details, list):
         return None
