@@ -51,6 +51,27 @@ targets:
             git_provider: gitHub
             git_commit: ${var.git_commit}
 
+  # Staging workspace + UC catalog staging_sst_01, same pin semantics as dev (git_commit).
+  # For tag-based releases on staging, use target prod instead.
+  staging:
+    mode: development
+    variables:
+      pipeline_version: ${var.git_commit}
+      DB_workspace: "staging_sst_01"
+      # genai_slack_webhook_id: "0fb252f8-f343-4be7-91de-b55f5408a031"  # edvise-data-crew channel on staging_sst_01
+    resources:
+      jobs:
+        edvise_genai_mapping_onboard_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
+        edvise_genai_mapping_execute_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
+
   prod:
     mode: production
     variables:

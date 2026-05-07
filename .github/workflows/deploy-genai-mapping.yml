@@ -3,9 +3,10 @@
 # Secrets — dev (host same as PDP dev: DATABRICKS_DEV_HOST):
 #   DATABRICKS_DEV_HOST, DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID, DATABRICKS_GENAI_MAPPING_DEV_CLIENT_SECRET
 #   GENAI_MAPPING_DEV_SERVICE_ACCOUNT_EXECUTER, GENAI_MAPPING_DEV_DS_RUN_AS
-# Secrets — staging (prod bundle target → staging_sst_01):
-#   DATABRICKS_STAGING_HOST, DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID, DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_SECRET
-#   GENAI_MAPPING_STAGING_SERVICE_ACCOUNT_EXECUTER, GENAI_MAPPING_STAGING_DS_RUN_AS
+# Secrets — staging workspace (DATABRICKS_STAGING_HOST):
+#   DATABRICKS_STAGING_HOST, DATABRICKS_STAGING_CLIENT_ID, DATABRICKS_STAGING_CLIENT_SECRET
+#   STAGING_SERVICE_ACCOUNT_EXECUTER (SP run-as uses DATABRICKS_STAGING_CLIENT_ID)
+#   Default deploy: bundle target staging (git commit → staging_sst_01). Optional input staging_git_tag uses target prod.
 # Shared: GROUP_TO_MANAGE
 #
 # Auth: set DATABRICKS_AUTH_TYPE=oauth-m2m so the CLI uses the service principal OAuth
@@ -25,11 +26,11 @@ on:
         type: boolean
         default: true
       deploy_staging:
-        description: "Deploy to staging_sst_01 (bundle target prod)"
+        description: "Deploy to staging_sst_01 (default: bundle target staging = git commit)"
         type: boolean
         default: false
       staging_git_tag:
-        description: "Release tag for staging (e.g. v0.2.0). Required when deploy_staging is checked."
+        description: "Optional. If set, deploy with bundle target prod pinned to this tag instead of commit-based staging."
         type: string
         default: ""
 
@@ -105,26 +106,34 @@ jobs:
           uv venv
           uv pip install .
 
-      - name: Deploy bundle (prod target → staging_sst_01)
+      - name: Deploy bundle (staging_sst_01)
         working-directory: pipelines/genai_mapping
         env:
           DATABRICKS_AUTH_TYPE: oauth-m2m
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_STAGING_HOST }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_STAGING_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_STAGING_CLIENT_SECRET }}
-          SA_EXECUTER: ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }} 
+          SA_EXECUTER: ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
           DS_RUN_AS: ${{ secrets.DATABRICKS_STAGING_CLIENT_ID }}
           GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
         run: |
           TAG="${{ inputs.staging_git_tag }}"
-          if [ -z "$TAG" ]; then
-            echo "::error::Set workflow input staging_git_tag when deploying staging (e.g. v0.2.0)"
-            exit 1
+          COMMON_VARS=(
+            --force-lock
+            --var "service_account_executer=$SA_EXECUTER"
+            --var "ds_run_as=$DS_RUN_AS"
+            --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
+          )
+          if [ -n "$TAG" ]; then
+            echo "Deploying staging with bundle target prod (git tag: $TAG)"
+            databricks bundle deploy \
+              --target=prod \
+              "${COMMON_VARS[@]}" \
+              --var "git_tag=$TAG"
+          else
+            echo "Deploying staging with bundle target staging (git commit: ${GITHUB_SHA})"
+            databricks bundle deploy \
+              --target=staging \
+              "${COMMON_VARS[@]}" \
+              --var "git_commit=${GITHUB_SHA}"
           fi
-          databricks bundle deploy \
-            --target=prod \
-            --force-lock \
-            --var "git_tag=$TAG" \
-            --var "service_account_executer=$SA_EXECUTER" \
-            --var "ds_run_as=$DS_RUN_AS" \
-            --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" 
