@@ -127,7 +127,7 @@ _RAW_EDVISE_COURSE_FIELD_SEMANTIC_NOTES: dict[str, str] = {
         "is instructional_modality."
     ),
     "instructional_modality": (
-        "Delivery MEDIUM of the course section — e.g. in-person / face-to-face, online, "
+        "Delivery MODE of the course section — e.g. in-person / face-to-face, online, "
         "hybrid / blended, asynchronous. NOT the structural format (lecture vs lab); that "
         "is instructional_format."
     ),
