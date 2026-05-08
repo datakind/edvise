@@ -421,6 +421,13 @@ this hierarchy **before** choosing raw term codes.
   student table: map from that column with `source_table` = student base table, `row_selection.strategy`: `"any_row"`,
   **confidence ≤ {t}**, and **validation_notes** that Step 2b must parse/coerce using inline `map_values` plus
   `term_season_to_conferral_date` (or an equivalent documented utility chain) as appropriate to the grounded format.
+- **Credential-specific conferral targets** (`associates_degree_conferral_date`, `bachelors_degree_conferral_date`,
+  `certificate1_date`, `certificate2_date`, `certificate3_date`): when the term column is **shared / ambiguous**
+  across award types but the same wide row has a **discriminator** (e.g. `primary_degree`, `awarded_degree`,
+  `highest_degree_awarded`, certificate-type or award-level label column), set `row_selection.filter` on that
+  discriminator (`isin` / `contains` / `startswith` as contract evidence supports) so rows outside the intended
+  credential class resolve to null for **that target only** — do not use `any_row` on the raw term alone when the
+  contract mixes degree vs certificate labels but you are mapping a single conferral or certificate-* slot.
 - **Column grounding:** derive format **only** from that column's own `sample_values` in the schema contract — never
   infer format from any other term column on the same table.
 
@@ -610,6 +617,11 @@ ROW SELECTION
 - row_selection.strategy: "any_row", "first_by", "where_not_null", "constant", or "nth"
 - row_selection.filter.operator (optional): ONLY "contains", "equals", "startswith", or "isin" —
   for pre-filtering rows before selection
+- **Same-table (join null):** `row_selection.filter` masks the resolved `source_column` per base row —
+  where the filter fails, this field becomes null; other fields on the same row are unchanged. Use this
+  when a wide base row carries both a term/value column and a separate credential-level discriminator
+  (e.g. gate `degree_term` using `primary_degree` / `awarded_degree` patterns). For multi-row lookups,
+  filters still apply to the lookup table before the merge (unchanged).
 - CRITICAL: Do not mix strategies with filter operators — they are separate concepts with different allowed values
 - Use "any_row" strategy only when all rows for a student/course are guaranteed to have the same value for this field
   (e.g. a demographic that never changes across terms)

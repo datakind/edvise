@@ -314,6 +314,8 @@ BY FAILURE MODE:
   row_selection:
     - Options are valid RowSelectionStrategy alternatives with args pre-filled.
     - Order by most likely correct given field semantics.
+    - For wide-row conferral / certificate-date proxies, options may add or adjust `row_selection.filter` on a same-row
+      award-type discriminator (join null) — filtered-out rows become null for that field only.
 
   map_unmap:
     - Always exactly 2 TERMINAL options + direct_edit = 3 total.

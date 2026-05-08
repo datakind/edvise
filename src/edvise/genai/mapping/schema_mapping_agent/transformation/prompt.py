@@ -170,7 +170,10 @@ column encoding is uncertain. Do NOT apply a season_map from a different encodin
 scheme (e.g. entry term Season_YYYY season_map applied to a YYYYMM conferral column).
 
 - Same format classification and utility chain as **(2)** above.
-- `source_table` is the student base table, `row_selection.strategy`: `any_row`.
+- `source_table` is the student base table, `row_selection.strategy`: `any_row` (single row per student).
+  When the manifest uses `row_selection.filter` on a same-row award-type column to separate associate vs bachelor
+  vs certificate (`certificate1_date` / `2` / `3`) conferral targets, respect that — filtered-out rows are already
+  null in the resolved Series before Step 2b.
 - Always lower confidence, `review_required: true`.
 - `reviewer_notes` must state: proxy conferral date from student row term code, no degree lookup
   available, lossiness is intentional.
