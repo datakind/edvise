@@ -20,12 +20,17 @@ Input contracts:
 ValidationError groups:
     COLUMN_EXISTENCE   — source column / table not found in schema contract
     JOIN_STRUCTURE     — join missing/incorrect/unresolvable, or omitted when
-                         source_table != inferred execution base table
+                         source_table != inferred execution base table; join_keys
+                         must not use IA partial term labels (_edvise_term_season,
+                         _edvise_term_academic_year)
     ROW_SELECTION      — strategy references a column that doesn't exist
     MAP_UNMAP          — sourcing fields present on unmapped record or vice versa
     ENTITY_GRAIN       — manifest entity-grain field missing or unmapped in manifest
     SOURCE_SEMANTICS   — manifest source column contradicts Edvise field semantics
-                         (e.g. IA `_edvise_term_*` on cohort base for conferral targets)
+                         (e.g. IA `_edvise_term_*` as a conferral source — invalid
+                         regardless of source table, since the executor cannot
+                         co-resolve `_edvise_term_season` from the same selected
+                         lookup row alongside `_edvise_term_academic_year`)
 
 Usage:
     errors = validate_manifest(manifest, schema_contract)
@@ -64,11 +69,28 @@ NON_CHRONOLOGICAL_TERM_ORDER_COLUMNS: frozenset[str] = frozenset(
     }
 )
 
-# Cohort manifest targets that map from degree/award timing (Step 2b often builds
-# datetime from IA term metadata).  IdentityAgent `_edvise_term_*` on the **cohort
-# execution base table** encodes cohort/entry term enrichment — not conferral on
-# that row; conferral-style IA columns must come from an award/degree **lookup** row
-# (join) or from a true calendar datetime / raw term code on the wide student row.
+# IA `_edvise_term_season` / `_edvise_term_academic_year` are partial labels (not a
+# unique term). They must not appear in join_keys — joins would spuriously collapse
+# distinct enrollments. Full term identity comes from the contract grain (`term`,
+# `source_term_key`, `_term_grain`, or `_term_order` when both sides share it).
+INVALID_IA_TERM_LABEL_JOIN_KEYS: frozenset[str] = frozenset(
+    {
+        "_edvise_term_season",
+        "_edvise_term_academic_year",
+    }
+)
+
+# Cohort manifest targets whose semantics is degree/award conferral timing.
+# IdentityAgent `_edvise_term_*` columns are NEVER a valid source for these targets —
+# the manifest schema only carries a single ``source_column`` per record, and the
+# field executor's cross-table resolver fetches just that one value column from the
+# lookup row plus join/order/filter columns. There is no mechanism to co-resolve a
+# second IA column (e.g. ``_edvise_term_season``) from the same selected lookup row
+# alongside ``_edvise_term_academic_year``, so any pipeline that tries to build a
+# conferral datetime from IA term metadata silently pairs the academic year with the
+# wrong season (or fails at runtime). Conferral targets must source either a true
+# calendar ``datetime64[ns]`` column or a raw term code column (which embeds the
+# season in a single token that Step 2b can parse).
 # See ``DATETIME AND DATE TARGET FIELDS`` in manifest prompt ``generate.py``.
 COHORT_OUTCOME_CONFERRAL_DATETIME_TARGETS: frozenset[str] = frozenset(
     {
@@ -188,6 +210,12 @@ class ManifestValidationErrorCode(str, Enum):
     # No join needed — same-table field.
     # Check: record.join is not None and record.join.base_table == record.join.lookup_table
 
+    JOIN_KEY_PARTIAL_IA_TERM_LABEL = "JOIN_KEY_PARTIAL_IA_TERM_LABEL"
+    # join.join_keys includes _edvise_term_season or _edvise_term_academic_year.
+    # Those columns are not grain keys (season-only / year-only); use the contract
+    # term key or _term_order / _term_grain when both tables share full term identity.
+    # Check: any join key in INVALID_IA_TERM_LABEL_JOIN_KEYS
+
     CROSS_TABLE_REQUIRES_JOIN = "CROSS_TABLE_REQUIRES_JOIN"
     # source_table differs from inferred execution base table but join is null —
     # executor would read from base_df only (wrong table).
@@ -243,12 +271,17 @@ class ManifestValidationErrorCode(str, Enum):
     #   manifest has a mapping with non-null effective source.
 
     # SOURCE_SEMANTICS
-    CONFERRAL_IA_TERM_ON_COHORT_BASE = "CONFERRAL_IA_TERM_ON_COHORT_BASE"
-    # Outcome conferral datetime target sources IdentityAgent `_edvise_term_*` from the
-    # cohort execution base table (same-table, no join). Those columns on the base
-    # student row are entry/cohort term metadata — invalid as conferral sources.
-    # Fix: join to degree/award table and source `_edvise_term_*` there, use a true
-    # conferral datetime column on student, or raw term / coded timing per prompt rules.
+    CONFERRAL_USES_IA_TERM_COLUMN = "CONFERRAL_USES_IA_TERM_COLUMN"
+    # Outcome conferral datetime target sources an IdentityAgent `_edvise_term_*`
+    # column. Fires regardless of source table and regardless of whether a join is
+    # declared: even on a degree/award lookup row the manifest can only declare a
+    # single ``source_column``, and the executor cannot co-resolve `_edvise_term_season`
+    # from the same selected lookup row alongside `_edvise_term_academic_year` — the
+    # season would have to come from the student base table, silently pairing the
+    # academic year with the wrong season (or failing if the column is absent).
+    # Fix: source a true conferral datetime column, or a raw term code column (on the
+    # award/degree lookup row or the wide student row) that Step 2b can parse with
+    # `coerce_datetime` / `term_season_to_conferral_date` etc.
 
 
 class ManifestValidationError(BaseModel):
@@ -392,6 +425,8 @@ def _check_join_structure(
       5. If join keys don't match directly across tables, a ColumnAlias must bridge
          them — if none exists, raise MISSING_COLUMN_ALIAS.
       6. join.base_table must not equal join.lookup_table (same-table join is a no-op).
+      7. join_keys must not list IA partial term labels (_edvise_term_season,
+         _edvise_term_academic_year).
 
     Skips records with no join declared.
     """
@@ -453,6 +488,27 @@ def _check_join_structure(
     lookup_cols = _observed_columns(schema_contract, lookup)
 
     for key in join.join_keys:
+        # Rule 7 — partial IA term labels are never valid join grain keys
+        if key in INVALID_IA_TERM_LABEL_JOIN_KEYS:
+            errors.append(
+                ManifestValidationError(
+                    target_field=record.target_field,
+                    error_code=ManifestValidationErrorCode.JOIN_KEY_PARTIAL_IA_TERM_LABEL,
+                    detail=(
+                        f"join key '{key}' is an IdentityAgent partial term label, not a "
+                        "unique term grain — `_edvise_term_academic_year` is year-only (loses "
+                        "within-year season order) and `_edvise_term_season` is a categorical "
+                        "season label shared by many terms. Use the schema contract's term "
+                        "key from unique_keys (e.g. `term`, `source_term_key`, `_term_grain`, "
+                        "or `_term_order` when both tables share it), and use "
+                        "`row_selection.order_by`: `_term_order` for chronological ordering "
+                        "after the join."
+                    ),
+                    offending_value=key,
+                )
+            )
+            continue
+
         base_resolved = _resolve_column_via_aliases(base, key, column_aliases)
         lookup_resolved = _resolve_column_via_aliases(lookup, key, column_aliases)
 
@@ -649,45 +705,59 @@ def _check_map_unmap_consistency(
         )
 
 
-def _check_conferral_not_ia_term_on_cohort_base(
+def _check_conferral_not_ia_term_column(
     record: FieldMappingRecord,
     manifest: FieldMappingManifest,
-    inferred_base_table: str,
     errors: list[ManifestValidationError],
 ) -> None:
     """
-    SOURCE_SEMANTICS — conferral datetime targets must not source `_edvise_term_*`
-    from the cohort base table without a cross-table join.
+    SOURCE_SEMANTICS — conferral datetime targets must not source any IdentityAgent
+    ``_edvise_term_*`` column, regardless of source table or join.
 
-    Skips course manifests, unmapped records, cross-table mappings (join set), and
-    non-conferral targets (e.g. entry_year may legitimately use `_edvise_term_*` on student).
+    The manifest only declares a single ``source_column`` per record, and the
+    cross-table resolver in :mod:`field_executor` fetches just that one value
+    column from the lookup row. There is no mechanism to co-resolve a paired
+    ``_edvise_term_season`` from the same selected lookup row alongside
+    ``_edvise_term_academic_year``, so building a conferral datetime from IA term
+    metadata silently pairs the academic year with the wrong season (or the
+    base-table season, which is the student's entry season, not the award row).
+
+    Skips course manifests, unmapped records, and non-conferral targets
+    (e.g. ``entry_year`` may legitimately use ``_edvise_term_*`` on student).
     """
     if manifest.target_schema != "RawEdviseStudentDataSchema":
         return
     if record.target_field not in COHORT_OUTCOME_CONFERRAL_DATETIME_TARGETS:
         return
-    if record.join is not None:
-        return
     eff = _record_effective_source(record)
-    if eff is None or record.source_table is None:
-        return
-    if record.source_table != inferred_base_table:
+    if eff is None:
         return
     if not _is_identity_agent_edvise_term_column(eff):
         return
 
+    source_loc = (
+        f"the {record.source_table!r} lookup row"
+        if record.join is not None and record.source_table is not None
+        else f"base table {record.source_table!r}"
+        if record.source_table is not None
+        else "the manifest source"
+    )
     errors.append(
         ManifestValidationError(
             target_field=record.target_field,
-            error_code=ManifestValidationErrorCode.CONFERRAL_IA_TERM_ON_COHORT_BASE,
+            error_code=ManifestValidationErrorCode.CONFERRAL_USES_IA_TERM_COLUMN,
             detail=(
-                f"Outcome conferral target '{record.target_field}' must not use "
-                f"IdentityAgent column '{eff}' from the cohort base table "
-                f"'{record.source_table}' without a join — `_edvise_term_*` on the base "
-                "row are cohort/entry term metadata, not degree conferral timing. "
-                "Prefer `join` to a degree/award table and source `_edvise_term_*` from "
-                "that lookup row, or map a true conferral datetime column / raw term "
-                "code on the wide student row per COHORT conferral-style DATETIME rules."
+                f"Outcome conferral target '{record.target_field}' must not source "
+                f"IdentityAgent column '{eff}' from {source_loc}. "
+                "`_edvise_term_*` is never a valid conferral source: the manifest "
+                "carries a single source_column per record, and the executor cannot "
+                "co-resolve `_edvise_term_season` from the same selected lookup row "
+                "alongside `_edvise_term_academic_year`, so the conferral datetime "
+                "would be built from a mismatched season. "
+                "Map a true conferral `datetime64[ns]` column when present, or a raw "
+                "term code column (on the award/degree lookup row or the wide student "
+                "row) that Step 2b can parse — see COHORT conferral-style DATETIME "
+                "rules in the manifest prompt."
             ),
             offending_value=eff,
         )
@@ -819,7 +889,9 @@ def validate_manifest(
         2. JOIN_STRUCTURE    — join tables/keys valid, aliases present
         3. ROW_SELECTION     — strategy columns present in schema contract
         4. MAP_UNMAP         — sourcing consistency on mapped/unmapped fields
-        5. SOURCE_SEMANTICS  — conferral targets vs. IA term columns on cohort base
+        5. SOURCE_SEMANTICS  — conferral targets must not source any IA `_edvise_term_*`
+                              column (single-source-column / extra_columns gap; see
+                              ``CONFERRAL_USES_IA_TERM_COLUMN``)
         6. ENTITY_GRAIN      — each manifest entity-grain field has a mappable source
 
     Same-table vs cross-table (JOIN_STRUCTURE): when ``join`` is omitted, ``source_table``
@@ -848,11 +920,9 @@ def validate_manifest(
         _check_join_structure(record, schema_contract, aliases, errors)
         _check_row_selection(record, schema_contract, errors)
         _check_map_unmap_consistency(record, errors)
+        _check_conferral_not_ia_term_column(record, manifest, errors)
         if inferred_base is not None:
             _check_same_table_source_matches_base(record, inferred_base, errors)
-            _check_conferral_not_ia_term_on_cohort_base(
-                record, manifest, inferred_base, errors
-            )
 
     _check_entity_grain_keys(manifest, errors)
 

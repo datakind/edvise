@@ -6,6 +6,12 @@ applied one option (mapping swap + optional ``column_alias``), then runs the sam
 :class:`~edvise.genai.mapping.schema_mapping_agent.manifest.validation.validate_manifest`
 pass as post–Step 2a generate.
 
+Only errors whose ``ManifestValidationError.target_field`` matches the HITL item's
+``target_field`` (the row this option replaces) are returned. Other rows come from
+Pass 1's ``refined_manifest`` unchanged; failing the option because of those would
+block Pass 2 retries with no way to fix them via Pass 2 output (which only carries
+``items``, not a revised manifest).
+
 Used inside Pass 2 ``llm_complete_with_parse_retry`` so invalid options trigger a
 retry with structured errors in the correction hint.
 """
@@ -72,13 +78,20 @@ def validate_terminal_hitl_option(
     option: SMAHITLOption,
     schema_contract: EnrichedSchemaContractForSMA,
 ) -> list[ManifestValidationError]:
-    """Run ``validate_manifest`` on the scratch manifest for one TERMINAL option."""
+    """
+    Run ``validate_manifest`` on the scratch manifest for one TERMINAL option.
+
+    Returns only errors tied to ``target_field`` (the mapping row this option
+    replaces). Pre-existing violations on other fields are omitted so Pass 2 can
+    validate HITL options independently of Pass 1 gaps elsewhere.
+    """
     if option.reentry != SMAReentryDepth.TERMINAL:
         return []
     scratch = build_scratch_manifest_for_terminal_option(
         refined_manifest, target_field, option
     )
-    return validate_manifest(scratch, schema_contract)
+    all_errs = validate_manifest(scratch, schema_contract)
+    return [e for e in all_errs if e.target_field == target_field]
 
 
 def collect_pass2_terminal_option_validation_failures(
