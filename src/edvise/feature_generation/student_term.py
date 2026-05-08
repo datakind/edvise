@@ -335,7 +335,12 @@ def student_earned_certificate(
         f"first_year_to_certificate_at_{inst}_inst",
         f"years_to_latest_certificate_at_{inst}_inst",
     ]
-    return df.loc[:, degree_year_cols].lt(df[enrollment_year_col], axis=0).any(axis=1)
+    present = [c for c in degree_year_cols if c in df.columns]
+    if not present:
+        return pd.Series(False, index=df.index)
+
+    return df[present].lt(df[enrollment_year_col], axis=0).fillna(False).any(axis=1)
+
 
 
 def term_is_pre_cohort(
