@@ -700,6 +700,14 @@ class InferenceConfig(pyd.BaseModel):
     num_top_features: int = pyd.Field(default=5)
     min_prob_pos_label: t.Optional[float] = 0.5
     background_data_sample: t.Optional[int] = 500
+    quartiles_table_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Optional Unity Catalog Delta table (catalog.schema.table) storing "
+            "training-time support_score quartile bin edges per model checkpoint. "
+            "Consumed at inference for advisor risk labels when present."
+        ),
+    )
     term: t.Optional[list[str]] = pyd.Field(
         default=None,
         description="List of terms to use for inference. Students will be selected if they meet the checkpoint in one of these terms. "
