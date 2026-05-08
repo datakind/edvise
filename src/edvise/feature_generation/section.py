@@ -12,6 +12,7 @@ def add_features(
     df: pd.DataFrame,
     *,
     section_id_cols: list[str],
+    student_id_col: str = "student_id",
     spec: SectionFeatureSpec | None = None,
 ) -> pd.DataFrame:
     """
@@ -22,6 +23,8 @@ def add_features(
         df
         section_id_cols: Columns that uniquely identify sections, used to group course rows
             and merge section features back in.
+        student_id_col: Column identifying the learner per course row ("student_id" for PDP,
+            "learner_id" for Edvise); used for ``section_num_students_enrolled`` counts.
 
     Note:
         Rows for which any value in ``section_id_cols`` is null won't have features
@@ -44,7 +47,14 @@ def add_features(
         return df
     agg_map: dict[str, t.Any] = {}
     if s.section_num_students_enrolled:
-        agg_map["section_num_students_enrolled"] = section_num_students_enrolled_col_agg()
+        if student_id_col not in df.columns:
+            raise KeyError(
+                f"section_num_students_enrolled requires '{student_id_col}' in dataframe; "
+                f"columns present include: {sorted(df.columns.tolist())}"
+            )
+        agg_map["section_num_students_enrolled"] = section_num_students_enrolled_col_agg(
+            col=student_id_col
+        )
     if s.section_num_students_passed:
         agg_map["section_num_students_passed"] = section_num_students_passed_col_agg()
     if s.section_num_students_completed:

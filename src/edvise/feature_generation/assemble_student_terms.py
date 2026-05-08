@@ -121,6 +121,7 @@ def make_student_term_dataset(
         .pipe(
             feature_generation.section.add_features,
             section_id_cols=["term_id", "course_id", course_input_columns.section_id],
+            student_id_col=course_input_columns.student_id,
             spec=section_feature_spec,
         )
     )
