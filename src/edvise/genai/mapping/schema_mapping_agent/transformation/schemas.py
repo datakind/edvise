@@ -241,6 +241,12 @@ class TermSeasonToConferralDateStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
+class RawTermTokenToConferralDateStep(StrictBaseModel):
+    function_name: Literal["raw_term_token_to_conferral_date"]
+    column: str
+    rationale: Optional[str] = None
+
+
 TransformationStep = Annotated[
     Union[
         CastNullableIntStep,
@@ -272,6 +278,7 @@ TransformationStep = Annotated[
         ConditionalCreditsStep,
         TermComponentsToDatetimeStep,
         TermSeasonToConferralDateStep,
+        RawTermTokenToConferralDateStep,
     ],
     Field(discriminator="function_name"),
 ]
@@ -715,6 +722,7 @@ def get_transformation_map_schema_context() -> str:
         ConditionalCreditsStep,
         TermComponentsToDatetimeStep,
         TermSeasonToConferralDateStep,
+        RawTermTokenToConferralDateStep,
         FieldTransformationPlan,
         FlaggedStep,
         TransformationHITLOption,

@@ -623,3 +623,54 @@ def term_season_to_conferral_date(
         dtype="datetime64[ns]",
     )
     return result
+
+
+# Suffix after leading calendar year in compact codes like 2025SP, 2024FA, 2015S1.
+_RAW_TERM_TOKEN_SUFFIX_TO_SEASON: dict[str, str] = {
+    "FA": "FALL",
+    "FALL": "FALL",
+    "SP": "SPRING",
+    "SPRING": "SPRING",
+    "S1": "SUMMER",
+    "S2": "SUMMER",
+    "SU": "SUMMER",
+    "SUMMER": "SUMMER",
+    "WI": "WINTER",
+    "WINTER": "WINTER",
+}
+
+
+def raw_term_token_to_conferral_date(s: pd.Series) -> pd.Series:
+    """
+    Parse compact institutional term tokens (e.g. ``2025SP``, ``2024FA``, ``2015S1``) to
+    proxy end-of-term conferral datetimes.
+
+    Uses the same end-of-term month/day conventions as
+    :func:`term_season_to_conferral_date` via :data:`SEASON_END_MONTH_DAY`.
+
+    Intended for manifest paths that resolve a **single** raw term-code column from a
+    lookup (e.g. ``degree.term``): the executor only pipelines one Series into Step 2b, so
+    :func:`term_season_to_conferral_date` cannot pair year + season without misusing
+    ``extra_columns`` against the base table.
+
+    Unrecognized or malformed tokens → ``NaT``.
+    """
+    str_s = s.astype("string").str.strip()
+    parts = str_s.str.extract(
+        r"^(\d{4})([A-Za-z][A-Za-z0-9]*)$", expand=True
+    )
+    year_int = pd.to_numeric(parts[0], errors="coerce")
+    suffix = parts[1].astype("string").str.upper()
+    season = suffix.map(_RAW_TERM_TOKEN_SUFFIX_TO_SEASON)
+
+    out: list[pd.Timestamp | None] = []
+    for i in range(len(s)):
+        y = year_int.iloc[i]
+        sea = season.iloc[i]
+        if pd.isna(y) or pd.isna(sea) or sea not in SEASON_END_MONTH_DAY:
+            out.append(pd.NaT)
+            continue
+        month, day = SEASON_END_MONTH_DAY[sea]
+        out.append(pd.Timestamp(year=int(y), month=month, day=day))
+
+    return pd.Series(out, index=s.index, dtype="datetime64[ns]")

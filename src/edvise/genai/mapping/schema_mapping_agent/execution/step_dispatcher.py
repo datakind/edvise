@@ -41,6 +41,7 @@ from ..transformation.utilities import (
     normalize_grade,
     normalize_pell,
     normalize_student_age,
+    raw_term_token_to_conferral_date,
     replace_null_tokens,
     replace_values_with_null,
     strip_trailing_decimal,
@@ -160,6 +161,9 @@ def dispatch_step(
         "strip_trailing_decimal": lambda: strip_trailing_decimal(s),
         "fill_constant": lambda: fill_constant(s, step.value),
         "extract_year": lambda: extract_year(s),
+        "raw_term_token_to_conferral_date": lambda: raw_term_token_to_conferral_date(
+            s
+        ),
         "substring_after_first_delimiter": lambda: substring_after_first_delimiter(
             s,
             delimiter=step.delimiter,
