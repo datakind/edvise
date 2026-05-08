@@ -33,6 +33,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.validation import (
 from edvise.genai.mapping.shared.schema_contract import (
     parse_enriched_schema_contract_for_sma,
 )
+from edvise.configs import genai as genai_cfg
 from edvise.data_audit.schemas.raw_edvise_student import (
     RawEdviseStudentDataSchema,
 )
@@ -971,8 +972,21 @@ def _find_eval_project_root() -> Path:
     )
 
 
-def _resolve_mapping_manifest(institution_id: str) -> Path:
-    """Prefer final_hitl gold manifest, then v1."""
+EVAL_REFERENCE_SOURCE_ENV = "EDVISE_EVAL_REFERENCE_SOURCE"
+"""``auto`` | ``silver_active`` | ``historical_examples`` — see :func:`_resolve_reference_mapping_manifest`."""
+
+
+def _eval_uc_catalog() -> str | None:
+    """Workspace catalog for ``/Volumes/<catalog>/…`` (matches job ``DB_workspace``)."""
+    for key in ("EDVISE_EVAL_UC_CATALOG", "GENAI_HITL_CATALOG", "DB_workspace"):
+        v = os.environ.get(key)
+        if v and str(v).strip():
+            return str(v).strip()
+    return None
+
+
+def _resolve_hitl_mapping_manifest(institution_id: str) -> Path:
+    """Repo HITL gold layout: ``historical_examples/.../final_hitl``, then ``v1``."""
     base = Path(f"pipelines/gen_ai_cleaning/historical_examples/{institution_id}")
     candidates = [
         base / "final_hitl" / f"{institution_id}_mapping_manifest.json",
@@ -985,6 +999,141 @@ def _resolve_mapping_manifest(institution_id: str) -> Path:
         "Mapping manifest not found for institution "
         f"{institution_id!r}. Tried:\n  " + "\n  ".join(str(p) for p in candidates)
     )
+
+
+def _resolve_reference_mapping_manifest(reference_id: str) -> Path:
+    """
+    Few-shot reference manifest for Step 2a.
+
+    Precedence:
+
+    1. ``EDVISE_EVAL_REFERENCE_MANIFEST_PATH`` — explicit file.
+    2. ``EDVISE_EVAL_REFERENCE_SOURCE``:
+
+       - ``historical_examples`` — only ``historical_examples/{ref}/final_hitl|v1``.
+       - ``silver_active`` — require
+         ``/Volumes/<catalog>/{ref}_silver/silver_volume/genai_mapping/active/manifest_map.json``.
+       - ``auto`` (default) — use that **active** path when a catalog is set and the file exists,
+         otherwise fall back to the repo HITL layout.
+
+    Catalog is resolved from ``EDVISE_EVAL_UC_CATALOG``, ``GENAI_HITL_CATALOG``, or ``DB_workspace``.
+    """
+    override = os.environ.get("EDVISE_EVAL_REFERENCE_MANIFEST_PATH")
+    if override and str(override).strip():
+        p = Path(str(override).strip()).expanduser()
+        if not p.is_file():
+            raise FileNotFoundError(
+                f"EDVISE_EVAL_REFERENCE_MANIFEST_PATH not found: {p}"
+            )
+        return p.resolve()
+
+    mode = (os.environ.get(EVAL_REFERENCE_SOURCE_ENV) or "auto").strip().lower()
+    if mode not in ("auto", "silver_active", "historical_examples"):
+        raise ValueError(
+            f"{EVAL_REFERENCE_SOURCE_ENV} must be auto, silver_active, or historical_examples; "
+            f"got {mode!r}"
+        )
+
+    if mode == "historical_examples":
+        return _resolve_hitl_mapping_manifest(reference_id)
+
+    catalog = _eval_uc_catalog()
+    silver_active = (
+        Path(genai_cfg.silver_genai_mapping_root(reference_id, catalog=catalog))
+        / "active"
+        / "manifest_map.json"
+        if catalog
+        else None
+    )
+
+    if mode == "silver_active":
+        if not catalog:
+            raise ValueError(
+                f"{EVAL_REFERENCE_SOURCE_ENV}=silver_active requires a UC catalog "
+                "(set EDVISE_EVAL_UC_CATALOG, GENAI_HITL_CATALOG, or DB_workspace)."
+            )
+        assert silver_active is not None
+        if not silver_active.is_file():
+            raise FileNotFoundError(
+                "Reference manifest not found at pipeline active path "
+                f"(promote execute artifacts or copy HITL): {silver_active}"
+            )
+        return silver_active
+
+    assert mode == "auto"
+    if silver_active is not None and silver_active.is_file():
+        return silver_active
+    return _resolve_hitl_mapping_manifest(reference_id)
+
+
+def _resolve_reference_transformation_map_for_eval(reference_id: str) -> Path:
+    """
+    Few-shot reference transformation map for Step 2b.
+
+    Same env pattern as :func:`_resolve_reference_mapping_manifest`, with explicit override
+    ``EDVISE_EVAL_REFERENCE_TRANSFORMATION_MAP_PATH`` and active path
+    ``…/genai_mapping/active/transformation_map.json``.
+    """
+    override = os.environ.get("EDVISE_EVAL_REFERENCE_TRANSFORMATION_MAP_PATH")
+    if override and str(override).strip():
+        p = Path(str(override).strip()).expanduser()
+        if not p.is_file():
+            raise FileNotFoundError(
+                f"EDVISE_EVAL_REFERENCE_TRANSFORMATION_MAP_PATH not found: {p}"
+            )
+        return p.resolve()
+
+    mode = (os.environ.get(EVAL_REFERENCE_SOURCE_ENV) or "auto").strip().lower()
+    if mode not in ("auto", "silver_active", "historical_examples"):
+        raise ValueError(
+            f"{EVAL_REFERENCE_SOURCE_ENV} must be auto, silver_active, or historical_examples; "
+            f"got {mode!r}"
+        )
+
+    base = Path(f"pipelines/gen_ai_cleaning/historical_examples/{reference_id}")
+    hitl_candidates = [
+        base / "final_hitl" / f"{reference_id}_transformation_map.json",
+        base / "v1" / f"{reference_id}_transformation_map.json",
+    ]
+
+    def _hitl_tm() -> Path:
+        for path in hitl_candidates:
+            if path.exists():
+                return path
+        raise FileNotFoundError(
+            "Reference transformation map not found for institution "
+            f"{reference_id!r}. Tried:\n  " + "\n  ".join(str(p) for p in hitl_candidates)
+        )
+
+    if mode == "historical_examples":
+        return _hitl_tm()
+
+    catalog = _eval_uc_catalog()
+    silver_active = (
+        Path(genai_cfg.silver_genai_mapping_root(reference_id, catalog=catalog))
+        / "active"
+        / "transformation_map.json"
+        if catalog
+        else None
+    )
+
+    if mode == "silver_active":
+        if not catalog:
+            raise ValueError(
+                f"{EVAL_REFERENCE_SOURCE_ENV}=silver_active requires a UC catalog "
+                "(set EDVISE_EVAL_UC_CATALOG, GENAI_HITL_CATALOG, or DB_workspace)."
+            )
+        assert silver_active is not None
+        if not silver_active.is_file():
+            raise FileNotFoundError(
+                "Reference transformation map not found at pipeline active path: "
+                f"{silver_active}"
+            )
+        return silver_active
+
+    if silver_active is not None and silver_active.is_file():
+        return silver_active
+    return _hitl_tm()
 
 
 # ── main execution ───────────────────────────────────────────────────────────
@@ -1017,7 +1166,7 @@ def run():
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
         # ── gold manifest ─────────────────────────────────────────────────────
-        GOLD_MANIFEST_PATH = _resolve_mapping_manifest(target_id)
+        GOLD_MANIFEST_PATH = _resolve_hitl_mapping_manifest(target_id)
         GOLD_MANIFEST = load_json(str(GOLD_MANIFEST_PATH))
         logger.info(f"Loaded gold manifest from {GOLD_MANIFEST_PATH}")
 
@@ -1027,7 +1176,7 @@ def run():
         logger.info(f"Loaded target schema contract from {target_contract_path}")
         schema_contract_sma = parse_enriched_schema_contract_for_sma(target_contract)
 
-        REFERENCE_MANIFEST_PATH = _resolve_mapping_manifest(reference_id)
+        REFERENCE_MANIFEST_PATH = _resolve_reference_mapping_manifest(reference_id)
         reference_manifest = load_json(str(REFERENCE_MANIFEST_PATH))
         reference_manifest_path = str(REFERENCE_MANIFEST_PATH)
 

@@ -28,7 +28,13 @@ from pydantic import ValidationError
 from .schemas import TransformationMap
 from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
 from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
-from ..manifest.eval import MODELS, _find_eval_project_root, folder_slug_2b, run_once
+from ..manifest.eval import (
+    MODELS,
+    _find_eval_project_root,
+    _resolve_reference_transformation_map_for_eval,
+    folder_slug_2b,
+    run_once,
+)
 from .prompt import build_step2b_prompt, load_json
 
 load_dotenv()
@@ -641,12 +647,7 @@ def run():
         institution_mapping_manifest = load_json(str(manifest_path))
         logger.info(f"Loaded target mapping manifest from {manifest_path}")
 
-        ref_tm_path = (
-            Path("pipelines/gen_ai_cleaning/historical_examples")
-            / reference_id
-            / "final_hitl"
-            / f"{reference_id}_transformation_map.json"
-        )
+        ref_tm_path = _resolve_reference_transformation_map_for_eval(reference_id)
         reference_transformation_map = load_json(str(ref_tm_path))
         if reference_transformation_map.get("institution_id") != reference_id:
             raise ValueError(
