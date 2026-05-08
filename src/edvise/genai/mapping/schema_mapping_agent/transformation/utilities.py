@@ -7,7 +7,9 @@ take a second Series resolved from ``extra_columns``; see field_executor._execut
 No DataFrame context, no cross-table joins — those are handled by field_executor.
 
 # Conferral Date
-``term_season_to_conferral_date`` and ``SEASON_END_MONTH_DAY`` build proxy end-of-term
+``academic_year_and_canonical_season_to_conferral_date``,
+``compact_term_code_to_conferral_date``, and
+``SEASON_END_MONTH_DAY`` build proxy end-of-term
 conferral datetimes from academic year strings (YYYY-YY) and canonical season labels;
 see definitions at the bottom of this module.
 
@@ -572,38 +574,24 @@ this utility.
 """
 
 
-def term_season_to_conferral_date(
+def academic_year_and_canonical_season_to_conferral_date(
     s: pd.Series,
     season_series: pd.Series,
 ) -> pd.Series:
     """
-    Convert academic year + canonical season label to a proxy conferral datetime.
+    Two **aligned** Series → proxy end-of-term conferral datetime.
 
-    Uses end-of-term conventions from SEASON_END_MONTH_DAY: graduation happens
-    at the end of a term, not the beginning. Proxy dates are defensible for
-    time-to-completion and cohort completion rate calculations.
+    First series carries a **calendar year** (any string containing a 4-digit
+    year; e.g. ``\"2023\"``, ``\"2022-23\"``, ``\"202301\"``). Second series
+    carries **canonical** season labels: FALL, SPRING, SUMMER, WINTER.
 
-    Args:
-        s: String Series of academic years in YYYY-YY format
-           (e.g. "2022-23") — typically _edvise_term_academic_year or the
-           output of a prior extract_year step on a raw term code column.
-           The first 4-digit year substring is used as the calendar year.
-        season_series: String Series of canonical season labels
-           (FALL, SPRING, SUMMER, WINTER) — resolved from base DataFrame
-           via extra_columns. Typically _edvise_term_season or the output
-           of a prior map_values step on a raw season fragment.
+    ``season_series`` is normally supplied via Step 2b ``extra_columns`` and must
+    name a **real column on the cohort base table** — not a lookup-only column.
+
+    Uses :data:`SEASON_END_MONTH_DAY`.
 
     Returns:
-        datetime64[ns] Series. Null input rows → pd.NaT.
-        Unrecognized season labels → pd.NaT.
-
-    Notes:
-        - This utility assumes US semester/quarter calendar defaults.
-          Quarter-system or non-US institutions may need hook_required override.
-        - Always surface lossiness in reviewer_notes on plans using this utility.
-        - Paired with map_values for raw season fragment → canonical label
-          conversion when _edvise_term_season is not available (e.g. raw term
-          code columns on the wide student row).
+        datetime64[ns] Series. Null or unrecognized season → ``NaT``.
     """
     year_str = s.astype("string").str.extract(r"(\d{4})", expand=False)
     year_int = pd.to_numeric(year_str, errors="coerce")
@@ -626,7 +614,7 @@ def term_season_to_conferral_date(
 
 
 # Suffix after leading calendar year in compact codes like 2025SP, 2024FA, 2015S1.
-_RAW_TERM_TOKEN_SUFFIX_TO_SEASON: dict[str, str] = {
+_COMPACT_TERM_SUFFIX_TO_SEASON: dict[str, str] = {
     "FA": "FALL",
     "FALL": "FALL",
     "SP": "SPRING",
@@ -640,18 +628,18 @@ _RAW_TERM_TOKEN_SUFFIX_TO_SEASON: dict[str, str] = {
 }
 
 
-def raw_term_token_to_conferral_date(s: pd.Series) -> pd.Series:
+def compact_term_code_to_conferral_date(s: pd.Series) -> pd.Series:
     """
-    Parse compact institutional term tokens (e.g. ``2025SP``, ``2024FA``, ``2015S1``) to
-    proxy end-of-term conferral datetimes.
+    **One** Series of compact alphanumeric term codes → proxy conferral datetime.
 
-    Uses the same end-of-term month/day conventions as
-    :func:`term_season_to_conferral_date` via :data:`SEASON_END_MONTH_DAY`.
+    Parses tokens matching ``YYYY`` + suffix (e.g. ``2025SP``, ``2024FA``, ``2015S1``),
+    maps suffix to a canonical season, then delegates to
+    :func:`academic_year_and_canonical_season_to_conferral_date` so end-of-term
+    logic is not duplicated.
 
-    Intended for manifest paths that resolve a **single** raw term-code column from a
-    lookup (e.g. ``degree.term``): the executor only pipelines one Series into Step 2b, so
-    :func:`term_season_to_conferral_date` cannot pair year + season without misusing
-    ``extra_columns`` against the base table.
+    Use when the manifest exposes a **single** source column (wide student row or
+    merged lookup) and Step 2b cannot supply a second base-table column for
+    ``extra_columns``.
 
     Unrecognized or malformed tokens → ``NaT``.
     """
@@ -659,18 +647,9 @@ def raw_term_token_to_conferral_date(s: pd.Series) -> pd.Series:
     parts = str_s.str.extract(
         r"^(\d{4})([A-Za-z][A-Za-z0-9]*)$", expand=True
     )
-    year_int = pd.to_numeric(parts[0], errors="coerce")
+    year_series = parts[0].astype("string")
     suffix = parts[1].astype("string").str.upper()
-    season = suffix.map(_RAW_TERM_TOKEN_SUFFIX_TO_SEASON)
-
-    out: list[pd.Timestamp | None] = []
-    for i in range(len(s)):
-        y = year_int.iloc[i]
-        sea = season.iloc[i]
-        if pd.isna(y) or pd.isna(sea) or sea not in SEASON_END_MONTH_DAY:
-            out.append(pd.NaT)
-            continue
-        month, day = SEASON_END_MONTH_DAY[sea]
-        out.append(pd.Timestamp(year=int(y), month=month, day=day))
-
-    return pd.Series(out, index=s.index, dtype="datetime64[ns]")
+    season_series = suffix.map(_COMPACT_TERM_SUFFIX_TO_SEASON)
+    return academic_year_and_canonical_season_to_conferral_date(
+        year_series, season_series
+    )

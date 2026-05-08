@@ -406,7 +406,8 @@ per record and the field executor cannot co-resolve `_edvise_term_season` from t
 selected lookup row alongside `_edvise_term_academic_year`. Any such mapping silently pairs
 the academic year with the wrong season at execution time. Conferral timing must always come
 from either a true datetime column or a single raw term-code column whose token embeds the
-season (Step 2b parses it with `coerce_datetime` / `term_season_to_conferral_date` etc.).
+season (Step 2b parses it with `coerce_datetime` /
+`academic_year_and_canonical_season_to_conferral_date` / `compact_term_code_to_conferral_date` etc.).
 
 **(1) Preferred — true calendar datetime on the wide student row (`datetime64[ns]`)**
 - When a datetime column on the student base table directly represents conferral / completion timing for
@@ -432,7 +433,8 @@ season (Step 2b parses it with `coerce_datetime` / `term_season_to_conferral_dat
 - When no award / degree lookup path is joinable and the only usable source is a **raw term-code** column on
   the student table: map from that column with `source_table` = student base table,
   `row_selection.strategy`: `"any_row"`, **confidence ≤ {t}**, and **validation_notes** that Step 2b must
-  parse/coerce using inline `map_values` plus `term_season_to_conferral_date` (or an equivalent documented
+  parse/coerce using inline `map_values` plus
+  `academic_year_and_canonical_season_to_conferral_date` (or an equivalent documented
   utility chain) as appropriate to the grounded format.
 - **Credential-specific targets:** when the term column is shared across award types but the same wide row
   has a discriminator (e.g. `primary_degree`, `awarded_degree`, `highest_degree_awarded`, certificate-type

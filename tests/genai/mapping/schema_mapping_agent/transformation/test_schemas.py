@@ -12,11 +12,12 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     ReviewStatus,
 )
 from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
+    AcademicYearAndCanonicalSeasonToConferralDateStep,
     FieldTransformationPlan,
     FlaggedStep,
     MapValuesStep,
     TermComponentsToDatetimeStep,
-    TermSeasonToConferralDateStep,
+    TransformationHITLItem,
     TransformationHITLOption,
     TransformationMap,
     TransformationStep,
@@ -64,17 +65,111 @@ def test_transformation_step_term_components_to_datetime():
     assert step.extra_columns["season_series"] == "_edvise_term_season"
 
 
-def test_transformation_step_term_season_to_conferral_date():
+def test_transformation_step_academic_year_and_canonical_season_to_conferral_date():
     adapter = TypeAdapter(TransformationStep)
     step = adapter.validate_python(
         {
-            "function_name": "term_season_to_conferral_date",
+            "function_name": "academic_year_and_canonical_season_to_conferral_date",
             "column": "_year_str",
             "extra_columns": {"season_series": "_season_canon"},
         }
     )
-    assert isinstance(step, TermSeasonToConferralDateStep)
+    assert isinstance(step, AcademicYearAndCanonicalSeasonToConferralDateStep)
     assert step.extra_columns["season_series"] == "_season_canon"
+
+
+def test_transformation_step_compact_term_code_to_conferral_date():
+    adapter = TypeAdapter(TransformationStep)
+    step = adapter.validate_python(
+        {
+            "function_name": "compact_term_code_to_conferral_date",
+            "column": "degree_term",
+        }
+    )
+    assert step.function_name == "compact_term_code_to_conferral_date"
+
+
+def test_field_plan_rejects_extract_year_before_compact_term_conferral():
+    with pytest.raises(ValidationError, match="extract_year"):
+        FieldTransformationPlan.model_validate(
+            {
+                "target_field": "associates_degree_conferral_date",
+                "output_dtype": "datetime64[ns]",
+                "confidence": 0.9,
+                "steps": [
+                    {"function_name": "strip_whitespace", "column": "term"},
+                    {"function_name": "extract_year", "column": "term"},
+                    {
+                        "function_name": "compact_term_code_to_conferral_date",
+                        "column": "term",
+                    },
+                ],
+            }
+        )
+
+
+def test_field_plan_allows_compact_term_conferral_without_extract_year():
+    plan = FieldTransformationPlan.model_validate(
+        {
+            "target_field": "associates_degree_conferral_date",
+            "output_dtype": "datetime64[ns]",
+            "confidence": 0.9,
+            "steps": [
+                {"function_name": "strip_whitespace", "column": "term"},
+                {
+                    "function_name": "compact_term_code_to_conferral_date",
+                    "column": "term",
+                },
+            ],
+        }
+    )
+    assert len(plan.steps) == 2
+
+
+def test_hitl_item_rejects_extract_year_before_compact_term_code_conferral():
+    with pytest.raises(ValidationError, match="extract_year"):
+        TransformationHITLItem(
+            item_id="lee_col_cohort_associates_degree_conferral_date",
+            institution_id="lee_col",
+            entity_type=EntityType.cohort,
+            target_field="associates_degree_conferral_date",
+            confidence=0.7,
+            flagged_steps=[
+                FlaggedStep(
+                    step_index=1,
+                    function_name="compact_term_code_to_conferral_date",
+                    reason="ambiguous_format",
+                    context={},
+                )
+            ],
+            steps=[
+                {"function_name": "extract_year", "column": "term"},
+                {
+                    "function_name": "compact_term_code_to_conferral_date",
+                    "column": "term",
+                },
+            ],
+            options=[
+                TransformationHITLOption(
+                    option_id="approve",
+                    label="A",
+                    description="a",
+                    resolution={"approved": True},
+                ),
+                TransformationHITLOption(
+                    option_id="correct",
+                    label="C",
+                    description="c",
+                    resolution=None,
+                ),
+                TransformationHITLOption(
+                    option_id="unmappable",
+                    label="U",
+                    description="u",
+                    resolution={"steps": [], "output_dtype": None},
+                ),
+            ],
+        )
 
 
 def test_transformation_step_rejects_retired_new_utility_discriminator():
@@ -86,6 +181,23 @@ def test_transformation_step_rejects_retired_new_utility_discriminator():
                 "description": "Need fuzzy date parser",
             }
         )
+
+
+def test_transformation_step_rejects_legacy_conferral_function_names():
+    adapter = TypeAdapter(TransformationStep)
+    for legacy in ("term_season_to_conferral_date", "raw_term_token_to_conferral_date"):
+        with pytest.raises(ValidationError):
+            adapter.validate_python(
+                {
+                    "function_name": legacy,
+                    "column": "x",
+                    **(
+                        {"extra_columns": {"season_series": "y"}}
+                        if legacy == "term_season_to_conferral_date"
+                        else {}
+                    ),
+                }
+            )
 
 
 def test_field_transformation_plan_hook_required():

@@ -9,7 +9,8 @@ All of those concerns live in:
     - execution.field_executor.execute_transformation_map (orchestration)
 
 Steps that need a second Series (birthyear_to_age_bucket,
-conditional_credits, term_components_to_datetime, term_season_to_conferral_date)
+conditional_credits, term_components_to_datetime,
+academic_year_and_canonical_season_to_conferral_date)
 are handled in
 execution.field_executor._execute_step() before reaching this dispatcher.
 """
@@ -41,7 +42,7 @@ from ..transformation.utilities import (
     normalize_grade,
     normalize_pell,
     normalize_student_age,
-    raw_term_token_to_conferral_date,
+    compact_term_code_to_conferral_date,
     replace_null_tokens,
     replace_values_with_null,
     strip_trailing_decimal,
@@ -102,9 +103,10 @@ def dispatch_step(
     Dispatch a single TransformationStep to its utility function.
 
     All steps here are pure Series → Series.
-    birthyear_to_age_bucket, conditional_credits, and term_components_to_datetime
-    are NOT in this dispatch table — they require a second Series and are handled
-    upstream in execution.field_executor._execute_step().
+    birthyear_to_age_bucket, conditional_credits, term_components_to_datetime,
+    and academic_year_and_canonical_season_to_conferral_date are NOT in this dispatch
+    table — they require a second Series and are handled upstream in
+    execution.field_executor._execute_step().
 
     Args:
         s: Input Series from prior step in the chain
@@ -119,7 +121,7 @@ def dispatch_step(
         "birthyear_to_age_bucket",
         "conditional_credits",
         "term_components_to_datetime",
-        "term_season_to_conferral_date",
+        "academic_year_and_canonical_season_to_conferral_date",
     ):
         raise ExecutionError(
             f"Step '{fn}' requires a second Series and must be handled by "
@@ -161,7 +163,7 @@ def dispatch_step(
         "strip_trailing_decimal": lambda: strip_trailing_decimal(s),
         "fill_constant": lambda: fill_constant(s, step.value),
         "extract_year": lambda: extract_year(s),
-        "raw_term_token_to_conferral_date": lambda: raw_term_token_to_conferral_date(
+        "compact_term_code_to_conferral_date": lambda: compact_term_code_to_conferral_date(
             s
         ),
         "substring_after_first_delimiter": lambda: substring_after_first_delimiter(

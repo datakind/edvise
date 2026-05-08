@@ -143,6 +143,15 @@ This branch applies whether the manifest's `source_table` is an award/degree loo
 (joined from student) or the wide student row directly. Step 2a handles join + filter +
 order; the resolved Series arrives at Step 2b as a single value per student.
 
+CONFERRAL-STYLE DATETIME — EXACT ``function_name`` VALUES (copy these strings into JSON)
+- ``compact_term_code_to_conferral_date`` — **one** resolved source column with compact tokens such as
+  ``2025SP``, ``2024FA``, ``2015S1``. Typical chain: ``strip_whitespace`` → ``compact_term_code_to_conferral_date``
+  only (no ``extract_year`` before it).
+- ``academic_year_and_canonical_season_to_conferral_date`` — **two** inputs: the pipelined ``column`` must carry
+  a 4-digit calendar year (string may embed it, e.g. ``2022-23``); ``extra_columns`` must include
+  ``{{"season_series": "<name of a real base-table column>"}}`` whose values are canonical FALL / SPRING /
+  SUMMER / WINTER. Use only when both columns exist on the cohort **base** table.
+
 HOW TO CHOOSE CONFERRAL UTILITIES (executor contract — read before picking steps)
 - Infer cohort **execution base table** the same way Step 2a does: first manifest mapping with a join →
   that join's `base_table` (almost always `student` for cohort); otherwise the mode of non-null `source_table`.
@@ -150,22 +159,22 @@ HOW TO CHOOSE CONFERRAL UTILITIES (executor contract — read before picking ste
   - **Lookup / not the base** (e.g. `degree`, `term` while base is `student`): Step 2b only ever receives **one**
     resolved Series — the manifest's `source_column` after join + row_selection. There is **no** second lookup
     column on the base frame, and **prior-step outputs are not base-table columns**. Therefore you **must not**
-    use `term_season_to_conferral_date` or `term_components_to_datetime` here (they need `extra_columns` from
+    use `academic_year_and_canonical_season_to_conferral_date` or `term_components_to_datetime` here (they need `extra_columns` from
     **physical base-table columns**). For one token that encodes year + season (``2025SP``, ``2024FA``, …):
-    `strip_whitespace` → `raw_term_token_to_conferral_date`. For true YYYYMM calendar encodings on that same
+    `strip_whitespace` → `compact_term_code_to_conferral_date`. For true YYYYMM calendar encodings on that same
     single column: `strip_trailing_decimal` → `coerce_datetime(fmt="%Y%m")` when justified by sample_values.
     If the format needs a year column + a separate season column but only one lookup column exists →
     `hook_required: true`, empty `steps`, explain in `reviewer_notes` (executor gap).
   - **Same as base** (manifest `source_table` equals cohort base, typically `student`): you **may** use
-    `term_season_to_conferral_date` or `term_components_to_datetime` **only if** `extra_columns` names real
+    `academic_year_and_canonical_season_to_conferral_date` or `term_components_to_datetime` **only if** `extra_columns` names real
     columns that **exist on that base table** in the cleaned data (e.g. `_edvise_term_academic_year` bound as
     the primary `column` / pipelined series and `_edvise_term_season` in `extra_columns` — but conferral
     targets must not source `_edvise_term_*` as the manifest `source_column` per rules above; this case is
     rare for conferral and usually means a different target or a wide row with paired columns).
 
 - **YYYY + compact season suffix** (e.g. ``2025SP``, ``2024FA``, ``2015S1`` — year then FA/SP/S1/S2):
-  - `strip_whitespace` → `raw_term_token_to_conferral_date` — **one Series only**; do not chain
-    `term_season_to_conferral_date` with `extra_columns` here (lookup columns like `term` are not on the
+  - `strip_whitespace` → `compact_term_code_to_conferral_date` — **one Series only**; do not chain
+    `academic_year_and_canonical_season_to_conferral_date` with `extra_columns` here (lookup columns like `term` are not on the
     cohort base table, and intermediate `map_values` output is not a base-table column).
   - Flag `review_required: true` when suffix coverage is inferred from sample_values.
 
@@ -174,7 +183,7 @@ HOW TO CHOOSE CONFERRAL UTILITIES (executor contract — read before picking ste
   - Inspect digits 5–6 to classify: if they correspond to calendar months (01–12 with plausible
     distribution across all 12), treat as true YYYYMM → `coerce_datetime(fmt="%Y%m")`.
   - If digits 5–6 appear to be season codes (e.g. only "01", "05", "08" appear — sparse, not all
-    12 months): **do not** chain to `term_season_to_conferral_date` when the manifest `source_table` is a
+    12 months): **do not** chain to `academic_year_and_canonical_season_to_conferral_date` when the manifest `source_table` is a
     **lookup** — `map_values` output is not a base-table column and cannot be passed via `extra_columns`.
     Prefer `hook_required: true` with empty `steps` and `reviewer_notes` describing the encoding until a
     single-Series utility or manifest change exists. If the manifest `source_table` **is** the cohort base and
@@ -185,11 +194,11 @@ HOW TO CHOOSE CONFERRAL UTILITIES (executor contract — read before picking ste
 
 - **Season_YYYY string** (e.g. "Fall 2023", "Spring 2022"):
   - Only when the manifest `source_column` lives on the **cohort base table** so a second column for
-    `term_season_to_conferral_date` can legally be resolved: e.g. split into year + season columns that
-    both exist on `student`, or use `raw_term_token_to_conferral_date` / `coerce_datetime` if a single
+    `academic_year_and_canonical_season_to_conferral_date` can legally be resolved: e.g. split into year + season columns that
+    both exist on `student`, or use `compact_term_code_to_conferral_date` / `coerce_datetime` if a single
     token column is easier.
   - If you truly have paired year and season **as base-table columns**, you may use
-    `term_season_to_conferral_date` with `extra_columns` pointing only at those base columns — never at
+    `academic_year_and_canonical_season_to_conferral_date` with `extra_columns` pointing only at those base columns — never at
     a joined lookup-only column.
   - `map_values` is flagged: `reason=inferred_season_mapping` unless `unique_values` provides complete
     explicit coverage.
@@ -455,6 +464,11 @@ OUTPUT DTYPES
 
 STEP ORDERING
 - Apply string cleaning (strip_whitespace, lowercase, uppercase) before value mapping
+- Never place `extract_year` before `compact_term_code_to_conferral_date` in the same plan — the compact
+  parser needs the full token (e.g. 2025SP) on the pipelined Series. Schema validation rejects that order.
+  For chains that use `map_values` on full tokens then `extract_year` for
+  `academic_year_and_canonical_season_to_conferral_date`, run `map_values` **before**
+  `extract_year`.
 - If map_values key matching depends on a normalized form (e.g. uppercase grade tokens),
   apply the normalizing step (normalize_grade, uppercase, etc.) BEFORE map_values —
   not after. The map keys must match the values that actually arrive at that step.
@@ -470,14 +484,14 @@ STEP ORDERING
 EXTRA COLUMNS
 - Some utilities require extra_columns
   (e.g., birthyear_to_age_bucket needs reference_year_series, conditional_credits needs grade_series,
-  term_components_to_datetime / term_season_to_conferral_date need a second column on the **base** table)
+  term_components_to_datetime / academic_year_and_canonical_season_to_conferral_date need a second column on the **base** table)
 - Specify extra_columns as a dict mapping parameter names to source column names: {{"param_name": "column_name"}}
 - These columns are resolved from the base DataFrame before the step runs — they must already exist
   on the base DataFrame in source space. Do **not** name a column from a joined lookup table here;
   the cross-table resolver only fetches the manifest's `source_column`, not arbitrary co-resolved
   columns from the same selected lookup row. The output of an earlier Step 2b step is **not** a new
   base-table column — you cannot point `extra_columns` at ``"term"`` (or any lookup-only field) to
-  stand in for a prior `map_values` result; use `raw_term_token_to_conferral_date` for single-token
+  stand in for a prior `map_values` result; use `compact_term_code_to_conferral_date` for single-token
   codes like ``2025SP`` from degree/award lookups instead.
 
 NULL HANDLING

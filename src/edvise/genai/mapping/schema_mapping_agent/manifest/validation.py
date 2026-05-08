@@ -281,7 +281,7 @@ class ManifestValidationErrorCode(str, Enum):
     # academic year with the wrong season (or failing if the column is absent).
     # Fix: source a true conferral datetime column, or a raw term code column (on the
     # award/degree lookup row or the wide student row) that Step 2b can parse with
-    # `coerce_datetime` / `term_season_to_conferral_date` etc.
+    # `coerce_datetime` / conferral utilities (`academic_year_and_canonical_season_to_conferral_date`, etc.)
 
 
 class ManifestValidationError(BaseModel):
