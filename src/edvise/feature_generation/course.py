@@ -205,7 +205,7 @@ def course_grade(
 def _grade_is_passing(grade: str, min_passing_grade: float) -> bool | None:
     if grade in NON_PASS_FAIL_GRADES:
         return None
-    elif grade == "P" | grade == "PASS":
+    elif grade == "P" or grade == "PASS":
         return True
     elif grade == "F":
         return False
