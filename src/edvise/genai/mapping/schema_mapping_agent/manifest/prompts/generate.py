@@ -36,10 +36,17 @@ def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
     )
 
 
-# Injected into extract_schema_descriptor JSON for RawEdviseStudentDataSchema prompts
-# (SMA + downstream steps). Pandera Field descriptions are often unset; these spell out
-# cohort-time vs outcome semantics for the mapping agent.
+# Injected into extract_schema_descriptor JSON for RawEdvise* prompts (SMA + downstream
+# steps). Pandera Field descriptions are often unset; these spell out cohort-time vs
+# outcome semantics, term-snapshot vs cohort scope, and target dtype/coercion expectations
+# the mapping agent cannot reliably infer from the Pandera model alone.
 _RAW_EDVISE_STUDENT_FIELD_SEMANTIC_NOTES: dict[str, str] = {
+    "enrollment_type": (
+        "Cohort entry classification: how the student entered this institution and program "
+        "(e.g. first-time, transfer, post-bacc, dual-enrolled, returning). Stable per student "
+        "for a given cohort entry. Not current enrollment load (full-time vs part-time), "
+        "not term-level status."
+    ),
     "intended_program_type": (
         "Cohort entry snapshot: program or credential the student intended to pursue when "
         "entering (aligned with entry_year/entry_term). Not the current/latest primary program."
@@ -50,6 +57,79 @@ _RAW_EDVISE_STUDENT_FIELD_SEMANTIC_NOTES: dict[str, str] = {
     ),
     "major_at_completion": (
         "Outcome: field of study at completion/exit — distinct from declared_major_at_entry."
+    ),
+    "conferred_credential_type": (
+        "Outcome: the credential type actually conferred at exit — covers all award types "
+        "(bachelors degrees, associate degrees, certificates, occupational awards, etc.). "
+        "Do NOT filter to a single credential category. row_selection selects which credential to surface (e.g. first by "
+        "term order) but the eligible pool must include all awarded_degree values, not just the "
+        "subset used for a specific conferral date target like associates_degree_conferral_date."
+    ),
+    "learner_age": (
+        "Coerced to fixed PDP age buckets (LEARNER_AGE_BUCKETS) at validate time. Mapping a "
+        "raw birthyear or age column requires a Step 2b transformation that buckets values "
+        "(e.g. birthyear_to_age_bucket with a cohort-year reference) — never pass raw integer "
+        "ages or DOB strings through unchanged."
+    ),
+    "first_generation_status": (
+        "Cohort entry snapshot: institution's first-generation classification at entry "
+        "(e.g. neither parent holds a 4-year degree). Map only from explicit first-gen / "
+        "parental-education indicators; do NOT derive from weak proxies like Pell status, "
+        "low income, or socioeconomic flags."
+    ),
+    "pell_recipient_year1": (
+        "Year-1-of-cohort Pell receipt for THIS cohort entry. Not 'ever received Pell,' not "
+        "current-term Pell, and not the course-side term_pell_recipient. When the only source "
+        "is term-level Pell, you MUST select the year-1 row deterministically (e.g. first_by "
+        "term-order with a documented year-1 filter) rather than any_row."
+    ),
+    "credits_earned_ap": (
+        "Numeric count of credit hours earned via AP (Float64). A boolean / yes-no flag for "
+        "'took AP' is INSUFFICIENT — leave unmappable rather than coercing a flag into a "
+        "credit count. Do not map generic transfer-credit totals to this field."
+    ),
+    "credits_earned_dual_enrollment": (
+        "Numeric count of credit hours earned via dual enrollment (Float64). A boolean "
+        "'dual-credit ever' flag is INSUFFICIENT, and a generic transfer_credits total cannot "
+        "be isolated to dual-enrollment hours — leave unmappable in those cases. Course-level "
+        "dual-credit hours may need to be summed upstream."
+    ),
+}
+
+# Injected into extract_schema_descriptor JSON for RawEdviseCourseDataSchema prompts.
+# Course-side fields with non-obvious semantics (term-snapshot scope, grain key role,
+# format vs modality distinction) that the model otherwise has to guess at.
+_RAW_EDVISE_COURSE_FIELD_SEMANTIC_NOTES: dict[str, str] = {
+    "source_term_key": (
+        "Stable distinct-enrollment grain key for the source term instance — typically "
+        "IdentityAgent's _term_grain (composite of raw year, season, and term order). "
+        "Keeps re-enrollments distinct when canonical academic_year / academic_term collapse "
+        "multiple source terms. Map from _term_grain when present on the course base table; "
+        "do NOT use _term_grain as a chronological order_by — it is a string composite, not "
+        "an ordinal sort key. Use _term_order for chronological sorting."
+    ),
+    "term_degree": (
+        "Term snapshot: degree level the student is pursuing IN THIS TERM (e.g. UG / GR, "
+        "Associate / Bachelors). Not the credential conferred at exit (conferred_credential_type) "
+        "and not the cohort intended_program_type."
+    ),
+    "term_declared_major": (
+        "Term snapshot: declared major IN THIS TERM. Distinct from cohort "
+        "declared_major_at_entry (entry-time) and major_at_completion (outcome)."
+    ),
+    "term_pell_recipient": (
+        "Term-level Pell receipt for THIS term enrollment. Distinct from cohort-level "
+        "pell_recipient_year1 (year 1 of program). Coerced to PDP categorical at validate time."
+    ),
+    "instructional_format": (
+        "Delivery STRUCTURE of the course section — e.g. lecture, lab, seminar, clinical, "
+        "practicum, discussion, studio. NOT the delivery medium (online vs in-person); that "
+        "is instructional_modality."
+    ),
+    "instructional_modality": (
+        "Delivery MEDIUM of the course section — e.g. in-person / face-to-face, online, "
+        "hybrid / blended, asynchronous. NOT the structural format (lecture vs lab); that "
+        "is instructional_format."
     ),
 }
 
@@ -73,6 +153,10 @@ def extract_schema_descriptor(schema_class: Any) -> dict[str, Any]:
     out: dict[str, Any] = {"schema_name": schema_class.__name__, "fields": fields}
     if schema_class.__name__ == "RawEdviseStudentDataSchema":
         for fname, note in _RAW_EDVISE_STUDENT_FIELD_SEMANTIC_NOTES.items():
+            if fname in out["fields"]:
+                out["fields"][fname]["semantic_note"] = note
+    elif schema_class.__name__ == "RawEdviseCourseDataSchema":
+        for fname, note in _RAW_EDVISE_COURSE_FIELD_SEMANTIC_NOTES.items():
             if fname in out["fields"]:
                 out["fields"][fname]["semantic_note"] = note
     return out
@@ -209,9 +293,26 @@ COHORT entry_year AND entry_term — decision hierarchy (apply in order)
 **(1) Preferred — IdentityAgent normalized columns on the student (cohort base) table**
 - When the schema contract **dtypes** for the cohort base table (typically `student`) include
   `_edvise_term_academic_year` and `_edvise_term_season`, map `entry_year` and `entry_term` to those
-  columns with `source_table` = that base table and `row_selection.strategy`: `"any_row"`.
+  columns with `source_table` = that base table.
+- **Grain check (REQUIRED before choosing `row_selection.strategy`):** inspect `unique_keys` on
+  the cohort base table in the schema contract.
+    - **Student grain** — `unique_keys` is exactly the learner-id column alone (e.g.
+      `["student_id"]`) with **no** term key: each student appears in **one** row, so
+      `_edvise_term_*` is the cohort/entry term by construction. Use `row_selection.strategy`:
+      `"any_row"`.
+    - **Student-term grain** — `unique_keys` includes a term-key column alongside the learner-id
+      column (e.g. `["student_id", "term"]`, regardless of the institutional column names):
+      each student has **multiple** rows whose `_edvise_term_*` values differ across terms, so
+      `any_row` is non-deterministic and will pick an arbitrary term, **not** the cohort/entry
+      term. Use `row_selection.strategy`: `"first_by"`, `row_selection.order_by`: `"_term_order"`
+      (IdentityAgent chronological sort key — `year * 100 + season_rank`; do not use `_term_grain`,
+      which is a distinct-enrollment key, not a chronological order key) to select the **earliest**
+      enrollment term row. State in **rationale** that this is the first enrollment term as a proxy
+      for cohort entry on a student-term-grain student table.
 - Do **not** treat raw institutional term-code strings on student (e.g. `starting_cohort_term`) as an
   equivalent preferred source when `_edvise_term_*` are present.
+- Do **not** default to `any_row` without checking `unique_keys` — strategy choice is determined by
+  the grain of the cohort base table, not by the presence of `_edvise_term_*` alone.
 
 **(2) Fallback — join to `term` or `course` (student-term grain)**
 - Use only when **(1)** is impossible: `_edvise_term_*` are missing on the student row **and** a viable
@@ -248,7 +349,23 @@ These fields describe the student **at cohort/program entry** (same conceptual m
 **(1) Preferred — explicit entry / admit / starting fields on the student (cohort) row**
 - Map from columns whose names or dictionary definitions clearly mean **starting**, **entry**,
   **admit**, **first-term**, or **cohort** program or major intent.
-- With student-grain base table: `row_selection.strategy`: `"any_row"`.
+- **Grain check (REQUIRED before choosing `row_selection.strategy`):** inspect `unique_keys` on
+  the cohort base table in the schema contract.
+    - **Student grain** — `unique_keys` is exactly the learner-id column alone (e.g.
+      `["student_id"]`) with **no** term key: the field is stable per student by construction. Use
+      `row_selection.strategy`: `"any_row"`.
+    - **Student-term grain** — `unique_keys` includes a term-key column alongside the learner-id
+      column (e.g. `["student_id", "term"]`, regardless of the institutional column names): each
+      student has **multiple** rows and the entry/admit value can differ across term rows or be
+      populated only on certain rows, so `any_row` is non-deterministic. Use
+      `row_selection.strategy`: `"first_by"`, `row_selection.order_by`: `"_term_order"`
+      (IdentityAgent chronological sort key; do not use `_term_grain`, which is a
+      distinct-enrollment key, not a chronological order key) to select the **earliest** enrollment
+      term row — the same key used for `entry_year` / `entry_term` on a student-term-grain student
+      table. State the proxy (first enrollment term, not necessarily institutional cohort) in
+      **rationale** / **validation_notes**.
+- Do **not** default to `any_row` without checking `unique_keys` — strategy choice is determined by
+  the grain of the cohort base table.
 
 **(2) Only longitudinal (term-level) program or major history exists**
 - Resolve the value **at or before** the entry term: use the same term-order key as for
@@ -499,6 +616,13 @@ ROW SELECTION
 - Use "first_by" strategy only when row ordering has semantic meaning — e.g. earliest term, most recent record.
   The sort column must be present in the schema contract and must have a meaningful ordinal interpretation.
   Do not use first_by with an arbitrary column just to resolve grain ambiguity
+- CRITICAL: When ordering by IdentityAgent term metadata, `row_selection.order_by` MUST be `_term_order`
+  (chronological sort key: `year * 100 + season_rank`). Do NOT use `_term_grain` as `order_by` — it is a
+  string composite (`year|season|term_order`) used as a distinct-enrollment grain key for `source_term_key`,
+  not a chronological sort key, and lexicographic sorting on it is meaningless. Do NOT use
+  `_edvise_term_season` (a categorical season label) or `_edvise_term_academic_year` alone (year-only,
+  loses within-year season order) as `order_by` either — `_term_order` is the only IA term column that
+  encodes full chronological order.
 - Use "nth" strategy only when you need the Nth matching row after sorting (e.g. 2nd certificate, 3rd award).
   You MUST set row_selection.n to a positive integer (1 = first row after sort, 2 = second, …) and
   row_selection.order_by to the contract column used for sorting — never omit n or use null for nth

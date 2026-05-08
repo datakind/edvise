@@ -3,7 +3,7 @@ import json
 import logging
 import os
 from collections import Counter
-from typing import Any, cast
+from typing import Any, Literal, cast
 from copy import deepcopy
 import pandas as pd
 from pathlib import Path
@@ -20,6 +20,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
     build_step2a_prompt_course_pass,
     load_json,
     merge_step2a_entity_manifests,
+    run_sma_refinement,
     strip_json_fences,
 )
 
@@ -74,8 +75,6 @@ MODELS = [
     "claude-opus-test-genai-ai-data-cleaning",
     "claude-sonnet-test-genai-ai-data-cleaning",
     "claude-haiku-test-genai-data-cleaning",
-    "gpt52-test-genai-ai-datacleaning",
-    "gemini-test-genai-ai-datacleaning",
 ]
 
 # Short label per gateway model → output folders like {base}_2a_{SHOT_TAG}, {base}_2b_{SHOT_TAG}
@@ -83,8 +82,6 @@ MODEL_BASE_SLUG = {
     "claude-opus-test-genai-ai-data-cleaning": "opus",
     "claude-sonnet-test-genai-ai-data-cleaning": "sonnet",
     "claude-haiku-test-genai-data-cleaning": "haiku",
-    "gpt52-test-genai-ai-datacleaning": "gpt52",
-    "gemini-test-genai-ai-datacleaning": "gemini",
 }
 
 # Set to "2shot" (or another tag) before run() when evaluating a multi-turn / 2-shot prompt variant
@@ -93,6 +90,11 @@ SHOT_TAG = "1shot"
 # Two LLM calls (cohort then course), merged to the same full-manifest JSON shape as single-pass.
 # Set False to use build_step2a_prompt + one run_once per model (legacy).
 STEP2A_TWO_PASS = True
+
+# After Step 2a, run the same SMA refinement as onboard (``run_sma_refinement`` per entity),
+# write ``*_mapping_manifest_refined.json``, score vs gold as ``refined_*`` columns, and extend
+# field_detail CSV with ``stage`` = ``2a`` / ``after_refinement``.
+RUN_REFINEMENT_AFTER_2A = True
 
 
 def folder_slug_2a(model: str) -> str:
@@ -111,8 +113,6 @@ def folder_slug_2b(model: str) -> str:
 MODELS_WITH_PREFILL = {
     "claude-sonnet-test-genai-ai-data-cleaning",
     "claude-haiku-test-genai-data-cleaning",
-    "gpt52-test-genai-ai-datacleaning",
-    "gemini-test-genai-ai-datacleaning",
 }
 
 
@@ -315,6 +315,79 @@ def run_step2a_two_pass(
         "response_chars": len(merged_str),
         "response": merged_str,
         "error": None,
+    }
+
+
+def _make_refinement_llm_complete(
+    model: str,
+    client: OpenAI,
+    latencies: list[float],
+):
+    """Match onboard SMA: single user blob with system and user sections (gateway pattern)."""
+
+    def llm_complete(system: str, user: str) -> str:
+        s = (system or "").strip()
+        u = (user or "").strip()
+        if s and u:
+            combined = f"{s}\n\n---\n\n{u}"
+        elif u:
+            combined = u
+        elif s:
+            combined = s
+        else:
+            raise RuntimeError(
+                "SMA refinement LLM call has empty system and user prompts"
+            )
+        out = run_once(model, combined, client)
+        latencies.append(float(out.get("latency_s") or 0.0))
+        if not out["success"]:
+            raise RuntimeError(out.get("error") or "refinement LLM call failed")
+        resp = out.get("response")
+        if not isinstance(resp, str) or not resp.strip():
+            raise RuntimeError("refinement LLM returned empty response")
+        return resp
+
+    return llm_complete
+
+
+def run_refine_on_envelope(
+    envelope: MappingManifestEnvelope,
+    *,
+    institution_id: str,
+    schema_contract_sma: Any,
+    model: str,
+    client: OpenAI,
+) -> tuple[MappingManifestEnvelope, dict[str, Any]]:
+    """Apply production ``run_sma_refinement`` per entity (same order as onboard)."""
+    refined = envelope.model_copy(deep=True)
+    latencies: list[float] = []
+    llm_complete = _make_refinement_llm_complete(model, client, latencies)
+    hitl_items: dict[str, int] = {}
+    struct_before: dict[str, int] = {}
+    struct_after: dict[str, int] = {}
+
+    for entity_key, entity_manifest in list(refined.manifests.items()):
+        ek = entity_key.value if hasattr(entity_key, "value") else str(entity_key)
+        errs = validate_manifest(entity_manifest, schema_contract_sma)
+        struct_before[ek] = len(errs)
+        refined_fm, hitl_env = run_sma_refinement(
+            institution_id=institution_id,
+            entity_type=cast(Literal["cohort", "course"], ek),
+            manifest=entity_manifest,
+            validation_errors=errs,
+            schema_contract=schema_contract_sma,
+            llm_complete=llm_complete,
+        )
+        refined.manifests[entity_key] = refined_fm
+        hitl_items[ek] = len(hitl_env.items)
+        errs2 = validate_manifest(refined_fm, schema_contract_sma)
+        struct_after[ek] = len(errs2)
+
+    return refined, {
+        "refinement_latency_s": round(sum(latencies), 3),
+        "hitl_items_by_entity": hitl_items,
+        "structural_errors_by_entity_2a": struct_before,
+        "structural_errors_by_entity_after_refinement": struct_after,
     }
 
 
@@ -1086,7 +1159,7 @@ def run():
             else:
                 logger.warning("→ manifest not saved (inference error)")
 
-            # score
+            # score (Step 2a output vs gold)
             scores = score_result(
                 result, GOLD_MANIFEST, schema_contract=target_contract
             )
@@ -1114,6 +1187,113 @@ def run():
                 logger.warning("→ scoring skipped (parse failure or inference error)")
                 result["scores"] = None
 
+            result["scores_after_refinement"] = None
+            result["refinement_error"] = None
+            result["refinement_latency_s"] = None
+            result["latency_s_total"] = None
+            result["hitl_items_cohort"] = None
+            result["hitl_items_course"] = None
+            result["structural_errors_after_refinement_total"] = None
+
+            if (
+                RUN_REFINEMENT_AFTER_2A
+                and result["success"]
+                and isinstance(result.get("response"), str)
+                and result["response"].strip()
+            ):
+                try:
+                    env_for_ref = MappingManifestEnvelope.model_validate(
+                        json.loads(result["response"])
+                    )
+                    refined_env, ref_meta = run_refine_on_envelope(
+                        env_for_ref,
+                        institution_id=target_id,
+                        schema_contract_sma=schema_contract_sma,
+                        model=model,
+                        client=client,
+                    )
+                    refined_text = refined_env.model_dump_json(
+                        indent=2, exclude_none=True
+                    )
+                    refined_manifest_path = (
+                        manifest_dir / f"{target_id}_mapping_manifest_refined.json"
+                    )
+                    refined_manifest_path.write_text(refined_text)
+                    logger.info(
+                        "→ refined manifest saved → %s", refined_manifest_path
+                    )
+
+                    structural_refined: dict[str, list[dict[str, Any]]] = {}
+                    for entity_key, entity_manifest in refined_env.manifests.items():
+                        ek = (
+                            entity_key.value
+                            if hasattr(entity_key, "value")
+                            else str(entity_key)
+                        )
+                        eerrs = validate_manifest(
+                            entity_manifest, schema_contract_sma
+                        )
+                        structural_refined[ek] = [
+                            e.model_dump(mode="json") for e in eerrs
+                        ]
+                    ve_refined_path = (
+                        manifest_dir
+                        / f"{target_id}_validation_errors_after_refinement.json"
+                    )
+                    ve_refined_path.write_text(
+                        json.dumps(structural_refined, indent=2)
+                    )
+                    total_ver = sum(len(v) for v in structural_refined.values())
+                    logger.info(
+                        "→ structural validation after refinement: %d issue(s) → %s",
+                        total_ver,
+                        ve_refined_path,
+                    )
+
+                    refined_result = {
+                        "model": model,
+                        "success": True,
+                        "response": refined_text,
+                    }
+                    scores_r = score_result(
+                        refined_result,
+                        GOLD_MANIFEST,
+                        schema_contract=target_contract,
+                    )
+                    result["scores_after_refinement"] = scores_r
+                    result["refinement_latency_s"] = ref_meta["refinement_latency_s"]
+                    result["latency_s_total"] = round(
+                        float(result["latency_s"] or 0)
+                        + float(ref_meta["refinement_latency_s"]),
+                        3,
+                    )
+                    hmap = ref_meta["hitl_items_by_entity"]
+                    result["hitl_items_cohort"] = hmap.get("cohort")
+                    result["hitl_items_course"] = hmap.get("course")
+                    result["structural_errors_after_refinement_total"] = total_ver
+                    if scores_r:
+                        rs = "✓" if scores_r.get("validation_passed") else "✗"
+                        logger.info(
+                            "→ scores (after refinement) | validation=%s | "
+                            "map_decision=%s | map_prec_strict=%s | map_rec_strict=%s | "
+                            "source_exact=%s | exec_ready=%s | hitl_items=(cohort=%s, course=%s)",
+                            rs,
+                            scores_r["overall"]["map_decision_accuracy"],
+                            scores_r["overall"]["mappable_precision_strict"],
+                            scores_r["overall"]["mappable_recall_strict"],
+                            scores_r["overall"][
+                                "source_exact_accuracy_gold_mappable"
+                            ],
+                            scores_r["overall"]["execution_ready_rate"],
+                            result["hitl_items_cohort"],
+                            result["hitl_items_course"],
+                        )
+                except Exception as exc:
+                    result["refinement_error"] = str(exc)
+                    logger.exception(
+                        "[eval] Refinement failed for model=%s", model
+                    )
+
             rows.append(result)
             i += 1
 
@@ -1123,7 +1303,15 @@ def run():
         logger.info("=" * 80)
         for r in rows:
             status = "✓ SUCCESS" if r["success"] else "✗ FAILED"
-            logger.info(f"{status}: {r['model']} (latency: {r['latency_s']}s)")
+            lat_note = ""
+            if r.get("latency_s_total") is not None:
+                lat_note = (
+                    f" | total incl. refinement: {r['latency_s_total']}s "
+                    f"(refine {r.get('refinement_latency_s')}s)"
+                )
+            logger.info(
+                f"{status}: {r['model']} (2a latency: {r['latency_s']}s){lat_note}"
+            )
             if not r["success"]:
                 error_preview = (
                     r["error"][:200] + "..."
@@ -1138,9 +1326,10 @@ def run():
 
         # raw results (one row per model)
         raw_path = OUTPUT_DIR / f"raw_{RUN_ID}.csv"
-        df.drop(columns=["scores", "field_scores"], errors="ignore").to_csv(
-            raw_path, index=False
-        )
+        df.drop(
+            columns=["scores", "field_scores", "scores_after_refinement"],
+            errors="ignore",
+        ).to_csv(raw_path, index=False)
         logger.info(f"Raw results saved → {raw_path}")
 
         # summary metrics (one row per model)
@@ -1173,6 +1362,41 @@ def run():
                         },
                     }
                 )
+            if r.get("refinement_latency_s") is not None:
+                row_data["refinement_latency_s"] = r["refinement_latency_s"]
+            if r.get("latency_s_total") is not None:
+                row_data["latency_s_total"] = r["latency_s_total"]
+            if r.get("refinement_error") is not None:
+                row_data["refinement_error"] = r["refinement_error"]
+            if r.get("hitl_items_cohort") is not None:
+                row_data["hitl_items_cohort"] = r["hitl_items_cohort"]
+            if r.get("hitl_items_course") is not None:
+                row_data["hitl_items_course"] = r["hitl_items_course"]
+            if r.get("structural_errors_after_refinement_total") is not None:
+                row_data["structural_errors_after_refinement_total"] = r[
+                    "structural_errors_after_refinement_total"
+                ]
+            sr = r.get("scores_after_refinement")
+            if sr:
+                row_data["refined_validation_passed"] = sr.get("validation_passed")
+                row_data["refined_validation_error"] = sr.get("validation_error")
+                row_data.update(
+                    {f"refined_overall_{k}": v for k, v in sr["overall"].items()}
+                )
+                row_data.update(
+                    {
+                        f"refined_cohort_{k}": v
+                        for k, v in sr["cohort"].items()
+                        if k != "field_scores"
+                    }
+                )
+                row_data.update(
+                    {
+                        f"refined_course_{k}": v
+                        for k, v in sr["course"].items()
+                        if k != "field_scores"
+                    }
+                )
             summary_rows.append(row_data)
 
         summary_df = pd.DataFrame(summary_rows)
@@ -1183,11 +1407,23 @@ def run():
         # field-level detail (one row per model x field)
         field_rows = []
         for r in rows:
-            if r["scores"] is None:
-                continue
-            for entity in ("cohort", "course"):
-                for fs in r["scores"][entity]["field_scores"]:
-                    field_rows.append({"model": r["model"], **fs})
+            if r["scores"] is not None:
+                for entity in ("cohort", "course"):
+                    for fs in r["scores"][entity]["field_scores"]:
+                        field_rows.append(
+                            {"model": r["model"], "stage": "2a", **fs}
+                        )
+            sr = r.get("scores_after_refinement")
+            if sr:
+                for entity in ("cohort", "course"):
+                    for fs in sr[entity]["field_scores"]:
+                        field_rows.append(
+                            {
+                                "model": r["model"],
+                                "stage": "after_refinement",
+                                **fs,
+                            }
+                        )
 
         field_df = pd.DataFrame(field_rows)
         field_path = OUTPUT_DIR / f"field_detail_{RUN_ID}.csv"
@@ -1198,6 +1434,10 @@ def run():
         if not summary_df.empty:
             # Build column list, including validation_passed if it exists
             cols = ["model", "latency_s"]
+            if "refinement_latency_s" in summary_df.columns:
+                cols.append("refinement_latency_s")
+            if "latency_s_total" in summary_df.columns:
+                cols.append("latency_s_total")
             if "validation_passed" in summary_df.columns:
                 cols.append("validation_passed")
             cols.extend(
@@ -1214,6 +1454,22 @@ def run():
                     "overall_degree_filter_accuracy",
                     "overall_exact_field_match_rate",
                     "overall_execution_ready_rate",
+                ]
+            )
+            cols.extend(
+                [
+                    c
+                    for c in (
+                        "refined_validation_passed",
+                        "refined_overall_map_decision_accuracy",
+                        "refined_overall_mappable_precision_strict",
+                        "refined_overall_mappable_recall_strict",
+                        "refined_overall_source_exact_accuracy_gold_mappable",
+                        "refined_overall_execution_ready_rate",
+                        "hitl_items_cohort",
+                        "hitl_items_course",
+                    )
+                    if c in summary_df.columns
                 ]
             )
             # Only include columns that exist in the dataframe

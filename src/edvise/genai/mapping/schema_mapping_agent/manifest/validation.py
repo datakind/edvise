@@ -43,6 +43,27 @@ from edvise.genai.mapping.shared.schema_contract.schemas import (
 from .schemas import ColumnAlias, FieldMappingManifest, FieldMappingRecord
 
 # ---------------------------------------------------------------------------
+# Term-ordering: chronology vs grain
+# ---------------------------------------------------------------------------
+# IdentityAgent materializes several term-related columns. Only `_term_order`
+# encodes full chronological order (year * 100 + season_rank). The columns below
+# are present on student/course base tables when IA enrichment ran but are NOT
+# valid choices for `row_selection.order_by` because lexicographic / categorical
+# sort on them does not reproduce chronological term order:
+#   - _term_grain                 : composite "year|season|term_order" (grain key)
+#   - _edvise_term_season         : season label (FALL / SPRING / SUMMER)
+#   - _edvise_term_academic_year  : year-only string (loses within-year season order)
+# Used by ROW_SELECTION_ORDER_BY_NOT_CHRONOLOGICAL.
+NON_CHRONOLOGICAL_TERM_ORDER_COLUMNS: frozenset[str] = frozenset(
+    {
+        "_term_grain",
+        "_edvise_term_season",
+        "_edvise_term_academic_year",
+    }
+)
+
+
+# ---------------------------------------------------------------------------
 # Schema contract helpers
 # ---------------------------------------------------------------------------
 
@@ -156,6 +177,18 @@ class ManifestValidationErrorCode(str, Enum):
     # row_selection.order_by column not present in schema contract for source_table.
     # Applies to first_by and nth strategies.
     # Check: _has_column(schema_contract, record.source_table, record.row_selection.order_by)
+
+    ROW_SELECTION_ORDER_BY_NOT_CHRONOLOGICAL = (
+        "ROW_SELECTION_ORDER_BY_NOT_CHRONOLOGICAL"
+    )
+    # row_selection.order_by references an IdentityAgent term column that is not a
+    # chronological sort key — sorting by it produces undefined or wrong row order:
+    #   - _term_grain   : string composite "year|season|term_order" (distinct-enrollment grain)
+    #   - _edvise_term_season         : categorical season label (FALL/SPRING/SUMMER)
+    #   - _edvise_term_academic_year  : year-only string, loses within-year season order
+    # The chronological sort key is _term_order (year * 100 + season_rank).
+    # Applies to first_by and nth strategies.
+    # Check: record.row_selection.order_by in NON_CHRONOLOGICAL_TERM_ORDER_COLUMNS
 
     ROW_SELECTION_CONDITION_COL_NOT_FOUND = "ROW_SELECTION_CONDITION_COL_NOT_FOUND"
     # row_selection.condition_col not present in schema contract for source_table.
@@ -452,6 +485,9 @@ def _check_row_selection(
     Rules:
       1. row_selection.order_by must exist in schema contract for source_table
          (applies to first_by and nth strategies).
+      1a. row_selection.order_by must not be a non-chronological IA term column
+          (e.g. _term_grain, _edvise_term_season, _edvise_term_academic_year);
+          use _term_order for chronological sorting.
       2. row_selection.condition_col must exist in schema contract for source_table
          (applies to where_not_null strategy).
       3. row_selection.filter.column must exist in schema contract for source_table.
@@ -477,6 +513,25 @@ def _check_row_selection(
                         f"row_selection.order_by '{rs.order_by}' not found in "
                         f"table '{table}'. "
                         f"Available columns: {available}"
+                    ),
+                    offending_value=rs.order_by,
+                )
+            )
+        elif rs.order_by in NON_CHRONOLOGICAL_TERM_ORDER_COLUMNS:
+            # Rule 1a — the column exists, but it is one of the IA term columns
+            # that does not encode chronological order. Suggest _term_order.
+            errors.append(
+                ManifestValidationError(
+                    target_field=record.target_field,
+                    error_code=ManifestValidationErrorCode.ROW_SELECTION_ORDER_BY_NOT_CHRONOLOGICAL,
+                    detail=(
+                        f"row_selection.order_by '{rs.order_by}' is an IdentityAgent term "
+                        "column that does NOT encode chronological order — "
+                        "_term_grain is a string composite (year|season|term_order) used as a "
+                        "distinct-enrollment grain key, _edvise_term_season is a categorical "
+                        "season label, and _edvise_term_academic_year is year-only and loses "
+                        "within-year season order. Use '_term_order' (year * 100 + season_rank) "
+                        "as row_selection.order_by for chronological sorting."
                     ),
                     offending_value=rs.order_by,
                 )
