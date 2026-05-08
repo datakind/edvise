@@ -241,8 +241,9 @@ def add_features(
         batch1["student_has_earned_certificate_at_other_inst"] = ft.partial(
             student_earned_certificate, inst="other"
         )
-    if s.term_cohort_and_transfer_flags:
+    if s.term_is_pre_cohort:
         batch1["term_is_pre_cohort"] = term_is_pre_cohort
+    if s.term_is_while_student_enrolled_at_other_inst:
         batch1["term_is_while_student_enrolled_at_other_inst"] = (
             term_is_while_student_enrolled_at_other_inst
         )
@@ -356,7 +357,9 @@ def term_is_pre_cohort(
 def term_is_while_student_enrolled_at_other_inst(
     df: pd.DataFrame, *, col: str = "num_courses_enrolled_at_other_institution_s_Y"
 ) -> pd.Series:
-    return df[col].gt(0)
+    if col not in df.columns:
+        return pd.Series(False, index=df.index, dtype="boolean")
+    return df[col].gt(0).astype("boolean")
 
 
 def term_program_of_study_area(

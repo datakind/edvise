@@ -200,10 +200,18 @@ def resolve_student_term_add_feature_spec(
     has_cr = has_data_col(
         df_course, course_cols.number_of_credits_earned
     ) and has_data_col(df_course, course_cols.number_of_credits_attempted)
+    has_oth = (
+        has_data_col(df_course, course_cols.enrolled_at_other_institution_s)
+        if course_cols.enrolled_at_other_institution_s
+        else False
+    )
     return StudentTermAddFeatureSpec(
         year_of_enrollment_at_cohort_inst=will_have_cohort_start,
         student_certificates=will_have_cohort_start and (c_cert or o_cert),
-        term_cohort_and_transfer_flags=will_have_cohort_start,
+        term_is_pre_cohort=will_have_cohort_start,
+        term_is_while_student_enrolled_at_other_inst=bool(
+            will_have_cohort_start and has_oth
+        ),
         program_of_study_area=has_term_prog,
         credit_fraction_and_intensity=has_cr,
         num_courses_in_program_area=has_term_prog,

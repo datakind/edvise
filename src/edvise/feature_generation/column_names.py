@@ -213,7 +213,8 @@ class StudentTermAddFeatureSpec:
 
     year_of_enrollment_at_cohort_inst: bool = True
     student_certificates: bool = True
-    term_cohort_and_transfer_flags: bool = True
+    term_is_pre_cohort: bool = True
+    term_is_while_student_enrolled_at_other_inst: bool = True
     program_of_study_area: bool = True
     credit_fraction_and_intensity: bool = True
     num_courses_in_program_area: bool = True
