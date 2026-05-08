@@ -140,6 +140,7 @@ def make_student_term_dataset(
         .merge(df_students, how="inner", on=merge_on)
         .pipe(
             feature_generation.student_term.add_features,
+            cols=course_input_columns,
             min_num_credits_full_time=min_num_credits_full_time,
             spec=student_term_add_feature_spec,
         )

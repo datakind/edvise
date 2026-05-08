@@ -22,7 +22,7 @@ def _changed_prev_term(
     df: pd.DataFrame,
     *,
     col: str,
-    student_id_cols: list[str] = ["institution_id", "student_id"],
+    student_id_cols: list[str] = ["student_id"],
     term_rank_col: str = "term_rank",
 ) -> pd.Series:
     """
@@ -206,6 +206,7 @@ def aggregate_from_course_level_features(
 def add_features(
     df: pd.DataFrame,
     *,
+    cols: CourseInputColumns,
     min_num_credits_full_time: float = constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
     spec: StudentTermAddFeatureSpec | None = None,
 ) -> pd.DataFrame:
@@ -215,6 +216,7 @@ def add_features(
 
     Args:
         df
+        cols: CourseInputColumns,
         min_num_credits_full_time: Minimum number of credits *attempted* per term
             for a student's enrollment intensity to be considered "full-time".
             Default value is 12.0.
@@ -310,8 +312,16 @@ def add_features(
         )
     if s.program_change_from_prior_term:
         out = out.assign(
-            term_program_of_study_changed_prev_term=term_program_of_study_changed_prev_term,
-            term_program_of_study_area_changed_prev_term=term_program_of_study_area_changed_prev_term,
+            **{
+                "term_program_of_study_changed_prev_term": ft.partial(
+                    term_program_of_study_changed_prev_term,
+                    student_id_cols=[cols.student_id],
+                ),
+                "term_program_of_study_area_changed_prev_term": ft.partial(
+                    term_program_of_study_area_changed_prev_term,
+                    student_id_cols=[cols.student_id],
+                ),
+            }
         )
     return out
 
