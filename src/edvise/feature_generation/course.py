@@ -15,7 +15,7 @@ from .column_names import (
 LOGGER = logging.getLogger(__name__)
 
 NON_NUMERIC_GRADES = {"A", "F", "I", "M", "O", "P", "W", "S", "PASS", "SAT", "UNSAT", "U", "WD", "IP", "AU", "NG", "NR", "M"}
-NON_PASS_FAIL_GRADES = {"A", "I", "M", "O", "W", "AU"}
+NON_PASS_FAIL_GRADES = {"A", "I", "M", "O", "W", "AU", "S", "SAT", "UNSAT", "U", "WD", "IP", "NG", "NR", "M"}
 NON_COMPLETE_GRADES = {"I", "W", "WD", "IP"}
 
 
@@ -183,6 +183,7 @@ def course_grade(
         # let's replace it with "AUDIT" for clarity, and so we can safely combine
         # non-numeric grades with derived letter grades below
         .replace("A", value="AUDIT")
+        .replace("AU", value="AUDIT")
         # similarly, "O" looks like "0", so let's replace with "OTHER" for clarity
         .replace("O", value="OTHER")
         .astype("string")
@@ -204,7 +205,7 @@ def course_grade(
 def _grade_is_passing(grade: str, min_passing_grade: float) -> bool | None:
     if grade in NON_PASS_FAIL_GRADES:
         return None
-    elif grade == "P":
+    elif grade == "P" | grade == "PASS":
         return True
     elif grade == "F":
         return False
@@ -273,8 +274,8 @@ def rank_local_dfwi_courses(
     min_enrollments: int = 30,  # ignore tiny Ns
     D_grades: set[str] = {"D", "DD"},
     F_grades: set[str] = {"F", "NP", "WF"},
-    W_grades: set[str] = {"W"},
-    I_grades: set[str] = {"I"},
+    W_grades: set[str] = {"W", "WD"},
+    I_grades: set[str] = {"I", "IP"},
     completed_grades: set[str] = {"A", "B", "C", "P"},
 ) -> pd.DataFrame:
     """
