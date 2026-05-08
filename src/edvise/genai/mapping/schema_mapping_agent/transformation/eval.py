@@ -22,8 +22,11 @@ from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
-from openai import OpenAI
 from pydantic import ValidationError
+
+from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
+    create_openai_client_for_databricks_gateway,
+)
 
 from .schemas import TransformationMap
 from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
@@ -662,13 +665,7 @@ def run():
         reference_institution_ids=[reference_id],
     )
 
-    TOKEN = os.environ.get("DATABRICKS_TOKEN")
-    if not TOKEN:
-        raise ValueError("DATABRICKS_TOKEN environment variable not set")
-    client = OpenAI(
-        api_key=TOKEN,
-        base_url="https://4437281602191762.ai-gateway.gcp.databricks.com/mlflow/v1",
-    )
+    client = create_openai_client_for_databricks_gateway()
 
     rows = []
     for i, model in enumerate(MODELS, start=1):

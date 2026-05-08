@@ -32,6 +32,7 @@ from hitl_reviewer.ui.hitl_streamlit import (
     clear_hitl_workbench_group_nav,
     default_catalog,
     display_columns,
+    init_sidebar_form_state,
     load_hitl_rows,
     validate_catalog,
 )
@@ -39,6 +40,7 @@ from hitl_reviewer.ui.hitl_streamlit import (
 _HITL_BENCH = "HITL Review"
 
 st.set_page_config(page_title="HITL — home", layout="wide")
+init_sidebar_form_state()
 clear_hitl_workbench_group_nav()
 st.title("GenAI HITL")
 st.caption(

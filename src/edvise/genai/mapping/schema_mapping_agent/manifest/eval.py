@@ -40,6 +40,9 @@ from edvise.data_audit.schemas.raw_edvise_student import (
 from edvise.data_audit.schemas.raw_edvise_course import (
     RawEdviseCourseDataSchema,
 )
+from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
+    create_openai_client_for_databricks_gateway,
+)
 
 load_dotenv()
 
@@ -1203,15 +1206,8 @@ def run():
             course_schema_class=RawEdviseCourseDataSchema,
         )
 
-    # ── OpenAI client ─────────────────────────────────────────────────────
-    TOKEN = os.environ.get("DATABRICKS_TOKEN")
-    if not TOKEN:
-        raise ValueError("DATABRICKS_TOKEN environment variable not set")
-    BASE_URL = "https://4437281602191762.ai-gateway.gcp.databricks.com/mlflow/v1"
-    client = OpenAI(
-        api_key=TOKEN,
-        base_url=BASE_URL,
-    )
+    # ── OpenAI client → Databricks MLflow AI Gateway (SDK bearer; PATs disabled orgs) ──
+    client = create_openai_client_for_databricks_gateway()
 
     # ── run loop ──────────────────────────────────────────────────────────
     rows = []

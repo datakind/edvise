@@ -93,6 +93,9 @@ _DISPLAY_COLS: tuple[str, ...] = (
 
 _CATALOG_SAFE = re.compile(r"^[a-zA-Z0-9_]+$")
 
+# Sidebar status filter; must match ``st.selectbox`` options in :func:`render_connection_sidebar`.
+_STATUS_FILTER_OPTIONS: tuple[str, ...] = ("(any)", "pending", "approved", "rejected")
+
 
 @dataclass(frozen=True)
 class SidebarState:
@@ -210,10 +213,15 @@ def init_sidebar_form_state() -> None:
         st.session_state["sidebar_f_run"] = ""
     if "sidebar_f_phase" not in st.session_state:
         st.session_state["sidebar_f_phase"] = ""
+    # Keep status aligned with the selectbox options. Empty or unknown values make Streamlit fall back
+    # to the first option "(any)", which looks like the filter "reset" after a table interaction.
     if "sidebar_f_status" not in st.session_state:
-        # Default the work queue to pending; use "(any)" on the History page when you need to search
-        # approved/rejected or all states.
         st.session_state["sidebar_f_status"] = "pending"
+    else:
+        _raw = st.session_state.get("sidebar_f_status")
+        _norm = ("" if _raw is None else str(_raw).strip())
+        if _norm not in _STATUS_FILTER_OPTIONS:
+            st.session_state["sidebar_f_status"] = "pending"
 
 
 def render_connection_sidebar(
@@ -269,7 +277,7 @@ def render_connection_sidebar(
             st.text_input("phase equals", key="sidebar_f_phase")
             st.selectbox(
                 "status",
-                options=["(any)", "pending", "approved", "rejected"],
+                options=list(_STATUS_FILTER_OPTIONS),
                 key="sidebar_f_status",
             )
             refresh_clicked = st.button(
@@ -776,6 +784,9 @@ def apply_nav_from_results_dataframe_event(
     if ri < 0 or ri >= len(full_df):
         return
     row = full_df.iloc[ri]
+    row_status = str(row.get("status", "") or "").strip().lower()
+    if row_status == "pending":
+        st.session_state["sidebar_f_status"] = "pending"
     o = str(row.get("onboard_run_id", "") or "").strip()
     ph = str(row.get("phase", "") or "").strip()
     at = str(row.get("artifact_type", "") or "").strip()
@@ -824,6 +835,7 @@ def apply_nav_from_home_pending_dataframe_event(
     if ri < 0 or ri >= len(full_df):
         return
     row = full_df.iloc[ri]
+    st.session_state["sidebar_f_status"] = "pending"
     o = str(row.get("onboard_run_id", "") or "").strip()
     ph = str(row.get("phase", "") or "").strip()
     at = str(row.get("artifact_type", "") or "").strip()
