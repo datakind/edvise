@@ -79,6 +79,9 @@ KEY_HYDRATE_SIG = "hitl_sidebar_hydrate_sig"
 HITL_RESULTS_DF_KEY = "hitl_workbench_results_df"
 # Home “What’s still pending?” table: selecting a row switches to the workbench page.
 HITL_HOME_PENDING_DF_KEY = "hitl_home_pending_results_df"
+# Status filter for ``key="sidebar_f_status"`` must not be assigned after the selectbox exists;
+# table selection handlers queue here; :func:`init_sidebar_form_state` applies before widgets render.
+KEY_DEFER_SIDEBAR_F_STATUS = "_hitl_defer_sidebar_f_status"
 
 _DISPLAY_COLS: tuple[str, ...] = (
     "institution_id",
@@ -205,6 +208,11 @@ def init_sidebar_form_state() -> None:
     Avoids the Streamlit warning that appears when a widget is given `value=...` while
     the same `key` is also set via the Session State API (e.g. from `maybe_hydrate_sidebar_from_nav`).
     """
+    _defer_status = st.session_state.pop(KEY_DEFER_SIDEBAR_F_STATUS, None)
+    if _defer_status is not None:
+        _ds = str(_defer_status).strip()
+        if _ds in _STATUS_FILTER_OPTIONS:
+            st.session_state["sidebar_f_status"] = _ds
     if "sidebar_catalog" not in st.session_state:
         st.session_state["sidebar_catalog"] = default_catalog()
     if "sidebar_limit" not in st.session_state:
@@ -786,7 +794,7 @@ def apply_nav_from_results_dataframe_event(
     row = full_df.iloc[ri]
     row_status = str(row.get("status", "") or "").strip().lower()
     if row_status == "pending":
-        st.session_state["sidebar_f_status"] = "pending"
+        st.session_state[KEY_DEFER_SIDEBAR_F_STATUS] = "pending"
     o = str(row.get("onboard_run_id", "") or "").strip()
     ph = str(row.get("phase", "") or "").strip()
     at = str(row.get("artifact_type", "") or "").strip()
@@ -835,7 +843,7 @@ def apply_nav_from_home_pending_dataframe_event(
     if ri < 0 or ri >= len(full_df):
         return
     row = full_df.iloc[ri]
-    st.session_state["sidebar_f_status"] = "pending"
+    st.session_state[KEY_DEFER_SIDEBAR_F_STATUS] = "pending"
     o = str(row.get("onboard_run_id", "") or "").strip()
     ph = str(row.get("phase", "") or "").strip()
     at = str(row.get("artifact_type", "") or "").strip()
