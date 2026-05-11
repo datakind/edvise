@@ -135,6 +135,8 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
               - --job_type
               - "{{job.parameters.job_type}}"
               - --db_run_id

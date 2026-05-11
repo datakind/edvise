@@ -157,7 +157,9 @@ resources:
               - --job_type
               - "{{job.parameters.job_type}}"
               - --config_file_path
-              - "{{tasks.data_ingestion.values.config_file_path}}"              
+              - "{{tasks.data_ingestion.values.config_file_path}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:

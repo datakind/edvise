@@ -1,8 +1,18 @@
-import logging
+"""Student selection for SST pipeline (PDP or Edvise ES configs).
+
+``--schema_type`` selects the project config model (same convention as
+:mod:`edvise.scripts.targets`).
+"""
+
+from __future__ import annotations
+
 import argparse
-import pandas as pd
+import logging
 import os
 import sys
+from typing import Type
+
+import pandas as pd
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
@@ -19,8 +29,9 @@ print("src_path:", src_path)
 print("sys.path:", sys.path)
 
 from edvise import student_selection
-from edvise.dataio.read import read_config
+from edvise.configs.es import ESProjectConfig
 from edvise.configs.pdp import PDPProjectConfig
+from edvise.dataio.read import read_config
 from edvise.shared.logger import (
     local_fs_path,
     resolve_run_path,
@@ -34,12 +45,28 @@ from edvise.shared.validation import (
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
 
+def _normalize_schema_type(raw: str) -> str:
+    return raw.strip().lower()
+
+
+def _project_config_class(schema_type: str) -> Type[PDPProjectConfig | ESProjectConfig]:
+    s = _normalize_schema_type(schema_type)
+    if s == "pdp":
+        return PDPProjectConfig
+    if s in ("edvise", "es"):
+        return ESProjectConfig
+    raise ValueError(
+        f"Unknown --schema_type {schema_type!r}; expected 'pdp', 'edvise', or 'es'."
+    )
+
+
 class StudentSelectionTask:
     """Handles selection of students based on specified attribute criteria."""
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(self.args.config_file_path, schema=PDPProjectConfig)
+        cfg_cls = _project_config_class(args.schema_type)
+        self.cfg = read_config(self.args.config_file_path, schema=cfg_cls)
 
         require(
             self.cfg.preprocessing is not None
@@ -145,10 +172,16 @@ class StudentSelectionTask:
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Student selection based on configured attributes."
+        description="Student selection based on configured attributes (PDP or Edvise ES)."
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument(
+        "--schema_type",
+        type=str,
+        default="pdp",
+        help="pdp | edvise | es — selects PDP vs ES project config schema.",
+    )
     parser.add_argument("--job_type", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
     return parser.parse_args()
