@@ -3,7 +3,8 @@
 Module :mod:`edvise.scripts.targets` (file ``targets.py``) must not be confused with
 the :mod:`edvise.targets` package (compute/retention helpers).
 
-``--schema_type`` selects the project config model and optional preprocessing:
+``--schema_type`` selects the project config model (see
+:mod:`edvise.configs.schema_type`) and optional preprocessing:
 
 - ``pdp``: :class:`edvise.configs.pdp.PDPProjectConfig` (default).
 - ``edvise`` or ``es``: :class:`edvise.configs.es.ESProjectConfig`, and when the
@@ -17,7 +18,6 @@ import argparse
 import logging
 import os
 import sys
-from typing import Type
 
 import pandas as pd
 
@@ -34,8 +34,7 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.configs.es import ESProjectConfig
-from edvise.configs.pdp import PDPProjectConfig
+from edvise.configs.schema_type import is_edvise_schema, project_config_class
 from edvise.dataio.read import read_config
 from edvise.shared.logger import (
     init_file_logging,
@@ -49,31 +48,12 @@ from edvise.targets.retention_edvise import assign_retention_column
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
 
-def _normalize_schema_type(raw: str) -> str:
-    return raw.strip().lower()
-
-
-def _project_config_class(schema_type: str) -> Type[PDPProjectConfig | ESProjectConfig]:
-    s = _normalize_schema_type(schema_type)
-    if s == "pdp":
-        return PDPProjectConfig
-    if s in ("edvise", "es"):
-        return ESProjectConfig
-    raise ValueError(
-        f"Unknown --schema_type {schema_type!r}; expected 'pdp', 'edvise', or 'es'."
-    )
-
-
-def _use_edvise_retention_preprocessing(schema_type: str) -> bool:
-    return _normalize_schema_type(schema_type) in ("edvise", "es")
-
-
 class TargetsTask:
     """Computes the target variable for an SST pipeline run."""
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        cfg_cls = _project_config_class(args.schema_type)
+        cfg_cls = project_config_class(args.schema_type)
         self.cfg = read_config(self.args.config_file_path, schema=cfg_cls)
 
     def target_generation(
@@ -85,10 +65,7 @@ class TargetsTask:
 
         target_cfg = preproc.target
         df = df_student_terms
-        if (
-            _use_edvise_retention_preprocessing(self.args.schema_type)
-            and target_cfg.type_ == "retention"
-        ):
+        if is_edvise_schema(self.args.schema_type) and target_cfg.type_ == "retention":
             df = assign_retention_column(
                 df, student_id_col=self.cfg.student_id_col
             )

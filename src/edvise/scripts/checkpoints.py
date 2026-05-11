@@ -4,7 +4,7 @@ Checkpoint dispatch uses ``isinstance`` against checkpoint classes from both
 :class:`~edvise.configs.pdp` and :class:`~edvise.configs.es` so whichever schema loaded the
 config resolves correctly (duplicate class definitions per module).
 
-See :mod:`edvise.scripts.targets` for ``--schema_type`` semantics.
+See :mod:`edvise.configs.schema_type` for ``--schema_type`` semantics.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import argparse
 import logging
 import os
 import sys
-from typing import Type
 
 import pandas as pd
 
@@ -33,28 +32,12 @@ print("sys.path:", sys.path)
 from edvise import checkpoints
 from edvise.configs import es as es_cfg
 from edvise.configs import pdp as pdp_cfg
-from edvise.configs.es import ESProjectConfig
-from edvise.configs.pdp import PDPProjectConfig
+from edvise.configs.schema_type import project_config_class
 from edvise.dataio.read import read_config
 from edvise.shared.logger import init_file_logging, local_fs_path, resolve_run_path
 from edvise.shared.validation import require
 
 logging.getLogger("py4j").setLevel(logging.WARNING)
-
-
-def _normalize_schema_type(raw: str) -> str:
-    return raw.strip().lower()
-
-
-def _project_config_class(schema_type: str) -> Type[PDPProjectConfig | ESProjectConfig]:
-    s = _normalize_schema_type(schema_type)
-    if s == "pdp":
-        return PDPProjectConfig
-    if s in ("edvise", "es"):
-        return ESProjectConfig
-    raise ValueError(
-        f"Unknown --schema_type {schema_type!r}; expected 'pdp', 'edvise', or 'es'."
-    )
 
 
 def _log_cohort_term_breakdown(df_ckpt: pd.DataFrame) -> None:
@@ -78,7 +61,7 @@ class CheckpointsTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        cfg_cls = _project_config_class(args.schema_type)
+        cfg_cls = project_config_class(args.schema_type)
         self.cfg = read_config(self.args.config_file_path, schema=cfg_cls)
 
     def checkpoint_generation(self, df_student_terms: pd.DataFrame) -> pd.DataFrame:
