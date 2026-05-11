@@ -205,13 +205,15 @@ resources:
             - task_key: student_selection
             - task_key: targets
           spark_python_task:
-            python_file: src/edvise/scripts/pdp_model_prep.py
+            python_file: src/edvise/scripts/model_prep.py
             source: GIT
             parameters:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
               - --config_file_name
