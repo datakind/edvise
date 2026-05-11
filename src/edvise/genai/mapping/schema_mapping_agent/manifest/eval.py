@@ -2,6 +2,7 @@ import time
 import json
 import logging
 import os
+import shutil
 from collections import Counter
 from collections.abc import Callable
 from typing import Any, Literal, cast
@@ -25,6 +26,14 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
     strip_json_fences,
 )
 
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl import (
+    check_sma_hitl_gate,
+    resolve_sma_items,
+    write_sma_hitl_artifact,
+)
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
+    InstitutionSMAHITLItems,
+)
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     MappingManifestEnvelope,
 )
@@ -119,6 +128,12 @@ def _round_trip_validate_saved_envelope_json(out_json: str) -> None:
 # write ``*_mapping_manifest_refined.json``, score vs gold as ``refined_*`` columns, and extend
 # field_detail CSV with ``stage`` = ``2a`` / ``after_refinement``.
 RUN_REFINEMENT_AFTER_2A = True
+
+
+def _eval_write_hitl_artifacts_to_workspace() -> bool:
+    """When true, refinement also writes ``cohort_hitl_manifest.json`` / ``course_hitl_manifest.json``."""
+    raw = os.environ.get("EDVISE_EVAL_WRITE_HITL_ARTIFACTS", "true").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 def folder_slug_2a(model: str) -> str:
@@ -596,6 +611,7 @@ def run_refine_on_envelope(
     latencies: list[float] = []
     llm_complete = _make_refinement_llm_complete(model, client, latencies)
     hitl_items: dict[str, int] = {}
+    hitl_by_entity: dict[str, Any] = {}
     struct_before: dict[str, int] = {}
     struct_after: dict[str, int] = {}
 
@@ -613,12 +629,14 @@ def run_refine_on_envelope(
         )
         refined.manifests[entity_key] = refined_fm
         hitl_items[ek] = len(hitl_env.items)
+        hitl_by_entity[ek] = hitl_env
         errs2 = validate_manifest(refined_fm, schema_contract_sma)
         struct_after[ek] = len(errs2)
 
     return refined, {
         "refinement_latency_s": round(sum(latencies), 3),
         "hitl_items_by_entity": hitl_items,
+        "hitl_by_entity": hitl_by_entity,
         "structural_errors_by_entity_2a": struct_before,
         "structural_errors_by_entity_after_refinement": struct_after,
     }
@@ -1174,6 +1192,117 @@ def validate_envelope_dict(manifest_dict: dict) -> tuple[bool, str | None]:
         return False, str(e)
 
 
+def rescore_step2a_after_hitl_resolution(
+    *,
+    refined_envelope_path: str | Path,
+    gold_manifest: dict,
+    target_schema_contract: dict | None,
+    model_label: str = "post_hitl",
+    output_post_hitl_path: str | Path | None = None,
+    resolved_by: str = "eval_hitl_notebook",
+    require_hitl_gate_clear: bool = True,
+) -> tuple[dict | None, Path]:
+    """
+    Copy the refined mapping envelope, apply cleared manifest HITL selections, score vs gold.
+
+    Expects ``cohort_hitl_manifest.json`` and ``course_hitl_manifest.json`` in the same
+    directory as ``refined_envelope_path`` (same layout as SMA onboard / Step 2a eval).
+
+    Parameters
+    ----------
+    require_hitl_gate_clear
+        When True, runs :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.hitl.check_sma_hitl_gate`
+        on both HITL files before resolving (raises if any item is still pending).
+    """
+    refined_path = Path(refined_envelope_path).resolve()
+    manifest_dir = refined_path.parent
+    cohort_hitl = manifest_dir / "cohort_hitl_manifest.json"
+    course_hitl = manifest_dir / "course_hitl_manifest.json"
+    if not cohort_hitl.is_file() or not course_hitl.is_file():
+        raise FileNotFoundError(
+            "Missing eval HITL files (expected next to refined manifest): "
+            f"{cohort_hitl} and/or {course_hitl}"
+        )
+
+    raw_env = json.loads(refined_path.read_text())
+    institution_id = str(raw_env.get("institution_id") or "").strip()
+    if not institution_id:
+        raise ValueError(f"Missing institution_id in {refined_path}")
+
+    out_path = (
+        Path(output_post_hitl_path).resolve()
+        if output_post_hitl_path is not None
+        else manifest_dir / f"{institution_id}_mapping_manifest_post_hitl.json"
+    )
+
+    if require_hitl_gate_clear:
+        check_sma_hitl_gate(cohort_hitl)
+        check_sma_hitl_gate(course_hitl)
+
+    shutil.copy2(refined_path, out_path)
+    resolve_sma_items(
+        cohort_hitl,
+        out_path,
+        resolved_by=resolved_by,
+    )
+    resolve_sma_items(
+        course_hitl,
+        out_path,
+        resolved_by=resolved_by,
+    )
+
+    result = {
+        "model": model_label,
+        "success": True,
+        "response": out_path.read_text(),
+    }
+    scores = score_result(
+        result,
+        gold_manifest,
+        schema_contract=target_schema_contract,
+    )
+    return scores, out_path
+
+
+def _write_eval_hitl_files_for_refinement(
+    manifest_dir: Path,
+    *,
+    institution_id: str,
+    hitl_by_entity: dict[str, Any],
+) -> None:
+    """Write per-entity HITL JSON next to refined manifest; seed empty files if missing."""
+    for ek, hitl_env in hitl_by_entity.items():
+        basename = (
+            "cohort_hitl_manifest.json"
+            if ek == "cohort"
+            else "course_hitl_manifest.json"
+        )
+        hp = write_sma_hitl_artifact(manifest_dir, hitl_env, basename=basename)
+        logger.info(
+            "→ eval HITL envelope (%s, %d item(s)) → %s",
+            ek,
+            len(hitl_env.items),
+            hp,
+        )
+
+    for entity_type, basename in (
+        ("cohort", "cohort_hitl_manifest.json"),
+        ("course", "course_hitl_manifest.json"),
+    ):
+        path = manifest_dir / basename
+        if not path.is_file():
+            write_sma_hitl_artifact(
+                manifest_dir,
+                InstitutionSMAHITLItems(
+                    institution_id=institution_id,
+                    entity_type=cast(Literal["cohort", "course"], entity_type),
+                    items=[],
+                ),
+                basename=basename,
+            )
+            logger.info("→ seeded empty HITL envelope → %s", path)
+
+
 def _eval_uc_catalog() -> str | None:
     """Workspace catalog for ``/Volumes/<catalog>/…`` (matches job ``DB_workspace``)."""
     for key in ("EDVISE_EVAL_UC_CATALOG", "GENAI_HITL_CATALOG", "DB_workspace"):
@@ -1579,6 +1708,15 @@ def run():
                 logger.info(
                     "→ refined manifest saved → %s", refined_manifest_path
                 )
+
+                if _eval_write_hitl_artifacts_to_workspace():
+                    hitl_map = ref_meta.get("hitl_by_entity") or {}
+                    if isinstance(hitl_map, dict) and hitl_map:
+                        _write_eval_hitl_files_for_refinement(
+                            manifest_dir,
+                            institution_id=target_id,
+                            hitl_by_entity=hitl_map,
+                        )
 
                 structural_refined: dict[str, list[dict[str, Any]]] = {}
                 for entity_key, entity_manifest in refined_env.manifests.items():
