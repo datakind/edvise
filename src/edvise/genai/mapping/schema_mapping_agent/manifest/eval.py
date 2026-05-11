@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from collections import Counter
+from collections.abc import Callable
 from typing import Any, Literal, cast
 from copy import deepcopy
 import pandas as pd
@@ -43,6 +44,8 @@ from edvise.data_audit.schemas.raw_edvise_course import (
 from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
     create_openai_client_for_databricks_gateway,
 )
+from edvise.genai.mapping.shared.pipeline_artifacts import coerce_pipeline_version
+from edvise.utils.llm_utils import LLMRetryExhausted, llm_complete_with_parse_retry
 
 load_dotenv()
 
@@ -239,6 +242,104 @@ def run_once(
         }
 
 
+def _make_eval_step2a_llm_complete(
+    model: str,
+    client: OpenAI,
+    latencies: list[float],
+) -> Callable[[str, str], str]:
+    """``(system, user) -> text`` for Step 2a parse-retry (same composition as onboard SMA)."""
+
+    def llm_complete(system: str, user: str) -> str:
+        s = (system or "").strip()
+        u = (user or "").strip()
+        if s and u:
+            combined = f"{s}\n\n---\n\n{u}"
+        elif u:
+            combined = u
+        elif s:
+            combined = s
+        else:
+            raise RuntimeError(
+                "SMA eval Step 2a LLM call has empty system and user prompts"
+            )
+        out = run_once(model, combined, client)
+        latencies.append(float(out.get("latency_s") or 0.0))
+        if not out["success"]:
+            raise RuntimeError(out.get("error") or "eval Step 2a LLM call failed")
+        resp = out.get("response")
+        if not isinstance(resp, str) or not resp.strip():
+            raise RuntimeError("eval Step 2a LLM returned empty response")
+        return resp
+
+    return llm_complete
+
+
+def _eval_step2a_parse_envelope(
+    raw: str,
+    *,
+    institution_id: str,
+    pipeline_version: str,
+) -> MappingManifestEnvelope:
+    manifest_dict = json.loads(raw)
+    if isinstance(manifest_dict, dict):
+        manifest_dict["institution_id"] = institution_id
+        manifest_dict["pipeline_version"] = pipeline_version
+    return MappingManifestEnvelope.model_validate(manifest_dict)
+
+
+def run_step2a_single_pass(
+    model: str,
+    client: OpenAI,
+    prompt: str,
+    *,
+    institution_id: str,
+    pipeline_version: str | None = None,
+) -> dict[str, Any]:
+    """
+    Step 2a single-pass with :func:`~edvise.utils.llm_utils.llm_complete_with_parse_retry`
+    (same pattern as ``edvise_genai_sma`` onboard): retry on JSON / Pydantic envelope errors.
+    """
+    pv = coerce_pipeline_version(pipeline_version)
+    latencies: list[float] = []
+    llm = _make_eval_step2a_llm_complete(model, client, latencies)
+
+    def parse_fn(raw: str) -> MappingManifestEnvelope:
+        return _eval_step2a_parse_envelope(
+            raw, institution_id=institution_id, pipeline_version=pv
+        )
+
+    try:
+        envelope = llm_complete_with_parse_retry(
+            llm,
+            "",
+            prompt,
+            parse_fn,
+            logger=logger,
+        )
+    except LLMRetryExhausted as e:
+        last_raw = e.last_raw_response
+        return {
+            "model": model,
+            "prompt": prompt,
+            "success": False,
+            "latency_s": round(sum(latencies), 3),
+            "response_chars": len(last_raw) if last_raw else None,
+            "response": last_raw,
+            "error": str(e),
+        }
+
+    out = envelope.model_dump_json(indent=2, exclude_none=True)
+    return {
+        "model": model,
+        "prompt": prompt,
+        "success": True,
+        "latency_s": round(sum(latencies), 3),
+        "response_chars": len(out),
+        "response": out,
+        "error": None,
+    }
+
+
 def run_step2a_two_pass(
     model: str,
     client: OpenAI,
@@ -246,79 +347,119 @@ def run_step2a_two_pass(
     prompt_course: str,
     *,
     institution_id: str | None = None,
+    pipeline_version: str | None = None,
 ) -> dict:
     """
-    Step 2a only: two gateway calls (cohort JSON, then course JSON), then merge into one manifest.
+    Step 2a: two gateway calls (cohort, then course), merge, then
+    :class:`~.schemas.MappingManifestEnvelope` validation.
 
-    ``prompt_cohort`` and ``prompt_course`` are independent (build with
-    ``build_step2a_prompt_cohort_pass`` / ``build_step2a_prompt_course_pass``); the course
-    pass does not include cohort output. Merge uses ``merge_step2a_entity_manifests``.
-    Pass ``institution_id`` when model output is partial (no envelope fields); if omitted,
-    merge falls back to ``institution_id`` on cohort/course JSON when present (legacy passes).
+    On JSON / merge / Pydantic failures, both passes are re-run with a correction hint
+    (up to 3 attempts total, same default as :func:`~edvise.utils.llm_utils.call_with_retry`).
 
-    Return shape matches ``run_once`` (same keys) for scoring and CSV export; ``latency_s``
-    is the sum of both calls.
+    ``institution_id`` is required for merge when fragments omit it (eval always passes it).
     """
+    max_attempts = 3
     sep = "\n\n=== STEP 2a PASS 2 (course) ===\n\n"
-    r1 = run_once(model, prompt_cohort, client)
-    prompt_combined = f"=== STEP 2a PASS 1 (cohort) ===\n\n{prompt_cohort}"
-    if not r1["success"]:
-        return {**r1, "prompt": prompt_combined}
-
-    try:
-        cohort_parsed = json.loads(r1["response"])
-    except json.JSONDecodeError as e:
+    prompt_combined = (
+        f"=== STEP 2a PASS 1 (cohort) ===\n\n{prompt_cohort}{sep}{prompt_course}"
+    )
+    if not institution_id:
         return {
             "model": model,
             "prompt": prompt_combined,
             "success": False,
-            "latency_s": r1["latency_s"],
+            "latency_s": 0.0,
             "response_chars": None,
             "response": None,
-            "error": f"cohort pass invalid JSON: {e}",
+            "error": "institution_id is required for two-pass Step 2a merge",
         }
 
-    prompt_combined = f"{prompt_combined}{sep}{prompt_course}"
+    pv = coerce_pipeline_version(pipeline_version)
+    latencies: list[float] = []
+    llm = _make_eval_step2a_llm_complete(model, client, latencies)
 
-    r2 = run_once(model, prompt_course, client)
-    lat = round((r1["latency_s"] or 0) + (r2["latency_s"] or 0), 3)
+    correction_hint: str | None = None
+    last_merged_raw = ""
+    last_err: str | None = None
 
-    if not r2["success"]:
-        return {
-            "model": model,
-            "prompt": prompt_combined,
-            "success": False,
-            "latency_s": lat,
-            "response_chars": None,
-            "response": None,
-            "error": r2.get("error") or "course pass failed",
-        }
-
-    try:
-        course_parsed = json.loads(r2["response"])
-        merged = merge_step2a_entity_manifests(
-            cohort_parsed, course_parsed, institution_id=institution_id
-        )
-        merged_str = json.dumps(merged)
-    except (json.JSONDecodeError, ValueError) as e:
-        return {
-            "model": model,
-            "prompt": prompt_combined,
-            "success": False,
-            "latency_s": lat,
-            "response_chars": None,
-            "response": None,
-            "error": f"course pass or merge failed: {e}",
-        }
+    for attempt in range(1, max_attempts + 1):
+        try:
+            suffix = f"\n\n{correction_hint}" if correction_hint else ""
+            cohort_raw = llm("", prompt_cohort + suffix)
+            course_raw = llm("", prompt_course + suffix)
+            cohort_parsed = json.loads(cohort_raw)
+            course_parsed = json.loads(course_raw)
+            merged = merge_step2a_entity_manifests(
+                cohort_parsed,
+                course_parsed,
+                institution_id=institution_id,
+                pipeline_version=pv,
+            )
+            last_merged_raw = json.dumps(merged)
+            envelope = MappingManifestEnvelope.model_validate(merged)
+        except json.JSONDecodeError as e:
+            last_err = str(e)
+            logger.warning(
+                "Eval Step 2a two-pass attempt %s/%s failed: JSONDecodeError: %s",
+                attempt,
+                max_attempts,
+                e,
+            )
+            if attempt == max_attempts:
+                break
+            correction_hint = (
+                f"The cohort and/or course response was not valid JSON: {e}\n"
+                "Return corrected JSON for **both** the cohort-only and the course-only manifest."
+            )
+        except ValueError as e:
+            last_err = str(e)
+            logger.warning(
+                "Eval Step 2a two-pass attempt %s/%s failed: ValueError: %s",
+                attempt,
+                max_attempts,
+                e,
+            )
+            if attempt == max_attempts:
+                break
+            correction_hint = (
+                f"Merging cohort and course fragments failed: {e}\n"
+                "Fix the structure so each pass matches the expected entity shape, then try again."
+            )
+        except ValidationError as e:
+            last_err = str(e)
+            logger.warning(
+                "Eval Step 2a two-pass attempt %s/%s failed: ValidationError: %s",
+                attempt,
+                max_attempts,
+                e,
+            )
+            if attempt == max_attempts:
+                break
+            correction_hint = (
+                f"The merged manifest from your two passes was:\n\n{last_merged_raw}\n\n"
+                f"It failed validation with this error:\n\n{e}\n\n"
+                "Return corrected cohort JSON and course JSON so the merged envelope validates."
+            )
+        else:
+            out = envelope.model_dump_json(indent=2, exclude_none=True)
+            return {
+                "model": model,
+                "prompt": prompt_combined,
+                "success": True,
+                "latency_s": round(sum(latencies), 3),
+                "response_chars": len(out),
+                "response": out,
+                "error": None,
+            }
 
     return {
         "model": model,
         "prompt": prompt_combined,
-        "success": True,
-        "latency_s": lat,
-        "response_chars": len(merged_str),
-        "response": merged_str,
-        "error": None,
+        "success": False,
+        "latency_s": round(sum(latencies), 3),
+        "response_chars": len(last_merged_raw) if last_merged_raw else None,
+        "response": last_merged_raw or None,
+        "error": last_err or "Step 2a two-pass retries exhausted",
     }
 
 
@@ -1225,7 +1366,12 @@ def run():
                 institution_id=target_id,
             )
         else:
-            result = run_once(model, PROMPT_SINGLE, client)
+            result = run_step2a_single_pass(
+                model,
+                client,
+                PROMPT_SINGLE,
+                institution_id=target_id,
+            )
         if result["success"]:
             logger.info(
                 f"→ done | success={result['success']} | latency={result['latency_s']}s"
