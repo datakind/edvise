@@ -144,9 +144,13 @@ This branch applies whether the manifest's `source_table` is an award/degree loo
 order; the resolved Series arrives at Step 2b as a single value per student.
 
 CONFERRAL-STYLE DATETIME — EXACT ``function_name`` VALUES (copy these strings into JSON)
-- ``compact_term_code_to_conferral_date`` — **one** resolved source column with compact tokens such as
-  ``2025SP``, ``2024FA``, ``2015S1``. Typical chain: ``strip_whitespace`` → ``compact_term_code_to_conferral_date``
-  only (no ``extract_year`` before it).
+- ``compact_term_code_to_conferral_date`` — **one** resolved source column with **contiguous** compact tokens such as
+  ``2025SP``, ``2024FA``, ``2015S1`` (4-digit year immediately followed by the suffix; **no** space or punctuation
+  between year and season). Values like ``2019 Spring`` or ``2020-Fall`` are **not** compact: ``strip_whitespace``
+  only trims ends and will **not** produce a valid token — insert ``map_values`` first (each observed raw string → a
+  contiguous code, e.g. ``2019 Spring`` → ``2019SP``) then ``compact_term_code_to_conferral_date``. When samples are
+  already contiguous, typical chain: ``strip_whitespace`` → ``compact_term_code_to_conferral_date`` only (no
+  ``extract_year`` before it).
 - ``academic_year_and_canonical_season_to_conferral_date`` — **two** inputs: the pipelined ``column`` must carry
   a 4-digit calendar year (string may embed it, e.g. ``2022-23``); ``extra_columns`` must include
   ``{{"season_series": "<name of a real base-table column>"}}`` whose values are canonical FALL / SPRING /
@@ -160,8 +164,10 @@ HOW TO CHOOSE CONFERRAL UTILITIES (executor contract — read before picking ste
     resolved Series — the manifest's `source_column` after join + row_selection. There is **no** second lookup
     column on the base frame, and **prior-step outputs are not base-table columns**. Therefore you **must not**
     use `academic_year_and_canonical_season_to_conferral_date` or `term_components_to_datetime` here (they need `extra_columns` from
-    **physical base-table columns**). For one token that encodes year + season (``2025SP``, ``2024FA``, …):
-    `strip_whitespace` → `compact_term_code_to_conferral_date`. For true YYYYMM calendar encodings on that same
+    **physical base-table columns**). For one token that encodes year + season as a **contiguous** compact code
+    (``2025SP``, ``2024FA``, …): `strip_whitespace` → `compact_term_code_to_conferral_date`. If samples show a
+    separator (e.g. ``2019 Spring``), add `map_values` before `compact_term_code_to_conferral_date` as in the
+    YYYY+suffix rules below. For true YYYYMM calendar encodings on that same
     single column: `strip_trailing_decimal` → `coerce_datetime(fmt="%Y%m")` when justified by sample_values.
     If the format needs a year column + a separate season column but only one lookup column exists →
     `hook_required: true`, empty `steps`, explain in `reviewer_notes` (executor gap).
@@ -172,10 +178,14 @@ HOW TO CHOOSE CONFERRAL UTILITIES (executor contract — read before picking ste
     targets must not source `_edvise_term_*` as the manifest `source_column` per rules above; this case is
     rare for conferral and usually means a different target or a wide row with paired columns).
 
-- **YYYY + compact season suffix** (e.g. ``2025SP``, ``2024FA``, ``2015S1`` — year then FA/SP/S1/S2):
-  - `strip_whitespace` → `compact_term_code_to_conferral_date` — **one Series only**; do not chain
-    `academic_year_and_canonical_season_to_conferral_date` with `extra_columns` here (lookup columns like `term` are not on the
-    cohort base table, and intermediate `map_values` output is not a base-table column).
+- **YYYY + compact season suffix** (e.g. ``2025SP``, ``2024FA``, ``2015S1`` — year and suffix **touching**):
+  - If sample_values show a **separator** between the year and season words (space, hyphen, slash), treat as **not**
+    compact: `strip_whitespace` → `map_values` (distinct raw strings → contiguous tokens such as ``2019SP``) →
+    `compact_term_code_to_conferral_date` on the **same** pipelined Series. (This is not using `map_values` output as
+    `extra_columns` — it is normalizing the token before the compact parser.)
+  - When values are already contiguous compact codes: `strip_whitespace` → `compact_term_code_to_conferral_date` — **one
+    Series only**; do not chain `academic_year_and_canonical_season_to_conferral_date` with `extra_columns` here (lookup
+    columns like `term` are not on the cohort base table, and you cannot point `extra_columns` at prior-step output).
   - Flag `review_required: true` when suffix coverage is inferred from sample_values.
 
 - **YYYYMM-style compact numeric** (e.g. sample_values show "202301.0", "202305.0"):

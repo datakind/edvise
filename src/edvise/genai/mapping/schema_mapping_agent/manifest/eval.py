@@ -98,6 +98,23 @@ SHOT_TAG = "1shot"
 # Set False to use build_step2a_prompt + one run_once per model (legacy).
 STEP2A_TWO_PASS = True
 
+
+def _eval_step2a_max_envelope_attempts() -> int:
+    """Upper bound on Step 2a envelope parse/validate retries (single- and two-pass)."""
+    raw = os.environ.get("EDVISE_EVAL_STEP2A_MAX_ENVELOPE_ATTEMPTS", "").strip()
+    if not raw:
+        return 3
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 3
+
+
+def _round_trip_validate_saved_envelope_json(out_json: str) -> None:
+    """Ensure manifest JSON written for eval re-parses as a valid envelope (matches scoring)."""
+    pred = json.loads(out_json)
+    MappingManifestEnvelope.model_validate(pred)
+
 # After Step 2a, run the same SMA refinement as onboard (``run_sma_refinement`` per entity),
 # write ``*_mapping_manifest_refined.json``, score vs gold as ``refined_*`` columns, and extend
 # field_detail CSV with ``stage`` = ``2a`` / ``after_refinement``.
@@ -299,6 +316,12 @@ def run_step2a_single_pass(
     Step 2a single-pass with :func:`~edvise.utils.llm_utils.llm_complete_with_parse_retry`
     (same pattern as ``edvise_genai_sma`` onboard): retry on JSON / Pydantic envelope errors.
     """
+    max_attempts = _eval_step2a_max_envelope_attempts()
+    logger.info(
+        "Eval Step 2a single-pass: parse-retry (max LLM calls=%s) — "
+        "override with EDVISE_EVAL_STEP2A_MAX_ENVELOPE_ATTEMPTS",
+        max_attempts,
+    )
     pv = coerce_pipeline_version(pipeline_version)
     latencies: list[float] = []
     llm = _make_eval_step2a_llm_complete(model, client, latencies)
@@ -314,6 +337,7 @@ def run_step2a_single_pass(
             "",
             prompt,
             parse_fn,
+            max_retries=max_attempts,
             logger=logger,
         )
     except LLMRetryExhausted as e:
@@ -326,9 +350,35 @@ def run_step2a_single_pass(
             "response_chars": len(last_raw) if last_raw else None,
             "response": last_raw,
             "error": str(e),
+            "step2a_llm_calls": len(latencies),
+            "step2a_envelope_attempts_used": max_attempts,
+            "step2a_parse_retry_enabled": True,
         }
 
     out = envelope.model_dump_json(indent=2, exclude_none=True)
+    try:
+        _round_trip_validate_saved_envelope_json(out)
+    except ValidationError as e:
+        logger.error(
+            "Eval Step 2a single-pass: round-trip envelope validation failed: %s", e
+        )
+        return {
+            "model": model,
+            "prompt": prompt,
+            "success": False,
+            "latency_s": round(sum(latencies), 3),
+            "response_chars": len(out),
+            "response": out,
+            "error": f"envelope round-trip validation failed: {e}",
+            "step2a_llm_calls": len(latencies),
+            "step2a_envelope_attempts_used": len(latencies),
+            "step2a_parse_retry_enabled": True,
+        }
+
+    logger.info(
+        "Eval Step 2a single-pass: success after %s LLM call(s) (envelope OK)",
+        len(latencies),
+    )
     return {
         "model": model,
         "prompt": prompt,
@@ -337,6 +387,9 @@ def run_step2a_single_pass(
         "response_chars": len(out),
         "response": out,
         "error": None,
+        "step2a_llm_calls": len(latencies),
+        "step2a_envelope_attempts_used": len(latencies),
+        "step2a_parse_retry_enabled": True,
     }
 
 
@@ -358,7 +411,13 @@ def run_step2a_two_pass(
 
     ``institution_id`` is required for merge when fragments omit it (eval always passes it).
     """
-    max_attempts = 3
+    max_attempts = _eval_step2a_max_envelope_attempts()
+    logger.info(
+        "Eval Step 2a two-pass: parse-retry (max envelope attempt(s)=%s, up to %s LLM calls) — "
+        "override count with EDVISE_EVAL_STEP2A_MAX_ENVELOPE_ATTEMPTS",
+        max_attempts,
+        max_attempts * 2,
+    )
     sep = "\n\n=== STEP 2a PASS 2 (course) ===\n\n"
     prompt_combined = (
         f"=== STEP 2a PASS 1 (cohort) ===\n\n{prompt_cohort}{sep}{prompt_course}"
@@ -372,6 +431,9 @@ def run_step2a_two_pass(
             "response_chars": None,
             "response": None,
             "error": "institution_id is required for two-pass Step 2a merge",
+            "step2a_llm_calls": 0,
+            "step2a_envelope_attempts_used": 0,
+            "step2a_parse_retry_enabled": True,
         }
 
     pv = coerce_pipeline_version(pipeline_version)
@@ -383,6 +445,12 @@ def run_step2a_two_pass(
     last_err: str | None = None
 
     for attempt in range(1, max_attempts + 1):
+        logger.info(
+            "Eval Step 2a two-pass: envelope attempt %s/%s (LLM calls so far: %s)",
+            attempt,
+            max_attempts,
+            len(latencies),
+        )
         try:
             suffix = f"\n\n{correction_hint}" if correction_hint else ""
             cohort_raw = llm("", prompt_cohort + suffix)
@@ -397,6 +465,8 @@ def run_step2a_two_pass(
             )
             last_merged_raw = json.dumps(merged)
             envelope = MappingManifestEnvelope.model_validate(merged)
+            out = envelope.model_dump_json(indent=2, exclude_none=True)
+            _round_trip_validate_saved_envelope_json(out)
         except json.JSONDecodeError as e:
             last_err = str(e)
             logger.warning(
@@ -441,7 +511,14 @@ def run_step2a_two_pass(
                 "Return corrected cohort JSON and course JSON so the merged envelope validates."
             )
         else:
-            out = envelope.model_dump_json(indent=2, exclude_none=True)
+            logger.info(
+                "Eval Step 2a two-pass: success on envelope attempt %s/%s "
+                "(%s LLM calls, latency sum=%.3fs)",
+                attempt,
+                max_attempts,
+                len(latencies),
+                sum(latencies),
+            )
             return {
                 "model": model,
                 "prompt": prompt_combined,
@@ -450,8 +527,16 @@ def run_step2a_two_pass(
                 "response_chars": len(out),
                 "response": out,
                 "error": None,
+                "step2a_llm_calls": len(latencies),
+                "step2a_envelope_attempts_used": attempt,
+                "step2a_parse_retry_enabled": True,
             }
 
+    logger.error(
+        "Eval Step 2a two-pass: exhausted %s envelope attempt(s) (%s LLM calls)",
+        max_attempts,
+        len(latencies),
+    )
     return {
         "model": model,
         "prompt": prompt_combined,
@@ -460,6 +545,9 @@ def run_step2a_two_pass(
         "response_chars": len(last_merged_raw) if last_merged_raw else None,
         "response": last_merged_raw or None,
         "error": last_err or "Step 2a two-pass retries exhausted",
+        "step2a_llm_calls": len(latencies),
+        "step2a_envelope_attempts_used": max_attempts,
+        "step2a_parse_retry_enabled": True,
     }
 
 
@@ -1611,6 +1699,12 @@ def run():
             "success": r["success"],
             "error": r.get("error"),
         }
+        if r.get("step2a_parse_retry_enabled"):
+            row_data["step2a_llm_calls"] = r.get("step2a_llm_calls")
+            row_data["step2a_envelope_attempts_used"] = r.get(
+                "step2a_envelope_attempts_used"
+            )
+            row_data["step2a_parse_retry_enabled"] = True
         if r["scores"] is not None:
             row_data.update(
                 {
