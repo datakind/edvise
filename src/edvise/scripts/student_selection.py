@@ -186,7 +186,7 @@ if __name__ == "__main__":
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_student_selection.log",
+        log_file_name="student_selection.log",
     )
     logging.info("Logs will be written to %s", log_path)
     task.run()
