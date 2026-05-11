@@ -54,6 +54,21 @@ def test_resolve_sma_items_single_manifest(tmp_path):
         reentry=SMAReentryDepth.TERMINAL,
         field_mapping=alt,
     )
+    opt_unmapped = SMAHITLOption(
+        option_id="leave_unmapped",
+        label="Leave unmapped",
+        description="No source",
+        reentry=SMAReentryDepth.TERMINAL,
+        field_mapping=cur.model_copy(
+            update={
+                "source_column": None,
+                "source_table": None,
+                "join": None,
+                "row_selection": None,
+                "confidence": 1.0,
+            }
+        ),
+    )
     opt_de = SMAHITLOption(
         option_id="direct_edit",
         label="Direct",
@@ -71,7 +86,7 @@ def test_resolve_sma_items_single_manifest(tmp_path):
         hitl_context=None,
         current_field_mapping=cur,
         validation_errors=[],
-        options=[opt_a, opt_de],
+        options=[opt_a, opt_unmapped, opt_de],
         choice=1,
         reviewer_note="picked option 1",
     )
@@ -124,6 +139,21 @@ def test_resolve_sma_items_envelope(tmp_path):
         reentry=SMAReentryDepth.TERMINAL,
         field_mapping=alt_c,
     )
+    opt_unmapped = SMAHITLOption(
+        option_id="leave_unmapped",
+        label="Leave unmapped",
+        description="No source",
+        reentry=SMAReentryDepth.TERMINAL,
+        field_mapping=cur_c.model_copy(
+            update={
+                "source_column": None,
+                "source_table": None,
+                "join": None,
+                "row_selection": None,
+                "confidence": 1.0,
+            }
+        ),
+    )
     opt_de = SMAHITLOption(
         option_id="direct_edit",
         label="Direct",
@@ -139,7 +169,7 @@ def test_resolve_sma_items_envelope(tmp_path):
         failure_mode=SMAFailureMode.LOW_CONFIDENCE,
         hitl_question="Q",
         current_field_mapping=cur_c,
-        options=[opt_a, opt_de],
+        options=[opt_a, opt_unmapped, opt_de],
         choice=1,
     )
     hitl = InstitutionSMAHITLItems(
@@ -195,6 +225,21 @@ def test_resolve_sma_items_institution_mismatch(tmp_path):
         reentry=SMAReentryDepth.TERMINAL,
         field_mapping=cur,
     )
+    opt_unmapped = SMAHITLOption(
+        option_id="leave_unmapped",
+        label="Leave unmapped",
+        description="No source",
+        reentry=SMAReentryDepth.TERMINAL,
+        field_mapping=cur.model_copy(
+            update={
+                "source_column": None,
+                "source_table": None,
+                "join": None,
+                "row_selection": None,
+                "confidence": 1.0,
+            }
+        ),
+    )
     opt_de = SMAHITLOption(
         option_id="direct_edit",
         label="d",
@@ -210,7 +255,7 @@ def test_resolve_sma_items_institution_mismatch(tmp_path):
         failure_mode=SMAFailureMode.LOW_CONFIDENCE,
         hitl_question="Q",
         current_field_mapping=cur,
-        options=[opt_a, opt_de],
+        options=[opt_a, opt_unmapped, opt_de],
         choice=1,
     )
     hitl = InstitutionSMAHITLItems(

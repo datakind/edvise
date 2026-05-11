@@ -124,10 +124,10 @@ SMAHITLItem: {
   hitl_context: str | null,  # evidence: sample values, available columns, rationale, error details
   current_field_mapping: FieldMappingRecord,  # ORIGINAL from input manifest, unchanged — options hold fixes
   validation_errors: list[str],              # ManifestValidationError.detail strings, empty if low_confidence only
-  options: list[SMAHITLOption],              # 2-4 options, last always option_id="direct_edit"
+  options: list[SMAHITLOption],              # 3-5 options, last always option_id="direct_edit"
   choice: null,              # always null — reviewer sets this
   reviewer_note: null,       # always null — reviewer sets this
-  direct_edit_field_mapping: null  # always null — reviewer sets this
+  direct_edit_field_mapping: FieldMappingRecord  # REQUIRED: deep copy of current_field_mapping (JSON) for reviewer to edit
 }
 
 ColumnAlias: {table: str!, source_column: str!, canonical_column: str!, rationale?: str}
@@ -226,15 +226,16 @@ Pass 2 output — respond with a single JSON object, no preamble, no markdown:
       "current_field_mapping": FieldMappingRecord,  // copied from input flag, unchanged
       "validation_errors": list[str],
       "options": [
-        // list of SMAHITLOption — 1-3 TERMINAL (reentry=terminal, field_mapping=FieldMappingRecord)
+        // list of SMAHITLOption — 2-4 TERMINAL (reentry=terminal, field_mapping=FieldMappingRecord)
         // + always one final direct_edit option (see HITL output schema above)
-        // maximum 4 options total
+        // 3-5 options total
         // option 1 is always your recommended fix
         // include original mapping as an option if still plausible
+        // include one TERMINAL "leave_unmapped" option when applicable (see OPTION RULES)
       ],
       "choice": null,
       "reviewer_note": null,
-      "direct_edit_field_mapping": null
+      "direct_edit_field_mapping": { }  // same FieldMappingRecord JSON as current_field_mapping — reviewer starting point
     }
     // one item per flag in the input
   ]
@@ -284,8 +285,8 @@ OPTION RULES — Pass 2 only; you receive all Pass 1 flags for one entity in one
     current_field_mapping in each output item must be copied unchanged from the corresponding
     Pass 1 hitl_flag. Do not modify it. Your recommended fix is option 1 in the options list.
 
-  - Maximum 3 TERMINAL options + 1 direct_edit = 4 total.
-  - Minimum 1 TERMINAL option + 1 direct_edit = 2 total.
+  - Maximum 4 TERMINAL options + 1 direct_edit = 5 total.
+  - Minimum 2 TERMINAL options + 1 direct_edit = 3 total.
   - Last option ALWAYS: option_id="direct_edit", reentry="direct_edit",
     field_mapping=null, column_alias=null (see HITL output schema for labels).
   - Each TERMINAL option is a complete FieldMappingRecord inside SMAHITLOption.field_mapping.
@@ -295,32 +296,48 @@ OPTION RULES — Pass 2 only; you receive all Pass 1 flags for one entity in one
   - Include original mapping as an option labeled "Keep original mapping"
     if it is still plausible.
 
+  LEAVE UNMAPPED (required TERMINAL whenever the field may legitimately have no source):
+    - Include exactly one TERMINAL option with option_id="leave_unmapped" (unless every
+      TERMINAL you emit is already either fully unmapped or fully mapped and this would duplicate).
+    - Its field_mapping must be a complete FieldMappingRecord with the same target_field as
+      current_field_mapping, and source_column=null, source_table=null, join=null, row_selection=null.
+      Use confidence 1.0 when affirming intentional unmappable; otherwise keep the flag's confidence
+      if that is more honest.
+    - This option must appear before the final direct_edit option.
+
+  direct_edit_field_mapping (required on every item):
+    - Set to the same FieldMappingRecord JSON object as current_field_mapping (deep copy).
+    - The reviewer edits this blob in the UI; do not leave it null.
+
 BY FAILURE MODE:
 
   low_confidence:
     - Option 1: your recommended mapping.
-    - Option 2: "Keep original mapping" if still plausible.
-    - Option 3: alternative candidate if one exists.
+    - Include leave_unmapped as described above.
+    - Then: "Keep original mapping" if still plausible, and/or an alternative candidate.
 
   column_not_found:
     - Options are close-match column candidates ordered by similarity.
+    - Include leave_unmapped when none of the candidates are acceptable.
 
   join_structure:
     - {_BASE_TABLE_JOIN_HINT}
     - Options are valid join key combinations from the schema contract.
     - Include column_alias on options that bridge a name mismatch.
     - Include "Remove join (same-table field)" as an option if applicable.
+    - Include leave_unmapped when the field should not be sourced.
 
   row_selection:
     - Options are valid RowSelectionStrategy alternatives with args pre-filled.
     - Order by most likely correct given field semantics.
     - For wide-row conferral / certificate-date proxies, options may add or adjust `row_selection.filter` on a same-row
       award-type discriminator (join null) — filtered-out rows become null for that field only.
+    - Include leave_unmapped when row selection cannot be fixed defensibly.
 
   map_unmap:
-    - Always exactly 2 TERMINAL options + direct_edit = 3 total.
-    - Option 1: your recommendation (mapped or unmapped).
-    - Option 2: the alternative.
+    - At least 2 TERMINAL options before direct_edit: one mapped and one unmapped (swap order
+      so option 1 is your recommendation). You may add a third TERMINAL if there is another
+      distinct mapped alternative. Always include leave_unmapped if it is not already one of those two.
 """
 
 _FIELD_COLLAPSE_RULE = """
@@ -1063,6 +1080,7 @@ def _run_pass2_llm_call(
     )
     from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
         SMAHITLItem,
+        prefill_sma_hitl_direct_edit_if_missing,
     )
 
     system = build_refinement_pass2_system_prompt()
@@ -1105,9 +1123,11 @@ def _run_pass2_llm_call(
                 ],
             )
         hitl_items = [SMAHITLItem.model_validate(item) for item in items_raw]
+        hitl_items = [prefill_sma_hitl_direct_edit_if_missing(i) for i in hitl_items]
         raise_if_pass2_terminal_options_invalid(
             refined_manifest, hitl_items, schema_contract
         )
+        data["items"] = [i.model_dump(mode="json") for i in hitl_items]
         return data
 
     return llm_complete_with_parse_retry(
@@ -1152,6 +1172,7 @@ def run_sma_refinement(
     from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
         InstitutionSMAHITLItems,
         SMAHITLItem,
+        prefill_sma_hitl_direct_edit_if_missing,
     )
 
     _ = resolved_by
@@ -1203,7 +1224,10 @@ def run_sma_refinement(
         raise ValueError("Pass 2 output missing items")
     if not isinstance(items_raw, list):
         raise ValueError("Pass 2 items must be a list")
-    hitl_items = [SMAHITLItem.model_validate(item) for item in items_raw]
+    hitl_items = [
+        prefill_sma_hitl_direct_edit_if_missing(SMAHITLItem.model_validate(item))
+        for item in items_raw
+    ]
 
     return refined_manifest, InstitutionSMAHITLItems(
         institution_id=institution_id,

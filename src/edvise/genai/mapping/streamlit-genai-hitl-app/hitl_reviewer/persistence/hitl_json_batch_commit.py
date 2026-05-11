@@ -502,6 +502,14 @@ def persist_hitl_choice_radios_from_session(
             dem_key = f"sma-dem-{sk}-{i}-{item_id}"
             raw_txt = (st.session_state.get(dem_key) or "").strip()
             if not raw_txt:
+                dem_obj = item.get("direct_edit_field_mapping")
+                if isinstance(dem_obj, dict):
+                    raw_txt = json.dumps(dem_obj)
+                else:
+                    cfm = item.get("current_field_mapping")
+                    if isinstance(cfm, dict):
+                        raw_txt = json.dumps(cfm)
+            if not raw_txt:
                 return (
                     False,
                     f"Item ``{item_id!s}``: **Edit mapping directly** is selected — paste a complete "

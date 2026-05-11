@@ -192,6 +192,22 @@ def test_bad_join_keys_terminal_option_fails_deterministic_validation():
         field_mapping=bad_fm,
         column_alias=alias,
     )
+    leave_unmapped = SMAHITLOption(
+        option_id="leave_unmapped",
+        label="Leave unmapped",
+        description="No source",
+        reentry=SMAReentryDepth.TERMINAL,
+        field_mapping=refined.mappings[1].model_copy(
+            update={
+                "source_column": None,
+                "source_table": None,
+                "join": None,
+                "row_selection": None,
+                "confidence": 1.0,
+            }
+        ),
+        column_alias=None,
+    )
     direct = SMAHITLOption(
         option_id="direct_edit",
         label="Edit",
@@ -210,7 +226,7 @@ def test_bad_join_keys_terminal_option_fails_deterministic_validation():
         hitl_context=None,
         current_field_mapping=refined.mappings[1],
         validation_errors=[],
-        options=[bad_opt, direct],
+        options=[bad_opt, leave_unmapped, direct],
     )
     failures = collect_pass2_terminal_option_validation_failures(
         refined, [item], contract
@@ -314,6 +330,22 @@ def test_terminal_option_ignores_validation_errors_on_other_target_fields():
         ),
         column_alias=None,
     )
+    leave_unmapped = SMAHITLOption(
+        option_id="leave_unmapped",
+        label="Leave unmapped",
+        description="No source",
+        reentry=SMAReentryDepth.TERMINAL,
+        field_mapping=refined.mappings[1].model_copy(
+            update={
+                "source_column": None,
+                "source_table": None,
+                "join": None,
+                "row_selection": None,
+                "confidence": 1.0,
+            }
+        ),
+        column_alias=None,
+    )
     direct = SMAHITLOption(
         option_id="direct_edit",
         label="Edit",
@@ -332,7 +364,7 @@ def test_terminal_option_ignores_validation_errors_on_other_target_fields():
         hitl_context=None,
         current_field_mapping=refined.mappings[1],
         validation_errors=[],
-        options=[good_opt, direct],
+        options=[good_opt, leave_unmapped, direct],
     )
     failures = collect_pass2_terminal_option_validation_failures(
         refined, [item], contract
@@ -367,6 +399,22 @@ def test_raise_if_pass2_terminal_options_invalid_raises():
         field_mapping=bad_fm,
         column_alias=None,
     )
+    leave_unmapped = SMAHITLOption(
+        option_id="leave_unmapped",
+        label="Leave unmapped",
+        description="No source",
+        reentry=SMAReentryDepth.TERMINAL,
+        field_mapping=refined.mappings[1].model_copy(
+            update={
+                "source_column": None,
+                "source_table": None,
+                "join": None,
+                "row_selection": None,
+                "confidence": 1.0,
+            }
+        ),
+        column_alias=None,
+    )
     direct = SMAHITLOption(
         option_id="direct_edit",
         label="Edit",
@@ -385,7 +433,7 @@ def test_raise_if_pass2_terminal_options_invalid_raises():
         hitl_context=None,
         current_field_mapping=refined.mappings[1],
         validation_errors=[],
-        options=[bad_opt, direct],
+        options=[bad_opt, leave_unmapped, direct],
     )
     with pytest.raises(ValidationError, match="item_id="):
         raise_if_pass2_terminal_options_invalid(refined, [item], contract)

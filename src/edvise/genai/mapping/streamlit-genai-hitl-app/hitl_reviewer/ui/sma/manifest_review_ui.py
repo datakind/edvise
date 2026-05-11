@@ -577,7 +577,13 @@ def render_sma_hitl_cards(
                     dem_raw, indent=2, ensure_ascii=False
                 )
             else:
-                st.session_state[dem_key] = ""
+                cfm = item.get("current_field_mapping")
+                if isinstance(cfm, dict):
+                    st.session_state[dem_key] = json.dumps(
+                        cfm, indent=2, ensure_ascii=False
+                    )
+                else:
+                    st.session_state[dem_key] = ""
         try:
             sel_j = max(0, min(int(st.session_state[sel_key]), n - 1))
         except (TypeError, ValueError):
@@ -590,7 +596,7 @@ def render_sma_hitl_cards(
         if str(cur_opt.get("reentry") or "").lower() == "direct_edit":
             st.markdown("**Edit mapping directly** — full ``field_mapping`` (JSON)")
             st.caption(
-                "Paste one complete FieldMappingRecord (same shape as the terminal options above). "
+                "Starts from the flagged mapping (or Pass 2 prefill); edit JSON as needed. "
                 "Saving writes this to ``direct_edit_field_mapping`` on the item."
             )
             st.text_area(
