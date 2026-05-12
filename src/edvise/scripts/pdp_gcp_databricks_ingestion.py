@@ -33,6 +33,7 @@ from edvise.utils.gcs import active_gcp_identity
 def local_fs_path(p: str) -> str:
     return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
+
 # Model names from get_model_name() are already UC-compatible
 
 
