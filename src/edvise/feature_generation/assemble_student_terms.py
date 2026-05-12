@@ -55,7 +55,7 @@ def warn_cohort_course_key_overlap(
     cohort_keys = set(zip(*[df_cohort[k] for k in keys])) if keys else set()
     course_keys = set(zip(*[df_course[k] for k in keys])) if keys else set()
     require(
-        cohort_keys and course_keys,
+        bool(cohort_keys) and bool(course_keys),
         f"No {keys} keys found in cohort or course for overlap check",
     )
     overlap = len(cohort_keys & course_keys) / min(len(cohort_keys), len(course_keys))
@@ -79,8 +79,8 @@ def make_student_term_dataset(
     peak_covid_terms: set[
         tuple[str, str]
     ] = feature_generation.constants.DEFAULT_PEAK_COVID_TERMS,
-    key_course_subject_areas: t.Optional[list[str]] = None,
-    key_course_ids: t.Optional[list[str]] = None,
+    key_course_subject_areas: t.Optional[list[t.Union[str, list[str]]]] = None,
+    key_course_ids: t.Optional[list[t.Union[str, list[str]]]] = None,
     course_feature_spec: CourseFeatureSpec | None = None,
     student_feature_spec: StudentFeatureSpec | None = None,
     term_feature_spec: TermFeatureSpec | None = None,

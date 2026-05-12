@@ -61,8 +61,8 @@ def aggregate_from_course_level_features(
     student_term_id_cols: list[str],
     cols: CourseInputColumns = PDP_COURSE_INPUT_COLUMNS,
     min_passing_grade: float = constants.DEFAULT_MIN_PASSING_GRADE,
-    key_course_subject_areas: t.Optional[list[str]] = None,
-    key_course_ids: t.Optional[list[str]] = None,
+    key_course_subject_areas: t.Optional[list[t.Union[str, list[str]]]] = None,
+    key_course_ids: t.Optional[list[t.Union[str, list[str]]]] = None,
     spec: StudentTermAggregateSpec | None = None,
 ) -> pd.DataFrame:
     """

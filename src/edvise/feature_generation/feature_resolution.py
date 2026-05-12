@@ -34,11 +34,18 @@ def has_data_col(df: pd.DataFrame, col: str | None) -> bool:
 def merge_spec_fields(
     base: _TSpec, patch: t.Mapping[str, bool] | None
 ) -> _TSpec:
-    """``patch`` keys replace same-named fields on ``base`` (typically a frozen dataclass)."""
+    """``patch`` keys replace same-named fields on ``base`` (typically a frozen dataclass).
+
+    Callers always pass frozen-dataclass specs from
+    :mod:`edvise.feature_generation.column_names`, but ``_TSpec`` is unbound, so
+    we silence mypy's ``type-var`` check on :func:`dataclasses.replace`.
+    """
     if not patch:
         return base
     valid = {k: v for k, v in patch.items() if hasattr(base, k)}
-    return dataclasses.replace(base, **valid) if valid else base
+    if not valid:
+        return base
+    return dataclasses.replace(base, **valid)  # type: ignore[type-var]
 
 
 def resolve_student_feature_spec(
