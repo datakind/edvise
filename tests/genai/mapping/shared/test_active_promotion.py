@@ -32,8 +32,8 @@ def test_promote_genai_mapping_to_active_copies_required_and_optional(
 ) -> None:
     genai = tmp_path / "genai"
     run_id = "school_20260101"
-    ia = genai / "runs" / run_id / "identity_agent"
-    sma = genai / "runs" / run_id / "schema_mapping_agent"
+    ia = genai / "runs" / "onboard" / run_id / "identity_agent"
+    sma = genai / "runs" / "onboard" / run_id / "schema_mapping_agent"
     active = genai / "active"
     ia.mkdir(parents=True)
     sma.mkdir(parents=True)
@@ -88,8 +88,8 @@ def test_promote_genai_mapping_to_active_copies_identity_hooks_subtree(
 ) -> None:
     genai = tmp_path / "genai"
     run_id = "school_hooks"
-    ia = genai / "runs" / run_id / "identity_agent"
-    sma = genai / "runs" / run_id / "schema_mapping_agent"
+    ia = genai / "runs" / "onboard" / run_id / "identity_agent"
+    sma = genai / "runs" / "onboard" / run_id / "schema_mapping_agent"
     active = genai / "active"
     hooks = ia / "identity_hooks" / "test_univ"
     hooks.mkdir(parents=True)
@@ -133,8 +133,8 @@ def test_promote_genai_mapping_to_active_missing_required_raises(
 ) -> None:
     genai = tmp_path / "genai"
     run_id = "r2"
-    ia = genai / "runs" / run_id / "identity_agent"
-    sma = genai / "runs" / run_id / "schema_mapping_agent"
+    ia = genai / "runs" / "onboard" / run_id / "identity_agent"
+    sma = genai / "runs" / "onboard" / run_id / "schema_mapping_agent"
     active = genai / "active"
     ia.mkdir(parents=True)
     sma.mkdir(parents=True)

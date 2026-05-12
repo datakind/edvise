@@ -39,6 +39,7 @@ from ..manifest.eval import (
     _resolve_reference_transformation_map_for_eval,
     _resolve_target_mapping_manifest_for_eval,
     _resolve_target_schema_contract_for_eval,
+    apply_eval_models_from_env,
     folder_slug_2b,
     run_once,
 )
@@ -614,6 +615,7 @@ def score_t2b_result(result: dict, gold_tm: dict) -> dict | None:
 
 def run():
     """Run 2b evaluation on all models."""
+    apply_eval_models_from_env()
     RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
     target_id = TARGET_INSTITUTION["id"]
     reference_id = REFERENCE_INSTITUTION["id"]
