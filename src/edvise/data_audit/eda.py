@@ -586,9 +586,7 @@ def _log_misjoined_grouped_counts(df: pd.DataFrame, group_cols: list[str]) -> No
     if not group_cols or not all(c in df.columns for c in group_cols):
         return
     label = " and ".join(group_cols)
-    counts = (
-        df.groupby(group_cols, dropna=False, observed=True).size().sort_index()
-    )
+    counts = df.groupby(group_cols, dropna=False, observed=True).size().sort_index()
     LOGGER.info(
         " Grouped counts for mismatched records by %s to identify potential trends:\n%s",
         label,

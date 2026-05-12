@@ -150,6 +150,9 @@ def make_student_term_dataset(
     return feature_generation.cumulative.add_features(
         df_student_terms,
         student_id_cols=cumulative_ids,
-        sort_cols=[course_input_columns.academic_year, course_input_columns.academic_term],
+        sort_cols=[
+            course_input_columns.academic_year,
+            course_input_columns.academic_term,
+        ],
         spec=cumulative_feature_spec,
     ).rename(columns=utils.data_cleaning.convert_to_snake_case)

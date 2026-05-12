@@ -66,7 +66,10 @@ def add_features(
             pell_col=cols.pell_status_col,
         )
     if s.diff_gpa:
-        assert cols.gpa_group_term_1_col is not None and cols.gpa_group_year_1_col is not None
+        assert (
+            cols.gpa_group_term_1_col is not None
+            and cols.gpa_group_year_1_col is not None
+        )
         assign_kw["diff_gpa_term_1_to_year_1"] = ft.partial(
             diff_gpa_term_1_to_year_1,
             term_col=cols.gpa_group_term_1_col,
@@ -81,11 +84,7 @@ def add_features(
                 "frac_credits_by_year requires credits_earned_year_template and "
                 "credits_attempted_year_template, or set spec frac_credits_by_year=False."
             )
-        credits_years = [
-            yr
-            for yr in (1, 2, 3, 4)
-            if cols.earned_col(yr) in df.columns
-        ]
+        credits_years = [yr for yr in (1, 2, 3, 4) if cols.earned_col(yr) in df.columns]
         assign_kw.update(
             {
                 f"frac_credits_earned_year_{yr}": ft.partial(

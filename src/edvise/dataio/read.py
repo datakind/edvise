@@ -344,6 +344,7 @@ def read_raw_pdp_cohort_data(
         **kwargs,  # type: ignore
     )
 
+
 def read_raw_es_course_data(
     *,
     table_path: t.Optional[str] = None,
@@ -437,11 +438,16 @@ def read_raw_es_cohort_data(
         converter_func=converter_func,
         spark_session=spark_session,
         dttm_format=dttm_format,
-        datetime_cols=("matriculation_date", "bachelors_degree_conferral_date", "associates_degree_conferral_date", 
-        "certificate1_date", "certificate2_date", "certificate3_date"),
+        datetime_cols=(
+            "matriculation_date",
+            "bachelors_degree_conferral_date",
+            "associates_degree_conferral_date",
+            "certificate1_date",
+            "certificate2_date",
+            "certificate3_date",
+        ),
         **kwargs,  # type: ignore
     )
-
 
 
 def _maybe_convert_maybe_validate_data(

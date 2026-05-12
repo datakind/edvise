@@ -93,7 +93,9 @@ def training_cohort_json_for_pipeline_event(task: t.Any) -> t.Optional[str]:
     return None
 
 
-def _pipeline_event_dataset_names(task: t.Any) -> tuple[t.Optional[str], t.Optional[str]]:
+def _pipeline_event_dataset_names(
+    task: t.Any,
+) -> tuple[t.Optional[str], t.Optional[str]]:
     ds = getattr(task.cfg, "datasets", None)
     return (
         getattr(ds, "raw_cohort", None) if ds is not None else None,
@@ -112,7 +114,10 @@ def _pipeline_event_payload(
 
 
 def run_data_audit_with_training_events(
-    args: argparse.Namespace, task: t.Any, *, run: t.Optional[t.Callable[[], None]] = None
+    args: argparse.Namespace,
+    task: t.Any,
+    *,
+    run: t.Optional[t.Callable[[], None]] = None,
 ) -> None:
     """
     If ``job_type == "training"``, emit ``append_pipeline_run_event`` started, then

@@ -52,27 +52,27 @@ def add_features(
                 f"section_num_students_enrolled requires '{student_id_col}' in dataframe; "
                 f"columns present include: {sorted(df.columns.tolist())}"
             )
-        agg_map["section_num_students_enrolled"] = section_num_students_enrolled_col_agg(
-            col=student_id_col
+        agg_map["section_num_students_enrolled"] = (
+            section_num_students_enrolled_col_agg(col=student_id_col)
         )
     if s.section_num_students_passed:
         agg_map["section_num_students_passed"] = section_num_students_passed_col_agg()
     if s.section_num_students_completed:
-        agg_map[
-            "section_num_students_completed"
-        ] = section_num_students_completed_col_agg()
+        agg_map["section_num_students_completed"] = (
+            section_num_students_completed_col_agg()
+        )
     if s.section_course_grade_numeric_mean:
         agg_map["section_course_grade_numeric_mean"] = (
             section_course_grade_numeric_mean_col_agg()
         )
-    df_section = (
-        df.groupby(by=section_id_cols, as_index=False, observed=True, dropna=True)
-        .agg(**agg_map)
-    )
-    if s.section_course_grade_numeric_mean and "section_course_grade_numeric_mean" in df_section.columns:
-        df_section = df_section.astype(
-            {"section_course_grade_numeric_mean": "Float32"}
-        )
+    df_section = df.groupby(
+        by=section_id_cols, as_index=False, observed=True, dropna=True
+    ).agg(**agg_map)
+    if (
+        s.section_course_grade_numeric_mean
+        and "section_course_grade_numeric_mean" in df_section.columns
+    ):
+        df_section = df_section.astype({"section_course_grade_numeric_mean": "Float32"})
     return pd.merge(df, df_section, on=section_id_cols, how="left")
 
 

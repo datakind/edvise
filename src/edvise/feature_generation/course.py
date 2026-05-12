@@ -14,8 +14,43 @@ from .column_names import (
 
 LOGGER = logging.getLogger(__name__)
 
-NON_NUMERIC_GRADES = {"A", "F", "I", "M", "O", "P", "W", "S", "PASS", "SAT", "UNSAT", "U", "WD", "IP", "AU", "NG", "NR", "M"}
-NON_PASS_FAIL_GRADES = {"A", "I", "M", "O", "W", "AU", "S", "SAT", "UNSAT", "U", "WD", "IP", "NG", "NR", "M"}
+NON_NUMERIC_GRADES = {
+    "A",
+    "F",
+    "I",
+    "M",
+    "O",
+    "P",
+    "W",
+    "S",
+    "PASS",
+    "SAT",
+    "UNSAT",
+    "U",
+    "WD",
+    "IP",
+    "AU",
+    "NG",
+    "NR",
+    "M",
+}
+NON_PASS_FAIL_GRADES = {
+    "A",
+    "I",
+    "M",
+    "O",
+    "W",
+    "AU",
+    "S",
+    "SAT",
+    "UNSAT",
+    "U",
+    "WD",
+    "IP",
+    "NG",
+    "NR",
+    "M",
+}
 NON_COMPLETE_GRADES = {"I", "W", "WD", "IP"}
 
 

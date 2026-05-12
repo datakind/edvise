@@ -96,7 +96,8 @@ class CheckpointsTask:
                 sort_cols=sort_cols,
                 include_cols=include_cols,
                 student_id_cols=student_id_col,
-                term_is_pre_cohort_col=cp.term_is_pre_cohort_col or "term_is_pre_cohort",
+                term_is_pre_cohort_col=cp.term_is_pre_cohort_col
+                or "term_is_pre_cohort",
                 exclude_pre_cohort_terms=cp.exclude_pre_cohort_terms
                 if cp.exclude_pre_cohort_terms is not None
                 else True,
@@ -108,7 +109,9 @@ class CheckpointsTask:
                 valid_enrollment_year=cp.valid_enrollment_year,
             )
 
-        if isinstance(cp, (pdp_cfg.CheckpointFirstConfig, es_cfg.CheckpointFirstConfig)):
+        if isinstance(
+            cp, (pdp_cfg.CheckpointFirstConfig, es_cfg.CheckpointFirstConfig)
+        ):
             return checkpoints.nth_student_terms.first_student_terms(
                 df_student_terms,
                 sort_cols=sort_cols,
@@ -123,13 +126,15 @@ class CheckpointsTask:
                 es_cfg.CheckpointFirstAtNumCreditsEarnedConfig,
             ),
         ):
-            return checkpoints.nth_student_terms.first_student_terms_at_num_credits_earned(
-                df_student_terms,
-                min_num_credits=cp.min_num_credits,
-                sort_cols=sort_cols,
-                include_cols=include_cols,
-                student_id_cols=student_id_col,
-                num_credits_col=cp.num_credits_col,
+            return (
+                checkpoints.nth_student_terms.first_student_terms_at_num_credits_earned(
+                    df_student_terms,
+                    min_num_credits=cp.min_num_credits,
+                    sort_cols=sort_cols,
+                    include_cols=include_cols,
+                    student_id_cols=student_id_col,
+                    num_credits_col=cp.num_credits_col,
+                )
             )
 
         if isinstance(

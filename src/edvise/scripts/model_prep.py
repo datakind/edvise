@@ -245,9 +245,7 @@ class ModelPrepTask:
             if cohort_pair is not None:
                 cy, ct = cohort_pair
                 cohort_counts = (
-                    df_labeled[[cy, ct]]
-                    .value_counts(dropna=False)
-                    .sort_index()
+                    df_labeled[[cy, ct]].value_counts(dropna=False).sort_index()
                 )
                 logging.info(
                     "Cohort breakdown (%s, %s) (counts):\n%s",

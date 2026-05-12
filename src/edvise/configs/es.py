@@ -249,13 +249,15 @@ class FeaturesConfig(pyd.BaseModel):
             "Maps raw grade codes from the institution upload to canonical Edvise grades "
             "(subset of ALLOWED_LETTER_GRADES) or a numeric string in [0, 4]. "
             "Applied in ES data audit before course schema validation. "
-            "Example: {\"W1\": \"W\", \"W2\": \"W\", \"OTHER\": \"O\", \"NC\": \"NC\"}."
+            'Example: {"W1": "W", "W2": "W", "OTHER": "O", "NC": "NC"}.'
         ),
     )
 
     @pyd.field_validator("grade_map", mode="after")
     @classmethod
-    def validate_grade_map_targets(cls, v: t.Optional[dict[str, str]]) -> t.Optional[dict[str, str]]:
+    def validate_grade_map_targets(
+        cls, v: t.Optional[dict[str, str]]
+    ) -> t.Optional[dict[str, str]]:
         if not v:
             return v
         allowed = ALLOWED_LETTER_GRADES

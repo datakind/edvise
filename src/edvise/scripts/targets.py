@@ -66,9 +66,7 @@ class TargetsTask:
         target_cfg = preproc.target
         df = df_student_terms
         if is_edvise_schema(self.args.schema_type) and target_cfg.type_ == "retention":
-            df = assign_retention_column(
-                df, student_id_col=self.cfg.student_id_col
-            )
+            df = assign_retention_column(df, student_id_col=self.cfg.student_id_col)
 
         return compute_target_from_config(
             target_cfg,

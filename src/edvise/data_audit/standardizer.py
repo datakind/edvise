@@ -12,6 +12,7 @@ from edvise.utils.data_cleaning import (
     strip_trailing_decimal_strings,
 )
 
+
 def add_empty_columns_if_missing(
     df: pd.DataFrame,
     col_val_dtypes: dict[str, tuple[t.Optional[t.Any], str]],

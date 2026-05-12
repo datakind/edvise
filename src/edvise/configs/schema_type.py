@@ -12,7 +12,9 @@ def normalize_schema_type(raw: str) -> str:
     return raw.strip().lower()
 
 
-def project_config_class(schema_type: str) -> t.Type[PDPProjectConfig | ESProjectConfig]:
+def project_config_class(
+    schema_type: str,
+) -> t.Type[PDPProjectConfig | ESProjectConfig]:
     s = normalize_schema_type(schema_type)
     if s == "pdp":
         return PDPProjectConfig

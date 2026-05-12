@@ -58,9 +58,7 @@ def _certificate_first_last_dates(
 ) -> tuple[pd.Series, pd.Series]:
     cols = [c for c in CERTIFICATE_COLS if c in df.columns]
     if not cols:
-        nat = pd.Series(
-            pd.NaT, index=df.index, dtype="datetime64[ns]"
-        )
+        nat = pd.Series(pd.NaT, index=df.index, dtype="datetime64[ns]")
         return nat, nat
     part = df[cols]
     first = part.min(axis=1, skipna=True)
@@ -96,9 +94,7 @@ def add_es_credential_year_columns(df: pd.DataFrame) -> pd.DataFrame:
         else na_i8
     )
     if ASSOCIATES_COL in df.columns:
-        assoc_bucket = _year_bucket_from_matriculation_and_award(
-            m, df[ASSOCIATES_COL]
-        )
+        assoc_bucket = _year_bucket_from_matriculation_and_award(m, df[ASSOCIATES_COL])
     else:
         assoc_bucket = na_i8
 

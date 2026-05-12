@@ -75,6 +75,7 @@ class CustomFeatureGenerationTask:
             f"{self.args.student_term_path}/student_terms.parquet", index=False
         )
 
+
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Data preprocessing for inference in the SST pipeline."

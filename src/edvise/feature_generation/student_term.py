@@ -156,9 +156,7 @@ def aggregate_from_course_level_features(
             "course_grade",
         ]
         dummy_agg_cols = [
-            c
-            for c in dummy_candidates
-            if c is not None and c in df.columns
+            c for c in dummy_candidates if c is not None and c in df.columns
         ]
         if dummy_agg_cols:
             df_dummies = sum_dummy_cols_by_group(
@@ -275,7 +273,8 @@ def add_features(
         ):
             _num_course_cols.append("num_courses_in_term_program_of_study_area")
         num_frac_courses_cols = [
-            (col, col.replace(f"{nc_prefix}_", f"{fc_prefix}_")) for col in _num_course_cols
+            (col, col.replace(f"{nc_prefix}_", f"{fc_prefix}_"))
+            for col in _num_course_cols
         ]
         frac_d = {
             fc_col: ft.partial(compute_frac_courses, numer_col=nc_col)
@@ -351,7 +350,6 @@ def student_earned_certificate(
         return pd.Series(False, index=df.index)
 
     return df[present].lt(df[enrollment_year_col], axis=0).fillna(False).any(axis=1)
-
 
 
 def term_is_pre_cohort(

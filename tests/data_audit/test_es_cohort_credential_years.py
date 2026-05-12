@@ -100,4 +100,6 @@ def test_associates_first_and_latest_match_single_date() -> None:
         }
     )
     out = y.add_es_credential_year_columns(df)
-    assert out.loc[0, y._FIRST_YEAR_ASSOCIATES] == out.loc[0, y._YEARS_LATEST_ASSOCIATES]
+    assert (
+        out.loc[0, y._FIRST_YEAR_ASSOCIATES] == out.loc[0, y._YEARS_LATEST_ASSOCIATES]
+    )

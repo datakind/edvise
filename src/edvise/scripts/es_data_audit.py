@@ -20,7 +20,10 @@ print("src_path:", src_path)
 print("sys.path:", sys.path)
 
 from edvise.data_audit.raw_course_grade_map import apply_raw_course_grade_map
-from edvise.data_audit.schemas import RawEdviseStudentDataSchema, RawEdviseCourseDataSchema
+from edvise.data_audit.schemas import (
+    RawEdviseStudentDataSchema,
+    RawEdviseCourseDataSchema,
+)
 from edvise.data_audit.standardizer import (
     ESCohortStandardizer,
     ESCourseStandardizer,
@@ -122,7 +125,7 @@ class ESDataAuditTask:
             f"Raw course parquet not found at {course_dataset_raw_path!r} (from GenAI registry).",
         )
 
-        #TODO: fix import when we set up flow
+        # TODO: fix import when we set up flow
         # cohort_dataset_raw_path = pick_existing_path(
         #     self.args.cohort_dataset_validated_path,
         #     f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
@@ -133,7 +136,6 @@ class ESDataAuditTask:
         #     f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
         #     "course",
         # )
-        
 
         # --- Load RAW datasets w/o schema---
         LOGGER.info(" Loading raw cohort and course datasets:")
@@ -232,7 +234,7 @@ class ESDataAuditTask:
         log_high_null_columns(df_cohort_validated)
         # Standardize cohort data
         LOGGER.info(" Standardizing cohort data:")
-        
+
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
 
         LOGGER.info(" Cohort data standardized.")
@@ -276,7 +278,7 @@ class ESDataAuditTask:
             )
         LOGGER.info(" Course data read and schema validated, duplicates handled.")
 
-        # TODO: Need to merge cohort and course to do this as we dont have cohort 
+        # TODO: Need to merge cohort and course to do this as we dont have cohort
         # in course data for ES
         # try:
         #     include_pre_cohort = self.cfg.preprocessing.include_pre_cohort_courses
@@ -318,10 +320,10 @@ class ESDataAuditTask:
             )
 
         LOGGER.info(
-            f'Validated that cohort and course files both have a {student_id_col} column with no nulls.'
+            f"Validated that cohort and course files both have a {student_id_col} column with no nulls."
         )
 
-        #TODO: Add gateway or developmental flag handling?
+        # TODO: Add gateway or developmental flag handling?
 
         # Log changes before and after pre-processing
         log_record_drops("Cohort", df_cohort_raw, df_cohort_standardized)

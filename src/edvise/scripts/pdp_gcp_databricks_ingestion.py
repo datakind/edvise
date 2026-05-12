@@ -22,7 +22,11 @@ from edvise.shared.dashboard_metadata.pipeline_runs import (
     append_pipeline_run_event,
     parse_timestamp_from_filename,
 )
-from edvise.utils.databricks import get_dbutils, get_spark_session_or_none, in_databricks
+from edvise.utils.databricks import (
+    get_dbutils,
+    get_spark_session_or_none,
+    in_databricks,
+)
 from edvise.utils.gcs import active_gcp_identity
 from edvise.shared.logger import local_fs_path
 

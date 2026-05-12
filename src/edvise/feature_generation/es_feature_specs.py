@@ -95,7 +95,9 @@ def build_edvise_feature_specs(
     )
 
     student = merge_spec_fields(
-        resolve_student_feature_spec(df_cohort, cohort_cols, base=ES_STUDENT_FEATURE_SPEC_DEFAULT),
+        resolve_student_feature_spec(
+            df_cohort, cohort_cols, base=ES_STUDENT_FEATURE_SPEC_DEFAULT
+        ),
         o.student,
     )
     course = merge_spec_fields(

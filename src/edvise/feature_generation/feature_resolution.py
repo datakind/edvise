@@ -31,9 +31,7 @@ def has_data_col(df: pd.DataFrame, col: str | None) -> bool:
     return bool(col) and col in df.columns
 
 
-def merge_spec_fields(
-    base: _TSpec, patch: t.Mapping[str, bool] | None
-) -> _TSpec:
+def merge_spec_fields(base: _TSpec, patch: t.Mapping[str, bool] | None) -> _TSpec:
     """``patch`` keys replace same-named fields on ``base`` (typically a frozen dataclass).
 
     Callers always pass frozen-dataclass specs from
@@ -54,9 +52,9 @@ def resolve_student_feature_spec(
     *,
     base: StudentFeatureSpec = ES_STUDENT_FEATURE_SPEC_DEFAULT,
 ) -> StudentFeatureSpec:
-    has_cohort_keys = has_data_col(
-        df, cols.cohort_year_col
-    ) and has_data_col(df, cols.cohort_term_col)
+    has_cohort_keys = has_data_col(df, cols.cohort_year_col) and has_data_col(
+        df, cols.cohort_term_col
+    )
     has_pell = has_data_col(df, cols.pell_status_col)
     has_gpa = (
         cols.gpa_group_term_1_col is not None
@@ -65,10 +63,7 @@ def resolve_student_feature_spec(
         and has_data_col(df, cols.gpa_group_year_1_col)
     )
     has_frac_credits = False
-    if (
-        cols.credits_earned_year_template
-        and cols.credits_attempted_year_template
-    ):
+    if cols.credits_earned_year_template and cols.credits_attempted_year_template:
         for yr in (1, 2, 3, 4):
             e = cols.earned_col(yr)
             a = cols.attempted_col(yr)
@@ -103,7 +98,9 @@ def resolve_course_feature_spec(
     )
 
 
-def resolve_term_feature_spec(df: pd.DataFrame, cols: CourseInputColumns) -> TermFeatureSpec:
+def resolve_term_feature_spec(
+    df: pd.DataFrame, cols: CourseInputColumns
+) -> TermFeatureSpec:
     has_ay = has_data_col(df, cols.academic_year)
     has_at = has_data_col(df, cols.academic_term)
     term_on = has_ay and has_at
@@ -135,7 +132,9 @@ def resolve_section_feature_spec(
     )
 
 
-def _optional_course_dummy_sources(df: pd.DataFrame, cols: CourseInputColumns) -> list[str]:
+def _optional_course_dummy_sources(
+    df: pd.DataFrame, cols: CourseInputColumns
+) -> list[str]:
     out: list[str] = []
     for attr in (
         "course_type",
@@ -145,7 +144,12 @@ def _optional_course_dummy_sources(df: pd.DataFrame, cols: CourseInputColumns) -
         name: str | None = getattr(cols, attr, None)
         if name and name in df.columns:
             out.append(name)
-    for attr in ("delivery_method", "math_or_english_gateway", "course_instructor_employment_status", "core_course"):
+    for attr in (
+        "delivery_method",
+        "math_or_english_gateway",
+        "course_instructor_employment_status",
+        "core_course",
+    ):
         name = getattr(cols, attr)
         if name in df.columns:
             out.append(name)
@@ -162,7 +166,9 @@ def resolve_student_term_aggregate_spec(
     pfx = has_data_col(df, cols.course_prefix)
     num = has_data_col(df, cols.course_number)
     dummy_from_cols = bool(_optional_course_dummy_sources(df, cols))
-    dummies = dummy_from_cols or (g and num and course_flags.course_level and course_flags.course_grade)
+    dummies = dummy_from_cols or (
+        g and num and course_flags.course_level and course_flags.course_grade
+    )
     has_ct = has_data_col(df, cols.course_type) if cols.course_type else False
     has_core = has_data_col(df, cols.core_course)
     has_oth = (
@@ -193,14 +199,20 @@ def resolve_student_term_add_feature_spec(
     c_cert = bool(
         cohort_cols.first_year_to_certificate_at_cohort_inst
         and cohort_cols.years_to_latest_certificate_at_cohort_inst
-        and has_data_col(df_cohort, cohort_cols.first_year_to_certificate_at_cohort_inst)
-        and has_data_col(df_cohort, cohort_cols.years_to_latest_certificate_at_cohort_inst)
+        and has_data_col(
+            df_cohort, cohort_cols.first_year_to_certificate_at_cohort_inst
+        )
+        and has_data_col(
+            df_cohort, cohort_cols.years_to_latest_certificate_at_cohort_inst
+        )
     )
     o_cert = bool(
         cohort_cols.first_year_to_certificate_at_other_inst
         and cohort_cols.years_to_latest_certificate_at_other_inst
         and has_data_col(df_cohort, cohort_cols.first_year_to_certificate_at_other_inst)
-        and has_data_col(df_cohort, cohort_cols.years_to_latest_certificate_at_other_inst)
+        and has_data_col(
+            df_cohort, cohort_cols.years_to_latest_certificate_at_other_inst
+        )
     )
     will_have_cohort_start = has_cohort_keys
     has_term_prog = has_data_col(df_course, course_cols.term_program_of_study)

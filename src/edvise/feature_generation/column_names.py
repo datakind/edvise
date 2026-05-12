@@ -46,7 +46,9 @@ class CohortInputColumns:
 
     def attempted_col(self, year: int) -> str:
         if self.credits_attempted_year_template is None:
-            raise ValueError("credits_attempted_year_template is not set for this product")
+            raise ValueError(
+                "credits_attempted_year_template is not set for this product"
+            )
         return self.credits_attempted_year_template.format(yr=year)
 
 

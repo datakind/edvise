@@ -34,17 +34,13 @@ def _col_aggs_for_expanding(
     if ec.term_is_noncore:
         rows.append(("term_is_noncore", "sum"))
     if ec.term_is_while_student_enrolled_at_other_inst:
-        rows.append(
-            ("term_is_while_student_enrolled_at_other_inst", "sum")
-        )
+        rows.append(("term_is_while_student_enrolled_at_other_inst", "sum"))
     if ec.term_is_pre_cohort:
         rows.append(("term_is_pre_cohort", "sum"))
     if ec.course_level_mean:
         rows.append(("course_level_mean", ["mean", "min", "std"]))
     if ec.course_grade_numeric_mean:
-        rows.append(
-            ("course_grade_numeric_mean", ["mean", "min", "std"])
-        )
+        rows.append(("course_grade_numeric_mean", ["mean", "min", "std"]))
     if ec.num_courses:
         rows.append(("num_courses", ["sum", "mean", "min"]))
     if ec.num_credits_attempted:
@@ -52,13 +48,9 @@ def _col_aggs_for_expanding(
     if ec.num_credits_earned:
         rows.append(("num_credits_earned", ["sum", "mean", "min"]))
     if ec.student_pass_rate_above_sections_avg:
-        rows.append(
-            ("student_pass_rate_above_sections_avg", "sum")
-        )
+        rows.append(("student_pass_rate_above_sections_avg", "sum"))
     if ec.student_completion_rate_above_sections_avg:
-        rows.append(
-            ("student_completion_rate_above_sections_avg", "sum")
-        )
+        rows.append(("student_completion_rate_above_sections_avg", "sum"))
     return [p for p in rows if p[0] in df.columns]
 
 
@@ -119,19 +111,20 @@ def add_features(
                 rnm["cumsum_term_is_core"] = "cumnum_core_terms_enrolled"
             if "cumsum_term_is_noncore" in raw.columns:
                 rnm["cumsum_term_is_noncore"] = "cumnum_noncore_terms_enrolled"
-            df_expanding_agg = (
-                raw.astype({k: v for k, v in ast.items() if k in raw.columns})
-                .rename(columns={k: v for k, v in rnm.items() if k in raw.columns})
-            )
+            df_expanding_agg = raw.astype(
+                {k: v for k, v in ast.items() if k in raw.columns}
+            ).rename(columns={k: v for k, v in rnm.items() if k in raw.columns})
     else:
         df_expanding_agg = pd.DataFrame(index=df.index)
 
     if s.cumnum_unique_repeated:
-        cum_cols = [c for c in ("course_ids", "course_subjects", "course_subject_areas") if c in df.columns]
+        cum_cols = [
+            c
+            for c in ("course_ids", "course_subjects", "course_subject_areas")
+            if c in df.columns
+        ]
         if cum_cols:
-            df_cumnum_ur = cumnum_unique_and_repeated_features(
-                df_grped, cols=cum_cols
-            )
+            df_cumnum_ur = cumnum_unique_and_repeated_features(df_grped, cols=cum_cols)
         else:
             df_cumnum_ur = pd.DataFrame(index=df.index)
     else:

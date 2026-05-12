@@ -43,9 +43,7 @@ def add_features(
     LOGGER.info("adding term features ...")
     s = spec or TermFeatureSpec.all()
     noncore_terms: set[types.TermType] = set(df[term_col].unique()) - set(core_terms)
-    first_term = (
-        _get_unique_sorted_terms_df(df, year_col=year_col, term_col=term_col)
-    )
+    first_term = _get_unique_sorted_terms_df(df, year_col=year_col, term_col=term_col)
     assign_kw: dict[str, t.Any] = {}
     if s.term_id:
         assign_kw["term_id"] = ft.partial(

@@ -88,9 +88,7 @@ def assign_retention_column(
         )
 
     # --- Leg 1: continued enrollment into the second academic year (at cohort inst) ---
-    enroll_max = (
-        df.groupby(id_cols, sort=False)[YEAR_OF_ENROLLMENT_COL].max()
-    )
+    enroll_max = df.groupby(id_cols, sort=False)[YEAR_OF_ENROLLMENT_COL].max()
     leg_enroll = enroll_max.ge(2).fillna(False).astype(bool)
 
     # --- Leg 2: credential completed in academic year 1 or 2 (cohort-inst buckets) ---
@@ -107,17 +105,11 @@ def assign_retention_column(
     else:
         leg_cred = pd.Series(False, index=leg_enroll.index, dtype=bool)
 
-    leg_cred = leg_cred.reindex(leg_enroll.index, fill_value=False).astype(
-        bool
-    )
+    leg_cred = leg_cred.reindex(leg_enroll.index, fill_value=False).astype(bool)
     # True iff retained by either leg. Unmapped students after merge → not retained (0).
     per_student_retained = leg_enroll | leg_cred
     rdf = per_student_retained.reset_index(name="_retained_bool")
-    out = df.merge(
-        rdf, on=id_cols, how="left", sort=False, validate="many_to_one"
-    )
+    out = df.merge(rdf, on=id_cols, how="left", sort=False, validate="many_to_one")
     # 1 = retained, 0 = not; compute_target applies ~ after astype("boolean").
-    out[retention_col] = (
-        out["_retained_bool"].fillna(False).astype(int).astype("Int8")
-    )
+    out[retention_col] = out["_retained_bool"].fillna(False).astype(int).astype("Int8")
     return out.drop(columns=["_retained_bool"], errors="ignore")
