@@ -91,7 +91,7 @@ def known_onboard_run_artifact_paths(
     add(
         "SMA outputs (onboard run)",
         "Execute-mode parquet folder (if present)",
-        sma / "data",
+        base / "pipeline_input",
     )
     return root, items
 

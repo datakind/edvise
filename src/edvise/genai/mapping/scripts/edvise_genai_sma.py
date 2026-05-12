@@ -61,6 +61,7 @@ disable_mlflow_side_effects_for_openai_gateway()
 
 from edvise.configs import genai as genai_cfg
 from edvise.genai.mapping.shared.active_promotion import promote_genai_mapping_to_active
+from edvise.genai.mapping.shared.silver_run_paths import sma_pipeline_input_root
 from edvise.genai.mapping.state import job_state as _pipeline_job_state
 from edvise.genai.mapping.state import pipeline_state as _pipeline_state
 from edvise.genai.mapping.state.hitl_poller import (
@@ -83,7 +84,7 @@ _DEFAULT_SMA_GATEWAY_MODEL_ID = "claude-sonnet-edvise-genai"
 
 @dataclass
 class SMAPaths:
-    # Run folder: ``runs/onboard/{onboard_run_id}/`` or ``runs/execute/{execute_run_id}/``
+    # SMA JSON / maps / HITL: ``runs/onboard/{onboard_run_id}/schema_mapping_agent/`` (or execute).
     run_root: Path
     manifest_map: Path
     mapping_validation_manifest: Path
@@ -117,8 +118,8 @@ class SMAPaths:
     # Optional upstream cleaned inputs (volume layout)
     genai_data: Path
 
-    # Output data (written after execution)
-    output_data: Path  # directory, one .parquet per entity
+    # Materialized cohort/course parquet (sibling of ``schema_mapping_agent/`` under the run id)
+    output_data: Path
 
 
 def resolve_run_paths(
@@ -142,8 +143,9 @@ def resolve_run_paths(
         segment = ("execute", rid)
     else:
         raise ValueError(f"resolve_run_paths: invalid mode={mode!r}")
-    run_root = genai / "runs" / segment[0] / segment[1] / "schema_mapping_agent"
-    ia_run_root = genai / "runs" / segment[0] / segment[1] / "identity_agent"
+    run_segment = genai / "runs" / segment[0] / segment[1]
+    run_root = run_segment / "schema_mapping_agent"
+    ia_run_root = run_segment / "identity_agent"
     active_root = genai / "active"
 
     return SMAPaths(
@@ -177,8 +179,9 @@ def resolve_run_paths(
         active_transform_hooks=active_root / "transform_hooks.py",
         active_enriched_schema_contract=active_root / "enriched_schema_contract.json",
         genai_data=genai / "data",
-        # Output data
-        output_data=run_root / "data",
+        output_data=sma_pipeline_input_root(
+            genai, mode=segment[0], run_id=segment[1]
+        ),
     )
 
 

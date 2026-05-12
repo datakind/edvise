@@ -5,9 +5,9 @@ the Databricks job entry points:
 * ``edvise_genai_ia.py`` — :func:`resolve_run_paths` →
   ``{silver_genai_mapping_root}/runs/{onboard|execute}/{run_id}/identity_agent/`` with
   ``identity_grain_hitl.json`` and ``identity_term_hitl.json`` (see ``IAPaths``).
-* ``edvise_genai_sma.py`` — :func:`resolve_run_paths` →
-  ``{silver_genai_mapping_root}/runs/{onboard|execute}/{run_id}/schema_mapping_agent/`` with
-  ``cohort_hitl_manifest.json`` and ``course_hitl_manifest.json`` (see ``SMAPaths``).
+* ``edvise_genai_sma.py`` — :func:`resolve_run_paths` → SMA HITL JSON under
+  ``{silver_genai_mapping_root}/runs/{onboard|execute}/{run_id}/schema_mapping_agent/``;
+  materialized parquet outputs under ``…/{run_id}/pipeline_input/`` (see ``SMAPaths``).
 
 The directory segment ``runs/onboard/{onboard_run_id}/`` (or ``runs/execute/{execute_run_id}/``) is
 part of the full UC path, so the same ``onboard_run_id`` keys ``hitl_reviews`` and appears inside

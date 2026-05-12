@@ -23,19 +23,20 @@ def enriched_schema_contract_path_from_manifest(
     manifest_absolute_path: str, onboard_run_id: str
 ) -> str | None:
     """
-    ``…/runs/onboard/{onboard_run_id}/schema_mapping_agent/…``
-    → ``…/runs/onboard/{onboard_run_id}/identity_agent/enriched_schema_contract.json``
+    Resolve IA ``enriched_schema_contract.json`` from an SMA manifest/HITL path under
+    ``…/runs/{onboard|execute}/{run_id}/schema_mapping_agent/…``.
     """
     p = (manifest_absolute_path or "").strip()
     rid = (onboard_run_id or "").strip()
     if not p.startswith("/Volumes/") or not rid:
         return None
-    needle = f"/runs/onboard/{rid}/"
-    pos = p.find(needle)
-    if pos < 0:
-        return None
-    base = p[: pos + len(needle)]
-    return f"{base}identity_agent/enriched_schema_contract.json"
+    for mode in ("onboard", "execute"):
+        needle = f"/runs/{mode}/{rid}/schema_mapping_agent/"
+        idx = p.find(needle)
+        if idx >= 0:
+            base = p[: idx + len(f"/runs/{mode}/{rid}/")]
+            return f"{base}identity_agent/enriched_schema_contract.json"
+    return None
 
 
 def _as_str_list(v: Any) -> list[str]:

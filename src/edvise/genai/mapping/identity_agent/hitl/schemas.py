@@ -13,7 +13,7 @@ SCHEMA_MAPPING and TRANSFORM domains are stubs for future use.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -32,6 +32,7 @@ from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
 class HITLDomain(str, Enum):
     IDENTITY_GRAIN = "identity_grain"
     IDENTITY_TERM = "identity_term"
+    SMA_GRAIN = "sma_grain"
     SCHEMA_MAPPING = "schema_mapping"  # future
     TRANSFORM = "transform"  # future
 
@@ -71,6 +72,7 @@ class GrainResolution(BaseModel):
             "categorical_priority",
             "suffix_identifier",
             "no_dedup",
+            "intentional_step_down",
         ]
         | None
     ) = Field(
@@ -197,7 +199,7 @@ class GrainResolution(BaseModel):
                 raise ValueError(
                     "suffix_identifier may only set suffix_column; other dedup fields must be null."
                 )
-        elif s in ("true_duplicate", "no_dedup"):
+        elif s in ("true_duplicate", "no_dedup", "intentional_step_down"):
             if any(
                 x is not None
                 for x in (
@@ -541,6 +543,17 @@ class HITLItem(BaseModel):
             "null = no reviewer note provided."
         ),
     )
+    severity: Literal["error", "warning"] = Field(
+        default="error",
+        description=(
+            "Pipeline gate severity: 'error' blocks until reviewed; 'warning' is informational "
+            "for non-blocking SMA grain confirmations (e.g. intentional step-down)."
+        ),
+    )
+    metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Structured context for tooling (row counts, keys, manifest hints).",
+    )
 
     @field_validator("hook_group_tables", mode="before")
     @classmethod
@@ -583,7 +596,7 @@ class HITLItem(BaseModel):
         for opt in self.options:
             if opt.resolution is None:
                 continue
-            if self.domain == HITLDomain.IDENTITY_GRAIN:
+            if self.domain in (HITLDomain.IDENTITY_GRAIN, HITLDomain.SMA_GRAIN):
                 GrainResolution.model_validate(opt.resolution)
             elif self.domain == HITLDomain.IDENTITY_TERM:
                 TermResolution.model_validate(opt.resolution)
@@ -616,7 +629,7 @@ class InstitutionHITLItems(BaseModel):
     """
 
     institution_id: str
-    domain: Literal["grain", "term"]
+    domain: Literal["grain", "term", "sma_grain"]
     items: list[HITLItem] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -631,11 +644,11 @@ class InstitutionHITLItems(BaseModel):
 
     @model_validator(mode="after")
     def items_match_domain(self) -> "InstitutionHITLItems":
-        expected = (
-            HITLDomain.IDENTITY_GRAIN
-            if self.domain == "grain"
-            else HITLDomain.IDENTITY_TERM
-        )
+        expected = {
+            "grain": HITLDomain.IDENTITY_GRAIN,
+            "term": HITLDomain.IDENTITY_TERM,
+            "sma_grain": HITLDomain.SMA_GRAIN,
+        }[self.domain]
         for item in self.items:
             if item.domain != expected:
                 raise ValueError(
@@ -650,9 +663,18 @@ class InstitutionHITLItems(BaseModel):
         return [i for i in self.items if i.choice is None]
 
     @property
+    def blocking_pending(self) -> list[HITLItem]:
+        """Items that block the pipeline until reviewed (excludes severity='warning')."""
+        return [
+            i
+            for i in self.items
+            if i.choice is None and getattr(i, "severity", "error") == "error"
+        ]
+
+    @property
     def is_clear(self) -> bool:
-        """True when all items have a choice set — gate check passes."""
-        return all(i.choice is not None for i in self.items)
+        """True when all blocking items have a choice set — gate check passes."""
+        return all(i.choice is not None for i in self.items if i.severity == "error")
 
 
 def get_grain_hitl_item_schema_context() -> str:
