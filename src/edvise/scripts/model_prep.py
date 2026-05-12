@@ -28,7 +28,7 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.configs.schema_type import project_config_class
+from edvise.configs.schema_type import is_edvise_schema, project_config_class
 from edvise.dataio.read import read_config, read_parquet
 from edvise.dataio.write import write_parquet
 from edvise.model_prep import cleanup_features as cleanup, training_params
@@ -63,6 +63,11 @@ class ModelPrepTask:
         self.args = args
         cfg_cls = project_config_class(args.schema_type)
         self.cfg = read_config(args.config_file_path, schema=cfg_cls)
+        self.cleaner: cleanup.BaseCleanup = (
+            cleanup.ESCleanup()
+            if is_edvise_schema(args.schema_type)
+            else cleanup.PDPCleanup()
+        )
 
     def merge_data(
         self,
@@ -129,8 +134,7 @@ class ModelPrepTask:
         return df_labeled
 
     def cleanup_features(self, df_labeled: pd.DataFrame) -> pd.DataFrame:
-        cleaner = cleanup.PDPCleanup()
-        return cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled)
+        return self.cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled)
 
     def apply_dataset_splits(self, df: pd.DataFrame) -> pd.DataFrame:
         preprocessing_cfg = self.cfg.preprocessing
