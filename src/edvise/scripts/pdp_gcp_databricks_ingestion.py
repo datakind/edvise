@@ -28,7 +28,10 @@ from edvise.utils.databricks import (
     in_databricks,
 )
 from edvise.utils.gcs import active_gcp_identity
-from edvise.shared.logger import local_fs_path
+
+
+def local_fs_path(p: str) -> str:
+    return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
 # Model names from get_model_name() are already UC-compatible
 
