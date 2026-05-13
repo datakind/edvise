@@ -72,7 +72,7 @@ jobs:
             --var="git_tag=${{ github.ref_name }}"
 
       - name: Deploy validated GCS to bronze sync bundle (prod target -> staging_sst_01)
-        working-directory: pipelines/validated-gcs-to-bronze-sync
+        working-directory: pipelines/ingestion/shared
 
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_STAGING_HOST }}
@@ -151,7 +151,7 @@ jobs:
             --var="git_commit=${{ github.sha }}"
 
       - name: Deploy validated GCS to bronze sync bundle (dev target -> dev_sst_02)
-        working-directory: pipelines/validated-gcs-to-bronze-sync
+        working-directory: pipelines/ingestion/shared
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}

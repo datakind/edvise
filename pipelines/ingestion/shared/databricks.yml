@@ -1,4 +1,4 @@
-# Dedicated repo folder: pipelines/validated-gcs-to-bronze-sync/
+# Dedicated bundle folder: pipelines/ingestion/shared/
 # Bundle display name unchanged so workspace deploy path stays aligned with prior releases.
 bundle:
   name: Edvise ingestion shared
