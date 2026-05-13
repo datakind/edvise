@@ -79,6 +79,7 @@ class GrainReconciliationRequired(Exception):
         hitl_output_path: Path,
         entity_type: str,
         sma_manifest_path: Path | None = None,
+        base_df: pd.DataFrame,
     ) -> None:
         self.institution_id = institution_id
         self.dataset = dataset
@@ -90,6 +91,7 @@ class GrainReconciliationRequired(Exception):
         self.hitl_output_path = hitl_output_path
         self.entity_type = entity_type
         self.sma_manifest_path = sma_manifest_path
+        self.base_df = base_df
         super().__init__(
             "Grain reconciliation required: "
             f"{base_rows} base rows vs {entity_rows} unique entities on keys {manifest_source_keys}. "
@@ -1051,6 +1053,7 @@ def execute_transformation_map(
             hitl_output_path=Path(hitl_output_path),
             entity_type=str(transformation_map.entity_type),
             sma_manifest_path=sma_manifest_path,
+            base_df=base_df.copy(),
         )
 
     logger.debug(

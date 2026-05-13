@@ -285,6 +285,89 @@ def _load_cleaned_dataframes(
     return dataframes
 
 
+def _ia_post_clean_primary_key_for_dataset(
+    enriched_contract: dict[Any, Any], dataset_name: str
+) -> list[str] | None:
+    """IdentityAgent grain (source space) for ``execute_transformation_map(..., ia_source_keys=...)``."""
+    ds = (enriched_contract.get("datasets") or {}).get(dataset_name)
+    if not isinstance(ds, dict):
+        return None
+    grain = ds.get("grain_contract") or {}
+    if not isinstance(grain, dict):
+        return None
+    pk = grain.get("post_clean_primary_key")
+    if not isinstance(pk, list) or not pk:
+        return None
+    return [str(x) for x in pk]
+
+
+def _execute_transformation_map_for_sma_run(
+    *,
+    transformation_map: Any,
+    manifest: Any,
+    dataframes: dict[str, Any],
+    schema: Any,
+    spark_session: Any,
+    institution_id: str,
+    enriched_contract: dict[Any, Any],
+    manifest_map_path: Path,
+    grain_hitl_path: Path,
+) -> Any:
+    """Run SMA execution with grain gate wiring (institution id, HITL path, IA keys, optional sidecar)."""
+    from edvise.genai.mapping.schema_mapping_agent.execution.field_executor import (
+        GrainReconciliationRequired,
+        execute_transformation_map,
+    )
+    from edvise.genai.mapping.schema_mapping_agent.execution.grain_reconciliation import (
+        run_grain_reconciliation_gate,
+    )
+    from edvise.genai.mapping.schema_mapping_agent.manifest.validation import (
+        infer_manifest_base_table,
+    )
+
+    base_table = infer_manifest_base_table(manifest)
+    ia_keys = _ia_post_clean_primary_key_for_dataset(enriched_contract, base_table)
+    et_value = transformation_map.entity_type.value
+    if et_value not in ("cohort", "course"):
+        raise ValueError(
+            f"Unexpected entity_type={et_value!r} for SMA grain gate (expected cohort|course)"
+        )
+    entity_lit = cast(Literal["cohort", "course"], et_value)
+    sidecar = grain_hitl_path.parent / f"sma_grain_resolution_{et_value}.json"
+    resolution_path = sidecar if sidecar.is_file() else None
+
+    try:
+        return execute_transformation_map(
+            transformation_map=transformation_map,
+            manifest=manifest,
+            dataframes=dataframes,
+            schema=schema,
+            spark_session=spark_session,
+            institution_id=institution_id,
+            hitl_output_path=grain_hitl_path,
+            ia_source_keys=ia_keys,
+            sma_grain_resolution_path=resolution_path,
+            sma_manifest_path=manifest_map_path,
+        )
+    except GrainReconciliationRequired as exc:
+        run_grain_reconciliation_gate(
+            df=exc.base_df,
+            institution_id=exc.institution_id,
+            dataset=exc.dataset,
+            entity_type=entity_lit,
+            manifest_source_keys=exc.manifest_source_keys,
+            mapped_source_columns=exc.mapped_source_columns,
+            ia_source_keys=exc.ia_source_keys,
+            hitl_output_path=exc.hitl_output_path,
+            sma_manifest_path=exc.sma_manifest_path,
+        )
+        raise RuntimeError(
+            f"SMA grain reconciliation HITL was written to {exc.hitl_output_path}. "
+            f"After human review, run the resolver so {sidecar.name} exists next to it, "
+            "then re-run this job; the pipeline loads that sidecar automatically when present."
+        ) from exc
+
+
 def _write_output_data(
     output_data_dir: Path, cohort_result: Any, course_result: Any
 ) -> None:
@@ -647,9 +730,6 @@ def run_onboard_gate_2(
         dedupe_transformation_plans_in_wrapper,
     )
     from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import load_json
-    from edvise.genai.mapping.schema_mapping_agent.execution.field_executor import (
-        execute_transformation_map,
-    )
     from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
     from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
 
@@ -1022,19 +1102,27 @@ def run_onboard_gate_2(
     cohort_map = TransformationMap.model_validate(cohort_map_data)
     course_map = TransformationMap.model_validate(course_map_data)
 
-    cohort_result = execute_transformation_map(
+    cohort_result = _execute_transformation_map_for_sma_run(
         transformation_map=cohort_map,
         manifest=cohort_manifest,
         dataframes=dataframes,
         schema=RawEdviseStudentDataSchema,
         spark_session=spark_session,
+        institution_id=institution_id_from_tm,
+        enriched_contract=enriched_contract,
+        manifest_map_path=paths.manifest_map,
+        grain_hitl_path=paths.run_root / "cohort_sma_grain_hitl.json",
     )
-    course_result = execute_transformation_map(
+    course_result = _execute_transformation_map_for_sma_run(
         transformation_map=course_map,
         manifest=course_manifest,
         dataframes=dataframes,
         schema=RawEdviseCourseDataSchema,
         spark_session=spark_session,
+        institution_id=institution_id_from_tm,
+        enriched_contract=enriched_contract,
+        manifest_map_path=paths.manifest_map,
+        grain_hitl_path=paths.run_root / "course_sma_grain_hitl.json",
     )
 
     # Step 2d — Pandera validation (report only, does not block)
@@ -1077,9 +1165,6 @@ def run_execute(
     )
     from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
         TransformationMap,
-    )
-    from edvise.genai.mapping.schema_mapping_agent.execution.field_executor import (
-        execute_transformation_map,
     )
     from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
     from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
@@ -1132,19 +1217,27 @@ def run_execute(
     cohort_map = TransformationMap.model_validate(cohort_map_data)
     course_map = TransformationMap.model_validate(course_map_data)
 
-    cohort_result = execute_transformation_map(
+    cohort_result = _execute_transformation_map_for_sma_run(
         transformation_map=cohort_map,
         manifest=cohort_manifest,
         dataframes=dataframes,
         schema=RawEdviseStudentDataSchema,
         spark_session=spark_session,
+        institution_id=institution_id_from_tm,
+        enriched_contract=enriched_contract,
+        manifest_map_path=paths.active_manifest_map,
+        grain_hitl_path=paths.run_root / "cohort_sma_grain_hitl.json",
     )
-    course_result = execute_transformation_map(
+    course_result = _execute_transformation_map_for_sma_run(
         transformation_map=course_map,
         manifest=course_manifest,
         dataframes=dataframes,
         schema=RawEdviseCourseDataSchema,
         spark_session=spark_session,
+        institution_id=institution_id_from_tm,
+        enriched_contract=enriched_contract,
+        manifest_map_path=paths.active_manifest_map,
+        grain_hitl_path=paths.run_root / "course_sma_grain_hitl.json",
     )
 
     # Pandera validation (report only)
