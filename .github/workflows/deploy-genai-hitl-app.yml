@@ -9,7 +9,7 @@ name: deploy-genai-hitl-app
 on:
   push:
     branches:
-      - feat/gen_ai_hitl_ui_build
+      - feat/grain-resolution-shared
     paths:
       - "src/edvise/genai/mapping/streamlit-genai-hitl-app/**"
       - "src/edvise/utils/institution_naming.py"
