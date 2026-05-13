@@ -18,7 +18,7 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     HITLItem,
     get_grain_hitl_item_schema_context,
 )
-from edvise.genai.mapping.identity_agent.utilities import strip_json_fences
+from edvise.genai.mapping.shared.strip_json_fences import strip_json_fences
 from edvise.genai.mapping.identity_agent.profiling import (
     RankedCandidateProfiles,
     RawTableProfile,
@@ -413,11 +413,13 @@ def _identity_reasoning_steps() -> str:
            **Collision scale** and **Sort column validity and cardinality** (see before step 8)
            before committing.
          - Accept that you're losing the other column's distinctions.
-         - Example: (sid, plan, term, degree) is the grain; collapse on honors descending
-           (keep Summa > Magna > Cum > none); **drop sub_plan distinctions** means one row per grain
-           with **sub_plan still present** as a column (single value per grain from the kept row) — see
-           **TERMINOLOGY: "Drop Distinctions" vs. "Delete Column"**.
-         - Use `temporal_collapse` with `sort_by="honors"`, `sort_ascending=false`.
+         - Example: (sid, plan, term, degree) is the grain; collapse on honors (keep Summa >
+           Magna > Cum > none) via **`categorical_priority`** with `priority_column="honors"` and an
+           explicit `priority_order` — see **Categorical column variance**; **drop sub_plan distinctions**
+           means one row per grain with **sub_plan still present** as a column (single value per grain
+           from the kept row) — see **TERMINOLOGY: "Drop Distinctions" vs. "Delete Column"**.
+         - Use `categorical_priority` for that honors collapse (not lexicographic `first_by_column` on
+           honor text).
 
       **Option ii) One or both columns belong in the grain (table is multi-row by design)**
          - Declare the grain is wider: e.g., (sid, plan, term, degree, sub_plan) where honors
@@ -458,18 +460,28 @@ def _identity_reasoning_steps() -> str:
 
    **Validity check:** If the candidate key has `non_unique_rows` > 0, you CANNOT use `no_dedup`.
    When **Repeat course enrollment** applies (measure-only variance on course grain), you **must**
-   use **`suffix_identifier`** and **must not** use **`temporal_collapse`** or **`true_duplicate`**
-   to shrink row count. Otherwise use `temporal_collapse`, `true_duplicate`, `policy_required`,
+   use **`suffix_identifier`** and **must not** use **`temporal_collapse`**, **`first_by_column`**,
+   **`true_duplicate`**, **`categorical_priority`**, or any other row-dropping dedup
+   to shrink row count. Otherwise use `temporal_collapse`, `first_by_column`, `true_duplicate`, `policy_required`,
    `categorical_priority`, or `suffix_identifier` as DOMAIN PRIORS require.
 
    Use exactly one of these string literals for `dedup_policy.strategy`:
 
    - `"true_duplicate"`: within-group variance = 0 across all columns — drop all but one
-   - `"temporal_collapse"`: collapse to one row per key by sorting on a column and keeping first.
-     Always use `keep="first"` and control direction via `sort_ascending`:
+   - `"temporal_collapse"`: time / sequence-like `sort_by`; collapse to one row per key by sorting
+     and keeping first. Always use `keep="first"` and control direction via `sort_ascending`:
      - Keep **earliest** value: `sort_by="<col>"`, `sort_ascending=true`, `keep="first"`
      - Keep **latest** value: `sort_by="<col>"`, `sort_ascending=false`, `keep="first"`
      Never use `keep="last"`.
+   - `"first_by_column"`: non-time `sort_by` with a **defensible total order** on one column, then
+     `keep="first"` (same mechanics as `temporal_collapse`, not temporal semantics). Use **only**
+     when ascending/descending sort on that column **is** the policy — e.g. numeric **sequence /
+     line id / load order**, integer **priority rank**, **boolean** or 0/1 **primary-row** flags.
+     **Do not** use it to mean “alphabetically first/last” on labels, program names, majors, or
+     honor strings (no institutional meaning) — use **`categorical_priority`** with explicit
+     `priority_order`, or **`policy_required`** + HITL. **Not** for grade/GPA/credits on course
+     enrollment grain (**Repeat course enrollment** → **`suffix_identifier`**). This is **not**
+     `true_duplicate`: you are choosing among differing rows, not asserting they are identical.
    - `"no_dedup"`: table is intentionally multi-row AND has ZERO duplicates on the semantic grain.
      This is only valid when `non_unique_rows` = 0 for the candidate key.
    - `"policy_required"`: grain is ambiguous or collapse rule is unclear; human must decide

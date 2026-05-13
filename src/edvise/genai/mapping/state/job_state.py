@@ -7,7 +7,8 @@ Failures are logged and do not block the job (same spirit as
 UC HITL polling helpers (:func:`wait_for_ia_gate_1_hitl`, :func:`wait_for_ia_gate_1_hooks_hitl`,
 :func:`wait_for_sma_gate_1_hitl`, :func:`wait_for_sma_gate_2_transformation_review_hitl`,
 :func:`wait_for_sma_gate_2_hook_preview_hitl`,
-:func:`wait_for_sma_gate_2_hook_required_hitl`) are blocking and
+:func:`wait_for_sma_gate_2_hook_required_hitl`,
+:func:`wait_for_sma_gate_2_grain_hitl`) are blocking and
 raise on timeout or rejection. Timeouts persist
 ``timed_out`` on ``pipeline_runs`` / ``pipeline_phases`` (resumable); other failures may use
 :func:`mark_pipeline_failed`.
@@ -48,6 +49,7 @@ PHASE_SMA_GATE_1: str = "sma_gate_1"
 PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW: str = "sma_gate_2_transformation_review"
 PHASE_SMA_GATE_2_HOOK_PREVIEW: str = "sma_gate_2_hook_preview"
 PHASE_SMA_GATE_2_HOOK_REQUIRED: str = "sma_gate_2_hook_required"
+PHASE_SMA_GATE_2_GRAIN: str = "sma_gate_2_grain"
 AUTO_APPROVER: str = "pipeline_auto_approve_empty_hitl"
 
 
@@ -89,6 +91,9 @@ def _hitl_artifact_has_actionable_items(
             Path(artifact_path), TransformationReviewHITLFile
         )
         return len(env_review.pending) > 0
+    if at in {"cohort_sma_grain_hitl", "course_sma_grain_hitl"}:
+        env_grain = read_pydantic_json(Path(artifact_path), InstitutionHITLItems)
+        return len(env_grain.pending) > 0
     return True
 
 
@@ -702,6 +707,113 @@ def after_sma_gate_2_hook_required_approved(
     )
     _state_safe(
         "pipeline_runs -> running (post SMA transformation hook HITL)",
+        pipeline_state.update_pipeline_run_status,
+        catalog,
+        institution_id,
+        onboard_run_id,
+        "running",
+    )
+
+
+def _sma_grain_hitl_artifact_row(path: Path) -> dict[str, str]:
+    name = path.name.lower()
+    if name == "cohort_sma_grain_hitl.json":
+        return {
+            "artifact_type": "cohort_sma_grain_hitl",
+            "artifact_path": path.as_posix(),
+        }
+    if name == "course_sma_grain_hitl.json":
+        return {
+            "artifact_type": "course_sma_grain_hitl",
+            "artifact_path": path.as_posix(),
+        }
+    raise ValueError(f"Unrecognized SMA grain HITL filename (expected cohort|course): {path}")
+
+
+def register_sma_gate_2_grain_artifacts(
+    catalog: str,
+    institution_id: str,
+    onboard_run_id: str,
+    *,
+    grain_hitl_paths: list[Path],
+) -> None:
+    """
+    Register ``InstitutionHITLItems`` SMA grain JSON under ``sma_gate_2_grain``.
+
+    Artifact types: ``cohort_sma_grain_hitl``, ``course_sma_grain_hitl``.
+    """
+    paths = [Path(p) for p in grain_hitl_paths]
+    if not paths:
+        return
+    artifacts = [_sma_grain_hitl_artifact_row(p) for p in paths]
+    _state_safe(
+        "sma_gate_2_grain -> awaiting_hitl",
+        pipeline_state.log_phase_transition,
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_GRAIN,
+        "awaiting_hitl",
+    )
+    _state_safe(
+        "pipeline_runs -> awaiting_hitl (SMA grain reconciliation HITL)",
+        pipeline_state.update_pipeline_run_status,
+        catalog,
+        institution_id,
+        onboard_run_id,
+        "awaiting_hitl",
+    )
+    _state_safe(
+        "register_hitl (SMA gate 2 grain)",
+        pipeline_state.register_hitl_artifacts,
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_GRAIN,
+        artifacts,
+    )
+    for p in paths:
+        row = _sma_grain_hitl_artifact_row(p)
+        _auto_approve_hitl_artifact_if_empty(
+            catalog,
+            onboard_run_id,
+            PHASE_SMA_GATE_2_GRAIN,
+            row["artifact_type"],
+            p,
+        )
+
+
+def wait_for_sma_gate_2_grain_hitl(
+    catalog: str,
+    onboard_run_id: str,
+    *,
+    institution_id: str,
+    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+) -> bool:
+    """Block until UC rows for ``sma_gate_2_grain`` are approved."""
+    return poll_uc_hitl_until_approved_or_timeout(
+        catalog,
+        institution_id,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_GRAIN,
+        poll_interval_seconds=poll_interval_seconds,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def after_sma_gate_2_grain_approved(
+    catalog: str, institution_id: str, onboard_run_id: str
+) -> None:
+    """Log SMA grain gate complete and set pipeline run status back to ``running``."""
+    _state_safe(
+        "sma_gate_2_grain complete",
+        pipeline_state.log_phase_transition,
+        catalog,
+        onboard_run_id,
+        PHASE_SMA_GATE_2_GRAIN,
+        "complete",
+    )
+    _state_safe(
+        "pipeline_runs -> running (post SMA grain HITL)",
         pipeline_state.update_pipeline_run_status,
         catalog,
         institution_id,

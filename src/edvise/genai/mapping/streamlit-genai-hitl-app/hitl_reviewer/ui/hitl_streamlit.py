@@ -29,6 +29,7 @@ from hitl_reviewer.persistence.hitl_json_batch_commit import (
 from hitl_reviewer.ui._shared import HITL_FLASH_HINT_AFTER_UC, set_hitl_flash_banner
 from hitl_reviewer.ui.ia.grain_review_ui import (
     is_ia_grain_phase,
+    is_sma_grain_hitl_phase,
     render_ia_grain_hitl_cards,
 )
 from hitl_reviewer.ui.ia.term_review_ui import (
@@ -450,7 +451,9 @@ def render_silver_hitl_editor(
     after_uc_approve_success: Callable[[], None] | None = None,
 ) -> None:
     is_sma = is_sma_phase(phase, artifact_type)
-    is_ia_grain = is_ia_grain_phase(phase, artifact_type)
+    is_ia_grain = is_ia_grain_phase(phase, artifact_type) or is_sma_grain_hitl_phase(
+        phase, artifact_type
+    )
     is_ia_term = is_ia_term_phase(phase, artifact_type)
     is_hook_preview = is_ia_hook_preview_phase(
         phase, artifact_type
@@ -1076,7 +1079,9 @@ def render_one_hitl_group(
             _is_sma_tr = is_sma_transformation_review_phase(
                 str(phase), str(artifact_type)
             )
-            _is_ia_g = is_ia_grain_phase(str(phase), str(artifact_type))
+            _is_ia_g = is_ia_grain_phase(str(phase), str(artifact_type)) or is_sma_grain_hitl_phase(
+                str(phase), str(artifact_type)
+            )
             _is_ia_t = is_ia_term_phase(str(phase), str(artifact_type))
             _is_hook_pv = is_ia_hook_preview_phase(
                 str(phase), str(artifact_type)
@@ -1118,7 +1123,9 @@ def render_one_hitl_group(
                 )[1],
             )
         st.divider()
-        is_ia_grain_row = is_ia_grain_phase(str(phase), str(artifact_type))
+        is_ia_grain_row = is_ia_grain_phase(str(phase), str(artifact_type)) or is_sma_grain_hitl_phase(
+            str(phase), str(artifact_type)
+        )
         is_ia_term_row = is_ia_term_phase(str(phase), str(artifact_type))
         is_hook_pv_row = is_ia_hook_preview_phase(
             str(phase), str(artifact_type)

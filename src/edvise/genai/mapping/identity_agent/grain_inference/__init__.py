@@ -7,7 +7,6 @@ messages plus :class:`~profiling.schemas.RankedCandidateProfiles`. Step 1 stats 
 """
 
 from ..dataset_io import load_school_dataset_dataframe
-from . import deduplication
 from .databricks_gateway import (
     DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL,
     DEFAULT_GATEWAY_MODEL_ID,
@@ -46,6 +45,14 @@ from .run_by_dataset import (
     write_identity_profiling_artifacts,
 )
 from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
+from edvise.genai.mapping.shared.grain.dedup_execution import drop_duplicate_keys
+from edvise.genai.mapping.shared.grain.dedup_strategies import (
+    DedupPolicyStrategy,
+    GrainResolutionDedupStrategy,
+    GrainResolutionDedupStrategyAny,
+    SmaGrainMultiplicityProposalStrategy,
+    SmaOnlyGrainResolutionDedupStrategy,
+)
 from .schemas import (
     DedupPolicy,
     DedupStrategy,
@@ -62,14 +69,19 @@ __all__ = [
     "identity_profiling_run_to_jsonable",
     "write_identity_profiling_artifacts",
     "DedupPolicy",
+    "DedupPolicyStrategy",
     "DedupStrategy",
+    "GrainResolutionDedupStrategy",
+    "GrainResolutionDedupStrategyAny",
+    "SmaGrainMultiplicityProposalStrategy",
+    "SmaOnlyGrainResolutionDedupStrategy",
     "IDENTITY_AGENT_SYSTEM_PROMPT",
     "IDENTITY_AGENT_USER_TEMPLATE",
     "GrainContract",
     "InstitutionGrainContract",
     "build_identity_agent_system_prompt",
     "build_identity_agent_user_message",
-    "deduplication",
+    "drop_duplicate_keys",
     "format_column_list",
     "build_institution_grain_contracts",
     "backfill_hitl_uniqueness_scores",

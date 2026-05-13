@@ -41,6 +41,11 @@ def is_sma_phase(phase: str, artifact_type: str) -> bool:
     at = str(artifact_type).strip().lower()
     if ph == "sma_gate_1" and at in ("cohort_manifest", "course_manifest"):
         return True
+    if ph == "sma_gate_2_grain" and at in (
+        "cohort_sma_grain_hitl",
+        "course_sma_grain_hitl",
+    ):
+        return True
     if ph == "sma_gate_2_hook_required" and at in (
         "cohort_transformation_hook_hitl",
         "course_transformation_hook_hitl",

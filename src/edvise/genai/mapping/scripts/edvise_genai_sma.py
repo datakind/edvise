@@ -22,7 +22,9 @@ After Step 2b, ``gate_2`` registers ``sma_gate_2_transformation_review`` when pl
 (``cohort_transformation_hook_preview.json`` / ``course_transformation_hook_preview.json``), then
 materializes ``transform_hooks.py`` after UC approval. When any plan has ``hook_required: true``,
 ``sma_gate_2_hook_required`` gates ``cohort_transformation_hook_hitl.json`` /
-``course_transformation_hook_hitl.json`` as before.
+``course_transformation_hook_hitl.json`` as before. When manifest grain is stricter than cleaned
+row count, ``sma_gate_2_grain`` gates ``cohort_sma_grain_hitl.json`` / ``course_sma_grain_hitl.json``
+(see :mod:`edvise.genai.mapping.schema_mapping_agent.grain_resolution`).
 """
 
 import os
@@ -61,6 +63,12 @@ disable_mlflow_side_effects_for_openai_gateway()
 
 from edvise.configs import genai as genai_cfg
 from edvise.genai.mapping.shared.active_promotion import promote_genai_mapping_to_active
+from edvise.genai.mapping.shared.databricks_ai_gateway import resolve_gateway_model_id
+from edvise.genai.mapping.schema_mapping_agent.grain_resolution import (
+    execute_transformation_map_for_sma_execute_mode,
+    reload_field_manifest_entity,
+    run_onboard_gate_2_entity_with_grain_uc,
+)
 from edvise.genai.mapping.shared.silver_run_paths import sma_pipeline_input_root
 from edvise.genai.mapping.state import job_state as _pipeline_job_state
 from edvise.genai.mapping.state import pipeline_state as _pipeline_state
@@ -73,9 +81,6 @@ from edvise.shared.logger import init_file_logging_at_path
 from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
 LOGGER = logging.getLogger("edvise_sma")
-
-# AI Gateway route for SMA onboard LLM steps (2a / refinement / 2b). Not a CLI flag.
-_DEFAULT_SMA_GATEWAY_MODEL_ID = "claude-sonnet-edvise-genai"
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -285,90 +290,6 @@ def _load_cleaned_dataframes(
     return dataframes
 
 
-def _ia_post_clean_primary_key_for_dataset(
-    enriched_contract: dict[Any, Any], dataset_name: str
-) -> list[str] | None:
-    """IdentityAgent grain (source space) for ``execute_transformation_map(..., ia_source_keys=...)``."""
-    ds = (enriched_contract.get("datasets") or {}).get(dataset_name)
-    if not isinstance(ds, dict):
-        return None
-    grain = ds.get("grain_contract") or {}
-    if not isinstance(grain, dict):
-        return None
-    pk = grain.get("post_clean_primary_key")
-    if not isinstance(pk, list) or not pk:
-        return None
-    return [str(x) for x in pk]
-
-
-def _execute_transformation_map_for_sma_run(
-    *,
-    transformation_map: Any,
-    manifest: Any,
-    dataframes: dict[str, Any],
-    schema: Any,
-    spark_session: Any,
-    institution_id: str,
-    enriched_contract: dict[Any, Any],
-    manifest_map_path: Path,
-    grain_hitl_path: Path,
-) -> Any:
-    """Run SMA execution with grain gate wiring (institution id, HITL path, IA keys, optional sidecar)."""
-    from edvise.genai.mapping.schema_mapping_agent.execution.field_executor import (
-        GrainReconciliationRequired,
-        execute_transformation_map,
-    )
-    from edvise.genai.mapping.schema_mapping_agent.execution.grain_reconciliation import (
-        run_grain_reconciliation_gate,
-    )
-    from edvise.genai.mapping.schema_mapping_agent.manifest.validation import (
-        infer_manifest_base_table,
-    )
-
-    base_table = infer_manifest_base_table(manifest)
-    ia_keys = _ia_post_clean_primary_key_for_dataset(enriched_contract, base_table)
-    raw_et = transformation_map.entity_type
-    et_value = raw_et.value if hasattr(raw_et, "value") else str(raw_et)
-    if et_value not in ("cohort", "course"):
-        raise ValueError(
-            f"Unexpected entity_type={et_value!r} for SMA grain gate (expected cohort|course)"
-        )
-    entity_lit = cast(Literal["cohort", "course"], et_value)
-    sidecar = grain_hitl_path.parent / f"sma_grain_resolution_{et_value}.json"
-    resolution_path = sidecar if sidecar.is_file() else None
-
-    try:
-        return execute_transformation_map(
-            transformation_map=transformation_map,
-            manifest=manifest,
-            dataframes=dataframes,
-            schema=schema,
-            spark_session=spark_session,
-            institution_id=institution_id,
-            hitl_output_path=grain_hitl_path,
-            ia_source_keys=ia_keys,
-            sma_grain_resolution_path=resolution_path,
-            sma_manifest_path=manifest_map_path,
-        )
-    except GrainReconciliationRequired as exc:
-        run_grain_reconciliation_gate(
-            df=exc.base_df,
-            institution_id=exc.institution_id,
-            dataset=exc.dataset,
-            entity_type=entity_lit,
-            manifest_source_keys=exc.manifest_source_keys,
-            mapped_source_columns=exc.mapped_source_columns,
-            ia_source_keys=exc.ia_source_keys,
-            hitl_output_path=exc.hitl_output_path,
-            sma_manifest_path=exc.sma_manifest_path,
-        )
-        raise RuntimeError(
-            f"SMA grain reconciliation HITL was written to {exc.hitl_output_path}. "
-            f"After human review, run the resolver so {sidecar.name} exists next to it, "
-            "then re-run this job; the pipeline loads that sidecar automatically when present."
-        ) from exc
-
-
 def _write_output_data(
     output_data_dir: Path, cohort_result: Any, course_result: Any
 ) -> None:
@@ -490,6 +411,7 @@ def _run_once(model_id: str, prompt: str, client: Any) -> dict[str, Any]:
 
 def _sma_llm_complete_run_once(client):
     """``(system, user) -> text`` for :func:`llm_complete_with_parse_retry` (combines like refinement)."""
+    model_id = resolve_gateway_model_id()
 
     def llm_complete(system: str, user: str) -> str:
         s = (system or "").strip()
@@ -502,7 +424,7 @@ def _sma_llm_complete_run_once(client):
             combined = s
         else:
             raise RuntimeError("SMA LLM call has empty system and user prompts")
-        result = _run_once(_DEFAULT_SMA_GATEWAY_MODEL_ID, combined, client)
+        result = _run_once(model_id, combined, client)
         if not result.get("success"):
             raise RuntimeError(result.get("error") or "SMA LLM call failed")
         resp = result.get("response")
@@ -919,9 +841,11 @@ def run_onboard_gate_2(
         course_review_path=paths.course_transformation_review,
     )
 
+    _sma_gateway_model_id = resolve_gateway_model_id()
+
     def _sma_hook_llm_complete(system: str, user: str) -> str:
         prompt = f"{system.strip()}\n\n---\n\n{user.strip()}"
-        result = _run_once(_DEFAULT_SMA_GATEWAY_MODEL_ID, prompt, client)
+        result = _run_once(_sma_gateway_model_id, prompt, client)
         if not result.get("success"):
             raise RuntimeError(result.get("error") or "SMA transform hook LLM failed")
         resp = result.get("response")
@@ -1103,27 +1027,42 @@ def run_onboard_gate_2(
     cohort_map = TransformationMap.model_validate(cohort_map_data)
     course_map = TransformationMap.model_validate(course_map_data)
 
-    cohort_result = _execute_transformation_map_for_sma_run(
+    cohort_result, _ = run_onboard_gate_2_entity_with_grain_uc(
+        catalog=catalog,
+        institution_id=institution_id,
+        onboard_run_id=onboard_run_id,
+        paths=paths,
+        db_run_id=db_run_id,
         transformation_map=cohort_map,
         manifest=cohort_manifest,
+        entity="cohort",
         dataframes=dataframes,
         schema=RawEdviseStudentDataSchema,
         spark_session=spark_session,
-        institution_id=institution_id_from_tm,
+        institution_id_from_tm=institution_id_from_tm,
         enriched_contract=enriched_contract,
-        manifest_map_path=paths.manifest_map,
         grain_hitl_path=paths.run_root / "cohort_sma_grain_hitl.json",
+        poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+        timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
     )
-    course_result = _execute_transformation_map_for_sma_run(
+    course_manifest = reload_field_manifest_entity(paths.manifest_map, "course")
+    course_result, _ = run_onboard_gate_2_entity_with_grain_uc(
+        catalog=catalog,
+        institution_id=institution_id,
+        onboard_run_id=onboard_run_id,
+        paths=paths,
+        db_run_id=db_run_id,
         transformation_map=course_map,
         manifest=course_manifest,
+        entity="course",
         dataframes=dataframes,
         schema=RawEdviseCourseDataSchema,
         spark_session=spark_session,
-        institution_id=institution_id_from_tm,
+        institution_id_from_tm=institution_id_from_tm,
         enriched_contract=enriched_contract,
-        manifest_map_path=paths.manifest_map,
         grain_hitl_path=paths.run_root / "course_sma_grain_hitl.json",
+        poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+        timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
     )
 
     # Step 2d — Pandera validation (report only, does not block)
@@ -1218,7 +1157,7 @@ def run_execute(
     cohort_map = TransformationMap.model_validate(cohort_map_data)
     course_map = TransformationMap.model_validate(course_map_data)
 
-    cohort_result = _execute_transformation_map_for_sma_run(
+    cohort_result = execute_transformation_map_for_sma_execute_mode(
         transformation_map=cohort_map,
         manifest=cohort_manifest,
         dataframes=dataframes,
@@ -1229,7 +1168,7 @@ def run_execute(
         manifest_map_path=paths.active_manifest_map,
         grain_hitl_path=paths.run_root / "cohort_sma_grain_hitl.json",
     )
-    course_result = _execute_transformation_map_for_sma_run(
+    course_result = execute_transformation_map_for_sma_execute_mode(
         transformation_map=course_map,
         manifest=course_manifest,
         dataframes=dataframes,

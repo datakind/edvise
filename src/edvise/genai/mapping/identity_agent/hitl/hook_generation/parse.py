@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Union
 
-from edvise.genai.mapping.identity_agent.utilities import strip_json_fences
+from edvise.genai.mapping.shared.strip_json_fences import strip_json_fences
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
 
 logger = logging.getLogger(__name__)

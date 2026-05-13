@@ -22,6 +22,7 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     HookSpec,
 )
 from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
+from edvise.genai.mapping.shared.grain.dedup_strategies import GrainResolutionDedupStrategyAny
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +55,9 @@ class GrainResolution(BaseModel):
     dedup_strategy excludes 'policy_required' — that is the current state that
     triggered the HITL item, never a valid resolution target.
 
+    ``intentional_step_down`` is allowed only for SMA grain HITL (``domain='sma_grain'``); it is not
+    an IdentityAgent grain contract strategy.
+
     When hook_spec is present, :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.resolve_items`
     writes ``dedup_policy.hook_spec`` and sets ``strategy='policy_required'`` (same as
     :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.apply_hook_spec`).
@@ -65,32 +69,27 @@ class GrainResolution(BaseModel):
         default=None,
         description="Reviewer-corrected columns forming the post-clean primary key.",
     )
-    dedup_strategy: (
-        Literal[
-            "true_duplicate",
-            "temporal_collapse",
-            "categorical_priority",
-            "suffix_identifier",
-            "no_dedup",
-            "intentional_step_down",
-        ]
-        | None
-    ) = Field(
+    dedup_strategy: GrainResolutionDedupStrategyAny | None = Field(
         default=None,
         description=(
             "Resolved dedup strategy. 'policy_required' is intentionally excluded — "
-            "it is a flag state, not a resolution."
+            "it is a flag state, not a resolution. "
+            "'intentional_step_down' is allowed only for SMA grain HITL (``domain='sma_grain'``); "
+            "the resolver does not map it onto ``dedup_policy`` for IdentityAgent."
         ),
     )
     dedup_sort_by: str | None = Field(
         default=None,
-        description="Sort column for temporal_collapse strategy.",
+        description=(
+            "Sort column for temporal_collapse or first_by_column (source-side column name)."
+        ),
     )
     dedup_sort_ascending: bool | None = Field(
         default=None,
         description=(
-            "Sort direction for temporal_collapse. True = ascending (earliest first), "
-            "False = descending (latest first). Pair with dedup_keep='first' per contract docs."
+            "Sort direction before dedup_keep. For temporal_collapse (time-like sort_by): "
+            "True = ascending (earliest first). For first_by_column: True = ascending ordinal "
+            "on dedup_sort_by. Pair with dedup_keep='first'."
         ),
     )
     dedup_keep: Literal["first", "last"] | None = Field(
@@ -142,23 +141,22 @@ class GrainResolution(BaseModel):
                     "dedup_strategy is required when dedup sort/priority/suffix fields are set."
                 )
             return self
-        if s == "temporal_collapse":
+        if s in ("temporal_collapse", "first_by_column"):
             if self.dedup_sort_by is None or not str(self.dedup_sort_by).strip():
                 raise ValueError(
-                    "dedup_strategy='temporal_collapse' requires a non-empty dedup_sort_by."
+                    f"dedup_strategy={s!r} requires a non-empty dedup_sort_by."
                 )
             if self.dedup_sort_ascending is None:
                 raise ValueError(
-                    "dedup_strategy='temporal_collapse' requires dedup_sort_ascending to be set "
-                    "(True for earliest, False for latest)."
+                    f"dedup_strategy={s!r} requires dedup_sort_ascending to be set."
                 )
             if self.priority_column is not None or self.priority_order is not None:
                 raise ValueError(
-                    "temporal_collapse may not set priority_column or priority_order; "
+                    f"{s} may not set priority_column or priority_order; "
                     "use categorical_priority for explicit value ranking."
                 )
             if self.suffix_column is not None:
-                raise ValueError("temporal_collapse may not set suffix_column.")
+                raise ValueError(f"{s} may not set suffix_column.")
         elif s == "categorical_priority":
             if not self.priority_column or not str(self.priority_column).strip():
                 raise ValueError(

@@ -16,9 +16,7 @@ from edvise.genai.mapping.identity_agent.execution import (
     merge_grain_learner_id_alias_into_school_config,
 )
 from edvise.genai.mapping.identity_agent.execution import contract_utilities as cu
-from edvise.genai.mapping.identity_agent.grain_inference.deduplication import (
-    drop_duplicate_keys,
-)
+from edvise.genai.mapping.shared.grain.dedup_execution import drop_duplicate_keys
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     DedupPolicy,
     GrainContract,

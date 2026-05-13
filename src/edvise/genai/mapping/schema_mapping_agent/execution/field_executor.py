@@ -37,6 +37,9 @@ from typing import Any, Optional, Type
 
 import pandas as pd
 
+from edvise.genai.mapping.shared.grain.dedup_execution import (
+    apply_sma_grain_resolution_payload,
+)
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     FieldMappingManifest,
     FieldMappingRecord,
@@ -95,7 +98,7 @@ class GrainReconciliationRequired(Exception):
         super().__init__(
             "Grain reconciliation required: "
             f"{base_rows} base rows vs {entity_rows} unique entities on keys {manifest_source_keys}. "
-            f"Run edvise.genai.mapping.schema_mapping_agent.execution.grain_reconciliation."
+            "Run edvise.genai.mapping.schema_mapping_agent.grain_resolution."
             f"run_grain_reconciliation_gate(...) writing to {hitl_output_path!r}, resolve HITL, "
             "then re-run with sma_grain_resolution_path when applicable."
         )
@@ -135,37 +138,9 @@ def _apply_sma_grain_resolution_payload(
     payload: dict[str, Any],
 ) -> pd.DataFrame:
     """Shrink ``base_df`` using a resolver-written ``sma_grain_resolution*.json`` payload."""
-    gr = payload.get("grain_resolution") or payload
-    strategy = gr.get("dedup_strategy")
-    if strategy in (None, "suffix_identifier"):
-        return base_df
-    if strategy == "intentional_step_down":
-        return base_df.drop_duplicates(subset=entity_keys, keep="first").reset_index(
-            drop=True
-        )
-    if strategy == "true_duplicate":
-        return base_df.drop_duplicates().reset_index(drop=True)
-    if strategy == "temporal_collapse":
-        sort_by = gr.get("dedup_sort_by")
-        asc = gr.get("dedup_sort_ascending")
-        if not sort_by or asc is None:
-            logger.warning(
-                "sma_grain_resolution: temporal_collapse missing sort fields — no row reduction"
-            )
-            return base_df
-        if sort_by not in base_df.columns:
-            logger.warning(
-                "sma_grain_resolution: sort_by %r not in base_df — no row reduction",
-                sort_by,
-            )
-            return base_df
-        return (
-            base_df.sort_values(sort_by, ascending=bool(asc))
-            .drop_duplicates(subset=entity_keys, keep="first")
-            .reset_index(drop=True)
-        )
-    logger.warning("sma_grain_resolution: unknown dedup_strategy %r — ignoring", strategy)
-    return base_df
+    return apply_sma_grain_resolution_payload(
+        base_df, entity_keys, payload, log=logger
+    )
 
 
 def _maybe_apply_sma_grain_resolution_file(
@@ -1040,7 +1015,8 @@ def execute_transformation_map(
             raise ValueError(
                 "Grain mismatch requires human review. Pass hitl_output_path=Path(...) "
                 "to execute_transformation_map so the caller can write sma_grain_hitl.json "
-                "via run_grain_reconciliation_gate after catching GrainReconciliationRequired."
+                "via edvise.genai.mapping.schema_mapping_agent.grain_resolution.run_grain_reconciliation_gate "
+                "after catching GrainReconciliationRequired."
             )
         raise GrainReconciliationRequired(
             institution_id=institution_id,

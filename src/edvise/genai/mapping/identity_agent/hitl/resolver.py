@@ -319,7 +319,18 @@ def _apply_sma_grain_hitl_resolution(
         )
         return
 
-    if strat in ("temporal_collapse", "true_duplicate"):
+    if strat in ("temporal_collapse", "first_by_column", "true_duplicate"):
+        _write_sma_grain_resolution_sidecar(
+            hitl_path,
+            institution_id=item.institution_id,
+            dataset=dataset,
+            entity_type=entity_type,
+            manifest_source_keys=manifest_keys,
+            resolution=resolution,
+        )
+        return
+
+    if strat == "categorical_priority":
         _write_sma_grain_resolution_sidecar(
             hitl_path,
             institution_id=item.institution_id,
@@ -947,7 +958,7 @@ def _apply_grain_hook_spec_dict(
     """
     Write ``dedup_policy.hook_spec`` and set ``strategy='policy_required'``.
 
-    Clears sort/keep fields that only apply to temporal_collapse so
+    Clears sort/keep fields that only apply to temporal_collapse / first_by_column so
     :class:`~edvise.genai.mapping.identity_agent.grain_inference.schemas.DedupPolicy` reloads cleanly.
     """
     hook_spec = ensure_hook_spec_file(
@@ -1032,6 +1043,11 @@ def _apply_grain_resolution(
         dp = grain_cfg.setdefault("dedup_policy", {})
         notes = dp.get("notes") or ""
         s = resolution.dedup_strategy
+        if s == "intentional_step_down":
+            raise HITLValidationError(
+                f"[{item.item_id}] intentional_step_down is SMA grain gate only; "
+                "it is not applied to IdentityAgent grain_contract.dedup_policy."
+            )
         dp["strategy"] = s
         dp["sort_by"] = None
         dp["sort_ascending"] = None
@@ -1041,7 +1057,7 @@ def _apply_grain_resolution(
         dp["priority_order"] = None
         dp["hook_spec"] = None
         dp["notes"] = notes
-        if s == "temporal_collapse":
+        if s in ("temporal_collapse", "first_by_column"):
             dp["sort_by"] = resolution.dedup_sort_by
             dp["sort_ascending"] = resolution.dedup_sort_ascending
             dp["keep"] = resolution.dedup_keep or "first"

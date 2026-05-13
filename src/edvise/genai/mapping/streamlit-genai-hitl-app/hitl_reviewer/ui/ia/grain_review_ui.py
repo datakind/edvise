@@ -56,7 +56,16 @@ def is_ia_grain_phase(phase: str, artifact_type: str) -> bool:
 
 def is_grain_domain_item(item: dict) -> bool:
     d = str(item.get("domain") or "").lower().strip()
-    return d in ("grain", "identity_grain")
+    return d in ("grain", "identity_grain", "sma_grain")
+
+
+def is_sma_grain_hitl_phase(phase: str, artifact_type: str) -> bool:
+    ph = str(phase).strip().lower()
+    at = str(artifact_type).strip().lower()
+    return ph == "sma_gate_2_grain" and at in (
+        "cohort_sma_grain_hitl",
+        "course_sma_grain_hitl",
+    )
 
 
 def grain_item_indices(items: list[Any]) -> list[int]:

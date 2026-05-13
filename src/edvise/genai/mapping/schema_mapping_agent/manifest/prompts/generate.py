@@ -26,6 +26,7 @@ from edvise.genai.mapping.shared.hitl.confidence import (
     PIPELINE_HITL_CONFIDENCE_THRESHOLD,
 )
 from edvise.genai.mapping.shared.pipeline_artifacts import coerce_pipeline_version
+from edvise.genai.mapping.shared.strip_json_fences import strip_json_fences
 
 
 def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
@@ -1419,13 +1420,3 @@ def build_step2a_batched_prompt(
 def load_json(path: str) -> dict[str, Any]:
     with open(path) as f:
         return cast(dict[str, Any], json.load(f))
-
-
-def strip_json_fences(text: str) -> str:
-    """Strip markdown code fences from JSON text."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = text[text.index("\n") + 1 :]
-    if text.endswith("```"):
-        text = text[: text.rindex("```")].rstrip()
-    return text
