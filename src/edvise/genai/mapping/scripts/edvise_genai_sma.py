@@ -327,7 +327,8 @@ def _execute_transformation_map_for_sma_run(
 
     base_table = infer_manifest_base_table(manifest)
     ia_keys = _ia_post_clean_primary_key_for_dataset(enriched_contract, base_table)
-    et_value = transformation_map.entity_type.value
+    raw_et = transformation_map.entity_type
+    et_value = raw_et.value if hasattr(raw_et, "value") else str(raw_et)
     if et_value not in ("cohort", "course"):
         raise ValueError(
             f"Unexpected entity_type={et_value!r} for SMA grain gate (expected cohort|course)"
