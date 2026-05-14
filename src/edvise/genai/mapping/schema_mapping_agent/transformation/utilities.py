@@ -644,9 +644,7 @@ def compact_term_code_to_conferral_date(s: pd.Series) -> pd.Series:
     Unrecognized or malformed tokens → ``NaT``.
     """
     str_s = s.astype("string").str.strip()
-    parts = str_s.str.extract(
-        r"^(\d{4})([A-Za-z][A-Za-z0-9]*)$", expand=True
-    )
+    parts = str_s.str.extract(r"^(\d{4})([A-Za-z][A-Za-z0-9]*)$", expand=True)
     year_series = parts[0].astype("string")
     suffix = parts[1].astype("string").str.upper()
     season_series = suffix.map(_COMPACT_TERM_SUFFIX_TO_SEASON)

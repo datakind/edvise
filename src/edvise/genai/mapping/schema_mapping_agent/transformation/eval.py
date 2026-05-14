@@ -654,9 +654,7 @@ def run():
 
     PROMPT = build_step2b_prompt(
         institution_id=target_id,
-        output_path=str(
-            EVAL_BASE / "scratch" / f"{target_id}_transformation_map.json"
-        ),
+        output_path=str(EVAL_BASE / "scratch" / f"{target_id}_transformation_map.json"),
         institution_mapping_manifest=institution_mapping_manifest,
         institution_schema_contract=target_contract,
         cohort_schema_class=RawEdviseStudentDataSchema,
@@ -717,9 +715,7 @@ def run():
             )
             logger.info(" | ".join(_parts))
             if not scores.get("validation_passed"):
-                logger.warning(
-                    f"  Validation error: {scores.get('validation_error')}"
-                )
+                logger.warning(f"  Validation error: {scores.get('validation_error')}")
             result["scores"] = scores
         else:
             logger.warning("→ scoring skipped")
@@ -746,9 +742,7 @@ def run():
                 {
                     "validation_passed": r["scores"].get("validation_passed"),
                     "validation_error": r["scores"].get("validation_error"),
-                    **{
-                        f"overall_{k}": v for k, v in r["scores"]["overall"].items()
-                    },
+                    **{f"overall_{k}": v for k, v in r["scores"]["overall"].items()},
                     **{
                         f"cohort_{k}": v
                         for k, v in r["scores"]["cohort"].items()

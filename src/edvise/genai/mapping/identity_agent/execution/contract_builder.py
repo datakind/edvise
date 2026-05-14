@@ -186,7 +186,9 @@ def merge_grain_contracts_into_school_config(
             )
 
         sid_fb = dc.student_id_alias
-        fb_clean = sid_fb.strip() if isinstance(sid_fb, str) and sid_fb.strip() else None
+        fb_clean = (
+            sid_fb.strip() if isinstance(sid_fb, str) and sid_fb.strip() else None
+        )
         gc_resolved = canonicalize_grain_contract_learner_id_alias(
             gc,
             canonical_column=canonical_learner_column,
@@ -235,9 +237,7 @@ def dedupe_fn_by_dataset_from_grain_contracts(
         logical = f"{ds_name}{dataset_name_suffix}" if dataset_name_suffix else ds_name
         raw_fb = aliases.get(ds_name)
         fb_clean = (
-            raw_fb.strip()
-            if isinstance(raw_fb, str) and raw_fb.strip()
-            else None
+            raw_fb.strip() if isinstance(raw_fb, str) and raw_fb.strip() else None
         )
         out[logical] = build_dedupe_fn_from_grain_contract(
             gc,
@@ -337,9 +337,7 @@ def build_schema_contract_from_grain_contracts(
     for _ds_name, _dc in merged.datasets.items():
         _sid = _dc.student_id_alias
         alias_by_ds[_ds_name] = (
-            _sid.strip()
-            if isinstance(_sid, str) and _sid.strip()
-            else None
+            _sid.strip() if isinstance(_sid, str) and _sid.strip() else None
         )
     auto_dedupe = dedupe_fn_by_dataset_from_grain_contracts(
         grain_contracts_by_dataset,

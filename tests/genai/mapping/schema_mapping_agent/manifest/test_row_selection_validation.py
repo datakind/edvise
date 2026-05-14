@@ -160,6 +160,4 @@ def test_nth_with_term_grain_order_by_is_flagged():
     )
     errors = validate_manifest(manifest, contract)
     codes = {e.error_code for e in errors}
-    assert (
-        ManifestValidationErrorCode.ROW_SELECTION_ORDER_BY_NOT_CHRONOLOGICAL in codes
-    )
+    assert ManifestValidationErrorCode.ROW_SELECTION_ORDER_BY_NOT_CHRONOLOGICAL in codes

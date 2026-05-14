@@ -406,7 +406,9 @@ def test_apply_grain_dedup_learner_id_canonical_column():
 
 def test_apply_grain_dedup_resolves_uppercase_student_id_with_alias():
     """Grain may emit STUDENT_ID; snake_case matches alias student_id → canonical learner_id."""
-    df = pd.DataFrame({"learner_id": ["a", "a"], "term_descr": ["Fall 2020", "Fall 2020"]})
+    df = pd.DataFrame(
+        {"learner_id": ["a", "a"], "term_descr": ["Fall 2020", "Fall 2020"]}
+    )
     c = _grain(
         learner_id_alias="student_id",
         post_clean_primary_key=["STUDENT_ID", "term_descr"],
@@ -436,9 +438,7 @@ def test_apply_grain_dedup_student_id_alias_fallback_when_grain_alias_null():
             notes="",
         ),
     )
-    out = apply_grain_dedup(
-        df, c, student_id_alias_fallback="student_id"
-    )
+    out = apply_grain_dedup(df, c, student_id_alias_fallback="student_id")
     assert len(out) == 1
 
 
