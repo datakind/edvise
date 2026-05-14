@@ -179,39 +179,42 @@ def apply_categorical_priority(
     return out.reset_index(drop=True)
 
 
-def apply_sma_grain_resolution_payload(
+def _sma_grain_resolution_steps(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_list = payload.get("grain_resolutions")
+    if isinstance(raw_list, list) and raw_list:
+        return [cast(dict[str, Any], dict(x)) for x in raw_list if isinstance(x, dict)]
+    single = payload.get("grain_resolution")
+    if isinstance(single, dict):
+        return [cast(dict[str, Any], dict(single))]
+    if isinstance(payload, dict) and payload.get("dedup_strategy") is not None:
+        return [cast(dict[str, Any], dict(payload))]
+    return []
+
+
+def _apply_single_sma_grain_resolution(
     base_df: pd.DataFrame,
     entity_keys: list[str],
-    payload: dict[str, Any],
+    gr: dict[str, Any],
     *,
-    log: logging.Logger | None = None,
+    log: logging.Logger,
+    step_index: int,
 ) -> pd.DataFrame:
-    """
-    Apply ``grain_resolution`` from an ``sma_grain_resolution_*.json`` sidecar (or equivalent dict).
-
-    ``entity_keys`` are manifest-resolved source columns in ``base_df`` (same role as
-    ``post_clean_primary_key`` in grain dedup). Uses the same primitives as
-    :func:`apply_categorical_priority`, :func:`suffix_repeat_course_identifier`, and
-    :func:`drop_duplicate_keys` above.
-    """
-    log = log or logger
-    gr_raw = payload.get("grain_resolution") or payload
-    if not isinstance(gr_raw, dict):
-        log.warning("sma_grain_resolution: grain_resolution is not an object — ignoring")
-        return base_df
-    gr = cast(dict[str, Any], gr_raw)
+    """Apply one ``grain_resolution`` dict to ``base_df`` (SMA onboard sidecar step)."""
     strategy = gr.get("dedup_strategy")
     if strategy is None:
         return base_df.copy()
 
     if not entity_keys:
-        log.warning("sma_grain_resolution: empty entity_keys — skipping reduction")
+        log.warning(
+            "sma_grain_resolution[%s]: empty entity_keys — skipping reduction", step_index
+        )
         return base_df.copy()
 
     missing = [k for k in entity_keys if k not in base_df.columns]
     if missing:
         log.warning(
-            "sma_grain_resolution: entity_keys not in base_df %s — skipping reduction",
+            "sma_grain_resolution[%s]: entity_keys not in base_df %s — skipping reduction",
+            step_index,
             missing,
         )
         return base_df.copy()
@@ -224,17 +227,23 @@ def apply_sma_grain_resolution_payload(
         try:
             sc = assert_suffix_column_in_entity_keys(suffix_col, entity_keys)
         except ValueError as e:
-            log.warning("sma_grain_resolution: suffix_identifier invalid — %s", e)
+            log.warning(
+                "sma_grain_resolution[%s]: suffix_identifier invalid — %s", step_index, e
+            )
             return base_df.copy()
         if sc not in base_df.columns:
             log.warning(
-                "sma_grain_resolution: suffix_column %r not in base_df — skipping", sc
+                "sma_grain_resolution[%s]: suffix_column %r not in base_df — skipping",
+                step_index,
+                sc,
             )
             return base_df.copy()
         try:
             return suffix_repeat_course_identifier(base_df, entity_keys, sc)
         except ValueError as e:
-            log.warning("sma_grain_resolution: suffix_identifier failed: %s", e)
+            log.warning(
+                "sma_grain_resolution[%s]: suffix_identifier failed: %s", step_index, e
+            )
             return base_df.copy()
 
     if strategy == "intentional_step_down":
@@ -248,14 +257,18 @@ def apply_sma_grain_resolution_payload(
         asc = gr.get("dedup_sort_ascending")
         if not sort_by or not str(sort_by).strip() or asc is None:
             log.warning(
-                "sma_grain_resolution: %s missing dedup_sort_by or dedup_sort_ascending — no reduction",
+                "sma_grain_resolution[%s]: %s missing dedup_sort_by or dedup_sort_ascending — "
+                "no reduction",
+                step_index,
                 strategy,
             )
             return base_df.copy()
         col = str(sort_by).strip()
         if col not in base_df.columns:
             log.warning(
-                "sma_grain_resolution: dedup_sort_by %r not in base_df — no reduction", col
+                "sma_grain_resolution[%s]: dedup_sort_by %r not in base_df — no reduction",
+                step_index,
+                col,
             )
             return base_df.copy()
         keep_raw = gr.get("dedup_keep")
@@ -264,7 +277,9 @@ def apply_sma_grain_resolution_payload(
             keep = cast(Literal["first", "last"], keep_raw)
         elif keep_raw is not None:
             log.warning(
-                "sma_grain_resolution: invalid dedup_keep %r — using 'first'", keep_raw
+                "sma_grain_resolution[%s]: invalid dedup_keep %r — using 'first'",
+                step_index,
+                keep_raw,
             )
         return drop_duplicate_keys(
             base_df,
@@ -279,19 +294,22 @@ def apply_sma_grain_resolution_payload(
         po = gr.get("priority_order")
         if not pc or not str(pc).strip():
             log.warning(
-                "sma_grain_resolution: categorical_priority missing priority_column — skipping"
+                "sma_grain_resolution[%s]: categorical_priority missing priority_column — skipping",
+                step_index,
             )
             return base_df.copy()
         if not isinstance(po, list) or len(po) == 0:
             log.warning(
-                "sma_grain_resolution: categorical_priority missing priority_order — skipping"
+                "sma_grain_resolution[%s]: categorical_priority missing priority_order — skipping",
+                step_index,
             )
             return base_df.copy()
         priority_col = str(pc).strip()
         order = [str(x) for x in po]
         if priority_col not in base_df.columns:
             log.warning(
-                "sma_grain_resolution: priority_column %r not in base_df — skipping",
+                "sma_grain_resolution[%s]: priority_column %r not in base_df — skipping",
+                step_index,
                 priority_col,
             )
             return base_df.copy()
@@ -300,11 +318,54 @@ def apply_sma_grain_resolution_payload(
                 base_df, entity_keys, priority_col, order
             )
         except ValueError as e:
-            log.warning("sma_grain_resolution: categorical_priority failed: %s", e)
+            log.warning(
+                "sma_grain_resolution[%s]: categorical_priority failed: %s", step_index, e
+            )
             return base_df.copy()
 
-    log.warning("sma_grain_resolution: unknown dedup_strategy %r — ignoring", strategy)
+    log.warning(
+        "sma_grain_resolution[%s]: unknown dedup_strategy %r — ignoring",
+        step_index,
+        strategy,
+    )
     return base_df.copy()
+
+
+def apply_sma_grain_resolution_payload(
+    base_df: pd.DataFrame,
+    entity_keys: list[str],
+    payload: dict[str, Any],
+    *,
+    log: logging.Logger | None = None,
+) -> pd.DataFrame:
+    """
+    Apply SMA grain resolution step(s) from an ``sma_grain_resolution_*.json`` sidecar dict.
+
+    If ``grain_resolutions`` (list of objects) is present, steps are applied **in order**.
+    Otherwise a single ``grain_resolution`` object is applied (legacy sidecar shape).
+    """
+    log = log or logger
+    steps = _sma_grain_resolution_steps(payload)
+    if not steps:
+        log.warning("sma_grain_resolution: no grain_resolution steps — ignoring")
+        return base_df.copy()
+
+    if not entity_keys:
+        log.warning("sma_grain_resolution: empty entity_keys — skipping reduction")
+        return base_df.copy()
+
+    missing = [k for k in entity_keys if k not in base_df.columns]
+    if missing:
+        log.warning(
+            "sma_grain_resolution: entity_keys not in base_df %s — skipping reduction",
+            missing,
+        )
+        return base_df.copy()
+
+    work = base_df.copy()
+    for i, gr in enumerate(steps):
+        work = _apply_single_sma_grain_resolution(work, entity_keys, gr, log=log, step_index=i)
+    return work
 
 
 __all__ = [

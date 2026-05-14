@@ -16,9 +16,7 @@ from edvise.genai.mapping.schema_mapping_agent.grain_resolution.prompt import (
     propose_dedup_policy,
     _pick_manifest_suffix_key_column,
 )
-from edvise.genai.mapping.schema_mapping_agent.grain_resolution.hitl import (
-    build_sma_grain_hitl_items,
-)
+from .items import build_sma_grain_hitl_items
 from edvise.genai.mapping.shared.profiling.variance import (
     WithinGroupVarianceResult,
     compute_within_group_variance,

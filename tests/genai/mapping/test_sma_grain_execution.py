@@ -202,8 +202,8 @@ def test_resolve_sma_grain_suffix_identifier_writes_sidecar_not_manifest(
     sidecar = tmp_path / "sma_grain_resolution_course.json"
     assert sidecar.is_file()
     payload = json.loads(sidecar.read_text())
-    assert payload["grain_resolution"]["dedup_strategy"] == "suffix_identifier"
-    assert payload["grain_resolution"]["suffix_column"] == "course_prefix"
+    assert payload["grain_resolutions"][0]["dedup_strategy"] == "suffix_identifier"
+    assert payload["grain_resolutions"][0]["suffix_column"] == "course_prefix"
     assert manifest.read_text() == before
 
 
@@ -288,3 +288,102 @@ def test_build_sma_grain_hitl_rejects_suffix_not_in_manifest_grain() -> None:
             sma_manifest_path=None,
             variance=None,
         )
+
+
+def test_write_sma_grain_true_duplicate_resolution_file_shape(tmp_path: Path) -> None:
+    from edvise.genai.mapping.schema_mapping_agent.grain_resolution.runner import (
+        _write_sma_grain_true_duplicate_resolution_file,
+    )
+
+    hitl = tmp_path / "course_sma_grain_hitl.json"
+    hitl.write_text("{}")
+    out = _write_sma_grain_true_duplicate_resolution_file(
+        hitl,
+        institution_id="inst",
+        dataset="course",
+        entity_type="course",
+        manifest_source_keys=["learner_id", "course_prefix"],
+    )
+    assert out.name == "sma_grain_resolution_course.json"
+    data = json.loads(out.read_text())
+    assert data["institution_id"] == "inst"
+    assert data["manifest_source_keys"] == ["learner_id", "course_prefix"]
+    assert data["grain_resolutions"][0]["dedup_strategy"] == "true_duplicate"
+
+
+def test_grain_resolutions_applies_steps_in_order() -> None:
+    df = pd.DataFrame({"sid": [1, 1, 1], "term": ["A", "A", "A"], "seq": [3, 1, 2]})
+    keys = ["sid", "term"]
+    payload = {
+        "grain_resolutions": [
+            {"dedup_strategy": "no_dedup"},
+            {
+                "dedup_strategy": "first_by_column",
+                "dedup_sort_by": "seq",
+                "dedup_sort_ascending": True,
+                "dedup_keep": "first",
+            },
+        ],
+    }
+    out = apply_sma_grain_resolution_payload(df, keys, payload)
+    assert len(out) == 1
+    assert int(out["seq"].iloc[0]) == 1
+
+
+def test_append_grain_resolution_file_chains_steps(tmp_path: Path) -> None:
+    from edvise.genai.mapping.schema_mapping_agent.grain_resolution.runner import (
+        append_sma_grain_resolution_step,
+    )
+
+    out = tmp_path / "sma_grain_resolution_course.json"
+    append_sma_grain_resolution_step(
+        out,
+        institution_id="i",
+        dataset="course",
+        entity_type="course",
+        manifest_source_keys=["sid"],
+        grain_resolution={"dedup_strategy": "suffix_identifier", "suffix_column": "sid"},
+    )
+    append_sma_grain_resolution_step(
+        out,
+        institution_id="i",
+        dataset="course",
+        entity_type="course",
+        manifest_source_keys=["sid"],
+        grain_resolution={"dedup_strategy": "true_duplicate"},
+    )
+    data = json.loads(out.read_text())
+    assert len(data["grain_resolutions"]) == 2
+    assert data["grain_resolutions"][0]["dedup_strategy"] == "suffix_identifier"
+    assert data["grain_resolutions"][1]["dedup_strategy"] == "true_duplicate"
+
+
+def test_append_migrates_legacy_single_grain_resolution(tmp_path: Path) -> None:
+    from edvise.genai.mapping.schema_mapping_agent.grain_resolution.runner import (
+        append_sma_grain_resolution_step,
+    )
+
+    out = tmp_path / "sma_grain_resolution_course.json"
+    out.write_text(
+        json.dumps(
+            {
+                "institution_id": "i",
+                "dataset": "course",
+                "entity_type": "course",
+                "manifest_source_keys": ["sid"],
+                "grain_resolution": {"dedup_strategy": "no_dedup"},
+            }
+        )
+    )
+    append_sma_grain_resolution_step(
+        out,
+        institution_id="i",
+        dataset="course",
+        entity_type="course",
+        manifest_source_keys=["sid"],
+        grain_resolution={"dedup_strategy": "true_duplicate"},
+    )
+    data = json.loads(out.read_text())
+    assert len(data["grain_resolutions"]) == 2
+    assert data["grain_resolutions"][0]["dedup_strategy"] == "no_dedup"
+    assert data["grain_resolutions"][1]["dedup_strategy"] == "true_duplicate"

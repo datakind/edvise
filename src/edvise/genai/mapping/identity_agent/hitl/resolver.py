@@ -172,7 +172,7 @@ def _append_run_log(
     append_run_log_event(run_log_path, institution_id, event)
 
 
-def _write_sma_grain_resolution_sidecar(
+def _write_sma_grain_resolution_file(
     hitl_path: Path,
     *,
     institution_id: str,
@@ -181,17 +181,21 @@ def _write_sma_grain_resolution_sidecar(
     manifest_source_keys: list[str],
     resolution: GrainResolution,
 ) -> Path:
-    """Write ``sma_grain_resolution_<entity_type>.json`` next to the SMA grain HITL file."""
+    """Append one resolution step to ``sma_grain_resolution_<entity_type>.json``."""
+    from edvise.genai.mapping.schema_mapping_agent.grain_resolution.runner import (
+        append_sma_grain_resolution_step,
+    )
+
     out = hitl_path.parent / f"sma_grain_resolution_{entity_type}.json"
-    body = {
-        "institution_id": institution_id,
-        "dataset": dataset,
-        "entity_type": entity_type,
-        "manifest_source_keys": manifest_source_keys,
-        "grain_resolution": resolution.model_dump(mode="json", exclude_none=True),
-    }
-    out.write_text(json.dumps(body, indent=2))
-    logger.info("Wrote SMA grain resolution sidecar: %s", out)
+    append_sma_grain_resolution_step(
+        out,
+        institution_id=institution_id,
+        dataset=dataset,
+        entity_type=entity_type,
+        manifest_source_keys=manifest_source_keys,
+        grain_resolution=resolution.model_dump(mode="json", exclude_none=True),
+    )
+    logger.info("Appended SMA grain resolution step: %s", out)
     return out
 
 
@@ -213,7 +217,7 @@ def _apply_sma_grain_hitl_resolution(
 
     strat = resolution.dedup_strategy
     if strat == "intentional_step_down":
-        _write_sma_grain_resolution_sidecar(
+        _write_sma_grain_resolution_file(
             hitl_path,
             institution_id=item.institution_id,
             dataset=dataset,
@@ -238,7 +242,7 @@ def _apply_sma_grain_hitl_resolution(
             raise HITLValidationError(
                 f"[{item.item_id}] SMA grain suffix_identifier: {exc}"
             ) from exc
-        _write_sma_grain_resolution_sidecar(
+        _write_sma_grain_resolution_file(
             hitl_path,
             institution_id=item.institution_id,
             dataset=dataset,
@@ -253,7 +257,7 @@ def _apply_sma_grain_hitl_resolution(
         return
 
     if strat in ("temporal_collapse", "first_by_column", "true_duplicate"):
-        _write_sma_grain_resolution_sidecar(
+        _write_sma_grain_resolution_file(
             hitl_path,
             institution_id=item.institution_id,
             dataset=dataset,
@@ -264,7 +268,7 @@ def _apply_sma_grain_hitl_resolution(
         return
 
     if strat == "categorical_priority":
-        _write_sma_grain_resolution_sidecar(
+        _write_sma_grain_resolution_file(
             hitl_path,
             institution_id=item.institution_id,
             dataset=dataset,
