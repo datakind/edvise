@@ -1,0 +1,24 @@
+{
+  "pipeline_version": "b855c29c1b1fe7f1507872c62cffa765e95b97ac",
+  "entrypoint": "edvise.runtime.inference_driver",
+  "expected_steps": [
+    "data_ingestion",
+    "data_audit",
+    "feature_generation",
+    "inference_h2o",
+    "output_publish"
+  ],
+  "required_payload_fields": [
+    "model_run_id",
+    "pipeline_version",
+    "manifest"
+  ],
+  "required_runtime": {
+    "python": "3.11",
+    "databricks_runtime": "15.4.x-cpu-ml-scala2.12"
+  },
+  "artifacts": {
+    "wheel": "edvise-0.2.1-py3-none-any.whl",
+    "git_sha": "b855c29c1b1fe7f1507872c62cffa765e95b97ac"
+  }
+}

@@ -1,0 +1,6 @@
+# Placeholder: at release time, copy the Databricks Asset Bundle slice used to build
+# the inference job for this Edvise tag (e.g. pipelines/pdp/databricks.yml and
+# resources/github_pdp_inference.yml) so the runtime bundle is the unit of compatibility.
+
+include:
+  - resources/github_pdp_inference.yml

@@ -418,6 +418,73 @@ def test_main_requires_institution_model_workspace() -> None:
     assert vil.main(["--DB_workspace", "dev_sst_02"]) == 1
 
 
+def test_parse_python_xy() -> None:
+    assert vil.parse_python_xy("3.11") == (3, 11)
+    assert vil.parse_python_xy("nope") is None
+
+
+def test_merge_manifest_with_optional_contract(tmp_path: Path) -> None:
+    contract = {
+        "expected_steps": ["a", "b"],
+        "required_runtime": {"python": "3.10", "databricks_runtime": "14.x"},
+    }
+    (tmp_path / "c.json").write_text(json.dumps(contract), encoding="utf-8")
+    manifest = {
+        "pipeline_version": "v1",
+        "wheel": "w.whl",
+        "entrypoint": "e",
+        "contract": "c.json",
+        "required_runtime": {"python": "3.11"},
+    }
+    merged = vil.merge_manifest_with_optional_contract(manifest, tmp_path)
+    assert merged["expected_steps"] == ["a", "b"]
+    assert merged["required_runtime"]["python"] == "3.11"
+    assert merged["required_runtime"]["databricks_runtime"] == "14.x"
+
+
+def test_merge_manifest_contract_missing_file(tmp_path: Path) -> None:
+    manifest = {
+        "pipeline_version": "v1",
+        "wheel": "w.whl",
+        "entrypoint": "e",
+        "contract": "missing.json",
+    }
+    merged = vil.merge_manifest_with_optional_contract(manifest, tmp_path)
+    assert merged == manifest
+
+
+def test_check_runtime_bundle_execution_mode_dab() -> None:
+    ok, msg = vil.check_runtime_bundle_compatibility(
+        {"execution_mode": "dab"},
+        spark=type("S", (), {"version": "3.5.2"})(),
+    )
+    assert ok is False
+    assert "dab" in msg.lower()
+
+
+def test_check_runtime_bundle_dbr_mismatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABRICKS_RUNTIME_VERSION", "14.3.x-cpu-ml-scala2.12")
+    ok, msg = vil.check_runtime_bundle_compatibility(
+        {"required_runtime": {"databricks_runtime": "15.4.x-cpu-ml-scala2.12"}},
+        spark=type("S", (), {"version": "3.5.2"})(),
+    )
+    assert ok is False
+    assert "15.4" in msg
+
+
+def test_validate_required_payload_fields() -> None:
+    eff = {"required_payload_fields": ["model_run_id", "extra_field"]}
+    bad_ok, bad_msg = vil.validate_required_payload_fields(
+        eff, {"model_run_id": "x"}
+    )
+    assert bad_ok is False
+    assert "extra_field" in bad_msg
+    good_ok, _ = vil.validate_required_payload_fields(
+        eff, {"model_run_id": "x", "extra_field": 1}
+    )
+    assert good_ok is True
+
+
 def test_run_logged_subprocess_uses_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
     from types import SimpleNamespace
 

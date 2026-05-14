@@ -8,10 +8,11 @@ resources:
       tasks:
         - task_key: versioned_inference_launcher_mvp_smoke
           description: >
-            MVP smoke: resolve model_run_id from <DB_workspace>.default.pipeline_models;
-            pipeline_version from silver training/config.toml first, else
-            payload_json.pipeline_version (git SHA); install matching release wheel;
-            run versioned entrypoint. Job parameters: institution + model_name + workspace.
+            MVP smoke: versioned **runtime bundle** — resolve model from
+            <DB_workspace>.default.pipeline_models; pipeline_version (git SHA in dev) from
+            silver training/config.toml else payload_json; load manifest (+ optional inference_contract);
+            check DBR/Python/Spark vs bundle; install wheel; run entrypoint. Incompatible
+            bundle: exit with message to use archived DAB snapshot (no auto job trigger).
           spark_python_task:
             python_file: pipelines/pdp/launchers/versioned_inference_launcher.py
             source: GIT

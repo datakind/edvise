@@ -1,0 +1,2 @@
+# Placeholder: copy github_pdp_inference.yml from the repo at the same git_sha as this bundle.
+# Archived DAB fallback uses this snapshot to reproduce task graph + cluster policy.

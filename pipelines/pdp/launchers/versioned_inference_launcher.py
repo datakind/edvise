@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
 """
-MVP launcher: install a versioned Edvise wheel from a release manifest, then run a
-versioned entrypoint. Does not import ``edvise`` before the wheel install (avoids
-accidentally using the Git checkout on the driver).
+MVP launcher: stable dispatcher for a **versioned runtime bundle** (not just a wheel).
+
+A bundle directory is ``<release_base>/<pipeline_version>/`` and should include at least
+``manifest.json``, the wheel, optional ``inference_contract.json``, and optional
+``databricks_bundle_snapshot/`` (archived DAB slice for audit / future fallback).
+
+In PDP **dev** workspaces, ``pipeline_version`` resolved from ``config.toml`` /
+``payload_json`` is typically the **git commit SHA**; the release folder on the volume
+uses that same string as the directory name.
+
+The launcher does not import ``edvise`` before installing the bundle wheel.
 """
 
 from __future__ import annotations
@@ -10,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import subprocess
 import sys
 import tempfile
@@ -20,6 +29,12 @@ from typing import Any, Mapping, Protocol
 LOGGER = logging.getLogger("versioned_inference_launcher")
 
 DEFAULT_RELEASE_BASE = "/Volumes/dev_sst_02/default/edvise_releases"
+
+BUNDLE_ARCHIVED_DAB_HINT = (
+    "This Edvise runtime bundle is not compatible with the current cluster/runtime. "
+    "Run inference using the archived Databricks bundle for this release "
+    "(see databricks_bundle_snapshot/ in the bundle; MVP does not auto-trigger jobs)."
+)
 
 
 class _SparkSQL(Protocol):
@@ -67,7 +82,7 @@ def silver_training_config_path(
 
 
 def pipeline_version_from_payload_json_str(raw: str | None) -> str | None:
-    """Read ``pipeline_version`` from the ``pipeline_models.payload_json`` string."""
+    """Read ``pipeline_version`` from ``pipeline_models.payload_json`` (dev: git commit SHA)."""
     if raw is None:
         return None
     s = str(raw).strip()
@@ -86,7 +101,7 @@ def pipeline_version_from_payload_json_str(raw: str | None) -> str | None:
 
 
 def pipeline_version_from_config_toml(text: str) -> str | None:
-    """Parse ``pipeline_version`` from a PDP ``config.toml`` (top-level key)."""
+    """Parse ``pipeline_version`` from PDP ``config.toml`` (dev: full git commit SHA)."""
     if sys.version_info >= (3, 11):
         try:
             import tomllib
@@ -133,8 +148,10 @@ def resolve_model_run_and_pipeline_version(
     """
     Resolve ``model_run_id`` from ``pipeline_models``, then ``pipeline_version``:
 
-    1. Silver ``training/config.toml`` for that run (authoritative training config).
-    2. Else ``payload_json.pipeline_version`` on the model row (git SHA recorded at train time).
+    1. Silver ``training/config.toml`` for that run (PDP dev: ``pipeline_version`` is the
+       **git commit SHA** used to key the runtime bundle directory).
+    2. Else ``payload_json.pipeline_version`` on the model row (same SHA convention when
+       config is unavailable).
     """
     q = sql_select_latest_pipeline_model(
         db_workspace, databricks_institution_name, model_name
@@ -183,7 +200,7 @@ def resolve_model_run_and_pipeline_version(
         pv = pipeline_version_from_payload_json_str(payload_raw)
         if pv:
             logger.info(
-                "pipeline_version from pipeline_models.payload_json (git SHA): %s",
+                "pipeline_version from pipeline_models.payload_json (training snapshot): %s",
                 pv,
             )
 
@@ -198,7 +215,7 @@ def resolve_model_run_and_pipeline_version(
 
 
 def resolve_manifest_path(release_base_path: str, pipeline_version: str) -> Path:
-    """Return ``<release_base_path>/<pipeline_version>/manifest.json``."""
+    """Return ``<release_base_path>/<pipeline_version>/manifest.json`` (dev: SHA-named folder)."""
     return Path(release_base_path).expanduser().resolve() / pipeline_version / "manifest.json"
 
 
@@ -216,6 +233,172 @@ def load_manifest(manifest_path: Path) -> dict[str, Any]:
             msg = f"Manifest missing required key {key!r}"
             raise ValueError(msg)
     return data
+
+
+def merge_manifest_with_optional_contract(
+    manifest: dict[str, Any], release_dir: Path
+) -> dict[str, Any]:
+    """
+    Build effective runtime metadata: ``manifest.json`` overlays optional
+    ``inference_contract.json`` when ``manifest["contract"]`` names a sibling file.
+
+    ``required_runtime`` sub-keys from the manifest override the contract file.
+    """
+    ref = manifest.get("contract")
+    if not isinstance(ref, str) or not ref.strip():
+        return dict(manifest)
+    cpath = (release_dir / ref.strip()).resolve()
+    if not cpath.is_file():
+        LOGGER.warning(
+            "Manifest references contract file %r but it was not found under %s",
+            ref,
+            release_dir,
+        )
+        return dict(manifest)
+    try:
+        raw = json.loads(cpath.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, TypeError) as exc:
+        LOGGER.warning("Could not read inference contract %s: %s", cpath, exc)
+        return dict(manifest)
+    if not isinstance(raw, dict):
+        return dict(manifest)
+    merged: dict[str, Any] = dict(raw)
+    merged.update(manifest)
+    rr_c = raw.get("required_runtime")
+    rr_m = manifest.get("required_runtime")
+    if isinstance(rr_c, dict) or isinstance(rr_m, dict):
+        rr_out: dict[str, Any] = {}
+        if isinstance(rr_c, dict):
+            rr_out.update(rr_c)
+        if isinstance(rr_m, dict):
+            rr_out.update(rr_m)
+        merged["required_runtime"] = rr_out
+    return merged
+
+
+def parse_python_xy(spec: str) -> tuple[int, int] | None:
+    """Parse a ``major.minor`` Python requirement (e.g. ``3.11``)."""
+    s = spec.strip()
+    parts = s.replace(" ", "").split(".")
+    if len(parts) < 2:
+        return None
+    try:
+        return int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+
+
+def current_databricks_runtime_version() -> str | None:
+    """Databricks cluster image tag, when available."""
+    v = os.environ.get("DATABRICKS_RUNTIME_VERSION")
+    return v.strip() if isinstance(v, str) and v.strip() else None
+
+
+def current_spark_version(spark: Any) -> str | None:
+    try:
+        v = spark.version
+        return str(v).strip() if v else None
+    except Exception:
+        return None
+
+
+def check_runtime_bundle_compatibility(
+    effective: Mapping[str, Any],
+    *,
+    spark: Any,
+    logger: logging.Logger = LOGGER,
+) -> tuple[bool, str]:
+    """
+    Validate driver Python / DBR / Spark against ``effective["required_runtime"]``.
+
+    Missing optional contract fields mean no check for that dimension.
+    """
+    mode = effective.get("execution_mode")
+    if isinstance(mode, str) and mode.strip().lower() == "dab":
+        return (
+            False,
+            "This bundle declares execution_mode=dab; use archived DAB job for this "
+            "release (wheel launcher path not used).",
+        )
+
+    rr = effective.get("required_runtime")
+    if not isinstance(rr, dict):
+        return True, ""
+
+    req_py = rr.get("python")
+    if isinstance(req_py, str) and req_py.strip():
+        want = parse_python_xy(req_py)
+        got = sys.version_info[:2]
+        if want and got != want:
+            return (
+                False,
+                f"Bundle requires Python {req_py}; driver is {got[0]}.{got[1]}. "
+                + BUNDLE_ARCHIVED_DAB_HINT,
+            )
+
+    req_dbr = rr.get("databricks_runtime")
+    if isinstance(req_dbr, str) and req_dbr.strip():
+        cur = current_databricks_runtime_version()
+        if not cur:
+            logger.warning(
+                "Bundle requires databricks_runtime=%r but DATABRICKS_RUNTIME_VERSION "
+                "is unset; skipping DBR check (local or non-Databricks).",
+                req_dbr,
+            )
+        elif cur.strip().lower() != req_dbr.strip().lower():
+            return (
+                False,
+                f"Bundle requires DBR {req_dbr!r}; current cluster is {cur!r}. "
+                + BUNDLE_ARCHIVED_DAB_HINT,
+            )
+
+    req_spark = rr.get("spark")
+    if isinstance(req_spark, str) and req_spark.strip():
+        cur_sp = current_spark_version(spark)
+        if cur_sp and cur_sp.strip() != req_spark.strip():
+            return (
+                False,
+                f"Bundle requires Spark {req_spark!r}; active Spark is {cur_sp!r}. "
+                + BUNDLE_ARCHIVED_DAB_HINT,
+            )
+
+    return True, ""
+
+
+def validate_required_payload_fields(
+    effective: Mapping[str, Any], payload: Mapping[str, Any]
+) -> tuple[bool, str]:
+    """Ensure payload contains every key listed in ``required_payload_fields``."""
+    fields = effective.get("required_payload_fields")
+    if fields is None:
+        return True, ""
+    if not isinstance(fields, list):
+        return True, ""
+    missing = [
+        f
+        for f in fields
+        if isinstance(f, str) and f.strip() and f.strip() not in payload
+    ]
+    if missing:
+        return (
+            False,
+            f"Payload missing required fields from runtime bundle contract: {missing!r}",
+        )
+    return True, ""
+
+
+def log_bundle_snapshot_presence(release_dir: Path, logger: logging.Logger = LOGGER) -> None:
+    snap = release_dir / "databricks_bundle_snapshot"
+    if snap.is_dir():
+        logger.info(
+            "Runtime bundle includes databricks_bundle_snapshot at %s (archived DAB slice).",
+            snap,
+        )
+    else:
+        logger.info(
+            "No databricks_bundle_snapshot/ under %s (optional for MVP audit trail).",
+            release_dir,
+        )
 
 
 def build_payload_dict(
@@ -332,7 +515,10 @@ def run_logged_subprocess(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="MVP: install versioned Edvise wheel and run manifest entrypoint.",
+        description=(
+            "MVP stable launcher: resolve model metadata, validate a versioned **runtime bundle** "
+            "(manifest + optional inference_contract + compatibility), install wheel, run entrypoint."
+        ),
     )
     parser.add_argument(
         "--databricks_institution_name",
@@ -409,7 +595,7 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.error(
             "Require --databricks_institution_name, --model_name, and --DB_workspace "
             "(webapp passes institution + model; launcher resolves model_run_id and "
-            "pipeline_version from silver training/config.toml first, else "
+            "pipeline_version (git SHA in dev) from silver training/config.toml first, else "
             "payload_json on the pipeline_models row."
         )
         return 1
@@ -439,16 +625,26 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.error("Could not load manifest: %s", exc)
         return 1
 
+    release_dir = manifest_path.parent
+    effective = merge_manifest_with_optional_contract(manifest, release_dir)
+    log_bundle_snapshot_presence(release_dir)
+
+    ok_compat, compat_msg = check_runtime_bundle_compatibility(effective, spark=spark)
+    if not ok_compat:
+        LOGGER.error("%s", compat_msg)
+        return 1
+    LOGGER.info("Runtime bundle compatibility check passed.")
+
     cli_entrypoint = (args.entrypoint or "").strip()
-    entrypoint = cli_entrypoint or str(manifest["entrypoint"]).strip()
+    entrypoint = cli_entrypoint or str(effective.get("entrypoint") or "").strip()
     if not entrypoint:
-        LOGGER.error("Entrypoint is empty after CLI/manifest resolution.")
+        LOGGER.error("Entrypoint is empty after manifest/contract resolution.")
         return 1
 
     wheel_path = resolve_wheel_path(
         args.release_base_path,
         pipeline_version,
-        str(manifest["wheel"]),
+        str(effective["wheel"]),
     )
     if not wheel_path.is_file():
         LOGGER.error("Wheel not found: %s", wheel_path)
@@ -470,6 +666,10 @@ def main(argv: list[str] | None = None) -> int:
         databricks_institution_name=inst or None,
         model_name=model or None,
     )
+    ok_fields, fields_msg = validate_required_payload_fields(effective, payload)
+    if not ok_fields:
+        LOGGER.error("%s", fields_msg)
+        return 1
     try:
         payload_path = write_payload_file(payload)
     except OSError as exc:
