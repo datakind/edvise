@@ -1,4 +1,4 @@
-"""SMA transform HookSpec preview JSON (same envelope shape as IA hook previews)."""
+"""SMA transform HookSpec preview JSON (``hitl.hook_generation.preview``; same envelope as IA previews)."""
 
 from __future__ import annotations
 

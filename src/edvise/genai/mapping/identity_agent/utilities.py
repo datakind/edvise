@@ -1,8 +1,7 @@
 """
 Shared helpers for IdentityAgent prompts and JSON parsing.
 
-- :func:`strip_json_fences` — re-exported from
-  :mod:`edvise.genai.mapping.shared.strip_json_fences` (strip markdown fences from model output).
+- :func:`strip_json_fences` — re-exported from :mod:`edvise.genai.mapping.shared.utilities`.
 - :func:`concat_model_sources` — SMA-style ``inspect.getsource`` concatenation for system prompts.
 """
 
@@ -13,7 +12,7 @@ import inspect
 from collections.abc import Sequence
 from pathlib import Path
 
-from edvise.genai.mapping.shared.strip_json_fences import strip_json_fences
+from edvise.genai.mapping.shared.utilities import strip_json_fences
 
 
 def concat_model_sources(classes: Sequence[type]) -> str:

@@ -1,4 +1,4 @@
-"""Serialized HookSpec previews for UC-gated human review before apply/materialize."""
+"""Serialized HookSpec previews for UC-gated human review (``hitl.hook_generation.preview``)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
+from edvise.genai.mapping.shared.hitl.hook_spec.schemas import HookSpec
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
     GrainAmbiguityHITLContext,
     HITLItem,

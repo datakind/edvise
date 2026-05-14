@@ -17,7 +17,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+from edvise.genai.mapping.shared.hitl.hook_spec.schemas import (
+    HITLDomain,
     HookFunctionSpec,
     HookSpec,
 )

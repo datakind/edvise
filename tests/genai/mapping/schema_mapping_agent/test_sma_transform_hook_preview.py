@@ -5,24 +5,20 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+from edvise.genai.mapping.shared.hitl.hook_spec.schemas import (
+    HITLDomain,
     HookFunctionSpec,
     HookSpec,
 )
-from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
-    ensure_hook_spec_file,
-)
-from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
+from edvise.genai.mapping.shared.hitl.hook_spec.paths import ensure_hook_spec_file
 from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_generation import (
     generate_sma_transform_hook_spec,
     load_hook_specs_from_sma_preview_path,
     manifest_mapping_for_target,
     sma_transform_hook_item_id,
-)
-from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_preview import (
     write_sma_transform_hook_preview_json,
 )
-from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook import (
+from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_required_hitl import (
     iter_hook_required_plans,
 )
 

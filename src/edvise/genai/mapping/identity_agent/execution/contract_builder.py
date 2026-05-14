@@ -45,7 +45,7 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainCon
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     TermOrderConfig,
 )
-from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
+from edvise.genai.mapping.shared.hitl.hook_spec.paths import (
     hook_modules_root_from_bronze_volume,
 )
 from edvise.genai.mapping.identity_agent.term_normalization.term_order import (
@@ -306,7 +306,7 @@ def build_schema_contract_from_grain_contracts(
             (typically ``{bronze_volumes_path}/identity_agent`` — same as ``IDENTITY_AGENT_ROOT`` in
             ``ia_dev``). Used to import ``dedup_policy.hook_spec.file`` when strategy is
             ``policy_required`` with a hook. When omitted, uses
-            :func:`~edvise.genai.mapping.identity_agent.hitl.hook_generation.paths.hook_modules_root_from_bronze_volume`
+            :func:`~edvise.genai.mapping.shared.hitl.hook_spec.paths.hook_modules_root_from_bronze_volume`
             if ``school_config.bronze_volumes_path`` is set (prefers ``identity_agent/`` when that
             directory exists).
         dtype_opts, spark_session, sample_size, cleaning_cfg: Forwarded

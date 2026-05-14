@@ -1,12 +1,10 @@
-"""Tests for :mod:`edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway`."""
+"""Tests for :mod:`edvise.genai.mapping.shared.databricks_ai_gateway`."""
 
 from __future__ import annotations
 
 import pytest
 
-from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
-    require_databricks_token,
-)
+from edvise.genai.mapping.shared.databricks_ai_gateway import require_databricks_token
 
 
 def test_require_databricks_token_ignores_databricks_token_env(

@@ -14,7 +14,7 @@ from edvise.genai.mapping.identity_agent.grain_inference.prompt import (
     parse_grain_contract_with_hitl,
     parse_institution_grain_contracts,
 )
-from edvise.genai.mapping.shared.strip_json_fences import strip_json_fences
+from edvise.genai.mapping.shared.utilities import strip_json_fences
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
     GrainAmbiguityHITLContext,
     GrainCandidateKeyEntry,

@@ -1,10 +1,8 @@
 """
-Step 2b — ``review_required`` transformation plans: UC HITL gate before hook preview.
+Step 2b — ``review_required`` transformation plans: build review JSON, write, merge resolutions.
 
-Extracts low-confidence / inferred-step plans into per-entity JSON (same ``items`` envelope
-shape as hook HITL for Streamlit generic option UI). After UC approval,
-:func:`apply_transformation_review_resolutions` merges reviewer outcomes into the in-memory
-transformation map wrapper.
+Gate checks live in :mod:`~edvise.genai.mapping.schema_mapping_agent.transformation.hitl.gates`.
+Envelope types live in :mod:`~edvise.genai.mapping.schema_mapping_agent.transformation.hitl.schemas`.
 """
 
 from __future__ import annotations
@@ -14,11 +12,13 @@ import logging
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
-
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import ReviewStatus
-
-from edvise.genai.mapping.shared.hitl import raise_if_hitl_pending
+from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.gates import (
+    check_transformation_review_hitl_gate,
+)
+from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.schemas import (
+    TransformationReviewHITLFile,
+)
 from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json
 from edvise.genai.mapping.shared.pipeline_artifacts import default_pipeline_version
 
@@ -29,48 +29,6 @@ from ..schemas import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-class TransformationReviewHITLFile(BaseModel):
-    """
-    On-disk JSON for ``cohort_transformation_review.json`` / ``course_transformation_review.json``.
-
-    Uses ``items`` (not ``hitl_items``) so the Streamlit HITL app generic option editor applies.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    institution_id: str
-    entity_type: Literal["cohort", "course"]
-    domain: Literal["transformation_review"] = "transformation_review"
-    pipeline_version: str = Field(default_factory=default_pipeline_version)
-    reviewed: bool = False
-    items: list[TransformationHITLItem] = Field(default_factory=list)
-
-    @classmethod
-    def model_validate(cls, obj: Any, **kwargs: Any) -> TransformationReviewHITLFile:
-        if isinstance(obj, dict):
-            obj = dict(obj)
-            if "items" not in obj and "hitl_items" in obj:
-                obj["items"] = obj.pop("hitl_items")
-            else:
-                obj.pop("hitl_items", None)
-        return super().model_validate(obj, **kwargs)
-
-    @property
-    def pending(self) -> list[TransformationHITLItem]:
-        out: list[TransformationHITLItem] = []
-        for i in self.items:
-            if i.status != "pending":
-                continue
-            ch = i.choice
-            if ch is None or str(ch).strip() == "":
-                out.append(i)
-        return out
-
-    @property
-    def is_clear(self) -> bool:
-        return len(self.pending) == 0
 
 
 def _plans_from_entity_section(entity_blob: object) -> list[dict[str, Any]] | None:
@@ -160,36 +118,6 @@ def _effective_item_status(item: TransformationHITLItem) -> str | None:
     if ix == 3:
         return "unmappable"
     return None
-
-
-def check_transformation_review_hitl_gate(hitl_path: str | Path) -> None:
-    """Raise HITLBlockingError when any item is still pending (no status / choice)."""
-    path = Path(hitl_path)
-    env = read_pydantic_json(path, TransformationReviewHITLFile)
-    if not env.items:
-        print(f"✓ No transformation review HITL items — gate clear ({path.name}).")
-        return
-    unresolved = env.pending
-    if not unresolved:
-        print(
-            f"✓ Transformation review HITL gate clear — {len(env.items)} item(s) in {path.name}."
-        )
-        return
-
-    def _fmt(it: TransformationHITLItem) -> str:
-        return f"[{it.item_id}] {it.entity_type}.{it.target_field}"
-
-    raise_if_hitl_pending(
-        unresolved,
-        hitl_path=path,
-        format_item=_fmt,
-        instructions=(
-            "  • For each item set ``status`` to approved | corrected | unmappable, **or** set "
-            "``choice`` to the 1-based option index (1=approve, 2=correct, 3=unmappable).\n"
-            "  • For **correct**, edit ``steps`` on the item before saving.\n"
-            "  • Save the JSON, then approve the UC hitl_reviews row."
-        ),
-    )
 
 
 def _strip_review_metadata(plan: dict[str, Any]) -> None:

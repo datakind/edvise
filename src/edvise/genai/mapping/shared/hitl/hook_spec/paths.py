@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
-from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
+from .schemas import HITLDomain, HookSpec
 
 
 def default_hook_module_relpath(institution_id: str, domain: HITLDomain) -> str:
@@ -48,7 +47,7 @@ def hook_modules_root_from_bronze_volume(bronze_volumes_path: str | Path) -> Pat
 
 def resolve_hook_module_path(file_relpath: str, *, root: str | Path) -> Path:
     """
-    Resolve :attr:`~edvise.genai.mapping.identity_agent.grain_inference.schemas.HookSpec.file`
+    Resolve :attr:`~edvise.genai.mapping.shared.hitl.hook_spec.schemas.HookSpec.file`
     under ``root`` (materialize / validate_hook / runtime import).
 
     Raises ``ValueError`` if ``file_relpath`` is absolute or escapes ``root``.

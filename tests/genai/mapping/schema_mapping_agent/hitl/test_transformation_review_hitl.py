@@ -1,4 +1,4 @@
-"""Tests for Step 2b transformation review HITL (``transformation.hitl.review``)."""
+"""Tests for Step 2b transformation review HITL (``transformation.hitl.review_hitl``)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import ReviewStatus
-from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.review import (
+from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.review_hitl import (
     TransformationReviewHITLFile,
     apply_transformation_review_resolutions,
     build_transformation_review_hitl_file_for_entity,
@@ -209,7 +209,7 @@ def test_apply_transformation_review_corrected_uses_item_steps(tmp_path: Path):
 
 
 def test_effective_status_from_choice_only():
-    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.review import (
+    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.review_hitl import (
         _effective_item_status,
     )
 

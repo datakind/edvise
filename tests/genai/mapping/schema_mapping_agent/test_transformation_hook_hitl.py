@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook import (
+from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_required_hitl import (
     InstitutionSMATransformationHookHITLItems,
     apply_transformation_hook_hitl_resolutions,
     build_transformation_hook_hitl_envelope_for_entity,

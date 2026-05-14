@@ -359,7 +359,7 @@ def _build_openai_client(catalog: str) -> Any:
     """Build OpenAI-compatible client for Databricks AI Gateway."""
     from openai import OpenAI
 
-    from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
+    from edvise.genai.mapping.shared.databricks_ai_gateway import (
         disable_mlflow_tracing_for_openai_gateway_client,
         require_databricks_token,
         resolve_ai_gateway_base_url,
@@ -377,7 +377,7 @@ def _run_once(model_id: str, prompt: str, client: Any) -> dict[str, Any]:
     Call :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.eval.run_once` with
     retries for transient gateway / transport failures (same policy as IA ``llm_complete``).
     """
-    from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
+    from edvise.genai.mapping.shared.databricks_ai_gateway import (
         gateway_run_once_error_text_is_retryable,
     )
     from edvise.genai.mapping.schema_mapping_agent.manifest.eval import run_once

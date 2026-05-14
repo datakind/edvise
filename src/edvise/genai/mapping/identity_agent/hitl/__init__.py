@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from edvise.genai.mapping.identity_agent.hitl.hook_generation import (
+    apply_term_hook_preview_names_from_item_id,
+    apply_term_hook_spec_names_from_item_id,
+    assemble_hook_spec_drafts_as_module_text,
     build_hook_generation_system_prompt,
     build_hook_generation_user_message,
     default_hook_module_relpath,
     extract_config_snippet_for_hook_item,
     generate_hook_spec,
     generate_hook_specs_for_hook_items,
+    hook_slug_from_item_id,
     normalized_column_names_from_raw_headers,
     ensure_hook_spec_file,
     materialize_hook_spec_to_file,
@@ -16,13 +20,6 @@ from edvise.genai.mapping.identity_agent.hitl.hook_generation import (
     merge_hook_specs,
     parse_hook_spec,
     resolve_hook_module_path,
-)
-from edvise.genai.mapping.shared.hitl import HITLBlockingError
-from edvise.genai.mapping.identity_agent.hitl.hook_preview import (
-    apply_term_hook_preview_names_from_item_id,
-    apply_term_hook_spec_names_from_item_id,
-    assemble_hook_spec_drafts_as_module_text,
-    hook_slug_from_item_id,
     write_identity_hook_preview_json,
 )
 from edvise.genai.mapping.identity_agent.hitl.artifacts import (
@@ -57,6 +54,7 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     ReentryDepth,
     TermResolution,
 )
+from edvise.genai.mapping.shared.hitl import HITLBlockingError
 
 __all__ = [
     "build_hook_generation_system_prompt",

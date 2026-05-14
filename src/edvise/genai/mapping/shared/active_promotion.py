@@ -123,7 +123,7 @@ def promote_genai_mapping_to_active(
     Required sources: IA ``enriched_schema_contract.json``, SMA ``manifest_map.json`` and
     ``transformation_map.json``. Optional: ``transform_hooks.py`` if present; identity-agent
     outputs when present; ``identity_hooks/`` subtree when materialized hook modules exist
-    (matches :func:`~edvise.genai.mapping.identity_agent.hitl.hook_generation.paths.default_hook_module_relpath`).
+    (matches :func:`~edvise.genai.mapping.shared.hitl.hook_spec.paths.default_hook_module_relpath`).
 
     Writes :data:`GENAI_ACTIVE_REGISTRY_BASENAME` last (atomic) so ``active/`` records the source
     ``onboard_run_id`` for this promotion.

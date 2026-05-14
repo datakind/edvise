@@ -8,7 +8,7 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     HookFunctionSpec,
     HookSpec,
 )
-from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
+from edvise.genai.mapping.shared.hitl.hook_spec.paths import (
     default_hook_module_relpath,
     ensure_hook_spec_file,
     hook_modules_root_from_bronze_volume,

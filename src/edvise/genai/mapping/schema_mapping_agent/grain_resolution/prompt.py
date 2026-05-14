@@ -31,7 +31,7 @@ from edvise.genai.mapping.shared.profiling.variance import (
     ColumnVarianceProfile,
     WithinGroupVarianceResult,
 )
-from edvise.genai.mapping.shared.strip_json_fences import strip_json_fences
+from edvise.genai.mapping.shared.utilities import strip_json_fences
 from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
 logger = logging.getLogger(__name__)

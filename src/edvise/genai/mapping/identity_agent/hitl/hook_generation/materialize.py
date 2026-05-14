@@ -1,5 +1,5 @@
 """
-Materialize :class:`~edvise.genai.mapping.identity_agent.grain_inference.schemas.HookSpec` as importable Python modules.
+Materialize :class:`~edvise.genai.mapping.shared.hitl.hook_spec.schemas.HookSpec` as importable Python modules.
 
 Domain-agnostic: each ``HookFunctionSpec.draft`` is written verbatim (full ``def`` blocks).
 """
@@ -11,14 +11,11 @@ import logging
 from collections.abc import Sequence
 from pathlib import Path
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+from edvise.genai.mapping.shared.hitl.hook_spec.schemas import (
+    HITLDomain,
     HookFunctionSpec,
     HookSpec,
 )
-from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
-    resolve_hook_module_path,
-)
-from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +34,7 @@ def merge_hook_specs(
 
     All specs must share one output file:
 
-    - With ``repo_root``: resolved paths (via :func:`~edvise.genai.mapping.identity_agent.hitl.hook_generation.paths.resolve_hook_module_path`) must be identical.
+    - With ``repo_root``: resolved paths (via :func:`~edvise.genai.mapping.shared.hitl.hook_spec.paths.resolve_hook_module_path`) must be identical.
     - Without ``repo_root``: ``hook_spec.file`` strings must be identical and non-null.
 
     Duplicate function ``name`` values are allowed when the ``draft`` text matches (same

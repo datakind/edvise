@@ -11,7 +11,7 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     HookSpec,
     HookFunctionSpec,
 )
-from edvise.genai.mapping.identity_agent.hitl.hook_preview import (
+from edvise.genai.mapping.identity_agent.hitl.hook_generation import (
     apply_term_hook_spec_names_from_item_id,
     assemble_hook_spec_drafts_as_module_text,
     hook_slug_from_item_id,

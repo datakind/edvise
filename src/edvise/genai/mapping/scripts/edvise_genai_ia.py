@@ -233,7 +233,7 @@ def run_onboard_start(
             run_by_dataset,
         )
     )
-    from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
+    from edvise.genai.mapping.shared.databricks_ai_gateway import (
         DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
         llm_complete_combined_message_content,
     )

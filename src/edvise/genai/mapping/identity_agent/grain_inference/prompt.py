@@ -18,7 +18,7 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     HITLItem,
     get_grain_hitl_item_schema_context,
 )
-from edvise.genai.mapping.shared.strip_json_fences import strip_json_fences
+from edvise.genai.mapping.shared.utilities import strip_json_fences
 from edvise.genai.mapping.identity_agent.profiling import (
     RankedCandidateProfiles,
     RawTableProfile,
