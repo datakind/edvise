@@ -1,0 +1,70 @@
+resources:
+  jobs:
+    dev_jonathan_edvise_versioned_inference_launcher_mvp:
+      name: "[dev jonathan] edvise_versioned_inference_launcher_mvp"
+      max_concurrent_runs: 5
+      run_as:
+        service_principal_name: 6c8d8d76-1399-4065-aeb5-9474d32773cf
+      tasks:
+        - task_key: versioned_inference_launcher_mvp_smoke
+          description: >
+            MVP smoke: resolve model_run_id and pipeline_version from
+            <DB_workspace>.default.pipeline_models (and silver training/config.toml when
+            needed), install the matching release wheel, then run the versioned entrypoint.
+            Job parameters match the webapp: institution + model_name + workspace catalog.
+          spark_python_task:
+            python_file: pipelines/pdp/launchers/versioned_inference_launcher.py
+            source: GIT
+            parameters:
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --model_name
+              - "{{job.parameters.model_name}}"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --release_base_path
+              - "{{job.parameters.release_base_path}}"
+              - --payload_json
+              - "{{job.parameters.payload_json}}"
+              - --entrypoint
+              - "{{job.parameters.entrypoint}}"
+          job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
+      job_clusters:
+        - job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
+          new_cluster:
+            cluster_name: ""
+            spark_version: 15.4.x-cpu-ml-scala2.12
+            spark_conf:
+              spark.master: local[*, 4]
+              spark.databricks.cluster.profile: singleNode
+            gcp_attributes:
+              use_preemptible_executors: false
+              availability: ON_DEMAND_GCP
+              zone_id: HA
+            node_type_id: n2-standard-8
+            custom_tags:
+              ResourceClass: SingleNode
+              x-databricks-nextgen-cluster: "true"
+            enable_elastic_disk: true
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            num_workers: 0
+      git_source:
+        git_url: https://github.com/datakind/edvise
+        git_provider: gitHub
+        git_commit: 7afd804e926564a11e59b8ef1333505d287cdc7b
+      queue:
+        enabled: true
+      parameters:
+        - name: databricks_institution_name
+          default: "miles_cc"
+        - name: model_name
+          default: "retention_into_year_2_associates"
+        - name: DB_workspace
+          default: "dev_sst_02"
+        - name: release_base_path
+          default: "/Volumes/dev_sst_02/default/edvise_releases"
+        - name: payload_json
+          default: ""
+        - name: entrypoint
+          default: ""

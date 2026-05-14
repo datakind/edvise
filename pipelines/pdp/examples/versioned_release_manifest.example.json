@@ -1,0 +1,7 @@
+{
+  "pipeline_version": "v0.1.6",
+  "git_sha": "replace-with-real-sha",
+  "wheel": "edvise-0.1.6-py3-none-any.whl",
+  "entrypoint": "edvise.runtime.inference_driver",
+  "expected_steps": ["smoke_test"]
+}
