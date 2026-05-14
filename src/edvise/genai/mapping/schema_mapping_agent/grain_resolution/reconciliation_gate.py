@@ -134,8 +134,11 @@ def run_grain_reconciliation_gate(
                 ),
                 DedupProposalLLM(
                     strategy="suffix_identifier",
-                    label="Widen manifest grain",
-                    description="Append a disambiguating source column to entity keys in the manifest.",
+                    label="Suffix key ties",
+                    description=(
+                        "Within duplicate manifest-key groups, append -1, -2, … to this key "
+                        "column’s values; row count unchanged (manifest grain columns unchanged)."
+                    ),
                     sort_by=None,
                     sort_ascending=None,
                     suffix_column=(

@@ -197,7 +197,8 @@ def _apply_sma_suffix_to_manifest_file(
     suffix_source_col: str,
 ) -> None:
     """
-    Append / update optional grain mapping so execution entity keys include ``suffix_source_col``.
+    Append / update optional grain mapping so course execution uses ``suffix_source_col`` for
+    ``source_term_key`` (does not add new manifest grain columns; aligns mapping with suffixing).
 
     Course: maps ``source_term_key`` to the suffix column on the manifest base table.
     Cohort: not automated (schema grain is single-column); logs and skips file mutation.
@@ -205,7 +206,8 @@ def _apply_sma_suffix_to_manifest_file(
     if entity_type != "course":
         logger.warning(
             "SMA grain suffix_identifier on cohort is not auto-applied to manifest — "
-            "update the field mapping manifest manually to widen grain."
+            "update the field mapping manifest manually if execution keys must match the "
+            "chosen suffix column."
         )
         return
 
@@ -248,7 +250,7 @@ def _apply_sma_suffix_to_manifest_file(
                 "join": None,
                 "row_selection": {"strategy": "any_row"},
                 "confidence": 1.0,
-                "rationale": "Widened grain via SMA grain HITL (suffix_identifier).",
+                "rationale": "SMA grain HITL (suffix_identifier): map source_term_key to disambiguation column.",
             }
         )
     FieldMappingManifest.model_validate(mdoc)

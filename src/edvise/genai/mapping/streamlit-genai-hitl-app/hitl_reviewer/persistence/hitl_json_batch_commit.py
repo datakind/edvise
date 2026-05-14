@@ -73,7 +73,8 @@ def _validated_season_map_replace_from_dataframe(
 
 def _is_grain_domain_item(item: dict[str, Any]) -> bool:
     d = str(item.get("domain") or "").lower().strip()
-    return d in ("grain", "identity_grain")
+    # Keep in sync with ``hitl_reviewer.ui.ia.grain_review_ui.is_grain_domain_item`` (incl. SMA grain gate).
+    return d in ("grain", "identity_grain", "sma_grain")
 
 
 def _grain_item_file_indices(items: list[Any]) -> list[int]:

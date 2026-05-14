@@ -8,7 +8,8 @@ Strategy strings match :mod:`edvise.genai.mapping.shared.grain.dedup_strategies`
 ``SmaGrainMultiplicityProposalStrategy``). ``DedupProposalLLM`` is still not
 :class:`~edvise.genai.mapping.identity_agent.grain_inference.schemas.DedupPolicy`: proposals carry
 reviewer-facing ``label`` / ``description`` / ``reasoning`` fields that live outside the persisted
-grain contract.
+grain contract. Reviewer copy must never imply **widening** the manifest or target grain;
+``suffix_identifier`` only rank-suffixes values in an existing manifest key column.
 """
 
 from __future__ import annotations
@@ -129,12 +130,17 @@ def propose_dedup_policy(
         "- suffix_column: source column name (required for suffix_identifier)\n"
         "- reasoning: 1-2 sentences grounded in the variance profile\n"
         "Rules:\n"
+        "- Never describe any proposal as widening, expanding, or adding columns to the manifest "
+        "or target grain; that is not on offer.\n"
         "- temporal_collapse: use for clear time / sequence ordering.\n"
         "- first_by_column: only when sort order on sort_by **is** the policy (e.g. numeric "
         "sequence, line id, boolean primary flag) — not alphabetical tie-breaks on labels; "
         "not sort_by on grade/GPA/credits (prefer suffix_identifier when measures differ).\n"
         "- true_duplicate: only when duplicates look identical across mapped columns.\n"
-        "- suffix_identifier: rows may be distinct entities; widen the key with suffix_column.\n"
+        "- suffix_identifier: rows may be distinct entities sharing the same key tuple; keep every "
+        "row and break ties by appending -1, -2, ... to string values in suffix_column. "
+        "suffix_column must already be one of the manifest entity key columns (you are not adding "
+        "a new key field — you pick which existing key column gets ranked suffixes).\n"
         "If suffix_second_required is true in the user payload, the SECOND proposal must use "
         'strategy "suffix_identifier" with a high-variance descriptive column when possible.'
     )
@@ -156,10 +162,10 @@ def propose_dedup_policy(
             if p.column in mapped_source_columns and p.pct_groups_with_variance >= 0.25:
                 props[1] = DedupProposalLLM(
                     strategy="suffix_identifier",
-                    label="Widen entity grain",
+                    label="Suffix key ties",
                     description=(
-                        "Append this column to the manifest entity key so distinct rows "
-                        "remain separate entities."
+                        "Within duplicate key groups, append -1, -2, … to this key column’s "
+                        "values so rows stay distinct without dropping any rows."
                     ),
                     sort_by=None,
                     sort_ascending=None,

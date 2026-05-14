@@ -227,6 +227,194 @@ def _render_variance_profile(hitl_ctx: dict[str, Any]) -> None:
     st.markdown("".join(inner), unsafe_allow_html=True)
 
 
+def _md_code_token(s: Any) -> str:
+    t = str(s).strip().replace("`", "'")
+    return f"`{t}`" if t else "—"
+
+
+def _parse_hitl_context_dict(hctx_raw: Any) -> dict[str, Any] | None:
+    if isinstance(hctx_raw, dict):
+        return hctx_raw
+    if isinstance(hctx_raw, str) and hctx_raw.strip():
+        try:
+            loaded = json.loads(hctx_raw)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(loaded, dict):
+            return loaded
+    return None
+
+
+def _render_sma_grain_profile_table(hitl_ctx: dict[str, Any]) -> None:
+    rows_raw = hitl_ctx.get("top_column_profiles")
+    if not isinstance(rows_raw, list) or not rows_raw:
+        return
+    st.markdown("**Within-group variance (SMA automated profile)**")
+    st.caption(
+        "Non-key **source** columns ranked by how often they vary **inside** duplicate **manifest-key** "
+        "groups. **% duplicate groups w/ variance** = fraction of those groups where the column takes "
+        "more than one value (not “% of all rows”)."
+    )
+    out_rows: list[dict[str, Any]] = []
+    for r in rows_raw:
+        if not isinstance(r, dict):
+            continue
+        col = r.get("column", "")
+        pct = r.get("pct_groups_with_variance")
+        samp = r.get("sample_values")
+        samp_s = ""
+        if isinstance(samp, list):
+            samp_s = ", ".join(str(x) for x in samp[:10])
+        elif samp is not None:
+            samp_s = str(samp)
+        try:
+            pct_f = float(pct) if pct is not None else None
+        except (TypeError, ValueError):
+            pct_f = None
+        pct_disp = f"{pct_f * 100:.1f}%" if pct_f is not None else str(pct or "—")
+        out_rows.append(
+            {
+                "column": col,
+                "% duplicate groups w/ variance": pct_disp,
+                "sample values": (samp_s[:800] + "…") if len(samp_s) > 800 else samp_s,
+            }
+        )
+    if out_rows:
+        st.dataframe(
+            pd.DataFrame(out_rows),
+            hide_index=True,
+            use_container_width=True,
+        )
+    meta: list[str] = []
+    gsd = hitl_ctx.get("group_size_distribution")
+    if gsd is not None:
+        meta.append(f"group_size_distribution: {gsd}")
+    sampled = hitl_ctx.get("sampled")
+    if sampled is not None:
+        meta.append(f"sampled: {sampled}")
+    if meta:
+        st.caption(" · ".join(str(m) for m in meta))
+
+
+def _render_grain_hitl_context_panels(hctx_raw: Any) -> None:
+    ctx = _parse_hitl_context_dict(hctx_raw)
+    if ctx is None:
+        if isinstance(hctx_raw, str) and hctx_raw.strip():
+            st.subheader("Context (invalid JSON)")
+            st.text(hctx_raw.strip())
+        else:
+            st.caption("No structured ``hitl_context`` for this item.")
+        return
+    has_sma = isinstance(ctx.get("top_column_profiles"), list) and bool(
+        ctx.get("top_column_profiles")
+    )
+    has_ia_ck = isinstance(ctx.get("candidate_keys"), list) and bool(ctx.get("candidate_keys"))
+    has_ia_vp = isinstance(ctx.get("variance_profile"), dict) and bool(ctx.get("variance_profile"))
+    if has_sma:
+        _render_sma_grain_profile_table(ctx)
+    if has_ia_ck or has_ia_vp:
+        _render_candidate_keys_table(ctx)
+        _render_variance_profile(ctx)
+    if not has_sma and not has_ia_ck and not has_ia_vp:
+        st.caption(
+            "Context JSON did not include ``candidate_keys``, ``variance_profile``, or "
+            "``top_column_profiles``."
+        )
+        with st.expander("Raw context JSON"):
+            st.code(json.dumps(ctx, indent=2, ensure_ascii=False), language="json")
+
+
+def _grain_resolution_markdown_lines(res: Any) -> list[str]:
+    if res is None:
+        return [
+            "- No structured **resolution** on this option — the resolver will not apply a standard "
+            "dedup/grain payload (typical for **Custom** / manual follow-up)."
+        ]
+    if not isinstance(res, dict):
+        return [f"- Unexpected resolution shape: `{str(res)[:220]}`"]
+    lines: list[str] = []
+    ds = res.get("dedup_strategy")
+    if ds:
+        lines.append(
+            f"- Dedup strategy {_md_code_token(ds)} — executor policy stored on the run after save."
+        )
+    sc = res.get("suffix_column")
+    if sc:
+        lines.append(
+            f"- **Suffix column** {_md_code_token(sc)} — for **suffix_identifier**, the executor "
+            "appends **-1, -2, …** to **this column’s values** within each duplicate **manifest-key** "
+            "group so rows stay unique **without** dropping rows. Pick this only if that column is an "
+            "acceptable tie-breaker to mutate."
+        )
+    sort_by = res.get("dedup_sort_by")
+    if sort_by:
+        asc = res.get("dedup_sort_ascending")
+        keep = res.get("dedup_keep")
+        asc_s = (
+            "ascending (earliest / smallest first)"
+            if asc is True
+            else "descending (latest / largest first)"
+            if asc is False
+            else "—"
+        )
+        keep_s = str(keep or "—")
+        lines.append(
+            f"- Sort before dedup: column {_md_code_token(sort_by)}, direction **{asc_s}**, "
+            f"keep **{keep_s}** row per duplicate key group."
+        )
+    pc = res.get("priority_column")
+    if pc:
+        po = res.get("priority_order")
+        po_s = ""
+        if isinstance(po, list) and po:
+            tail = ", …" if len(po) > 12 else ""
+            po_s = (
+                " Priority value order (high → low): "
+                + ", ".join(_md_code_token(x) for x in po[:12])
+                + tail
+            )
+        lines.append(
+            f"- Categorical priority on column {_md_code_token(pc)}.{po_s}"
+        )
+    cko = res.get("candidate_key_override")
+    if isinstance(cko, list) and cko:
+        cols = ", ".join(_md_code_token(c) for c in cko)
+        lines.append(f"- Candidate key override — post-clean PK columns: {cols}.")
+    if not lines:
+        lines.append("- Resolution object had no recognizable fields in this preview.")
+    return lines
+
+
+def _render_option_resolution_expander(
+    options: list[Any], *, expanded: bool = False
+) -> None:
+    if not isinstance(options, list) or not options:
+        return
+    with st.expander(
+        "Structured effect of each option (strategy, suffix column, sort)",
+        expanded=expanded,
+    ):
+        st.caption(
+            "Each button shows the short **label** and **description**. Below is the **resolution** "
+            "payload the resolver merges into config — especially useful for **suffix_identifier** "
+            "(which column gets -1, -2, …) and temporal / first-by-column sorts."
+        )
+        n = len(options)
+        for j, opt in enumerate(options):
+            if not isinstance(opt, dict):
+                continue
+            lab = str(opt.get("label") or f"Option {j + 1}")
+            oid = str(opt.get("option_id") or "").strip()
+            head = f"**Option {j + 1}** — {lab}"
+            if oid:
+                head += f" (`option_id={oid}`)"
+            st.markdown(head)
+            for ln in _grain_resolution_markdown_lines(opt.get("resolution")):
+                st.markdown(ln)
+            if j < n - 1:
+                st.markdown("")
+
+
 def render_ia_grain_hitl_cards(
     *,
     data: dict[str, Any],
@@ -292,15 +480,7 @@ def render_ia_grain_hitl_cards(
             unsafe_allow_html=True,
         )
 
-        hctx = item.get("hitl_context")
-        if isinstance(hctx, dict):
-            _render_candidate_keys_table(hctx)
-            _render_variance_profile(hctx)
-        elif isinstance(hctx, str) and hctx.strip():
-            st.subheader("Context")
-            st.text(hctx.strip())
-        else:
-            st.caption("No structured ``hitl_context`` for this item.")
+        _render_grain_hitl_context_panels(item.get("hitl_context"))
 
         options = item.get("options")
         if not isinstance(options, list):
@@ -314,6 +494,12 @@ def render_ia_grain_hitl_cards(
             0 if json_choice is None else max(0, min(int(json_choice) - 1, n_opt - 1))
         )
 
+        _item_dom = str(item.get("domain") or "").lower().strip()
+        _render_option_resolution_expander(
+            options,
+            expanded=_item_dom == "sma_grain",
+        )
+
         render_option_cards(
             options=options,
             sel_key=sel_key,
@@ -323,6 +509,9 @@ def render_ia_grain_hitl_cards(
             key_prefix="ia-grain",
             sk=psk,
             file_index=i,
+            recommendation_badge_label=(
+                "SMA recommendation" if _item_dom == "sma_grain" else "IA recommendation"
+            ),
         )
 
         sel_j = int(st.session_state[sel_key])
