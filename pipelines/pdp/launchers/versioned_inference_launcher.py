@@ -684,4 +684,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Avoid ``raise SystemExit(0)``: IPython / some Databricks wrappers treat any
+    # SystemExit as a failed cell/job even when the code is success (0).
+    _exit_code = main()
+    if _exit_code:
+        raise SystemExit(_exit_code)

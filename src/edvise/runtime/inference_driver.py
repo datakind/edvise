@@ -68,4 +68,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # Avoid ``raise SystemExit(0)`` under IPython/Databricks (see launcher).
+    _exit_code = main()
+    if _exit_code:
+        raise SystemExit(_exit_code)
