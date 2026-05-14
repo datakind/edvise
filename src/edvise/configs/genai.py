@@ -132,7 +132,7 @@ def resolve_genai_data_path(bronze_volumes_path: Optional[str], file_path: str) 
     Use this for CSV reads and for writing identity-agent cleaned outputs under the same root.
     Materialized hook modules (:attr:`HookSpec.file`) use the same relative layout under
     ``bronze_volumes_path`` (see ``identity_hooks/`` in
-    :mod:`edvise.genai.mapping.identity_agent.hitl.hook_generation.paths`).
+    :mod:`edvise.genai.mapping.shared.hitl.hook_spec.paths`).
     """
     if not bronze_volumes_path or not str(bronze_volumes_path).strip():
         return file_path

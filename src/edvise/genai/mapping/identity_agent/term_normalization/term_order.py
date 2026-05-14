@@ -13,7 +13,7 @@ import pandas as pd
 
 from edvise.utils.data_cleaning import convert_to_snake_case
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
+from edvise.genai.mapping.shared.hitl.hook_spec.schemas import HookSpec
 from edvise.genai.mapping.shared.schema_contract.schemas import TermNormalizationSummary
 
 from .schemas import TermOrderConfig
@@ -467,9 +467,7 @@ def load_term_extractors_from_hook_spec(
     excluding names that appear in both substring lists. Typical names are
     ``year_extractor_<slug>`` and ``season_extractor_<slug>`` (slugs may contain ``date_season``).
     """
-    from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
-        resolve_hook_module_path,
-    )
+    from edvise.genai.mapping.shared.hitl.hook_spec.paths import resolve_hook_module_path
 
     hs = (
         hook_spec.model_dump(mode="json")

@@ -50,7 +50,7 @@ from edvise.data_audit.schemas.raw_edvise_student import (
 from edvise.data_audit.schemas.raw_edvise_course import (
     RawEdviseCourseDataSchema,
 )
-from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
+from edvise.genai.mapping.shared.databricks_gateway import (
     create_openai_client_for_databricks_gateway,
 )
 from edvise.genai.mapping.shared.pipeline_artifacts import coerce_pipeline_version

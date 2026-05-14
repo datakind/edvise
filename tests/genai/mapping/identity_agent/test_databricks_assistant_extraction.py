@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from edvise.genai.mapping.identity_agent.grain_inference import databricks_gateway as dg
+from edvise.genai.mapping.shared import databricks_gateway as dg
 
 
 def _client_returning(

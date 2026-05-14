@@ -24,7 +24,9 @@ from .prompt import (
     build_identity_agent_user_message,
     parse_grain_contract_with_hitl,
 )
-from .databricks_gateway import llm_complete_combined_message_content
+from edvise.genai.mapping.shared.databricks_gateway import (
+    llm_complete_combined_message_content,
+)
 from .schemas import GrainContract
 
 _LOG = logging.getLogger(__name__)

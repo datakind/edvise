@@ -1,4 +1,9 @@
-"""Cross-agent HITL utilities (gate checks, JSON I/O, run log, shared exceptions)."""
+"""Cross-agent HITL utilities (gate checks, JSON I/O, run log, shared exceptions).
+
+HookSpec and HITL domain enums live in :mod:`edvise.genai.mapping.shared.hitl.hook_spec.schemas`;
+parsing and path helpers live in :mod:`.hook_spec.parse` and :mod:`.hook_spec.paths`. Those are
+not re-exported from this ``__init__`` to avoid pulling hook-spec helpers into every HITL import.
+"""
 
 from __future__ import annotations
 

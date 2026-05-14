@@ -17,7 +17,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+from edvise.genai.mapping.shared.hitl.hook_spec.schemas import (
+    HITLDomain,
     HookFunctionSpec,
     HookSpec,
 )
@@ -27,13 +28,6 @@ from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
-
-
-class HITLDomain(str, Enum):
-    IDENTITY_GRAIN = "identity_grain"
-    IDENTITY_TERM = "identity_term"
-    SCHEMA_MAPPING = "schema_mapping"  # future
-    TRANSFORM = "transform"  # future
 
 
 class ReentryDepth(str, Enum):

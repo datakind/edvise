@@ -14,6 +14,7 @@ from pydantic import (
 )
 
 from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
+from edvise.genai.mapping.shared.hitl.hook_spec.schemas import HookFunctionSpec, HookSpec
 from edvise.genai.mapping.identity_agent.utilities import (
     concat_model_sources,
     get_top_level_assign_source,
@@ -29,54 +30,6 @@ DedupStrategy = Literal[
     "no_dedup",
     "policy_required",  # current state only — never a valid resolution target
 ]
-
-
-class HookFunctionSpec(BaseModel):
-    """
-    Spec for one generated hook function.
-
-    ``draft`` is the **full function definition** (``def`` line through body) as one string.
-    ``signature`` is optional human/LLM metadata; materialize does not use it.
-    For **term** hooks, prompts require ``example_input`` / ``example_output`` to be
-    literal-evaluable for smoke tests. For **grain** (and similar domains), they are
-    free-form documentation strings only.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    signature: str | None = Field(
-        default=None,
-        description="Optional; not used by materialize (draft carries the full def).",
-    )
-    description: str
-    example_input: str | None = None
-    example_output: str | int | float | None = None
-    draft: str | None = Field(
-        default=None,
-        description="Complete Python function definition: signature and body as one string.",
-    )
-
-
-class HookSpec(BaseModel):
-    """
-    File path + function specs for a generated hook.
-    Shared shape between term extraction hooks and dedup hooks.
-
-    ``file`` is optional in raw LLM JSON; hook generation overwrites it with a canonical path
-    from ``institution_id`` and domain before persisting to config.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    file: str | None = Field(
-        default=None,
-        description=(
-            "Relative path to the materialized module; set by the pipeline, not the LLM "
-            "(e.g. identity_hooks/<institution_id>/dedup_hooks.py under bronze_volumes_path)."
-        ),
-    )
-    functions: list[HookFunctionSpec]
 
 
 class DedupPolicy(BaseModel):

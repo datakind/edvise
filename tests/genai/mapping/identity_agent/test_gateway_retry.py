@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
+from edvise.genai.mapping.shared.databricks_gateway import (
     gateway_run_once_error_text_is_retryable,
     is_retryable_openai_gateway_error,
     wrap_llm_complete_with_retries,
@@ -56,7 +56,7 @@ def test_wrap_llm_complete_with_retries_eventually_succeeds(
         return "ok"
 
     monkeypatch.setattr(
-        "edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway.time.sleep",
+        "edvise.genai.mapping.shared.databricks_gateway.time.sleep",
         lambda _s: None,
     )
     wrapped = wrap_llm_complete_with_retries(flaky, max_attempts=5, log=None)
@@ -73,7 +73,7 @@ def test_wrap_llm_complete_with_retries_gives_up_on_auth(
         raise openai.AuthenticationError("bad", response=_resp(401), body=None)
 
     monkeypatch.setattr(
-        "edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway.time.sleep",
+        "edvise.genai.mapping.shared.databricks_gateway.time.sleep",
         lambda _s: None,
     )
     wrapped = wrap_llm_complete_with_retries(bad, max_attempts=5, log=None)

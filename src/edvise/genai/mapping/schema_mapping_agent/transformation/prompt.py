@@ -690,13 +690,3 @@ def audit_step2b_prompt(
 def load_json(path: str) -> dict[str, Any]:
     with open(path) as f:
         return cast(dict[str, Any], json.load(f))
-
-
-def strip_json_fences(text: str) -> str:
-    """Strip markdown code fences from JSON text."""
-    text = text.strip()
-    if text.startswith("```"):
-        text = text[text.index("\n") + 1 :]
-    if text.endswith("```"):
-        text = text[: text.rindex("```")].rstrip()
-    return text

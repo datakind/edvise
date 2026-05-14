@@ -10,14 +10,14 @@ from typing import Any
 
 from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import HookSpec
+from edvise.genai.mapping.shared.hitl.hook_spec.schemas import HookSpec
 from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain, HITLItem
 from edvise.genai.mapping.identity_agent.term_normalization.term_order import (
     resolve_year_season_hook_function_names,
 )
 
-from .parse import parse_hook_spec
-from .paths import ensure_hook_spec_file
+from edvise.genai.mapping.shared.hitl.hook_spec.parse import parse_hook_spec
+from edvise.genai.mapping.shared.hitl.hook_spec.paths import ensure_hook_spec_file
 from .prompt import (
     build_hook_generation_system_prompt,
     build_hook_generation_user_message,

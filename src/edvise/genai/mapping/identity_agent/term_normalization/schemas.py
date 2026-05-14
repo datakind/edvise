@@ -12,7 +12,7 @@ from pydantic import (
     model_validator,
 )
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+from edvise.genai.mapping.shared.hitl.hook_spec.schemas import (
     HookFunctionSpec,
     HookSpec,
 )  # noqa: F401

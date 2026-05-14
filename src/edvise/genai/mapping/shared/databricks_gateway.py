@@ -1,4 +1,4 @@
-"""Databricks MLflow AI Gateway via the OpenAI-compatible client (same stack as SMA eval)."""
+"""Databricks MLflow AI Gateway via the OpenAI-compatible client (mapping-wide)."""
 
 from __future__ import annotations
 
@@ -12,12 +12,11 @@ from typing import Final, TypeVar, cast
 from openai import OpenAI
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 
-from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
-from edvise.genai.mapping.shared.mlflow_gateway_bootstrap import (
+from edvise.genai.mapping.shared.utilities import (
     disable_mlflow_side_effects_for_openai_gateway,
 )
 
-# Same default endpoint as ``schema_mapping_agent.manifest.eval`` (MLflow serving / gateway).
+# Default MLflow serving / gateway endpoint for genai mapping jobs and evals.
 DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL: str = (
     "https://4437281602191762.ai-gateway.gcp.databricks.com/mlflow/v1"
 )
@@ -40,7 +39,7 @@ def disable_mlflow_tracing_for_openai_gateway_client() -> None:
     """
     Turn off MLflow tracing / OpenAI autolog for gateway calls (see module docstring).
 
-    Job scripts should also call :func:`~edvise.genai.mapping.shared.mlflow_gateway_bootstrap.disable_mlflow_side_effects_for_openai_gateway`
+    Job scripts should also call :func:`~edvise.genai.mapping.shared.utilities.disable_mlflow_side_effects_for_openai_gateway`
     at import time **before** loading packages that import ``openai``.
     """
     disable_mlflow_side_effects_for_openai_gateway()
@@ -135,7 +134,7 @@ def make_databricks_gateway_llm_complete(
     max_tokens: int = DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
 ) -> Callable[[str, str], str]:
     """
-    Return ``llm_complete(system, user)`` for :mod:`~edvise.genai.mapping.identity_agent.grain_inference.runner`.
+    Return ``llm_complete(system, user)`` for mapping runners (e.g. identity grain, SMA refine).
 
     The gateway is called with a single user message: ``system``, a separator, then ``user``
     (matches ``ia_dev`` / SMA notebook patterns).
@@ -357,38 +356,3 @@ def wrap_llm_complete_with_retries(
         )
 
     return wrapped
-
-
-def log_grain_hitl_queue(
-    contract: GrainContract, *, logger: logging.Logger | None = None
-) -> None:
-    """Log HITL routing for one grain contract (structured ``hitl_items`` or legacy ``hitl_question``)."""
-    log = logger if logger is not None else _LOG
-    items = getattr(contract, "hitl_items", None)
-    if items:
-        for it in items:
-            if isinstance(it, dict):
-                q = it.get("hitl_question", it)
-            else:
-                q = getattr(it, "hitl_question", str(it))
-            log.info(
-                "HITL queue: %s confidence= %s | %s",
-                contract.table,
-                contract.confidence,
-                q,
-            )
-    else:
-        log.info(
-            "HITL queue: %s confidence= %s | %s",
-            contract.table,
-            contract.confidence,
-            getattr(contract, "hitl_question", None),
-        )
-
-
-def log_grain_auto_approve(
-    contract: GrainContract, *, logger: logging.Logger | None = None
-) -> None:
-    """Log auto-approve path for one grain contract."""
-    log = logger if logger is not None else _LOG
-    log.info("Auto-approve: %s confidence= %s", contract.table, contract.confidence)
