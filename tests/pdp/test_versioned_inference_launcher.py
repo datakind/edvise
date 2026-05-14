@@ -116,7 +116,18 @@ def test_pipeline_version_from_config_toml() -> None:
     assert vil.pipeline_version_from_config_toml(text) == "sha_from_toml"
 
 
-def test_resolve_model_run_and_pipeline_version_from_payload() -> None:
+def test_resolve_pipeline_version_from_payload_when_config_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """If silver config.toml is absent, use payload_json.pipeline_version (git SHA)."""
+
+    def no_config(
+        db_workspace: str, databricks_institution_name: str, model_run_id: str
+    ) -> Path:
+        return tmp_path / "nonexistent" / "config.toml"
+
+    monkeypatch.setattr(vil, "silver_training_config_path", no_config)
+
     class _DF:
         def __init__(self, rows):
             self._rows = rows
@@ -147,6 +158,44 @@ def test_resolve_model_run_and_pipeline_version_from_payload() -> None:
         "9e5494d8774c4f62917d4c569aa0ce95",
         "6b22fb5904c83da9d769fc4cc4d7d6d8d919520b",
     )
+
+
+def test_resolve_pipeline_version_prefers_config_over_payload_json(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('pipeline_version = "from_config_toml"\n', encoding="utf-8")
+
+    def fake_silver_path(
+        db_workspace: str, databricks_institution_name: str, model_run_id: str
+    ) -> Path:
+        return cfg
+
+    monkeypatch.setattr(vil, "silver_training_config_path", fake_silver_path)
+
+    class _DF:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def collect(self):
+            return self._rows
+
+    class _Spark:
+        def __init__(self, rows):
+            self.rows = rows
+
+        def sql(self, _q):
+            return _DF(self.rows)
+
+    payload = json.dumps({"pipeline_version": "sha_from_payload_only"})
+    spark = _Spark([{"model_run_id": "mr1", "payload_json": payload}])
+    out = vil.resolve_model_run_and_pipeline_version(
+        spark=spark,
+        db_workspace="dev_sst_02",
+        databricks_institution_name="miles_cc",
+        model_name="retention_into_year_2_associates",
+    )
+    assert out == ("mr1", "from_config_toml")
 
 
 def test_resolve_model_run_fallback_config_toml(

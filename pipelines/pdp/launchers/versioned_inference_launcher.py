@@ -131,9 +131,10 @@ def resolve_model_run_and_pipeline_version(
     logger: logging.Logger = LOGGER,
 ) -> tuple[str, str] | None:
     """
-    Resolve ``model_run_id`` and Edvise ``pipeline_version`` (git-like SHA) from
-    ``pipeline_models``, then ``payload_json.pipeline_version``, then silver
-    ``training/config.toml``.
+    Resolve ``model_run_id`` from ``pipeline_models``, then ``pipeline_version``:
+
+    1. Silver ``training/config.toml`` for that run (authoritative training config).
+    2. Else ``payload_json.pipeline_version`` on the model row (git SHA recorded at train time).
     """
     q = sql_select_latest_pipeline_model(
         db_workspace, databricks_institution_name, model_name
@@ -153,28 +154,42 @@ def resolve_model_run_and_pipeline_version(
     if not model_run_id:
         logger.error("pipeline_models row has empty model_run_id")
         return None
-    payload_raw = row["payload_json"]
-    pv = pipeline_version_from_payload_json_str(payload_raw)
+
     cfg_path = silver_training_config_path(
         db_workspace, databricks_institution_name, model_run_id
     )
-    if not pv:
+    pv: str | None = None
+    if cfg_path.is_file():
+        try:
+            pv = pipeline_version_from_config_toml(
+                cfg_path.read_text(encoding="utf-8")
+            )
+            if pv:
+                logger.info(
+                    "pipeline_version from silver training config.toml (%s): %s",
+                    cfg_path,
+                    pv,
+                )
+        except OSError as exc:
+            logger.warning("Failed to read config.toml: %s", exc)
+    else:
         logger.info(
-            "pipeline_version not in payload_json; trying config.toml at %s",
+            "config.toml not found at %s; will try payload_json.pipeline_version",
             cfg_path,
         )
-        if cfg_path.is_file():
-            try:
-                pv = pipeline_version_from_config_toml(
-                    cfg_path.read_text(encoding="utf-8")
-                )
-            except OSError as exc:
-                logger.warning("Failed to read config.toml: %s", exc)
-        else:
-            logger.warning("config.toml not found at %s", cfg_path)
+
+    if not pv:
+        payload_raw = row["payload_json"]
+        pv = pipeline_version_from_payload_json_str(payload_raw)
+        if pv:
+            logger.info(
+                "pipeline_version from pipeline_models.payload_json (git SHA): %s",
+                pv,
+            )
+
     if not pv:
         logger.error(
-            "Could not resolve pipeline_version from payload_json or %s",
+            "Could not resolve pipeline_version from %s or payload_json",
             cfg_path,
         )
         return None
@@ -394,7 +409,8 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.error(
             "Require --databricks_institution_name, --model_name, and --DB_workspace "
             "(webapp passes institution + model; launcher resolves model_run_id and "
-            "pipeline_version from default.pipeline_models and silver training/config.toml)."
+            "pipeline_version from silver training/config.toml first, else "
+            "payload_json on the pipeline_models row."
         )
         return 1
 
