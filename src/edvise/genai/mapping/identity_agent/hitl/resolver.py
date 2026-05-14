@@ -5,8 +5,9 @@ Public API:
     check_gate(hitl_path)
         — blocks pipeline if any HITLItems are still pending
 
-    resolve_items(hitl_path, config_path, resolved_by)
-        — applies terminal resolutions to grain/term config
+    resolve_items(hitl_path, config_path=None, resolved_by=...)
+        — applies terminal resolutions to grain/term config (``config_path`` required unless
+          the envelope is ``domain='sma_grain'``)
 
     get_hook_items(hitl_path)
         — returns one representative HITLItem per hook_group_id (or per ungrouped item)
@@ -33,6 +34,9 @@ Notebook usage pattern:
         config_path="institutions/<institution_id>/identity_grain_output.json",
         resolved_by="vish"
     )
+
+    # SMA grain HITL (no config_path — resolver writes sma_grain_resolution_*.json next to HITL)
+    # resolve_items("runs/.../course_sma_grain_hitl.json", resolved_by="vish")
 
     # Hook generation loop — one call per group
     hook_items = get_hook_items("institutions/<institution_id>/identity_grain_hitl.json")
@@ -191,88 +195,11 @@ def _write_sma_grain_resolution_sidecar(
     return out
 
 
-def _apply_sma_suffix_to_manifest_file(
-    manifest_path: Path,
-    entity_type: str,
-    suffix_source_col: str,
-) -> None:
-    """
-    Append / update optional grain mapping so course execution uses ``suffix_source_col`` for
-    ``source_term_key`` (does not add new manifest grain columns; aligns mapping with suffixing).
-
-    Course: maps ``source_term_key`` to the suffix column on the manifest base table.
-    Cohort: not automated (schema grain is single-column); logs and skips file mutation.
-    """
-    if entity_type != "course":
-        logger.warning(
-            "SMA grain suffix_identifier on cohort is not auto-applied to manifest — "
-            "update the field mapping manifest manually if execution keys must match the "
-            "chosen suffix column."
-        )
-        return
-
-    from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
-        FieldMappingManifest,
-    )
-    from edvise.genai.mapping.schema_mapping_agent.manifest.validation import (
-        infer_manifest_base_table,
-    )
-
-    raw = json.loads(manifest_path.read_text())
-    if "manifests" in raw:
-        mdoc = raw["manifests"].get("course")
-        if mdoc is None:
-            raise HITLValidationError(
-                f"{manifest_path}: manifests['course'] missing for course suffix mutation"
-            )
-    else:
-        mdoc = raw
-
-    manifest = FieldMappingManifest.model_validate(mdoc)
-    base_table = infer_manifest_base_table(manifest)
-    target_field = "source_term_key"
-    mappings = mdoc.setdefault("mappings", [])
-    updated = False
-    for rec in mappings:
-        if rec.get("target_field") == target_field:
-            rec["source_column"] = suffix_source_col
-            rec["source_table"] = base_table
-            rec["join"] = None
-            rec["row_selection"] = {"strategy": "any_row"}
-            updated = True
-            break
-    if not updated:
-        mappings.append(
-            {
-                "target_field": target_field,
-                "source_column": suffix_source_col,
-                "source_table": base_table,
-                "join": None,
-                "row_selection": {"strategy": "any_row"},
-                "confidence": 1.0,
-                "rationale": "SMA grain HITL (suffix_identifier): map source_term_key to disambiguation column.",
-            }
-        )
-    FieldMappingManifest.model_validate(mdoc)
-    if "manifests" in raw:
-        raw["manifests"]["course"] = mdoc
-        manifest_path.write_text(json.dumps(raw, indent=2))
-    else:
-        manifest_path.write_text(json.dumps(mdoc, indent=2))
-    logger.info(
-        "SMA grain resolver: manifest %s updated — %s now maps to source column %r",
-        manifest_path.name,
-        target_field,
-        suffix_source_col,
-    )
-
-
 def _apply_sma_grain_hitl_resolution(
     *,
     item: HITLItem,
     resolution: GrainResolution,
     hitl_path: Path,
-    sma_manifest_path: str | Path | None,
 ) -> None:
     """Apply reviewer choice for :class:`~edvise.genai.mapping.identity_agent.hitl.schemas.HITLDomain.SMA_GRAIN`."""
     meta = item.metadata or {}
@@ -283,12 +210,6 @@ def _apply_sma_grain_hitl_resolution(
         raise HITLValidationError(
             f"[{item.item_id}] SMA grain HITL item missing metadata.manifest_source_keys"
         )
-
-    manifest_path: Path | None = None
-    if sma_manifest_path is not None:
-        manifest_path = Path(sma_manifest_path)
-    elif meta.get("sma_manifest_path"):
-        manifest_path = Path(str(meta["sma_manifest_path"]))
 
     strat = resolution.dedup_strategy
     if strat == "intentional_step_down":
@@ -307,17 +228,27 @@ def _apply_sma_grain_hitl_resolution(
         return
 
     if strat == "suffix_identifier":
-        if not resolution.suffix_column:
+        from edvise.genai.mapping.shared.grain.dedup_execution import (
+            assert_suffix_column_in_entity_keys,
+        )
+
+        try:
+            assert_suffix_column_in_entity_keys(resolution.suffix_column, manifest_keys)
+        except ValueError as exc:
             raise HITLValidationError(
-                f"[{item.item_id}] suffix_identifier requires suffix_column on GrainResolution"
-            )
-        if manifest_path is None or not manifest_path.is_file():
-            raise HITLValidationError(
-                f"[{item.item_id}] suffix_identifier requires a readable sma_manifest_path "
-                "(pass resolve_items(..., sma_manifest_path=...) or metadata.sma_manifest_path)."
-            )
-        _apply_sma_suffix_to_manifest_file(
-            manifest_path, entity_type, resolution.suffix_column
+                f"[{item.item_id}] SMA grain suffix_identifier: {exc}"
+            ) from exc
+        _write_sma_grain_resolution_sidecar(
+            hitl_path,
+            institution_id=item.institution_id,
+            dataset=dataset,
+            entity_type=entity_type,
+            manifest_source_keys=manifest_keys,
+            resolution=resolution,
+        )
+        logger.info(
+            "[%s] suffix_identifier — wrote sma_grain_resolution sidecar (manifest unchanged)",
+            item.item_id,
         )
         return
 
@@ -393,12 +324,11 @@ def check_gate(hitl_path: str | Path) -> None:
 
 def resolve_items(
     hitl_path: str | Path,
-    config_path: str | Path,
+    config_path: str | Path | None = None,
     resolved_by: str | None = None,
     run_log_path: str | Path | None = None,
     *,
     db_run_id: str | None = None,
-    sma_manifest_path: str | Path | None = None,
 ) -> None:
     """
     For each HITLItem with ``choice`` set:
@@ -409,18 +339,23 @@ def resolve_items(
 
     Writes updated config and HITL envelope back to disk.
 
-    For ``domain='sma_grain'`` envelopes (``sma_grain_hitl.json``), ``config_path`` is not read or
-    written — pass a placeholder path if required by your CLI. Use ``sma_manifest_path`` when
-    applying ``suffix_identifier`` resolutions that mutate the field mapping manifest.
+    For ``domain='sma_grain'`` envelopes (``sma_grain_hitl.json``), ``config_path`` may be omitted:
+    no config file is read or written. For ``grain`` / ``term`` envelopes, ``config_path`` is
+    required.
     """
     hitl_path = Path(hitl_path)
-    config_path = Path(config_path)
 
     envelope = _load_hitl(hitl_path)
     is_sma_grain_envelope = envelope.domain == "sma_grain"
-    config: dict[str, Any] = (
-        {} if is_sma_grain_envelope else _load_config(config_path)
-    )
+    if is_sma_grain_envelope:
+        config: dict[str, Any] = {}
+    else:
+        if config_path is None:
+            raise ValueError(
+                "resolve_items requires config_path for grain and term HITL envelopes; "
+                "omit it only when hitl_path points to domain='sma_grain'."
+            )
+        config = _load_config(Path(config_path))
 
     for item in envelope.items:
         selected = _validate_selection(item)
@@ -477,7 +412,6 @@ def resolve_items(
                 item=item,
                 resolution=coerced,
                 hitl_path=hitl_path,
-                sma_manifest_path=sma_manifest_path,
             )
         elif isinstance(coerced, GrainResolution):
             _apply_grain_resolution(config, item, coerced)
@@ -503,8 +437,10 @@ def resolve_items(
             )
 
     if not is_sma_grain_envelope:
-        _save_config(config, config_path)
-        print(f"\nUpdated config written to {config_path.name}.")
+        assert config_path is not None
+        cp = Path(config_path)
+        _save_config(config, cp)
+        print(f"\nUpdated config written to {cp.name}.")
     _save_hitl(envelope, hitl_path)
 
 

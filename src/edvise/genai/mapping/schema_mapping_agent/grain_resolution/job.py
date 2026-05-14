@@ -175,10 +175,6 @@ def run_onboard_gate_2_entity_with_grain_uc(
     from edvise.genai.mapping.identity_agent.hitl.resolver import check_gate, resolve_items
     from edvise.genai.mapping.state import job_state as pipeline_job_state
 
-    placeholder = paths.run_root / "_sma_grain_resolve_config_placeholder.json"
-    if not placeholder.is_file():
-        placeholder.parent.mkdir(parents=True, exist_ok=True)
-        placeholder.write_text("{}\n", encoding="utf-8")
     manifest_cur = manifest
     manifest_map_path = paths.manifest_map
     while True:
@@ -219,11 +215,9 @@ def run_onboard_gate_2_entity_with_grain_uc(
             check_gate(pend.grain_hitl_path)
             resolve_items(
                 pend.grain_hitl_path,
-                placeholder,
                 resolved_by="pipeline",
                 run_log_path=paths.run_log,
                 db_run_id=db_run_id,
-                sma_manifest_path=pend.manifest_map_path,
             )
             pipeline_job_state.after_sma_gate_2_grain_approved(
                 catalog, institution_id, onboard_run_id

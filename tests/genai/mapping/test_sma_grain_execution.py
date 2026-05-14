@@ -2,11 +2,35 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from pathlib import Path
 
 import pandas as pd
+import pytest
 
-from edvise.genai.mapping.shared.grain.dedup_execution import apply_sma_grain_resolution_payload
+from edvise.genai.mapping.identity_agent.hitl.resolver import (
+    HITLValidationError,
+    resolve_items,
+)
+from edvise.genai.mapping.identity_agent.hitl.schemas import (
+    HITLDomain,
+    HITLItem,
+    HITLOption,
+    HITLTarget,
+    InstitutionHITLItems,
+    ReentryDepth,
+)
+from edvise.genai.mapping.schema_mapping_agent.grain_resolution.hitl import (
+    build_sma_grain_hitl_items,
+)
+from edvise.genai.mapping.schema_mapping_agent.grain_resolution.prompt import (
+    DedupProposalLLM,
+)
+from edvise.genai.mapping.shared.grain.dedup_execution import (
+    apply_sma_grain_resolution_payload,
+    assert_suffix_column_in_entity_keys,
+)
 
 
 def test_true_duplicate_dedupes_on_entity_keys_not_full_row() -> None:
@@ -103,3 +127,164 @@ def test_no_dedup_returns_copy() -> None:
     )
     assert len(out) == 2
     assert out is not df
+
+
+def test_assert_suffix_column_in_entity_keys_validates() -> None:
+    assert assert_suffix_column_in_entity_keys("a", ["a", "b"]) == "a"
+    with pytest.raises(ValueError, match="suffix_column"):
+        assert_suffix_column_in_entity_keys("c", ["a", "b"])
+
+
+def test_resolve_sma_grain_suffix_identifier_writes_sidecar_not_manifest(
+    tmp_path: Path,
+) -> None:
+    manifest = tmp_path / "manifest_map.json"
+    before = json.dumps(
+        {
+            "manifests": {
+                "course": {
+                    "mappings": [
+                        {"target_field": "source_term_key", "source_column": "old_col"}
+                    ]
+                }
+            }
+        }
+    )
+    manifest.write_text(before)
+    hitl_path = tmp_path / "course_sma_grain_hitl.json"
+    envelope = InstitutionHITLItems(
+        institution_id="u",
+        domain="sma_grain",
+        items=[
+            HITLItem(
+                item_id="i1",
+                institution_id="u",
+                table="course",
+                domain=HITLDomain.SMA_GRAIN,
+                hitl_question="q",
+                options=[
+                    HITLOption(
+                        option_id="suffix",
+                        label="Suffix",
+                        description="d",
+                        resolution={
+                            "dedup_strategy": "suffix_identifier",
+                            "suffix_column": "course_prefix",
+                        },
+                        reentry=ReentryDepth.TERMINAL,
+                    ),
+                    HITLOption(
+                        option_id="custom",
+                        label="Custom",
+                        description="c",
+                        resolution=None,
+                        reentry=ReentryDepth.TERMINAL,
+                    ),
+                ],
+                target=HITLTarget(
+                    institution_id="u", table="course", config="x", field="y"
+                ),
+                choice=1,
+                metadata={
+                    "manifest_source_keys": [
+                        "learner_id",
+                        "course_prefix",
+                        "course_number",
+                    ],
+                    "dataset": "course",
+                    "entity_type": "course",
+                },
+            )
+        ],
+    )
+    hitl_path.write_text(envelope.model_dump_json(indent=2))
+    resolve_items(hitl_path)
+    sidecar = tmp_path / "sma_grain_resolution_course.json"
+    assert sidecar.is_file()
+    payload = json.loads(sidecar.read_text())
+    assert payload["grain_resolution"]["dedup_strategy"] == "suffix_identifier"
+    assert payload["grain_resolution"]["suffix_column"] == "course_prefix"
+    assert manifest.read_text() == before
+
+
+def test_resolve_sma_grain_suffix_rejects_column_not_in_grain(tmp_path: Path) -> None:
+    manifest = tmp_path / "manifest_map.json"
+    manifest.write_text("{}\n")
+    hitl_path = tmp_path / "course_sma_grain_hitl.json"
+    envelope = InstitutionHITLItems(
+        institution_id="u",
+        domain="sma_grain",
+        items=[
+            HITLItem(
+                item_id="i1",
+                institution_id="u",
+                table="course",
+                domain=HITLDomain.SMA_GRAIN,
+                hitl_question="q",
+                options=[
+                    HITLOption(
+                        option_id="suffix",
+                        label="Suffix",
+                        description="d",
+                        resolution={
+                            "dedup_strategy": "suffix_identifier",
+                            "suffix_column": "stc_title",
+                        },
+                        reentry=ReentryDepth.TERMINAL,
+                    ),
+                    HITLOption(
+                        option_id="custom",
+                        label="Custom",
+                        description="c",
+                        resolution=None,
+                        reentry=ReentryDepth.TERMINAL,
+                    ),
+                ],
+                target=HITLTarget(
+                    institution_id="u", table="course", config="x", field="y"
+                ),
+                choice=1,
+                metadata={
+                    "manifest_source_keys": ["learner_id", "course_prefix"],
+                    "dataset": "course",
+                    "entity_type": "course",
+                },
+            )
+        ],
+    )
+    hitl_path.write_text(envelope.model_dump_json(indent=2))
+    with pytest.raises(HITLValidationError, match="suffix_column"):
+        resolve_items(hitl_path)
+
+
+def test_build_sma_grain_hitl_rejects_suffix_not_in_manifest_grain() -> None:
+    proposals = [
+        DedupProposalLLM(
+            strategy="true_duplicate",
+            label="x",
+            description="y",
+            reasoning="r",
+        ),
+        DedupProposalLLM(
+            strategy="suffix_identifier",
+            label="s",
+            description="d",
+            suffix_column="stc_title",
+            reasoning="r",
+        ),
+    ]
+    with pytest.raises(ValueError, match="suffix_column"):
+        build_sma_grain_hitl_items(
+            institution_id="i",
+            dataset="course",
+            entity_type="course",
+            scenario="within_grain_multiplicity",
+            base_rows=10,
+            entity_rows=5,
+            manifest_source_keys=["a", "b"],
+            mapped_source_columns=["c"],
+            ia_source_keys=None,
+            proposals=proposals,
+            sma_manifest_path=None,
+            variance=None,
+        )

@@ -14,6 +14,7 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import InstitutionHITLItem
 from edvise.genai.mapping.schema_mapping_agent.grain_resolution.prompt import (
     DedupProposalLLM,
     propose_dedup_policy,
+    _pick_manifest_suffix_key_column,
 )
 from edvise.genai.mapping.schema_mapping_agent.grain_resolution.hitl import (
     build_sma_grain_hitl_items,
@@ -141,12 +142,8 @@ def run_grain_reconciliation_gate(
                     ),
                     sort_by=None,
                     sort_ascending=None,
-                    suffix_column=(
-                        variance.column_profiles[0].column
-                        if variance.column_profiles
-                        else mapped_source_columns[0]
-                    ),
-                    reasoning="Fallback suffix proposal from top variance column.",
+                    suffix_column=_pick_manifest_suffix_key_column(manifest_source_keys),
+                    reasoning="Fallback suffix proposal: column chosen from manifest entity grain.",
                 ),
             ]
 

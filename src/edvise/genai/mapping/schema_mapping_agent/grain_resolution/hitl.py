@@ -21,6 +21,9 @@ from edvise.genai.mapping.schema_mapping_agent.grain_resolution.prompt import (
     DedupProposalLLM,
     proposal_to_grain_resolution,
 )
+from edvise.genai.mapping.shared.grain.dedup_execution import (
+    assert_suffix_column_in_entity_keys,
+)
 from edvise.genai.mapping.shared.profiling.variance import WithinGroupVarianceResult
 
 
@@ -130,6 +133,10 @@ def build_sma_grain_hitl_items(
     )
     opt_models: list[HITLOption] = []
     for i, prop in enumerate(proposals[:2]):
+        if prop.strategy == "suffix_identifier":
+            assert_suffix_column_in_entity_keys(
+                prop.suffix_column, manifest_source_keys
+            )
         opt_models.append(
             HITLOption(
                 option_id=f"proposal_{i + 1}_{prop.strategy}",

@@ -111,8 +111,9 @@ class GrainResolution(BaseModel):
     suffix_column: str | None = Field(
         default=None,
         description=(
-            "Grain column to suffix for suffix_identifier (append -1, -2, ... within key groups); "
-            "must appear in post_clean_primary_key."
+            "Source column to suffix for suffix_identifier (append -1, -2, … within duplicate "
+            "manifest-key groups). For SMA grain, must be one of the manifest entity grain "
+            "columns (same as execution entity_keys)."
         ),
     )
     hook_spec: HookSpec | None = Field(

@@ -958,7 +958,7 @@ def execute_transformation_map(
         ia_source_keys: IdentityAgent ``post_clean_primary_key`` in source space; when omitted,
             all grain mismatches are treated as within-grain multiplicity.
         sma_grain_resolution_path: Optional resolver output to shrink ``base_df`` before execution.
-        sma_manifest_path: Optional manifest file path stored into HITL metadata for resolver suffix.
+        sma_manifest_path: Optional path stored into SMA grain HITL metadata (tooling only).
 
     Returns:
         ExecutionResult with assembled target DataFrame and execution metadata

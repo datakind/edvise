@@ -56,6 +56,26 @@ def validate_grain_key_columns(df: pd.DataFrame, keys: list[str], *, label: str)
         raise ValueError(f"{label}: missing columns for grain key: {missing}")
 
 
+def assert_suffix_column_in_entity_keys(
+    suffix_column: str | None, entity_keys: list[str]
+) -> str:
+    """
+    ``suffix_identifier`` may only suffix a column that is already part of the manifest
+    entity grain (execution ``entity_keys`` / SMA ``manifest_source_keys``).
+
+    Raises:
+        ValueError: If ``suffix_column`` is missing or not in ``entity_keys``.
+    """
+    if not suffix_column or not str(suffix_column).strip():
+        raise ValueError("suffix_identifier requires a non-empty suffix_column.")
+    sc = str(suffix_column).strip()
+    if sc not in entity_keys:
+        raise ValueError(
+            f"suffix_column {sc!r} must be one of the manifest entity grain columns {entity_keys!r}"
+        )
+    return sc
+
+
 def suffix_repeat_course_identifier(
     df: pd.DataFrame,
     group_by: list[str],
@@ -201,20 +221,14 @@ def apply_sma_grain_resolution_payload(
 
     if strategy == "suffix_identifier":
         suffix_col = gr.get("suffix_column")
-        if not suffix_col or not str(suffix_col).strip():
-            log.warning("sma_grain_resolution: suffix_identifier missing suffix_column — skipping")
+        try:
+            sc = assert_suffix_column_in_entity_keys(suffix_col, entity_keys)
+        except ValueError as e:
+            log.warning("sma_grain_resolution: suffix_identifier invalid — %s", e)
             return base_df.copy()
-        sc = str(suffix_col).strip()
         if sc not in base_df.columns:
             log.warning(
                 "sma_grain_resolution: suffix_column %r not in base_df — skipping", sc
-            )
-            return base_df.copy()
-        if sc not in entity_keys:
-            log.warning(
-                "sma_grain_resolution: suffix_column %r must be in entity_keys %s — skipping",
-                sc,
-                entity_keys,
             )
             return base_df.copy()
         try:
@@ -296,6 +310,7 @@ def apply_sma_grain_resolution_payload(
 __all__ = [
     "apply_categorical_priority",
     "apply_sma_grain_resolution_payload",
+    "assert_suffix_column_in_entity_keys",
     "drop_duplicate_keys",
     "suffix_repeat_course_identifier",
     "validate_grain_key_columns",
