@@ -404,6 +404,65 @@ def test_apply_grain_dedup_learner_id_canonical_column():
     assert len(out) == 1
 
 
+def test_apply_grain_dedup_resolves_uppercase_student_id_with_alias():
+    """Grain may emit STUDENT_ID; snake_case matches alias student_id → canonical learner_id."""
+    df = pd.DataFrame(
+        {"learner_id": ["a", "a"], "term_descr": ["Fall 2020", "Fall 2020"]}
+    )
+    c = _grain(
+        learner_id_alias="student_id",
+        post_clean_primary_key=["STUDENT_ID", "term_descr"],
+        join_keys_for_2a=["STUDENT_ID", "term_descr"],
+        dedup_policy=DedupPolicy(
+            strategy="true_duplicate",
+            sort_by=None,
+            keep=None,
+            notes="",
+        ),
+    )
+    out = apply_grain_dedup(df, c)
+    assert len(out) == 1
+
+
+def test_apply_grain_dedup_student_id_alias_fallback_when_grain_alias_null():
+    """inputs.toml alias used when learner_id_alias omitted on grain contract."""
+    df = pd.DataFrame({"learner_id": ["a", "a"], "x": [1, 2]})
+    c = _grain(
+        learner_id_alias=None,
+        post_clean_primary_key=["STUDENT_ID"],
+        join_keys_for_2a=["STUDENT_ID"],
+        dedup_policy=DedupPolicy(
+            strategy="true_duplicate",
+            sort_by=None,
+            keep=None,
+            notes="",
+        ),
+    )
+    out = apply_grain_dedup(df, c, student_id_alias_fallback="student_id")
+    assert len(out) == 1
+
+
+def test_dedupe_fn_by_dataset_passes_student_id_alias_fallback():
+    df = pd.DataFrame({"learner_id": ["a", "a"], "x": [1, 2]})
+    c = _grain(
+        learner_id_alias=None,
+        post_clean_primary_key=["STUDENT_ID"],
+        join_keys_for_2a=["STUDENT_ID"],
+        dedup_policy=DedupPolicy(
+            strategy="true_duplicate",
+            sort_by=None,
+            keep=None,
+            notes="",
+        ),
+    )
+    fns = dedupe_fn_by_dataset_from_grain_contracts(
+        {"roster": c},
+        student_id_alias_by_dataset={"roster": "student_id"},
+    )
+    out = fns["roster"](df)
+    assert len(out) == 1
+
+
 def test_build_dedupe_fn_from_grain_contract():
     df = pd.DataFrame({"k": [1, 1], "v": [1, 2]})
     c = _grain(

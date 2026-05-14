@@ -185,8 +185,14 @@ def merge_grain_contracts_into_school_config(
                 logical,
             )
 
+        sid_fb = dc.student_id_alias
+        fb_clean = (
+            sid_fb.strip() if isinstance(sid_fb, str) and sid_fb.strip() else None
+        )
         gc_resolved = canonicalize_grain_contract_learner_id_alias(
-            gc, canonical_column=canonical_learner_column
+            gc,
+            canonical_column=canonical_learner_column,
+            student_id_alias_fallback=fb_clean,
         )
         uks = list(gc_resolved.unique_keys)
         if not uks:
@@ -203,6 +209,7 @@ def dedupe_fn_by_dataset_from_grain_contracts(
     *,
     dataset_name_suffix: str = "",
     canonical_learner_column: Literal["student_id", "learner_id"] = "learner_id",
+    student_id_alias_by_dataset: Optional[Dict[str, Optional[str]]] = None,
     hook_modules_root: str | Path | None = None,
 ) -> dict[str, Callable[[pd.DataFrame], pd.DataFrame]]:
     """
@@ -217,15 +224,25 @@ def dedupe_fn_by_dataset_from_grain_contracts(
     ``hook_modules_root`` is passed through for contracts with ``dedup_policy.hook_spec`` (materialized
     ``dedup_hooks.py`` under that root).
 
+    ``student_id_alias_by_dataset``: dataset name (same keys as ``grain_contracts_by_dataset``) →
+    ``DatasetConfig.student_id_alias``. Used when a grain omits ``learner_id_alias`` so dedupe keys
+    still align with canonical rename.
+
     :func:`build_schema_contract_from_grain_contracts` applies this automatically and merges
     with any explicit ``dedupe_fn_by_dataset`` (explicit entries override auto-built fns).
     """
     out: dict[str, Callable[[pd.DataFrame], pd.DataFrame]] = {}
+    aliases = student_id_alias_by_dataset or {}
     for ds_name, gc in grain_contracts_by_dataset.items():
         logical = f"{ds_name}{dataset_name_suffix}" if dataset_name_suffix else ds_name
+        raw_fb = aliases.get(ds_name)
+        fb_clean = (
+            raw_fb.strip() if isinstance(raw_fb, str) and raw_fb.strip() else None
+        )
         out[logical] = build_dedupe_fn_from_grain_contract(
             gc,
             canonical_learner_column=canonical_learner_column,
+            student_id_alias_fallback=fb_clean,
             hook_modules_root=hook_modules_root,
         )
     return out
@@ -316,10 +333,17 @@ def build_schema_contract_from_grain_contracts(
         bv = school_config.bronze_volumes_path
         if bv and str(bv).strip():
             resolved_hook_root = hook_modules_root_from_bronze_volume(bv)
+    alias_by_ds: Dict[str, Optional[str]] = {}
+    for _ds_name, _dc in merged.datasets.items():
+        _sid = _dc.student_id_alias
+        alias_by_ds[_ds_name] = (
+            _sid.strip() if isinstance(_sid, str) and _sid.strip() else None
+        )
     auto_dedupe = dedupe_fn_by_dataset_from_grain_contracts(
         grain_contracts_by_dataset,
         dataset_name_suffix=dataset_name_suffix,
         canonical_learner_column=canonical_learner_column,
+        student_id_alias_by_dataset=alias_by_ds,
         hook_modules_root=resolved_hook_root,
     )
     merged_dedupe = {**auto_dedupe, **(dedupe_fn_by_dataset or {})}

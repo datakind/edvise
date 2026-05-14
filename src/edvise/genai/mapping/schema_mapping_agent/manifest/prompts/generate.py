@@ -36,10 +36,17 @@ def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
     )
 
 
-# Injected into extract_schema_descriptor JSON for RawEdviseStudentDataSchema prompts
-# (SMA + downstream steps). Pandera Field descriptions are often unset; these spell out
-# cohort-time vs outcome semantics for the mapping agent.
+# Injected into extract_schema_descriptor JSON for RawEdvise* prompts (SMA + downstream
+# steps). Pandera Field descriptions are often unset; these spell out cohort-time vs
+# outcome semantics, term-snapshot vs cohort scope, and target dtype/coercion expectations
+# the mapping agent cannot reliably infer from the Pandera model alone.
 _RAW_EDVISE_STUDENT_FIELD_SEMANTIC_NOTES: dict[str, str] = {
+    "enrollment_type": (
+        "Cohort entry classification: how the student entered this institution and program "
+        "(e.g. first-time, transfer, post-bacc, dual-enrolled, returning). Stable per student "
+        "for a given cohort entry. Not current enrollment load (full-time vs part-time), "
+        "not term-level status."
+    ),
     "intended_program_type": (
         "Cohort entry snapshot: program or credential the student intended to pursue when "
         "entering (aligned with entry_year/entry_term). Not the current/latest primary program."
@@ -50,6 +57,79 @@ _RAW_EDVISE_STUDENT_FIELD_SEMANTIC_NOTES: dict[str, str] = {
     ),
     "major_at_completion": (
         "Outcome: field of study at completion/exit — distinct from declared_major_at_entry."
+    ),
+    "conferred_credential_type": (
+        "Outcome: the credential type actually conferred at exit — covers all award types "
+        "(bachelors degrees, associate degrees, certificates, occupational awards, etc.). "
+        "Do NOT filter to a single credential category. row_selection selects which credential to surface (e.g. first by "
+        "term order) but the eligible pool must include all awarded_degree values, not just the "
+        "subset used for a specific conferral date target like associates_degree_conferral_date."
+    ),
+    "learner_age": (
+        "Coerced to fixed PDP age buckets (LEARNER_AGE_BUCKETS) at validate time. Mapping a "
+        "raw birthyear or age column requires a Step 2b transformation that buckets values "
+        "(e.g. birthyear_to_age_bucket with a cohort-year reference) — never pass raw integer "
+        "ages or DOB strings through unchanged."
+    ),
+    "first_generation_status": (
+        "Cohort entry snapshot: institution's first-generation classification at entry "
+        "(e.g. neither parent holds a 4-year degree). Map only from explicit first-gen / "
+        "parental-education indicators; do NOT derive from weak proxies like Pell status, "
+        "low income, or socioeconomic flags."
+    ),
+    "pell_recipient_year1": (
+        "Year-1-of-cohort Pell receipt for THIS cohort entry. Not 'ever received Pell,' not "
+        "current-term Pell, and not the course-side term_pell_recipient. When the only source "
+        "is term-level Pell, you MUST select the year-1 row deterministically (e.g. first_by "
+        "term-order with a documented year-1 filter) rather than any_row."
+    ),
+    "credits_earned_ap": (
+        "Numeric count of credit hours earned via AP (Float64). A boolean / yes-no flag for "
+        "'took AP' is INSUFFICIENT — leave unmappable rather than coercing a flag into a "
+        "credit count. Do not map generic transfer-credit totals to this field."
+    ),
+    "credits_earned_dual_enrollment": (
+        "Numeric count of credit hours earned via dual enrollment (Float64). A boolean "
+        "'dual-credit ever' flag is INSUFFICIENT, and a generic transfer_credits total cannot "
+        "be isolated to dual-enrollment hours — leave unmappable in those cases. Course-level "
+        "dual-credit hours may need to be summed upstream."
+    ),
+}
+
+# Injected into extract_schema_descriptor JSON for RawEdviseCourseDataSchema prompts.
+# Course-side fields with non-obvious semantics (term-snapshot scope, grain key role,
+# format vs modality distinction) that the model otherwise has to guess at.
+_RAW_EDVISE_COURSE_FIELD_SEMANTIC_NOTES: dict[str, str] = {
+    "source_term_key": (
+        "Stable distinct-enrollment grain key for the source term instance — typically "
+        "IdentityAgent's _term_grain (composite of raw year, season, and term order). "
+        "Keeps re-enrollments distinct when canonical academic_year / academic_term collapse "
+        "multiple source terms. Map from _term_grain when present on the course base table; "
+        "do NOT use _term_grain as a chronological order_by — it is a string composite, not "
+        "an ordinal sort key. Use _term_order for chronological sorting."
+    ),
+    "term_degree": (
+        "Term snapshot: degree level the student is pursuing IN THIS TERM (e.g. UG / GR, "
+        "Associate / Bachelors). Not the credential conferred at exit (conferred_credential_type) "
+        "and not the cohort intended_program_type."
+    ),
+    "term_declared_major": (
+        "Term snapshot: declared major IN THIS TERM. Distinct from cohort "
+        "declared_major_at_entry (entry-time) and major_at_completion (outcome)."
+    ),
+    "term_pell_recipient": (
+        "Term-level Pell receipt for THIS term enrollment. Distinct from cohort-level "
+        "pell_recipient_year1 (year 1 of program). Coerced to PDP categorical at validate time."
+    ),
+    "instructional_format": (
+        "Delivery STRUCTURE of the course section — e.g. lecture, lab, seminar, clinical, "
+        "practicum, discussion, studio. NOT the delivery medium (online vs in-person); that "
+        "is instructional_modality."
+    ),
+    "instructional_modality": (
+        "Delivery MODE of the course section — e.g. in-person / face-to-face, online, "
+        "hybrid / blended, asynchronous. NOT the structural format (lecture vs lab); that "
+        "is instructional_format."
     ),
 }
 
@@ -73,6 +153,10 @@ def extract_schema_descriptor(schema_class: Any) -> dict[str, Any]:
     out: dict[str, Any] = {"schema_name": schema_class.__name__, "fields": fields}
     if schema_class.__name__ == "RawEdviseStudentDataSchema":
         for fname, note in _RAW_EDVISE_STUDENT_FIELD_SEMANTIC_NOTES.items():
+            if fname in out["fields"]:
+                out["fields"][fname]["semantic_note"] = note
+    elif schema_class.__name__ == "RawEdviseCourseDataSchema":
+        for fname, note in _RAW_EDVISE_COURSE_FIELD_SEMANTIC_NOTES.items():
             if fname in out["fields"]:
                 out["fields"][fname]["semantic_note"] = note
     return out
@@ -209,9 +293,26 @@ COHORT entry_year AND entry_term — decision hierarchy (apply in order)
 **(1) Preferred — IdentityAgent normalized columns on the student (cohort base) table**
 - When the schema contract **dtypes** for the cohort base table (typically `student`) include
   `_edvise_term_academic_year` and `_edvise_term_season`, map `entry_year` and `entry_term` to those
-  columns with `source_table` = that base table and `row_selection.strategy`: `"any_row"`.
+  columns with `source_table` = that base table.
+- **Grain check (REQUIRED before choosing `row_selection.strategy`):** inspect `unique_keys` on
+  the cohort base table in the schema contract.
+    - **Student grain** — `unique_keys` is exactly the learner-id column alone (e.g.
+      `["student_id"]`) with **no** term key: each student appears in **one** row, so
+      `_edvise_term_*` is the cohort/entry term by construction. Use `row_selection.strategy`:
+      `"any_row"`.
+    - **Student-term grain** — `unique_keys` includes a term-key column alongside the learner-id
+      column (e.g. `["student_id", "term"]`, regardless of the institutional column names):
+      each student has **multiple** rows whose `_edvise_term_*` values differ across terms, so
+      `any_row` is non-deterministic and will pick an arbitrary term, **not** the cohort/entry
+      term. Use `row_selection.strategy`: `"first_by"`, `row_selection.order_by`: `"_term_order"`
+      (IdentityAgent chronological sort key — `year * 100 + season_rank`; do not use `_term_grain`,
+      which is a distinct-enrollment key, not a chronological order key) to select the **earliest**
+      enrollment term row. State in **rationale** that this is the first enrollment term as a proxy
+      for cohort entry on a student-term-grain student table.
 - Do **not** treat raw institutional term-code strings on student (e.g. `starting_cohort_term`) as an
   equivalent preferred source when `_edvise_term_*` are present.
+- Do **not** default to `any_row` without checking `unique_keys` — strategy choice is determined by
+  the grain of the cohort base table, not by the presence of `_edvise_term_*` alone.
 
 **(2) Fallback — join to `term` or `course` (student-term grain)**
 - Use only when **(1)** is impossible: `_edvise_term_*` are missing on the student row **and** a viable
@@ -248,7 +349,23 @@ These fields describe the student **at cohort/program entry** (same conceptual m
 **(1) Preferred — explicit entry / admit / starting fields on the student (cohort) row**
 - Map from columns whose names or dictionary definitions clearly mean **starting**, **entry**,
   **admit**, **first-term**, or **cohort** program or major intent.
-- With student-grain base table: `row_selection.strategy`: `"any_row"`.
+- **Grain check (REQUIRED before choosing `row_selection.strategy`):** inspect `unique_keys` on
+  the cohort base table in the schema contract.
+    - **Student grain** — `unique_keys` is exactly the learner-id column alone (e.g.
+      `["student_id"]`) with **no** term key: the field is stable per student by construction. Use
+      `row_selection.strategy`: `"any_row"`.
+    - **Student-term grain** — `unique_keys` includes a term-key column alongside the learner-id
+      column (e.g. `["student_id", "term"]`, regardless of the institutional column names): each
+      student has **multiple** rows and the entry/admit value can differ across term rows or be
+      populated only on certain rows, so `any_row` is non-deterministic. Use
+      `row_selection.strategy`: `"first_by"`, `row_selection.order_by`: `"_term_order"`
+      (IdentityAgent chronological sort key; do not use `_term_grain`, which is a
+      distinct-enrollment key, not a chronological order key) to select the **earliest** enrollment
+      term row — the same key used for `entry_year` / `entry_term` on a student-term-grain student
+      table. State the proxy (first enrollment term, not necessarily institutional cohort) in
+      **rationale** / **validation_notes**.
+- Do **not** default to `any_row` without checking `unique_keys` — strategy choice is determined by
+  the grain of the cohort base table.
 
 **(2) Only longitudinal (term-level) program or major history exists**
 - Resolve the value **at or before** the entry term: use the same term-order key as for
@@ -274,53 +391,63 @@ These fields describe the student **at cohort/program entry** (same conceptual m
 
 
 def _step2a_cohort_degree_conferral_datetime_rules() -> str:
-    """Step 2a: prefer IA term columns on degree/award lookup for conferral-style datetime targets."""
+    """Step 2a: conferral targets must source a datetime column or a single raw term-code column."""
     t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
     return f"""
-COHORT conferral-style DATETIME targets (student → award / degree lookup) — decision hierarchy
+COHORT conferral-style DATETIME targets — decision hierarchy
 
 Targets: `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
 `certificate1_date`, `certificate2_date`, `certificate3_date` (see DATETIME AND DATE TARGET FIELDS).
 
-These are **OUTCOME CONFERRAL-STYLE** in the schema (may be built from non-datetime sources); still apply
-this hierarchy **before** choosing raw term codes.
+**Hard rule (architectural — NOT a stylistic preference):**
+IdentityAgent `_edvise_term_*` columns are **never** a valid `source_column` for any conferral
+target, on any table, with or without a join. The manifest carries a single `source_column`
+per record and the field executor cannot co-resolve `_edvise_term_season` from the same
+selected lookup row alongside `_edvise_term_academic_year`. Any such mapping silently pairs
+the academic year with the wrong season at execution time. Conferral timing must always come
+from either a true datetime column or a single raw term-code column whose token embeds the
+season (Step 2b parses it with `coerce_datetime` /
+`academic_year_and_canonical_season_to_conferral_date` / `compact_term_code_to_conferral_date` etc.).
 
-**(1) Preferred — IdentityAgent-normalized term columns on the award / degree lookup row**
-- When the schema contract shows IdentityAgent-normalized academic-year (and paired season) columns on that lookup
-  table, map the conferral target to the academic-year column on that row with the appropriate join from the student
-  entity, plus `row_selection` filters and ordering keys as required by the manifest rules.
-- Do **not** prefer a raw term-code column on the lookup row when normalized columns are present there — raw encoding
-  is only a fallback proxy per **(3)**.
+**(1) Preferred — true calendar datetime on the wide student row (`datetime64[ns]`)**
+- When a datetime column on the student base table directly represents conferral / completion timing for
+  the target, map to that column with `source_table` = student base table and `row_selection.strategy`:
+  `"any_row"`. Use **high confidence** when the semantic mapping is unambiguous.
 
-**(2) Wide student row**
+**(2) Raw term-code column on an award / degree lookup row (with join)**
+- When a joinable award / degree lookup table carries a raw term-code column for conferral timing (e.g.
+  `degree_term`, `award_term`, `conferral_term`), map the conferral target to that single column with the
+  appropriate join from the student entity, plus `row_selection` filters and ordering keys as required by
+  the manifest rules.
+- **Credential-specific conferral targets** (`associates_degree_conferral_date`, `bachelors_degree_conferral_date`,
+  `certificate1_date`, `certificate2_date`, `certificate3_date`): when the lookup row mixes credential types,
+  set `row_selection.filter` on a same-row discriminator (e.g. `awarded_degree`, `degree_type`,
+  `credential_level`) using `isin` / `contains` / `startswith` as contract evidence supports, and
+  `row_selection.order_by`: `"_term_order"` with `strategy`: `"first_by"` (or `"nth"` for certificate slots
+  beyond the first) so rows outside the intended credential class resolve to null for that target only.
+- **validation_notes**: state that Step 2b will parse the raw term token to `datetime64[ns]`.
+- **Column grounding:** derive format **only** from that column's own `sample_values` in the schema contract —
+  never infer format from any other term column on the same table.
 
-**(2a) True calendar datetime on wide student row — `datetime64[ns]` conferral source**
-- When a datetime column on the student base table directly represents conferral / completion timing for the target,
-  map to that column with `source_table` = student base table and `row_selection.strategy`: `"any_row"`.
-- Use **high confidence** when the semantic mapping is unambiguous.
+**(3) Raw term-code column on the wide student row (no degree lookup joinable)**
+- When no award / degree lookup path is joinable and the only usable source is a **raw term-code** column on
+  the student table: map from that column with `source_table` = student base table,
+  `row_selection.strategy`: `"any_row"`, **confidence ≤ {t}**, and **validation_notes** that Step 2b must
+  parse/coerce using inline `map_values` plus
+  `academic_year_and_canonical_season_to_conferral_date` (or an equivalent documented
+  utility chain) as appropriate to the grounded format.
+- **Credential-specific targets:** when the term column is shared across award types but the same wide row
+  has a discriminator (e.g. `primary_degree`, `awarded_degree`, `highest_degree_awarded`, certificate-type
+  or award-level label column), set `row_selection.filter` on that discriminator so rows outside the intended
+  credential class resolve to null for that target only — do not use `any_row` on the raw term alone when the
+  contract mixes degree vs certificate labels but you are mapping a single conferral or certificate-* slot.
+- **Column grounding:** as in **(2)** — derive format only from that column's own `sample_values`.
 
-**(2b) Raw term code on wide student row — no degree lookup joinable**
-- When no award / degree lookup path is joinable and the only usable source is a **raw term code** column on the
-  student table: map from that column with `source_table` = student base table, `row_selection.strategy`: `"any_row"`,
-  **confidence ≤ {t}**, and **validation_notes** that Step 2b must parse/coerce using inline `map_values` plus
-  `term_season_to_conferral_date` (or an equivalent documented utility chain) as appropriate to the grounded format.
-- **Column grounding:** derive format **only** from that column's own `sample_values` in the schema contract — never
-  infer format from any other term column on the same table.
-
-- **Do not** map conferral-style targets to IdentityAgent entry-term columns on the student row when those encode
-  cohort / entry semantics — they are not degree completion, even when samples correlate with outcomes.
-- Prefer **(1)** when the lookup path exists; when **(1)** is unavailable and neither **(2a)** nor **(2b)** applies,
-  use **(3)** or **(4)** as appropriate.
-
-**(3) Fallback — normalized column missing on the lookup table**
-- Map from a raw term code or other coded timing column on the **award / degree lookup row** only when the
-  normalized academic-year path is unavailable on that table (Step 2b builds the datetime pipeline from those sources).
-- Use lower confidence (typically ≤ {t}), **validation_notes** that parsing / coercing to datetime is required, and flag **HITL** when
-  the proxy is weak.
-
-**(4) Unmapped — upstream IdentityAgent gap**
-- If no defensible timing column exists, leave unmappable; **validation_notes** should state that
-  IdentityAgent should materialize `_edvise_term_*` on the degree/award table and/or provide a datetime source.
+**(4) Unmapped — upstream IdentityAgent / source gap**
+- If no defensible timing column exists (no datetime, no raw term code on either student or a joinable
+  award/degree lookup), leave unmappable; **validation_notes** should state that IdentityAgent should
+  materialize a `datetime64[ns]` conferral column on the award/degree table or expose a raw term-code column
+  there.
 """
 
 
@@ -403,6 +530,10 @@ Step 2 — Determine join_keys from grain reasoning
 - Determine the grain of each table from its unique_keys in the schema contract:
     - unique_keys: ["student_id"] → student grain (one row per student)
     - unique_keys: ["student_id", "term"] → student-term grain (one row per student per term)
+    - unique_keys may use IA term **grain** columns instead of raw `term` when the contract declares them,
+      e.g. ["student_id", "_term_order"] or ["student_id", "_term_grain"] — then those columns (not
+      `_edvise_term_season` / `_edvise_term_academic_year`) are the term part of join_keys when both
+      tables share that grain
     - unique_keys: ["term", "course_reference_number"] or ["term", "course_number", "section_number"] → course-section grain
     - unique_keys: ["student_id", "term", "course_number"] → student-term-course grain
 - Set join_keys to the minimal shared columns that connect the base table grain to
@@ -416,9 +547,19 @@ Step 2 — Determine join_keys from grain reasoning
 - CRITICAL: If the join produces multiple rows per base row, that is intentional and
   correct. Do not add columns to join_keys to reduce that multiplicity — that is
   row_selection's job (Step 4).
-- CRITICAL: Never add filter columns (e.g. awarded_degree) or ordering columns
-  (e.g. term_order) to join_keys. Those belong in row_selection.filter and
-  row_selection.order_by respectively.
+- CRITICAL: Never add filter columns (e.g. awarded_degree) to join_keys — those belong
+  in row_selection.filter.
+- CRITICAL: Never use `_edvise_term_season` or `_edvise_term_academic_year` in join_keys.
+  They are only partial term attributes (season label vs. academic year string); many
+  distinct enrollments share the same value, so the merge is wrong. Full term identity is
+  the institutional term key from `unique_keys` (`term`, `source_term_key`, `_term_grain`)
+  or `_term_order` when both tables expose the same ordinal term grain — `_term_order`
+  encodes year and season in one chronological key (year * 100 + season_rank), unlike
+  pairing year and season as separate columns.
+- CRITICAL: Do not add `_term_order` to join_keys **only** to collapse extra lookup rows
+  when `unique_keys` already imply a coarser grain — use row_selection (Step 4) instead.
+  Chronological picks after the join still use `row_selection.order_by`: `_term_order`
+  when ordering by IdentityAgent term metadata.
 - Only include a column in join_keys if it exists on both the base table and the
   lookup table with the same canonical name (OR aliased — see Step 3).
 
@@ -493,12 +634,24 @@ ROW SELECTION
 - row_selection.strategy: "any_row", "first_by", "where_not_null", "constant", or "nth"
 - row_selection.filter.operator (optional): ONLY "contains", "equals", "startswith", or "isin" —
   for pre-filtering rows before selection
+- **Same-table (join null):** `row_selection.filter` masks the resolved `source_column` per base row —
+  where the filter fails, this field becomes null; other fields on the same row are unchanged. Use this
+  when a wide base row carries both a term/value column and a separate credential-level discriminator
+  (e.g. gate `degree_term` using `primary_degree` / `awarded_degree` patterns). For multi-row lookups,
+  filters still apply to the lookup table before the merge (unchanged).
 - CRITICAL: Do not mix strategies with filter operators — they are separate concepts with different allowed values
 - Use "any_row" strategy only when all rows for a student/course are guaranteed to have the same value for this field
   (e.g. a demographic that never changes across terms)
 - Use "first_by" strategy only when row ordering has semantic meaning — e.g. earliest term, most recent record.
   The sort column must be present in the schema contract and must have a meaningful ordinal interpretation.
   Do not use first_by with an arbitrary column just to resolve grain ambiguity
+- CRITICAL: When ordering by IdentityAgent term metadata, `row_selection.order_by` MUST be `_term_order`
+  (chronological sort key: `year * 100 + season_rank`). Do NOT use `_term_grain` as `order_by` — it is a
+  string composite (`year|season|term_order`) used as a distinct-enrollment grain key for `source_term_key`,
+  not a chronological sort key, and lexicographic sorting on it is meaningless. Do NOT use
+  `_edvise_term_season` (a categorical season label) or `_edvise_term_academic_year` alone (year-only,
+  loses within-year season order) as `order_by` either — `_term_order` is the only IA term column that
+  encodes full chronological order.
 - Use "nth" strategy only when you need the Nth matching row after sorting (e.g. 2nd certificate, 3rd award).
   You MUST set row_selection.n to a positive integer (1 = first row after sort, 2 = second, …) and
   row_selection.order_by to the contract column used for sorting — never omit n or use null for nth
@@ -572,8 +725,6 @@ TARGET SCHEMA AUTHORITY
 
 DATETIME AND DATE TARGET FIELDS
 - Pandera datetime targets fall into two groups; apply the correct rule by target_field name.
-  **Do not apply STRICT source-dtype rules to group (2)** — conferral targets intentionally map from IA term
-  metadata (often string dtypes in the contract) and rely on Step 2b to emit `datetime64[ns]`.
 
   (1) STRICT — source column dtype in the schema contract must already be datetime (e.g. datetime64[ns]). Do not map
       term codes, term labels, or non-datetime columns to these targets; leave unmappable (null source_column,
@@ -581,20 +732,22 @@ DATETIME AND DATE TARGET FIELDS
       - Cohort (student) entity: matriculation_date
       - Course entity: course_begin_date, course_end_date
 
-  (2) OUTCOME CONFERRAL-STYLE — **not** STRICT (manifest sources are often non-datetime IA columns → Step 2b →
-      `datetime64[ns]`). Apply **COHORT conferral-style DATETIME targets** above: on wide `student`, only a true
-      conferral `datetime64[ns]` column qualifies — **never** `student._edvise_term_*` (entry semantics). Prefer
-      award-row `_edvise_term_academic_year` (+ join/filters), then raw/coded timing on the **award** row for Step 2b.
-      Step 2b typically uses `term_components_to_datetime` when the manifest sources IA columns on the degree row
-      (not when the manifest sources calendar datetime directly).
+  (2) OUTCOME CONFERRAL-STYLE — **not** STRICT. The legal sources, in order, are:
+        a true `datetime64[ns]` conferral column on student, then a raw term-code column on a joined
+        award / degree lookup row, then a raw term-code column on the wide student row, then unmappable.
+      IdentityAgent `_edvise_term_*` columns are **never** legal here, on any table: the manifest carries
+      a single `source_column` and the executor cannot co-resolve `_edvise_term_season` from the same
+      selected lookup row alongside `_edvise_term_academic_year`. Conferral timing must always come from
+      a single column whose value either is a datetime or embeds the season in one token. See
+      **COHORT conferral-style DATETIME targets** above for the full hierarchy and grounding rules.
       - Cohort (student) entity: bachelors_degree_conferral_date, associates_degree_conferral_date,
         certificate1_date, certificate2_date, certificate3_date
 
 - For STRICT fields, do not treat numeric encodings (e.g. YYYYMM) as sufficient unless the contract lists that column
   as datetime — unmappable if only integers or strings without a datetime dtype.
-- For OUTCOME CONFERRAL-STYLE fields, raw `term` or YYYYMM-style encodings are **fallback** sources only when the
-  preferred IA paths above are unavailable in the contract; use lower confidence and validation_notes when the source is a
-  term proxy rather than a true calendar conferral timestamp or when parsing is required."""
+- For OUTCOME CONFERRAL-STYLE fields, raw `term` / YYYYMM-style encodings are the **expected** non-datetime sources
+  (Step 2b parses them to datetime); use lower confidence and validation_notes when parsing is required or when the
+  selected row is a credential-discriminated proxy."""
 
 
 def _step2a_json_output_rules() -> str:

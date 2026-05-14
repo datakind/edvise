@@ -19,6 +19,36 @@ from ..manifest.schemas import (
     _omit_field_blocks_from_class_source,
 )
 
+# Step 2b: compact term → conferral utilities parse YYYY + suffix from the pipelined Series.
+# extract_year strips the suffix first, so it must not run earlier in the same chain.
+_COMPACT_TERM_CODE_CONFERRAL_FUNCTIONS = frozenset(
+    {
+        "compact_term_code_to_conferral_date",
+    }
+)
+
+
+def _reject_extract_year_before_compact_term_conferral(
+    steps: List[Any],
+    *,
+    context: str,
+) -> None:
+    for i, step in enumerate(steps):
+        fn = getattr(step, "function_name", None)
+        if fn not in _COMPACT_TERM_CODE_CONFERRAL_FUNCTIONS:
+            continue
+        for prev in steps[:i]:
+            if getattr(prev, "function_name", None) == "extract_year":
+                raise ValueError(
+                    f"{context}: invalid step order — `extract_year` cannot appear before "
+                    f"`compact_term_code_to_conferral_date`. That parser needs the full "
+                    f"token (e.g. 2025SP) on the pipelined Series. "
+                    f"Typically: strip_whitespace → compact_term_code_to_conferral_date only; "
+                    f"or for academic_year_and_canonical_season_to_conferral_date, run "
+                    f"map_values on the full token before extract_year if the year arm "
+                    f"requires it."
+                )
+
 
 class CastNullableIntStep(StrictBaseModel):
     function_name: Literal["cast_nullable_int"]
@@ -227,17 +257,24 @@ class TermComponentsToDatetimeStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
-class TermSeasonToConferralDateStep(StrictBaseModel):
-    function_name: Literal["term_season_to_conferral_date"]
+class AcademicYearAndCanonicalSeasonToConferralDateStep(StrictBaseModel):
+    function_name: Literal["academic_year_and_canonical_season_to_conferral_date"]
     column: str
     extra_columns: Dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "Required: canonical season Series bound to ``season_series`` "
-            "(e.g. output column of map_values on a season fragment). "
-            "``column`` must be the academic year string column (YYYY-YY or compatible)."
+            "Required: ``season_series`` names a **cohort base-table** column of canonical "
+            "season labels (FALL, SPRING, SUMMER, WINTER). "
+            "The pipelined ``column`` / year series must align row-wise; it carries a "
+            "4-digit calendar year (string may embed it, e.g. YYYY-YY)."
         ),
     )
+    rationale: Optional[str] = None
+
+
+class CompactTermCodeToConferralDateStep(StrictBaseModel):
+    function_name: Literal["compact_term_code_to_conferral_date"]
+    column: str
     rationale: Optional[str] = None
 
 
@@ -271,7 +308,8 @@ TransformationStep = Annotated[
         BirthyearToAgeBucketStep,
         ConditionalCreditsStep,
         TermComponentsToDatetimeStep,
-        TermSeasonToConferralDateStep,
+        AcademicYearAndCanonicalSeasonToConferralDateStep,
+        CompactTermCodeToConferralDateStep,
     ],
     Field(discriminator="function_name"),
 ]
@@ -449,6 +487,10 @@ class FieldTransformationPlan(StrictBaseModel):
                 raise ValueError(
                     "hitl_options must be omitted (null) unless review_required is True"
                 )
+        _reject_extract_year_before_compact_term_conferral(
+            self.steps,
+            context=f"target_field={self.target_field!r}",
+        )
         return self
 
 
@@ -503,6 +545,16 @@ class TransformationHITLItem(StrictBaseModel):
                 f"options must be exactly ['approve', 'correct', 'unmappable'] "
                 f"in that order, got {ids}"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _extract_year_not_before_compact_term_conferral(
+        self,
+    ) -> "TransformationHITLItem":
+        _reject_extract_year_before_compact_term_conferral(
+            self.steps,
+            context=f"TransformationHITLItem item_id={self.item_id!r}",
+        )
         return self
 
 
@@ -714,7 +766,8 @@ def get_transformation_map_schema_context() -> str:
         BirthyearToAgeBucketStep,
         ConditionalCreditsStep,
         TermComponentsToDatetimeStep,
-        TermSeasonToConferralDateStep,
+        AcademicYearAndCanonicalSeasonToConferralDateStep,
+        CompactTermCodeToConferralDateStep,
         FieldTransformationPlan,
         FlaggedStep,
         TransformationHITLOption,

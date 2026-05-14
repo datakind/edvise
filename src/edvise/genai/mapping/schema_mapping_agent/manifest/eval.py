@@ -2,8 +2,10 @@ import time
 import json
 import logging
 import os
+import shutil
 from collections import Counter
-from typing import Any, cast
+from collections.abc import Callable
+from typing import Any, Literal, cast
 from copy import deepcopy
 import pandas as pd
 from pathlib import Path
@@ -20,9 +22,18 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
     build_step2a_prompt_course_pass,
     load_json,
     merge_step2a_entity_manifests,
+    run_sma_refinement,
     strip_json_fences,
 )
 
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl import (
+    check_sma_hitl_gate,
+    resolve_sma_items,
+    write_sma_hitl_artifact,
+)
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
+    InstitutionSMAHITLItems,
+)
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     MappingManifestEnvelope,
 )
@@ -32,12 +43,18 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.validation import (
 from edvise.genai.mapping.shared.schema_contract import (
     parse_enriched_schema_contract_for_sma,
 )
+from edvise.configs import genai as genai_cfg
 from edvise.data_audit.schemas.raw_edvise_student import (
     RawEdviseStudentDataSchema,
 )
 from edvise.data_audit.schemas.raw_edvise_course import (
     RawEdviseCourseDataSchema,
 )
+from edvise.genai.mapping.identity_agent.grain_inference.databricks_gateway import (
+    create_openai_client_for_databricks_gateway,
+)
+from edvise.genai.mapping.shared.pipeline_artifacts import coerce_pipeline_version
+from edvise.utils.llm_utils import LLMRetryExhausted, llm_complete_with_parse_retry
 
 load_dotenv()
 
@@ -74,8 +91,6 @@ MODELS = [
     "claude-opus-test-genai-ai-data-cleaning",
     "claude-sonnet-test-genai-ai-data-cleaning",
     "claude-haiku-test-genai-data-cleaning",
-    "gpt52-test-genai-ai-datacleaning",
-    "gemini-test-genai-ai-datacleaning",
 ]
 
 # Short label per gateway model → output folders like {base}_2a_{SHOT_TAG}, {base}_2b_{SHOT_TAG}
@@ -83,8 +98,6 @@ MODEL_BASE_SLUG = {
     "claude-opus-test-genai-ai-data-cleaning": "opus",
     "claude-sonnet-test-genai-ai-data-cleaning": "sonnet",
     "claude-haiku-test-genai-data-cleaning": "haiku",
-    "gpt52-test-genai-ai-datacleaning": "gpt52",
-    "gemini-test-genai-ai-datacleaning": "gemini",
 }
 
 # Set to "2shot" (or another tag) before run() when evaluating a multi-turn / 2-shot prompt variant
@@ -95,14 +108,43 @@ SHOT_TAG = "1shot"
 STEP2A_TWO_PASS = True
 
 
+def _eval_step2a_max_envelope_attempts() -> int:
+    """Upper bound on Step 2a envelope parse/validate retries (single- and two-pass)."""
+    raw = os.environ.get("EDVISE_EVAL_STEP2A_MAX_ENVELOPE_ATTEMPTS", "").strip()
+    if not raw:
+        return 3
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 3
+
+
+def _round_trip_validate_saved_envelope_json(out_json: str) -> None:
+    """Ensure manifest JSON written for eval re-parses as a valid envelope (matches scoring)."""
+    pred = json.loads(out_json)
+    MappingManifestEnvelope.model_validate(pred)
+
+
+# After Step 2a, run the same SMA refinement as onboard (``run_sma_refinement`` per entity),
+# write ``*_mapping_manifest_refined.json``, score vs gold as ``refined_*`` columns, and extend
+# field_detail CSV with ``stage`` = ``2a`` / ``after_refinement``.
+RUN_REFINEMENT_AFTER_2A = True
+
+
+def _eval_write_hitl_artifacts_to_workspace() -> bool:
+    """When true, refinement also writes ``cohort_hitl_manifest.json`` / ``course_hitl_manifest.json``."""
+    raw = os.environ.get("EDVISE_EVAL_WRITE_HITL_ARTIFACTS", "true").strip().lower()
+    return raw not in ("0", "false", "no", "off")
+
+
 def folder_slug_2a(model: str) -> str:
-    """Artifact directory under historical_examples/{institution}/ for Step 2a manifests."""
+    """Per-model artifact folder name under ``…/genai_mapping/eval/`` for Step 2a."""
     base = MODEL_BASE_SLUG.get(model, model.replace("-", "_"))
     return f"{base}_2a_{SHOT_TAG}"
 
 
 def folder_slug_2b(model: str) -> str:
-    """Artifact directory under historical_examples/{institution}/ for Step 2b transformation maps."""
+    """Per-model artifact folder name under ``…/genai_mapping/eval/`` for Step 2b."""
     base = MODEL_BASE_SLUG.get(model, model.replace("-", "_"))
     return f"{base}_2b_{SHOT_TAG}"
 
@@ -111,8 +153,6 @@ def folder_slug_2b(model: str) -> str:
 MODELS_WITH_PREFILL = {
     "claude-sonnet-test-genai-ai-data-cleaning",
     "claude-haiku-test-genai-data-cleaning",
-    "gpt52-test-genai-ai-datacleaning",
-    "gemini-test-genai-ai-datacleaning",
 }
 
 
@@ -235,6 +275,140 @@ def run_once(
         }
 
 
+def _make_eval_step2a_llm_complete(
+    model: str,
+    client: OpenAI,
+    latencies: list[float],
+) -> Callable[[str, str], str]:
+    """``(system, user) -> text`` for Step 2a parse-retry (same composition as onboard SMA)."""
+
+    def llm_complete(system: str, user: str) -> str:
+        s = (system or "").strip()
+        u = (user or "").strip()
+        if s and u:
+            combined = f"{s}\n\n---\n\n{u}"
+        elif u:
+            combined = u
+        elif s:
+            combined = s
+        else:
+            raise RuntimeError(
+                "SMA eval Step 2a LLM call has empty system and user prompts"
+            )
+        out = run_once(model, combined, client)
+        latencies.append(float(out.get("latency_s") or 0.0))
+        if not out["success"]:
+            raise RuntimeError(out.get("error") or "eval Step 2a LLM call failed")
+        resp = out.get("response")
+        if not isinstance(resp, str) or not resp.strip():
+            raise RuntimeError("eval Step 2a LLM returned empty response")
+        return resp
+
+    return llm_complete
+
+
+def _eval_step2a_parse_envelope(
+    raw: str,
+    *,
+    institution_id: str,
+    pipeline_version: str,
+) -> MappingManifestEnvelope:
+    manifest_dict = json.loads(raw)
+    if isinstance(manifest_dict, dict):
+        manifest_dict["institution_id"] = institution_id
+        manifest_dict["pipeline_version"] = pipeline_version
+    return MappingManifestEnvelope.model_validate(manifest_dict)
+
+
+def run_step2a_single_pass(
+    model: str,
+    client: OpenAI,
+    prompt: str,
+    *,
+    institution_id: str,
+    pipeline_version: str | None = None,
+) -> dict[str, Any]:
+    """
+    Step 2a single-pass with :func:`~edvise.utils.llm_utils.llm_complete_with_parse_retry`
+    (same pattern as ``edvise_genai_sma`` onboard): retry on JSON / Pydantic envelope errors.
+    """
+    max_attempts = _eval_step2a_max_envelope_attempts()
+    logger.info(
+        "Eval Step 2a single-pass: parse-retry (max LLM calls=%s) — "
+        "override with EDVISE_EVAL_STEP2A_MAX_ENVELOPE_ATTEMPTS",
+        max_attempts,
+    )
+    pv = coerce_pipeline_version(pipeline_version)
+    latencies: list[float] = []
+    llm = _make_eval_step2a_llm_complete(model, client, latencies)
+
+    def parse_fn(raw: str) -> MappingManifestEnvelope:
+        return _eval_step2a_parse_envelope(
+            raw, institution_id=institution_id, pipeline_version=pv
+        )
+
+    try:
+        envelope = llm_complete_with_parse_retry(
+            llm,
+            "",
+            prompt,
+            parse_fn,
+            max_retries=max_attempts,
+            logger=logger,
+        )
+    except LLMRetryExhausted as e:
+        last_raw = e.last_raw_response
+        return {
+            "model": model,
+            "prompt": prompt,
+            "success": False,
+            "latency_s": round(sum(latencies), 3),
+            "response_chars": len(last_raw) if last_raw else None,
+            "response": last_raw,
+            "error": str(e),
+            "step2a_llm_calls": len(latencies),
+            "step2a_envelope_attempts_used": max_attempts,
+            "step2a_parse_retry_enabled": True,
+        }
+
+    out = envelope.model_dump_json(indent=2, exclude_none=True)
+    try:
+        _round_trip_validate_saved_envelope_json(out)
+    except ValidationError as e:
+        logger.error(
+            "Eval Step 2a single-pass: round-trip envelope validation failed: %s", e
+        )
+        return {
+            "model": model,
+            "prompt": prompt,
+            "success": False,
+            "latency_s": round(sum(latencies), 3),
+            "response_chars": len(out),
+            "response": out,
+            "error": f"envelope round-trip validation failed: {e}",
+            "step2a_llm_calls": len(latencies),
+            "step2a_envelope_attempts_used": len(latencies),
+            "step2a_parse_retry_enabled": True,
+        }
+
+    logger.info(
+        "Eval Step 2a single-pass: success after %s LLM call(s) (envelope OK)",
+        len(latencies),
+    )
+    return {
+        "model": model,
+        "prompt": prompt,
+        "success": True,
+        "latency_s": round(sum(latencies), 3),
+        "response_chars": len(out),
+        "response": out,
+        "error": None,
+        "step2a_llm_calls": len(latencies),
+        "step2a_envelope_attempts_used": len(latencies),
+        "step2a_parse_retry_enabled": True,
+    }
+
+
 def run_step2a_two_pass(
     model: str,
     client: OpenAI,
@@ -242,79 +416,230 @@ def run_step2a_two_pass(
     prompt_course: str,
     *,
     institution_id: str | None = None,
+    pipeline_version: str | None = None,
 ) -> dict:
     """
-    Step 2a only: two gateway calls (cohort JSON, then course JSON), then merge into one manifest.
+    Step 2a: two gateway calls (cohort, then course), merge, then
+    :class:`~.schemas.MappingManifestEnvelope` validation.
 
-    ``prompt_cohort`` and ``prompt_course`` are independent (build with
-    ``build_step2a_prompt_cohort_pass`` / ``build_step2a_prompt_course_pass``); the course
-    pass does not include cohort output. Merge uses ``merge_step2a_entity_manifests``.
-    Pass ``institution_id`` when model output is partial (no envelope fields); if omitted,
-    merge falls back to ``institution_id`` on cohort/course JSON when present (legacy passes).
+    On JSON / merge / Pydantic failures, both passes are re-run with a correction hint
+    (up to 3 attempts total, same default as :func:`~edvise.utils.llm_utils.call_with_retry`).
 
-    Return shape matches ``run_once`` (same keys) for scoring and CSV export; ``latency_s``
-    is the sum of both calls.
+    ``institution_id`` is required for merge when fragments omit it (eval always passes it).
     """
+    max_attempts = _eval_step2a_max_envelope_attempts()
+    logger.info(
+        "Eval Step 2a two-pass: parse-retry (max envelope attempt(s)=%s, up to %s LLM calls) — "
+        "override count with EDVISE_EVAL_STEP2A_MAX_ENVELOPE_ATTEMPTS",
+        max_attempts,
+        max_attempts * 2,
+    )
     sep = "\n\n=== STEP 2a PASS 2 (course) ===\n\n"
-    r1 = run_once(model, prompt_cohort, client)
-    prompt_combined = f"=== STEP 2a PASS 1 (cohort) ===\n\n{prompt_cohort}"
-    if not r1["success"]:
-        return {**r1, "prompt": prompt_combined}
-
-    try:
-        cohort_parsed = json.loads(r1["response"])
-    except json.JSONDecodeError as e:
+    prompt_combined = (
+        f"=== STEP 2a PASS 1 (cohort) ===\n\n{prompt_cohort}{sep}{prompt_course}"
+    )
+    if not institution_id:
         return {
             "model": model,
             "prompt": prompt_combined,
             "success": False,
-            "latency_s": r1["latency_s"],
+            "latency_s": 0.0,
             "response_chars": None,
             "response": None,
-            "error": f"cohort pass invalid JSON: {e}",
+            "error": "institution_id is required for two-pass Step 2a merge",
+            "step2a_llm_calls": 0,
+            "step2a_envelope_attempts_used": 0,
+            "step2a_parse_retry_enabled": True,
         }
 
-    prompt_combined = f"{prompt_combined}{sep}{prompt_course}"
+    pv = coerce_pipeline_version(pipeline_version)
+    latencies: list[float] = []
+    llm = _make_eval_step2a_llm_complete(model, client, latencies)
 
-    r2 = run_once(model, prompt_course, client)
-    lat = round((r1["latency_s"] or 0) + (r2["latency_s"] or 0), 3)
+    correction_hint: str | None = None
+    last_merged_raw = ""
+    last_err: str | None = None
 
-    if not r2["success"]:
-        return {
-            "model": model,
-            "prompt": prompt_combined,
-            "success": False,
-            "latency_s": lat,
-            "response_chars": None,
-            "response": None,
-            "error": r2.get("error") or "course pass failed",
-        }
-
-    try:
-        course_parsed = json.loads(r2["response"])
-        merged = merge_step2a_entity_manifests(
-            cohort_parsed, course_parsed, institution_id=institution_id
+    for attempt in range(1, max_attempts + 1):
+        logger.info(
+            "Eval Step 2a two-pass: envelope attempt %s/%s (LLM calls so far: %s)",
+            attempt,
+            max_attempts,
+            len(latencies),
         )
-        merged_str = json.dumps(merged)
-    except (json.JSONDecodeError, ValueError) as e:
-        return {
-            "model": model,
-            "prompt": prompt_combined,
-            "success": False,
-            "latency_s": lat,
-            "response_chars": None,
-            "response": None,
-            "error": f"course pass or merge failed: {e}",
-        }
+        try:
+            suffix = f"\n\n{correction_hint}" if correction_hint else ""
+            cohort_raw = llm("", prompt_cohort + suffix)
+            course_raw = llm("", prompt_course + suffix)
+            cohort_parsed = json.loads(cohort_raw)
+            course_parsed = json.loads(course_raw)
+            merged = merge_step2a_entity_manifests(
+                cohort_parsed,
+                course_parsed,
+                institution_id=institution_id,
+                pipeline_version=pv,
+            )
+            last_merged_raw = json.dumps(merged)
+            envelope = MappingManifestEnvelope.model_validate(merged)
+            out = envelope.model_dump_json(indent=2, exclude_none=True)
+            _round_trip_validate_saved_envelope_json(out)
+        except json.JSONDecodeError as e:
+            last_err = str(e)
+            logger.warning(
+                "Eval Step 2a two-pass attempt %s/%s failed: JSONDecodeError: %s",
+                attempt,
+                max_attempts,
+                e,
+            )
+            if attempt == max_attempts:
+                break
+            correction_hint = (
+                f"The cohort and/or course response was not valid JSON: {e}\n"
+                "Return corrected JSON for **both** the cohort-only and the course-only manifest."
+            )
+        except ValueError as e:
+            last_err = str(e)
+            logger.warning(
+                "Eval Step 2a two-pass attempt %s/%s failed: ValueError: %s",
+                attempt,
+                max_attempts,
+                e,
+            )
+            if attempt == max_attempts:
+                break
+            correction_hint = (
+                f"Merging cohort and course fragments failed: {e}\n"
+                "Fix the structure so each pass matches the expected entity shape, then try again."
+            )
+        except ValidationError as e:
+            last_err = str(e)
+            logger.warning(
+                "Eval Step 2a two-pass attempt %s/%s failed: ValidationError: %s",
+                attempt,
+                max_attempts,
+                e,
+            )
+            if attempt == max_attempts:
+                break
+            correction_hint = (
+                f"The merged manifest from your two passes was:\n\n{last_merged_raw}\n\n"
+                f"It failed validation with this error:\n\n{e}\n\n"
+                "Return corrected cohort JSON and course JSON so the merged envelope validates."
+            )
+        else:
+            logger.info(
+                "Eval Step 2a two-pass: success on envelope attempt %s/%s "
+                "(%s LLM calls, latency sum=%.3fs)",
+                attempt,
+                max_attempts,
+                len(latencies),
+                sum(latencies),
+            )
+            return {
+                "model": model,
+                "prompt": prompt_combined,
+                "success": True,
+                "latency_s": round(sum(latencies), 3),
+                "response_chars": len(out),
+                "response": out,
+                "error": None,
+                "step2a_llm_calls": len(latencies),
+                "step2a_envelope_attempts_used": attempt,
+                "step2a_parse_retry_enabled": True,
+            }
 
+    logger.error(
+        "Eval Step 2a two-pass: exhausted %s envelope attempt(s) (%s LLM calls)",
+        max_attempts,
+        len(latencies),
+    )
     return {
         "model": model,
         "prompt": prompt_combined,
-        "success": True,
-        "latency_s": lat,
-        "response_chars": len(merged_str),
-        "response": merged_str,
-        "error": None,
+        "success": False,
+        "latency_s": round(sum(latencies), 3),
+        "response_chars": len(last_merged_raw) if last_merged_raw else None,
+        "response": last_merged_raw or None,
+        "error": last_err or "Step 2a two-pass retries exhausted",
+        "step2a_llm_calls": len(latencies),
+        "step2a_envelope_attempts_used": max_attempts,
+        "step2a_parse_retry_enabled": True,
+    }
+
+
+def _make_refinement_llm_complete(
+    model: str,
+    client: OpenAI,
+    latencies: list[float],
+):
+    """Match onboard SMA: single user blob with system and user sections (gateway pattern)."""
+
+    def llm_complete(system: str, user: str) -> str:
+        s = (system or "").strip()
+        u = (user or "").strip()
+        if s and u:
+            combined = f"{s}\n\n---\n\n{u}"
+        elif u:
+            combined = u
+        elif s:
+            combined = s
+        else:
+            raise RuntimeError(
+                "SMA refinement LLM call has empty system and user prompts"
+            )
+        out = run_once(model, combined, client)
+        latencies.append(float(out.get("latency_s") or 0.0))
+        if not out["success"]:
+            raise RuntimeError(out.get("error") or "refinement LLM call failed")
+        resp = out.get("response")
+        if not isinstance(resp, str) or not resp.strip():
+            raise RuntimeError("refinement LLM returned empty response")
+        return resp
+
+    return llm_complete
+
+
+def run_refine_on_envelope(
+    envelope: MappingManifestEnvelope,
+    *,
+    institution_id: str,
+    schema_contract_sma: Any,
+    model: str,
+    client: OpenAI,
+) -> tuple[MappingManifestEnvelope, dict[str, Any]]:
+    """Apply production ``run_sma_refinement`` per entity (same order as onboard)."""
+    refined = envelope.model_copy(deep=True)
+    latencies: list[float] = []
+    llm_complete = _make_refinement_llm_complete(model, client, latencies)
+    hitl_items: dict[str, int] = {}
+    hitl_by_entity: dict[str, Any] = {}
+    struct_before: dict[str, int] = {}
+    struct_after: dict[str, int] = {}
+
+    for entity_key, entity_manifest in list(refined.manifests.items()):
+        ek = entity_key.value if hasattr(entity_key, "value") else str(entity_key)
+        errs = validate_manifest(entity_manifest, schema_contract_sma)
+        struct_before[ek] = len(errs)
+        refined_fm, hitl_env = run_sma_refinement(
+            institution_id=institution_id,
+            entity_type=cast(Literal["cohort", "course"], ek),
+            manifest=entity_manifest,
+            validation_errors=errs,
+            schema_contract=schema_contract_sma,
+            llm_complete=llm_complete,
+        )
+        refined.manifests[entity_key] = refined_fm
+        hitl_items[ek] = len(hitl_env.items)
+        hitl_by_entity[ek] = hitl_env
+        errs2 = validate_manifest(refined_fm, schema_contract_sma)
+        struct_after[ek] = len(errs2)
+
+    return refined, {
+        "refinement_latency_s": round(sum(latencies), 3),
+        "hitl_items_by_entity": hitl_items,
+        "hitl_by_entity": hitl_by_entity,
+        "structural_errors_by_entity_2a": struct_before,
+        "structural_errors_by_entity_after_refinement": struct_after,
     }
 
 
@@ -868,359 +1193,764 @@ def validate_envelope_dict(manifest_dict: dict) -> tuple[bool, str | None]:
         return False, str(e)
 
 
-def _find_eval_project_root() -> Path:
+def rescore_step2a_after_hitl_resolution(
+    *,
+    refined_envelope_path: str | Path,
+    gold_manifest: dict,
+    target_schema_contract: dict | None,
+    model_label: str = "post_hitl",
+    output_post_hitl_path: str | Path | None = None,
+    resolved_by: str = "eval_hitl_notebook",
+    require_hitl_gate_clear: bool = True,
+) -> tuple[dict | None, Path]:
     """
-    Resolve the repo root that contains pipelines/gen_ai_cleaning/.
+    Copy the refined mapping envelope, apply cleared manifest HITL selections, score vs gold.
 
-    When edvise is installed as a package, __file__ lives under site-packages, so
-    walking upward from there never reaches the data repo. We therefore search from
-    cwd (and optional EDVISE_EVAL_PROJECT_ROOT).
+    Expects ``cohort_hitl_manifest.json`` and ``course_hitl_manifest.json`` in the same
+    directory as ``refined_envelope_path`` (same layout as SMA onboard / Step 2a eval).
+
+    Parameters
+    ----------
+    require_hitl_gate_clear
+        When True, runs :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.hitl.check_sma_hitl_gate`
+        on both HITL files before resolving (raises if any item is still pending).
     """
-    env = os.environ.get("EDVISE_EVAL_PROJECT_ROOT")
-    if env:
-        p = Path(env).expanduser().resolve()
-        marker = p / "pipelines" / "gen_ai_cleaning"
-        if not marker.is_dir():
-            raise FileNotFoundError(
-                f"EDVISE_EVAL_PROJECT_ROOT={env!r} does not contain pipelines/gen_ai_cleaning"
+    refined_path = Path(refined_envelope_path).resolve()
+    manifest_dir = refined_path.parent
+    cohort_hitl = manifest_dir / "cohort_hitl_manifest.json"
+    course_hitl = manifest_dir / "course_hitl_manifest.json"
+    if not cohort_hitl.is_file() or not course_hitl.is_file():
+        raise FileNotFoundError(
+            "Missing eval HITL files (expected next to refined manifest): "
+            f"{cohort_hitl} and/or {course_hitl}"
+        )
+
+    raw_env = json.loads(refined_path.read_text())
+    institution_id = str(raw_env.get("institution_id") or "").strip()
+    if not institution_id:
+        raise ValueError(f"Missing institution_id in {refined_path}")
+
+    out_path = (
+        Path(output_post_hitl_path).resolve()
+        if output_post_hitl_path is not None
+        else manifest_dir / f"{institution_id}_mapping_manifest_post_hitl.json"
+    )
+
+    if require_hitl_gate_clear:
+        check_sma_hitl_gate(cohort_hitl)
+        check_sma_hitl_gate(course_hitl)
+
+    shutil.copy2(refined_path, out_path)
+    resolve_sma_items(
+        cohort_hitl,
+        out_path,
+        resolved_by=resolved_by,
+    )
+    resolve_sma_items(
+        course_hitl,
+        out_path,
+        resolved_by=resolved_by,
+    )
+
+    result = {
+        "model": model_label,
+        "success": True,
+        "response": out_path.read_text(),
+    }
+    scores = score_result(
+        result,
+        gold_manifest,
+        schema_contract=target_schema_contract,
+    )
+    return scores, out_path
+
+
+def _write_eval_hitl_files_for_refinement(
+    manifest_dir: Path,
+    *,
+    institution_id: str,
+    hitl_by_entity: dict[str, Any],
+) -> None:
+    """Write per-entity HITL JSON next to refined manifest; seed empty files if missing."""
+    for ek, hitl_env in hitl_by_entity.items():
+        basename = (
+            "cohort_hitl_manifest.json"
+            if ek == "cohort"
+            else "course_hitl_manifest.json"
+        )
+        hp = write_sma_hitl_artifact(manifest_dir, hitl_env, basename=basename)
+        logger.info(
+            "→ eval HITL envelope (%s, %d item(s)) → %s",
+            ek,
+            len(hitl_env.items),
+            hp,
+        )
+
+    for entity_type, basename in (
+        ("cohort", "cohort_hitl_manifest.json"),
+        ("course", "course_hitl_manifest.json"),
+    ):
+        path = manifest_dir / basename
+        if not path.is_file():
+            write_sma_hitl_artifact(
+                manifest_dir,
+                InstitutionSMAHITLItems(
+                    institution_id=institution_id,
+                    entity_type=cast(Literal["cohort", "course"], entity_type),
+                    items=[],
+                ),
+                basename=basename,
             )
-        return p
+            logger.info("→ seeded empty HITL envelope → %s", path)
 
-    cwd = Path.cwd().resolve()
-    for candidate in [cwd, *cwd.parents]:
-        if (candidate / "pipelines" / "gen_ai_cleaning").is_dir():
-            return candidate
 
-    raise FileNotFoundError(
-        "Could not find project root: no directory from cwd upward contains "
-        "pipelines/gen_ai_cleaning. cd to your repo root (e.g. student-success-intervention) "
-        "before calling eval.run(), or set EDVISE_EVAL_PROJECT_ROOT to that root."
+def _eval_uc_catalog() -> str | None:
+    """Workspace catalog for ``/Volumes/<catalog>/…`` (matches job ``DB_workspace``)."""
+    for key in ("EDVISE_EVAL_UC_CATALOG", "GENAI_HITL_CATALOG", "DB_workspace"):
+        v = os.environ.get(key)
+        if v and str(v).strip():
+            return str(v).strip()
+    return None
+
+
+def _require_uc_catalog_for_eval() -> str:
+    cat = _eval_uc_catalog()
+    if not cat:
+        raise ValueError(
+            "SMA eval loads only from Unity Catalog volumes. Set one of "
+            "EDVISE_EVAL_UC_CATALOG, GENAI_HITL_CATALOG, or DB_workspace."
+        )
+    return cat
+
+
+def _silver_genai_root_path(institution_id: str) -> Path:
+    """``…/{institution_id}_silver/silver_volume/genai_mapping`` on the UC volume."""
+    return Path(
+        genai_cfg.silver_genai_mapping_root(
+            institution_id, catalog=_require_uc_catalog_for_eval()
+        )
     )
 
 
-def _resolve_mapping_manifest(institution_id: str) -> Path:
-    """Prefer final_hitl gold manifest, then v1."""
-    base = Path(f"pipelines/gen_ai_cleaning/historical_examples/{institution_id}")
-    candidates = [
-        base / "final_hitl" / f"{institution_id}_mapping_manifest.json",
-        base / "v1" / f"{institution_id}_mapping_manifest.json",
-    ]
-    for path in candidates:
-        if path.exists():
-            return path
-    raise FileNotFoundError(
-        "Mapping manifest not found for institution "
-        f"{institution_id!r}. Tried:\n  " + "\n  ".join(str(p) for p in candidates)
-    )
+def _eval_run_root(target_id: str) -> Path:
+    """Writable eval workspace: ``<silver_genai_root(target)>/eval``."""
+    return _silver_genai_root_path(target_id) / "eval"
+
+
+def _resolve_gold_mapping_manifest_for_eval(target_id: str) -> Path:
+    """
+    Ground-truth manifest for Step 2a scoring.
+
+    * ``EDVISE_EVAL_GOLD_MANIFEST_PATH`` — absolute file on a volume (or any path).
+    * Else ``<silver_genai_root(target)>/eval/gold/manifest_map.json``.
+    """
+    override = os.environ.get("EDVISE_EVAL_GOLD_MANIFEST_PATH")
+    if override and str(override).strip():
+        p = Path(str(override).strip()).expanduser()
+        if not p.is_file():
+            raise FileNotFoundError(f"EDVISE_EVAL_GOLD_MANIFEST_PATH not found: {p}")
+        return p.resolve()
+    p = _eval_run_root(target_id) / "gold" / "manifest_map.json"
+    if not p.is_file():
+        raise FileNotFoundError(
+            "Gold mapping manifest not found. Place ground-truth at "
+            f"{p} (same shape as pipeline ``manifest_map.json``) or set "
+            "EDVISE_EVAL_GOLD_MANIFEST_PATH."
+        )
+    return p
+
+
+def _resolve_gold_transformation_map_for_eval(target_id: str) -> Path:
+    """
+    Ground-truth transformation map for Step 2b scoring.
+
+    * ``EDVISE_EVAL_GOLD_TRANSFORMATION_MAP_PATH``
+    * Else ``<silver_genai_root(target)>/eval/gold/transformation_map.json``.
+    """
+    override = os.environ.get("EDVISE_EVAL_GOLD_TRANSFORMATION_MAP_PATH")
+    if override and str(override).strip():
+        p = Path(str(override).strip()).expanduser()
+        if not p.is_file():
+            raise FileNotFoundError(
+                f"EDVISE_EVAL_GOLD_TRANSFORMATION_MAP_PATH not found: {p}"
+            )
+        return p.resolve()
+    p = _eval_run_root(target_id) / "gold" / "transformation_map.json"
+    if not p.is_file():
+        raise FileNotFoundError(
+            "Gold transformation map not found. Place ground-truth at "
+            f"{p} or set EDVISE_EVAL_GOLD_TRANSFORMATION_MAP_PATH."
+        )
+    return p
+
+
+def _resolve_target_mapping_manifest_for_eval(target_id: str) -> Path:
+    """
+    Target mapping manifest for Step 2b prompts (field plans).
+
+    * ``EDVISE_EVAL_TARGET_MAPPING_MANIFEST_PATH``
+    * Else ``<silver_genai_root(target)>/active/manifest_map.json``.
+    """
+    override = os.environ.get("EDVISE_EVAL_TARGET_MAPPING_MANIFEST_PATH")
+    if override and str(override).strip():
+        p = Path(str(override).strip()).expanduser()
+        if not p.is_file():
+            raise FileNotFoundError(
+                f"EDVISE_EVAL_TARGET_MAPPING_MANIFEST_PATH not found: {p}"
+            )
+        return p.resolve()
+    p = _silver_genai_root_path(target_id) / "active" / "manifest_map.json"
+    if not p.is_file():
+        raise FileNotFoundError(
+            "Target mapping manifest for 2b not found at pipeline active path "
+            f"{p}. Promote SMA artifacts or set EDVISE_EVAL_TARGET_MAPPING_MANIFEST_PATH."
+        )
+    return p
+
+
+def _resolve_reference_mapping_manifest(reference_id: str) -> Path:
+    """
+    Few-shot reference manifest for Step 2a.
+
+    * ``EDVISE_EVAL_REFERENCE_MANIFEST_PATH`` — explicit file.
+    * Else ``…/genai_mapping/active/manifest_map.json`` for the reference institution.
+    """
+    override = os.environ.get("EDVISE_EVAL_REFERENCE_MANIFEST_PATH")
+    if override and str(override).strip():
+        p = Path(str(override).strip()).expanduser()
+        if not p.is_file():
+            raise FileNotFoundError(
+                f"EDVISE_EVAL_REFERENCE_MANIFEST_PATH not found: {p}"
+            )
+        return p.resolve()
+    p = _silver_genai_root_path(reference_id) / "active" / "manifest_map.json"
+    if not p.is_file():
+        raise FileNotFoundError(
+            "Reference manifest not found at pipeline active path "
+            f"{p}. Promote execute artifacts or set EDVISE_EVAL_REFERENCE_MANIFEST_PATH."
+        )
+    return p
+
+
+def _resolve_reference_transformation_map_for_eval(reference_id: str) -> Path:
+    """
+    Few-shot reference transformation map for Step 2b.
+
+    * ``EDVISE_EVAL_REFERENCE_TRANSFORMATION_MAP_PATH``
+    * Else ``…/genai_mapping/active/transformation_map.json``.
+    """
+    override = os.environ.get("EDVISE_EVAL_REFERENCE_TRANSFORMATION_MAP_PATH")
+    if override and str(override).strip():
+        p = Path(str(override).strip()).expanduser()
+        if not p.is_file():
+            raise FileNotFoundError(
+                f"EDVISE_EVAL_REFERENCE_TRANSFORMATION_MAP_PATH not found: {p}"
+            )
+        return p.resolve()
+    p = _silver_genai_root_path(reference_id) / "active" / "transformation_map.json"
+    if not p.is_file():
+        raise FileNotFoundError(
+            "Reference transformation map not found at pipeline active path "
+            f"{p}. Set EDVISE_EVAL_REFERENCE_TRANSFORMATION_MAP_PATH or promote artifacts."
+        )
+    return p
+
+
+def _resolve_target_schema_contract_for_eval(target_id: str) -> Path:
+    """
+    Target enriched schema contract for Step 2a / 2b.
+
+    * ``EDVISE_EVAL_TARGET_SCHEMA_CONTRACT_PATH``
+    * Else ``…/genai_mapping/active/enriched_schema_contract.json``.
+    """
+    override = os.environ.get("EDVISE_EVAL_TARGET_SCHEMA_CONTRACT_PATH")
+    if override and str(override).strip():
+        p = Path(str(override).strip()).expanduser()
+        if not p.is_file():
+            raise FileNotFoundError(
+                f"EDVISE_EVAL_TARGET_SCHEMA_CONTRACT_PATH not found: {p}"
+            )
+        return p.resolve()
+    p = _silver_genai_root_path(target_id) / "active" / "enriched_schema_contract.json"
+    if not p.is_file():
+        raise FileNotFoundError(
+            "Target schema contract not found at pipeline active path "
+            f"{p}. Run IA / promote ``enriched_schema_contract.json`` or set "
+            "EDVISE_EVAL_TARGET_SCHEMA_CONTRACT_PATH."
+        )
+    return p
 
 
 # ── main execution ───────────────────────────────────────────────────────────
 def run():
     """Run evaluation on all models."""
-    project_root = _find_eval_project_root()
+    # ── paths ─────────────────────────────────────────────────────────────
+    RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
+    target_id = TARGET_INSTITUTION["id"]
+    reference_id = REFERENCE_INSTITUTION["id"]
+    catalog = _require_uc_catalog_for_eval()
 
-    # Change to project root for consistent path resolution
-    original_cwd = os.getcwd()
-    os.chdir(project_root)
+    logger.info("=" * 80)
+    logger.info("EVALUATION CONFIGURATION")
+    logger.info("=" * 80)
+    logger.info(f"Target institution_id: {target_id}")
+    logger.info(f"Reference institution_id: {reference_id}")
+    logger.info(f"UC catalog: {catalog}")
+    logger.info("=" * 80)
 
-    try:
-        # ── paths ─────────────────────────────────────────────────────────────
-        RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
-        target_id = TARGET_INSTITUTION["id"]
-        reference_id = REFERENCE_INSTITUTION["id"]
+    EVAL_BASE = _eval_run_root(target_id)
+    EVAL_BASE.mkdir(parents=True, exist_ok=True)
+    (EVAL_BASE / "scratch").mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR = EVAL_BASE / "eval_outputs"
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-        logger.info("=" * 80)
-        logger.info("EVALUATION CONFIGURATION")
-        logger.info("=" * 80)
-        logger.info(f"Target institution_id: {target_id}")
-        logger.info(f"Reference institution_id: {reference_id}")
-        logger.info(f"Project root (eval cwd): {project_root}")
-        logger.info("=" * 80)
+    # ── gold manifest ─────────────────────────────────────────────────────
+    GOLD_MANIFEST_PATH = _resolve_gold_mapping_manifest_for_eval(target_id)
+    GOLD_MANIFEST = load_json(str(GOLD_MANIFEST_PATH))
+    logger.info(f"Loaded gold manifest from {GOLD_MANIFEST_PATH}")
 
-        HISTORICAL_BASE = Path(
-            f"pipelines/gen_ai_cleaning/historical_examples/{target_id}"
+    # ── prompt (via shared builder) ───────────────────────────────────────
+    target_contract_path = _resolve_target_schema_contract_for_eval(target_id)
+    target_contract = load_json(str(target_contract_path))
+    logger.info(f"Loaded target schema contract from {target_contract_path}")
+    schema_contract_sma = parse_enriched_schema_contract_for_sma(target_contract)
+
+    REFERENCE_MANIFEST_PATH = _resolve_reference_mapping_manifest(reference_id)
+    reference_manifest = load_json(str(REFERENCE_MANIFEST_PATH))
+    reference_manifest_path = str(REFERENCE_MANIFEST_PATH)
+
+    # Validate that the reference manifest has the correct institution_id
+    manifest_institution_id = reference_manifest.get("institution_id")
+    if manifest_institution_id != reference_id:
+        raise ValueError(
+            f"Reference manifest institution_id mismatch! "
+            f"Expected '{reference_id}' but manifest contains '{manifest_institution_id}'. "
+            f"Loaded from: {reference_manifest_path}"
         )
-        OUTPUT_DIR = HISTORICAL_BASE / "eval_outputs"
-        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-        # ── gold manifest ─────────────────────────────────────────────────────
-        GOLD_MANIFEST_PATH = _resolve_mapping_manifest(target_id)
-        GOLD_MANIFEST = load_json(str(GOLD_MANIFEST_PATH))
-        logger.info(f"Loaded gold manifest from {GOLD_MANIFEST_PATH}")
+    logger.info(f"Loaded reference manifest from {reference_manifest_path}")
+    logger.info(f"  Reference institution_id: {reference_id}")
+    logger.info(f"  Manifest institution_id: {manifest_institution_id} ✓")
 
-        # ── prompt (via shared builder) ───────────────────────────────────────
-        target_contract_path = f"pipelines/gen_ai_cleaning/historical_examples/{target_id}/{target_id}_schema_contract.json"
-        target_contract = load_json(target_contract_path)
-        logger.info(f"Loaded target schema contract from {target_contract_path}")
-        schema_contract_sma = parse_enriched_schema_contract_for_sma(target_contract)
-
-        REFERENCE_MANIFEST_PATH = _resolve_mapping_manifest(reference_id)
-        reference_manifest = load_json(str(REFERENCE_MANIFEST_PATH))
-        reference_manifest_path = str(REFERENCE_MANIFEST_PATH)
-
-        # Validate that the reference manifest has the correct institution_id
-        manifest_institution_id = reference_manifest.get("institution_id")
-        if manifest_institution_id != reference_id:
-            raise ValueError(
-                f"Reference manifest institution_id mismatch! "
-                f"Expected '{reference_id}' but manifest contains '{manifest_institution_id}'. "
-                f"Loaded from: {reference_manifest_path}"
-            )
-
-        logger.info(f"Loaded reference manifest from {reference_manifest_path}")
-        logger.info(f"  Reference institution_id: {reference_id}")
-        logger.info(f"  Manifest institution_id: {manifest_institution_id} ✓")
-
-        output_path = (
-            f"pipelines/gen_ai_cleaning/historical_examples/{target_id}/v0/"
-            f"{target_id}_mapping_manifest.json"
+    output_path = str(EVAL_BASE / "scratch" / f"{target_id}_mapping_manifest.json")
+    if STEP2A_TWO_PASS:
+        PROMPT_COHORT = build_step2a_prompt_cohort_pass(
+            institution_id=target_id,
+            output_path=output_path,
+            institution_schema_contract=target_contract,
+            reference_manifests=[reference_manifest],
+            reference_institution_ids=[reference_id],
+            cohort_schema_class=RawEdviseStudentDataSchema,
         )
+        PROMPT_COURSE = build_step2a_prompt_course_pass(
+            institution_id=target_id,
+            output_path=output_path,
+            institution_schema_contract=target_contract,
+            reference_manifests=[reference_manifest],
+            reference_institution_ids=[reference_id],
+            course_schema_class=RawEdviseCourseDataSchema,
+        )
+    else:
+        PROMPT_SINGLE = build_step2a_prompt(
+            institution_id=target_id,
+            output_path=output_path,
+            institution_schema_contract=target_contract,
+            reference_manifests=[reference_manifest],
+            reference_institution_ids=[reference_id],
+            cohort_schema_class=RawEdviseStudentDataSchema,
+            course_schema_class=RawEdviseCourseDataSchema,
+        )
+
+    # ── OpenAI client → Databricks MLflow AI Gateway (SDK bearer; PATs disabled orgs) ──
+    client = create_openai_client_for_databricks_gateway()
+
+    # ── run loop ──────────────────────────────────────────────────────────
+    rows = []
+    total = len(MODELS)
+    i = 1
+
+    for model in MODELS:
+        logger.info(f"[{i}/{total}] Running model={model}")
         if STEP2A_TWO_PASS:
-            PROMPT_COHORT = build_step2a_prompt_cohort_pass(
+            result = run_step2a_two_pass(
+                model,
+                client,
+                PROMPT_COHORT,
+                PROMPT_COURSE,
                 institution_id=target_id,
-                output_path=output_path,
-                institution_schema_contract=target_contract,
-                reference_manifests=[reference_manifest],
-                reference_institution_ids=[reference_id],
-                cohort_schema_class=RawEdviseStudentDataSchema,
-            )
-            PROMPT_COURSE = build_step2a_prompt_course_pass(
-                institution_id=target_id,
-                output_path=output_path,
-                institution_schema_contract=target_contract,
-                reference_manifests=[reference_manifest],
-                reference_institution_ids=[reference_id],
-                course_schema_class=RawEdviseCourseDataSchema,
             )
         else:
-            PROMPT_SINGLE = build_step2a_prompt(
+            result = run_step2a_single_pass(
+                model,
+                client,
+                PROMPT_SINGLE,
                 institution_id=target_id,
-                output_path=output_path,
-                institution_schema_contract=target_contract,
-                reference_manifests=[reference_manifest],
-                reference_institution_ids=[reference_id],
-                cohort_schema_class=RawEdviseStudentDataSchema,
-                course_schema_class=RawEdviseCourseDataSchema,
+            )
+        if result["success"]:
+            logger.info(
+                f"→ done | success={result['success']} | latency={result['latency_s']}s"
+            )
+        else:
+            logger.error(
+                f"→ done | success={result['success']} | latency={result['latency_s']}s | error={result['error']}"
             )
 
-        # ── OpenAI client ─────────────────────────────────────────────────────
-        TOKEN = os.environ.get("DATABRICKS_TOKEN")
-        if not TOKEN:
-            raise ValueError("DATABRICKS_TOKEN environment variable not set")
-        BASE_URL = "https://4437281602191762.ai-gateway.gcp.databricks.com/mlflow/v1"
-        client = OpenAI(
-            api_key=TOKEN,
-            base_url=BASE_URL,
-        )
+        # write manifest JSON under eval workspace on the silver volume
+        slug = folder_slug_2a(model)
+        manifest_dir = EVAL_BASE / slug
+        manifest_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = manifest_dir / f"{target_id}_mapping_manifest.json"
 
-        # ── run loop ──────────────────────────────────────────────────────────
-        rows = []
-        total = len(MODELS)
-        i = 1
+        if result["success"]:
+            try:
+                # pretty-print valid JSON; fall back to raw string if parse fails
+                parsed = json.loads(result["response"])
+                envelope = MappingManifestEnvelope.model_validate(parsed)
+                manifest_path.write_text(
+                    envelope.model_dump_json(indent=2, exclude_none=True)
+                )
+                logger.info(f"→ manifest saved → {manifest_path}")
 
-        for model in MODELS:
-            logger.info(f"[{i}/{total}] Running model={model}")
-            if STEP2A_TWO_PASS:
-                result = run_step2a_two_pass(
-                    model,
-                    client,
-                    PROMPT_COHORT,
-                    PROMPT_COURSE,
+                structural: dict[str, list[dict[str, Any]]] = {}
+                for entity_key, entity_manifest in envelope.manifests.items():
+                    ek = (
+                        entity_key.value
+                        if hasattr(entity_key, "value")
+                        else str(entity_key)
+                    )
+                    errs = validate_manifest(entity_manifest, schema_contract_sma)
+                    structural[ek] = [e.model_dump(mode="json") for e in errs]
+                ve_path = manifest_dir / f"{target_id}_validation_errors.json"
+                ve_path.write_text(json.dumps(structural, indent=2))
+                total_ve = sum(len(v) for v in structural.values())
+                if total_ve:
+                    logger.warning(
+                        f"→ structural validation: {total_ve} issue(s) → {ve_path}"
+                    )
+                else:
+                    logger.info(f"→ structural validation: 0 issues → {ve_path}")
+            except json.JSONDecodeError:
+                manifest_path.write_text(result["response"])
+                logger.warning(
+                    f"→ manifest saved (raw, invalid JSON) → {manifest_path}"
+                )
+            except ValidationError as ve:
+                manifest_path.write_text(json.dumps(parsed, indent=2))
+                logger.warning(
+                    f"→ manifest saved (JSON only; envelope validation failed) → {manifest_path}: {ve}"
+                )
+        else:
+            logger.warning("→ manifest not saved (inference error)")
+
+        # score (Step 2a output vs gold)
+        scores = score_result(result, GOLD_MANIFEST, schema_contract=target_contract)
+        if scores:
+            validation_status = "✓" if scores.get("validation_passed") else "✗"
+            logger.info(
+                f"→ scores | "
+                f"validation={validation_status} | "
+                f"map_decision={scores['overall']['map_decision_accuracy']} | "
+                f"map_prec_strict={scores['overall']['mappable_precision_strict']} | "
+                f"map_rec_strict={scores['overall']['mappable_recall_strict']} | "
+                f"source_exact={scores['overall']['source_exact_accuracy_gold_mappable']} | "
+                f"row_sel={scores['overall']['row_selection_accuracy']} | "
+                f"row_sel_non_anyrow={scores['overall']['row_selection_accuracy_non_anyrow']} | "
+                f"join_f1={scores['overall']['join_f1']} | "
+                f"degree_filter={scores['overall']['degree_filter_accuracy']} | "
+                f"exec_ready={scores['overall']['execution_ready_rate']}"
+            )
+            if not scores.get("validation_passed"):
+                logger.warning(
+                    f"  Validation error: {scores.get('validation_error', 'Unknown error')}"
+                )
+            result["scores"] = scores
+        else:
+            logger.warning("→ scoring skipped (parse failure or inference error)")
+            result["scores"] = None
+
+        result["scores_after_refinement"] = None
+        result["refinement_error"] = None
+        result["refinement_latency_s"] = None
+        result["latency_s_total"] = None
+        result["hitl_items_cohort"] = None
+        result["hitl_items_course"] = None
+        result["structural_errors_after_refinement_total"] = None
+
+        if (
+            RUN_REFINEMENT_AFTER_2A
+            and result["success"]
+            and isinstance(result.get("response"), str)
+            and result["response"].strip()
+        ):
+            try:
+                env_for_ref = MappingManifestEnvelope.model_validate(
+                    json.loads(result["response"])
+                )
+                refined_env, ref_meta = run_refine_on_envelope(
+                    env_for_ref,
                     institution_id=target_id,
+                    schema_contract_sma=schema_contract_sma,
+                    model=model,
+                    client=client,
                 )
-            else:
-                result = run_once(model, PROMPT_SINGLE, client)
-            if result["success"]:
+                refined_text = refined_env.model_dump_json(indent=2, exclude_none=True)
+                refined_manifest_path = (
+                    manifest_dir / f"{target_id}_mapping_manifest_refined.json"
+                )
+                refined_manifest_path.write_text(refined_text)
+                logger.info("→ refined manifest saved → %s", refined_manifest_path)
+
+                if _eval_write_hitl_artifacts_to_workspace():
+                    hitl_map = ref_meta.get("hitl_by_entity") or {}
+                    if isinstance(hitl_map, dict) and hitl_map:
+                        _write_eval_hitl_files_for_refinement(
+                            manifest_dir,
+                            institution_id=target_id,
+                            hitl_by_entity=hitl_map,
+                        )
+
+                structural_refined: dict[str, list[dict[str, Any]]] = {}
+                for entity_key, entity_manifest in refined_env.manifests.items():
+                    ek = (
+                        entity_key.value
+                        if hasattr(entity_key, "value")
+                        else str(entity_key)
+                    )
+                    eerrs = validate_manifest(entity_manifest, schema_contract_sma)
+                    structural_refined[ek] = [e.model_dump(mode="json") for e in eerrs]
+                ve_refined_path = (
+                    manifest_dir
+                    / f"{target_id}_validation_errors_after_refinement.json"
+                )
+                ve_refined_path.write_text(json.dumps(structural_refined, indent=2))
+                total_ver = sum(len(v) for v in structural_refined.values())
                 logger.info(
-                    f"→ done | success={result['success']} | latency={result['latency_s']}s"
-                )
-            else:
-                logger.error(
-                    f"→ done | success={result['success']} | latency={result['latency_s']}s | error={result['error']}"
+                    "→ structural validation after refinement: %d issue(s) → %s",
+                    total_ver,
+                    ve_refined_path,
                 )
 
-            # write manifest JSON to historical examples path
-            slug = folder_slug_2a(model)
-            manifest_dir = HISTORICAL_BASE / slug
-            manifest_dir.mkdir(parents=True, exist_ok=True)
-            manifest_path = manifest_dir / f"{target_id}_mapping_manifest.json"
-
-            if result["success"]:
-                try:
-                    # pretty-print valid JSON; fall back to raw string if parse fails
-                    parsed = json.loads(result["response"])
-                    envelope = MappingManifestEnvelope.model_validate(parsed)
-                    manifest_path.write_text(
-                        envelope.model_dump_json(indent=2, exclude_none=True)
+                refined_result = {
+                    "model": model,
+                    "success": True,
+                    "response": refined_text,
+                }
+                scores_r = score_result(
+                    refined_result,
+                    GOLD_MANIFEST,
+                    schema_contract=target_contract,
+                )
+                result["scores_after_refinement"] = scores_r
+                result["refinement_latency_s"] = ref_meta["refinement_latency_s"]
+                result["latency_s_total"] = round(
+                    float(result["latency_s"] or 0)
+                    + float(ref_meta["refinement_latency_s"]),
+                    3,
+                )
+                hmap = ref_meta["hitl_items_by_entity"]
+                result["hitl_items_cohort"] = hmap.get("cohort")
+                result["hitl_items_course"] = hmap.get("course")
+                result["structural_errors_after_refinement_total"] = total_ver
+                if scores_r:
+                    rs = "✓" if scores_r.get("validation_passed") else "✗"
+                    logger.info(
+                        "→ scores (after refinement) | validation=%s | "
+                        "map_decision=%s | map_prec_strict=%s | map_rec_strict=%s | "
+                        "source_exact=%s | exec_ready=%s | hitl_items=(cohort=%s, course=%s)",
+                        rs,
+                        scores_r["overall"]["map_decision_accuracy"],
+                        scores_r["overall"]["mappable_precision_strict"],
+                        scores_r["overall"]["mappable_recall_strict"],
+                        scores_r["overall"]["source_exact_accuracy_gold_mappable"],
+                        scores_r["overall"]["execution_ready_rate"],
+                        result["hitl_items_cohort"],
+                        result["hitl_items_course"],
                     )
-                    logger.info(f"→ manifest saved → {manifest_path}")
+            except Exception as exc:
+                result["refinement_error"] = str(exc)
+                logger.exception("[eval] Refinement failed for model=%s", model)
 
-                    structural: dict[str, list[dict[str, Any]]] = {}
-                    for entity_key, entity_manifest in envelope.manifests.items():
-                        ek = (
-                            entity_key.value
-                            if hasattr(entity_key, "value")
-                            else str(entity_key)
-                        )
-                        errs = validate_manifest(entity_manifest, schema_contract_sma)
-                        structural[ek] = [e.model_dump(mode="json") for e in errs]
-                    ve_path = manifest_dir / f"{target_id}_validation_errors.json"
-                    ve_path.write_text(json.dumps(structural, indent=2))
-                    total_ve = sum(len(v) for v in structural.values())
-                    if total_ve:
-                        logger.warning(
-                            f"→ structural validation: {total_ve} issue(s) → {ve_path}"
-                        )
-                    else:
-                        logger.info(f"→ structural validation: 0 issues → {ve_path}")
-                except json.JSONDecodeError:
-                    manifest_path.write_text(result["response"])
-                    logger.warning(
-                        f"→ manifest saved (raw, invalid JSON) → {manifest_path}"
-                    )
-                except ValidationError as ve:
-                    manifest_path.write_text(json.dumps(parsed, indent=2))
-                    logger.warning(
-                        f"→ manifest saved (JSON only; envelope validation failed) → {manifest_path}: {ve}"
-                    )
-            else:
-                logger.warning("→ manifest not saved (inference error)")
+        rows.append(result)
+        i += 1
 
-            # score
-            scores = score_result(
-                result, GOLD_MANIFEST, schema_contract=target_contract
+    # ── execution summary ─────────────────────────────────────────────────
+    logger.info("\n" + "=" * 80)
+    logger.info("EXECUTION SUMMARY")
+    logger.info("=" * 80)
+    for r in rows:
+        status = "✓ SUCCESS" if r["success"] else "✗ FAILED"
+        lat_note = ""
+        if r.get("latency_s_total") is not None:
+            lat_note = (
+                f" | total incl. refinement: {r['latency_s_total']}s "
+                f"(refine {r.get('refinement_latency_s')}s)"
             )
-            if scores:
-                validation_status = "✓" if scores.get("validation_passed") else "✗"
-                logger.info(
-                    f"→ scores | "
-                    f"validation={validation_status} | "
-                    f"map_decision={scores['overall']['map_decision_accuracy']} | "
-                    f"map_prec_strict={scores['overall']['mappable_precision_strict']} | "
-                    f"map_rec_strict={scores['overall']['mappable_recall_strict']} | "
-                    f"source_exact={scores['overall']['source_exact_accuracy_gold_mappable']} | "
-                    f"row_sel={scores['overall']['row_selection_accuracy']} | "
-                    f"row_sel_non_anyrow={scores['overall']['row_selection_accuracy_non_anyrow']} | "
-                    f"join_f1={scores['overall']['join_f1']} | "
-                    f"degree_filter={scores['overall']['degree_filter_accuracy']} | "
-                    f"exec_ready={scores['overall']['execution_ready_rate']}"
-                )
-                if not scores.get("validation_passed"):
-                    logger.warning(
-                        f"  Validation error: {scores.get('validation_error', 'Unknown error')}"
-                    )
-                result["scores"] = scores
-            else:
-                logger.warning("→ scoring skipped (parse failure or inference error)")
-                result["scores"] = None
+        logger.info(f"{status}: {r['model']} (2a latency: {r['latency_s']}s){lat_note}")
+        if not r["success"]:
+            error_preview = (
+                r["error"][:200] + "..."
+                if len(r.get("error", "")) > 200
+                else r.get("error", "")
+            )
+            logger.info(f"  Error: {error_preview}")
+    logger.info("=" * 80 + "\n")
 
-            rows.append(result)
-            i += 1
+    # ── outputs ───────────────────────────────────────────────────────────
+    df = pd.DataFrame(rows)
 
-        # ── execution summary ─────────────────────────────────────────────────
-        logger.info("\n" + "=" * 80)
-        logger.info("EXECUTION SUMMARY")
-        logger.info("=" * 80)
-        for r in rows:
-            status = "✓ SUCCESS" if r["success"] else "✗ FAILED"
-            logger.info(f"{status}: {r['model']} (latency: {r['latency_s']}s)")
-            if not r["success"]:
-                error_preview = (
-                    r["error"][:200] + "..."
-                    if len(r.get("error", "")) > 200
-                    else r.get("error", "")
-                )
-                logger.info(f"  Error: {error_preview}")
-        logger.info("=" * 80 + "\n")
+    # raw results (one row per model)
+    raw_path = OUTPUT_DIR / f"raw_{RUN_ID}.csv"
+    df.drop(
+        columns=["scores", "field_scores", "scores_after_refinement"],
+        errors="ignore",
+    ).to_csv(raw_path, index=False)
+    logger.info(f"Raw results saved → {raw_path}")
 
-        # ── outputs ───────────────────────────────────────────────────────────
-        df = pd.DataFrame(rows)
+    # summary metrics (one row per model)
+    summary_rows = []
+    for r in rows:
+        row_data = {
+            "model": r["model"],
+            "latency_s": r["latency_s"],
+            "response_chars": r["response_chars"],
+            "success": r["success"],
+            "error": r.get("error"),
+        }
+        if r.get("step2a_parse_retry_enabled"):
+            row_data["step2a_llm_calls"] = r.get("step2a_llm_calls")
+            row_data["step2a_envelope_attempts_used"] = r.get(
+                "step2a_envelope_attempts_used"
+            )
+            row_data["step2a_parse_retry_enabled"] = True
+        if r["scores"] is not None:
+            row_data.update(
+                {
+                    "validation_passed": r["scores"].get("validation_passed"),
+                    "validation_error": r["scores"].get("validation_error"),
+                    **{f"overall_{k}": v for k, v in r["scores"]["overall"].items()},
+                    **{
+                        f"cohort_{k}": v
+                        for k, v in r["scores"]["cohort"].items()
+                        if k != "field_scores"
+                    },
+                    **{
+                        f"course_{k}": v
+                        for k, v in r["scores"]["course"].items()
+                        if k != "field_scores"
+                    },
+                }
+            )
+        if r.get("refinement_latency_s") is not None:
+            row_data["refinement_latency_s"] = r["refinement_latency_s"]
+        if r.get("latency_s_total") is not None:
+            row_data["latency_s_total"] = r["latency_s_total"]
+        if r.get("refinement_error") is not None:
+            row_data["refinement_error"] = r["refinement_error"]
+        if r.get("hitl_items_cohort") is not None:
+            row_data["hitl_items_cohort"] = r["hitl_items_cohort"]
+        if r.get("hitl_items_course") is not None:
+            row_data["hitl_items_course"] = r["hitl_items_course"]
+        if r.get("structural_errors_after_refinement_total") is not None:
+            row_data["structural_errors_after_refinement_total"] = r[
+                "structural_errors_after_refinement_total"
+            ]
+        sr = r.get("scores_after_refinement")
+        if sr:
+            row_data["refined_validation_passed"] = sr.get("validation_passed")
+            row_data["refined_validation_error"] = sr.get("validation_error")
+            row_data.update(
+                {f"refined_overall_{k}": v for k, v in sr["overall"].items()}
+            )
+            row_data.update(
+                {
+                    f"refined_cohort_{k}": v
+                    for k, v in sr["cohort"].items()
+                    if k != "field_scores"
+                }
+            )
+            row_data.update(
+                {
+                    f"refined_course_{k}": v
+                    for k, v in sr["course"].items()
+                    if k != "field_scores"
+                }
+            )
+        summary_rows.append(row_data)
 
-        # raw results (one row per model)
-        raw_path = OUTPUT_DIR / f"raw_{RUN_ID}.csv"
-        df.drop(columns=["scores", "field_scores"], errors="ignore").to_csv(
-            raw_path, index=False
-        )
-        logger.info(f"Raw results saved → {raw_path}")
+    summary_df = pd.DataFrame(summary_rows)
+    summary_path = OUTPUT_DIR / f"summary_{RUN_ID}.csv"
+    summary_df.to_csv(summary_path, index=False)
+    logger.info(f"Summary saved → {summary_path}")
 
-        # summary metrics (one row per model)
-        summary_rows = []
-        for r in rows:
-            row_data = {
-                "model": r["model"],
-                "latency_s": r["latency_s"],
-                "response_chars": r["response_chars"],
-                "success": r["success"],
-                "error": r.get("error"),
-            }
-            if r["scores"] is not None:
-                row_data.update(
-                    {
-                        "validation_passed": r["scores"].get("validation_passed"),
-                        "validation_error": r["scores"].get("validation_error"),
-                        **{
-                            f"overall_{k}": v for k, v in r["scores"]["overall"].items()
-                        },
-                        **{
-                            f"cohort_{k}": v
-                            for k, v in r["scores"]["cohort"].items()
-                            if k != "field_scores"
-                        },
-                        **{
-                            f"course_{k}": v
-                            for k, v in r["scores"]["course"].items()
-                            if k != "field_scores"
-                        },
-                    }
-                )
-            summary_rows.append(row_data)
-
-        summary_df = pd.DataFrame(summary_rows)
-        summary_path = OUTPUT_DIR / f"summary_{RUN_ID}.csv"
-        summary_df.to_csv(summary_path, index=False)
-        logger.info(f"Summary saved → {summary_path}")
-
-        # field-level detail (one row per model x field)
-        field_rows = []
-        for r in rows:
-            if r["scores"] is None:
-                continue
+    # field-level detail (one row per model x field)
+    field_rows = []
+    for r in rows:
+        if r["scores"] is not None:
             for entity in ("cohort", "course"):
                 for fs in r["scores"][entity]["field_scores"]:
-                    field_rows.append({"model": r["model"], **fs})
+                    field_rows.append({"model": r["model"], "stage": "2a", **fs})
+        sr = r.get("scores_after_refinement")
+        if sr:
+            for entity in ("cohort", "course"):
+                for fs in sr[entity]["field_scores"]:
+                    field_rows.append(
+                        {
+                            "model": r["model"],
+                            "stage": "after_refinement",
+                            **fs,
+                        }
+                    )
 
-        field_df = pd.DataFrame(field_rows)
-        field_path = OUTPUT_DIR / f"field_detail_{RUN_ID}.csv"
-        field_df.to_csv(field_path, index=False)
-        logger.info(f"Field detail saved → {field_path}")
+    field_df = pd.DataFrame(field_rows)
+    field_path = OUTPUT_DIR / f"field_detail_{RUN_ID}.csv"
+    field_df.to_csv(field_path, index=False)
+    logger.info(f"Field detail saved → {field_path}")
 
-        # print summary table
-        if not summary_df.empty:
-            # Build column list, including validation_passed if it exists
-            cols = ["model", "latency_s"]
-            if "validation_passed" in summary_df.columns:
-                cols.append("validation_passed")
-            cols.extend(
-                [
-                    "overall_map_decision_accuracy",
-                    "overall_mappable_precision_strict",
-                    "overall_mappable_recall_strict",
-                    "overall_source_exact_accuracy_gold_mappable",
-                    "overall_row_selection_accuracy",
-                    "overall_row_selection_accuracy_non_anyrow",
-                    "overall_join_f1",
-                    "overall_join_table_accuracy",
-                    "overall_join_key_accuracy",
-                    "overall_degree_filter_accuracy",
-                    "overall_exact_field_match_rate",
-                    "overall_execution_ready_rate",
-                ]
-            )
-            # Only include columns that exist in the dataframe
-            cols = [c for c in cols if c in summary_df.columns]
-            logger.info("\n" + summary_df[cols].to_string(index=False))
-    finally:
-        os.chdir(original_cwd)
+    # print summary table
+    if not summary_df.empty:
+        # Build column list, including validation_passed if it exists
+        cols = ["model", "latency_s"]
+        if "refinement_latency_s" in summary_df.columns:
+            cols.append("refinement_latency_s")
+        if "latency_s_total" in summary_df.columns:
+            cols.append("latency_s_total")
+        if "validation_passed" in summary_df.columns:
+            cols.append("validation_passed")
+        cols.extend(
+            [
+                "overall_map_decision_accuracy",
+                "overall_mappable_precision_strict",
+                "overall_mappable_recall_strict",
+                "overall_source_exact_accuracy_gold_mappable",
+                "overall_row_selection_accuracy",
+                "overall_row_selection_accuracy_non_anyrow",
+                "overall_join_f1",
+                "overall_join_table_accuracy",
+                "overall_join_key_accuracy",
+                "overall_degree_filter_accuracy",
+                "overall_exact_field_match_rate",
+                "overall_execution_ready_rate",
+            ]
+        )
+        cols.extend(
+            [
+                c
+                for c in (
+                    "refined_validation_passed",
+                    "refined_overall_map_decision_accuracy",
+                    "refined_overall_mappable_precision_strict",
+                    "refined_overall_mappable_recall_strict",
+                    "refined_overall_source_exact_accuracy_gold_mappable",
+                    "refined_overall_execution_ready_rate",
+                    "hitl_items_cohort",
+                    "hitl_items_course",
+                )
+                if c in summary_df.columns
+            ]
+        )
+        # Only include columns that exist in the dataframe
+        cols = [c for c in cols if c in summary_df.columns]
+        logger.info("\n" + summary_df[cols].to_string(index=False))
 
 
 if __name__ == "__main__":

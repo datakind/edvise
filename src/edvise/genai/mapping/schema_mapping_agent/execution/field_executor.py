@@ -7,7 +7,8 @@ as the complete sourcing specification.
 Execution model (per field):
     1. Read FieldMappingRecord from manifest — complete sourcing spec
     2. Resolve source Series — always returns len(base_df) rows:
-       a. Same-table: direct column access
+       a. Same-table: direct column access; optional row_selection.filter masks
+          non-matching rows to NA for this field only
        b. Cross-table: merge base ← lookup, select correct value per base row
     3. Run transformation steps (pure Series → Series)
     4. Reduce to one value per entity using row_selection + entity_keys
@@ -199,7 +200,8 @@ def resolve_source_series(
 
     Three cases:
         1. Unmappable / constant — source_column is None → return None
-        2. Same-table — direct column access, returns len(base_df) rows
+        2. Same-table — direct column access, returns len(base_df) rows; when
+           row_selection.filter is set, values are NA where the filter does not pass
         3. Cross-table — merge base ← lookup, selects correct value per base row,
                          returns len(base_df) rows
 
@@ -250,7 +252,19 @@ def _resolve_same_table_series(
             "If this column exists on another dataset, use a cross-table join."
         )
 
-    return base_df[record.source_column].reset_index(drop=True)
+    s = base_df[record.source_column]
+    rs = record.row_selection
+    if rs and rs.filter:
+        fc = rs.filter.column
+        if fc not in base_df.columns:
+            raise KeyError(
+                f"row_selection.filter column '{fc}' not found in '{record.source_table}' "
+                f"(base table '{base_table}'). Available: {list(base_df.columns)}."
+            )
+        mask = _joinfilter_pass_mask(base_df, rs.filter)
+        s = s.where(mask, other=pd.NA)
+
+    return s.reset_index(drop=True)
 
 
 def _coerce_join_frames_for_merge(
@@ -571,6 +585,10 @@ def _apply_grain_reduction(
     For where_not_null: entities with no non-null row produce NA rather than
     being dropped — all entities are preserved in the output.
 
+    Same-table ``first_by`` with ``row_selection.filter``: rows failing the filter
+    are excluded **before** sort/dedup so ordering picks the first passing row
+    per entity (matches cross-table lookup filter semantics).
+
     Args:
         s: Transformed Series of len(base_df) — values in target space
         record: FieldMappingRecord with row_selection config
@@ -616,9 +634,11 @@ def _apply_grain_reduction(
                 f"first_by order_by '{rs.order_by}' not found in base DataFrame "
                 f"for field '{record.target_field}'"
             )
+        df_work = base_df.assign(_s=s.values)
+        if rs.filter:
+            df_work = df_work.loc[_joinfilter_pass_mask(base_df, rs.filter)]
         reduced = (
-            base_df.assign(_s=s.values)
-            .sort_values(rs.order_by, ascending=True)
+            df_work.sort_values(rs.order_by, ascending=True)
             .drop_duplicates(subset=entity_keys, keep="first")[entity_keys + ["_s"]]
             .reset_index(drop=True)
         )
@@ -691,6 +711,8 @@ def _accumulate_required_source_columns_for_plan(
     required[st].add(eff)
     if not rs:
         return
+    if rs.filter:
+        required[st].add(rs.filter.column)
     if rs.strategy == RowSelectionStrategy.first_by and rs.order_by:
         required[st].add(rs.order_by)
     if rs.strategy == RowSelectionStrategy.where_not_null and rs.condition_col:
@@ -1013,17 +1035,20 @@ def _validate_columns(
         )
 
 
-def _apply_filter(df: pd.DataFrame, f: JoinFilter) -> pd.DataFrame:
-    """Apply a structured JoinFilter to a DataFrame."""
+def _joinfilter_pass_mask(df: pd.DataFrame, f: JoinFilter) -> pd.Series:
+    """Boolean mask — True where ``df`` satisfies ``f`` (same semantics as lookup filtering)."""
     col = df[f.column].astype("string")
     if f.operator == "contains":
-        mask = col.str.contains(str(f.value), na=False, regex=False)
-    elif f.operator == "equals":
-        mask = col == str(f.value)
-    elif f.operator == "startswith":
-        mask = col.str.startswith(str(f.value), na=False)
-    elif f.operator == "isin":
-        mask = col.isin([str(v) for v in f.value])
-    else:
-        raise ValueError(f"Unknown filter operator: {f.operator}")
-    return df[mask].copy()
+        return col.str.contains(str(f.value), na=False, regex=False)
+    if f.operator == "equals":
+        return col == str(f.value)
+    if f.operator == "startswith":
+        return col.str.startswith(str(f.value), na=False)
+    if f.operator == "isin":
+        return col.isin([str(v) for v in f.value])
+    raise ValueError(f"Unknown filter operator: {f.operator}")
+
+
+def _apply_filter(df: pd.DataFrame, f: JoinFilter) -> pd.DataFrame:
+    """Apply a structured JoinFilter to a DataFrame."""
+    return df[_joinfilter_pass_mask(df, f)].copy()

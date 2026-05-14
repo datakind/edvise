@@ -90,38 +90,40 @@ Those five are the **only** RawEdvise columns that carry completion **timing** a
 *(Other datetimes on the schema are not completion — e.g. `matriculation_date` is matriculation / entry timing.)*
 
 **Transformation plans for conferral / certificate dates**
-- Follow **COHORT degree- and certificate-related DATETIME** rules below — joins to degree/award rows,
-  `_edvise_term_*` on that row when contracted, student-side **datetime** when it is true conferral timing,
-  raw award codes for Step 2b parsing when IA columns are missing.
+- Follow **COHORT degree- and certificate-related DATETIME** rules below. The manifest will have
+  resolved each target to a single `source_column` that is either a true calendar datetime or a
+  raw term-code column on the wide student row or on a joined award/degree lookup row.
+- IdentityAgent `_edvise_term_*` columns are never a legal manifest source for these targets —
+  if the manifest points at one, that is a manifest bug; emit `hook_required: true` with empty
+  `steps` and `reviewer_notes` flagging it.
 - Do **not** treat `entry_term` / student `_edvise_term_*` as conferral completion proxies.
 """
 
 
 def _step2b_cross_table_degree_datetime_rules() -> str:
-    """Step 2b: degree conferral / certificate dates from joined lookup tables."""
+    """Step 2b: degree conferral / certificate dates from a single source column."""
     return """
-COHORT degree- and certificate-related DATETIME fields (cross-table joins to degree or similar)
+COHORT degree- and certificate-related DATETIME fields
 
-These targets include e.g. `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
-`certificate1_date`, `certificate2_date`, `certificate3_date` when the mapping manifest uses a
-lookup table (e.g. `degree`) with filters and `row_selection`, or a **true calendar datetime / date**
-column on wide `student`. The manifest must **not** source conferral-style targets from `student._edvise_term_*`
-(entry semantics — handle timing via degree-row IA columns, award-row raw codes, or Step 2b parsing).
+Targets: `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
+`certificate1_date`, `certificate2_date`, `certificate3_date`.
 
-**(1) Manifest `source_column` is IdentityAgent term metadata — REQUIRED shape**
-- If the manifest's `source_column` for the field is `_edvise_term_academic_year` (or another IA
-  academic-year column on the **lookup** row), the resolved Series is already that column after the join.
-  Use:
-  - `strip_whitespace` then `term_components_to_datetime` with
-    `extra_columns`: `{"season_series": "_edvise_term_season"}`
-  - Do **not** substitute `coerce_datetime` on raw institution `term` / YYYYMM / term-code columns for
-    these targets — even when `schema_contract` sample_values for `term` look easy to parse. Parsing
-    `term` when the manifest sourced `_edvise_term_academic_year` ignores the manifest and breaks
-    alignment with IdentityAgent normalization.
-- Do **not** use `term_components_to_datetime` with **`student._edvise_term_*`** for these conferral targets;
-  if the manifest incorrectly points there, prefer empty `steps` with **reviewer_notes** calling out the manifest fix.
+The Step 2a manifest always resolves these to a single `source_column` that is **either** a
+true calendar datetime **or** a raw term-code column whose token embeds the season.
+IdentityAgent `_edvise_term_*` columns are never a legal manifest source for conferral
+targets (the manifest carries one `source_column` per record and the executor cannot
+co-resolve a paired `_edvise_term_season` from the same selected lookup row). If you ever
+see `_edvise_term_academic_year` or `_edvise_term_season` as the manifest `source_column`
+for one of these targets, that is a manifest error: emit empty `steps` with
+`hook_required: true` and `reviewer_notes` explicitly flagging the manifest fix.
 
-**(2) Manifest `source_column` is a raw term code column — format-driven with column grounding**
+**(1) Manifest `source_column` is a true calendar datetime / date**
+- The manifest sourced a `datetime64[ns]` (or date-typed) column directly. Use no
+  transformation steps, or at most a single `coerce_datetime` cast if the contract dtype
+  is string but sample_values are unambiguous calendar timestamps.
+- High confidence; no `review_required` unless coercion is uncertain.
+
+**(2) Manifest `source_column` is a raw term-code column — format-driven with column grounding**
 
 COLUMN GROUNDING (critical): derive format exclusively from the manifest's `source_column`
 own `sample_values` in the schema contract. Never inherit format assumptions from any other
@@ -137,45 +139,89 @@ the season map covers all observed fragments. Still flag `review_required: true`
 column encoding is uncertain. Do NOT apply a season_map from a different encoding
 scheme (e.g. entry term Season_YYYY season_map applied to a YYYYMM conferral column).
 
+This branch applies whether the manifest's `source_table` is an award/degree lookup
+(joined from student) or the wide student row directly. Step 2a handles join + filter +
+order; the resolved Series arrives at Step 2b as a single value per student.
+
+CONFERRAL-STYLE DATETIME — EXACT ``function_name`` VALUES (copy these strings into JSON)
+- ``compact_term_code_to_conferral_date`` — **one** resolved source column with **contiguous** compact tokens such as
+  ``2025SP``, ``2024FA``, ``2015S1`` (4-digit year immediately followed by the suffix; **no** space or punctuation
+  between year and season). Values like ``2019 Spring`` or ``2020-Fall`` are **not** compact: ``strip_whitespace``
+  only trims ends and will **not** produce a valid token — insert ``map_values`` first (each observed raw string → a
+  contiguous code, e.g. ``2019 Spring`` → ``2019SP``) then ``compact_term_code_to_conferral_date``. When samples are
+  already contiguous, typical chain: ``strip_whitespace`` → ``compact_term_code_to_conferral_date`` only (no
+  ``extract_year`` before it).
+- ``academic_year_and_canonical_season_to_conferral_date`` — **two** inputs: the pipelined ``column`` must carry
+  a 4-digit calendar year (string may embed it, e.g. ``2022-23``); ``extra_columns`` must include
+  ``{{"season_series": "<name of a real base-table column>"}}`` whose values are canonical FALL / SPRING /
+  SUMMER / WINTER. Use only when both columns exist on the cohort **base** table.
+
+HOW TO CHOOSE CONFERRAL UTILITIES (executor contract — read before picking steps)
+- Infer cohort **execution base table** the same way Step 2a does: first manifest mapping with a join →
+  that join's `base_table` (almost always `student` for cohort); otherwise the mode of non-null `source_table`.
+- Compare this target's manifest **`source_table`** to that base:
+  - **Lookup / not the base** (e.g. `degree`, `term` while base is `student`): Step 2b only ever receives **one**
+    resolved Series — the manifest's `source_column` after join + row_selection. There is **no** second lookup
+    column on the base frame, and **prior-step outputs are not base-table columns**. Therefore you **must not**
+    use `academic_year_and_canonical_season_to_conferral_date` or `term_components_to_datetime` here (they need `extra_columns` from
+    **physical base-table columns**). For one token that encodes year + season as a **contiguous** compact code
+    (``2025SP``, ``2024FA``, …): `strip_whitespace` → `compact_term_code_to_conferral_date`. If samples show a
+    separator (e.g. ``2019 Spring``), add `map_values` before `compact_term_code_to_conferral_date` as in the
+    YYYY+suffix rules below. For true YYYYMM calendar encodings on that same
+    single column: `strip_trailing_decimal` → `coerce_datetime(fmt="%Y%m")` when justified by sample_values.
+    If the format needs a year column + a separate season column but only one lookup column exists →
+    `hook_required: true`, empty `steps`, explain in `reviewer_notes` (executor gap).
+  - **Same as base** (manifest `source_table` equals cohort base, typically `student`): you **may** use
+    `academic_year_and_canonical_season_to_conferral_date` or `term_components_to_datetime` **only if** `extra_columns` names real
+    columns that **exist on that base table** in the cleaned data (e.g. `_edvise_term_academic_year` bound as
+    the primary `column` / pipelined series and `_edvise_term_season` in `extra_columns` — but conferral
+    targets must not source `_edvise_term_*` as the manifest `source_column` per rules above; this case is
+    rare for conferral and usually means a different target or a wide row with paired columns).
+
+- **YYYY + compact season suffix** (e.g. ``2025SP``, ``2024FA``, ``2015S1`` — year and suffix **touching**):
+  - If sample_values show a **separator** between the year and season words (space, hyphen, slash), treat as **not**
+    compact: `strip_whitespace` → `map_values` (distinct raw strings → contiguous tokens such as ``2019SP``) →
+    `compact_term_code_to_conferral_date` on the **same** pipelined Series. (This is not using `map_values` output as
+    `extra_columns` — it is normalizing the token before the compact parser.)
+  - When values are already contiguous compact codes: `strip_whitespace` → `compact_term_code_to_conferral_date` — **one
+    Series only**; do not chain `academic_year_and_canonical_season_to_conferral_date` with `extra_columns` here (lookup
+    columns like `term` are not on the cohort base table, and you cannot point `extra_columns` at prior-step output).
+  - Flag `review_required: true` when suffix coverage is inferred from sample_values.
+
 - **YYYYMM-style compact numeric** (e.g. sample_values show "202301.0", "202305.0"):
   - `strip_trailing_decimal` → leaves "202301", "202305"
   - Inspect digits 5–6 to classify: if they correspond to calendar months (01–12 with plausible
     distribution across all 12), treat as true YYYYMM → `coerce_datetime(fmt="%Y%m")`.
   - If digits 5–6 appear to be season codes (e.g. only "01", "05", "08" appear — sparse, not all
-    12 months): `strip_trailing_decimal` → `extract_year` → `map_values` (season fragment → canonical
-    label, inferred from sample_values) → `term_season_to_conferral_date` with `extra_columns`
-    `season_series` bound to the `map_values` output column (intermediate column must be available on
-    the resolved execution frame — document in reviewer_notes if the executor must alias it).
-  - Season fragment `map_values` is always flagged: `reason=inferred_season_mapping`, `context` includes
-    `sample_values` and inferred mapping dict, `review_required: true`, confidence ≤
-    PIPELINE_HITL_CONFIDENCE_THRESHOLD.
+    12 months): **do not** chain to `academic_year_and_canonical_season_to_conferral_date` when the manifest `source_table` is a
+    **lookup** — `map_values` output is not a base-table column and cannot be passed via `extra_columns`.
+    Prefer `hook_required: true` with empty `steps` and `reviewer_notes` describing the encoding until a
+    single-Series utility or manifest change exists. If the manifest `source_table` **is** the cohort base and
+    two **physical** base columns supply year fragment + season fragment, you may design a base-table-only
+    chain; otherwise do not simulate paired columns through Step 2b alone.
+  - Any inferred season fragment `map_values` on conferral: flag `reason=inferred_season_mapping`,
+    `review_required: true`, confidence ≤ PIPELINE_HITL_CONFIDENCE_THRESHOLD when applicable.
 
 - **Season_YYYY string** (e.g. "Fall 2023", "Spring 2022"):
-  - `strip_whitespace` → `map_values` (season token → canonical label) → `term_season_to_conferral_date`
+  - Only when the manifest `source_column` lives on the **cohort base table** so a second column for
+    `academic_year_and_canonical_season_to_conferral_date` can legally be resolved: e.g. split into year + season columns that
+    both exist on `student`, or use `compact_term_code_to_conferral_date` / `coerce_datetime` if a single
+    token column is easier.
+  - If you truly have paired year and season **as base-table columns**, you may use
+    `academic_year_and_canonical_season_to_conferral_date` with `extra_columns` pointing only at those base columns — never at
+    a joined lookup-only column.
   - `map_values` is flagged: `reason=inferred_season_mapping` unless `unique_values` provides complete
     explicit coverage.
 
 - **Opaque format** — cannot classify from sample_values alone:
   - `hook_required: true`, empty `steps`, `reviewer_notes` explaining what was observed.
 
-**(2b) Raw term code on the wide student row (no degree lookup table)**
-
-TERM CONFIG CONTEXT (when provided): If `institution_term_config` is present in the
-prompt, inspect the `season_map` for the dataset whose term column most plausibly
-matches the conferral source column's encoding. Use it to pre-fill the `map_values`
-mapping rather than inferring from sample_values alone — this raises confidence when
-the season map covers all observed fragments. Still flag `review_required: true` and
-`reason: inferred_season_mapping` when the match between term config and conferral
-column encoding is uncertain. Do NOT apply a season_map from a different encoding
-scheme (e.g. entry term Season_YYYY season_map applied to a YYYYMM conferral column).
-
-- Same format classification and utility chain as **(2)** above.
-- `source_table` is the student base table, `row_selection.strategy`: `any_row`.
+When the manifest's `source_table` is the wide student row (no degree lookup), additionally:
 - Always lower confidence, `review_required: true`.
 - `reviewer_notes` must state: proxy conferral date from student row term code, no degree lookup
   available, lossiness is intentional.
 
-**(3) Unmappable / non-datetime source in manifest**
+**(3) Unmappable / non-datetime, non-term-code source in manifest**
 - Empty `steps` and explain in `reviewer_notes`; do not invent a datetime pipeline.
 """
 
@@ -197,9 +243,10 @@ CONFIDENCE SCORING
 - **≤ {t}** — `review_required` must be true; always set when:
   - `map_values` mapping was inferred from sample_values rather than explicit schema evidence;
   - format was ambiguous and a utility chain was chosen by best-guess;
-  - source column is an **uncontracted** semantic proxy — e.g. entry-term or student `_edvise_term_*`
-    used for **conferral / completion datetime** targets when the manifest does not document that
-    shortcut (see COHORT degree- and certificate-related DATETIME rules);
+  - manifest `source_column` for a **conferral / completion datetime** target is an IdentityAgent
+    `_edvise_term_*` column (the manifest validator should have rejected this; if it slipped through,
+    emit `hook_required: true` with empty `steps` and flag the manifest fix in `reviewer_notes` —
+    see COHORT degree- and certificate-related DATETIME rules);
   - term code column required season fragment extraction and mapping.
 
 MAPPING PROXY VS MANIFEST-CONTRACTED SOURCE
@@ -261,13 +308,13 @@ def _step2b_term_config_context(institution_term_config: dict) -> str:
     return (
         "<institution_term_config>\n"
         "IdentityAgent term normalization output for this institution. "
-        "Use ONLY to inform season fragment mapping decisions on raw term code "
-        "conferral date columns (cases 2 and 2b in COHORT degree- and "
-        "certificate-related DATETIME rules). Do NOT use to override the "
-        "manifest's source_column choice. Do NOT apply entry term season_map "
-        "to a conferral column without first verifying via sample_values that "
-        "both columns share the same encoding — different columns on the same "
-        "table routinely use different term encodings.\n"
+        "Use ONLY to inform season fragment mapping decisions on raw term-code "
+        "conferral date columns (case 2 in COHORT degree- and certificate-related "
+        "DATETIME rules). Do NOT use to override the manifest's source_column "
+        "choice. Do NOT apply entry term season_map to a conferral column without "
+        "first verifying via sample_values that both columns share the same "
+        "encoding — different columns on the same table routinely use different "
+        "term encodings.\n"
         f"{json.dumps(institution_term_config, indent=2)}\n"
         "</institution_term_config>"
     )
@@ -417,8 +464,8 @@ SOURCE COLUMN FORMAT AWARENESS
   choose the utility that matches that format exactly **for fields where the manifest sources that column**
 - Do not assume a column's format from its name alone — verify against sample_values in the schema contract
 - For cross-table degree/certificate datetime fields, follow **COHORT degree- and certificate-related DATETIME**
-  rules below: do not pick utilities from raw `term` sample_values when the manifest sourced
-  `_edvise_term_academic_year` (or another manifest-listed IA academic-year column on that row)
+  rules below: the manifest's `source_column` is the only signal — choose utilities from that column's own
+  `sample_values`, never from a different term column visible in the contract
 
 OUTPUT DTYPES
 - Set output_dtype to the RawEdvise / pandas name: "string", "Int64", "Float64" (extension dtypes — not numpy int64/float64), "category" (Pandera categoricals: entry_term, academic_term, pell_recipient_year1, term_pell_recipient), "boolean", "datetime64[ns]".
@@ -427,6 +474,11 @@ OUTPUT DTYPES
 
 STEP ORDERING
 - Apply string cleaning (strip_whitespace, lowercase, uppercase) before value mapping
+- Never place `extract_year` before `compact_term_code_to_conferral_date` in the same plan — the compact
+  parser needs the full token (e.g. 2025SP) on the pipelined Series. Schema validation rejects that order.
+  For chains that use `map_values` on full tokens then `extract_year` for
+  `academic_year_and_canonical_season_to_conferral_date`, run `map_values` **before**
+  `extract_year`.
 - If map_values key matching depends on a normalized form (e.g. uppercase grade tokens),
   apply the normalizing step (normalize_grade, uppercase, etc.) BEFORE map_values —
   not after. The map keys must match the values that actually arrive at that step.
@@ -442,10 +494,15 @@ STEP ORDERING
 EXTRA COLUMNS
 - Some utilities require extra_columns
   (e.g., birthyear_to_age_bucket needs reference_year_series, conditional_credits needs grade_series,
-  term_components_to_datetime needs season_series bound to the manifest's paired IA season column —
-  typically ``_edvise_term_season`` alongside ``_edvise_term_academic_year``)
+  term_components_to_datetime / academic_year_and_canonical_season_to_conferral_date need a second column on the **base** table)
 - Specify extra_columns as a dict mapping parameter names to source column names: {{"param_name": "column_name"}}
-- These columns are resolved from the base DataFrame before the step runs
+- These columns are resolved from the base DataFrame before the step runs — they must already exist
+  on the base DataFrame in source space. Do **not** name a column from a joined lookup table here;
+  the cross-table resolver only fetches the manifest's `source_column`, not arbitrary co-resolved
+  columns from the same selected lookup row. The output of an earlier Step 2b step is **not** a new
+  base-table column — you cannot point `extra_columns` at ``"term"`` (or any lookup-only field) to
+  stand in for a prior `map_values` result; use `compact_term_code_to_conferral_date` for single-token
+  codes like ``2025SP`` from degree/award lookups instead.
 
 NULL HANDLING
 - Missing values are already pd.NA upstream. Do not fill nulls with invented labels

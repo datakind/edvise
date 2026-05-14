@@ -20,6 +20,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
     SMAHITLItem,
     SMAHITLOption,
     SMAReentryDepth,
+    prefill_sma_hitl_direct_edit_if_missing,
 )
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     FieldMappingManifest,
@@ -107,6 +108,21 @@ def test_unique_sma_hitl_items_by_item_id():
         reentry=SMAReentryDepth.TERMINAL,
         field_mapping=cur,
     )
+    opt_unmapped = SMAHITLOption(
+        option_id="leave_unmapped",
+        label="Leave unmapped",
+        description="No source",
+        reentry=SMAReentryDepth.TERMINAL,
+        field_mapping=cur.model_copy(
+            update={
+                "source_column": None,
+                "source_table": None,
+                "join": None,
+                "row_selection": None,
+                "confidence": 1.0,
+            }
+        ),
+    )
     opt_de = SMAHITLOption(
         option_id="direct_edit",
         label="de",
@@ -122,12 +138,60 @@ def test_unique_sma_hitl_items_by_item_id():
         failure_mode=SMAFailureMode.LOW_CONFIDENCE,
         hitl_question="q?",
         current_field_mapping=cur,
-        options=[opt_terminal, opt_de],
+        options=[opt_terminal, opt_unmapped, opt_de],
     )
     i2 = SMAHITLItem.model_validate(json.loads(i1.model_dump_json()))
     i2.item_id = "x"
     out = unique_sma_hitl_items_by_item_id([i1, i2])
     assert len(out) == 1 and out[0].item_id == "x"
+
+
+def test_prefill_sma_hitl_direct_edit_if_missing():
+    cur = _fmr()
+    opt_terminal = SMAHITLOption(
+        option_id="a",
+        label="a",
+        description="a",
+        reentry=SMAReentryDepth.TERMINAL,
+        field_mapping=cur,
+    )
+    opt_unmapped = SMAHITLOption(
+        option_id="leave_unmapped",
+        label="Leave unmapped",
+        description="No source",
+        reentry=SMAReentryDepth.TERMINAL,
+        field_mapping=cur.model_copy(
+            update={
+                "source_column": None,
+                "source_table": None,
+                "join": None,
+                "row_selection": None,
+                "confidence": 1.0,
+            }
+        ),
+    )
+    opt_de = SMAHITLOption(
+        option_id="direct_edit",
+        label="de",
+        description="de",
+        reentry=SMAReentryDepth.DIRECT_EDIT,
+        field_mapping=None,
+    )
+    item = SMAHITLItem(
+        item_id="x",
+        institution_id="u",
+        entity_type="cohort",
+        target_field="learner_id",
+        failure_mode=SMAFailureMode.LOW_CONFIDENCE,
+        hitl_question="q?",
+        current_field_mapping=cur,
+        options=[opt_terminal, opt_unmapped, opt_de],
+        direct_edit_field_mapping=None,
+    )
+    filled = prefill_sma_hitl_direct_edit_if_missing(item)
+    assert filled.direct_edit_field_mapping is not None
+    assert filled.direct_edit_field_mapping["target_field"] == "learner_id"
+    assert prefill_sma_hitl_direct_edit_if_missing(filled) is filled
 
 
 def test_manifest_lazy_import_from_manifest_package():
