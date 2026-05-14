@@ -127,6 +127,7 @@ def _round_trip_validate_saved_envelope_json(out_json: str) -> None:
     pred = json.loads(out_json)
     MappingManifestEnvelope.model_validate(pred)
 
+
 # After Step 2a, run the same SMA refinement as onboard (``run_sma_refinement`` per entity),
 # write ``*_mapping_manifest_refined.json``, score vs gold as ``refined_*`` columns, and extend
 # field_detail CSV with ``stage`` = ``2a`` / ``after_refinement``.
@@ -1393,9 +1394,7 @@ def _resolve_gold_mapping_manifest_for_eval(target_id: str) -> Path:
     if override and str(override).strip():
         p = Path(str(override).strip()).expanduser()
         if not p.is_file():
-            raise FileNotFoundError(
-                f"EDVISE_EVAL_GOLD_MANIFEST_PATH not found: {p}"
-            )
+            raise FileNotFoundError(f"EDVISE_EVAL_GOLD_MANIFEST_PATH not found: {p}")
         return p.resolve()
     p = _eval_run_root(target_id) / "gold" / "manifest_map.json"
     if not p.is_file():
@@ -1580,9 +1579,7 @@ def run():
     logger.info(f"  Reference institution_id: {reference_id}")
     logger.info(f"  Manifest institution_id: {manifest_institution_id} ✓")
 
-    output_path = str(
-        EVAL_BASE / "scratch" / f"{target_id}_mapping_manifest.json"
-    )
+    output_path = str(EVAL_BASE / "scratch" / f"{target_id}_mapping_manifest.json")
     if STEP2A_TWO_PASS:
         PROMPT_COHORT = build_step2a_prompt_cohort_pass(
             institution_id=target_id,
@@ -1693,9 +1690,7 @@ def run():
             logger.warning("→ manifest not saved (inference error)")
 
         # score (Step 2a output vs gold)
-        scores = score_result(
-            result, GOLD_MANIFEST, schema_contract=target_contract
-        )
+        scores = score_result(result, GOLD_MANIFEST, schema_contract=target_contract)
         if scores:
             validation_status = "✓" if scores.get("validation_passed") else "✗"
             logger.info(
@@ -1745,16 +1740,12 @@ def run():
                     model=model,
                     client=client,
                 )
-                refined_text = refined_env.model_dump_json(
-                    indent=2, exclude_none=True
-                )
+                refined_text = refined_env.model_dump_json(indent=2, exclude_none=True)
                 refined_manifest_path = (
                     manifest_dir / f"{target_id}_mapping_manifest_refined.json"
                 )
                 refined_manifest_path.write_text(refined_text)
-                logger.info(
-                    "→ refined manifest saved → %s", refined_manifest_path
-                )
+                logger.info("→ refined manifest saved → %s", refined_manifest_path)
 
                 if _eval_write_hitl_artifacts_to_workspace():
                     hitl_map = ref_meta.get("hitl_by_entity") or {}
@@ -1772,19 +1763,13 @@ def run():
                         if hasattr(entity_key, "value")
                         else str(entity_key)
                     )
-                    eerrs = validate_manifest(
-                        entity_manifest, schema_contract_sma
-                    )
-                    structural_refined[ek] = [
-                        e.model_dump(mode="json") for e in eerrs
-                    ]
+                    eerrs = validate_manifest(entity_manifest, schema_contract_sma)
+                    structural_refined[ek] = [e.model_dump(mode="json") for e in eerrs]
                 ve_refined_path = (
                     manifest_dir
                     / f"{target_id}_validation_errors_after_refinement.json"
                 )
-                ve_refined_path.write_text(
-                    json.dumps(structural_refined, indent=2)
-                )
+                ve_refined_path.write_text(json.dumps(structural_refined, indent=2))
                 total_ver = sum(len(v) for v in structural_refined.values())
                 logger.info(
                     "→ structural validation after refinement: %d issue(s) → %s",
@@ -1823,18 +1808,14 @@ def run():
                         scores_r["overall"]["map_decision_accuracy"],
                         scores_r["overall"]["mappable_precision_strict"],
                         scores_r["overall"]["mappable_recall_strict"],
-                        scores_r["overall"][
-                            "source_exact_accuracy_gold_mappable"
-                        ],
+                        scores_r["overall"]["source_exact_accuracy_gold_mappable"],
                         scores_r["overall"]["execution_ready_rate"],
                         result["hitl_items_cohort"],
                         result["hitl_items_course"],
                     )
             except Exception as exc:
                 result["refinement_error"] = str(exc)
-                logger.exception(
-                    "[eval] Refinement failed for model=%s", model
-                )
+                logger.exception("[eval] Refinement failed for model=%s", model)
 
         rows.append(result)
         i += 1
@@ -1851,9 +1832,7 @@ def run():
                 f" | total incl. refinement: {r['latency_s_total']}s "
                 f"(refine {r.get('refinement_latency_s')}s)"
             )
-        logger.info(
-            f"{status}: {r['model']} (2a latency: {r['latency_s']}s){lat_note}"
-        )
+        logger.info(f"{status}: {r['model']} (2a latency: {r['latency_s']}s){lat_note}")
         if not r["success"]:
             error_preview = (
                 r["error"][:200] + "..."
@@ -1895,9 +1874,7 @@ def run():
                 {
                     "validation_passed": r["scores"].get("validation_passed"),
                     "validation_error": r["scores"].get("validation_error"),
-                    **{
-                        f"overall_{k}": v for k, v in r["scores"]["overall"].items()
-                    },
+                    **{f"overall_{k}": v for k, v in r["scores"]["overall"].items()},
                     **{
                         f"cohort_{k}": v
                         for k, v in r["scores"]["cohort"].items()
@@ -1958,9 +1935,7 @@ def run():
         if r["scores"] is not None:
             for entity in ("cohort", "course"):
                 for fs in r["scores"][entity]["field_scores"]:
-                    field_rows.append(
-                        {"model": r["model"], "stage": "2a", **fs}
-                    )
+                    field_rows.append({"model": r["model"], "stage": "2a", **fs})
         sr = r.get("scores_after_refinement")
         if sr:
             for entity in ("cohort", "course"):

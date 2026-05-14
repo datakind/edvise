@@ -228,7 +228,7 @@ def init_sidebar_form_state() -> None:
         st.session_state["sidebar_f_status"] = "pending"
     else:
         _raw = st.session_state.get("sidebar_f_status")
-        _norm = ("" if _raw is None else str(_raw).strip())
+        _norm = "" if _raw is None else str(_raw).strip()
         if _norm not in _STATUS_FILTER_OPTIONS:
             st.session_state["sidebar_f_status"] = "pending"
 

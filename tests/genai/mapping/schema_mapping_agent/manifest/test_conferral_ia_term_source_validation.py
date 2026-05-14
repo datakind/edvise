@@ -106,7 +106,9 @@ def test_conferral_from_edvise_term_on_student_base_is_rejected():
         for e in errors
         if e.error_code == ManifestValidationErrorCode.CONFERRAL_USES_IA_TERM_COLUMN
     ]
-    assert hit, f"expected CONFERRAL_USES_IA_TERM_COLUMN, got {[e.error_code for e in errors]}"
+    assert hit, (
+        f"expected CONFERRAL_USES_IA_TERM_COLUMN, got {[e.error_code for e in errors]}"
+    )
     assert hit[0].offending_value == "_edvise_term_academic_year"
 
 
@@ -128,10 +130,9 @@ def test_entry_year_from_edvise_term_on_student_still_allowed():
         column_aliases=[],
     )
     errors = validate_manifest(manifest, contract)
-    assert (
-        ManifestValidationErrorCode.CONFERRAL_USES_IA_TERM_COLUMN
-        not in {e.error_code for e in errors}
-    )
+    assert ManifestValidationErrorCode.CONFERRAL_USES_IA_TERM_COLUMN not in {
+        e.error_code for e in errors
+    }
 
 
 def _two_table_contract():
@@ -249,5 +250,7 @@ def test_conferral_from_edvise_term_season_on_lookup_via_join_is_also_rejected()
         for e in errors
         if e.error_code == ManifestValidationErrorCode.CONFERRAL_USES_IA_TERM_COLUMN
     ]
-    assert hit, f"expected CONFERRAL_USES_IA_TERM_COLUMN, got {[e.error_code for e in errors]}"
+    assert hit, (
+        f"expected CONFERRAL_USES_IA_TERM_COLUMN, got {[e.error_code for e in errors]}"
+    )
     assert hit[0].offending_value == "_edvise_term_season"

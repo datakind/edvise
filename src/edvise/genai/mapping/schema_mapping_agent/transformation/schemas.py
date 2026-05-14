@@ -584,7 +584,9 @@ class TransformationHITLItem(StrictBaseModel):
         return self
 
     @model_validator(mode="after")
-    def _extract_year_not_before_compact_term_conferral(self) -> "TransformationHITLItem":
+    def _extract_year_not_before_compact_term_conferral(
+        self,
+    ) -> "TransformationHITLItem":
         _reject_extract_year_before_compact_term_conferral(
             self.steps,
             context=f"TransformationHITLItem item_id={self.item_id!r}",
