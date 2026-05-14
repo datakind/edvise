@@ -14,7 +14,10 @@ from edvise.genai.mapping.shared.token_audit.prompt_token_audit import (
     audit_prompt_sections,
 )
 
-from .schemas import get_transformation_map_schema_context
+from .schemas import (
+    RAW_EDVISE_FIELDS_FORBIDDING_MAP_VALUES,
+    get_transformation_map_schema_context,
+)
 
 from ..manifest.prompts import (
     extract_schema_descriptor,
@@ -415,6 +418,9 @@ def _step2b_utilities() -> str:
 
 
 def _step2b_rules() -> str:
+    _raw_edvise_no_map_values = ", ".join(
+        sorted(RAW_EDVISE_FIELDS_FORBIDDING_MAP_VALUES)
+    )
     return f"""<rules>
 STRUCTURE
 - Match the reference transformation map shape: transformation_maps with cohort + course sections,
@@ -517,10 +523,15 @@ CONSTANT FIELDS
 - The column parameter in fill_constant is used only for length — the value parameter is the constant string
 
 MAP VALUES USAGE
-- map_values is appropriate only for fields whose target schema enforces a constrained
+- **Do not use map_values** on these RawEdvise targets — the pipeline rejects such plans;
+  preserve institution source wording (use strip_whitespace, cast_string, or empty steps only): {_raw_edvise_no_map_values}.
+- Intermediate map_values on **datetime conferral / certificate targets** is allowed when required by
+  **COHORT degree- and certificate-related DATETIME** (token shaping before parsers such as
+  compact_term_code_to_conferral_date). That pattern is not value-remapping of free-text cohort or term-snapshot labels.
+- Otherwise, map_values is appropriate only where the target schema enforces a constrained
   allowed-value set: category fields (academic_term, entry_term, pell_recipient_year1,
   term_pell_recipient), learner_age (isin LEARNER_AGE_BUCKETS), and grade
-  (ALLOWED_LETTER_GRADES or numeric 0.0–4.0). These are the only fields where source
+  (ALLOWED_LETTER_GRADES or numeric 0.0–4.0). These are the main fields where source
   values can violate a schema constraint that map_values can fix.
 - Every other field in RawEdviseStudentDataSchema and RawEdviseCourseDataSchema is either
   free text (StringDtype, nullable=True, no value constraint) or a dtype-only field

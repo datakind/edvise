@@ -27,6 +27,37 @@ _COMPACT_TERM_CODE_CONFERRAL_FUNCTIONS = frozenset(
     }
 )
 
+# RawEdvise targets where institution wording must pass through unchanged (no map_values).
+# Cohort free-text labels plus course term snapshot strings.
+RAW_EDVISE_FIELDS_FORBIDDING_MAP_VALUES: frozenset[str] = frozenset(
+    {
+        "enrollment_type",
+        "intended_program_type",
+        "declared_major_at_entry",
+        "major_at_completion",
+        "conferred_credential_type",
+        "term_degree",
+        "term_declared_major",
+    }
+)
+
+
+def _reject_map_values_on_source_preserving_fields(
+    steps: List[Any],
+    *,
+    target_field: str,
+    context: str,
+) -> None:
+    if target_field not in RAW_EDVISE_FIELDS_FORBIDDING_MAP_VALUES:
+        return
+    for step in steps:
+        if getattr(step, "function_name", None) == "map_values":
+            raise ValueError(
+                f"{context}: `map_values` is not allowed on target_field={target_field!r} "
+                "(preserve institution source values). Use steps such as strip_whitespace, "
+                "cast_string, or an empty unmappable plan — not value remapping."
+            )
+
 
 def _reject_extract_year_before_compact_term_conferral(
     steps: List[Any],
@@ -491,6 +522,11 @@ class FieldTransformationPlan(StrictBaseModel):
             self.steps,
             context=f"target_field={self.target_field!r}",
         )
+        _reject_map_values_on_source_preserving_fields(
+            self.steps,
+            target_field=self.target_field,
+            context=f"target_field={self.target_field!r}",
+        )
         return self
 
 
@@ -551,6 +587,11 @@ class TransformationHITLItem(StrictBaseModel):
     def _extract_year_not_before_compact_term_conferral(self) -> "TransformationHITLItem":
         _reject_extract_year_before_compact_term_conferral(
             self.steps,
+            context=f"TransformationHITLItem item_id={self.item_id!r}",
+        )
+        _reject_map_values_on_source_preserving_fields(
+            self.steps,
+            target_field=self.target_field,
             context=f"TransformationHITLItem item_id={self.item_id!r}",
         )
         return self

@@ -126,6 +126,103 @@ def test_field_plan_allows_compact_term_conferral_without_extract_year():
     assert len(plan.steps) == 2
 
 
+def test_field_plan_rejects_map_values_on_source_preserving_raw_edvise_field():
+    with pytest.raises(ValidationError, match="map_values"):
+        FieldTransformationPlan.model_validate(
+            {
+                "target_field": "enrollment_type",
+                "output_dtype": "string",
+                "confidence": 0.9,
+                "steps": [
+                    {
+                        "function_name": "map_values",
+                        "column": "raw_enroll",
+                        "mapping": {"FT": "FIRST-TIME"},
+                    },
+                ],
+            }
+        )
+
+
+def test_field_plan_allows_strip_and_cast_on_enrollment_type():
+    plan = FieldTransformationPlan.model_validate(
+        {
+            "target_field": "enrollment_type",
+            "output_dtype": "string",
+            "confidence": 0.9,
+            "steps": [
+                {"function_name": "strip_whitespace", "column": "raw_enroll"},
+                {"function_name": "cast_string", "column": "raw_enroll"},
+            ],
+        }
+    )
+    assert [s.function_name for s in plan.steps] == ["strip_whitespace", "cast_string"]
+
+
+def test_hitl_item_rejects_map_values_on_conferred_credential_type():
+    with pytest.raises(ValidationError, match="map_values"):
+        TransformationHITLItem(
+            item_id="lee_col_cohort_conferred_credential_type",
+            institution_id="lee_col",
+            entity_type=EntityType.cohort,
+            target_field="conferred_credential_type",
+            confidence=0.7,
+            flagged_steps=[
+                FlaggedStep(
+                    step_index=0,
+                    function_name="map_values",
+                    reason="inferred_value_mapping",
+                    context={},
+                )
+            ],
+            steps=[
+                {
+                    "function_name": "map_values",
+                    "column": "award",
+                    "mapping": {"Assoc": "Associate's"},
+                },
+            ],
+            options=[
+                TransformationHITLOption(
+                    option_id="approve",
+                    label="A",
+                    description="a",
+                    resolution={"approved": True},
+                ),
+                TransformationHITLOption(
+                    option_id="correct",
+                    label="C",
+                    description="c",
+                    resolution=None,
+                ),
+                TransformationHITLOption(
+                    option_id="unmappable",
+                    label="U",
+                    description="u",
+                    resolution={"steps": [], "output_dtype": None},
+                ),
+            ],
+        )
+
+
+def test_field_plan_rejects_map_values_on_term_degree():
+    with pytest.raises(ValidationError, match="map_values"):
+        FieldTransformationPlan.model_validate(
+            {
+                "target_field": "term_degree",
+                "output_dtype": "string",
+                "confidence": 0.9,
+                "steps": [
+                    {
+                        "function_name": "map_values",
+                        "column": "lvl",
+                        "mapping": {"UG": "Undergraduate"},
+                    },
+                ],
+            }
+        )
+
+
 def test_hitl_item_rejects_extract_year_before_compact_term_code_conferral():
     with pytest.raises(ValidationError, match="extract_year"):
         TransformationHITLItem(
