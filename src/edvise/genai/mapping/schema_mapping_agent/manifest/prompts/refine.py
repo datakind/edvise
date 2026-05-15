@@ -75,9 +75,8 @@ from ..schemas import (
 )
 from ..validation import ManifestValidationError
 
+from edvise.genai.mapping.shared.utilities import strip_json_fences
 from edvise.utils.llm_utils import llm_complete_with_parse_retry
-
-from .generate import strip_json_fences
 
 # Same value as ``manifest.hitl.schemas.HITL_CONFIDENCE_THRESHOLD`` — defined here so prompt + runtime
 # code share one constant without importing ``hitl`` at module load (circular with ``artifacts``).
