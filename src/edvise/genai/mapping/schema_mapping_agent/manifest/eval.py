@@ -571,7 +571,7 @@ def _make_refinement_llm_complete(
     model: str,
     client: OpenAI,
     latencies: list[float],
-):
+) -> Callable[[str, str], str]:
     """Match onboard SMA: single user blob with system and user sections (gateway pattern)."""
 
     def llm_complete(system: str, user: str) -> str:
