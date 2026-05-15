@@ -11,6 +11,7 @@ import logging
 from collections.abc import Sequence
 from pathlib import Path
 
+from edvise.genai.mapping.shared.hitl.hook_spec.paths import resolve_hook_module_path
 from edvise.genai.mapping.shared.hitl.hook_spec.schemas import (
     HITLDomain,
     HookFunctionSpec,

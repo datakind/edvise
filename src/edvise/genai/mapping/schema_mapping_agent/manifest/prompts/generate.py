@@ -26,6 +26,7 @@ from edvise.genai.mapping.shared.hitl.confidence import (
     PIPELINE_HITL_CONFIDENCE_THRESHOLD,
 )
 from edvise.genai.mapping.shared.pipeline_artifacts import coerce_pipeline_version
+from edvise.genai.mapping.shared.utilities import strip_json_fences
 
 
 def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
