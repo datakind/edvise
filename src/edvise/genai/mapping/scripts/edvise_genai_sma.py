@@ -783,11 +783,13 @@ def run_onboard_gate_2(
         logger=LOGGER,
     )
 
-    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.review import (
+    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.review_hitl import (
         apply_transformation_review_resolutions,
         build_transformation_review_hitl_file_for_entity,
-        check_transformation_review_hitl_gate,
         write_transformation_review_hitl_file,
+    )
+    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.gates import (
+        check_transformation_review_hitl_gate,
     )
 
     cohort_tr = build_transformation_review_hitl_file_for_entity(
@@ -860,15 +862,15 @@ def run_onboard_gate_2(
     from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_generation import (
         generate_sma_transform_hook_preview_rows_for_entity,
         load_hook_specs_from_sma_preview_path,
-    )
-    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_preview import (
         write_sma_transform_hook_preview_json,
     )
-    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook import (
+    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_required_hitl import (
         apply_transformation_hook_hitl_resolutions,
         build_transformation_hook_hitl_envelope_for_entity,
-        check_transformation_hook_hitl_gate,
         write_transformation_hook_hitl_envelope,
+    )
+    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.gates import (
+        check_transformation_hook_hitl_gate,
     )
 
     LOGGER.info("[onboard/gate_2] Transform hook generation (preview)")

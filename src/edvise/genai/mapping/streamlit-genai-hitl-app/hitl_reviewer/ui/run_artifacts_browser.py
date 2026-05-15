@@ -14,7 +14,7 @@ from typing import Any
 import streamlit as st
 
 from edvise.configs import genai as genai_cfg
-from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
+from edvise.genai.mapping.shared.hitl.hook_spec.paths import (
     default_hook_module_relpath,
 )
 from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain

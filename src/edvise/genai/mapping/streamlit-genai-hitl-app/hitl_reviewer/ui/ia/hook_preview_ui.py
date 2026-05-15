@@ -26,7 +26,7 @@ from hitl_reviewer.ui._shared import (
 def assemble_hook_spec_drafts_as_module_text(hook_spec: dict[str, Any]) -> str:
     """
     Concatenate ``functions[].draft`` in hook_spec JSON (same logic as
-    ``edvise.genai.mapping.identity_agent.hitl.hook_preview``).
+    ``edvise.genai.mapping.identity_agent.hitl.hook_generation``).
 
     Implemented here so the HITL app does not depend on that submodule being present in
     whichever ``edvise`` wheel was bundled for Databricks (avoids stale-wheel import errors).

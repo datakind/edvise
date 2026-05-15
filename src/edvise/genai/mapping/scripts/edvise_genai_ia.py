@@ -348,12 +348,10 @@ def run_onboard_gate_1(
         validate_hook,
         validate_term_hook_hitl_covers_hook_required,
     )
-    from edvise.genai.mapping.identity_agent.hitl.hook_preview import (
+    from edvise.genai.mapping.identity_agent.hitl.hook_generation import (
         apply_term_hook_spec_names_from_item_id,
-        write_identity_hook_preview_json,
-    )
-    from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
         ensure_hook_spec_file,
+        write_identity_hook_preview_json,
     )
     from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
     from edvise.genai.mapping.identity_agent.execution.contract_builder import (
@@ -628,14 +626,14 @@ def _ia_hook_modules_root_for_execute(
     paths: IAPaths, school_config: Any
 ) -> Path | None:
     """
-    Root directory for :func:`~edvise.genai.mapping.identity_agent.hitl.hook_generation.paths.resolve_hook_module_path`.
+    Root directory for :func:`~edvise.genai.mapping.shared.hitl.hook_spec.paths.resolve_hook_module_path`.
 
     After SMA promotion, materialized modules live under silver
     ``genai_mapping/active/identity_hooks/<institution_id>/`` (see
     :func:`~edvise.genai.mapping.shared.active_promotion.promote_genai_mapping_to_active`).
     Fall back to bronze ``identity_agent`` when that subtree is absent (legacy / local dev).
     """
-    from edvise.genai.mapping.identity_agent.hitl.hook_generation.paths import (
+    from edvise.genai.mapping.shared.hitl.hook_spec.paths import (
         hook_modules_root_from_bronze_volume,
     )
 

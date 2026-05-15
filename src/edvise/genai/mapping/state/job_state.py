@@ -25,10 +25,8 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import InstitutionHITLItem
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
     InstitutionSMAHITLItems,
 )
-from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook import (
+from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.schemas import (
     InstitutionSMATransformationHookHITLItems,
-)
-from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.review import (
     TransformationReviewHITLFile,
 )
 from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json
