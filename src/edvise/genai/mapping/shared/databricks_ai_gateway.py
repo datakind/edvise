@@ -46,7 +46,7 @@ def disable_mlflow_tracing_for_openai_gateway_client() -> None:
     Turn off MLflow tracing / OpenAI autolog for gateway calls (see module docstring).
 
     Job scripts should also call
-    :func:`~edvise.genai.mapping.shared.mlflow_gateway_bootstrap.disable_mlflow_side_effects_for_openai_gateway`
+    :func:`~edvise.genai.mapping.shared.utilities.disable_mlflow_side_effects_for_openai_gateway`
     at import time **before** loading packages that import ``openai``.
     """
     disable_mlflow_side_effects_for_openai_gateway()

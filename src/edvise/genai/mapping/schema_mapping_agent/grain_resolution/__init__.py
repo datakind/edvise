@@ -6,7 +6,7 @@ Execution orchestration (transformation map reduce, ``GrainReconciliationRequire
 grain-specific resolution and the SMA runner bridge in :mod:`.runner`.
 """
 
-from edvise.genai.mapping.shared.strip_json_fences import strip_json_fences
+from edvise.genai.mapping.shared.utilities import strip_json_fences
 
 from .hitl import (
     build_sma_grain_hitl_items,

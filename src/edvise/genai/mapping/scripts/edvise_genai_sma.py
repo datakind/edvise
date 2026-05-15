@@ -55,7 +55,7 @@ if os.path.isdir(_src_root) and _src_root not in sys.path:
     sys.path.insert(0, _src_root)
 
 # Before any import that loads ``openai`` (Databricks may autolog it otherwise).
-from edvise.genai.mapping.shared.mlflow_gateway_bootstrap import (
+from edvise.genai.mapping.shared.utilities import (
     disable_mlflow_side_effects_for_openai_gateway,
 )
 
