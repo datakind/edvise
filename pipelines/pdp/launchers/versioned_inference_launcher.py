@@ -18,6 +18,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -82,6 +83,35 @@ BUNDLE_ARCHIVED_DAB_HINT = (
     "Run inference using the archived Databricks bundle for this release "
     "(see databricks_bundle_snapshot/ in the bundle; MVP does not auto-trigger jobs)."
 )
+
+
+_DBR_MAJOR_MINOR = re.compile(r"^(\d+)\.(\d+)")
+
+
+def dbr_major_minor(version: str) -> tuple[int, int] | None:
+    """Parse DBR ``major.minor`` from ``15.4`` or ``15.4.x-cpu-ml-scala2.12``."""
+    m = _DBR_MAJOR_MINOR.match(version.strip().lower())
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2))
+
+
+def databricks_runtime_compatible(required: str, current: str) -> bool:
+    """
+    Return whether cluster DBR matches the bundle requirement.
+
+    ``DATABRICKS_RUNTIME_VERSION`` is often shortened (e.g. ``15.4``) while job YAML
+    uses the full image key (``15.4.x-cpu-ml-scala2.12``).
+    """
+    req = required.strip().lower()
+    cur = current.strip().lower()
+    if req == cur:
+        return True
+    req_mm = dbr_major_minor(req)
+    cur_mm = dbr_major_minor(cur)
+    if req_mm and cur_mm and req_mm == cur_mm:
+        return True
+    return req.startswith(f"{cur}.") or req.startswith(f"{cur}-")
 
 
 def parse_python_xy(spec: str) -> tuple[int, int] | None:
@@ -152,11 +182,17 @@ def check_runtime_bundle_compatibility(
                 "is unset; skipping DBR check (local or non-Databricks).",
                 req_dbr,
             )
-        elif cur.strip().lower() != req_dbr.strip().lower():
+        elif not databricks_runtime_compatible(req_dbr, cur):
             return (
                 False,
                 f"Bundle requires DBR {req_dbr!r}; current cluster is {cur!r}. "
                 + BUNDLE_ARCHIVED_DAB_HINT,
+            )
+        else:
+            logger.info(
+                "DBR compatibility OK (bundle=%r, cluster=%r)",
+                req_dbr,
+                cur,
             )
 
     req_spark = rr.get("spark")

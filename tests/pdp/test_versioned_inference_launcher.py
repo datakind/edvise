@@ -421,6 +421,28 @@ def test_check_runtime_bundle_dbr_mismatch(monkeypatch: pytest.MonkeyPatch) -> N
     assert "15.4" in msg
 
 
+def test_databricks_runtime_compatible_short_cluster_version() -> None:
+    assert vil.databricks_runtime_compatible(
+        "15.4.x-cpu-ml-scala2.12", "15.4"
+    )
+    assert vil.databricks_runtime_compatible(
+        "15.4.x-cpu-ml-scala2.12", "15.4.x-cpu-ml-scala2.12"
+    )
+    assert not vil.databricks_runtime_compatible(
+        "15.4.x-cpu-ml-scala2.12", "14.3"
+    )
+
+
+def test_check_runtime_bundle_dbr_short_env_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABRICKS_RUNTIME_VERSION", "15.4")
+    ok, msg = vil.check_runtime_bundle_compatibility(
+        {"required_runtime": {"databricks_runtime": "15.4.x-cpu-ml-scala2.12"}},
+        spark=type("S", (), {"version": "3.5.2"})(),
+    )
+    assert ok is True
+    assert msg == ""
+
+
 def test_validate_required_payload_fields() -> None:
     eff = {"required_payload_fields": ["model_run_id", "extra_field"]}
     bad_ok, bad_msg = vil.validate_required_payload_fields(
