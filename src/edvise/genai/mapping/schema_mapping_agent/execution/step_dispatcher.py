@@ -163,8 +163,8 @@ def dispatch_step(
         "strip_trailing_decimal": lambda: strip_trailing_decimal(s),
         "fill_constant": lambda: fill_constant(s, step.value),
         "extract_year": lambda: extract_year(s),
-        "compact_term_code_to_conferral_date": lambda: compact_term_code_to_conferral_date(
-            s
+        "compact_term_code_to_conferral_date": lambda: (
+            compact_term_code_to_conferral_date(s)
         ),
         "substring_after_first_delimiter": lambda: substring_after_first_delimiter(
             s,
