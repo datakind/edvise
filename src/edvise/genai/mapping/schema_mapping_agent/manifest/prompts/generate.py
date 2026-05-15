@@ -25,7 +25,6 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
 from edvise.genai.mapping.shared.hitl.confidence import (
     PIPELINE_HITL_CONFIDENCE_THRESHOLD,
 )
-from edvise.genai.mapping.shared.utilities import strip_json_fences
 from edvise.genai.mapping.shared.pipeline_artifacts import coerce_pipeline_version
 
 

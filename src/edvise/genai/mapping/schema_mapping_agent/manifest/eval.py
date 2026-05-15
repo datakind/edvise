@@ -23,8 +23,8 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
     load_json,
     merge_step2a_entity_manifests,
     run_sma_refinement,
-    strip_json_fences,
 )
+from edvise.genai.mapping.shared.utilities import strip_json_fences
 
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl import (
     check_sma_hitl_gate,
@@ -617,7 +617,7 @@ def _make_refinement_llm_complete(
     model: str,
     client: OpenAI,
     latencies: list[float],
-):
+) -> Callable[[str, str], str]:
     """Match onboard SMA: single user blob with system and user sections (gateway pattern)."""
 
     def llm_complete(system: str, user: str) -> str:
