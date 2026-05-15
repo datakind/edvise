@@ -51,24 +51,30 @@ def main(argv: list[str] | None = None) -> int:
     pipeline_version = payload.get("pipeline_version")
     institution = payload.get("databricks_institution_name")
     model_name = payload.get("model_name")
-    manifest = payload.get("manifest")
+    release = payload.get("release")
+    if not isinstance(release, dict):
+        release = payload.get("manifest") if isinstance(payload.get("manifest"), dict) else {}
+
     LOGGER.info("model_run_id=%r", model_run_id)
     LOGGER.info("pipeline_version=%r", pipeline_version)
     LOGGER.info("databricks_institution_name=%r", institution)
     LOGGER.info("model_name=%r", model_name)
     LOGGER.info("edvise.__file__=%r", edvise.__file__)
 
-    if isinstance(manifest, dict):
-        steps = manifest.get("expected_steps")
-        LOGGER.info("manifest.expected_steps=%r", steps)
-    else:
-        LOGGER.info("manifest missing or not an object")
+    LOGGER.info("release.expected_steps=%r", release.get("expected_steps"))
+    LOGGER.info("release.job_name=%r", release.get("job_name"))
+    LOGGER.info(
+        "release.required_runtime=%r",
+        release.get("required_runtime"),
+    )
+    pkgs = release.get("pypi_packages")
+    if isinstance(pkgs, list):
+        LOGGER.info("release.pypi_packages count=%s", len(pkgs))
 
     return 0
 
 
 if __name__ == "__main__":
-    # Avoid ``raise SystemExit(0)`` under IPython/Databricks (see launcher).
     _exit_code = main()
     if _exit_code:
         raise SystemExit(_exit_code)

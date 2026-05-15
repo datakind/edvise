@@ -12,66 +12,57 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from pipelines.pdp.launchers import model_metadata as mm
 from pipelines.pdp.launchers import versioned_inference_launcher as vil
 
-
-def test_resolve_manifest_path() -> None:
-    p = vil.resolve_manifest_path("/vol/releases", "v0.1.2")
-    assert p.name == "manifest.json"
-    assert p.parent.name == "v0.1.2"
-    assert str(p).endswith("manifest.json")
+_FIXTURE_YML = (
+    Path(__file__).resolve().parent / "fixtures" / "inference_job_minimal.yml"
+)
 
 
-def test_load_manifest_ok(tmp_path: Path) -> None:
-    mpath = tmp_path / "manifest.json"
-    body = {
-        "pipeline_version": "v1",
-        "wheel": "edvise-1-py3-none-any.whl",
-        "entrypoint": "edvise.runtime.inference_driver",
-        "expected_steps": ["smoke_test"],
-    }
-    mpath.write_text(json.dumps(body), encoding="utf-8")
-    loaded = vil.load_manifest(mpath)
-    assert loaded["wheel"] == "edvise-1-py3-none-any.whl"
-
-
-def test_load_manifest_missing_required_key(tmp_path: Path) -> None:
-    mpath = tmp_path / "manifest.json"
-    mpath.write_text(
-        json.dumps({"pipeline_version": "v1", "wheel": "x.whl"}),
+def _write_test_release_bundle(release_dir: Path, *, wheel_name: str = "fake.whl") -> None:
+    release_dir.mkdir(parents=True, exist_ok=True)
+    snap = release_dir / "databricks_bundle_snapshot" / "resources"
+    snap.mkdir(parents=True, exist_ok=True)
+    (snap / "github_pdp_inference.yml").write_text(
+        _FIXTURE_YML.read_text(encoding="utf-8"),
         encoding="utf-8",
     )
-    with pytest.raises(ValueError, match="entrypoint"):
-        vil.load_manifest(mpath)
+    (release_dir / wheel_name).write_bytes(b"")
+    (release_dir / "release.json").write_text(
+        json.dumps({"wheel": wheel_name}),
+        encoding="utf-8",
+    )
 
 
-def test_load_manifest_missing_file(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError):
-        vil.load_manifest(tmp_path / "nope.json")
+def test_resolve_release_dir() -> None:
+    p = vil.resolve_release_dir("/vol/releases", "abc123sha")
+    assert p.name == "abc123sha"
+    assert str(p).endswith("abc123sha")
 
 
 def test_build_payload_dict_merges_extra() -> None:
-    manifest = {"pipeline_version": "v1", "wheel": "w.whl", "entrypoint": "m"}
+    release = {"pipeline_version": "v1", "wheel": "w.whl", "entrypoint": "m"}
     extra = {"note": "hello"}
-    out = vil.build_payload_dict("run-1", "v1", manifest, extra)
+    out = vil.build_payload_dict("run-1", "v1", release, extra)
     assert out["model_run_id"] == "run-1"
     assert out["pipeline_version"] == "v1"
-    assert out["manifest"] == manifest
+    assert out["release"] == release
     assert out["note"] == "hello"
 
 
 def test_build_payload_dict_no_extra() -> None:
-    manifest = {"pipeline_version": "v1", "wheel": "w.whl", "entrypoint": "m"}
-    out = vil.build_payload_dict("r", "v1", manifest, None)
+    release = {"pipeline_version": "v1", "wheel": "w.whl", "entrypoint": "m"}
+    out = vil.build_payload_dict("r", "v1", release, None)
     assert out["model_run_id"] == "r"
 
 
 def test_build_payload_dict_includes_institution_and_model() -> None:
-    manifest = {"pipeline_version": "v1", "wheel": "w.whl", "entrypoint": "m"}
+    release = {"pipeline_version": "v1", "wheel": "w.whl", "entrypoint": "m"}
     out = vil.build_payload_dict(
         "r",
         "v1",
-        manifest,
+        release,
         None,
         databricks_institution_name="miles_cc",
         model_name="retention_into_year_2_associates",
@@ -126,7 +117,7 @@ def test_resolve_pipeline_version_from_payload_when_config_missing(
     ) -> Path:
         return tmp_path / "nonexistent" / "config.toml"
 
-    monkeypatch.setattr(vil, "silver_training_config_path", no_config)
+    monkeypatch.setattr(mm, "silver_training_config_path", no_config)
 
     class _DF:
         def __init__(self, rows):
@@ -171,7 +162,7 @@ def test_resolve_pipeline_version_prefers_config_over_payload_json(
     ) -> Path:
         return cfg
 
-    monkeypatch.setattr(vil, "silver_training_config_path", fake_silver_path)
+    monkeypatch.setattr(mm, "silver_training_config_path", fake_silver_path)
 
     class _DF:
         def __init__(self, rows):
@@ -209,7 +200,7 @@ def test_resolve_model_run_fallback_config_toml(
     ) -> Path:
         return cfg
 
-    monkeypatch.setattr(vil, "silver_training_config_path", fake_silver_path)
+    monkeypatch.setattr(mm, "silver_training_config_path", fake_silver_path)
 
     class _DF:
         def __init__(self, rows):
@@ -256,9 +247,8 @@ def test_resolve_model_run_no_rows() -> None:
 
 
 def test_resolve_wheel_path() -> None:
-    p = vil.resolve_wheel_path("/releases", "v9", "pkg.whl")
+    p = vil.resolve_wheel_path(Path("/releases/v9"), "pkg.whl")
     assert p.name == "pkg.whl"
-    assert "v9" in p.parts
 
 
 def test_pip_install_wheel_command() -> None:
@@ -292,14 +282,7 @@ def test_entrypoint_command() -> None:
 
 def test_main_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     rel = tmp_path / "v1"
-    rel.mkdir()
-    (rel / "fake.whl").write_bytes(b"")
-    manifest = {
-        "pipeline_version": "v1",
-        "wheel": "fake.whl",
-        "entrypoint": "edvise.runtime.inference_driver",
-    }
-    (rel / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    _write_test_release_bundle(rel)
 
     monkeypatch.setattr(vil, "get_spark_session", lambda: object())
     monkeypatch.setattr(
@@ -348,14 +331,7 @@ def test_main_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
 
 def test_main_pip_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     rel = tmp_path / "v1"
-    rel.mkdir()
-    (rel / "fake.whl").write_bytes(b"")
-    manifest = {
-        "pipeline_version": "v1",
-        "wheel": "fake.whl",
-        "entrypoint": "edvise.runtime.inference_driver",
-    }
-    (rel / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    _write_test_release_bundle(rel)
 
     monkeypatch.setattr(vil, "get_spark_session", lambda: object())
     monkeypatch.setattr(
@@ -386,13 +362,16 @@ def test_main_pip_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
 
 def test_main_missing_wheel_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     rel = tmp_path / "v1"
-    rel.mkdir()
-    manifest = {
-        "pipeline_version": "v1",
-        "wheel": "missing.whl",
-        "entrypoint": "edvise.runtime.inference_driver",
-    }
-    (rel / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    snap = rel / "databricks_bundle_snapshot" / "resources"
+    snap.mkdir(parents=True)
+    (snap / "github_pdp_inference.yml").write_text(
+        _FIXTURE_YML.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (rel / "release.json").write_text(
+        json.dumps({"wheel": "missing.whl"}),
+        encoding="utf-8",
+    )
 
     monkeypatch.setattr(vil, "get_spark_session", lambda: object())
     monkeypatch.setattr(
@@ -421,36 +400,6 @@ def test_main_requires_institution_model_workspace() -> None:
 def test_parse_python_xy() -> None:
     assert vil.parse_python_xy("3.11") == (3, 11)
     assert vil.parse_python_xy("nope") is None
-
-
-def test_merge_manifest_with_optional_contract(tmp_path: Path) -> None:
-    contract = {
-        "expected_steps": ["a", "b"],
-        "required_runtime": {"python": "3.10", "databricks_runtime": "14.x"},
-    }
-    (tmp_path / "c.json").write_text(json.dumps(contract), encoding="utf-8")
-    manifest = {
-        "pipeline_version": "v1",
-        "wheel": "w.whl",
-        "entrypoint": "e",
-        "contract": "c.json",
-        "required_runtime": {"python": "3.11"},
-    }
-    merged = vil.merge_manifest_with_optional_contract(manifest, tmp_path)
-    assert merged["expected_steps"] == ["a", "b"]
-    assert merged["required_runtime"]["python"] == "3.11"
-    assert merged["required_runtime"]["databricks_runtime"] == "14.x"
-
-
-def test_merge_manifest_contract_missing_file(tmp_path: Path) -> None:
-    manifest = {
-        "pipeline_version": "v1",
-        "wheel": "w.whl",
-        "entrypoint": "e",
-        "contract": "missing.json",
-    }
-    merged = vil.merge_manifest_with_optional_contract(manifest, tmp_path)
-    assert merged == manifest
 
 
 def test_check_runtime_bundle_execution_mode_dab() -> None:

@@ -11,8 +11,11 @@ from edvise.runtime import inference_driver
 def test_inference_driver_main(tmp_path: Path) -> None:
     payload = {
         "model_run_id": "rid",
-        "pipeline_version": "v0",
-        "manifest": {"expected_steps": ["smoke_test"]},
+        "pipeline_version": "sha1",
+        "release": {
+            "expected_steps": ["feature_generation", "inference_h2o"],
+            "required_runtime": {"databricks_runtime": "15.4.x-cpu-ml-scala2.12"},
+        },
     }
     p = tmp_path / "p.json"
     p.write_text(json.dumps(payload), encoding="utf-8")
