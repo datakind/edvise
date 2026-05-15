@@ -18,7 +18,7 @@ name: deploy-genai-mapping
 on:
   push:
     branches:
-      - feat/grain-resolution-shared
+      - feat/hitl-ui-production-pipelines
   workflow_dispatch:
     inputs:
       deploy_dev:
