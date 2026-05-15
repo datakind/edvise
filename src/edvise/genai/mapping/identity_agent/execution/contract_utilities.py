@@ -368,7 +368,9 @@ def load_grain_dedup_hook_from_hook_spec(
     snake_case** — :func:`~edvise.data_audit.custom_cleaning.clean_dataset` runs
     ``normalize_columns`` before ``dedupe_fn``.
     """
-    from edvise.genai.mapping.shared.hitl.hook_spec.paths import resolve_hook_module_path
+    from edvise.genai.mapping.shared.hitl.hook_spec.paths import (
+        resolve_hook_module_path,
+    )
 
     hs = (
         hook_spec.model_dump(mode="json")

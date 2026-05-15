@@ -14,7 +14,10 @@ from pydantic import (
 )
 
 from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
-from edvise.genai.mapping.shared.hitl.hook_spec.schemas import HookFunctionSpec, HookSpec
+from edvise.genai.mapping.shared.hitl.hook_spec.schemas import (
+    HookFunctionSpec,
+    HookSpec,
+)
 from edvise.genai.mapping.identity_agent.utilities import (
     concat_model_sources,
     get_top_level_assign_source,

@@ -8,7 +8,7 @@ messages plus :class:`~profiling.schemas.RankedCandidateProfiles`. Step 1 stats 
 
 from ..dataset_io import load_school_dataset_dataframe
 from . import deduplication
-from edvise.genai.mapping.shared.databricks_gateway import (
+from edvise.genai.mapping.shared.databricks_ai_gateway import (
     DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL,
     DEFAULT_GATEWAY_MODEL_ID,
     create_openai_client_for_databricks_gateway,

@@ -467,7 +467,9 @@ def load_term_extractors_from_hook_spec(
     excluding names that appear in both substring lists. Typical names are
     ``year_extractor_<slug>`` and ``season_extractor_<slug>`` (slugs may contain ``date_season``).
     """
-    from edvise.genai.mapping.shared.hitl.hook_spec.paths import resolve_hook_module_path
+    from edvise.genai.mapping.shared.hitl.hook_spec.paths import (
+        resolve_hook_module_path,
+    )
 
     hs = (
         hook_spec.model_dump(mode="json")

@@ -24,7 +24,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
-from edvise.genai.mapping.shared.databricks_gateway import (
+from edvise.genai.mapping.shared.databricks_ai_gateway import (
     create_openai_client_for_databricks_gateway,
 )
 
