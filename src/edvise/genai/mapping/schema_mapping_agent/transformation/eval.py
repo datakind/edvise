@@ -13,12 +13,10 @@ silver volume. ``SHOT_TAG`` is read from ``manifest.eval``.
 
 import json
 import logging
-import os
 from collections import Counter
 from typing import Any, cast
 from copy import deepcopy
 from datetime import datetime
-from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
