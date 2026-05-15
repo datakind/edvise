@@ -256,14 +256,39 @@ def resolve_wheel_path(release_dir: Path, wheel_name: str) -> Path:
     return release_dir / wheel_name
 
 
-def pip_install_wheel_command(python_executable: str, wheel_path: str | Path) -> list[str]:
-    """Command to force-reinstall the wheel (MVP; no dependency locking)."""
+def release_requirements_file(release_dir: Path) -> Path:
+    """Pinned deps generated from ``pyproject.toml`` at ``pipeline_version``."""
+    return release_dir / "release_requirements.txt"
+
+
+def pip_install_requirements_command(
+    python_executable: str, requirements_path: str | Path
+) -> list[str]:
+    """
+    Install pinned dependencies into the task env without uninstalling Databricks
+    system site-packages (avoids "Can't uninstall pandas/pydantic" warnings).
+    """
     return [
         python_executable,
         "-m",
         "pip",
         "install",
-        "--force-reinstall",
+        "--ignore-installed",
+        "-r",
+        str(requirements_path),
+    ]
+
+
+def pip_install_wheel_command(
+    python_executable: str, wheel_path: str | Path
+) -> list[str]:
+    """Install the Edvise wheel only; dependencies come from ``release_requirements.txt``."""
+    return [
+        python_executable,
+        "-m",
+        "pip",
+        "install",
+        "--no-deps",
         str(wheel_path),
     ]
 
@@ -466,6 +491,22 @@ def main(argv: list[str] | None = None) -> int:
     if not wheel_path.is_file():
         LOGGER.error("Wheel not found: %s", wheel_path)
         return 1
+
+    req_path = release_requirements_file(release_dir)
+    if req_path.is_file():
+        LOGGER.info(
+            "Installing pinned dependencies from %s (pyproject.toml at pipeline_version)",
+            req_path,
+        )
+        req_cmd = pip_install_requirements_command(args.python, req_path)
+        if run_logged_subprocess(req_cmd, label="pip_install_requirements") != 0:
+            return 1
+    else:
+        LOGGER.warning(
+            "No %s in %s — re-run materialize_runtime_bundle or publish a new bundle.",
+            req_path.name,
+            release_dir,
+        )
 
     pip_cmd = pip_install_wheel_command(args.python, wheel_path)
     if run_logged_subprocess(pip_cmd, label="pip_install_wheel") != 0:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -72,6 +73,8 @@ def test_materialize_skips_when_snapshot_present(tmp_path: Path) -> None:
 
 def test_materialize_runtime_bundle_dir_local(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
+    repo.mkdir(parents=True)
+    shutil.copy2(_REPO_ROOT / "pyproject.toml", repo / "pyproject.toml")
     (repo / "pipelines/pdp/resources").mkdir(parents=True)
     (repo / "pipelines/pdp/databricks.yml").write_text("bundle: x\n", encoding="utf-8")
     (repo / "pipelines/pdp/resources/github_pdp_inference.yml").write_text(
@@ -94,3 +97,6 @@ def test_materialize_runtime_bundle_dir_local(tmp_path: Path) -> None:
     assert (
         out / "databricks_bundle_snapshot/resources/github_pdp_inference.yml"
     ).is_file()
+    assert (out / "pyproject.toml").is_file()
+    assert (out / "release_requirements.txt").is_file()
+    assert "pandas==2.2.3" in (out / "release_requirements.txt").read_text(encoding="utf-8")

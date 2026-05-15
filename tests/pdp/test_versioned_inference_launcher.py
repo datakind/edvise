@@ -29,6 +29,10 @@ def _write_test_release_bundle(release_dir: Path, *, wheel_name: str = "fake.whl
         encoding="utf-8",
     )
     (release_dir / wheel_name).write_bytes(b"")
+    (release_dir / "release_requirements.txt").write_text(
+        "numpy==1.26.4\n",
+        encoding="utf-8",
+    )
     (release_dir / "release.json").write_text(
         json.dumps({"wheel": wheel_name}),
         encoding="utf-8",
@@ -251,6 +255,13 @@ def test_resolve_wheel_path() -> None:
     assert p.name == "pkg.whl"
 
 
+def test_pip_install_requirements_command() -> None:
+    cmd = vil.pip_install_requirements_command("/usr/bin/python3", "/w/req.txt")
+    assert "--ignore-installed" in cmd
+    assert "-r" in cmd
+    assert cmd[-1] == "/w/req.txt"
+
+
 def test_pip_install_wheel_command() -> None:
     cmd = vil.pip_install_wheel_command("/usr/bin/python3", "/w/x.whl")
     assert cmd == [
@@ -258,7 +269,7 @@ def test_pip_install_wheel_command() -> None:
         "-m",
         "pip",
         "install",
-        "--force-reinstall",
+        "--no-deps",
         "/w/x.whl",
     ]
 
@@ -320,13 +331,14 @@ def test_main_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
     ]
     assert vil.main(argv) == 0
     assert [r[0] for r in recorded] == [
+        "pip_install_requirements",
         "pip_install_wheel",
         "verify_edvise_import",
         "versioned_entrypoint",
     ]
-    assert "fake.whl" in recorded[0][1][-1]
-    assert recorded[2][1][:2] == [sys.executable, "-m"]
-    assert recorded[2][1][2] == "edvise.runtime.inference_driver"
+    assert "fake.whl" in recorded[1][1][-1]
+    assert recorded[3][1][:2] == [sys.executable, "-m"]
+    assert recorded[3][1][2] == "edvise.runtime.inference_driver"
 
 
 def test_main_pip_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
