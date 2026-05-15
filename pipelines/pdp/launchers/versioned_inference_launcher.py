@@ -22,12 +22,41 @@ import subprocess
 import sys
 import tempfile
 import uuid
+import inspect
 from pathlib import Path
 from typing import Any, Mapping
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
+
+def _setup_import_path() -> None:
+    """Databricks may exec this file without ``__file__``; use stack trace to find launchers/."""
+    try:
+        launcher = Path(__file__).resolve().parent
+    except NameError:
+        launcher = None
+        for frame_info in inspect.stack():
+            fn = frame_info.filename
+            if not fn or fn.startswith("<"):
+                continue
+            path = Path(fn).resolve()
+            if path.parent.name == "launchers" and path.parent.parent.name == "pdp":
+                launcher = path.parent
+                break
+        if launcher is None:
+            candidate = Path.cwd() / "pipelines" / "pdp" / "launchers"
+            if candidate.is_dir():
+                launcher = candidate.resolve()
+        if launcher is None:
+            msg = "Cannot locate pipelines/pdp/launchers (Databricks import bootstrap)"
+            raise RuntimeError(msg)
+    launcher_str = str(launcher.resolve())
+    if launcher_str not in sys.path:
+        sys.path.insert(0, launcher_str)
+    from _paths import ensure_repo_root_on_sys_path  # noqa: WPS433
+
+    ensure_repo_root_on_sys_path()
+
+
+_setup_import_path()
 
 from pipelines.pdp.launchers.bundle_from_dab import (  # noqa: E402
     DEFAULT_ENTRYPOINT,

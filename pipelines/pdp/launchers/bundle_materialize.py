@@ -16,7 +16,15 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from pipelines.pdp.launchers.bundle_from_dab import (
+try:
+    from pipelines.pdp.launchers.bundle_from_dab import (
+        DEFAULT_ENTRYPOINT,
+        discover_wheel_filename,
+        release_json_path,
+        write_release_json,
+    )
+except ImportError:  # flat import when only launchers/ is on sys.path
+    from bundle_from_dab import (
     DEFAULT_ENTRYPOINT,
     discover_wheel_filename,
     release_json_path,
