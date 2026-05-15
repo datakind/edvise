@@ -27,7 +27,6 @@ from edvise.genai.mapping.shared.hitl.confidence import (
 )
 from edvise.genai.mapping.shared.utilities import strip_json_fences
 from edvise.genai.mapping.shared.pipeline_artifacts import coerce_pipeline_version
-from edvise.genai.mapping.shared.strip_json_fences import strip_json_fences
 
 
 def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
