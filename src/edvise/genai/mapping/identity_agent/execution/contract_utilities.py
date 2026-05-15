@@ -254,7 +254,9 @@ def load_grain_dedup_hook_from_hook_spec(
     snake_case** — :func:`~edvise.data_audit.custom_cleaning.clean_dataset` runs
     ``normalize_columns`` before ``dedupe_fn``.
     """
-    from edvise.genai.mapping.shared.hitl.hook_spec.paths import resolve_hook_module_path
+    from edvise.genai.mapping.shared.hitl.hook_spec.paths import (
+        resolve_hook_module_path,
+    )
 
     hs = (
         hook_spec.model_dump(mode="json")
@@ -417,7 +419,10 @@ def apply_grain_dedup(
             sort_list = [_resolve_grain_key_to_existing_column(policy.sort_by, cols)]
         except ValueError as e:
             raise ValueError(f"apply_grain_dedup: dedup_policy.sort_by: {e}") from e
-    if policy.strategy in ("temporal_collapse", "first_by_column") and not policy.sort_by:
+    if (
+        policy.strategy in ("temporal_collapse", "first_by_column")
+        and not policy.sort_by
+    ):
         logger.warning(
             "%s without dedup_policy.sort_by — using key-only dedup (keep=%s)",
             policy.strategy,

@@ -50,7 +50,9 @@ def drop_duplicate_keys(
     return out.reset_index(drop=True)
 
 
-def validate_grain_key_columns(df: pd.DataFrame, keys: list[str], *, label: str) -> None:
+def validate_grain_key_columns(
+    df: pd.DataFrame, keys: list[str], *, label: str
+) -> None:
     missing = [k for k in keys if k not in df.columns]
     if missing:
         raise ValueError(f"{label}: missing columns for grain key: {missing}")
@@ -206,7 +208,8 @@ def _apply_single_sma_grain_resolution(
 
     if not entity_keys:
         log.warning(
-            "sma_grain_resolution[%s]: empty entity_keys — skipping reduction", step_index
+            "sma_grain_resolution[%s]: empty entity_keys — skipping reduction",
+            step_index,
         )
         return base_df.copy()
 
@@ -228,7 +231,9 @@ def _apply_single_sma_grain_resolution(
             sc = assert_suffix_column_in_entity_keys(suffix_col, entity_keys)
         except ValueError as e:
             log.warning(
-                "sma_grain_resolution[%s]: suffix_identifier invalid — %s", step_index, e
+                "sma_grain_resolution[%s]: suffix_identifier invalid — %s",
+                step_index,
+                e,
             )
             return base_df.copy()
         if sc not in base_df.columns:
@@ -314,12 +319,12 @@ def _apply_single_sma_grain_resolution(
             )
             return base_df.copy()
         try:
-            return apply_categorical_priority(
-                base_df, entity_keys, priority_col, order
-            )
+            return apply_categorical_priority(base_df, entity_keys, priority_col, order)
         except ValueError as e:
             log.warning(
-                "sma_grain_resolution[%s]: categorical_priority failed: %s", step_index, e
+                "sma_grain_resolution[%s]: categorical_priority failed: %s",
+                step_index,
+                e,
             )
             return base_df.copy()
 
@@ -364,7 +369,9 @@ def apply_sma_grain_resolution_payload(
 
     work = base_df.copy()
     for i, gr in enumerate(steps):
-        work = _apply_single_sma_grain_resolution(work, entity_keys, gr, log=log, step_index=i)
+        work = _apply_single_sma_grain_resolution(
+            work, entity_keys, gr, log=log, step_index=i
+        )
     return work
 
 

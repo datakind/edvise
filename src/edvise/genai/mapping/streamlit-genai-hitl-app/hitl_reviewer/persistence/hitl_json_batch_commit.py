@@ -21,6 +21,7 @@ from hitl_reviewer.persistence.silver_hitl_paths import (
     set_item_direct_edit_field_mapping,
     set_item_reviewer_note,
     silver_volume_path_session_tag,
+    validated_season_map_replace_from_dataframe,
 )
 from hitl_reviewer.platform.unity_volume_files import (
     read_unity_file_text,
@@ -28,47 +29,6 @@ from hitl_reviewer.platform.unity_volume_files import (
 )
 
 _WRITE_BLOCKED_MSG = "This UC gate is not **pending** (already approved or rejected); silver JSON writes are disabled."
-
-
-def _validated_season_map_replace_from_dataframe(
-    df: object,
-) -> tuple[list[dict[str, str]] | None, str | None]:
-    """
-    Build and validate ``season_map_replace`` rows from the Streamlit ``data_editor`` dataframe.
-
-    Returns ``(rows, None)`` on success, or ``(None, error_message)``.
-    """
-    try:
-        from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
-            SeasonMapEntry,
-        )
-    except ImportError:
-        return (
-            None,
-            "``edvise`` SeasonMapEntry schema is not available in this environment.",
-        )
-
-    if df is None:
-        return None, "Season map table is missing — reload the page and try again."
-    if not isinstance(df, pd.DataFrame):
-        return None, "Invalid season map table state."
-
-    rows_out: list[dict[str, str]] = []
-    for _, r in df.iterrows():
-        raw = str(r.get("raw", "")).strip()
-        can = str(r.get("canonical", "")).strip()
-        if not raw and not can:
-            continue
-        if not raw:
-            return None, "Each non-empty season row needs a **raw** token."
-        if not can:
-            return None, f"Season row for raw `{raw}` needs a **canonical** label."
-        try:
-            ent = SeasonMapEntry.model_validate({"raw": raw, "canonical": can.upper()})
-        except Exception as e:  # noqa: BLE001
-            return None, f"Season map row `{raw}` → `{can}`: {e}"
-        rows_out.append(ent.model_dump(mode="json"))
-    return rows_out, None
 
 
 def _is_grain_domain_item(item: dict[str, Any]) -> bool:
@@ -301,7 +261,7 @@ def persist_ia_term_hitl_from_session(
                     and "season_map_replace" in res_chk
                 ):
                     df_smr = _ia_term_season_map_dataframe(sk=sk, fi=fi, sel_j=sel_j)
-                    smr_list, smr_err = _validated_season_map_replace_from_dataframe(
+                    smr_list, smr_err = validated_season_map_replace_from_dataframe(
                         df_smr
                     )
                     if smr_err:

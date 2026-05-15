@@ -16,8 +16,12 @@ WITHIN_GROUP_SAMPLE_VALUES = 5
 @dataclass(frozen=True)
 class ColumnVarianceProfile:
     column: str
-    pct_groups_with_variance: float  # fraction of duplicate groups where this column varies
-    sample_values: list  # up to WITHIN_GROUP_SAMPLE_VALUES unique values from the column
+    pct_groups_with_variance: (
+        float  # fraction of duplicate groups where this column varies
+    )
+    sample_values: (
+        list  # up to WITHIN_GROUP_SAMPLE_VALUES unique values from the column
+    )
 
 
 @dataclass(frozen=True)
@@ -25,7 +29,9 @@ class WithinGroupVarianceResult:
     non_unique_rows: int
     affected_groups: int
     group_size_distribution: dict[int, int]  # group_size -> count_of_groups
-    column_profiles: list[ColumnVarianceProfile]  # sorted descending by pct_groups_with_variance
+    column_profiles: list[
+        ColumnVarianceProfile
+    ]  # sorted descending by pct_groups_with_variance
     sampled: bool
 
 
@@ -77,9 +83,7 @@ def compute_within_group_variance(
     for col in cols_to_profile:
         nunique = work.groupby(key_cols, sort=False)[col].nunique()
         pct_varying = round((nunique > 1).mean(), 4)
-        sample_vals = (
-            work[col].dropna().unique()[:WITHIN_GROUP_SAMPLE_VALUES].tolist()
-        )
+        sample_vals = work[col].dropna().unique()[:WITHIN_GROUP_SAMPLE_VALUES].tolist()
         variance_profiles.append(
             ColumnVarianceProfile(
                 column=col,
@@ -88,9 +92,7 @@ def compute_within_group_variance(
             )
         )
 
-    variance_profiles.sort(
-        key=lambda p: p.pct_groups_with_variance, reverse=True
-    )
+    variance_profiles.sort(key=lambda p: p.pct_groups_with_variance, reverse=True)
 
     return WithinGroupVarianceResult(
         non_unique_rows=non_unique_rows,

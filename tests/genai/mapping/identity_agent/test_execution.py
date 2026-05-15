@@ -16,7 +16,10 @@ from edvise.genai.mapping.identity_agent.execution import (
     merge_grain_learner_id_alias_into_school_config,
 )
 from edvise.genai.mapping.identity_agent.execution import contract_utilities as cu
-from edvise.genai.mapping.shared.grain.dedup_execution import drop_duplicate_keys
+from edvise.genai.mapping.shared.grain.dedup_execution import (
+    _categorical_value_rank,
+    drop_duplicate_keys,
+)
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     DedupPolicy,
     GrainContract,
@@ -185,8 +188,8 @@ def test_apply_categorical_priority_substring_and_longest_token():
     assert len(out) == 1
     assert "M.S." in out["deg"].iloc[0]
     # Longest included token wins (else "M.A." would match inside "M.B.A.").
-    assert cu._categorical_value_rank("Business, M.B.A.", ["M.A.", "M.B.A."]) == 1
-    assert cu._categorical_value_rank("Business, M.B.A.", ["M.B.A.", "M.A."]) == 0
+    assert _categorical_value_rank("Business, M.B.A.", ["M.A.", "M.B.A."]) == 1
+    assert _categorical_value_rank("Business, M.B.A.", ["M.B.A.", "M.A."]) == 0
 
 
 def test_temporal_collapse_keep_last():

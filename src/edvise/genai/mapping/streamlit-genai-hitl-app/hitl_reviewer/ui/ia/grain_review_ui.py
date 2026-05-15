@@ -308,8 +308,12 @@ def _render_grain_hitl_context_panels(hctx_raw: Any) -> None:
     has_sma = isinstance(ctx.get("top_column_profiles"), list) and bool(
         ctx.get("top_column_profiles")
     )
-    has_ia_ck = isinstance(ctx.get("candidate_keys"), list) and bool(ctx.get("candidate_keys"))
-    has_ia_vp = isinstance(ctx.get("variance_profile"), dict) and bool(ctx.get("variance_profile"))
+    has_ia_ck = isinstance(ctx.get("candidate_keys"), list) and bool(
+        ctx.get("candidate_keys")
+    )
+    has_ia_vp = isinstance(ctx.get("variance_profile"), dict) and bool(
+        ctx.get("variance_profile")
+    )
     if has_sma:
         _render_sma_grain_profile_table(ctx)
     if has_ia_ck or has_ia_vp:
@@ -373,9 +377,7 @@ def _grain_resolution_markdown_lines(res: Any) -> list[str]:
                 + ", ".join(_md_code_token(x) for x in po[:12])
                 + tail
             )
-        lines.append(
-            f"- Categorical priority on column {_md_code_token(pc)}.{po_s}"
-        )
+        lines.append(f"- Categorical priority on column {_md_code_token(pc)}.{po_s}")
     cko = res.get("candidate_key_override")
     if isinstance(cko, list) and cko:
         cols = ", ".join(_md_code_token(c) for c in cko)
@@ -510,7 +512,9 @@ def render_ia_grain_hitl_cards(
             sk=psk,
             file_index=i,
             recommendation_badge_label=(
-                "SMA recommendation" if _item_dom == "sma_grain" else "IA recommendation"
+                "SMA recommendation"
+                if _item_dom == "sma_grain"
+                else "IA recommendation"
             ),
         )
 

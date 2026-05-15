@@ -184,9 +184,7 @@ def resolve_run_paths(
         active_transform_hooks=active_root / "transform_hooks.py",
         active_enriched_schema_contract=active_root / "enriched_schema_contract.json",
         genai_data=genai / "data",
-        output_data=sma_pipeline_input_root(
-            genai, mode=segment[0], run_id=segment[1]
-        ),
+        output_data=sma_pipeline_input_root(genai, mode=segment[0], run_id=segment[1]),
     )
 
 

@@ -26,7 +26,10 @@ def __getattr__(name: str) -> Any:
     if name in ("RawHookSpecInput", "parse_hook_spec"):
         from .parse import RawHookSpecInput, parse_hook_spec
 
-        return {"RawHookSpecInput": RawHookSpecInput, "parse_hook_spec": parse_hook_spec}[name]
+        return {
+            "RawHookSpecInput": RawHookSpecInput,
+            "parse_hook_spec": parse_hook_spec,
+        }[name]
     if name in (
         "default_hook_module_relpath",
         "ensure_hook_spec_file",

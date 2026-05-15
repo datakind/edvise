@@ -12,17 +12,15 @@ _HITL_APP = _REPO / "src/edvise/genai/mapping/streamlit-genai-hitl-app"
 if str(_HITL_APP) not in sys.path:
     sys.path.insert(0, str(_HITL_APP))
 
-from hitl_reviewer.persistence.hitl_json_batch_commit import (
-    _validated_season_map_replace_from_dataframe,
-)
 from hitl_reviewer.persistence.silver_hitl_paths import (
     merge_season_map_replace_into_selected_option,
+    validated_season_map_replace_from_dataframe,
 )
 
 
 def test_validated_season_map_replace_from_dataframe_ok() -> None:
     df = pd.DataFrame([{"raw": "01", "canonical": "spring"}])
-    rows, err = _validated_season_map_replace_from_dataframe(df)
+    rows, err = validated_season_map_replace_from_dataframe(df)
     assert err is None
     assert rows == [{"raw": "01", "canonical": "SPRING"}]
 

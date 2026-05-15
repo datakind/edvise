@@ -154,9 +154,7 @@ def _append_run_log(
     """
     assert item.choice is not None
     agent = (
-        "schema_mapping_agent"
-        if envelope.domain == "sma_grain"
-        else "identity_agent"
+        "schema_mapping_agent" if envelope.domain == "sma_grain" else "identity_agent"
     )
     event = RunEvent(
         timestamp=utc_now_iso(),
@@ -279,7 +277,9 @@ def _apply_sma_grain_hitl_resolution(
         return
 
     if strat == "no_dedup":
-        logger.warning("[%s] SMA grain resolution no_dedup — no sidecar written", item.item_id)
+        logger.warning(
+            "[%s] SMA grain resolution no_dedup — no sidecar written", item.item_id
+        )
         return
 
     raise HITLValidationError(

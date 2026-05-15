@@ -23,7 +23,9 @@ from edvise.genai.mapping.shared.hitl.hook_spec.schemas import (
     HookSpec,
 )
 from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
-from edvise.genai.mapping.shared.grain.dedup_strategies import GrainResolutionDedupStrategyAny
+from edvise.genai.mapping.shared.grain.dedup_strategies import (
+    GrainResolutionDedupStrategyAny,
+)
 
 
 # ---------------------------------------------------------------------------

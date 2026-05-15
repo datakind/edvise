@@ -725,7 +725,9 @@ def _sma_grain_hitl_artifact_row(path: Path) -> dict[str, str]:
             "artifact_type": "course_sma_grain_hitl",
             "artifact_path": path.as_posix(),
         }
-    raise ValueError(f"Unrecognized SMA grain HITL filename (expected cohort|course): {path}")
+    raise ValueError(
+        f"Unrecognized SMA grain HITL filename (expected cohort|course): {path}"
+    )
 
 
 def register_sma_gate_2_grain_artifacts(

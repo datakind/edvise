@@ -138,9 +138,7 @@ def _apply_sma_grain_resolution_payload(
     payload: dict[str, Any],
 ) -> pd.DataFrame:
     """Shrink ``base_df`` using a resolver-written ``sma_grain_resolution*.json`` payload."""
-    return apply_sma_grain_resolution_payload(
-        base_df, entity_keys, payload, log=logger
-    )
+    return apply_sma_grain_resolution_payload(base_df, entity_keys, payload, log=logger)
 
 
 def _maybe_apply_sma_grain_resolution_file(

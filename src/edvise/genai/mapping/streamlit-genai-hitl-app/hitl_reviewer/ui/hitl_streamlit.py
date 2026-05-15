@@ -1079,9 +1079,9 @@ def render_one_hitl_group(
             _is_sma_tr = is_sma_transformation_review_phase(
                 str(phase), str(artifact_type)
             )
-            _is_ia_g = is_ia_grain_phase(str(phase), str(artifact_type)) or is_sma_grain_hitl_phase(
+            _is_ia_g = is_ia_grain_phase(
                 str(phase), str(artifact_type)
-            )
+            ) or is_sma_grain_hitl_phase(str(phase), str(artifact_type))
             _is_ia_t = is_ia_term_phase(str(phase), str(artifact_type))
             _is_hook_pv = is_ia_hook_preview_phase(
                 str(phase), str(artifact_type)
@@ -1123,9 +1123,9 @@ def render_one_hitl_group(
                 )[1],
             )
         st.divider()
-        is_ia_grain_row = is_ia_grain_phase(str(phase), str(artifact_type)) or is_sma_grain_hitl_phase(
+        is_ia_grain_row = is_ia_grain_phase(
             str(phase), str(artifact_type)
-        )
+        ) or is_sma_grain_hitl_phase(str(phase), str(artifact_type))
         is_ia_term_row = is_ia_term_phase(str(phase), str(artifact_type))
         is_hook_pv_row = is_ia_hook_preview_phase(
             str(phase), str(artifact_type)

@@ -114,9 +114,7 @@ class SmaGrainHitlPending(Exception):
         self.dataset = dataset
         self.entity_type = entity_type
         self.manifest_source_keys = list(manifest_source_keys)
-        super().__init__(
-            f"SMA grain HITL pending UC + resolver: {grain_hitl_path}"
-        )
+        super().__init__(f"SMA grain HITL pending UC + resolver: {grain_hitl_path}")
 
 
 def _write_sma_grain_true_duplicate_resolution_file(
@@ -294,7 +292,10 @@ def run_onboard_gate_2_entity_with_grain_uc(
     After :data:`MAX_SMA_GRAIN_ROUNDS` completed UC+resolve cycles, a further mismatch applies
     ``true_duplicate`` via ``sma_grain_resolution_<entity>.json`` without registering another HITL gate.
     """
-    from edvise.genai.mapping.identity_agent.hitl.resolver import check_gate, resolve_items
+    from edvise.genai.mapping.identity_agent.hitl.resolver import (
+        check_gate,
+        resolve_items,
+    )
     from edvise.genai.mapping.state import job_state as pipeline_job_state
 
     manifest_cur = manifest

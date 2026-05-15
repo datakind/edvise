@@ -43,7 +43,9 @@ def test_true_duplicate_dedupes_on_entity_keys_not_full_row() -> None:
     )
     keys = ["sid", "term"]
     payload = {"grain_resolution": {"dedup_strategy": "true_duplicate"}}
-    out = apply_sma_grain_resolution_payload(df, keys, payload, log=logging.getLogger("test"))
+    out = apply_sma_grain_resolution_payload(
+        df, keys, payload, log=logging.getLogger("test")
+    )
     assert len(out) == 1
     assert list(out.columns) == list(df.columns)
 
@@ -342,7 +344,10 @@ def test_append_grain_resolution_file_chains_steps(tmp_path: Path) -> None:
         dataset="course",
         entity_type="course",
         manifest_source_keys=["sid"],
-        grain_resolution={"dedup_strategy": "suffix_identifier", "suffix_column": "sid"},
+        grain_resolution={
+            "dedup_strategy": "suffix_identifier",
+            "suffix_column": "sid",
+        },
     )
     append_sma_grain_resolution_step(
         out,

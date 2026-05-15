@@ -26,7 +26,9 @@ from edvise.genai.mapping.shared.databricks_ai_gateway import (
     create_openai_client_for_databricks_gateway,
     make_databricks_gateway_llm_complete,
 )
-from edvise.genai.mapping.shared.grain.dedup_strategies import SmaGrainMultiplicityProposalStrategy
+from edvise.genai.mapping.shared.grain.dedup_strategies import (
+    SmaGrainMultiplicityProposalStrategy,
+)
 from edvise.genai.mapping.shared.profiling.variance import (
     ColumnVarianceProfile,
     WithinGroupVarianceResult,
