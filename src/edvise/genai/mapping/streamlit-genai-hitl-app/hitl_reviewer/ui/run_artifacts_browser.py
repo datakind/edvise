@@ -14,13 +14,21 @@ from typing import Any
 import streamlit as st
 
 from edvise.configs import genai as genai_cfg
-from edvise.genai.mapping.shared.hitl.hook_spec.paths import (
-    default_hook_module_relpath,
-)
-from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
 from hitl_reviewer.platform.unity_volume_files import read_unity_file_text
 
 _PREVIEW_CHAR_CAP = 120_000
+
+
+def _ia_hook_module_relpath(institution_id: str, *, grain: bool) -> str:
+    """
+    Canonical relative path under the IA onboard run root for materialized hook modules.
+
+    Matches :func:`~edvise.genai.mapping.shared.hitl.hook_spec.paths.default_hook_module_relpath`
+    for ``identity_grain`` / ``identity_term`` only. Kept local so this module does not import
+    ``hook_spec`` (older ``edvise`` installs used by the Streamlit app may omit that package).
+    """
+    basename = "dedup_hooks.py" if grain else "term_hooks.py"
+    return f"identity_hooks/{institution_id}/{basename}"
 
 
 def genai_mapping_root_uc(institution_id: str, catalog: str) -> str:
@@ -62,12 +70,12 @@ def known_onboard_run_artifact_paths(
     ):
         add("Identity agent (onboard run)", label, ia / fn)
 
-    # Canonical materialized modules (see :func:`default_hook_module_relpath`).
-    for domain, label in (
-        (HITLDomain.IDENTITY_GRAIN, "identity_hooks/…/dedup_hooks.py"),
-        (HITLDomain.IDENTITY_TERM, "identity_hooks/…/term_hooks.py"),
+    # Canonical materialized modules (same layout as ``default_hook_module_relpath`` for IA).
+    for grain, label in (
+        (True, "identity_hooks/…/dedup_hooks.py"),
+        (False, "identity_hooks/…/term_hooks.py"),
     ):
-        rel = default_hook_module_relpath(inst, domain)
+        rel = _ia_hook_module_relpath(inst, grain=grain)
         add("Identity hooks (onboard run)", label, ia / rel)
 
     for fn, label in (
@@ -119,11 +127,11 @@ def known_active_artifact_paths(
     ):
         add(label, active / fn)
 
-    for domain, label in (
-        (HITLDomain.IDENTITY_GRAIN, "identity_hooks/…/dedup_hooks.py"),
-        (HITLDomain.IDENTITY_TERM, "identity_hooks/…/term_hooks.py"),
+    for grain, label in (
+        (True, "identity_hooks/…/dedup_hooks.py"),
+        (False, "identity_hooks/…/term_hooks.py"),
     ):
-        rel = default_hook_module_relpath(inst, domain)
+        rel = _ia_hook_module_relpath(inst, grain=grain)
         add(label, active / rel)
 
     return items

@@ -182,8 +182,14 @@ def execute_transformation_map_for_sma_run(
     enriched_contract: dict[str, Any],
     manifest_map_path: Path,
     grain_hitl_path: Path,
+    active_grain_resolution_root: Path | None = None,
 ) -> Any:
-    """Run SMA execution with grain paths (HITL, IA keys, optional ``sma_grain_resolution_*.json``)."""
+    """Run SMA execution with grain paths (HITL, IA keys, optional ``sma_grain_resolution_*.json``).
+
+    Resolution JSON is chosen in order: (1) ``<grain_hitl_path.parent>/sma_grain_resolution_<entity>.json``
+    if that file exists (onboard run or execute-local override); else (2) the same basename under
+    ``active_grain_resolution_root`` when provided (promoted ``active/`` artifacts for ``mode=execute``).
+    """
     from edvise.genai.mapping.schema_mapping_agent.execution.field_executor import (
         GrainReconciliationRequired,
         execute_transformation_map,
@@ -204,8 +210,15 @@ def execute_transformation_map_for_sma_run(
             f"Unexpected entity_type={et_value!r} for SMA grain job (expected cohort|course)"
         )
     entity_lit = cast(Literal["cohort", "course"], et_value)
-    resolution_json = grain_hitl_path.parent / f"sma_grain_resolution_{et_value}.json"
-    resolution_path = resolution_json if resolution_json.is_file() else None
+    resolution_name = f"sma_grain_resolution_{et_value}.json"
+    run_local = grain_hitl_path.parent / resolution_name
+    if run_local.is_file():
+        resolution_path: Path | None = run_local
+    elif active_grain_resolution_root is not None:
+        active_candidate = active_grain_resolution_root / resolution_name
+        resolution_path = active_candidate if active_candidate.is_file() else None
+    else:
+        resolution_path = None
 
     try:
         return execute_transformation_map(
@@ -253,7 +266,8 @@ def execute_transformation_map_for_sma_execute_mode(**kwargs: Any) -> Any:
         raise RuntimeError(
             f"SMA grain reconciliation required at {e.grain_hitl_path}. "
             "Execute mode does not poll Unity Catalog for grain HITL; resolve grain in an onboard "
-            f"run (or manually run resolve_items and create {resolution_json.name}), then re-execute."
+            f"run (or manually run resolve_items and create {resolution_json.name} next to that HITL file "
+            "or promote it under genai_mapping/active/), then re-execute."
         ) from e
 
 

@@ -8,7 +8,9 @@ Usage (Databricks job parameters):
     --resume_from       start | gate_2  (onboard only)
     --pipeline_version  Release / git tag for manifests and transformation maps (match edvise_ia job).
     --reference_id      required for onboard; few-shot from that school's
-                        ``.../<ref_id>_silver/silver_volume/genai_mapping/active/{manifest_map,transformation_map}.json``
+                        ``.../<ref_id>_silver/silver_volume/genai_mapping/active/`` (``manifest_map.json``,
+                        ``transformation_map.json``, ``enriched_schema_contract.json``, and optional
+                        ``sma_grain_resolution_cohort.json`` / ``sma_grain_resolution_course.json`` when promoted)
                         (same ``--catalog`` as the reference institution's volumes).
     --inputs_toml_path  Same resolution as edvise_ia (relative under bronze ``genai_mapping/``).
 
@@ -77,7 +79,10 @@ from edvise.genai.mapping.state.hitl_poller import (
     DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
     HITLTimeoutError,
 )
-from edvise.shared.logger import init_file_logging_at_path
+from edvise.shared.logger import (
+    init_file_logging_at_path,
+    resolve_genai_segment_log_path,
+)
 from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
 LOGGER = logging.getLogger("edvise_sma")
@@ -1167,6 +1172,7 @@ def run_execute(
         enriched_contract=enriched_contract,
         manifest_map_path=paths.active_manifest_map,
         grain_hitl_path=paths.run_root / "cohort_sma_grain_hitl.json",
+        active_grain_resolution_root=paths.active_root,
     )
     course_result = execute_transformation_map_for_sma_execute_mode(
         transformation_map=course_map,
@@ -1178,6 +1184,7 @@ def run_execute(
         enriched_contract=enriched_contract,
         manifest_map_path=paths.active_manifest_map,
         grain_hitl_path=paths.run_root / "course_sma_grain_hitl.json",
+        active_grain_resolution_root=paths.active_root,
     )
 
     # Pandera validation (report only)
@@ -1230,18 +1237,24 @@ def run(
     else:
         raise ValueError(f"Invalid mode={mode!r}. Must be 'onboard' or 'execute'.")
 
+    _segment_log = resolve_genai_segment_log_path(
+        paths.run_root,
+        mode=mode,
+        resume_from=resume_from,
+    )
     init_file_logging_at_path(
-        paths.run_root / "sma_pipeline.log",
+        _segment_log,
         logger_name="edvise_sma",
-        append=True,
+        append=False,
     )
     LOGGER.info(
-        "edvise_sma | institution=%s | run=%s | mode=%s | resume_from=%s | artifacts_onboard=%s",
+        "edvise_sma | institution=%s | run=%s | mode=%s | resume_from=%s | artifacts_onboard=%s | log=%s",
         institution_id,
         _log_run,
         mode,
         resume_from,
         artifacts_onboard_run_id or "",
+        _segment_log,
     )
 
     from edvise import configs, dataio

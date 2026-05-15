@@ -15,7 +15,7 @@ def default_hook_module_relpath(institution_id: str, domain: HITLDomain) -> str:
     Layout: ``identity_hooks/<institution_id>/dedup_hooks.py`` (grain) or ``term_hooks.py`` (term).
     Grain and term use distinct filenames so one institution can have both modules.
     """
-    if domain == HITLDomain.IDENTITY_GRAIN:
+    if domain in (HITLDomain.IDENTITY_GRAIN, HITLDomain.SMA_GRAIN):
         basename = "dedup_hooks.py"
     elif domain == HITLDomain.IDENTITY_TERM:
         basename = "term_hooks.py"

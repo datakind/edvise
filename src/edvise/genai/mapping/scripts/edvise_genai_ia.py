@@ -56,7 +56,10 @@ from edvise.genai.mapping.state.hitl_poller import (
     DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
     HITLTimeoutError,
 )
-from edvise.shared.logger import init_file_logging_at_path
+from edvise.shared.logger import (
+    init_file_logging_at_path,
+    resolve_genai_segment_log_path,
+)
 
 LOGGER = logging.getLogger("edvise_ia")
 
@@ -957,18 +960,24 @@ def run(
     else:
         raise ValueError(f"Invalid mode={mode!r}. Must be 'onboard' or 'execute'.")
 
+    _segment_log = resolve_genai_segment_log_path(
+        paths.run_root,
+        mode=mode,
+        resume_from=resume_from,
+    )
     init_file_logging_at_path(
-        paths.run_root / "ia_pipeline.log",
+        _segment_log,
         logger_name="edvise_ia",
-        append=True,
+        append=False,
     )
     LOGGER.info(
-        "edvise_ia | institution=%s | run=%s | mode=%s | resume_from=%s | artifacts_onboard=%s",
+        "edvise_ia | institution=%s | run=%s | mode=%s | resume_from=%s | artifacts_onboard=%s | log=%s",
         institution_id,
         _log_run,
         mode,
         resume_from,
         artifacts_onboard_run_id or "",
+        _segment_log,
     )
 
     # Load school config (shared across all modes)

@@ -33,14 +33,6 @@ from edvise.genai.mapping.shared.grain.dedup_strategies import (
 # ---------------------------------------------------------------------------
 
 
-class HITLDomain(str, Enum):
-    IDENTITY_GRAIN = "identity_grain"
-    IDENTITY_TERM = "identity_term"
-    SMA_GRAIN = "sma_grain"
-    SCHEMA_MAPPING = "schema_mapping"  # future
-    TRANSFORM = "transform"  # future
-
-
 class ReentryDepth(str, Enum):
     TERMINAL = "terminal"  # apply resolution, continue to next stage
     GENERATE_HOOK = "generate_hook"  # trigger hook gen LLM call, then continue

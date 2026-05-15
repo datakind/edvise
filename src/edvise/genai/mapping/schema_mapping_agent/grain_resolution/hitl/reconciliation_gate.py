@@ -77,7 +77,7 @@ def run_grain_reconciliation_gate(
         )
         return
 
-    scenario = (
+    scenario: Literal["step_down", "within_grain_multiplicity"] = (
         "step_down"
         if ia_source_keys is not None
         and detect_grain_scenario(ia_source_keys, manifest_source_keys) == "step_down"
