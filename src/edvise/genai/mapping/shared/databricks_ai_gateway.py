@@ -1,4 +1,9 @@
-"""Databricks MLflow AI Gateway via the OpenAI-compatible client (mapping-wide)."""
+"""
+Databricks MLflow AI Gateway via the OpenAI-compatible client.
+
+Shared by SchemaMappingAgent execution and IdentityAgent so execution code never imports
+``identity_agent`` for gateway access only.
+"""
 
 from __future__ import annotations
 
@@ -16,7 +21,7 @@ from edvise.genai.mapping.shared.utilities import (
     disable_mlflow_side_effects_for_openai_gateway,
 )
 
-# Default MLflow serving / gateway endpoint for genai mapping jobs and evals.
+# Same default endpoint as ``schema_mapping_agent.manifest.eval`` (MLflow serving / gateway).
 DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL: str = (
     "https://4437281602191762.ai-gateway.gcp.databricks.com/mlflow/v1"
 )
@@ -28,6 +33,7 @@ LLM_COMPLETE_SYSTEM_USER_SEP: Final[str] = "\n\n---\n\n"
 DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS: Final[int] = 16_000
 
 _LOG = logging.getLogger(__name__)
+_T = TypeVar("_T")
 
 
 def llm_complete_combined_message_content(system: str, user: str) -> str:
@@ -39,7 +45,8 @@ def disable_mlflow_tracing_for_openai_gateway_client() -> None:
     """
     Turn off MLflow tracing / OpenAI autolog for gateway calls (see module docstring).
 
-    Job scripts should also call :func:`~edvise.genai.mapping.shared.utilities.disable_mlflow_side_effects_for_openai_gateway`
+    Job scripts should also call
+    :func:`~edvise.genai.mapping.shared.mlflow_gateway_bootstrap.disable_mlflow_side_effects_for_openai_gateway`
     at import time **before** loading packages that import ``openai``.
     """
     disable_mlflow_side_effects_for_openai_gateway()
@@ -91,7 +98,8 @@ def _token_from_databricks_sdk_default_auth() -> str | None:
 
 def require_databricks_token() -> str:
     """
-    Return a workspace bearer for the gateway ``api_key`` via :func:`_token_from_databricks_sdk_default_auth`.
+    Return a workspace bearer for the gateway ``api_key`` via
+    :func:`_token_from_databricks_sdk_default_auth`.
 
     Personal access tokens (``DATABRICKS_TOKEN``) are not used for this path.
 
@@ -125,42 +133,6 @@ def create_openai_client_for_databricks_gateway(
     key = api_key if api_key is not None else require_databricks_token()
     url = base_url if base_url is not None else resolve_ai_gateway_base_url()
     return OpenAI(api_key=key, base_url=url)
-
-
-def make_databricks_gateway_llm_complete(
-    client: OpenAI,
-    *,
-    model: str | None = None,
-    max_tokens: int = DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
-) -> Callable[[str, str], str]:
-    """
-    Return ``llm_complete(system, user)`` for mapping runners (e.g. identity grain, SMA refine).
-
-    The gateway is called with a single user message: ``system``, a separator, then ``user``
-    (matches ``ia_dev`` / SMA notebook patterns).
-    """
-    resolved_model = model if model is not None else resolve_gateway_model_id()
-
-    def complete(system: str, user: str) -> str:
-        messages = cast(
-            list[ChatCompletionMessageParam],
-            [
-                {
-                    "role": "user",
-                    "content": llm_complete_combined_message_content(system, user),
-                }
-            ],
-        )
-        resp = client.chat.completions.create(
-            model=resolved_model,
-            messages=messages,
-            max_tokens=max_tokens,
-        )
-        return _assistant_text_from_chat_completion_or_raise(
-            resp, log=_LOG, default_model=resolved_model
-        )
-
-    return complete
 
 
 def _text_from_message_content(
@@ -249,7 +221,40 @@ def _assistant_text_from_chat_completion_or_raise(
     ) from None
 
 
-_T = TypeVar("_T")
+def make_databricks_gateway_llm_complete(
+    client: OpenAI,
+    *,
+    model: str | None = None,
+    max_tokens: int = DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
+) -> Callable[[str, str], str]:
+    """
+    Return ``llm_complete(system, user)``.
+
+    The gateway is called with a single user message: ``system``, a separator, then ``user``
+    (matches ``ia_dev`` / SMA notebook patterns).
+    """
+    resolved_model = model if model is not None else resolve_gateway_model_id()
+
+    def complete(system: str, user: str) -> str:
+        messages = cast(
+            list[ChatCompletionMessageParam],
+            [
+                {
+                    "role": "user",
+                    "content": llm_complete_combined_message_content(system, user),
+                }
+            ],
+        )
+        resp = client.chat.completions.create(
+            model=resolved_model,
+            messages=messages,
+            max_tokens=max_tokens,
+        )
+        return _assistant_text_from_chat_completion_or_raise(
+            resp, log=_LOG, default_model=resolved_model
+        )
+
+    return complete
 
 
 def is_retryable_openai_gateway_error(exc: BaseException) -> bool:
