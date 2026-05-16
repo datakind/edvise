@@ -13,6 +13,7 @@ import pandas as pd
 from edvise.genai.mapping.identity_agent.hitl.schemas import InstitutionHITLItems
 from edvise.genai.mapping.schema_mapping_agent.grain_resolution.prompt import (
     DedupProposalLLM,
+    build_sma_dedup_proposals_without_llm,
     propose_dedup_policy,
     _pick_manifest_suffix_key_column,
 )
@@ -63,8 +64,9 @@ def run_grain_reconciliation_gate(
     """
     Write ``sma_grain_hitl.json`` for a grain mismatch.
 
-    Orchestrates scenario detection, optional variance profiling + LLM proposals,
-    HITL item construction, and disk write (same envelope pattern as IA grain HITL).
+    Orchestrates scenario detection, optional variance profiling, dedup proposals
+    (gateway LLM when IA entity keys differ from manifest keys; heuristics-only when
+    they match), HITL item construction, and disk write (same envelope pattern as IA grain HITL).
     """
     base_rows = len(df)
     entity_rows = df.drop_duplicates(subset=manifest_source_keys).shape[0]
@@ -82,6 +84,11 @@ def run_grain_reconciliation_gate(
         if ia_source_keys is not None
         and detect_grain_scenario(ia_source_keys, manifest_source_keys) == "step_down"
         else "within_grain_multiplicity"
+    )
+
+    aligned_ia_manifest_keys = (
+        ia_source_keys is not None
+        and set(ia_source_keys) == set(manifest_source_keys)
     )
 
     logger.info(
@@ -107,17 +114,29 @@ def run_grain_reconciliation_gate(
                 dataset,
             )
         try:
-            proposals = propose_dedup_policy(
-                institution_id=institution_id,
-                dataset=dataset,
-                manifest_source_keys=manifest_source_keys,
-                ia_source_keys=ia_source_keys,
-                variance=variance,
-                mapped_source_columns=mapped_source_columns,
-            )
+            if aligned_ia_manifest_keys:
+                logger.info(
+                    "[%s] IA post_clean_primary_key matches manifest entity keys — "
+                    "building dedup proposals from variance heuristics (no LLM)",
+                    dataset,
+                )
+                proposals = build_sma_dedup_proposals_without_llm(
+                    manifest_source_keys=manifest_source_keys,
+                    variance=variance,
+                    mapped_source_columns=mapped_source_columns,
+                )
+            else:
+                proposals = propose_dedup_policy(
+                    institution_id=institution_id,
+                    dataset=dataset,
+                    manifest_source_keys=manifest_source_keys,
+                    ia_source_keys=ia_source_keys,
+                    variance=variance,
+                    mapped_source_columns=mapped_source_columns,
+                )
         except Exception as e:
             logger.warning(
-                "[%s] LLM dedup proposal failed (%s); using deterministic fallback options",
+                "[%s] Dedup proposal generation failed (%s); using deterministic fallback options",
                 dataset,
                 e,
             )
@@ -160,6 +179,8 @@ def run_grain_reconciliation_gate(
         proposals=proposals,
         sma_manifest_path=sma_manifest_path,
         variance=variance,
+        aligned_ia_manifest_entity_keys=aligned_ia_manifest_keys
+        and scenario == "within_grain_multiplicity",
     )
 
     hitl_output_path = Path(hitl_output_path)

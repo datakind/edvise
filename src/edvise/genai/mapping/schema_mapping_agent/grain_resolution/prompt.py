@@ -267,6 +267,9 @@ def propose_dedup_policy(
 
     Uses :func:`~edvise.utils.llm_utils.llm_complete_with_parse_retry` so malformed JSON or
     Pydantic validation errors trigger re-prompts (same defaults as ``llm_utils``).
+
+    When IdentityAgent keys match manifest entity keys, :func:`run_grain_reconciliation_gate`
+    uses :func:`build_sma_dedup_proposals_without_llm` instead and does not call this function.
     """
     top_profiles = variance.column_profiles[:8]
     high_suffix_signal = _high_variance_non_measure_signal(
@@ -353,6 +356,52 @@ def propose_dedup_policy(
         manifest_source_keys=list(manifest_source_keys),
         measure_variance_suffix_first=bool(measure_variance_suffix_first),
         suffix_second_required=bool(user_payload.get("suffix_second_required")),
+    )
+
+
+def build_sma_dedup_proposals_without_llm(
+    *,
+    manifest_source_keys: list[str],
+    variance: WithinGroupVarianceResult,
+    mapped_source_columns: list[str],
+) -> list[DedupProposalLLM]:
+    """
+    Same ordering rules as :func:`propose_dedup_policy` post-normalization, without a gateway call.
+
+    Used when IdentityAgent ``post_clean_primary_key`` matches manifest entity keys: multiplicity
+    is within-grain collapse (snapshots / history), not a sanctioned key step-down from a finer IA
+    grain — heuristics on the variance profile suffice for reviewer-facing options.
+    """
+    high_suffix_signal = _high_variance_non_measure_signal(
+        variance.column_profiles, mapped_source_columns
+    )
+    measure_variance_suffix_first = _measure_variance_suffix_first_signal(
+        variance.column_profiles, mapped_source_columns
+    )
+
+    if measure_variance_suffix_first:
+        props = [
+            _default_suffix_proposal_measure_policy(manifest_source_keys),
+            _default_true_duplicate_proposal(),
+        ]
+    elif high_suffix_signal:
+        sk = _pick_manifest_suffix_key_column(manifest_source_keys)
+        props = [
+            _default_true_duplicate_proposal(),
+            _default_suffix_proposal_descriptive_policy(sk),
+        ]
+    else:
+        sk = _pick_manifest_suffix_key_column(manifest_source_keys)
+        props = [
+            _default_true_duplicate_proposal(),
+            _default_suffix_proposal_descriptive_policy(sk),
+        ]
+
+    return _normalize_proposals_after_llm(
+        props,
+        manifest_source_keys=list(manifest_source_keys),
+        measure_variance_suffix_first=bool(measure_variance_suffix_first),
+        suffix_second_required=bool(high_suffix_signal),
     )
 
 

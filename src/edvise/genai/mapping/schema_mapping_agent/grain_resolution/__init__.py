@@ -16,6 +16,7 @@ from .hitl import (
 )
 from .prompt import (
     DedupProposalLLM,
+    build_sma_dedup_proposals_without_llm,
     propose_dedup_policy,
     proposal_to_grain_resolution,
 )
@@ -32,6 +33,7 @@ from .runner import (
 
 __all__ = [
     "DedupProposalLLM",
+    "build_sma_dedup_proposals_without_llm",
     "MAX_SMA_GRAIN_ROUNDS",
     "SmaGrainHitlPending",
     "SmaSchemaMappingRunPaths",

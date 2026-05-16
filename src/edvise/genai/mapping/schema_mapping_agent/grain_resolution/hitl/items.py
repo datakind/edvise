@@ -41,6 +41,7 @@ def build_sma_grain_hitl_items(
     proposals: list[DedupProposalLLM] | None,
     sma_manifest_path: Path | None,
     variance: WithinGroupVarianceResult | None = None,
+    aligned_ia_manifest_entity_keys: bool = False,
 ) -> list[HITLItem]:
     """Construct HITL items for ``sma_grain_hitl.json``."""
     delta = base_rows - entity_rows
@@ -56,6 +57,8 @@ def build_sma_grain_hitl_items(
     }
     if sma_manifest_path is not None:
         meta_base["sma_manifest_path"] = str(sma_manifest_path)
+    if aligned_ia_manifest_entity_keys:
+        meta_base["aligned_ia_manifest_entity_keys"] = True
 
     target = HITLTarget(
         institution_id=institution_id,
@@ -126,11 +129,19 @@ def build_sma_grain_hitl_items(
         )
 
     assert proposals is not None and len(proposals) >= 2
-    q = (
-        f"Dataset '{dataset}': rows do not reduce cleanly to manifest keys {manifest_source_keys} "
-        f"({base_rows} base rows vs {entity_rows} unique key groups). "
-        "Pick a dedup / grain strategy informed by the variance profile."
-    )
+    if aligned_ia_manifest_entity_keys:
+        q = (
+            f"Dataset '{dataset}': IdentityAgent and this manifest both use entity keys "
+            f"{manifest_source_keys}. The cleaned base still has {base_rows} rows vs "
+            f"{entity_rows} unique key groups (within-grain collapse / history, not a finer "
+            "IA grain than the manifest). Pick a dedup strategy informed by the variance profile."
+        )
+    else:
+        q = (
+            f"Dataset '{dataset}': rows do not reduce cleanly to manifest keys "
+            f"{manifest_source_keys} ({base_rows} base rows vs {entity_rows} unique key groups). "
+            "Pick a dedup / grain strategy informed by the variance profile."
+        )
     opt_models: list[HITLOption] = []
     for i, prop in enumerate(proposals[:2]):
         if prop.strategy == "suffix_identifier":

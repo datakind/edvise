@@ -259,6 +259,39 @@ def test_resolve_sma_grain_suffix_rejects_column_not_in_grain(tmp_path: Path) ->
         resolve_items(hitl_path)
 
 
+def test_build_sma_dedup_proposals_without_llm_measure_columns_suffix_first() -> None:
+    from edvise.genai.mapping.schema_mapping_agent.grain_resolution.prompt import (
+        build_sma_dedup_proposals_without_llm,
+    )
+    from edvise.genai.mapping.shared.profiling.variance import (
+        ColumnVarianceProfile,
+        WithinGroupVarianceResult,
+    )
+
+    variance = WithinGroupVarianceResult(
+        non_unique_rows=20,
+        affected_groups=5,
+        group_size_distribution={4: 5},
+        column_profiles=[
+            ColumnVarianceProfile(
+                column="term_gpa",
+                pct_groups_with_variance=0.6,
+                sample_values=[3.1, 2.0],
+            ),
+        ],
+        sampled=False,
+    )
+    props = build_sma_dedup_proposals_without_llm(
+        manifest_source_keys=["learner_id", "course_prefix"],
+        variance=variance,
+        mapped_source_columns=["term_gpa"],
+    )
+    assert len(props) == 2
+    assert props[0].strategy == "suffix_identifier"
+    assert props[0].suffix_column in ("course_prefix", "learner_id")
+    assert props[1].strategy == "true_duplicate"
+
+
 def test_build_sma_grain_hitl_rejects_suffix_not_in_manifest_grain() -> None:
     proposals = [
         DedupProposalLLM(
