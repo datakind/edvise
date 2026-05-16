@@ -158,17 +158,31 @@ class SmaSchemaMappingRunPaths(Protocol):
 def ia_post_clean_primary_key_for_dataset(
     enriched_contract: dict[str, Any], dataset_name: str
 ) -> list[str] | None:
-    """IdentityAgent grain (source space) for ``execute_transformation_map(..., ia_source_keys=...)``."""
+    """Row grain (normalized source columns) for ``execute_transformation_map(..., ia_source_keys=...)``.
+
+    Prefer ``datasets[<name>].unique_keys`` from the frozen enriched schema contract — that is
+    the primary key the Identity pipeline actually enforced when cleaning/deduping, and it is
+    always present for grain-built contracts.
+
+    Fall back to ``datasets[<name>].grain_contract.post_clean_primary_key`` for older payloads
+    that omitted ``unique_keys`` at the dataset level.
+    """
     ds = (enriched_contract.get("datasets") or {}).get(dataset_name)
     if not isinstance(ds, dict):
         return None
+
+    uks = ds.get("unique_keys")
+    if isinstance(uks, list) and uks:
+        out = [str(x).strip() for x in uks if str(x).strip()]
+        if out:
+            return out
+
     grain = ds.get("grain_contract") or {}
-    if not isinstance(grain, dict):
-        return None
-    pk = grain.get("post_clean_primary_key")
-    if not isinstance(pk, list) or not pk:
-        return None
-    return [str(x) for x in pk]
+    if isinstance(grain, dict):
+        pk = grain.get("post_clean_primary_key")
+        if isinstance(pk, list) and pk:
+            return [str(x) for x in pk]
+    return None
 
 
 def execute_transformation_map_for_sma_run(

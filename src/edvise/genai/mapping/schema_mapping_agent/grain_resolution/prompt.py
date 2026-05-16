@@ -270,6 +270,8 @@ def propose_dedup_policy(
 
     When IdentityAgent keys match manifest entity keys, :func:`run_grain_reconciliation_gate`
     uses :func:`build_sma_dedup_proposals_without_llm` instead and does not call this function.
+    The same applies when ``ia_source_keys`` is omitted (missing ``post_clean_primary_key`` on
+    the dataset in the enriched contract).
     """
     top_profiles = variance.column_profiles[:8]
     high_suffix_signal = _high_variance_non_measure_signal(

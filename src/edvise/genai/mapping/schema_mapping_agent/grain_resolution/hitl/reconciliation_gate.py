@@ -90,15 +90,23 @@ def run_grain_reconciliation_gate(
         ia_source_keys is not None
         and set(ia_source_keys) == set(manifest_source_keys)
     )
+    # When IA did not persist ``post_clean_primary_key`` on this dataset, we still have a
+    # variance profile on manifest keys — heuristic proposals match the post-LLM normalize path
+    # without a gateway call (same as aligned-keys case).
+    heuristic_dedup_without_llm = aligned_ia_manifest_keys or ia_source_keys is None
 
     logger.info(
-        "[%s] SMA grain gate: institution=%s scenario=%s base_rows=%d entity_rows=%d keys=%s",
+        "[%s] SMA grain gate: institution=%s scenario=%s base_rows=%d entity_rows=%d "
+        "manifest_keys=%s ia_post_clean_primary_key=%s aligned=%s heuristic_dedup=%s",
         dataset,
         institution_id,
         scenario,
         base_rows,
         entity_rows,
         manifest_source_keys,
+        ia_source_keys,
+        aligned_ia_manifest_keys,
+        heuristic_dedup_without_llm,
     )
 
     proposals: list[DedupProposalLLM] | None = None
@@ -114,12 +122,19 @@ def run_grain_reconciliation_gate(
                 dataset,
             )
         try:
-            if aligned_ia_manifest_keys:
-                logger.info(
-                    "[%s] IA post_clean_primary_key matches manifest entity keys — "
-                    "building dedup proposals from variance heuristics (no LLM)",
-                    dataset,
-                )
+            if heuristic_dedup_without_llm:
+                if aligned_ia_manifest_keys:
+                    logger.info(
+                        "[%s] IA post_clean_primary_key matches manifest entity keys — "
+                        "building dedup proposals from variance heuristics (no LLM)",
+                        dataset,
+                    )
+                else:
+                    logger.info(
+                        "[%s] IA post_clean_primary_key missing on dataset — "
+                        "building dedup proposals from variance heuristics (no LLM)",
+                        dataset,
+                    )
                 proposals = build_sma_dedup_proposals_without_llm(
                     manifest_source_keys=manifest_source_keys,
                     variance=variance,

@@ -259,6 +259,43 @@ def test_resolve_sma_grain_suffix_rejects_column_not_in_grain(tmp_path: Path) ->
         resolve_items(hitl_path)
 
 
+def test_ia_post_clean_primary_key_prefers_dataset_unique_keys() -> None:
+    from edvise.genai.mapping.schema_mapping_agent.grain_resolution.runner import (
+        ia_post_clean_primary_key_for_dataset,
+    )
+
+    contract = {
+        "datasets": {
+            "student": {
+                "unique_keys": ["learner_id", "term_desc"],
+                "grain_contract": {"post_clean_primary_key": ["learner_id"]},
+            }
+        }
+    }
+    assert ia_post_clean_primary_key_for_dataset(contract, "student") == [
+        "learner_id",
+        "term_desc",
+    ]
+
+
+def test_ia_post_clean_primary_key_falls_back_to_grain_contract() -> None:
+    from edvise.genai.mapping.schema_mapping_agent.grain_resolution.runner import (
+        ia_post_clean_primary_key_for_dataset,
+    )
+
+    contract = {
+        "datasets": {
+            "student": {
+                "grain_contract": {"post_clean_primary_key": ["pidm", "term"]},
+            }
+        }
+    }
+    assert ia_post_clean_primary_key_for_dataset(contract, "student") == [
+        "pidm",
+        "term",
+    ]
+
+
 def test_build_sma_dedup_proposals_without_llm_measure_columns_suffix_first() -> None:
     from edvise.genai.mapping.schema_mapping_agent.grain_resolution.prompt import (
         build_sma_dedup_proposals_without_llm,

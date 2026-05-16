@@ -769,14 +769,21 @@ def _apply_grain_reduction(
         return _merge_back(reduced)
 
     if rs.strategy == RowSelectionStrategy.where_not_null:
-        if rs.condition_col not in base_df.columns:
+        assign_df = base_df.assign(_s=s.values)
+        if rs.condition_col in base_df.columns:
+            mask = base_df[rs.condition_col].notna()
+        elif record.join is not None:
+            # Cross-table: condition_col often names a lookup-only column (e.g. terms
+            # pell_awarded) that never exists on the manifest base_df; the resolved
+            # series ``s`` already carries merge-aligned values per base row.
+            mask = pd.notna(s.to_numpy())
+        else:
             raise ExecutionError(
                 f"where_not_null condition_col '{rs.condition_col}' not found "
                 f"in base DataFrame for field '{record.target_field}'"
             )
         reduced = (
-            base_df.assign(_s=s.values)
-            .loc[base_df[rs.condition_col].notna()]
+            assign_df.loc[mask]
             .drop_duplicates(subset=entity_keys, keep="first")[entity_keys + ["_s"]]
             .reset_index(drop=True)
         )
@@ -828,7 +835,13 @@ def _accumulate_required_source_columns_for_plan(
             if rs.order_by:
                 required[lookup_side].add(rs.order_by)
             if rs.strategy == RowSelectionStrategy.where_not_null and rs.condition_col:
-                required[base_side].add(rs.condition_col)
+                # condition_col is a physical column on the lookup table for typical
+                # manifests (source_table == lookup_table). Requiring it on base_table
+                # falsely fails validation (e.g. terms.pell_awarded vs student-only frame).
+                if record.source_table == lookup_side:
+                    required[lookup_side].add(rs.condition_col)
+                else:
+                    required[base_side].add(rs.condition_col)
         return
 
     st = record.source_table
