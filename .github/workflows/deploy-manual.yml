@@ -58,7 +58,7 @@ jobs:
         with:
           python-version: '3.11.11'
 
-      - name: Install uv and Databricks CLI
+      - name: Install uv and Databricks CLI 
         run: |
           python -m pip install --upgrade pip
           pip install uv
@@ -103,6 +103,25 @@ jobs:
             --var="databricks_institution_name=midway_uni" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
+            --var="git_tag=$DEPLOY_TAG"
+
+      - name: Deploy validated GCS to bronze sync bundle (prod target -> staging_sst_01)
+        working-directory: pipelines/ingestion/shared
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_STAGING_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_STAGING_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_STAGING_CLIENT_SECRET }}
+          SA_EXECUTER:          ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
+          DS_RUN_AS:            ${{ secrets.STAGING_DS_RUN_AS }}
+          GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
+        run: |
+          databricks bundle deploy \
+            --target=prod \
+            --force-lock \
+            --var="service_account_executer=$SA_EXECUTER" \
+            --var="ds_run_as=$DS_RUN_AS" \
+            --var="databricks_institution_name=midway_uni" \
+            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="git_tag=$DEPLOY_TAG"
 
   # DEV (dev-sst-02)
@@ -190,4 +209,25 @@ jobs:
             --var="databricks_institution_name=synthetic" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
+            --var="git_tag=$DEPLOY_TAG"
+
+      - name: Deploy validated GCS to bronze sync bundle (prod target -> dev_sst_02)
+        working-directory: pipelines/ingestion/shared
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
+          DB_WORKSPACE:         dev_sst_02
+          SA_EXECUTER:          ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
+          DS_RUN_AS:            ${{ secrets.DEV_DS_RUN_AS }}
+          GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
+        run: |
+          databricks bundle deploy \
+            --target=prod \
+            --force-lock \
+            --var="DB_workspace=$DB_WORKSPACE" \
+            --var="service_account_executer=$SA_EXECUTER" \
+            --var="ds_run_as=$DS_RUN_AS" \
+            --var="databricks_institution_name=synthetic" \
+            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="git_tag=$DEPLOY_TAG"
