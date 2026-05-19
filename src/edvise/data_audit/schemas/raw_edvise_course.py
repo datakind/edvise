@@ -63,6 +63,7 @@ ALLOWED_LETTER_GRADES = {
     "O",
 }
 
+
 CreditsField = pda.Field(nullable=False, ge=0.0)
 
 # Manifest + SMA execution: these target keys must map (ENTITY_GRAIN in

@@ -5,39 +5,47 @@ import typing as t
 LOGGER = logging.getLogger(__name__)
 
 from edvise.utils.drop_columns_safely import drop_columns_safely
+from edvise.data_audit.es_cohort_credential_years import add_es_credential_year_columns
 from edvise.utils.data_cleaning import (
     drop_course_rows_missing_identifiers,
-    strip_trailing_decimal_strings,
     replace_na_firstgen_and_pell,
-)
-from .eda import (
-    log_high_null_columns,
-    print_credential_and_enrollment_types_and_intensities,
-    print_retention,
-    log_grade_distribution,
-    check_bias_variables,
-    log_top_majors,
+    strip_trailing_decimal_strings,
 )
 
-# TODO think of a better name than standardizer
+
+def add_empty_columns_if_missing(
+    df: pd.DataFrame,
+    col_val_dtypes: dict[str, tuple[t.Optional[t.Any], str]],
+) -> pd.DataFrame:
+    return df.assign(
+        **{
+            col: pd.Series(data=val, index=df.index, dtype=dtype)
+            for col, (val, dtype) in col_val_dtypes.items()
+            if col not in df.columns
+        }
+    )
 
 
-class BaseStandardizer:
-    def add_empty_columns_if_missing(
-        self,
-        df: pd.DataFrame,
-        col_val_dtypes: dict[str, tuple[t.Optional[t.Any], str]],
-    ) -> pd.DataFrame:
-        return df.assign(
-            **{
-                col: pd.Series(data=val, index=df.index, dtype=dtype)
-                for col, (val, dtype) in col_val_dtypes.items()
-                if col not in df.columns
-            }
-        )
+def drop_and_fill_columns(
+    df: pd.DataFrame,
+    cols_to_drop: t.Sequence[str],
+    col_val_dtypes: dict[str, tuple[t.Optional[t.Any], str]],
+    *,
+    after_drop: t.Callable[[pd.DataFrame], pd.DataFrame] | None = None,
+) -> pd.DataFrame:
+    """
+    :func:`drop_columns_safely` on ``cols_to_drop``, optionally run ``after_drop`` (e.g. PDP
+    first-gen / Pell NA handling), then :func:`add_empty_columns_if_missing`.
+    """
+    df = drop_columns_safely(df, list(cols_to_drop))
+    if after_drop is not None:
+        df = after_drop(df)
+    if col_val_dtypes:
+        df = add_empty_columns_if_missing(df, col_val_dtypes)
+    return df
 
 
-class PDPCohortStandardizer(BaseStandardizer):
+class PDPCohortStandardizer:
     def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Drop some columns from raw cohort dataset.
@@ -45,11 +53,6 @@ class PDPCohortStandardizer(BaseStandardizer):
         Args:
             df: As output by :func:`dataio.read_raw_pdp_cohort_data_from_file()` .
         """
-        log_high_null_columns(df)
-        print_credential_and_enrollment_types_and_intensities(df)
-        print_retention(df)
-        log_top_majors(df)
-        check_bias_variables(df)
         cols_to_drop = [
             # not a viable target variable, but highly correlated with it
             "time_to_credential",
@@ -103,13 +106,12 @@ class PDPCohortStandardizer(BaseStandardizer):
             "first_year_to_associates_at_other_inst": (None, "Int8"),
             "first_year_to_certificate_at_other_inst": (None, "Int8"),
         }
-        df = drop_columns_safely(df, cols_to_drop)
-        df = replace_na_firstgen_and_pell(df)
-        df = self.add_empty_columns_if_missing(df, col_val_dtypes)
-        return df
+        return drop_and_fill_columns(
+            df, cols_to_drop, col_val_dtypes, after_drop=replace_na_firstgen_and_pell
+        )
 
 
-class PDPCourseStandardizer(BaseStandardizer):
+class PDPCourseStandardizer:
     def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Drop some columns and anomalous rows from raw course dataset.
@@ -119,8 +121,6 @@ class PDPCourseStandardizer(BaseStandardizer):
         """
         df = strip_trailing_decimal_strings(df)
         df = drop_course_rows_missing_identifiers(df)
-        log_high_null_columns(df)
-        log_grade_distribution(df)
         cols_to_drop = [
             # student demographics found in raw cohort dataset
             "cohort",
@@ -140,8 +140,20 @@ class PDPCourseStandardizer(BaseStandardizer):
             "enrollment_record_at_other_institution_s_locale_s",
         ]
 
-        df = drop_columns_safely(df, cols_to_drop)
-        df = self.add_empty_columns_if_missing(
-            df, {"term_program_of_study": (None, "string")}
+        return drop_and_fill_columns(
+            df, cols_to_drop, {"term_program_of_study": (None, "string")}
         )
+
+
+class ESCourseStandardizer:
+    """Edvise course rows: no extra standardization until school-specific steps exist."""
+
+    def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
         return df
+
+
+class ESCohortStandardizer:
+    """Edvise learner (cohort) rows: PDP-style credential year columns from matriculation + award dates."""
+
+    def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
+        return add_es_credential_year_columns(df)

@@ -1,4 +1,5 @@
 import logging
+import os
 import mlflow
 import typing as t
 from typing import Any
@@ -34,10 +35,39 @@ def get_spark_session() -> SparkSession:
         raise
 
 
-import logging
-import typing as t
+def in_databricks() -> bool:
+    """
+    Return True when running in a Databricks runtime (``DATABRICKS_RUNTIME_VERSION``)
+    or driver context (``DB_IS_DRIVER``).
+    """
+    return bool(os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER"))
 
-LOGGER = logging.getLogger(__name__)
+
+def get_dbutils() -> t.Optional[Any]:
+    """
+    Lazy import of Databricks ``dbutils``; only available on Databricks runtimes.
+    Returns ``None`` when the import fails (e.g. local development).
+    """
+    try:
+        from databricks.sdk.runtime import dbutils  # type: ignore
+
+        return dbutils
+    except Exception:
+        return None
+
+
+def get_spark_session_or_none() -> t.Optional[Any]:
+    """
+    Return an active or new :class:`pyspark.sql.SparkSession` on Databricks; ``None``
+    when not in a DBR context or Spark is unavailable.
+    """
+    if not in_databricks():
+        return None
+    try:
+        return SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
+    except Exception as e:
+        logging.warning("Spark not available: %s", e)
+        return None
 
 
 def get_db_widget_param(name: str, *, default: t.Optional[object] = None) -> object:
@@ -116,8 +146,16 @@ def mock_pandera():
     m1.check = check  # type: ignore
     m2.Series = Series  # type: ignore
 
+    m3 = types.ModuleType("pandera.errors")
+
+    class SchemaErrors(Exception):
+        """Placeholder so :mod:`edvise.dataio.read` can ``except SchemaErrors``."""
+
+    m3.SchemaErrors = SchemaErrors  # type: ignore[attr-defined]
+
     sys.modules[m1.__name__] = m1
     sys.modules[m2.__name__] = m2
+    sys.modules[m3.__name__] = m3
 
 
 # Schema and volume caches for Databricks catalog operations
