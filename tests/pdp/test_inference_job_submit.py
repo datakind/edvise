@@ -60,7 +60,9 @@ def test_build_submit_run_body_from_minimal_fixture() -> None:
     assert body["git_source"]["git_commit"] == "abc123sha456"
     assert len(body["tasks"]) == 2
     assert body["tasks"][0]["task_key"] == "feature_generation"
-    assert body["job_clusters"]
+    assert "job_clusters" not in body
+    assert "new_cluster" in body["tasks"][0]
+    assert "job_cluster_key" not in body["tasks"][0]
     assert "permissions" not in body
 
 
@@ -83,6 +85,8 @@ def test_build_submit_run_body_full_inference_job() -> None:
     keys = [t["task_key"] for t in body["tasks"]]
     assert "data_ingestion" in keys
     assert "output_publish" in keys
+    assert "job_clusters" not in body
+    assert all("new_cluster" in t for t in body["tasks"])
     assert body["git_source"]["git_provider"] == "gitHub"
     param_names = {p["name"] for p in body.get("parameters", [])}
     assert "datakind_notification_email" in param_names

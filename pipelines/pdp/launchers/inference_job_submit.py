@@ -74,6 +74,63 @@ def resolve_job_parameter_specs(
     return resolved
 
 
+def _job_cluster_map(job_clusters: list[Any]) -> dict[str, dict[str, Any]]:
+    """Map ``job_cluster_key`` → ``new_cluster`` spec from bundle job YAML."""
+    out: dict[str, dict[str, Any]] = {}
+    for entry in job_clusters:
+        if not isinstance(entry, dict):
+            continue
+        key = entry.get("job_cluster_key")
+        new_cluster = entry.get("new_cluster")
+        if isinstance(key, str) and key.strip() and isinstance(new_cluster, dict):
+            out[key.strip()] = copy.deepcopy(new_cluster)
+    return out
+
+
+def inline_job_clusters_for_submit(
+    tasks: list[Any],
+    job_clusters: list[Any],
+    *,
+    logger: logging.Logger = LOGGER,
+) -> list[dict[str, Any]]:
+    """
+    ``runs/submit`` does not support shared ``job_clusters``; attach ``new_cluster`` per task.
+
+    DAB-deployed jobs use ``job_cluster_key`` + ``job_clusters``; submit requires inline clusters.
+    """
+    cluster_map = _job_cluster_map(job_clusters)
+    if not cluster_map:
+        msg = "No job_clusters definitions found for runs/submit"
+        raise ValueError(msg)
+
+    submit_tasks: list[dict[str, Any]] = []
+    for raw in tasks:
+        if not isinstance(raw, dict):
+            continue
+        task = copy.deepcopy(raw)
+        key = task.pop("job_cluster_key", None)
+        if isinstance(key, str) and key.strip():
+            cluster_key = key.strip()
+            if cluster_key not in cluster_map:
+                msg = f"Task {task.get('task_key')!r} references unknown job_cluster_key={cluster_key!r}"
+                raise ValueError(msg)
+            task["new_cluster"] = copy.deepcopy(cluster_map[cluster_key])
+        elif "new_cluster" not in task:
+            msg = f"Task {task.get('task_key')!r} has no job_cluster_key or new_cluster"
+            raise ValueError(msg)
+        submit_tasks.append(task)
+
+    if not submit_tasks:
+        msg = "No tasks after inlining job clusters for runs/submit"
+        raise ValueError(msg)
+    logger.info(
+        "Inlined %s job cluster(s) onto %s submit task(s) (runs/submit API)",
+        len(cluster_map),
+        len(submit_tasks),
+    )
+    return submit_tasks
+
+
 def build_submit_run_body(
     job: dict[str, Any],
     *,
@@ -104,6 +161,16 @@ def build_submit_run_body(
         parameter_overrides,
     )
 
+    cleaned_tasks = _strip_unresolved_bundle_refs(tasks)
+    cleaned_clusters = _strip_unresolved_bundle_refs(job_clusters)
+    if not isinstance(cleaned_tasks, list):
+        msg = f"Job {inference_job_key!r} tasks could not be sanitized for submit"
+        raise TypeError(msg)
+    if not isinstance(cleaned_clusters, list):
+        msg = f"Job {inference_job_key!r} job_clusters could not be sanitized for submit"
+        raise TypeError(msg)
+    submit_tasks = inline_job_clusters_for_submit(cleaned_tasks, cleaned_clusters)
+
     body: dict[str, Any] = {
         "run_name": run_name,
         "git_source": {
@@ -111,8 +178,7 @@ def build_submit_run_body(
             "git_provider": "gitHub",
             "git_commit": pipeline_version,
         },
-        "tasks": _strip_unresolved_bundle_refs(tasks),
-        "job_clusters": _strip_unresolved_bundle_refs(job_clusters),
+        "tasks": submit_tasks,
     }
     if parameters:
         body["parameters"] = parameters
