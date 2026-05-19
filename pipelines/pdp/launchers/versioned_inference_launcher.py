@@ -410,6 +410,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=sys.executable,
         help="Python executable for pip, verify, and entrypoint (default: current interpreter).",
     )
+    parser.add_argument(
+        "--validate-only",
+        action="store_true",
+        help=(
+            "Only resolve metadata, verify bundle artifacts, and run compatibility "
+            "checks (skip pip install and entrypoint). Use before trigger_versioned_inference."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -491,6 +499,15 @@ def main(argv: list[str] | None = None) -> int:
     if not wheel_path.is_file():
         LOGGER.error("Wheel not found: %s", wheel_path)
         return 1
+
+    if args.validate_only:
+        LOGGER.info(
+            "Validate-only: bundle OK at %s (wheel=%s, steps=%s)",
+            release_dir,
+            wheel_path.name,
+            effective.get("expected_steps"),
+        )
+        return 0
 
     req_path = release_requirements_file(release_dir)
     if req_path.is_file():

@@ -8,10 +8,8 @@ resources:
       tasks:
         - task_key: materialize_runtime_bundle
           description: >
-            Resolve pipeline_version from pipeline_models + silver config.toml;
-            fetch DAB inference YAML from GitHub at that SHA into the release volume;
-            write minimal release.json. Upload the versioned wheel to the same folder
-            (manually or before task 2).
+            Resolve pipeline_version; fetch inference YAML, pyproject.toml, and
+            release_requirements.txt from GitHub at that SHA into the release volume.
           spark_python_task:
             python_file: pipelines/pdp/launchers/materialize_runtime_bundle.py
             source: GIT
@@ -31,10 +29,10 @@ resources:
               - --entrypoint
               - "{{job.parameters.entrypoint}}"
           job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
-        - task_key: versioned_inference_launcher_mvp_smoke
+        - task_key: versioned_inference_launcher_validate
           description: >
-            Load release bundle from volume; compatibility check; install wheel;
-            run versioned entrypoint. Depends on materialize_runtime_bundle.
+            Verify release bundle on volume (wheel present, compatibility vs archived YAML).
+            Does not pip install or run smoke entrypoint.
           depends_on:
             - task_key: materialize_runtime_bundle
           spark_python_task:
@@ -49,10 +47,44 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --release_base_path
               - "{{job.parameters.release_base_path}}"
-              - --payload_json
-              - "{{job.parameters.payload_json}}"
-              - --entrypoint
-              - "{{job.parameters.entrypoint}}"
+              - --validate-only
+          job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
+        - task_key: trigger_versioned_inference
+          description: >
+            Submit full PDP inference pipeline (multi-task) from archived bundle YAML
+            at pipeline_version git SHA. Per-step logs are on the submitted inference run.
+          depends_on:
+            - task_key: versioned_inference_launcher_validate
+          spark_python_task:
+            python_file: pipelines/pdp/launchers/trigger_versioned_inference.py
+            source: GIT
+            parameters:
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --model_name
+              - "{{job.parameters.model_name}}"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --release_base_path
+              - "{{job.parameters.release_base_path}}"
+              - --git_url
+              - "{{job.parameters.git_url}}"
+              - --cohort_file_name
+              - "{{job.parameters.cohort_file_name}}"
+              - --course_file_name
+              - "{{job.parameters.course_file_name}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --datakind_notification_email
+              - "{{job.parameters.datakind_notification_email}}"
+              - --DK_CC_EMAIL
+              - "{{job.parameters.DK_CC_EMAIL}}"
+              - --ds_run_as
+              - "{{job.parameters.ds_run_as}}"
+              - --service_account_executer
+              - "{{job.parameters.service_account_executer}}"
+              - --inference_parameters_json
+              - "{{job.parameters.inference_parameters_json}}"
           job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
       job_clusters:
         - job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
@@ -93,7 +125,23 @@ resources:
           default: "datakind/edvise"
         - name: wheel_filename
           default: ""
-        - name: payload_json
-          default: ""
         - name: entrypoint
+          default: ""
+        - name: git_url
+          default: "https://github.com/datakind/edvise"
+        - name: cohort_file_name
+          default: ""
+        - name: course_file_name
+          default: ""
+        - name: gcp_bucket_name
+          default: ""
+        - name: datakind_notification_email
+          default: ""
+        - name: DK_CC_EMAIL
+          default: ""
+        - name: ds_run_as
+          default: ""
+        - name: service_account_executer
+          default: ""
+        - name: inference_parameters_json
           default: ""

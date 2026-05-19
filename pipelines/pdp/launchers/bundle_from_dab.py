@@ -145,6 +145,35 @@ def _spark_version_from_job(job: dict[str, Any]) -> str | None:
     return None
 
 
+def load_inference_job_definition(
+    yml_path: Path,
+    *,
+    job_key: str = DEFAULT_INFERENCE_JOB_KEY,
+) -> dict[str, Any]:
+    """Load the full inference job object from archived bundle YAML."""
+    if not yml_path.is_file():
+        msg = f"Inference bundle YAML not found: {yml_path}"
+        raise FileNotFoundError(msg)
+    raw = yaml.safe_load(yml_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        msg = f"Invalid YAML root in {yml_path}"
+        raise TypeError(msg)
+    resources = raw.get("resources")
+    if not isinstance(resources, dict):
+        msg = f"No resources section in {yml_path}"
+        raise ValueError(msg)
+    jobs = resources.get("jobs")
+    if not isinstance(jobs, dict):
+        msg = f"No resources.jobs in {yml_path}"
+        raise ValueError(msg)
+    job = jobs.get(job_key)
+    if not isinstance(job, dict):
+        available = ", ".join(sorted(jobs.keys()))
+        msg = f"Job {job_key!r} not in {yml_path}; available: {available}"
+        raise ValueError(msg)
+    return job
+
+
 def parse_inference_job_from_yaml(
     yml_path: Path,
     *,
