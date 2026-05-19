@@ -3,8 +3,8 @@
 Databricks task 3: submit the full PDP inference pipeline from the archived bundle.
 
 Reads ``databricks_bundle_snapshot/resources/github_pdp_inference.yml`` materialized
-at ``pipeline_version`` and starts a multi-task Jobs API run with ``git_source`` at
-that SHA. Per-step logs appear under the submitted run in the Databricks UI.
+at ``pipeline_version``, submits a multi-task Jobs API run with ``git_source`` at that
+SHA, and polls until the child run finishes (Task 3 fails if child inference fails).
 """
 
 from __future__ import annotations
@@ -113,9 +113,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="",
     )
     parser.add_argument(
+        "--datakind_group_to_manage_workflow",
+        default="",
+        help="Group granted CAN_MANAGE_RUN on the submitted inference run.",
+    )
+    parser.add_argument(
+        "--viewer_user",
+        default="",
+        help="User granted CAN_VIEW on the submitted inference run.",
+    )
+    parser.add_argument(
         "--inference_parameters_json",
         default="",
         help="Optional JSON object of extra job parameter overrides.",
+    )
+    parser.add_argument(
+        "--no-wait",
+        action="store_true",
+        help="Submit inference and exit without polling for child run completion.",
+    )
+    parser.add_argument(
+        "--poll-interval-seconds",
+        type=float,
+        default=30.0,
+        help="Seconds between child run status polls (default: 30).",
     )
     parser.add_argument(
         "--dry-run",
@@ -144,6 +165,8 @@ def _build_parameter_overrides(args: argparse.Namespace) -> dict[str, str]:
         "DK_CC_EMAIL",
         "ds_run_as",
         "service_account_executer",
+        "datakind_group_to_manage_workflow",
+        "viewer_user",
     ):
         val = _optional_arg(getattr(args, key))
         if val is not None:
@@ -215,18 +238,29 @@ def main(argv: list[str] | None = None) -> int:
             parameter_overrides=param_overrides,
             git_url=(args.git_url or DEFAULT_GIT_URL).strip(),
             dry_run=args.dry_run,
+            wait_for_completion=not args.no_wait,
+            poll_interval_seconds=args.poll_interval_seconds,
             logger=LOGGER,
         )
     except (OSError, ValueError, RuntimeError) as exc:
-        LOGGER.error("Failed to submit versioned inference: %s", exc)
+        LOGGER.error("Failed to submit or complete versioned inference: %s", exc)
         return 1
 
     if not args.dry_run:
-        LOGGER.info(
-            "Versioned inference submitted (training model_run_id=%s, jobs run_id=%s)",
-            model_run_id,
-            run_id,
-        )
+        if args.no_wait:
+            LOGGER.info(
+                "Versioned inference submitted (no-wait; training model_run_id=%s, "
+                "jobs run_id=%s)",
+                model_run_id,
+                run_id,
+            )
+        else:
+            LOGGER.info(
+                "Versioned inference completed successfully (training model_run_id=%s, "
+                "jobs run_id=%s)",
+                model_run_id,
+                run_id,
+            )
     return 0
 
 

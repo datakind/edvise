@@ -13,8 +13,10 @@ if str(_REPO_ROOT) not in sys.path:
 
 from pipelines.pdp.launchers.bundle_from_dab import load_inference_job_definition
 from pipelines.pdp.launchers.inference_job_submit import (
+    build_submit_access_control_list,
     build_submit_run_body,
     resolve_job_parameter_specs,
+    wait_for_inference_run,
 )
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "inference_job_minimal.yml"
@@ -44,6 +46,41 @@ def test_resolve_job_parameter_specs_strips_bundle_vars() -> None:
     assert by_name["db_run_id"] == "{{job.run_id}}"
 
 
+def test_build_submit_access_control_list() -> None:
+    acl = build_submit_access_control_list(
+        {
+            "datakind_group_to_manage_workflow": "edvise-admins",
+            "viewer_user": "alice@example.com",
+        }
+    )
+    assert acl == [
+        {"group_name": "edvise-admins", "permission_level": "CAN_MANAGE_RUN"},
+        {"user_name": "alice@example.com", "permission_level": "CAN_VIEW"},
+    ]
+    assert build_submit_access_control_list({}) == []
+
+
+def test_build_submit_run_body_includes_acl() -> None:
+    job = load_inference_job_definition(_FIXTURE)
+    body = build_submit_run_body(
+        job,
+        pipeline_version="abc123sha456",
+        git_url="https://github.com/datakind/edvise",
+        run_name="test-run",
+        parameter_overrides={
+            "databricks_institution_name": "miles_cc",
+            "model_name": "retention_into_year_2_associates",
+            "DB_workspace": "dev_sst_02",
+            "datakind_group_to_manage_workflow": "edvise-admins",
+            "viewer_user": "bob@example.com",
+        },
+    )
+    assert body["access_control_list"] == [
+        {"group_name": "edvise-admins", "permission_level": "CAN_MANAGE_RUN"},
+        {"user_name": "bob@example.com", "permission_level": "CAN_VIEW"},
+    ]
+
+
 def test_build_submit_run_body_from_minimal_fixture() -> None:
     job = load_inference_job_definition(_FIXTURE)
     body = build_submit_run_body(
@@ -64,6 +101,7 @@ def test_build_submit_run_body_from_minimal_fixture() -> None:
     assert "new_cluster" in body["tasks"][0]
     assert "job_cluster_key" not in body["tasks"][0]
     assert "permissions" not in body
+    assert "access_control_list" not in body
 
 
 @pytest.mark.skipif(not _FULL_YML.is_file(), reason="example bundle snapshot missing")
@@ -96,3 +134,45 @@ def test_build_submit_run_body_full_inference_job() -> None:
         if p["name"] == "datakind_notification_email"
     )
     assert email_default == "ops@example.com"
+
+
+class _FakeRunState:
+    def __init__(self, life_cycle_state: str, result_state: str | None = None) -> None:
+        self.life_cycle_state = life_cycle_state
+        self.result_state = result_state
+
+
+class _FakeRun:
+    def __init__(self, life_cycle_state: str, result_state: str | None = None) -> None:
+        self.state = _FakeRunState(life_cycle_state, result_state)
+        self.run_page_url = "https://example.com/run/1"
+
+
+class _FakeJobs:
+    def __init__(self, states: list[tuple[str, str | None]]) -> None:
+        self._states = states
+        self._calls = 0
+
+    def get_run(self, *, run_id: int) -> _FakeRun:
+        del run_id
+        life, result = self._states[min(self._calls, len(self._states) - 1)]
+        self._calls += 1
+        return _FakeRun(life, result)
+
+
+class _FakeWorkspaceClient:
+    def __init__(self, states: list[tuple[str, str | None]]) -> None:
+        self.jobs = _FakeJobs(states)
+
+
+def test_wait_for_inference_run_success() -> None:
+    client = _FakeWorkspaceClient(
+        [("RUNNING", None), ("TERMINATED", "SUCCESS")],
+    )
+    wait_for_inference_run(42, workspace_client=client, poll_interval_seconds=0)
+
+
+def test_wait_for_inference_run_failure() -> None:
+    client = _FakeWorkspaceClient([("TERMINATED", "FAILED")])
+    with pytest.raises(RuntimeError, match="run_id=42"):
+        wait_for_inference_run(42, workspace_client=client, poll_interval_seconds=0)

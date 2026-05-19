@@ -52,7 +52,8 @@ resources:
         - task_key: trigger_versioned_inference
           description: >
             Submit full PDP inference pipeline (multi-task) from archived bundle YAML
-            at pipeline_version git SHA. Per-step logs are on the submitted inference run.
+            at pipeline_version git SHA, wait for child run completion, and fail if
+            inference fails. Per-step logs are on the submitted inference run.
           depends_on:
             - task_key: versioned_inference_launcher_validate
           spark_python_task:
@@ -83,6 +84,10 @@ resources:
               - "{{job.parameters.ds_run_as}}"
               - --service_account_executer
               - "{{job.parameters.service_account_executer}}"
+              - --datakind_group_to_manage_workflow
+              - "{{job.parameters.datakind_group_to_manage_workflow}}"
+              - --viewer_user
+              - "{{job.parameters.viewer_user}}"
               - --inference_parameters_json
               - "{{job.parameters.inference_parameters_json}}"
           job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
@@ -109,7 +114,7 @@ resources:
       git_source:
         git_url: https://github.com/datakind/edvise
         git_provider: gitHub
-        git_commit: 7afd804e926564a11e59b8ef1333505d287cdc7b
+        git_commit: 28ac702361058b5c3c6d549a2da75bd2fd2116f8
       queue:
         enabled: true
       parameters:
@@ -142,6 +147,10 @@ resources:
         - name: ds_run_as
           default: ""
         - name: service_account_executer
+          default: ""
+        - name: datakind_group_to_manage_workflow
+          default: ""
+        - name: viewer_user
           default: ""
         - name: inference_parameters_json
           default: ""

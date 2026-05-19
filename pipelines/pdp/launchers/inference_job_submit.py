@@ -12,6 +12,7 @@ import copy
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,8 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_GIT_URL = "https://github.com/datakind/edvise"
 _BUNDLE_VAR = re.compile(r"\$\{var\.[^}]+\}")
+_TERMINAL_LIFE_CYCLE_STATES = frozenset({"TERMINATED", "SKIPPED", "INTERNAL_ERROR"})
+_SUCCESS_RESULT_STATE = "SUCCESS"
 
 
 def _contains_bundle_var(value: Any) -> bool:
@@ -131,6 +134,100 @@ def inline_job_clusters_for_submit(
     return submit_tasks
 
 
+def build_submit_access_control_list(
+    parameter_overrides: dict[str, str],
+) -> list[dict[str, str]]:
+    """Build ``access_control_list`` entries for ``jobs/runs/submit`` from launcher overrides."""
+    acl: list[dict[str, str]] = []
+    group = parameter_overrides.get("datakind_group_to_manage_workflow", "").strip()
+    if group:
+        acl.append(
+            {
+                "group_name": group,
+                "permission_level": "CAN_MANAGE_RUN",
+            }
+        )
+    viewer_user = parameter_overrides.get("viewer_user", "").strip()
+    if viewer_user:
+        acl.append(
+            {
+                "user_name": viewer_user,
+                "permission_level": "CAN_VIEW",
+            }
+        )
+    return acl
+
+
+def _run_state_fields(run: Any) -> tuple[str | None, str | None]:
+    state = getattr(run, "state", None)
+    if state is None and isinstance(run, dict):
+        state = run.get("state")
+    if isinstance(state, dict):
+        life = state.get("life_cycle_state")
+        result = state.get("result_state")
+        return (
+            str(life) if life is not None else None,
+            str(result) if result is not None else None,
+        )
+    if state is not None:
+        life = getattr(state, "life_cycle_state", None)
+        result = getattr(state, "result_state", None)
+        return (
+            str(life) if life is not None else None,
+            str(result) if result is not None else None,
+        )
+    return None, None
+
+
+def wait_for_inference_run(
+    run_id: int,
+    *,
+    workspace_client: Any,
+    poll_interval_seconds: float = 30.0,
+    timeout_seconds: float | None = None,
+    logger: logging.Logger = LOGGER,
+) -> None:
+    """
+    Poll ``jobs.get_run`` until the child run reaches a terminal state.
+
+    Raises ``RuntimeError`` if the run does not finish with ``result_state=SUCCESS``.
+    """
+    start = time.monotonic()
+    while True:
+        run = workspace_client.jobs.get_run(run_id=run_id)
+        life_cycle, result_state = _run_state_fields(run)
+        logger.info(
+            "Child inference run_id=%s state life_cycle=%s result=%s",
+            run_id,
+            life_cycle,
+            result_state,
+        )
+        if life_cycle in _TERMINAL_LIFE_CYCLE_STATES:
+            if life_cycle == "TERMINATED" and result_state == _SUCCESS_RESULT_STATE:
+                monitor_url = getattr(run, "run_page_url", None)
+                if monitor_url:
+                    logger.info(
+                        "Child inference run_id=%s succeeded — %s",
+                        run_id,
+                        monitor_url,
+                    )
+                else:
+                    logger.info("Child inference run_id=%s succeeded", run_id)
+                return
+            msg = (
+                f"Child inference run_id={run_id} finished with "
+                f"life_cycle_state={life_cycle!r} result_state={result_state!r}"
+            )
+            raise RuntimeError(msg)
+        if timeout_seconds is not None and (time.monotonic() - start) >= timeout_seconds:
+            msg = (
+                f"Timed out after {timeout_seconds}s waiting for child inference "
+                f"run_id={run_id} (last life_cycle_state={life_cycle!r})"
+            )
+            raise RuntimeError(msg)
+        time.sleep(poll_interval_seconds)
+
+
 def build_submit_run_body(
     job: dict[str, Any],
     *,
@@ -194,6 +291,10 @@ def build_submit_run_body(
     run_as = parameter_overrides.get("ds_run_as", "").strip()
     if run_as:
         body["run_as"] = {"service_principal_name": run_as}
+
+    acl = build_submit_access_control_list(parameter_overrides)
+    if acl:
+        body["access_control_list"] = acl
 
     return body
 
@@ -261,10 +362,13 @@ def submit_versioned_inference_from_bundle(
     inference_job_key: str = DEFAULT_INFERENCE_JOB_KEY,
     inference_yml_relative: str = DEFAULT_INFERENCE_YML,
     dry_run: bool = False,
+    wait_for_completion: bool = True,
+    poll_interval_seconds: float = 30.0,
+    wait_timeout_seconds: float | None = None,
     workspace_client: Any | None = None,
     logger: logging.Logger = LOGGER,
 ) -> int:
-    """Load archived inference YAML from ``release_dir`` and submit a multi-task run."""
+    """Load archived inference YAML from ``release_dir``, submit, and optionally wait."""
     yml_path = inference_yml_path(release_dir, inference_yml_relative)
     job = load_inference_job_definition(yml_path, job_key=inference_job_key)
     inst = parameter_overrides.get("databricks_institution_name", "unknown")
@@ -286,9 +390,23 @@ def submit_versioned_inference_from_bundle(
         pipeline_version,
         len(body.get("tasks") or []),
     )
-    return submit_inference_run(
+    if workspace_client is None and not dry_run:
+        from databricks.sdk import WorkspaceClient
+
+        workspace_client = WorkspaceClient()
+
+    run_id = submit_inference_run(
         body,
         dry_run=dry_run,
         workspace_client=workspace_client,
         logger=logger,
     )
+    if wait_for_completion and not dry_run and run_id:
+        wait_for_inference_run(
+            run_id,
+            workspace_client=workspace_client,
+            poll_interval_seconds=poll_interval_seconds,
+            timeout_seconds=wait_timeout_seconds,
+            logger=logger,
+        )
+    return run_id
