@@ -228,16 +228,27 @@ def submit_inference_run(
         msg = f"Unexpected submit response: {response!r}"
         raise RuntimeError(msg)
     run_id = int(response["run_id"])
-    host = getattr(getattr(workspace_client, "config", None), "host", None)
-    if host:
+    monitor_url: str | None = None
+    try:
+        run = workspace_client.jobs.get_run(run_id=run_id)
+        monitor_url = getattr(run, "run_page_url", None)
+    except Exception as exc:
+        logger.warning("Could not fetch run_page_url for run_id=%s: %s", run_id, exc)
+
+    if monitor_url:
         logger.info(
-            "Submitted versioned inference run_id=%s — monitor at %s/#job/%s",
+            "Submitted versioned inference run_id=%s — monitor at %s",
             run_id,
-            host.rstrip("/"),
-            run_id,
+            monitor_url,
         )
     else:
-        logger.info("Submitted versioned inference run_id=%s", run_id)
+        cfg = workspace_client.config
+        logger.info(
+            "Submitted versioned inference run_id=%s — find in Workflows → search run id. "
+            "(config host=%r is not always a clickable workspace URL)",
+            run_id,
+            getattr(cfg, "host", None),
+        )
     return run_id
 
 
