@@ -17,6 +17,7 @@ from pipelines.pdp.launchers.inference_job_submit import (
     build_submit_access_control_list,
     build_submit_run_body,
     ensure_concrete_db_run_id,
+    propagate_union_libraries_for_submit,
     render_job_parameter_refs,
     resolve_job_parameter_specs,
     wait_for_inference_run,
@@ -180,6 +181,35 @@ def test_build_submit_run_body_full_inference_job() -> None:
     assert "synthetic_integration" in params
     assert "versioned_test_run_001" in params
     assert "{{job.parameters.cohort_file_name}}" not in params
+
+    output_publish = next(t for t in body["tasks"] if t["task_key"] == "output_publish")
+    publish_pkgs = {
+        lib["pypi"]["package"].split("==")[0].split("~=")[0].lower()
+        for lib in output_publish.get("libraries", [])
+        if isinstance(lib, dict) and isinstance(lib.get("pypi"), dict)
+    }
+    assert "pandera" in publish_pkgs
+    assert "pydantic" in publish_pkgs
+
+
+def test_propagate_union_libraries_for_submit() -> None:
+    tasks = [
+        {
+            "task_key": "heavy",
+            "libraries": [{"pypi": {"package": "pandera==0.23.0"}}],
+        },
+        {
+            "task_key": "light",
+            "libraries": [{"pypi": {"package": "pandas==2.2.3"}}],
+        },
+    ]
+    out = propagate_union_libraries_for_submit(tasks)
+    light = next(t for t in out if t["task_key"] == "light")
+    names = {
+        lib["pypi"]["package"].split("==")[0].lower() for lib in light["libraries"]
+    }
+    assert "pandera" in names
+    assert "pandas" in names
 
 
 class _FakeRunState:

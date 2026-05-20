@@ -158,6 +158,67 @@ def _job_cluster_map(job_clusters: list[Any]) -> dict[str, dict[str, Any]]:
     return out
 
 
+def _pypi_package_name(lib: Any) -> str | None:
+    """Normalize a PyPI library spec to a comparable package name (e.g. ``pandera``)."""
+    if not isinstance(lib, dict):
+        return None
+    pypi = lib.get("pypi")
+    if not isinstance(pypi, dict):
+        return None
+    pkg = pypi.get("package")
+    if not isinstance(pkg, str) or not pkg.strip():
+        return None
+    name = re.split(r"[=<>!~]", pkg.strip(), maxsplit=1)[0].strip().lower()
+    return name or None
+
+
+def propagate_union_libraries_for_submit(
+    tasks: list[dict[str, Any]],
+    *,
+    logger: logging.Logger = LOGGER,
+) -> list[dict[str, Any]]:
+    """
+    Attach the union of all task ``libraries`` to every task.
+
+    Deployed multi-task jobs reuse ``job_cluster_key`` clusters, so later tasks inherit
+    PyPI installs from earlier ones. ``runs/submit`` with per-task ``new_cluster`` does not;
+    propagating the union avoids ``ModuleNotFoundError`` on tasks like ``output_publish``.
+    """
+    union: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for task in tasks:
+        for lib in task.get("libraries") or []:
+            name = _pypi_package_name(lib)
+            if name is None or name in seen:
+                continue
+            seen.add(name)
+            union.append(copy.deepcopy(lib))
+    if not union:
+        return tasks
+
+    enriched: list[dict[str, Any]] = []
+    for task in tasks:
+        merged = copy.deepcopy(task)
+        existing = {
+            n for n in (_pypi_package_name(lib) for lib in merged.get("libraries") or []) if n
+        }
+        libs = list(merged.get("libraries") or [])
+        for lib in union:
+            name = _pypi_package_name(lib)
+            if name and name not in existing:
+                libs.append(copy.deepcopy(lib))
+                existing.add(name)
+        merged["libraries"] = libs
+        enriched.append(merged)
+
+    logger.info(
+        "Propagated union of %s PyPI package(s) to each of %s submit task(s)",
+        len(union),
+        len(enriched),
+    )
+    return enriched
+
+
 def inline_job_clusters_for_submit(
     tasks: list[Any],
     job_clusters: list[Any],
@@ -348,7 +409,13 @@ def build_submit_run_body(
         cleaned_clusters, parameter_values, run_id=db_run_id
     )
 
-    submit_tasks = inline_job_clusters_for_submit(cleaned_tasks, cleaned_clusters)
+    if not all(isinstance(t, dict) for t in cleaned_tasks):
+        msg = f"Job {inference_job_key!r} tasks must be objects after sanitization"
+        raise TypeError(msg)
+    submit_tasks = propagate_union_libraries_for_submit(
+        [t for t in cleaned_tasks if isinstance(t, dict)]
+    )
+    submit_tasks = inline_job_clusters_for_submit(submit_tasks, cleaned_clusters)
 
     body: dict[str, Any] = {
         "run_name": run_name,
