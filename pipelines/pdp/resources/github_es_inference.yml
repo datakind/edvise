@@ -21,7 +21,7 @@ resources:
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.data_ingestion.values.config_file_path}}"
               - --job_type
               - "{{job.parameters.job_type}}"
               - --db_run_id
@@ -58,7 +58,7 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.data_ingestion.values.config_file_path}}"
               - --job_type
               - "{{job.parameters.job_type}}"
               - --db_run_id
@@ -95,7 +95,7 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.data_ingestion.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
               - --job_type
@@ -134,7 +134,7 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.data_ingestion.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
               - --job_type
@@ -189,13 +189,13 @@ resources:
         - name: term_filter
           default: ""
         - name: schema_type
-          default: ${var.schema_type}
+          default: es
         - name: cohort_file_name
-          default: AO1600pdp_AO1600_AR_DEIDENTIFIED_STUDYID_20250618030630.csv
+          default: 2025-09-19_CCC Student File De-Duplicated.csv
         - name: course_file_name
-          default: AO1600pdp_AO1600_COURSE_LEVEL_AR_DEIDENTIFIED_STUDYID_20250618030630.csv
+          default: 2025-09-19_CCC Course File.csv
         - name: databricks_institution_name
-          default: ${var.databricks_institution_name}
+          default: city_cols_of_chicago
         - name: db_run_id
           default: "{{job.run_id}}"
         - name: DB_workspace
@@ -215,7 +215,7 @@ resources:
         - name: job_type
           default: inference
         - name: model_name
-          default: miles_cc_retention_end_of_first_term
+          default: retention_into_year_2_all_degrees
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
