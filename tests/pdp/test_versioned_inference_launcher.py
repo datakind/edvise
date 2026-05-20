@@ -20,21 +20,12 @@ _FIXTURE_YML = (
 )
 
 
-def _write_test_release_bundle(release_dir: Path, *, wheel_name: str = "fake.whl") -> None:
+def _write_yaml_snapshot_bundle(release_dir: Path) -> None:
     release_dir.mkdir(parents=True, exist_ok=True)
     snap = release_dir / "databricks_bundle_snapshot" / "resources"
     snap.mkdir(parents=True, exist_ok=True)
     (snap / "github_pdp_inference.yml").write_text(
         _FIXTURE_YML.read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-    (release_dir / wheel_name).write_bytes(b"")
-    (release_dir / "release_requirements.txt").write_text(
-        "numpy==1.26.4\n",
-        encoding="utf-8",
-    )
-    (release_dir / "release.json").write_text(
-        json.dumps({"wheel": wheel_name}),
         encoding="utf-8",
     )
 
@@ -43,36 +34,6 @@ def test_resolve_release_dir() -> None:
     p = vil.resolve_release_dir("/vol/releases", "abc123sha")
     assert p.name == "abc123sha"
     assert str(p).endswith("abc123sha")
-
-
-def test_build_payload_dict_merges_extra() -> None:
-    release = {"pipeline_version": "v1", "wheel": "w.whl", "entrypoint": "m"}
-    extra = {"note": "hello"}
-    out = vil.build_payload_dict("run-1", "v1", release, extra)
-    assert out["model_run_id"] == "run-1"
-    assert out["pipeline_version"] == "v1"
-    assert out["release"] == release
-    assert out["note"] == "hello"
-
-
-def test_build_payload_dict_no_extra() -> None:
-    release = {"pipeline_version": "v1", "wheel": "w.whl", "entrypoint": "m"}
-    out = vil.build_payload_dict("r", "v1", release, None)
-    assert out["model_run_id"] == "r"
-
-
-def test_build_payload_dict_includes_institution_and_model() -> None:
-    release = {"pipeline_version": "v1", "wheel": "w.whl", "entrypoint": "m"}
-    out = vil.build_payload_dict(
-        "r",
-        "v1",
-        release,
-        None,
-        databricks_institution_name="miles_cc",
-        model_name="retention_into_year_2_associates",
-    )
-    assert out["databricks_institution_name"] == "miles_cc"
-    assert out["model_name"] == "retention_into_year_2_associates"
 
 
 def test_escape_sql_string_literal() -> None:
@@ -250,50 +211,11 @@ def test_resolve_model_run_no_rows() -> None:
     )
 
 
-def test_resolve_wheel_path() -> None:
-    p = vil.resolve_wheel_path(Path("/releases/v9"), "pkg.whl")
-    assert p.name == "pkg.whl"
-
-
-def test_pip_install_requirements_command() -> None:
-    cmd = vil.pip_install_requirements_command("/usr/bin/python3", "/w/req.txt")
-    assert "--ignore-installed" in cmd
-    assert "-r" in cmd
-    assert cmd[-1] == "/w/req.txt"
-
-
-def test_pip_install_wheel_command() -> None:
-    cmd = vil.pip_install_wheel_command("/usr/bin/python3", "/w/x.whl")
-    assert cmd == [
-        "/usr/bin/python3",
-        "-m",
-        "pip",
-        "install",
-        "--no-deps",
-        "/w/x.whl",
-    ]
-
-
-def test_verify_edvise_import_command() -> None:
-    cmd = vil.verify_edvise_import_command("/py")
-    assert cmd[:2] == ["/py", "-c"]
-    assert "edvise.__file__" in cmd[2]
-
-
-def test_entrypoint_command() -> None:
-    cmd = vil.entrypoint_command("/py", "edvise.runtime.inference_driver", "/tmp/p.json")
-    assert cmd == [
-        "/py",
-        "-m",
-        "edvise.runtime.inference_driver",
-        "--payload",
-        "/tmp/p.json",
-    ]
-
-
-def test_main_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_main_ok_yaml_snapshot_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     rel = tmp_path / "v1"
-    _write_test_release_bundle(rel)
+    _write_yaml_snapshot_bundle(rel)
 
     monkeypatch.setattr(vil, "get_spark_session", lambda: object())
     monkeypatch.setattr(
@@ -301,23 +223,6 @@ def test_main_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
         "resolve_model_run_and_pipeline_version",
         lambda **_: ("resolved-mr", "v1"),
     )
-
-    recorded: list[tuple[str, list[str]]] = []
-
-    def fake_run(cmd: list[str], *, label: str, logger=None) -> int:
-        recorded.append((label, list(cmd)))
-        return 0
-
-    def fake_write(
-        payload: dict,
-        base_dir: Path | None = None,
-    ) -> Path:
-        out = tmp_path / "payload.json"
-        out.write_text(json.dumps(payload), encoding="utf-8")
-        return out
-
-    monkeypatch.setattr(vil, "run_logged_subprocess", fake_run)
-    monkeypatch.setattr(vil, "write_payload_file", fake_write)
 
     argv = [
         "--databricks_institution_name",
@@ -330,79 +235,6 @@ def test_main_happy_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Non
         str(tmp_path),
     ]
     assert vil.main(argv) == 0
-    assert [r[0] for r in recorded] == [
-        "pip_install_requirements",
-        "pip_install_wheel",
-        "verify_edvise_import",
-        "versioned_entrypoint",
-    ]
-    assert "fake.whl" in recorded[1][1][-1]
-    assert recorded[3][1][:2] == [sys.executable, "-m"]
-    assert recorded[3][1][2] == "edvise.runtime.inference_driver"
-
-
-def test_main_pip_failure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    rel = tmp_path / "v1"
-    _write_test_release_bundle(rel)
-
-    monkeypatch.setattr(vil, "get_spark_session", lambda: object())
-    monkeypatch.setattr(
-        vil,
-        "resolve_model_run_and_pipeline_version",
-        lambda **_: ("mr", "v1"),
-    )
-
-    def fake_run(cmd: list[str], *, label: str, logger=None) -> int:
-        if label == "pip_install_wheel":
-            return 1
-        return 0
-
-    monkeypatch.setattr(vil, "run_logged_subprocess", fake_run)
-
-    argv = [
-        "--databricks_institution_name",
-        "miles_cc",
-        "--model_name",
-        "m",
-        "--DB_workspace",
-        "dev_sst_02",
-        "--release_base_path",
-        str(tmp_path),
-    ]
-    assert vil.main(argv) == 1
-
-
-def test_main_missing_wheel_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    rel = tmp_path / "v1"
-    snap = rel / "databricks_bundle_snapshot" / "resources"
-    snap.mkdir(parents=True)
-    (snap / "github_pdp_inference.yml").write_text(
-        _FIXTURE_YML.read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-    (rel / "release.json").write_text(
-        json.dumps({"wheel": "missing.whl"}),
-        encoding="utf-8",
-    )
-
-    monkeypatch.setattr(vil, "get_spark_session", lambda: object())
-    monkeypatch.setattr(
-        vil,
-        "resolve_model_run_and_pipeline_version",
-        lambda **_: ("mr", "v1"),
-    )
-
-    argv = [
-        "--databricks_institution_name",
-        "miles_cc",
-        "--model_name",
-        "m",
-        "--DB_workspace",
-        "dev_sst_02",
-        "--release_base_path",
-        str(tmp_path),
-    ]
-    assert vil.main(argv) == 1
 
 
 def test_main_requires_institution_model_workspace() -> None:
@@ -453,26 +285,3 @@ def test_check_runtime_bundle_dbr_short_env_ok(monkeypatch: pytest.MonkeyPatch) 
     )
     assert ok is True
     assert msg == ""
-
-
-def test_validate_required_payload_fields() -> None:
-    eff = {"required_payload_fields": ["model_run_id", "extra_field"]}
-    bad_ok, bad_msg = vil.validate_required_payload_fields(
-        eff, {"model_run_id": "x"}
-    )
-    assert bad_ok is False
-    assert "extra_field" in bad_msg
-    good_ok, _ = vil.validate_required_payload_fields(
-        eff, {"model_run_id": "x", "extra_field": 1}
-    )
-    assert good_ok is True
-
-
-def test_run_logged_subprocess_uses_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
-    from types import SimpleNamespace
-
-    def fake_run(*_a, **_kw):
-        return SimpleNamespace(returncode=0, stdout="ok\n", stderr="")
-
-    monkeypatch.setattr(vil.subprocess, "run", fake_run)
-    assert vil.run_logged_subprocess([sys.executable, "-c", "print(1)"], label="t") == 0

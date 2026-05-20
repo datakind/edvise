@@ -2,10 +2,10 @@
 """
 Databricks task 1: resolve ``pipeline_version`` and materialize the runtime bundle on UC volume.
 
-Fetches archived DAB YAML from GitHub at the resolved SHA (dev) into
-``<release_base>/<pipeline_version>/databricks_bundle_snapshot/`` and writes minimal
-``release.json``. Upload the versioned ``*.whl`` to the same folder before or after
-this task; the launcher task discovers it via ``release.json`` or a single ``*.whl``.
+Fetches archived DAB YAML from GitHub at the resolved SHA into
+``<release_base>/<pipeline_version>/databricks_bundle_snapshot/``. Inference is submitted
+from Git at that SHA; no wheel, ``release.json``, ``pyproject.toml``, or
+``release_requirements.txt`` are materialized here.
 """
 
 from __future__ import annotations
@@ -48,10 +48,6 @@ def _setup_import_path() -> None:
 
 _setup_import_path()
 
-from pipelines.pdp.launchers.bundle_from_dab import (  # noqa: E402
-    DEFAULT_ENTRYPOINT,
-    discover_wheel_filename,
-)
 from pipelines.pdp.launchers.bundle_materialize import (  # noqa: E402
     DEFAULT_GITHUB_REPO,
     inference_yml_in_bundle,
@@ -70,8 +66,7 @@ DEFAULT_RELEASE_BASE = "/Volumes/dev_sst_02/default/edvise_releases"
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Resolve pipeline_version and materialize runtime bundle "
-            "(DAB snapshot from GitHub + release.json) on the release volume."
+            "Resolve pipeline_version and materialize DAB YAML snapshot on the release volume."
         ),
     )
     parser.add_argument("--databricks_institution_name", required=True)
@@ -87,25 +82,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="GitHub org/repo for raw YAML fetch (default: datakind/edvise).",
     )
     parser.add_argument(
-        "--wheel",
-        default="",
-        help="Wheel filename if already uploaded to the release folder (optional).",
-    )
-    parser.add_argument(
-        "--entrypoint",
-        default=DEFAULT_ENTRYPOINT,
-    )
-    parser.add_argument(
         "--skip-snapshot-if-present",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Skip GitHub fetch when inference YAML snapshot already exists.",
-    )
-    parser.add_argument(
-        "--require-wheel",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Fail if no wheel is present in the release folder after materialize.",
     )
     return parser.parse_args(argv)
 
@@ -148,30 +128,18 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     release_dir = resolve_release_dir(args.release_base_path, pipeline_version)
-    wheel_hint = (args.wheel or "").strip() or None
     try:
         materialize_runtime_bundle_dir(
             release_dir,
             pipeline_version,
             git_sha=pipeline_version,
             github_repo=args.github_repo.strip() or DEFAULT_GITHUB_REPO,
-            wheel=wheel_hint,
-            entrypoint=(args.entrypoint or "").strip() or DEFAULT_ENTRYPOINT,
             skip_snapshot_if_present=args.skip_snapshot_if_present,
             logger=LOGGER,
         )
     except (OSError, ValueError) as exc:
         LOGGER.error("Failed to materialize runtime bundle: %s", exc)
         return 1
-
-    if args.require_wheel:
-        wheel_name = wheel_hint or discover_wheel_filename(release_dir, None)
-        if not wheel_name:
-            LOGGER.error(
-                "No wheel in %s — upload *.whl before running the launcher task.",
-                release_dir,
-            )
-            return 1
 
     marker = inference_yml_in_bundle(release_dir)
     if not marker.is_file():

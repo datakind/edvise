@@ -1,13 +1,13 @@
 """
 Parse archived Databricks bundle YAML into runtime metadata for the launcher.
 
-The release directory holds ``databricks_bundle_snapshot/`` (copied at publish time from
-Git at ``pipeline_version``) plus a minimal ``release.json`` (wheel name / entrypoint only).
+The release directory holds ``databricks_bundle_snapshot/`` (YAML copied from Git at
+``pipeline_version``). ``build_effective_release`` derives launcher metadata only from
+that archived inference job definition.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -30,48 +30,8 @@ _DBR_PYTHON_HINTS: dict[str, str] = {
 }
 
 
-def release_json_path(release_dir: Path) -> Path:
-    return release_dir / "release.json"
-
-
 def inference_yml_path(release_dir: Path, relative: str = DEFAULT_INFERENCE_YML) -> Path:
     return release_dir / relative
-
-
-def write_release_json(path: Path, body: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(body, indent=2) + "\n", encoding="utf-8")
-
-
-def load_minimal_release_json(path: Path) -> dict[str, Any]:
-    """Load optional ``release.json`` (wheel / entrypoint / job key overrides only)."""
-    if not path.is_file():
-        return {}
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if data is None:
-        return {}
-    if not isinstance(data, dict):
-        msg = f"{path} must be a JSON object"
-        raise TypeError(msg)
-    return data
-
-
-def discover_wheel_filename(release_dir: Path, hint: str | None = None) -> str | None:
-    """Return wheel basename from hint or the sole ``*.whl`` in ``release_dir``."""
-    if hint and str(hint).strip():
-        name = str(hint).strip()
-        if (release_dir / name).is_file():
-            return name
-    wheels = sorted(release_dir.glob("*.whl"))
-    if len(wheels) == 1:
-        return wheels[0].name
-    if len(wheels) > 1:
-        LOGGER.warning(
-            "Multiple wheels in %s; set wheel in release.json. Found: %s",
-            release_dir,
-            [w.name for w in wheels],
-        )
-    return None
 
 
 def _python_hint_for_dbr(dbr: str | None) -> str | None:
@@ -242,66 +202,24 @@ def build_effective_release(
     inference_job_key: str = DEFAULT_INFERENCE_JOB_KEY,
     logger: logging.Logger = LOGGER,
 ) -> dict[str, Any]:
-    """
-    Combine minimal ``release.json`` with metadata parsed from the archived inference YAML.
-
-    ``release.json`` may only specify ``wheel``, ``entrypoint``, ``inference_job_key``,
-    ``execution_mode``, or partial ``required_runtime`` overrides.
-    """
+    """Build effective release metadata from archived inference YAML only."""
     release_dir = release_dir.expanduser().resolve()
     yml_path = inference_yml_path(release_dir, inference_yml_relative)
     parsed = parse_inference_job_from_yaml(
         yml_path, job_key=inference_job_key
     )
-    overrides = load_minimal_release_json(release_json_path(release_dir))
 
     effective: dict[str, Any] = dict(parsed)
     effective["pipeline_version"] = pipeline_version
     effective["git_sha"] = pipeline_version
     effective["bundle_snapshot_dir"] = str(release_dir / "databricks_bundle_snapshot")
-
-    wheel_hint = overrides.get("wheel")
-    wheel = discover_wheel_filename(release_dir, str(wheel_hint) if wheel_hint else None)
-    if not wheel:
-        msg = (
-            f"No wheel in {release_dir} (add release.json with wheel or a single *.whl)"
-        )
-        raise FileNotFoundError(msg)
-    effective["wheel"] = wheel
-
-    entrypoint = overrides.get("entrypoint")
-    effective["entrypoint"] = (
-        str(entrypoint).strip()
-        if isinstance(entrypoint, str) and entrypoint.strip()
-        else DEFAULT_ENTRYPOINT
-    )
-
-    if isinstance(overrides.get("execution_mode"), str):
-        effective["execution_mode"] = overrides["execution_mode"].strip()
-
-    rr_override = overrides.get("required_runtime")
-    if isinstance(rr_override, dict):
-        rr = dict(effective.get("required_runtime") or {})
-        rr.update({k: str(v) for k, v in rr_override.items() if v is not None})
-        effective["required_runtime"] = rr
-
-    # Launcher payload must include these; job_parameters documents DAB contract separately.
-    effective["required_payload_fields"] = [
-        "model_run_id",
-        "pipeline_version",
-        "release",
-    ]
+    effective["entrypoint"] = DEFAULT_ENTRYPOINT
 
     logger.info(
-        "Built release metadata from %s: job=%s steps=%s dbr=%s wheel=%s",
+        "Built release metadata from %s: job=%s steps=%s dbr=%s",
         yml_path.name,
         effective.get("job_name"),
         effective.get("expected_steps"),
         (effective.get("required_runtime") or {}).get("databricks_runtime"),
-        wheel,
     )
     return effective
-
-
-def write_release_json(path: Path, data: dict[str, Any]) -> None:
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")

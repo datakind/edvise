@@ -8,8 +8,8 @@ resources:
       tasks:
         - task_key: materialize_runtime_bundle
           description: >
-            Resolve pipeline_version; fetch inference YAML, pyproject.toml, and
-            release_requirements.txt from GitHub at that SHA into the release volume.
+            Resolve pipeline_version; fetch inference DAB YAML from GitHub at that SHA
+            into databricks_bundle_snapshot/ on the release volume.
           spark_python_task:
             python_file: pipelines/pdp/launchers/materialize_runtime_bundle.py
             source: GIT
@@ -24,15 +24,11 @@ resources:
               - "{{job.parameters.release_base_path}}"
               - --github_repo
               - "{{job.parameters.github_repo}}"
-              - --wheel
-              - "{{job.parameters.wheel_filename}}"
-              - --entrypoint
-              - "{{job.parameters.entrypoint}}"
           job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
         - task_key: versioned_inference_launcher_validate
           description: >
-            Verify release bundle on volume (wheel present, compatibility vs archived YAML).
-            Does not pip install or run smoke entrypoint.
+            Verify release bundle on volume (archived inference YAML vs cluster compatibility).
+            Does not pip install or run entrypoint; bundle is YAML snapshot only.
           depends_on:
             - task_key: materialize_runtime_bundle
           spark_python_task:
@@ -47,7 +43,6 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --release_base_path
               - "{{job.parameters.release_base_path}}"
-              - --validate-only
           job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
         - task_key: trigger_versioned_inference
           description: >
@@ -128,10 +123,6 @@ resources:
           default: "/Volumes/dev_sst_02/default/edvise_releases"
         - name: github_repo
           default: "datakind/edvise"
-        - name: wheel_filename
-          default: ""
-        - name: entrypoint
-          default: ""
         - name: git_url
           default: "https://github.com/datakind/edvise"
         - name: cohort_file_name

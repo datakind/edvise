@@ -2,8 +2,8 @@
 """
 Publish a runtime bundle directory for one ``pipeline_version`` (git SHA in dev).
 
-Copies ``databricks_bundle_snapshot/`` from this repo and writes minimal ``release.json``.
-Run after building the wheel; copy the wheel into the same output directory.
+Copies ``databricks_bundle_snapshot/`` from this repo. Optionally copy a built wheel into
+the same directory for ad-hoc local experiments (the MVP Databricks flow does not use wheels).
 
 Example::
 
@@ -62,7 +62,6 @@ def main() -> int:
         output_dir,
         pipeline_version,
         repo_root=repo_root,
-        wheel=args.wheel.name if args.wheel else None,
         skip_snapshot_if_present=False,
     )
 

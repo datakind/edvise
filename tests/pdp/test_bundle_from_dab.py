@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -33,18 +32,8 @@ def test_build_effective_release(tmp_path: Path) -> None:
     snap.mkdir(parents=True)
     snap_yml = snap / "github_pdp_inference.yml"
     snap_yml.write_text(_FIXTURE_YML.read_text(encoding="utf-8"), encoding="utf-8")
-    (tmp_path / "edvise-test-py3-none-any.whl").write_bytes(b"")
-    (tmp_path / "release.json").write_text(
-        json.dumps({"wheel": "edvise-test-py3-none-any.whl"}),
-        encoding="utf-8",
-    )
     eff = bfd.build_effective_release(tmp_path, "sha123")
-    assert eff["wheel"] == "edvise-test-py3-none-any.whl"
+    assert "wheel" not in eff
     assert eff["pipeline_version"] == "sha123"
     assert eff["expected_steps"] == ["feature_generation", "inference_h2o"]
     assert eff["entrypoint"] == bfd.DEFAULT_ENTRYPOINT
-
-
-def test_discover_wheel_single(tmp_path: Path) -> None:
-    (tmp_path / "only.whl").write_bytes(b"")
-    assert bfd.discover_wheel_filename(tmp_path, None) == "only.whl"

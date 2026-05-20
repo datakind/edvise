@@ -1,28 +1,25 @@
 #!/usr/bin/env python3
 """
-MVP launcher: stable dispatcher for a **versioned runtime bundle**.
+MVP launcher: validate a **versioned runtime bundle** before Git-based inference submit.
 
 Release layout (``<release_base>/<pipeline_version>/``, dev: SHA-named folder):
 
-- ``release.json`` — optional overrides only (``wheel``, ``entrypoint``, …).
-- ``*.whl`` — Edvise wheel for that release.
 - ``databricks_bundle_snapshot/resources/github_pdp_inference.yml`` — archived DAB
-  inference job; **parsed at run time** for steps, DBR, libraries, job parameters.
+  inference job; **parsed at run time** for steps, DBR, libraries.
 
-The launcher does not import ``edvise`` before installing the bundle wheel.
+This task only checks that the bundle exists and that the cluster/runtime matches the
+archived job definition. Inference runs from Git at ``pipeline_version`` via
+``trigger_versioned_inference``; no wheel, ``release.json``, ``pyproject.toml``, or
+``release_requirements.txt`` are used.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
 import re
-import subprocess
 import sys
-import tempfile
-import uuid
 import inspect
 from pathlib import Path
 from typing import Any, Mapping
@@ -60,7 +57,6 @@ def _setup_import_path() -> None:
 _setup_import_path()
 
 from pipelines.pdp.launchers.bundle_from_dab import (  # noqa: E402
-    DEFAULT_ENTRYPOINT,
     build_effective_release,
 )
 from pipelines.pdp.launchers.model_metadata import (  # noqa: E402
@@ -208,165 +204,11 @@ def check_runtime_bundle_compatibility(
     return True, ""
 
 
-def validate_required_payload_fields(
-    effective: Mapping[str, Any], payload: Mapping[str, Any]
-) -> tuple[bool, str]:
-    """Ensure payload contains every key listed in ``required_payload_fields``."""
-    fields = effective.get("required_payload_fields")
-    if fields is None:
-        return True, ""
-    if not isinstance(fields, list):
-        return True, ""
-    missing = [
-        f
-        for f in fields
-        if isinstance(f, str) and f.strip() and f.strip() not in payload
-    ]
-    if missing:
-        return (
-            False,
-            f"Payload missing required fields from release bundle: {missing!r}",
-        )
-    return True, ""
-
-
-def build_payload_dict(
-    model_run_id: str,
-    pipeline_version: str,
-    release: Mapping[str, Any],
-    payload_json: dict[str, Any] | None,
-    *,
-    databricks_institution_name: str | None = None,
-    model_name: str | None = None,
-) -> dict[str, Any]:
-    """Build the payload object written for the versioned entrypoint."""
-    out: dict[str, Any] = dict(payload_json or {})
-    out["model_run_id"] = model_run_id
-    out["pipeline_version"] = pipeline_version
-    out["release"] = dict(release)
-    if databricks_institution_name:
-        out["databricks_institution_name"] = databricks_institution_name
-    if model_name:
-        out["model_name"] = model_name
-    return out
-
-
-def resolve_wheel_path(release_dir: Path, wheel_name: str) -> Path:
-    """Absolute path to the wheel file under the release directory."""
-    return release_dir / wheel_name
-
-
-def release_requirements_file(release_dir: Path) -> Path:
-    """Pinned deps generated from ``pyproject.toml`` at ``pipeline_version``."""
-    return release_dir / "release_requirements.txt"
-
-
-def pip_install_requirements_command(
-    python_executable: str, requirements_path: str | Path
-) -> list[str]:
-    """
-    Install pinned dependencies into the task env without uninstalling Databricks
-    system site-packages (avoids "Can't uninstall pandas/pydantic" warnings).
-    """
-    return [
-        python_executable,
-        "-m",
-        "pip",
-        "install",
-        "--ignore-installed",
-        "-r",
-        str(requirements_path),
-    ]
-
-
-def pip_install_wheel_command(
-    python_executable: str, wheel_path: str | Path
-) -> list[str]:
-    """Install the Edvise wheel only; dependencies come from ``release_requirements.txt``."""
-    return [
-        python_executable,
-        "-m",
-        "pip",
-        "install",
-        "--no-deps",
-        str(wheel_path),
-    ]
-
-
-def verify_edvise_import_command(python_executable: str) -> list[str]:
-    """Command that prints ``edvise.__file__`` after install (proves site-packages)."""
-    return [
-        python_executable,
-        "-c",
-        "import edvise; print(edvise.__file__)",
-    ]
-
-
-def entrypoint_command(
-    python_executable: str, entrypoint: str, payload_path: str | Path
-) -> list[str]:
-    """Command to run ``python -m <entrypoint> --payload <path>``."""
-    return [
-        python_executable,
-        "-m",
-        entrypoint,
-        "--payload",
-        str(payload_path),
-    ]
-
-
-def default_payload_dir() -> Path:
-    """Writable directory for payload files (Databricks: ``/tmp``)."""
-    tmp = Path("/tmp")
-    if tmp.is_dir():
-        return tmp
-    return Path(tempfile.gettempdir())
-
-
-def write_payload_file(payload: Mapping[str, Any], base_dir: Path | None = None) -> Path:
-    """Write payload JSON and return its path."""
-    directory = base_dir if base_dir is not None else default_payload_dir()
-    directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"edvise_versioned_inference_payload_{uuid.uuid4().hex}.json"
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return path
-
-
-def run_logged_subprocess(
-    cmd: list[str],
-    *,
-    label: str,
-    logger: logging.Logger = LOGGER,
-) -> int:
-    """Run a subprocess; log stdout/stderr; return exit code."""
-    logger.info("Running %s: %s", label, " ".join(cmd))
-    completed = subprocess.run(
-        cmd,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if completed.stdout:
-        logger.info("[%s stdout]\n%s", label, completed.stdout.rstrip())
-    if completed.stderr:
-        logger.info("[%s stderr]\n%s", label, completed.stderr.rstrip())
-    if completed.returncode != 0:
-        logger.error(
-            "%s failed with exit code %s",
-            label,
-            completed.returncode,
-        )
-    else:
-        logger.info("%s completed successfully", label)
-    return completed.returncode
-
-
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "MVP stable launcher: resolve model metadata, load runtime bundle "
-            "(minimal release.json + parsed databricks_bundle_snapshot YAML), "
-            "install wheel, run versioned entrypoint."
+            "Resolve model metadata and validate archived inference YAML from the release "
+            "bundle against the current cluster (Git-based inference submit; no pip/wheel)."
         ),
     )
     parser.add_argument(
@@ -395,40 +237,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_RELEASE_BASE,
         help=f"Base path for versioned releases (default: {DEFAULT_RELEASE_BASE!r}).",
     )
-    parser.add_argument(
-        "--payload_json",
-        default=None,
-        help="Optional JSON object merged into the payload (merged before core keys).",
-    )
-    parser.add_argument(
-        "--entrypoint",
-        default=None,
-        help="Override release entrypoint (python -m <value>).",
-    )
-    parser.add_argument(
-        "--python",
-        default=sys.executable,
-        help="Python executable for pip, verify, and entrypoint (default: current interpreter).",
-    )
-    parser.add_argument(
-        "--validate-only",
-        action="store_true",
-        help=(
-            "Only resolve metadata, verify bundle artifacts, and run compatibility "
-            "checks (skip pip install and entrypoint). Use before trigger_versioned_inference."
-        ),
-    )
     return parser.parse_args(argv)
-
-
-def _parse_payload_json(raw: str | None) -> dict[str, Any] | None:
-    if raw is None or raw.strip() == "":
-        return None
-    data = json.loads(raw)
-    if not isinstance(data, dict):
-        msg = "--payload_json must decode to a JSON object"
-        raise ValueError(msg)
-    return data
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -438,11 +247,6 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stderr,
     )
     args = parse_args(argv)
-    try:
-        extra = _parse_payload_json(args.payload_json)
-    except (json.JSONDecodeError, ValueError) as exc:
-        LOGGER.error("Invalid --payload_json: %s", exc)
-        return 1
 
     inst = (args.databricks_institution_name or "").strip()
     model = (args.model_name or "").strip()
@@ -469,7 +273,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     if resolved is None:
         return 1
-    model_run_id, pipeline_version = resolved
+    _model_run_id, pipeline_version = resolved
 
     release_dir = resolve_release_dir(args.release_base_path, pipeline_version)
     LOGGER.info("Release bundle directory: %s", release_dir)
@@ -489,72 +293,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     LOGGER.info("Runtime bundle compatibility check passed.")
 
-    cli_entrypoint = (args.entrypoint or "").strip()
-    entrypoint = cli_entrypoint or str(effective.get("entrypoint") or DEFAULT_ENTRYPOINT)
-    if not entrypoint:
-        LOGGER.error("Entrypoint is empty after release resolution.")
-        return 1
-
-    wheel_path = resolve_wheel_path(release_dir, str(effective["wheel"]))
-    if not wheel_path.is_file():
-        LOGGER.error("Wheel not found: %s", wheel_path)
-        return 1
-
-    if args.validate_only:
-        LOGGER.info(
-            "Validate-only: bundle OK at %s (wheel=%s, steps=%s)",
-            release_dir,
-            wheel_path.name,
-            effective.get("expected_steps"),
-        )
-        return 0
-
-    req_path = release_requirements_file(release_dir)
-    if req_path.is_file():
-        LOGGER.info(
-            "Installing pinned dependencies from %s (pyproject.toml at pipeline_version)",
-            req_path,
-        )
-        req_cmd = pip_install_requirements_command(args.python, req_path)
-        if run_logged_subprocess(req_cmd, label="pip_install_requirements") != 0:
-            return 1
-    else:
-        LOGGER.warning(
-            "No %s in %s — re-run materialize_runtime_bundle or publish a new bundle.",
-            req_path.name,
-            release_dir,
-        )
-
-    pip_cmd = pip_install_wheel_command(args.python, wheel_path)
-    if run_logged_subprocess(pip_cmd, label="pip_install_wheel") != 0:
-        return 1
-
-    verify_cmd = verify_edvise_import_command(args.python)
-    if run_logged_subprocess(verify_cmd, label="verify_edvise_import") != 0:
-        return 1
-
-    payload = build_payload_dict(
-        model_run_id,
+    LOGGER.info(
+        "Bundle OK at %s (steps=%s, pipeline_version=%s)",
+        release_dir,
+        effective.get("expected_steps"),
         pipeline_version,
-        effective,
-        extra,
-        databricks_institution_name=inst or None,
-        model_name=model or None,
     )
-    ok_fields, fields_msg = validate_required_payload_fields(effective, payload)
-    if not ok_fields:
-        LOGGER.error("%s", fields_msg)
-        return 1
-    try:
-        payload_path = write_payload_file(payload)
-    except OSError as exc:
-        LOGGER.error("Could not write payload file: %s", exc)
-        return 1
-    LOGGER.info("Wrote payload to %s", payload_path)
-
-    run_cmd = entrypoint_command(args.python, entrypoint, payload_path)
-    if run_logged_subprocess(run_cmd, label="versioned_entrypoint") != 0:
-        return 1
     return 0
 
 

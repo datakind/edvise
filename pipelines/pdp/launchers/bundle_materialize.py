@@ -1,50 +1,21 @@
 """
-Materialize ``databricks_bundle_snapshot/`` and ``release.json`` on a release volume path.
+Materialize ``databricks_bundle_snapshot/`` on a release volume path.
 
-On Databricks: fetch YAML from GitHub at ``pipeline_version`` (git SHA in dev).
+On Databricks: fetch bundle YAML from GitHub at ``pipeline_version`` (git SHA).
 Locally: copy from a checked-out ``repo_root`` (see ``materialize_release_bundle.py``).
+
+Inference is submitted from Git at that SHA using the archived job YAML; no wheel,
+``release.json``, ``pyproject.toml``, or ``release_requirements.txt`` are written here.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import shutil
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
-
-try:
-    from pipelines.pdp.launchers.bundle_from_dab import (
-        DEFAULT_ENTRYPOINT,
-        discover_wheel_filename,
-        release_json_path,
-        write_release_json,
-    )
-except ImportError:  # flat import when only launchers/ is on sys.path
-    from bundle_from_dab import (
-        DEFAULT_ENTRYPOINT,
-        discover_wheel_filename,
-        release_json_path,
-        write_release_json,
-    )
-    from release_deps import (  # noqa: F401
-        PYPROJECT_FILENAME,
-        RELEASE_REQUIREMENTS_FILENAME,
-        pyproject_path,
-        release_requirements_path,
-        write_release_requirements,
-    )
-else:
-    from pipelines.pdp.launchers.release_deps import (
-        PYPROJECT_FILENAME,
-        RELEASE_REQUIREMENTS_FILENAME,
-        pyproject_path,
-        release_requirements_path,
-        write_release_requirements,
-    )
 
 LOGGER = logging.getLogger(__name__)
 
@@ -121,54 +92,6 @@ def materialize_dab_snapshot_from_github(
         logger.info("Wrote %s (%s bytes)", dest, len(content))
 
 
-def materialize_pyproject_from_github(
-    release_dir: Path,
-    git_sha: str,
-    *,
-    github_repo: str = DEFAULT_GITHUB_REPO,
-    token: str | None = None,
-    logger: logging.Logger = LOGGER,
-) -> None:
-    """Fetch repo-root ``pyproject.toml`` and write ``release_requirements.txt``."""
-    dest = pyproject_path(release_dir)
-    logger.info(
-        "Fetching %s from GitHub (%s @ %s)",
-        PYPROJECT_FILENAME,
-        github_repo,
-        git_sha,
-    )
-    try:
-        content = fetch_github_file(
-            github_repo, git_sha, PYPROJECT_FILENAME, token=token
-        )
-    except urllib.error.HTTPError as exc:
-        msg = f"GitHub fetch failed for {PYPROJECT_FILENAME} at {git_sha}: HTTP {exc.code}"
-        raise OSError(msg) from exc
-    dest.write_bytes(content)
-    write_release_requirements(
-        dest, release_requirements_path(release_dir), logger=logger
-    )
-
-
-def materialize_pyproject_from_repo_root(
-    release_dir: Path,
-    repo_root: Path,
-    *,
-    logger: logging.Logger = LOGGER,
-) -> None:
-    """Copy ``pyproject.toml`` from a local checkout and write requirements."""
-    src = repo_root.expanduser().resolve() / PYPROJECT_FILENAME
-    if not src.is_file():
-        msg = f"{PYPROJECT_FILENAME} not found at {src}"
-        raise FileNotFoundError(msg)
-    shutil.copy2(src, pyproject_path(release_dir))
-    write_release_requirements(
-        pyproject_path(release_dir),
-        release_requirements_path(release_dir),
-        logger=logger,
-    )
-
-
 def materialize_dab_snapshot_from_repo_root(
     release_dir: Path,
     repo_root: Path,
@@ -196,31 +119,6 @@ def materialize_dab_snapshot_from_repo_root(
         shutil.copy2(inf_yml, snap_dst / "resources" / "github_pdp_inference.yml")
 
 
-def write_minimal_release_json(
-    release_dir: Path,
-    *,
-    wheel: str | None,
-    entrypoint: str = DEFAULT_ENTRYPOINT,
-    logger: logging.Logger = LOGGER,
-) -> dict[str, Any]:
-    """Write ``release.json``; discover wheel in ``release_dir`` when omitted."""
-    wheel_name = wheel or discover_wheel_filename(release_dir, None)
-    body: dict[str, Any] = {"entrypoint": entrypoint}
-    if release_requirements_path(release_dir).is_file():
-        body["requirements"] = RELEASE_REQUIREMENTS_FILENAME
-    if wheel_name:
-        body["wheel"] = wheel_name
-    write_release_json(release_json_path(release_dir), body)
-    if not wheel_name:
-        logger.warning(
-            "No wheel in %s yet — upload *.whl before the launcher task runs.",
-            release_dir,
-        )
-    else:
-        logger.info("release.json wheel=%s", wheel_name)
-    return body
-
-
 def materialize_runtime_bundle_dir(
     release_dir: Path,
     pipeline_version: str,
@@ -228,14 +126,12 @@ def materialize_runtime_bundle_dir(
     github_repo: str | None = None,
     git_sha: str | None = None,
     repo_root: Path | None = None,
-    wheel: str | None = None,
-    entrypoint: str = DEFAULT_ENTRYPOINT,
     skip_snapshot_if_present: bool = True,
     github_token: str | None = None,
     logger: logging.Logger = LOGGER,
 ) -> Path:
     """
-    Ensure ``release_dir`` contains DAB snapshot + ``release.json``.
+    Ensure ``release_dir`` contains ``databricks_bundle_snapshot/`` (DAB YAML only).
 
     Provide ``git_sha`` (Databricks) **or** ``repo_root`` (local publish script).
     """
@@ -262,24 +158,8 @@ def materialize_runtime_bundle_dir(
         msg = "materialize_runtime_bundle_dir requires git_sha or repo_root"
         raise ValueError(msg)
 
-    if repo_root is not None:
-        materialize_pyproject_from_repo_root(
-            release_dir, repo_root.expanduser().resolve(), logger=logger
-        )
-    elif git_sha:
-        materialize_pyproject_from_github(
-            release_dir,
-            git_sha,
-            github_repo=github_repo or DEFAULT_GITHUB_REPO,
-            token=token,
-            logger=logger,
-        )
-
-    write_minimal_release_json(
-        release_dir, wheel=wheel, entrypoint=entrypoint, logger=logger
-    )
     logger.info(
-        "Runtime bundle ready at %s (pipeline_version=%s)",
+        "Runtime bundle snapshot ready at %s (pipeline_version=%s)",
         release_dir,
         pipeline_version,
     )
