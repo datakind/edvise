@@ -14,6 +14,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from pipelines.pdp.launchers.bundle_from_dab import load_inference_job_definition
 from pipelines.pdp.launchers.inference_job_submit import (
+    _run_state_fields,
     build_submit_access_control_list,
     build_submit_run_body,
     ensure_concrete_db_run_id,
@@ -269,6 +270,53 @@ class _FakeJobs:
 class _FakeWorkspaceClient:
     def __init__(self, states: list[tuple[str, str | None]]) -> None:
         self.jobs = _FakeJobs(states)
+
+
+def test_run_state_fields_parent_running_all_tasks_success() -> None:
+    """Parent run can stay RUNNING while every task is already TERMINATED/SUCCESS."""
+    run = {
+        "state": {"life_cycle_state": "RUNNING", "result_state": None},
+        "tasks": [
+            {"state": {"life_cycle_state": "TERMINATED", "result_state": "SUCCESS"}},
+            {"state": {"life_cycle_state": "TERMINATED", "result_state": "SUCCESS"}},
+        ],
+    }
+    assert _run_state_fields(run) == ("TERMINATED", "SUCCESS")
+
+
+def test_run_state_fields_coerces_sdk_enum_strings() -> None:
+    run = {
+        "state": {
+            "life_cycle_state": "RunLifeCycleState.TERMINATED",
+            "result_state": "RunResultState.SUCCESS",
+        },
+    }
+    assert _run_state_fields(run) == ("TERMINATED", "SUCCESS")
+
+
+def test_wait_for_inference_run_success_when_parent_stays_running() -> None:
+    """Simulate multi-task submit: parent RUNNING forever, tasks already done."""
+
+    class _FakeTask:
+        def __init__(self, life: str, result: str | None) -> None:
+            self.state = _FakeRunState(life, result)
+
+    class _FakeMultiRun:
+        def __init__(self) -> None:
+            self.state = _FakeRunState("RUNNING", None)
+            self.tasks = [
+                _FakeTask("TERMINATED", "SUCCESS"),
+                _FakeTask("TERMINATED", "SUCCESS"),
+            ]
+            self.run_page_url = "https://example.com/run/multi"
+
+    class _FakeJobsMulti:
+        def get_run(self, *, run_id: int) -> _FakeMultiRun:
+            del run_id
+            return _FakeMultiRun()
+
+    client = type("C", (), {"jobs": _FakeJobsMulti()})()
+    wait_for_inference_run(99, workspace_client=client, poll_interval_seconds=0)
 
 
 def test_wait_for_inference_run_success() -> None:

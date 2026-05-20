@@ -14,6 +14,7 @@ import logging
 import re
 import time
 import uuid
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,19 @@ _BUNDLE_VAR = re.compile(r"\$\{var\.[^}]+\}")
 _JOB_PARAM_REF = re.compile(r"\{\{\s*job\.parameters\.([A-Za-z0-9_]+)\s*\}\}")
 _JOB_RUN_ID_REF = re.compile(r"\{\{\s*job\.run_id\s*\}\}")
 _TERMINAL_LIFE_CYCLE_STATES = frozenset({"TERMINATED", "SKIPPED", "INTERNAL_ERROR"})
+_NON_TERMINAL_LIFE_CYCLE_STATES = frozenset(
+    {
+        "PENDING",
+        "RUNNING",
+        "BLOCKED",
+        "TERMINATING",
+        "QUEUED",
+        "WAITING_FOR_RESOURCES",
+        "PAUSED",
+    }
+)
 _SUCCESS_RESULT_STATE = "SUCCESS"
+_DEFAULT_WAIT_TIMEOUT = timedelta(hours=24)
 _UNRESOLVED_RUN_ID = "{{job.run_id}}"
 _HEX32 = re.compile(r"^[0-9a-fA-F]{32}$")
 _UUID_DASHED = re.compile(
@@ -325,25 +338,130 @@ def build_submit_access_control_list(
     return acl
 
 
+def _coerce_run_state_value(raw: Any) -> str | None:
+    """Normalize SDK enums / strings to uppercase API values (e.g. ``TERMINATED``)."""
+    if raw is None:
+        return None
+    value = getattr(raw, "value", raw)
+    text = str(value).strip()
+    if not text:
+        return None
+    if "." in text:
+        text = text.rsplit(".", 1)[-1]
+    return text.upper()
+
+
+def _state_from_obj(state_obj: Any) -> tuple[str | None, str | None]:
+    if state_obj is None:
+        return None, None
+    if isinstance(state_obj, dict):
+        return (
+            _coerce_run_state_value(state_obj.get("life_cycle_state")),
+            _coerce_run_state_value(state_obj.get("result_state")),
+        )
+    return (
+        _coerce_run_state_value(getattr(state_obj, "life_cycle_state", None)),
+        _coerce_run_state_value(getattr(state_obj, "result_state", None)),
+    )
+
+
+def _effective_run_state_from_tasks(
+    run: Any,
+    top_life: str | None,
+    top_result: str | None,
+) -> tuple[str | None, str | None]:
+    """
+    Derive completion from per-task states when the parent run lags (common on multi-task submit).
+    """
+    tasks = run.get("tasks") if isinstance(run, dict) else getattr(run, "tasks", None)
+    if not tasks:
+        return top_life, top_result
+
+    task_lifecycles: list[str] = []
+    task_results: list[str | None] = []
+    for task in tasks:
+        state_obj = task.get("state") if isinstance(task, dict) else getattr(task, "state", None)
+        life, result = _state_from_obj(state_obj)
+        if life:
+            task_lifecycles.append(life)
+        task_results.append(result)
+
+    if not task_lifecycles:
+        return top_life, top_result
+
+    if any(life in _NON_TERMINAL_LIFE_CYCLE_STATES for life in task_lifecycles):
+        return top_life or "RUNNING", top_result
+
+    if any(life == "INTERNAL_ERROR" for life in task_lifecycles):
+        return "INTERNAL_ERROR", top_result
+    if any(result == "FAILED" for result in task_results):
+        return "TERMINATED", "FAILED"
+    if any(result == "TIMEDOUT" for result in task_results):
+        return "TERMINATED", "TIMEDOUT"
+    if any(result == "CANCELED" for result in task_results):
+        return "TERMINATED", "CANCELED"
+    if all(result in (None, _SUCCESS_RESULT_STATE) for result in task_results):
+        return "TERMINATED", _SUCCESS_RESULT_STATE
+    return "TERMINATED", top_result
+
+
 def _run_state_fields(run: Any) -> tuple[str | None, str | None]:
-    state = getattr(run, "state", None)
-    if state is None and isinstance(run, dict):
-        state = run.get("state")
-    if isinstance(state, dict):
-        life = state.get("life_cycle_state")
-        result = state.get("result_state")
-        return (
-            str(life) if life is not None else None,
-            str(result) if result is not None else None,
-        )
-    if state is not None:
-        life = getattr(state, "life_cycle_state", None)
-        result = getattr(state, "result_state", None)
-        return (
-            str(life) if life is not None else None,
-            str(result) if result is not None else None,
-        )
-    return None, None
+    if isinstance(run, dict):
+        top_life, top_result = _state_from_obj(run.get("state"))
+    else:
+        top_life, top_result = _state_from_obj(getattr(run, "state", None))
+
+    if top_life == "TERMINATED" and top_result == _SUCCESS_RESULT_STATE:
+        return top_life, top_result
+
+    return _effective_run_state_from_tasks(run, top_life, top_result)
+
+
+def _log_child_run_state(
+    run_id: int,
+    run: Any,
+    *,
+    logger: logging.Logger,
+) -> tuple[str | None, str | None]:
+    life_cycle, result_state = _run_state_fields(run)
+    raw_life, raw_result = _state_from_obj(
+        run.get("state") if isinstance(run, dict) else getattr(run, "state", None)
+    )
+    logger.info(
+        "Child inference run_id=%s state life_cycle=%s result=%s (raw top-level=%s/%s)",
+        run_id,
+        life_cycle,
+        result_state,
+        raw_life,
+        raw_result,
+    )
+    return life_cycle, result_state
+
+
+def _raise_unless_child_run_success(
+    run_id: int,
+    run: Any,
+    life_cycle: str | None,
+    result_state: str | None,
+    *,
+    logger: logging.Logger,
+) -> None:
+    if life_cycle == "TERMINATED" and result_state == _SUCCESS_RESULT_STATE:
+        monitor_url = getattr(run, "run_page_url", None)
+        if monitor_url:
+            logger.info(
+                "Child inference run_id=%s succeeded — %s",
+                run_id,
+                monitor_url,
+            )
+        else:
+            logger.info("Child inference run_id=%s succeeded", run_id)
+        return
+    msg = (
+        f"Child inference run_id={run_id} finished with "
+        f"life_cycle_state={life_cycle!r} result_state={result_state!r}"
+    )
+    raise RuntimeError(msg)
 
 
 def wait_for_inference_run(
@@ -355,37 +473,52 @@ def wait_for_inference_run(
     logger: logging.Logger = LOGGER,
 ) -> None:
     """
-    Poll ``jobs.get_run`` until the child run reaches a terminal state.
+    Wait until the child inference run reaches a terminal success state.
+
+    Uses the Databricks SDK waiter when available; otherwise polls ``jobs.get_run``.
+    Multi-task runs may keep the parent ``life_cycle_state`` at ``RUNNING`` while all
+    tasks are already ``TERMINATED`` — task-level states are considered in that case.
 
     Raises ``RuntimeError`` if the run does not finish with ``result_state=SUCCESS``.
     """
+    sdk_timeout = (
+        timedelta(seconds=timeout_seconds)
+        if timeout_seconds is not None
+        else _DEFAULT_WAIT_TIMEOUT
+    )
+    sdk_waiter = getattr(
+        workspace_client.jobs,
+        "wait_get_run_job_terminated_or_skipped",
+        None,
+    )
+    if sdk_waiter is not None:
+        try:
+            final_run = sdk_waiter(
+                run_id,
+                timeout=sdk_timeout,
+                callback=lambda run: _log_child_run_state(run_id, run, logger=logger),
+            )
+        except Exception as exc:
+            msg = (
+                f"Error waiting for child inference run_id={run_id} "
+                f"(timeout={sdk_timeout!s}): {exc}"
+            )
+            raise RuntimeError(msg) from exc
+        life_cycle, result_state = _run_state_fields(final_run)
+        _raise_unless_child_run_success(
+            run_id, final_run, life_cycle, result_state, logger=logger
+        )
+        return
+
     start = time.monotonic()
     while True:
         run = workspace_client.jobs.get_run(run_id=run_id)
-        life_cycle, result_state = _run_state_fields(run)
-        logger.info(
-            "Child inference run_id=%s state life_cycle=%s result=%s",
-            run_id,
-            life_cycle,
-            result_state,
-        )
+        life_cycle, result_state = _log_child_run_state(run_id, run, logger=logger)
         if life_cycle in _TERMINAL_LIFE_CYCLE_STATES:
-            if life_cycle == "TERMINATED" and result_state == _SUCCESS_RESULT_STATE:
-                monitor_url = getattr(run, "run_page_url", None)
-                if monitor_url:
-                    logger.info(
-                        "Child inference run_id=%s succeeded — %s",
-                        run_id,
-                        monitor_url,
-                    )
-                else:
-                    logger.info("Child inference run_id=%s succeeded", run_id)
-                return
-            msg = (
-                f"Child inference run_id={run_id} finished with "
-                f"life_cycle_state={life_cycle!r} result_state={result_state!r}"
+            _raise_unless_child_run_success(
+                run_id, run, life_cycle, result_state, logger=logger
             )
-            raise RuntimeError(msg)
+            return
         if timeout_seconds is not None and (time.monotonic() - start) >= timeout_seconds:
             msg = (
                 f"Timed out after {timeout_seconds}s waiting for child inference "
