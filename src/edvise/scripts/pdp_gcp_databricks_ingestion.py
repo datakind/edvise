@@ -27,6 +27,7 @@ from edvise.utils.databricks import (
     get_spark_session_or_none,
     in_databricks,
 )
+from edvise.shared.model_registry import get_latest_registered_model_run_id
 from edvise.utils.gcs import active_gcp_identity
 
 
@@ -119,29 +120,26 @@ class DataIngestionTask:
         registry_uri: str = "databricks-uc",
     ) -> str:
         """
-        Returns the run ID of the latest version of a model registered in Unity Catalog (Databricks).
+        Returns the source run ID for the latest version of a named UC model.
 
         Args:
             model_name: Short name of the model (without UC path).
-            workspace: Unity Catalog workspace (e.g. 'edvise').
-            institution: Institution name used in the UC model path (e.g. 'my_school').
+            workspace: Unity Catalog catalog (e.g. 'staging_sst_01').
+            institution: Institution id matching ``{institution}_gold`` schema.
             registry_uri: Registry URI; defaults to 'databricks-uc'.
 
         Returns:
-            run_id: The run ID associated with the latest version of the model.
+            run_id: MLflow run id from the latest model version (matches
+            ``gold_volume/model_cards/<run_id>/``).
         """
         client = MlflowClient(registry_uri=registry_uri)
-        # Model name is already UC-compatible (lowercase with underscores)
-        full_model_name = f"{workspace}.{institution}_gold.{model_name}"
-
-        versions = client.search_model_versions(f"name='{full_model_name}'")
-        if not versions:
-            raise ValueError(
-                f"No registered versions found for model: {full_model_name}"
-            )
-
-        latest_version = max(versions, key=lambda v: int(v.version))
-        return str(latest_version.run_id)
+        run_id, _, _ = get_latest_registered_model_run_id(
+            client,
+            catalog=workspace,
+            institution_id=institution,
+            model_name=model_name,
+        )
+        return run_id
 
     def find_config_file_path(self, run_root: str) -> str:
         """
