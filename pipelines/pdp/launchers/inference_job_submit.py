@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -27,8 +28,11 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_GIT_URL = "https://github.com/datakind/edvise"
 _BUNDLE_VAR = re.compile(r"\$\{var\.[^}]+\}")
+_JOB_PARAM_REF = re.compile(r"\{\{\s*job\.parameters\.([A-Za-z0-9_]+)\s*\}\}")
+_JOB_RUN_ID_REF = re.compile(r"\{\{\s*job\.run_id\s*\}\}")
 _TERMINAL_LIFE_CYCLE_STATES = frozenset({"TERMINATED", "SKIPPED", "INTERNAL_ERROR"})
 _SUCCESS_RESULT_STATE = "SUCCESS"
+_UNRESOLVED_RUN_ID = "{{job.run_id}}"
 
 
 def _contains_bundle_var(value: Any) -> bool:
@@ -75,6 +79,70 @@ def resolve_job_parameter_specs(
             default = overrides[name]
         resolved.append({"name": name, "default": str(default)})
     return resolved
+
+
+def job_parameter_values_from_specs(
+    parameter_specs: list[dict[str, str]],
+    parameter_overrides: dict[str, str],
+) -> dict[str, str]:
+    """Merge resolved job parameter specs with explicit overrides."""
+    values = {p["name"]: p["default"] for p in parameter_specs}
+    for name, val in parameter_overrides.items():
+        if val is not None and str(val).strip():
+            values[name] = str(val)
+    return values
+
+
+def ensure_concrete_db_run_id(
+    parameter_values: dict[str, str],
+    parameter_overrides: dict[str, str],
+) -> str:
+    """
+    ``runs/submit`` does not assign ``{{job.run_id}}``; use override or generate one.
+    """
+    for source in (parameter_overrides, parameter_values):
+        val = source.get("db_run_id", "")
+        if val and str(val).strip() and str(val).strip() != _UNRESOLVED_RUN_ID:
+            return str(val).strip()
+    return f"versioned_{uuid.uuid4().hex}"
+
+
+def render_job_parameter_refs(
+    obj: Any,
+    parameter_values: dict[str, str],
+    *,
+    run_id: str | None = None,
+) -> Any:
+    """
+    Replace ``{{job.parameters.NAME}}`` (and optional ``{{job.run_id}}``) in nested structures.
+
+    Databricks does not interpolate job parameters for one-off ``runs/submit`` payloads; tasks
+    must receive literal values in ``spark_python_task.parameters`` and similar fields.
+    """
+    if isinstance(obj, str):
+
+        def replace_param(match: re.Match[str]) -> str:
+            name = match.group(1)
+            if name not in parameter_values:
+                msg = f"Missing job parameter {name!r} for runs/submit rendering"
+                raise ValueError(msg)
+            return parameter_values[name]
+
+        rendered = _JOB_PARAM_REF.sub(replace_param, obj)
+        if run_id is not None:
+            rendered = _JOB_RUN_ID_REF.sub(run_id, rendered)
+        return rendered
+    if isinstance(obj, list):
+        return [
+            render_job_parameter_refs(item, parameter_values, run_id=run_id)
+            for item in obj
+        ]
+    if isinstance(obj, dict):
+        return {
+            key: render_job_parameter_refs(val, parameter_values, run_id=run_id)
+            for key, val in obj.items()
+        }
+    return obj
 
 
 def _job_cluster_map(job_clusters: list[Any]) -> dict[str, dict[str, Any]]:
@@ -257,6 +325,12 @@ def build_submit_run_body(
         job.get("parameters") if isinstance(job.get("parameters"), list) else [],
         parameter_overrides,
     )
+    parameter_values = job_parameter_values_from_specs(parameters, parameter_overrides)
+    db_run_id = ensure_concrete_db_run_id(parameter_values, parameter_overrides)
+    parameter_values["db_run_id"] = db_run_id
+    for spec in parameters:
+        if spec["name"] == "db_run_id":
+            spec["default"] = db_run_id
 
     cleaned_tasks = _strip_unresolved_bundle_refs(tasks)
     cleaned_clusters = _strip_unresolved_bundle_refs(job_clusters)
@@ -266,6 +340,14 @@ def build_submit_run_body(
     if not isinstance(cleaned_clusters, list):
         msg = f"Job {inference_job_key!r} job_clusters could not be sanitized for submit"
         raise TypeError(msg)
+
+    cleaned_tasks = render_job_parameter_refs(
+        cleaned_tasks, parameter_values, run_id=db_run_id
+    )
+    cleaned_clusters = render_job_parameter_refs(
+        cleaned_clusters, parameter_values, run_id=db_run_id
+    )
+
     submit_tasks = inline_job_clusters_for_submit(cleaned_tasks, cleaned_clusters)
 
     body: dict[str, Any] = {
@@ -286,7 +368,9 @@ def build_submit_run_body(
 
     email = job.get("email_notifications")
     if isinstance(email, dict) and not _contains_bundle_var(str(email)):
-        body["email_notifications"] = email
+        body["email_notifications"] = render_job_parameter_refs(
+            email, parameter_values, run_id=db_run_id
+        )
 
     run_as = parameter_overrides.get("ds_run_as", "").strip()
     if run_as:

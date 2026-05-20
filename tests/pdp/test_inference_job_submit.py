@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from pipelines.pdp.launchers.bundle_from_dab import load_inference_job_definitio
 from pipelines.pdp.launchers.inference_job_submit import (
     build_submit_access_control_list,
     build_submit_run_body,
+    ensure_concrete_db_run_id,
+    render_job_parameter_refs,
     resolve_job_parameter_specs,
     wait_for_inference_run,
 )
@@ -44,6 +47,37 @@ def test_resolve_job_parameter_specs_strips_bundle_vars() -> None:
     assert by_name["databricks_institution_name"] == "miles_cc"
     assert by_name["DB_workspace"] == "dev_sst_02"
     assert by_name["db_run_id"] == "{{job.run_id}}"
+
+
+def test_render_job_parameter_refs_nested() -> None:
+    rendered = render_job_parameter_refs(
+        {
+            "parameters": [
+                "--cohort_file_name",
+                "{{job.parameters.cohort_file_name}}",
+                "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze",
+            ]
+        },
+        {
+            "cohort_file_name": "cohort.csv",
+            "DB_workspace": "dev_sst_02",
+            "databricks_institution_name": "miles_cc",
+        },
+        run_id="run-abc",
+    )
+    assert rendered["parameters"][1] == "cohort.csv"
+    assert rendered["parameters"][2] == "/Volumes/dev_sst_02/miles_cc_bronze"
+
+
+def test_render_job_parameter_refs_missing_raises() -> None:
+    with pytest.raises(ValueError, match="cohort_file_name"):
+        render_job_parameter_refs("{{job.parameters.cohort_file_name}}", {})
+
+
+def test_ensure_concrete_db_run_id_generates_when_unresolved() -> None:
+    run_id = ensure_concrete_db_run_id({"db_run_id": "{{job.run_id}}"}, {})
+    assert run_id.startswith("versioned_")
+    assert "{{" not in run_id
 
 
 def test_build_submit_access_control_list() -> None:
@@ -117,6 +151,7 @@ def test_build_submit_run_body_full_inference_job() -> None:
             "model_name": "retention_into_year_2_bachelors",
             "DB_workspace": "dev_sst_02",
             "datakind_notification_email": "ops@example.com",
+            "db_run_id": "versioned_test_run_001",
         },
     )
     assert len(body["tasks"]) >= 8
@@ -134,6 +169,17 @@ def test_build_submit_run_body_full_inference_job() -> None:
         if p["name"] == "datakind_notification_email"
     )
     assert email_default == "ops@example.com"
+
+    body_json = json.dumps(body)
+    assert "{{job.parameters" not in body_json
+    assert "{{job.run_id}}" not in body_json
+
+    ingestion = next(t for t in body["tasks"] if t["task_key"] == "data_ingestion")
+    params = ingestion["spark_python_task"]["parameters"]
+    assert "retention_into_year_2_bachelors" in params
+    assert "synthetic_integration" in params
+    assert "versioned_test_run_001" in params
+    assert "{{job.parameters.cohort_file_name}}" not in params
 
 
 class _FakeRunState:
