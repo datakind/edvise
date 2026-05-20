@@ -1,0 +1,166 @@
+# Edvise (ES) inference: no data_ingestion task (inputs via GenAI silver parquets and/or bronze).
+# First tasks: es_data_audit -> es_feature_generation; downstream tasks match github_pdp_inference.yml.
+resources:
+  jobs:
+    github_sourced_es_inference_pipeline:
+      name: github_sourced_es_inference_pipeline
+      webhook_notifications:
+        on_failure:
+          - id: ${var.inference_slack_webhook_id}
+      max_concurrent_runs: 5
+      tasks:
+        - task_key: data_audit
+          spark_python_task:
+            python_file: src/edvise/scripts/es_data_audit.py
+            source: GIT
+            parameters:
+              - --bronze_volume_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume"
+              - --silver_volume_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --config_file_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - --job_type
+              - "{{job.parameters.job_type}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+        - task_key: feature_generation
+          depends_on:
+            - task_key: data_audit
+          spark_python_task:
+            python_file: src/edvise/scripts/es_feature_generation.py
+            source: GIT
+            parameters:
+              - --silver_volume_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --config_file_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - --job_type
+              - "{{job.parameters.job_type}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+        - task_key: checkpoint
+          depends_on:
+            - task_key: feature_generation
+          spark_python_task:
+            python_file: src/edvise/scripts/checkpoints.py
+            source: GIT
+            parameters:
+              - --silver_volume_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --config_file_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
+              - --job_type
+              - "{{job.parameters.job_type}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+        - task_key: student_selection
+          depends_on:
+            - task_key: feature_generation
+          spark_python_task:
+            python_file: src/edvise/scripts/student_selection.py
+            source: GIT
+            parameters:
+              - --silver_volume_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --config_file_path
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
+              - --job_type
+              - "{{job.parameters.job_type}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: faker==33.1.0
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: scikit-learn==1.5.2
+            - pypi:
+                package: missingno==0.5.2
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+      
