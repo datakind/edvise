@@ -6,6 +6,7 @@ include:
   - resources/github_pdp_training.yml
   - resources/github_es_training.yml
   - resources/github_pdp_inference.yml
+  - resources/github_es_inference.yml
   - resources/synthetic/github_synth_cleanup.yml
 
 variables:
@@ -78,6 +79,11 @@ targets:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_commit: ${var.git_commit}
+        github_sourced_es_inference_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
         edvise_cleanup_synthetic:
           git_source:
             git_url: https://github.com/datakind/edvise
@@ -110,6 +116,11 @@ targets:
             git_provider: gitHub
             git_tag: ${var.git_tag}
         edvise_github_sourced_pdp_inference_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}
+        github_sourced_es_inference_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
