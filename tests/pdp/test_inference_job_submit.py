@@ -17,6 +17,7 @@ from pipelines.pdp.launchers.inference_job_submit import (
     build_submit_access_control_list,
     build_submit_run_body,
     ensure_concrete_db_run_id,
+    normalize_versioned_inference_db_run_id,
     propagate_union_libraries_for_submit,
     render_job_parameter_refs,
     resolve_job_parameter_specs,
@@ -79,6 +80,35 @@ def test_ensure_concrete_db_run_id_generates_when_unresolved() -> None:
     run_id = ensure_concrete_db_run_id({"db_run_id": "{{job.run_id}}"}, {})
     assert run_id.startswith("versioned_")
     assert "{{" not in run_id
+
+
+def test_normalize_versioned_inference_db_run_id_bare_hex() -> None:
+    assert (
+        normalize_versioned_inference_db_run_id("67B39F0B2CAA4A919F289749883BD04C")
+        == "versioned_67b39f0b2caa4a919f289749883bd04c"
+    )
+
+
+def test_normalize_versioned_inference_db_run_id_dashed_uuid() -> None:
+    assert (
+        normalize_versioned_inference_db_run_id("67b39f0b-2caa-4a91-9f28-9749883bd04c")
+        == "versioned_67b39f0b2caa4a919f289749883bd04c"
+    )
+
+
+def test_normalize_versioned_inference_db_run_id_already_prefixed() -> None:
+    assert (
+        normalize_versioned_inference_db_run_id("versioned_67b39f0b2caa4a919f289749883bd04c")
+        == "versioned_67b39f0b2caa4a919f289749883bd04c"
+    )
+
+
+def test_ensure_concrete_db_run_id_respects_hex_override() -> None:
+    rid = ensure_concrete_db_run_id(
+        {"db_run_id": "{{job.run_id}}"},
+        {"db_run_id": "67b39f0b2caa4a919f289749883bd04c"},
+    )
+    assert rid == "versioned_67b39f0b2caa4a919f289749883bd04c"
 
 
 def test_build_submit_access_control_list() -> None:

@@ -123,6 +123,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="User granted CAN_VIEW on the submitted inference run.",
     )
     parser.add_argument(
+        "--inference_output_run_id",
+        default="",
+        help=(
+            "Optional inference output key (maps to job parameter db_run_id). "
+            "Use the same value as a previous run to overwrite silver Delta tables and "
+            "gold volume inference_jobs paths (e.g. 32-char hex from table names, or "
+            "versioned_<hex>). If empty, a new versioned_<uuid> id is generated."
+        ),
+    )
+    parser.add_argument(
         "--inference_parameters_json",
         default="",
         help="Optional JSON object of extra job parameter overrides.",
@@ -180,6 +190,9 @@ def _build_parameter_overrides(args: argparse.Namespace) -> dict[str, str]:
         for k, v in extra.items():
             if v is not None:
                 overrides[str(k)] = str(v)
+    out_id = _optional_arg(getattr(args, "inference_output_run_id", ""))
+    if out_id is not None:
+        overrides["db_run_id"] = out_id
     return overrides
 
 

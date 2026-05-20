@@ -33,6 +33,40 @@ _JOB_RUN_ID_REF = re.compile(r"\{\{\s*job\.run_id\s*\}\}")
 _TERMINAL_LIFE_CYCLE_STATES = frozenset({"TERMINATED", "SKIPPED", "INTERNAL_ERROR"})
 _SUCCESS_RESULT_STATE = "SUCCESS"
 _UNRESOLVED_RUN_ID = "{{job.run_id}}"
+_HEX32 = re.compile(r"^[0-9a-fA-F]{32}$")
+_UUID_DASHED = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    re.IGNORECASE,
+)
+
+
+def normalize_versioned_inference_db_run_id(value: str) -> str:
+    """
+    Normalize user-supplied ``db_run_id`` for versioned ``runs/submit`` inference.
+
+    Auto-generated ids look like ``versioned_<32 hex>``, producing silver tables such as
+    ``predicted_dataset_versioned_<hex>``. Accept either the full string or bare 32-char
+    hex (from Catalog table names) so re-runs can overwrite the same Delta tables.
+    """
+    s = (value or "").strip()
+    if not s:
+        msg = "db_run_id must be non-empty when normalizing"
+        raise ValueError(msg)
+    if s == _UNRESOLVED_RUN_ID:
+        return s
+    lowered = s.lower()
+    if lowered.startswith("versioned_"):
+        suffix = s[len("versioned_") :].strip()
+        compact = re.sub(r"[^0-9a-fA-F]", "", suffix)
+        if len(compact) == 32 and _HEX32.match(compact):
+            return f"versioned_{compact.lower()}"
+        return f"versioned_{suffix}"
+    if _HEX32.match(s):
+        return f"versioned_{s.lower()}"
+    if _UUID_DASHED.match(s):
+        compact = re.sub(r"[^0-9a-fA-F]", "", s)
+        return f"versioned_{compact.lower()}"
+    return s
 
 
 def _contains_bundle_var(value: Any) -> bool:
@@ -99,11 +133,15 @@ def ensure_concrete_db_run_id(
 ) -> str:
     """
     ``runs/submit`` does not assign ``{{job.run_id}}``; use override or generate one.
+
+    Explicit ``db_run_id`` (e.g. from ``--inference_output_run_id``) is normalized so
+    bare 32-char hex matches existing ``versioned_<hex>`` table names.
     """
     for source in (parameter_overrides, parameter_values):
         val = source.get("db_run_id", "")
-        if val and str(val).strip() and str(val).strip() != _UNRESOLVED_RUN_ID:
-            return str(val).strip()
+        raw = str(val).strip() if val else ""
+        if raw and raw != _UNRESOLVED_RUN_ID:
+            return normalize_versioned_inference_db_run_id(raw)
     return f"versioned_{uuid.uuid4().hex}"
 
 

@@ -83,6 +83,8 @@ resources:
               - "{{job.parameters.datakind_group_to_manage_workflow}}"
               - --viewer_user
               - "{{job.parameters.viewer_user}}"
+              - --inference_output_run_id
+              - "{{job.parameters.inference_output_run_id}}"
               - --inference_parameters_json
               - "{{job.parameters.inference_parameters_json}}"
           job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
@@ -142,6 +144,8 @@ resources:
         - name: datakind_group_to_manage_workflow
           default: ""
         - name: viewer_user
+          default: ""
+        - name: inference_output_run_id
           default: ""
         - name: inference_parameters_json
           default: ""
