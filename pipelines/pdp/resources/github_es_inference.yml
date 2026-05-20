@@ -189,7 +189,7 @@ resources:
         - name: term_filter
           default: ""
         - name: schema_type
-          default: es
+          default: edvise
         - name: cohort_file_name
           default: 2025-09-19_CCC Student File De-Duplicated.csv
         - name: course_file_name
