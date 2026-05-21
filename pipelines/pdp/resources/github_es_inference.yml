@@ -163,7 +163,7 @@ resources:
                 package: pandera==0.23.0
             - pypi:
                 package: pydantic~=2.10
-                - task_key: inf_prep
+        - task_key: inf_prep
           depends_on:
             - task_key: checkpoint
             - task_key: student_selection
@@ -178,7 +178,11 @@ resources:
               - --term_filter
               - "{{job.parameters.term_filter}}"
               - --config_file_path
-              - "{{tasks.data_ingestion.values.config_file_path}}"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
+              - --job_type
+              - "{{job.parameters.job_type}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -198,7 +202,7 @@ resources:
             - pypi:
                 package: pandera==0.23.0
             - pypi:
-                package: pydantic~=2.10      
+                package: pydantic~=2.10
         - task_key: inference_h2o
           depends_on:
             - task_key: inf_prep
@@ -223,7 +227,7 @@ resources:
               - --job_root_dir  
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
               - --config_file_path
-              - "{{tasks.data_ingestion.values.config_file_path}}"
+              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
