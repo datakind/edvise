@@ -11,6 +11,27 @@ LOGGER = logging.getLogger(__name__)
 """Shared utility functions used across multiple modules."""
 
 
+def cohort_pair_columns(df: pd.DataFrame) -> tuple[str, str] | None:
+    """Return (year-like, term-like) column names for cohort logging, if present."""
+    if {"cohort", "cohort_term"}.issubset(df.columns):
+        return ("cohort", "cohort_term")
+    if {"entry_year", "entry_term"}.issubset(df.columns):
+        return ("entry_year", "entry_term")
+    return None
+
+
+def feature_cleanup_for_schema(schema_type: str):
+    """Return PDP or Edvise ES feature cleanup for the given ``--schema_type``."""
+    from edvise.configs.schema_type import is_edvise_schema
+    from edvise.model_prep import cleanup_features as cleanup
+
+    return (
+        cleanup.ESCleanup()
+        if is_edvise_schema(schema_type)
+        else cleanup.PDPCleanup()
+    )
+
+
 def validate_optional_column(
     df: pd.DataFrame,
     col: str | None,
