@@ -26,19 +26,34 @@ def _version(version: int, run_id: str, created_ms: int = 0) -> SimpleNamespace:
     )
 
 
+class _PagedModels:
+    def __init__(self, models: list[SimpleNamespace], token: str | None = None):
+        self.registered_models = models
+        self.token = token
+
+
 class FakeMlflowClient:
     def __init__(
         self,
         models: list[SimpleNamespace] | None = None,
         versions_by_name: dict[str, list[SimpleNamespace]] | None = None,
         runs_by_id: dict[str, SimpleNamespace] | None = None,
+        *,
+        page_size: int | None = None,
     ):
         self._models = models or []
         self._versions_by_name = versions_by_name or {}
         self._runs_by_id = runs_by_id or {}
+        self._page_size = page_size
 
-    def search_registered_models(self):
-        return self._models
+    def search_registered_models(self, max_results=1000, page_token=None):
+        if self._page_size is None:
+            return self._models
+        start = 0 if not page_token else int(page_token)
+        end = start + min(max_results, self._page_size)
+        chunk = self._models[start:end]
+        next_token = str(end) if end < len(self._models) else None
+        return _PagedModels(chunk, next_token)
 
     def search_model_versions(self, filter_string: str):
         # filter_string is name='catalog.schema.model'
@@ -123,6 +138,22 @@ def test_find_model_card_pdf_under_run_dir(tmp_path):
 def test_find_model_card_pdf_missing_dir(tmp_path):
     with pytest.raises(FileNotFoundError, match="does not exist"):
         mr.find_model_card_pdf_under_run_dir(str(tmp_path / "missing"))
+
+
+def test_search_institution_registered_models_paginates_uc_registry():
+    """Models not on the first registry page must still be found (e.g. valencia_col)."""
+    page1 = [_registered(f"staging.other_gold.model_{i}", i) for i in range(3)]
+    valencia = _registered(
+        "staging.valencia_col_gold.valencia_col_15_creds_in_2_years_first_term",
+        999,
+    )
+    client = FakeMlflowClient(models=page1 + [valencia], page_size=3)
+    found = mr.search_institution_registered_models(
+        client,
+        catalog="staging",
+        institution_id="valencia_col",
+    )
+    assert [m.name for m in found] == [valencia.name]
 
 
 def test_gold_model_cards_run_dir():

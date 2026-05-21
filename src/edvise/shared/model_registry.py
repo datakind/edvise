@@ -61,6 +61,46 @@ def _timestamp_ms(obj: t.Any, *attr_names: str) -> int:
     return 0
 
 
+def _registered_models_from_search_result(result: t.Any) -> list[RegisteredModel]:
+    """Normalize MLflow search_registered_models() return value to a list."""
+    if result is None:
+        return []
+    if hasattr(result, "registered_models"):
+        return list(result.registered_models)
+    return list(result)
+
+
+def _next_search_registered_models_token(result: t.Any) -> str | None:
+    for attr in ("token", "next_page_token", "page_token"):
+        token = getattr(result, attr, None)
+        if token:
+            return str(token)
+    return None
+
+
+def iter_all_registered_models(
+    client: t.Any,
+    *,
+    max_results: int = 1000,
+) -> t.Iterator[RegisteredModel]:
+    """
+    Yield every registered model in the workspace registry.
+
+    Unity Catalog does not support ``filter_string`` on
+    ``search_registered_models``; callers must paginate and filter client-side.
+    """
+    page_token: str | None = None
+    while True:
+        kwargs: dict[str, t.Any] = {"max_results": max_results}
+        if page_token is not None:
+            kwargs["page_token"] = page_token
+        batch = client.search_registered_models(**kwargs)
+        yield from _registered_models_from_search_result(batch)
+        page_token = _next_search_registered_models_token(batch)
+        if not page_token:
+            break
+
+
 def search_institution_registered_models(
     client: t.Any,
     *,
@@ -71,7 +111,7 @@ def search_institution_registered_models(
     prefix = gold_registered_model_name_prefix(catalog, institution_id)
     models = [
         rm
-        for rm in client.search_registered_models()
+        for rm in iter_all_registered_models(client)
         if (rm.name or "").startswith(prefix)
     ]
     if model_name:
