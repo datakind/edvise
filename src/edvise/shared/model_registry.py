@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import typing as t
+from datetime import datetime, timezone
 
 if t.TYPE_CHECKING:
     from mlflow.entities.model_registry import ModelVersion
@@ -20,8 +21,11 @@ __all__ = [
     "gold_registered_model_name_prefix",
     "find_model_card_pdf_under_run_dir",
     "get_latest_registered_model_run_id",
+    "model_card_copy_basename",
     "pick_latest_model_version",
     "pick_newest_registered_model_by_created_at",
+    "resolve_latest_model_card_pdf",
+    "run_start_yyyymmdd",
     "search_institution_registered_models",
     "short_model_name",
 ]
@@ -146,6 +150,33 @@ def get_latest_registered_model_run_id(
     return str(run_id), full_name, str(latest.version)
 
 
+def run_start_yyyymmdd(client: t.Any, run_id: str) -> str:
+    """
+    MLflow run start time (UTC) formatted as ``YYYYMMDD``.
+
+    Databricks UI shows this as the run created time (e.g. Mar 02, 2026, 03:49 PM).
+    """
+    run = client.get_run(run_id)
+    start_ms = getattr(getattr(run, "info", None), "start_time", None)
+    if start_ms is None:
+        raise ValueError(f"MLflow run has no start_time: {run_id}")
+    dt = datetime.fromtimestamp(int(start_ms) / 1000.0, tz=timezone.utc)
+    return dt.strftime("%Y%m%d")
+
+
+def model_card_copy_basename(source_pdf_path: str, run_created_yyyymmdd: str) -> str:
+    """
+    Destination PDF name for central copy: ``{stem}_{yyyymmdd}.pdf``.
+
+    Does not alter the source file on the gold volume.
+    """
+    base = os.path.basename(source_pdf_path)
+    stem, ext = os.path.splitext(base)
+    if not ext:
+        ext = ".pdf"
+    return f"{stem}_{run_created_yyyymmdd}{ext}"
+
+
 def find_model_card_pdf_under_run_dir(run_dir: str) -> str:
     """
     Return the path to a model card PDF under ``model_cards/<run_id>/``.
@@ -174,12 +205,12 @@ def resolve_latest_model_card_pdf(
     catalog: str,
     institution_id: str,
     model_name: str | None = None,
-) -> tuple[str, str, str, str]:
+) -> tuple[str, str, str, str, str]:
     """
     Full resolution: UC registry -> run id -> PDF path on gold volume.
 
     Returns:
-        (pdf_path, run_id, full_uc_model_name, version_str)
+        (pdf_path, run_id, full_uc_model_name, version_str, run_start_yyyymmdd)
     """
     run_id, full_name, version = get_latest_registered_model_run_id(
         client,
@@ -189,4 +220,5 @@ def resolve_latest_model_card_pdf(
     )
     run_dir = gold_model_cards_run_dir(catalog, institution_id, run_id)
     pdf_path = find_model_card_pdf_under_run_dir(run_dir)
-    return pdf_path, run_id, full_name, version
+    created_yyyymmdd = run_start_yyyymmdd(client, run_id)
+    return pdf_path, run_id, full_name, version, created_yyyymmdd

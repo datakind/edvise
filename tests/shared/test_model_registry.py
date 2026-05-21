@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -30,9 +31,11 @@ class FakeMlflowClient:
         self,
         models: list[SimpleNamespace] | None = None,
         versions_by_name: dict[str, list[SimpleNamespace]] | None = None,
+        runs_by_id: dict[str, SimpleNamespace] | None = None,
     ):
         self._models = models or []
         self._versions_by_name = versions_by_name or {}
+        self._runs_by_id = runs_by_id or {}
 
     def search_registered_models(self):
         return self._models
@@ -41,6 +44,11 @@ class FakeMlflowClient:
         # filter_string is name='catalog.schema.model'
         name = filter_string.split("'", 2)[1]
         return self._versions_by_name.get(name, [])
+
+    def get_run(self, run_id: str):
+        if run_id not in self._runs_by_id:
+            raise KeyError(run_id)
+        return self._runs_by_id[run_id]
 
 
 def test_pick_newest_registered_model_by_created_at():
@@ -121,3 +129,59 @@ def test_gold_model_cards_run_dir():
     assert mr.gold_model_cards_run_dir("staging_sst_01", "jf_drake_state_cc", "abc") == (
         "/Volumes/staging_sst_01/jf_drake_state_cc_gold/gold_volume/model_cards/abc"
     )
+
+
+def test_run_start_yyyymmdd():
+    # Mar 02, 2026 15:49 UTC
+    start_ms = int(
+        datetime(2026, 3, 2, 15, 49, tzinfo=timezone.utc).timestamp() * 1000
+    )
+    client = FakeMlflowClient(
+        runs_by_id={
+            "run_1": SimpleNamespace(info=SimpleNamespace(start_time=start_ms)),
+        }
+    )
+    assert mr.run_start_yyyymmdd(client, "run_1") == "20260302"
+
+
+def test_model_card_copy_basename():
+    assert (
+        mr.model_card_copy_basename(
+            "/Volumes/cat/school_gold/gold_volume/model_cards/run/model-card-retention.pdf",
+            "20260302",
+        )
+        == "model-card-retention_20260302.pdf"
+    )
+
+
+def test_resolve_latest_model_card_pdf_includes_run_date(tmp_path, monkeypatch):
+    run_dir = tmp_path / "e39e2308"
+    run_dir.mkdir()
+    (run_dir / "model-card-retention.pdf").write_text("%PDF", encoding="utf-8")
+    start_ms = int(
+        datetime(2026, 3, 2, 15, 49, tzinfo=timezone.utc).timestamp() * 1000
+    )
+    monkeypatch.setattr(
+        mr,
+        "gold_model_cards_run_dir",
+        lambda _catalog, _institution_id, _run_id: str(run_dir),
+    )
+    client = FakeMlflowClient(
+        models=[_registered("staging.school_gold.retention", 1)],
+        versions_by_name={
+            "staging.school_gold.retention": [_version(1, "e39e2308")],
+        },
+        runs_by_id={
+            "e39e2308": SimpleNamespace(info=SimpleNamespace(start_time=start_ms)),
+        },
+    )
+    pdf_path, run_id, full_name, version, yyyymmdd = mr.resolve_latest_model_card_pdf(
+        client,
+        catalog="staging",
+        institution_id="school",
+    )
+    assert run_id == "e39e2308"
+    assert full_name == "staging.school_gold.retention"
+    assert version == "1"
+    assert yyyymmdd == "20260302"
+    assert pdf_path.endswith("model-card-retention.pdf")
