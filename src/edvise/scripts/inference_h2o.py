@@ -79,9 +79,7 @@ class ModelInferenceTask:
         self.args = args
         self.spark_session = get_spark_session()
         cfg_cls = project_config_class(getattr(args, "schema_type", "pdp"))
-        self.cfg = dataio.read.read_config(
-            self.args.config_file_path, schema=cfg_cls
-        )
+        self.cfg = dataio.read.read_config(self.args.config_file_path, schema=cfg_cls)
         self.features_table_path = (
             args.features_table_path or "shared/assets/pdp_features_table.toml"
         )
@@ -89,9 +87,7 @@ class ModelInferenceTask:
         self.model_run_id: str | None = None
         self.model_experiment_id: str | None = None
 
-    def read_config(
-        self, config_file_path: str
-    ) -> PDPProjectConfig | ESProjectConfig:
+    def read_config(self, config_file_path: str) -> PDPProjectConfig | ESProjectConfig:
         cfg_cls = project_config_class(getattr(self.args, "schema_type", "pdp"))
         try:
             return dataio.read.read_config(config_file_path, schema=cfg_cls)
