@@ -207,9 +207,7 @@ class InferencePrepTask:
         if cohort_pair is not None:
             cy, ct = cohort_pair
             cohort_counts = (
-                df_selected_terms[[cy, ct]]
-                .value_counts(dropna=False)
-                .sort_index()
+                df_selected_terms[[cy, ct]].value_counts(dropna=False).sort_index()
             )
             logging.info(
                 "Cohort & Cohort Term breakdowns (counts):\n%s",

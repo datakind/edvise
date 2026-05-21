@@ -55,9 +55,7 @@ class ModelPrepTask:
         self.args = args
         cfg_cls = project_config_class(args.schema_type)
         self.cfg = read_config(args.config_file_path, schema=cfg_cls)
-        self.cleaner: cleanup.BaseCleanup = feature_cleanup_for_schema(
-            args.schema_type
-        )
+        self.cleaner: cleanup.BaseCleanup = feature_cleanup_for_schema(args.schema_type)
 
     def merge_data(
         self,

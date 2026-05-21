@@ -26,9 +26,7 @@ def feature_cleanup_for_schema(schema_type: str):
     from edvise.model_prep import cleanup_features as cleanup
 
     return (
-        cleanup.ESCleanup()
-        if is_edvise_schema(schema_type)
-        else cleanup.PDPCleanup()
+        cleanup.ESCleanup() if is_edvise_schema(schema_type) else cleanup.PDPCleanup()
     )
 
 
