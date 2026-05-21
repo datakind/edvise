@@ -185,7 +185,7 @@ resources:
             - task_key: checkpoint
             - task_key: student_selection
           spark_python_task:
-            python_file: src/edvise/scripts/pdp_inf_prep.py
+            python_file: src/edvise/scripts/inf_prep.py
             source: GIT
             parameters:
               - --silver_volume_path
