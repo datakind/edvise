@@ -128,6 +128,7 @@ class InferencePrepTask:
         return df_inf
 
     def cleanup_features(self, df_labeled: pd.DataFrame) -> pd.DataFrame:
+        cleaner: cleanup.BaseCleanup
         if is_edvise_schema(self.args.schema_type):
             cleaner = cleanup.ESCleanup()
         else:

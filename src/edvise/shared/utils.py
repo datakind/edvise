@@ -8,6 +8,9 @@ Num = t.Union[int, float]
 
 LOGGER = logging.getLogger(__name__)
 
+if t.TYPE_CHECKING:
+    from edvise.model_prep.cleanup_features import BaseCleanup
+
 """Shared utility functions used across multiple modules."""
 
 
@@ -20,7 +23,7 @@ def cohort_pair_columns(df: pd.DataFrame) -> tuple[str, str] | None:
     return None
 
 
-def feature_cleanup_for_schema(schema_type: str):
+def feature_cleanup_for_schema(schema_type: str) -> "BaseCleanup":
     """Return PDP or Edvise ES feature cleanup for the given ``--schema_type``."""
     from edvise.configs.schema_type import is_edvise_schema
     from edvise.model_prep import cleanup_features as cleanup
