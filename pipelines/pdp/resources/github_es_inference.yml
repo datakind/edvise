@@ -228,6 +228,8 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
               - --config_file_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:

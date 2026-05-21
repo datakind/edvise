@@ -43,7 +43,9 @@ from mlflow.tracking import MlflowClient
 # Project modules
 import edvise.dataio as dataio
 import edvise.modeling as modeling
+from edvise.configs.schema_type import project_config_class
 from edvise.configs.pdp import PDPProjectConfig
+from edvise.configs.es import ESProjectConfig
 from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session
 from edvise.modeling.inference import top_n_features, features_box_whiskers_table
@@ -76,17 +78,23 @@ class ModelInferenceTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.spark_session = get_spark_session()
+        cfg_cls = project_config_class(getattr(args, "schema_type", "pdp"))
         self.cfg = dataio.read.read_config(
-            self.args.config_file_path, schema=PDPProjectConfig
+            self.args.config_file_path, schema=cfg_cls
         )
-        self.features_table_path = "shared/assets/pdp_features_table.toml"
+        self.features_table_path = (
+            args.features_table_path or "shared/assets/pdp_features_table.toml"
+        )
         # Populated by load_mlflow_model()
         self.model_run_id: str | None = None
         self.model_experiment_id: str | None = None
 
-    def read_config(self, config_file_path: str) -> PDPProjectConfig:
+    def read_config(
+        self, config_file_path: str
+    ) -> PDPProjectConfig | ESProjectConfig:
+        cfg_cls = project_config_class(getattr(self.args, "schema_type", "pdp"))
         try:
-            return dataio.read.read_config(config_file_path, schema=PDPProjectConfig)
+            return dataio.read.read_config(config_file_path, schema=cfg_cls)
         except FileNotFoundError:
             logging.error("Configuration file not found at %s", config_file_path)
             raise
@@ -401,6 +409,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--job_root_dir", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument(
+        "--schema_type",
+        type=str,
+        default="pdp",
+        help="pdp | edvise | es — selects PDP vs ES project config schema.",
+    )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--datakind_notification_email", type=str, required=True)
     parser.add_argument("--DK_CC_EMAIL", type=str, required=True)
