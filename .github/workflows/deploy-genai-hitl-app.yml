@@ -1,7 +1,6 @@
 # Databricks App: GenAI HITL reviewer (Streamlit, UC hitl_reviews).
 # OAuth: DATABRICKS_GENAI_MAPPING_DEV_CLIENT_*. Host: DATABRICKS_DEV_HOST (workspace URL, same as PDP dev).
 # SQL warehouse: DATABRICKS_DEV_SQL_WAREHOUSE_ID.
-#
 # Run: Actions → "Deploy GenAI HITL app (dev)" → Run workflow (choose branch, e.g. your PR branch).
 
 name: deploy-genai-hitl-app
