@@ -6,7 +6,7 @@
 # Secrets — staging workspace (DATABRICKS_STAGING_HOST):
 #   DATABRICKS_STAGING_HOST, DATABRICKS_STAGING_CLIENT_ID, DATABRICKS_STAGING_CLIENT_SECRET
 #   STAGING_SERVICE_ACCOUNT_EXECUTER (SP run-as uses DATABRICKS_STAGING_CLIENT_ID)
-#   Default deploy: bundle target staging (git commit → staging_sst_01). Optional input staging_git_tag uses target prod.
+#   Staging deploy: bundle target prod + git_commit → staging_sst_01 (temporary; see pipelines/genai_mapping/databricks.yml).
 # Shared: GROUP_TO_MANAGE
 #
 # Auth: set DATABRICKS_AUTH_TYPE=oauth-m2m so the CLI uses the service principal OAuth
@@ -26,13 +26,9 @@ on:
         type: boolean
         default: true
       deploy_staging:
-        description: "Deploy to staging_sst_01 (default: bundle target staging = git commit)"
+        description: "Deploy to staging_sst_01 (bundle target prod, git commit)"
         type: boolean
         default: false
-      staging_git_tag:
-        description: "Optional. If set, deploy with bundle target prod pinned to this tag instead of commit-based staging."
-        type: string
-        default: ""
 
 concurrency:
   group: deploy-genai-mapping-${{ github.ref }}
@@ -117,23 +113,11 @@ jobs:
           DS_RUN_AS: ${{ secrets.DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID }}
           GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
         run: |
-          TAG="${{ inputs.staging_git_tag }}"
-          COMMON_VARS=(
-            --force-lock
-            --var "service_account_executer=$SA_EXECUTER"
-            --var "ds_run_as=$DS_RUN_AS"
+          echo "Deploying staging_sst_01 with bundle target prod (git commit: ${GITHUB_SHA})"
+          databricks bundle deploy \
+            --target=prod \
+            --force-lock \
+            --var "git_commit=${GITHUB_SHA}" \
+            --var "service_account_executer=$SA_EXECUTER" \
+            --var "ds_run_as=$DS_RUN_AS" \
             --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
-          )
-          if [ -n "$TAG" ]; then
-            echo "Deploying staging with bundle target prod (git tag: $TAG)"
-            databricks bundle deploy \
-              --target=prod \
-              "${COMMON_VARS[@]}" \
-              --var "git_tag=$TAG"
-          else
-            echo "Deploying staging with bundle target staging (git commit: ${GITHUB_SHA})"
-            databricks bundle deploy \
-              --target=staging \
-              "${COMMON_VARS[@]}" \
-              --var "git_commit=${GITHUB_SHA}"
-          fi
