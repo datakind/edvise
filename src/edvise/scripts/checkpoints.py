@@ -1,8 +1,20 @@
-import logging
+"""Build ``checkpoint.parquet`` from ``student_terms.parquet`` for PDP or Edvise ES configs.
+
+Checkpoint dispatch uses ``isinstance`` against checkpoint classes from both
+:class:`~edvise.configs.pdp` and :class:`~edvise.configs.es` so whichever schema loaded the
+config resolves correctly (duplicate class definitions per module).
+
+See :mod:`edvise.configs.schema_type` for ``--schema_type`` semantics.
+"""
+
+from __future__ import annotations
+
 import argparse
-import pandas as pd
+import logging
 import os
 import sys
+
+import pandas as pd
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
@@ -12,54 +24,47 @@ src_path = os.path.join(repo_root, "src")
 if os.path.isdir(src_path) and src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-# Debug info
 print("Script dir:", script_dir)
 print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
 from edvise import checkpoints
-from edvise.configs.pdp import PDPProjectConfig
+from edvise.configs import es as es_cfg
+from edvise.configs import pdp as pdp_cfg
+from edvise.configs.schema_type import project_config_class
 from edvise.dataio.read import read_config
-from edvise.shared.logger import (
-    local_fs_path,
-    resolve_run_path,
-    init_file_logging,
-)
-
+from edvise.shared.logger import init_file_logging, local_fs_path, resolve_run_path
 from edvise.shared.validation import require
-
-from edvise.configs.pdp import (
-    CheckpointNthConfig,
-    CheckpointFirstConfig,
-    CheckpointFirstAtNumCreditsEarnedConfig,
-    CheckpointFirstWithinCohortConfig,
-)
-
 
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
 
-class PDPCheckpointsTask:
-    """Encapsulates the data preprocessing logic for the SST pipeline."""
+def _log_cohort_term_breakdown(df_ckpt: pd.DataFrame) -> None:
+    """Log cohort distribution using PDP or Edvise column names when present."""
+    if {"cohort", "cohort_term"}.issubset(df_ckpt.columns):
+        cols = ["cohort", "cohort_term"]
+    elif {"entry_year", "entry_term"}.issubset(df_ckpt.columns):
+        cols = ["entry_year", "entry_term"]
+    else:
+        logging.info(
+            "Skipping cohort-term breakdown log "
+            "(expected cohort/cohort_term or entry_year/entry_term on checkpoint frame)."
+        )
+        return
+    counts = df_ckpt[cols].value_counts(dropna=False).sort_index()
+    logging.info("Checkpoint cohort-term breakdown:\n%s", counts.to_string())
+
+
+class CheckpointsTask:
+    """Compute one row per student for the configured checkpoint."""
 
     def __init__(self, args: argparse.Namespace):
-        """
-        Initializes the DataProcessingTask.
-
-        Args:
-            args: The parsed command-line arguments.
-        """
         self.args = args
-        self.cfg: PDPProjectConfig = read_config(
-            self.args.config_file_path, schema=PDPProjectConfig
-        )
+        cfg_cls = project_config_class(args.schema_type)
+        self.cfg = read_config(self.args.config_file_path, schema=cfg_cls)
 
     def checkpoint_generation(self, df_student_terms: pd.DataFrame) -> pd.DataFrame:
-        """
-        Inputs: df_student_terms
-        Outputs: df_student_terms parquet file
-        """
         preprocessing_cfg = self.cfg.preprocessing
         if preprocessing_cfg is None or preprocessing_cfg.checkpoint is None:
             raise ValueError("cfg.preprocessing.checkpoint must be configured.")
@@ -67,7 +72,6 @@ class PDPCheckpointsTask:
         cp = preprocessing_cfg.checkpoint
         student_id_col: str = self.cfg.student_id_col
 
-        # sort_cols: str | list[str] in schema; most functions accept list[str] or str.
         sort_cols = cp.sort_cols
         include_cols = cp.include_cols
 
@@ -84,19 +88,30 @@ class PDPCheckpointsTask:
                 f"Checkpoint include_cols not found in student_terms: {missing_inc}",
             )
 
-        # Prefer isinstance() to narrow the union:
-        if isinstance(cp, CheckpointNthConfig):
+        # Prefer isinstance so branches match the subclass Pydantic built (not only type_ string).
+        if isinstance(cp, (pdp_cfg.CheckpointNthConfig, es_cfg.CheckpointNthConfig)):
             return checkpoints.nth_student_terms.nth_student_terms(
                 df_student_terms,
                 n=cp.n,
                 sort_cols=sort_cols,
                 include_cols=include_cols,
                 student_id_cols=student_id_col,
+                term_is_pre_cohort_col=cp.term_is_pre_cohort_col
+                or "term_is_pre_cohort",
+                exclude_pre_cohort_terms=cp.exclude_pre_cohort_terms
+                if cp.exclude_pre_cohort_terms is not None
+                else True,
+                term_is_core_col=cp.term_is_core_col or "term_is_core",
+                exclude_non_core_terms=cp.exclude_non_core_terms
+                if cp.exclude_non_core_terms is not None
+                else True,
                 enrollment_year_col=cp.enrollment_year_col,
                 valid_enrollment_year=cp.valid_enrollment_year,
             )
 
-        if isinstance(cp, CheckpointFirstConfig):
+        if isinstance(
+            cp, (pdp_cfg.CheckpointFirstConfig, es_cfg.CheckpointFirstConfig)
+        ):
             return checkpoints.nth_student_terms.first_student_terms(
                 df_student_terms,
                 sort_cols=sort_cols,
@@ -104,7 +119,13 @@ class PDPCheckpointsTask:
                 student_id_cols=student_id_col,
             )
 
-        if isinstance(cp, CheckpointFirstAtNumCreditsEarnedConfig):
+        if isinstance(
+            cp,
+            (
+                pdp_cfg.CheckpointFirstAtNumCreditsEarnedConfig,
+                es_cfg.CheckpointFirstAtNumCreditsEarnedConfig,
+            ),
+        ):
             return (
                 checkpoints.nth_student_terms.first_student_terms_at_num_credits_earned(
                     df_student_terms,
@@ -112,11 +133,17 @@ class PDPCheckpointsTask:
                     sort_cols=sort_cols,
                     include_cols=include_cols,
                     student_id_cols=student_id_col,
+                    num_credits_col=cp.num_credits_col,
                 )
             )
 
-        if isinstance(cp, CheckpointFirstWithinCohortConfig):
-            # Schema guarantees str default, so this is already str
+        if isinstance(
+            cp,
+            (
+                pdp_cfg.CheckpointFirstWithinCohortConfig,
+                es_cfg.CheckpointFirstWithinCohortConfig,
+            ),
+        ):
             return checkpoints.nth_student_terms.first_student_terms_within_cohort(
                 df_student_terms,
                 term_is_pre_cohort_col=cp.term_is_pre_cohort_col,
@@ -125,15 +152,14 @@ class PDPCheckpointsTask:
                 student_id_cols=student_id_col,
             )
 
-        raise ValueError(f"Unknown checkpoint type: {cp.type_}")
+        raise ValueError(
+            f"Unknown checkpoint config type: {type(cp).__name__!r} (type_={cp.type_!r})"
+        )
 
-    def run(self):
-        """Executes the data preprocessing pipeline."""
-        # Ensure correct folder: training or inference
+    def run(self) -> None:
         current_run_path = resolve_run_path(
             self.args, self.cfg, self.args.silver_volume_path
         )
-        # Use local path for reading/writing so DBFS is handled correctly
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
 
@@ -145,7 +171,6 @@ class PDPCheckpointsTask:
             )
         df_student_terms = pd.read_parquet(student_terms_path_local)
 
-        # --- High-level input sanity ---
         student_id_col = self.cfg.student_id_col
         require(
             student_id_col in df_student_terms.columns,
@@ -156,10 +181,8 @@ class PDPCheckpointsTask:
             f"student_terms has null {student_id_col}",
         )
 
-        # --- Generate checkpoint ---
         df_ckpt = self.checkpoint_generation(df_student_terms)
 
-        # --- Check that generated checkpoint dataset isn't empty and has no duplicate student_ids ---
         require(len(df_ckpt) > 0, "Checkpoint generation produced 0 rows.")
 
         dup = df_ckpt.duplicated(subset=[student_id_col]).sum()
@@ -167,23 +190,25 @@ class PDPCheckpointsTask:
             dup == 0, f"Checkpoint output has {dup} duplicate {student_id_col} rows."
         )
 
-        cohort_counts = (
-            df_ckpt[["cohort", "cohort_term"]].value_counts(dropna=False).sort_index()
-        )
-        logging.info("Checkpoint Cohort Term breakdown:\n%s", cohort_counts.to_string())
+        _log_cohort_term_breakdown(df_ckpt)
 
         out_ckpt_path = os.path.join(current_run_path, "checkpoint.parquet")
         df_ckpt.to_parquet(local_fs_path(out_ckpt_path), index=False)
-        logging.info(f"Checkpoint log & file saved to {out_ckpt_path}")
+        logging.info("Checkpoint file saved to %s", out_ckpt_path)
 
 
 def parse_arguments() -> argparse.Namespace:
-    """Parses command line arguments."""
     parser = argparse.ArgumentParser(
-        description="Data preprocessing for inference in the SST pipeline."
+        description="Checkpoint generation from student_terms (PDP or Edvise ES)."
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument(
+        "--schema_type",
+        type=str,
+        default="pdp",
+        help="pdp | edvise | es — selects PDPProjectConfig vs ESProjectConfig.",
+    )
     parser.add_argument("--job_type", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
     return parser.parse_args()
@@ -191,27 +216,15 @@ def parse_arguments() -> argparse.Namespace:
 
 if __name__ == "__main__":
     args = parse_arguments()
-    # again no school has a custom schema for pdp , but add in iff needed
-    # try:
-    #     sys.path.append(args.custom_schemas_path)
-    #     sys.path.append(
-    #         f"/Volumes/staging_sst_01/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
-    #     )
-    #     schemas = importlib.import_module("schemas")
-    #     logging.info("Running task with custom schema")
-    # except Exception:
-    #     logging.info("Running task with default schema")
-    task = PDPCheckpointsTask(args)
-    # Attach per-run file logging (writes under the resolved run folder)
+    task = CheckpointsTask(args)
     log_path = init_file_logging(
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_checkpoint.log",
+        log_file_name="checkpoints.log",
     )
     logging.info("Logs will be written to %s", log_path)
     task.run()
-
     for h in logging.getLogger().handlers:
         try:
             h.flush()

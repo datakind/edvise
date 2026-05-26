@@ -5,7 +5,8 @@ import json
 import shutil
 import argparse
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
+from edvise.configs.es import ESProjectConfig
 from edvise.configs.pdp import PDPProjectConfig
 
 
@@ -175,7 +176,7 @@ def resolve_genai_segment_log_path(
 
 def resolve_run_path(
     args: argparse.Namespace,
-    cfg: PDPProjectConfig,
+    cfg: Union[PDPProjectConfig, ESProjectConfig],
     silver_volume_path: str,
 ) -> str:
     if args.job_type == "training":

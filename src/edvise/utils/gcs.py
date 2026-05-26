@@ -5,6 +5,7 @@ For instance, copying files from Databricks volumes into GCP buckets.
 
 import os
 
+import google.auth
 from databricks.sdk.runtime import dbutils  # noqa: F401
 from google.cloud import storage
 from google.cloud.storage.bucket import Bucket
@@ -90,3 +91,22 @@ def publish_inference_output_files(
             f"{bucket_directory}/{new_fname}",
         )
     return status_string
+
+
+def active_gcp_identity() -> str:
+    """
+    Best-effort string describing the active Google Cloud credentials principal
+    (e.g. service account email), or the string 'unknown' if resolution fails.
+    """
+    try:
+        creds, _ = google.auth.default()
+        for attr in (
+            "service_account_email",
+            "service_account_email_address",
+            "service_account",
+        ):
+            if hasattr(creds, attr):
+                return str(getattr(creds, attr))
+        return str(type(creds))
+    except Exception:
+        return "unknown"

@@ -1,7 +1,5 @@
 import argparse
 import logging
-import pandas as pd
-import typing as t
 import os
 import sys
 
@@ -19,7 +17,16 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise import feature_generation, utils
+from edvise.feature_generation.column_names import (
+    PDP_COHORT_INPUT_COLUMNS,
+    PDP_COURSE_INPUT_COLUMNS,
+)
+from edvise.feature_generation.assemble_student_terms import (
+    make_student_term_dataset,
+    read_standardized_silver_pair,
+    student_level_merge_keys,
+    warn_cohort_course_key_overlap,
+)
 from edvise.dataio.read import read_config
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.shared.logger import (
@@ -31,7 +38,6 @@ from edvise.shared.validation import (
     require,
     require_cols,
     require_no_nulls,
-    warn_if,
 )
 
 # Configure logging
@@ -66,22 +72,7 @@ class PDPFeatureGenerationTask:
         os.makedirs(current_run_path_local, exist_ok=True)
 
         # --- Load datasets ---
-        course_path = os.path.join(current_run_path, "df_course_standardized.parquet")
-        cohort_path = os.path.join(current_run_path, "df_cohort_standardized.parquet")
-        course_path_local = local_fs_path(course_path)
-        cohort_path_local = local_fs_path(cohort_path)
-
-        if not os.path.exists(course_path_local):
-            raise FileNotFoundError(
-                f"Missing df_course_standardized at: {course_path} (local: {course_path_local})"
-            )
-        if not os.path.exists(cohort_path_local):
-            raise FileNotFoundError(
-                f"Missing df_cohort_standardized at: {cohort_path} (local: {cohort_path_local})"
-            )
-
-        df_course = pd.read_parquet(course_path_local)
-        df_cohort = pd.read_parquet(cohort_path_local)
+        df_course, df_cohort = read_standardized_silver_pair(current_run_path)
 
         # --- High-level input sanity ---
 
@@ -99,35 +90,30 @@ class PDPFeatureGenerationTask:
         require_cols(df_cohort, ["institution_id", "student_id"], "Cohort standardized")
 
         # ID fields must not be null
+        merge_on = student_level_merge_keys(
+            df_cohort,
+            df_course,
+            cohort_cols=PDP_COHORT_INPUT_COLUMNS,
+        )
         require_no_nulls(
             df_course,
-            ["institution_id", "student_id"],
+            merge_on,
             "Course standardized",
         )
         require_no_nulls(
-            df_cohort, ["institution_id", "student_id"], "Cohort standardized"
+            df_cohort,
+            merge_on,
+            "Cohort standardized",
         )
-
-        # Join sanity: inner merge later shouldn't drop almost everything
-        cohort_pairs = set(zip(df_cohort["institution_id"], df_cohort["student_id"]))
-        course_pairs = set(zip(df_course["institution_id"], df_course["student_id"]))
-        require(
-            cohort_pairs and course_pairs,
-            "No valid (institution_id, student_id) pairs found in cohort/course.",
-        )
-
-        overlap = len(cohort_pairs & course_pairs) / min(
-            len(cohort_pairs), len(course_pairs)
-        )
-        warn_if(
-            overlap >= 0.10,
-            f"Cohort/course appear mismatched: overlap too low ({overlap:.3f}).",
-        )
+        warn_cohort_course_key_overlap(df_cohort, df_course, merge_on)
 
         # --- Generate student-term dataset ---
-        df_student_terms = self.make_student_term_dataset(
+        df_student_terms = make_student_term_dataset(
             df_cohort=df_cohort,
             df_course=df_course,
+            merge_on=merge_on,
+            cohort_input_columns=PDP_COHORT_INPUT_COLUMNS,
+            course_input_columns=PDP_COURSE_INPUT_COLUMNS,
             min_passing_grade=min_passing_grade,
             min_num_credits_full_time=min_num_credits_full_time,
             course_level_pattern=course_level_pattern,
@@ -142,71 +128,6 @@ class PDPFeatureGenerationTask:
         # --- Write result ---
         out_path = os.path.join(current_run_path, "student_terms.parquet")
         df_student_terms.to_parquet(local_fs_path(out_path), index=False)
-
-    def make_student_term_dataset(
-        self,
-        df_cohort: pd.DataFrame,
-        df_course: pd.DataFrame,
-        *,
-        min_passing_grade: float = feature_generation.constants.DEFAULT_MIN_PASSING_GRADE,
-        min_num_credits_full_time: float = feature_generation.constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
-        course_level_pattern: str = feature_generation.constants.DEFAULT_COURSE_LEVEL_PATTERN,
-        core_terms: set[str] = feature_generation.constants.DEFAULT_CORE_TERMS,
-        peak_covid_terms: set[
-            tuple[str, str]
-        ] = feature_generation.constants.DEFAULT_PEAK_COVID_TERMS,
-        key_course_subject_areas: t.Optional[list[str]] = None,
-        key_course_ids: t.Optional[list[str]] = None,
-    ) -> pd.DataFrame:
-        """Main feature generation pipeline."""
-        first_term = utils.infer_data_terms.infer_first_term_of_year(
-            df_course["academic_term"]
-        )
-
-        df_students = df_cohort.pipe(
-            feature_generation.student.add_features, first_term_of_year=first_term
-        )
-
-        df_courses_plus = (
-            df_course.pipe(
-                feature_generation.course.add_features,
-                min_passing_grade=min_passing_grade,
-                course_level_pattern=course_level_pattern,
-            )
-            .pipe(
-                feature_generation.term.add_features,
-                first_term_of_year=first_term,
-                core_terms=core_terms,
-                peak_covid_terms=peak_covid_terms,
-            )
-            .pipe(
-                feature_generation.section.add_features,
-                section_id_cols=["term_id", "course_id", "section_id"],
-            )
-        )
-
-        df_student_terms = (
-            feature_generation.student_term.aggregate_from_course_level_features(
-                df_courses_plus,
-                student_term_id_cols=["student_id", "term_id"],
-                min_passing_grade=min_passing_grade,
-                key_course_subject_areas=key_course_subject_areas,
-                key_course_ids=key_course_ids,
-            )
-            .merge(df_students, how="inner", on=["institution_id", "student_id"])
-            .pipe(
-                feature_generation.student_term.add_features,
-                min_num_credits_full_time=min_num_credits_full_time,
-            )
-        )
-
-        df_student_terms_plus = feature_generation.cumulative.add_features(
-            df_student_terms,
-            student_id_cols=["institution_id", "student_id"],
-            sort_cols=["academic_year", "academic_term"],
-        ).rename(columns=utils.data_cleaning.convert_to_snake_case)
-
-        return df_student_terms_plus
 
 
 def parse_arguments() -> argparse.Namespace:

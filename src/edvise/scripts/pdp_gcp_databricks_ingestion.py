@@ -10,7 +10,6 @@ import sys
 from mlflow.tracking import MlflowClient
 from google.cloud import storage
 from google.api_core.exceptions import Forbidden, NotFound
-import google.auth
 
 # Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
 script_dir = os.getcwd()
@@ -23,54 +22,19 @@ from edvise.shared.dashboard_metadata.pipeline_runs import (
     append_pipeline_run_event,
     parse_timestamp_from_filename,
 )
-
-# Model names from get_model_name() are already UC-compatible
+from edvise.utils.databricks import (
+    get_dbutils,
+    get_spark_session_or_none,
+    in_databricks,
+)
+from edvise.utils.gcs import active_gcp_identity
 
 
 def local_fs_path(p: str) -> str:
     return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
 
-def in_databricks() -> bool:
-    # Both of these are present on DBR clusters
-    return bool(os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER"))
-
-
-def get_dbutils():
-    try:
-        from databricks.sdk.runtime import dbutils  # type: ignore
-
-        return dbutils
-    except Exception:
-        return None
-
-
-def active_gcp_identity() -> str:
-    try:
-        creds, _ = google.auth.default()
-        # Best-effort extraction of a principal
-        for attr in (
-            "service_account_email",
-            "service_account_email_address",
-            "service_account",
-        ):
-            if hasattr(creds, attr):
-                return str(getattr(creds, attr))
-        return str(type(creds))
-    except Exception:
-        return "unknown"
-
-
-def get_spark_session_or_none():
-    if not in_databricks():
-        return None
-    try:
-        from pyspark.sql import SparkSession
-
-        return SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
-    except Exception as e:
-        logging.warning("Spark not available: %s", e)
-        return None
+# Model names from get_model_name() are already UC-compatible
 
 
 ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]

@@ -4,7 +4,13 @@ import warnings
 
 import pydantic as pyd
 
-# allowed primary metrics for h2o
+# TODO: set field defaults using literals here instead?
+from edvise.data_audit.schemas.raw_edvise_course import ALLOWED_LETTER_GRADES
+from edvise.feature_generation import constants
+from edvise.utils import types
+
+
+# allowed primary metrics by framework
 _ALLOWED_PRIMARY_METRICS = {
     "logloss",
     "auc",
@@ -15,8 +21,8 @@ _ALLOWED_PRIMARY_METRICS = {
 }
 
 
-class CustomProjectConfig(pyd.BaseModel):
-    """Configuration schema for SST Custom projects."""
+class ESProjectConfig(pyd.BaseModel):
+    """Configuration schema for SST PDP projects."""
 
     institution_id: str = pyd.Field(
         ...,
@@ -35,41 +41,32 @@ class CustomProjectConfig(pyd.BaseModel):
 
     # shared parameters
     student_id_col_pre_val: str = pyd.Field(
-        "student_id",
+        "learner_id",
         description=(
-            "Student identifier column name in *raw* inputs before schema validation; "
+            "Student identifier column name in *raw* Edvise inputs before schema validation; "
             "e.g. misjoin checks. After validation, data use ``student_id_col``."
         ),
     )
-    student_id_col: str = "student_id"
+    student_id_col: str = "learner_id"
     target_col: str = "target"
-    split_col: str = "split"
+    split_col: t.Optional[str] = "split"
     sample_weight_col: t.Optional[str] = "sample_weight"
     student_group_cols: t.Optional[list[str]] = pyd.Field(
-        default=["age_group", "race", "gender"],
+        default=["student_age", "race", "ethnicity", "gender", "first_gen"],
         description=(
             "One or more column names in datasets containing student 'groups' "
             "to use for model bias assessment, but *not* as model features"
         ),
     )
-    student_group_aliases: dict[str, str] = pyd.Field(
-        default_factory=dict,
-        description=(
-            "Mapping from raw column name (e.g., GENDER_DESC) to "
-            "friendly label (e.g., 'Gender') for use in model cards"
-        ),
-    )
     pred_col: str = "pred"
     pred_prob_col: str = "pred_prob"
     pos_label: t.Optional[bool | str] = True
-    random_state: t.Optional[int] = 12345
+    random_state: t.Optional[int] = None
     pipeline_version: str = "v0.1.2"
 
-    # key artifacts produced by project pipeline
-    datasets: "AllDatasetStagesConfig" = pyd.Field(
-        description=(
-            "Key datasets produced by the pipeline represented here in this config"
-        ),
+    # key input datasets
+    datasets: "DatasetsConfig" = pyd.Field(
+        description=("Input filenames"),
     )
     model: t.Optional["ModelConfig"] = pyd.Field(
         default=None,
@@ -105,26 +102,7 @@ class CustomProjectConfig(pyd.BaseModel):
     model_config = pyd.ConfigDict(extra="forbid", strict=True)
 
     @pyd.model_validator(mode="after")
-    def check_sample_weight_requires_random_state(self):
-        if self.sample_weight_col and self.random_state is None:
-            raise ValueError(
-                "random_state must be specified if sample_weight_col is provided"
-            )
-        return self
-
-    @pyd.model_validator(mode="after")
-    def validate_student_group_aliases(self) -> "CustomProjectConfig":
-        missing = [
-            col
-            for col in (self.student_group_cols or [])
-            if col not in (self.student_group_aliases or {})
-        ]
-        if missing:
-            raise ValueError(f"Missing student_group_aliases for: {missing}")
-        return self
-
-    @pyd.model_validator(mode="after")
-    def _normalize_and_validate_primary_metric(self) -> "CustomProjectConfig":
+    def _normalize_and_validate_primary_metric(self) -> "ESProjectConfig":
         if (
             self.modeling
             and self.modeling.training
@@ -146,7 +124,7 @@ class CustomProjectConfig(pyd.BaseModel):
         return self
 
     @pyd.model_validator(mode="after")
-    def _validate_inference_background_sample(self) -> "CustomProjectConfig":
+    def _validate_inference_background_sample(self) -> "ESProjectConfig":
         if self.inference and self.inference.background_data_sample is not None:
             n = self.inference.background_data_sample
             if not (500 <= n <= 2000):
@@ -156,72 +134,9 @@ class CustomProjectConfig(pyd.BaseModel):
         return self
 
 
-class DatasetConfig(pyd.BaseModel):
-    train_file_path: t.Optional[str] = pyd.Field(
-        default=None,
-        description="Absolute path to training dataset on disk.",
-    )
-    predict_file_path: t.Optional[str] = pyd.Field(
-        default=None,
-        description="Absolute path to prediction/inference dataset on disk.",
-    )
-    train_table_path: t.Optional[str] = pyd.Field(
-        default=None,
-        description="Unity Catalog table path for training dataset, e.g., 'catalog.schema.table'.",
-    )
-    predict_table_path: t.Optional[str] = pyd.Field(
-        default=None,
-        description="Unity Catalog table path for prediction/inference dataset.",
-    )
-    file_path: t.Optional[str] = None
-    table_path: t.Optional[str] = None
-
-    primary_keys: t.Optional[t.List[str]] = pyd.Field(
-        default=None,
-        description="Primary keys utilized for data validation, if applicable",
-    )
-    drop_cols: t.Optional[t.List[str]] = pyd.Field(
-        default=None,
-        description="Columns to be dropped during pre-processing, if applicable",
-    )
-    non_null_cols: t.Optional[t.List[str]] = pyd.Field(
-        default=None,
-        description="Columns to be validated as non-null, if applicable",
-    )
-
-    @pyd.model_validator(mode="after")
-    def validate_paths(self) -> "DatasetConfig":
-        any_paths = [
-            self.train_file_path,
-            self.predict_file_path,
-            self.train_table_path,
-            self.predict_table_path,
-            self.file_path,  # Legacy, not used in pipeline/DB workflow
-            self.table_path,  # Legacy, not used in pipeline/DB workflow
-        ]
-        if not any(any_paths):
-            raise ValueError(
-                "At least one dataset path must be specified: "
-                "`train_file_path`, `predict_file_path`, "
-                "`train_table_path`, `predict_table_path`, "
-                "`file_path`, or `table_path`"
-            )
-        return self
-
-    def get_path(self, mode: t.Literal["train", "predict"]) -> t.Optional[str]:
-        """Convenience accessor for the train/predict path."""
-        if mode == "train":
-            return self.train_file_path or self.train_table_path
-        elif mode == "predict":
-            return self.predict_file_path or self.predict_table_path
-        else:
-            raise ValueError(f"Unknown mode: {mode}")
-
-
-class AllDatasetStagesConfig(pyd.BaseModel):
-    bronze: dict[str, DatasetConfig]
-    silver: dict[str, DatasetConfig]
-    gold: dict[str, DatasetConfig]
+class DatasetsConfig(pyd.BaseModel):
+    raw_course: str
+    raw_cohort: str
 
 
 class ModelConfig(pyd.BaseModel):
@@ -236,10 +151,10 @@ class ModelConfig(pyd.BaseModel):
 
 
 class PreprocessingConfig(pyd.BaseModel):
-    cleaning: t.Optional["CleaningConfig"] = None
+    features: "FeaturesConfig"
     selection: "SelectionConfig"
-    checkpoint: "CheckpointConfig"
-    target: "TargetConfig"
+    checkpoint: "CheckpointNthConfig | CheckpointFirstConfig | CheckpointFirstAtNumCreditsEarnedConfig | CheckpointFirstWithinCohortConfig"
+    target: "TargetGraduationConfig | TargetRetentionConfig | TargetCreditsEarnedConfig"
     splits: dict[t.Literal["train", "test", "validate"], float] = pyd.Field(
         default={"train": 0.6, "test": 0.2, "validate": 0.2},
         description=(
@@ -258,6 +173,12 @@ class PreprocessingConfig(pyd.BaseModel):
             ),
         )
     )
+    include_pre_cohort_courses: bool = pyd.Field(
+        default=False,
+        description=(
+            "Whether to include course records that occurred before the student's cohort term. Usually, we do end up excluding these so the default will always be False unless set otherwise."
+        ),
+    )
 
     @pyd.field_validator("splits", mode="after")
     @classmethod
@@ -269,110 +190,136 @@ class PreprocessingConfig(pyd.BaseModel):
         return value
 
 
-class CleaningConfig(pyd.BaseModel):
-    schema_contract_path: t.Optional[str] = pyd.Field(
+class FeaturesConfig(pyd.BaseModel):
+    min_passing_grade: float = pyd.Field(
+        default=constants.DEFAULT_MIN_PASSING_GRADE,
+        description="Minimum numeric grade considered by institution as 'passing'",
+        gt=0.0,
+        lt=4.0,
+    )
+    min_num_credits_full_time: float = pyd.Field(
+        default=constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
+        description=(
+            "Minimum number of credits *attempted* per term for a student's "
+            "enrollment intensity to be considered 'full-time'."
+        ),
+        gt=0.0,
+        lt=20.0,
+    )
+    course_level_pattern: str = pyd.Field(
+        default=constants.DEFAULT_COURSE_LEVEL_PATTERN,
+        description=(
+            "Regular expression patttern that extracts a course's 'level' "
+            "from a PDP course_number field"
+        ),
+    )
+    core_terms: set[str] = pyd.Field(
+        default=constants.DEFAULT_CORE_TERMS,
+        description=(
+            "Set of terms that together comprise the 'core' of the academic year, "
+            "in contrast with additional, usually shorter terms that may take place "
+            "between core terms"
+        ),
+    )
+    peak_covid_terms: set[tuple[str, str]] = pyd.Field(
+        default=constants.DEFAULT_PEAK_COVID_TERMS,
+        description=(
+            "Set of (academic year, academic term) pairs considered by institution "
+            "as 'peak' COVID, for use in control variables to account for pandemic effects"
+        ),
+    )
+    key_course_subject_areas: t.Optional[t.List[t.Union[str, t.List[str]]]] = pyd.Field(
         default=None,
         description=(
-            "Absolute path on volumes to the schema_contract.json file. "
-            "This file contains the frozen multi-dataset schema contract "
-            "used for schema enforcement for custom schools. This is needed "
-            "for data reliability and to ensure minimal training–inference skew."
+            "One or more course subject areas (formatted as 2-digit CIP codes) "
+            "for which custom features should be computed, can be a list or include a nested list"
+            "Example: ['51', ['27', '48']], so you would get features for 51 alone and features for 27 and 48 combined."
         ),
     )
-    student_id_alias: t.Optional[str] = pyd.Field(
+    key_course_ids: t.Optional[t.List[t.Union[str, t.List[str]]]] = pyd.Field(
         default=None,
         description=(
-            "Optional alternate name for the student_id column. "
-            "E.g., Zogotech uses 'student_id_randomized_datakind'. "
-            "If provided, it will be normalized to 'student_id'."
+            "One or more course ids (formatted as '[COURSE_PREFIX][COURSE_NUMBER]') "
+            "for which custom features should be computed, can be a list or include nested lists"
         ),
     )
-    null_tokens: list[str] = pyd.Field(
-        default=["(Blank)"],
+    grade_map: t.Optional[dict[str, str]] = pyd.Field(
+        default=None,
         description=(
-            "Tokens that should be treated as null/NA during cleaning. "
-            "These will be replaced with pandas NA before dtype generation."
+            "Maps raw grade codes from the institution upload to canonical Edvise grades "
+            "(subset of ALLOWED_LETTER_GRADES) or a numeric string in [0, 4]. "
+            "Applied in ES data audit before course schema validation. "
+            'Example: {"W1": "W", "W2": "W", "OTHER": "O", "NC": "NC"}.'
         ),
     )
-    treat_empty_strings_as_null: bool = pyd.Field(
-        default=True,
-        description=(
-            "If True, whitespace-only and empty strings are treated as null values."
-        ),
-    )
-    date_formats: tuple[str, ...] = pyd.Field(
-        default=("%m/%d/%Y",),
-        description="Candidate date formats to try before falling back to generic parsing.",
-    )
-    dtype_confidence_threshold: float = pyd.Field(
-        default=0.75,
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Minimum fraction of successfully coerced values required to accept a generated dtype."
-        ),
-    )
-    min_non_null: int = pyd.Field(
-        default=10,
-        ge=0,
-        description=(
-            "Minimum number of non-null values required to trust a generated dtype."
-        ),
-    )
-    boolean_map: dict[str, bool] = pyd.Field(
-        default_factory=lambda: {
-            "true": True,
-            "false": False,
-            "yes": True,
-            "no": False,
-            "1": True,
-            "0": False,
-        },
-        description=(
-            "Mapping for interpreting string tokens as booleans during dtype generation."
-        ),
-    )
-    forced_dtypes: dict[str, str] = pyd.Field(
+
+    @pyd.field_validator("grade_map", mode="after")
+    @classmethod
+    def validate_grade_map_targets(
+        cls, v: t.Optional[dict[str, str]]
+    ) -> t.Optional[dict[str, str]]:
+        if not v:
+            return v
+        allowed = ALLOWED_LETTER_GRADES
+        for src, tgt in v.items():
+            t_norm = str(tgt).strip().upper()
+            if t_norm in allowed:
+                continue
+            try:
+                fv = float(t_norm)
+                if 0.0 <= fv <= 4.0:
+                    continue
+            except (ValueError, TypeError):
+                pass
+            raise ValueError(
+                f"preprocessing.features.grade_map[{src!r}] -> {tgt!r}: "
+                f"target must be in ALLOWED_LETTER_GRADES or a numeric grade in [0.0, 4.0]"
+            )
+        return v
+
+
+class SelectionConfig(pyd.BaseModel):
+    student_criteria: dict[str, object] = pyd.Field(
         default_factory=dict,
         description=(
-            "Optional mapping of normalized column names → forced pandas nullable dtypes "
-            "(e.g. {'student_id': 'string', 'term_order': 'Int64'}). "
-            "These overrides are applied BEFORE dtype inference across ALL datasets."
+            "Column name in modeling dataset mapped to one or more values that it must equal "
+            "in order for the corresponding student to be considered 'eligible'. "
+            "Multiple criteria are combined with a logical 'AND'."
         ),
     )
-    allow_forced_cast_fallback: bool = pyd.Field(
-        default=True,
-        description=(
-            "If True, failures to cast a forced dtype fall back to inferred dtype with a warning. "
-            "If False, such failures raise an exception."
-        ),
-    )
-
-
-class CheckpointConfig(pyd.BaseModel):
-    name: str = pyd.Field(default="checkpoint")
-    params: dict[str, object] = pyd.Field(default_factory=dict)
-    unit: t.Literal["credit", "year", "term", "semester"]
-    value: int = pyd.Field(
-        default=30,
-        description=(
-            "Number of checkpoint units (e.g. 1 year, 1 term/semester, 30 credits)"
-        ),
-    )
-    optional_desc: t.Optional[str] = pyd.Field(
+    intensity_time_limits: t.Optional[types.IntensityTimeLimitsType] = pyd.Field(
         default=None,
         description=(
-            "Optional description of the checkpoint beyond the unit and value. "
-            "Used to provide further context for the particular institution and model. "
+            "Mapping of enrollment intensity value (e.g. 'FULL-TIME') to the max number "
+            "years or terms (e.g. [4.0, 'year'], [12.0, 'term']) considered to be 'on-time' "
+            "for a given target (e.g. graduation, credits earned), "
+            "where the numeric values are for the time between 'checkpoint' and 'target' "
+            "terms. Passing special '*' as the only key applies the corresponding time limits "
+            "to all students, regardless of intensity."
         ),
     )
+    params: dict[str, object] = pyd.Field(
+        default_factory=dict,
+        description="Any additional parameters needed to configure student selection",
+    )
 
-    @pyd.field_validator("value")
-    @classmethod
-    def check_value_positive(cls, v):
-        if v is not None and v <= 0:
-            raise ValueError("Value must be greater than zero.")
-        return v
+
+class CheckpointBaseConfig(pyd.BaseModel):
+    name: str = pyd.Field(
+        default=...,
+        description="Descriptive name for checkpoint, used as a component in model name",
+    )
+    type_: types.CheckpointTypeType = pyd.Field(
+        default=..., description="Type of checkpoint to which config is applied"
+    )
+    sort_cols: str | list[str] = pyd.Field(
+        default="term_rank",
+        description="Column(s) used to sort students' terms, typically chronologically.",
+    )
+    include_cols: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="Optional subset of columns to include in checkpoint student-terms.",
+    )
 
     @pyd.field_validator("name", mode="after")
     @classmethod
@@ -386,31 +333,40 @@ class CheckpointConfig(pyd.BaseModel):
         return value
 
 
-class TargetConfig(pyd.BaseModel):
-    name: str = pyd.Field(default="target")
-    category: t.Literal["graduation", "retention"]
-    params: dict[str, object] = pyd.Field(default_factory=dict)
-    unit: t.Literal["credit", "year", "term", "semester", "pct_completion"]
-    value: int = pyd.Field(
-        default=120,
-        description=(
-            "Number of target units (e.g. 4 years, 4 terms, 120 credits, 150 completion %)"
-        ),
-    )
-    optional_desc: t.Optional[str] = pyd.Field(
-        default=None,
-        description=(
-            "Optional description of the target beyond the unit and value. "
-            "Used to provide further context for the particular institution and model. "
-        ),
-    )
+class CheckpointNthConfig(CheckpointBaseConfig):
+    type_: types.CheckpointTypeType = "nth"
+    n: int = pyd.Field(default=...)
+    term_is_pre_cohort_col: t.Optional[str] = pyd.Field(default="term_is_pre_cohort")
+    exclude_pre_cohort_terms: t.Optional[bool] = pyd.Field(default=True)
+    term_is_core_col: t.Optional[str] = pyd.Field(default="term_is_core")
+    exclude_non_core_terms: t.Optional[bool] = pyd.Field(default=True)
+    enrollment_year_col: t.Optional[str] = pyd.Field(default=None)
+    valid_enrollment_year: t.Optional[int] = pyd.Field(default=None)
 
-    @pyd.field_validator("value")
-    @classmethod
-    def check_value_positive(cls, v):
-        if v is not None and v <= 0:
-            raise ValueError("Value must be greater than zero.")
-        return v
+
+class CheckpointFirstConfig(CheckpointBaseConfig):
+    type_: types.CheckpointTypeType = "first"
+
+
+class CheckpointFirstAtNumCreditsEarnedConfig(CheckpointBaseConfig):
+    type_: types.CheckpointTypeType = "first_at_num_credits_earned"
+    min_num_credits: float = pyd.Field(default=...)
+    num_credits_col: str = pyd.Field(default="num_credits_earned_cumsum")
+
+
+class CheckpointFirstWithinCohortConfig(CheckpointBaseConfig):
+    type_: types.CheckpointTypeType = "first_within_cohort"
+    term_is_pre_cohort_col: str = pyd.Field(default="term_is_pre_cohort")
+
+
+class TargetBaseConfig(pyd.BaseModel):
+    name: str = pyd.Field(
+        default=...,
+        description="Descriptive name for target, used as a component in model name",
+    )
+    type_: types.TargetTypeType = pyd.Field(
+        default=..., description="Type of target to which config is applied"
+    )
 
     @pyd.field_validator("name", mode="after")
     @classmethod
@@ -424,38 +380,32 @@ class TargetConfig(pyd.BaseModel):
         return value
 
 
-class SelectionConfig(pyd.BaseModel):
-    student_criteria: dict[str, object] = pyd.Field(
-        default_factory=dict,
-        description=(
-            "Column name in modeling dataset mapped to one or more values that it must equal "
-            "in order for the corresponding student to be considered 'eligible'. "
-            "Multiple criteria are combined with a logical 'AND'."
-        ),
-    )
-    student_criteria_aliases: dict[str, str] = pyd.Field(
-        default_factory=dict,
-        description="Human-readable display names for student_criteria keys",
-    )
+class TargetGraduationConfig(TargetBaseConfig):
+    type_: types.TargetTypeType = "graduation"
+    intensity_time_limits: types.IntensityTimeLimitsType
+    years_to_degree_col: str
+    num_terms_in_year: int = pyd.Field(default=4)
+    max_term_rank: int | t.Literal["infer"]
 
-    @pyd.model_validator(mode="after")
-    def validate_criteria_aliases(self) -> "SelectionConfig":
-        criteria_keys = self.student_criteria.keys()
-        alias_keys = self.student_criteria_aliases or {}
 
-        missing = [k for k in criteria_keys if k not in alias_keys]
-        if missing:
-            raise ValueError(
-                f"Missing display aliases in `student_criteria_aliases` for: {missing}"
-            )
-        return self
+class TargetRetentionConfig(TargetBaseConfig):
+    type_: types.TargetTypeType = "retention"
+    max_academic_year: str | t.Literal["infer"]
+
+
+class TargetCreditsEarnedConfig(TargetBaseConfig):
+    type_: types.TargetTypeType = "credits_earned"
+    min_num_credits: float
+    # TODO: is there any way to represent checkpoint arg in toml, given its dtype?
+    intensity_time_limits: types.IntensityTimeLimitsType
+    num_terms_in_year: int = pyd.Field(default=4)
+    max_term_rank: int | t.Literal["infer"]
 
 
 class ModelingConfig(pyd.BaseModel):
     feature_selection: t.Optional["FeatureSelectionConfig"] = None
     training: "TrainingConfig"
     evaluation: t.Optional["EvaluationConfig"] = None
-    bias_mitigation: t.Optional["BiasMitigationConfig"] = None
 
 
 class FeatureSelectionConfig(pyd.BaseModel):
@@ -539,29 +489,11 @@ class EvaluationConfig(pyd.BaseModel):
     )
 
 
-class BiasMitigationConfig(pyd.BaseModel):
-    student_group_col: str = pyd.Field(
-        default="student_group",
-        description="Column name in dataset to have a custom threshold set.",
-    )
-    student_group_col_alias: str = pyd.Field(
-        default="Student Group",
-        description="Human-readable display name for student_group column.",
-    )
-    student_group: str = pyd.Field(
-        default="freshmen",
-        description="Value in student_group column that has a custom threshold based on bias considerations.",
-    )
-    custom_threshold: float = pyd.Field(
-        default=0.5,
-        description="Threshold for student group based on bias considerations.",
-    )
-
-
 class InferenceConfig(pyd.BaseModel):
     num_top_features: int = pyd.Field(default=5)
     min_prob_pos_label: t.Optional[float] = 0.5
     background_data_sample: t.Optional[int] = 500
+
     term: t.Optional[list[str]] = pyd.Field(
         default=None,
         description="List of terms to use for inference. Students will be selected if they meet the checkpoint in one of these terms. "
