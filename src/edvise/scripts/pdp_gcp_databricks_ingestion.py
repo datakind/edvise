@@ -7,7 +7,6 @@ import importlib
 import pandas as pd
 import sys
 from google.api_core.exceptions import Forbidden, NotFound
-import google.auth
 
 # Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
 script_dir = os.getcwd()
@@ -21,6 +20,7 @@ from edvise.shared.dashboard_metadata.pipeline_runs import (
     parse_timestamp_from_filename,
 )
 from edvise.utils.databricks import (
+<<<<<<< HEAD
     local_fs_path,
     get_dbutils_or_none,
     get_latest_uc_model_run_id,
@@ -62,6 +62,20 @@ def get_spark_session_or_none():
     except Exception as e:
         logging.warning("Spark not available: %s", e)
         return None
+=======
+    get_dbutils,
+    get_spark_session_or_none,
+    in_databricks,
+)
+from edvise.utils.gcs import active_gcp_identity
+
+
+def local_fs_path(p: str) -> str:
+    return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
+
+
+# Model names from get_model_name() are already UC-compatible
+>>>>>>> develop
 
 
 ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]

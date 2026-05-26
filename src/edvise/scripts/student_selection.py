@@ -1,8 +1,17 @@
-import logging
+"""Student selection for SST pipeline (PDP or Edvise ES configs).
+
+``--schema_type`` selects the project config model (see
+:mod:`edvise.configs.schema_type`).
+"""
+
+from __future__ import annotations
+
 import argparse
-import pandas as pd
+import logging
 import os
 import sys
+
+import pandas as pd
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
@@ -19,11 +28,11 @@ print("src_path:", src_path)
 print("sys.path:", sys.path)
 
 from edvise import student_selection
+from edvise.configs.schema_type import project_config_class
 from edvise.dataio.read import read_config
-from edvise.configs.pdp import PDPProjectConfig
 from edvise.shared.logger import (
-    resolve_run_path,
     local_fs_path,
+    resolve_run_path,
     init_file_logging,
 )
 from edvise.shared.validation import (
@@ -39,7 +48,8 @@ class StudentSelectionTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(self.args.config_file_path, schema=PDPProjectConfig)
+        cfg_cls = project_config_class(args.schema_type)
+        self.cfg = read_config(self.args.config_file_path, schema=cfg_cls)
 
         require(
             self.cfg.preprocessing is not None
@@ -145,10 +155,16 @@ class StudentSelectionTask:
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Student selection based on configured attributes."
+        description="Student selection based on configured attributes (PDP or Edvise ES)."
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument(
+        "--schema_type",
+        type=str,
+        default="pdp",
+        help="pdp | edvise | es — selects PDP vs ES project config schema.",
+    )
     parser.add_argument("--job_type", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
     return parser.parse_args()
@@ -170,7 +186,7 @@ if __name__ == "__main__":
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_student_selection.log",
+        log_file_name="student_selection.log",
     )
     logging.info("Logs will be written to %s", log_path)
     task.run()

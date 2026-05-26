@@ -71,8 +71,14 @@ jobs:
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
             --var="git_tag=${{ github.ref_name }}"
 
+<<<<<<< HEAD
       - name: Deploy legacy bundle (prod target -> staging_sst_01)
         working-directory: pipelines/legacy
+=======
+      - name: Deploy validated GCS to bronze sync bundle (prod target -> staging_sst_01)
+        working-directory: pipelines/ingestion/shared
+
+>>>>>>> develop
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_STAGING_HOST }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_STAGING_CLIENT_ID }}
@@ -80,7 +86,10 @@ jobs:
           SA_EXECUTER:          ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
           DS_RUN_AS:            ${{ secrets.STAGING_DS_RUN_AS }}
           GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
+<<<<<<< HEAD
           DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
+=======
+>>>>>>> develop
         run: |
           databricks bundle deploy \
             --target=prod \
@@ -89,7 +98,10 @@ jobs:
             --var="ds_run_as=$DS_RUN_AS" \
             --var="databricks_institution_name=midway_uni" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+<<<<<<< HEAD
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
+=======
+>>>>>>> develop
             --var="git_tag=${{ github.ref_name }}"
 
   # DEV (dev-sst-02)
@@ -151,8 +163,13 @@ jobs:
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
             --var="git_commit=${{ github.sha }}"
 
+<<<<<<< HEAD
       - name: Deploy legacy bundle (dev target -> dev_sst_02)
         working-directory: pipelines/legacy
+=======
+      - name: Deploy validated GCS to bronze sync bundle (dev target -> dev_sst_02)
+        working-directory: pipelines/ingestion/shared
+>>>>>>> develop
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
@@ -160,7 +177,10 @@ jobs:
           SA_EXECUTER:          ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
           DS_RUN_AS:            ${{ secrets.DEV_DS_RUN_AS }}
           GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
+<<<<<<< HEAD
           DATAKIND_EMAIL:       ${{ secrets.DATAKIND_EMAIL }}
+=======
+>>>>>>> develop
         run: |
           databricks bundle deploy \
             --target=dev \
@@ -169,5 +189,8 @@ jobs:
             --var="ds_run_as=$DS_RUN_AS" \
             --var="databricks_institution_name=synthetic" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+<<<<<<< HEAD
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
+=======
+>>>>>>> develop
             --var="git_commit=${{ github.sha }}"
