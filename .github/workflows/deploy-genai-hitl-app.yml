@@ -1,7 +1,8 @@
 # Databricks App: GenAI HITL reviewer (Streamlit, UC hitl_reviews).
 # OAuth: DATABRICKS_GENAI_MAPPING_DEV_CLIENT_*. Host: DATABRICKS_DEV_HOST (workspace URL, same as PDP dev).
 # SQL warehouse: DATABRICKS_DEV_SQL_WAREHOUSE_ID.
-# Run: Actions → "Deploy GenAI HITL app (dev)" → Run workflow (choose branch, e.g. your PR branch).
+# Push (feat/hitl-ui-production-pipelines + paths) or Actions → Run workflow deploys dev and staging.
+# Manual inputs deploy_dev / deploy_staging are reserved for future selective deploy (same as deploy-genai-mapping).
 
 name: deploy-genai-hitl-app
 
@@ -88,7 +89,6 @@ jobs:
 
   deploy-staging:
     name: Deploy GenAI HITL app to staging (staging_sst_01)
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_staging }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
