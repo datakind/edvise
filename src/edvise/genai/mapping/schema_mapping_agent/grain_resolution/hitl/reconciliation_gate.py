@@ -86,10 +86,9 @@ def run_grain_reconciliation_gate(
         else "within_grain_multiplicity"
     )
 
-    aligned_ia_manifest_keys = (
-        ia_source_keys is not None
-        and set(ia_source_keys) == set(manifest_source_keys)
-    )
+    aligned_ia_manifest_keys = ia_source_keys is not None and set(
+        ia_source_keys
+    ) == set(manifest_source_keys)
     # When IA did not persist ``post_clean_primary_key`` on this dataset, we still have a
     # variance profile on manifest keys — heuristic proposals match the post-LLM normalize path
     # without a gateway call (same as aligned-keys case).

@@ -111,10 +111,10 @@ jobs:
         env:
           DATABRICKS_AUTH_TYPE: oauth-m2m
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_STAGING_HOST }}
-          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_STAGING_CLIENT_ID }}
-          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_STAGING_CLIENT_SECRET }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_SECRET }}
           SA_EXECUTER: ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
-          DS_RUN_AS: ${{ secrets.DATABRICKS_STAGING_CLIENT_ID }}
+          DS_RUN_AS: ${{ secrets.DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID }}
           GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
         run: |
           TAG="${{ inputs.staging_git_tag }}"
