@@ -12,7 +12,7 @@ import os
 import random
 import time
 from collections.abc import Callable
-from typing import Final, TypeVar, cast
+from typing import Any, Final, TypeVar, cast
 
 from openai import OpenAI
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
@@ -112,7 +112,9 @@ def resolve_databricks_workspace_host() -> str | None:
     try:
         from databricks.sdk.runtime import dbutils
 
-        ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+        # dbutils typing varies between local stubs and runtime; treat as Any here.
+        dbutils_any = cast(Any, dbutils)
+        ctx = dbutils_any.notebook.entry_point.getDbutils().notebook().getContext()
         for getter_name in ("browserHostName", "apiUrl"):
             try:
                 getter = getattr(ctx, getter_name)
@@ -141,8 +143,9 @@ def resolve_databricks_workspace_id() -> str | None:
     try:
         from databricks.sdk.runtime import dbutils
 
+        dbutils_any = cast(Any, dbutils)
         wid = (
-            dbutils.notebook.entry_point.getDbutils()
+            dbutils_any.notebook.entry_point.getDbutils()
             .notebook()
             .getContext()
             .workspaceId()
