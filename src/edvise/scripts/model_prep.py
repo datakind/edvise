@@ -28,7 +28,7 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.configs.schema_type import is_edvise_schema, project_config_class
+from edvise.configs.schema_type import project_config_class
 from edvise.dataio.read import read_config, read_parquet
 from edvise.dataio.write import write_parquet
 from edvise.model_prep import cleanup_features as cleanup, training_params
@@ -37,6 +37,7 @@ from edvise.shared.logger import (
     local_fs_path,
     resolve_run_path,
 )
+from edvise.shared.utils import cohort_pair_columns, feature_cleanup_for_schema
 from edvise.shared.validation import require, warn_if
 from edvise.utils.update_config import update_training_cohorts
 
@@ -49,25 +50,12 @@ logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
 
-def _cohort_pair_columns(df: pd.DataFrame) -> tuple[str, str] | None:
-    """Return (year-like, term-like) column names for logging and training cohort list."""
-    if {"cohort", "cohort_term"}.issubset(df.columns):
-        return ("cohort", "cohort_term")
-    if {"entry_year", "entry_term"}.issubset(df.columns):
-        return ("entry_year", "entry_term")
-    return None
-
-
 class ModelPrepTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         cfg_cls = project_config_class(args.schema_type)
         self.cfg = read_config(args.config_file_path, schema=cfg_cls)
-        self.cleaner: cleanup.BaseCleanup = (
-            cleanup.ESCleanup()
-            if is_edvise_schema(args.schema_type)
-            else cleanup.PDPCleanup()
-        )
+        self.cleaner: cleanup.BaseCleanup = feature_cleanup_for_schema(args.schema_type)
 
     def merge_data(
         self,
@@ -241,7 +229,7 @@ class ModelPrepTask:
         # Merge & preprocess
         if target_df is not None:
             df_labeled = self.merge_data(checkpoint_df, target_df, selected_students)
-            cohort_pair = _cohort_pair_columns(df_labeled)
+            cohort_pair = cohort_pair_columns(df_labeled)
             if cohort_pair is not None:
                 cy, ct = cohort_pair
                 cohort_counts = (
