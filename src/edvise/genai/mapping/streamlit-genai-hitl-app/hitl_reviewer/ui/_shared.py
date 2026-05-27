@@ -27,6 +27,10 @@ HITL_FLASH_HINT_AFTER_UC = (
     "and click **Refresh data** to see **approved**. If the editor closed, the workbench may have advanced to the next pending group."
 )
 
+# Shown while volume JSON I/O and/or ``hitl_reviews`` SQL run (Databricks can take several seconds).
+HITL_SAVE_APPROVE_SPINNER_LABEL = "Saving HITL JSON and approving UC row…"
+HITL_UC_GATE_SPINNER_LABEL = "Updating Unity Catalog review gate…"
+
 
 def set_hitl_flash_banner(
     kind: Literal["success", "warning", "info"], message: str
@@ -407,17 +411,21 @@ def render_action_bar(
                 disabled=not uc_group_pending or primary_extra_disabled,
                 help=primary_help,
             ):
-                if before_nav_rerun is not None:
-                    before_nav_rerun()
-                ok, err = persist_fn()
+                with st.spinner(HITL_SAVE_APPROVE_SPINNER_LABEL):
+                    if before_nav_rerun is not None:
+                        before_nav_rerun()
+                    ok, err = persist_fn()
+                    ap_ok = True
+                    ap_err: str | None = None
+                    if ok:
+                        after_persist_success()
+                        ap_ok, ap_err = try_approve_uc_after_json_write(
+                            uc_group_pending=uc_group_pending,
+                            approve_uc_if_complete=approve_fn,
+                        )
                 if not ok:
                     st.error(err)
                 else:
-                    after_persist_success()
-                    ap_ok, ap_err = try_approve_uc_after_json_write(
-                        uc_group_pending=uc_group_pending,
-                        approve_uc_if_complete=approve_fn,
-                    )
                     if not ap_ok:
                         _uc_fail = (ap_err or "").strip() or "Unknown error."
                         if success_silver_filename is not None:
@@ -512,7 +520,8 @@ def render_action_bar(
                     ),
                 ):
                     try:
-                        reject_uc_fn()
+                        with st.spinner(HITL_UC_GATE_SPINNER_LABEL):
+                            reject_uc_fn()
                     except Exception as ex:  # noqa: BLE001
                         st.error(str(ex))
             if show_reject_item and reject_fn is not None and uc_group_pending:

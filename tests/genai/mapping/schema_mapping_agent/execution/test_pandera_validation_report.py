@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 from pandera import Check, Column, DataFrameSchema
 
-from edvise.data_audit.schemas.pandera_validation_report import (
+from edvise.genai.mapping.schema_mapping_agent.execution.pandera_validation_report import (
     sample_failure_cases,
     summarize_failure_cases,
 )
@@ -42,7 +42,7 @@ def test_summarize_failure_cases_groups() -> None:
 
 
 def test_validate_entity_pandera_writes_sample(tmp_path: Path) -> None:
-    from edvise.data_audit.schemas.pandera_validation_report import (
+    from edvise.genai.mapping.schema_mapping_agent.execution.pandera_validation_report import (
         validate_entity_pandera,
     )
 

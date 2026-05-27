@@ -8,8 +8,10 @@ name: deploy-genai-hitl-app
 
 on:
   push:
-    tags:
-      - "v*"
+    # tags:
+    #   - "v*"
+    branches:
+      - feat/hitl-ui-production-pipelines
 
 concurrency:
   group: deploy-genai-hitl-app-${{ github.ref }}

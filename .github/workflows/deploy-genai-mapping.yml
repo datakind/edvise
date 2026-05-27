@@ -17,9 +17,10 @@ name: deploy-genai-mapping
 
 on:
   push:
-    tags:
-      - "v*"
-
+    # tags:
+    #   - "v*"
+    branches:
+      - feat/genai-mapping-production-pipelines
 concurrency:
   group: deploy-genai-mapping-${{ github.ref }}
   cancel-in-progress: true

@@ -15,6 +15,7 @@ import streamlit as st
 from edvise.utils.institution_naming import format_institution_display_name
 from hitl_reviewer.persistence.silver_hitl_paths import silver_volume_path_session_tag
 from hitl_reviewer.ui._shared import (
+    HITL_UC_GATE_SPINNER_LABEL,
     HITL_FLASH_HINT_AFTER_UC,
     apply_hitl_nav_delta,
     inject_hitl_css,
@@ -287,9 +288,10 @@ def render_ia_hook_preview_cards(
             disabled=not uc_group_pending,
         ):
             try:
-                approve_uc_if_complete()
-                if after_uc_approve_success is not None:
-                    after_uc_approve_success()
+                with st.spinner(HITL_UC_GATE_SPINNER_LABEL):
+                    approve_uc_if_complete()
+                    if after_uc_approve_success is not None:
+                        after_uc_approve_success()
                 st.success("Hook preview approved.")
                 set_hitl_flash_banner(
                     "success",
@@ -313,7 +315,8 @@ def render_ia_hook_preview_cards(
                 help="Skips silver edits; updates ``hitl_reviews`` only.",
             ):
                 try:
-                    reject_uc_fn()
+                    with st.spinner(HITL_UC_GATE_SPINNER_LABEL):
+                        reject_uc_fn()
                 except Exception as ex:  # noqa: BLE001
                     st.error(str(ex))
     if reject_uc_fn is not None and uc_group_pending:

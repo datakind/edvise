@@ -26,7 +26,12 @@ from hitl_reviewer.persistence.hitl_json_batch_commit import (
     persist_hitl_choice_radios_from_session,
     try_approve_uc_after_json_write,
 )
-from hitl_reviewer.ui._shared import HITL_FLASH_HINT_AFTER_UC, set_hitl_flash_banner
+from hitl_reviewer.ui._shared import (
+    HITL_FLASH_HINT_AFTER_UC,
+    HITL_SAVE_APPROVE_SPINNER_LABEL,
+    HITL_UC_GATE_SPINNER_LABEL,
+    set_hitl_flash_banner,
+)
 from hitl_reviewer.ui.ia.grain_review_ui import (
     is_ia_grain_phase,
     is_sma_grain_hitl_phase,
@@ -726,20 +731,24 @@ def render_silver_hitl_editor(
         disabled=not uc_group_pending,
         help="Writes every ``choice`` from the radios into this manifest, then approves the UC row when pending.",
     ):
-        ok, err = persist_hitl_choice_radios_from_session(
-            silver_path=silver_path,
-            sk=sk,
-            option_item_indices=option_item_indices,
-            default_choice_index=_default_choice_index,
-            allow_silver_write=uc_group_pending,
-        )
+        with st.spinner(HITL_SAVE_APPROVE_SPINNER_LABEL):
+            ok, err = persist_hitl_choice_radios_from_session(
+                silver_path=silver_path,
+                sk=sk,
+                option_item_indices=option_item_indices,
+                default_choice_index=_default_choice_index,
+                allow_silver_write=uc_group_pending,
+            )
+            ap_ok = True
+            ap_err: str | None = None
+            if ok:
+                ap_ok, ap_err = try_approve_uc_after_json_write(
+                    uc_group_pending=uc_group_pending,
+                    approve_uc_if_complete=_approve_uc,
+                )
         if not ok:
             st.error(err)
         else:
-            ap_ok, ap_err = try_approve_uc_after_json_write(
-                uc_group_pending=uc_group_pending,
-                approve_uc_if_complete=_approve_uc,
-            )
             if not ap_ok:
                 _uc_fail = (ap_err or "").strip() or "Unknown error."
                 set_hitl_flash_banner(
@@ -1154,20 +1163,21 @@ def render_one_hitl_group(
                     type="primary",
                 ):
                     try:
-                        approve_or_reject(
-                            catalog,
-                            str(onboard_run_id),
-                            str(phase),
-                            str(artifact_type),
-                            st.session_state["reviewer"],
-                            "approved",
-                        )
-                        advance_to_next_pending_group(
-                            catalog=str(catalog),
-                            current_onboard_run_id=str(onboard_run_id),
-                            current_phase=str(phase),
-                            current_artifact_type=str(artifact_type),
-                        )
+                        with st.spinner(HITL_UC_GATE_SPINNER_LABEL):
+                            approve_or_reject(
+                                catalog,
+                                str(onboard_run_id),
+                                str(phase),
+                                str(artifact_type),
+                                st.session_state["reviewer"],
+                                "approved",
+                            )
+                            advance_to_next_pending_group(
+                                catalog=str(catalog),
+                                current_onboard_run_id=str(onboard_run_id),
+                                current_phase=str(phase),
+                                current_artifact_type=str(artifact_type),
+                            )
                         set_hitl_flash_banner(
                             "success",
                             "UC row approved (silver JSON was not changed here — only ``hitl_reviews``). "
@@ -1185,20 +1195,21 @@ def render_one_hitl_group(
                     ),
                 ):
                     try:
-                        approve_or_reject(
-                            catalog,
-                            str(onboard_run_id),
-                            str(phase),
-                            str(artifact_type),
-                            st.session_state["reviewer"],
-                            "rejected",
-                        )
-                        advance_to_next_pending_group(
-                            catalog=str(catalog),
-                            current_onboard_run_id=str(onboard_run_id),
-                            current_phase=str(phase),
-                            current_artifact_type=str(artifact_type),
-                        )
+                        with st.spinner(HITL_UC_GATE_SPINNER_LABEL):
+                            approve_or_reject(
+                                catalog,
+                                str(onboard_run_id),
+                                str(phase),
+                                str(artifact_type),
+                                st.session_state["reviewer"],
+                                "rejected",
+                            )
+                            advance_to_next_pending_group(
+                                catalog=str(catalog),
+                                current_onboard_run_id=str(onboard_run_id),
+                                current_phase=str(phase),
+                                current_artifact_type=str(artifact_type),
+                            )
                         set_hitl_flash_banner(
                             "warning",
                             "UC row rejected. " + HITL_FLASH_HINT_AFTER_UC,

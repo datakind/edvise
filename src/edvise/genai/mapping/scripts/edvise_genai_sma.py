@@ -317,7 +317,7 @@ def _run_pandera_validation(
     *,
     report_path: Path,
 ) -> None:
-    from edvise.data_audit.schemas.pandera_validation_report import (
+    from edvise.genai.mapping.schema_mapping_agent.execution.pandera_validation_report import (
         write_pandera_validation_errors,
     )
 
