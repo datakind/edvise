@@ -9,12 +9,14 @@ messages plus :class:`~profiling.schemas.RankedCandidateProfiles`. Step 1 stats 
 from ..dataset_io import load_school_dataset_dataframe
 from . import deduplication
 from edvise.genai.mapping.shared.databricks_ai_gateway import (
-    DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL,
     DEFAULT_GATEWAY_MODEL_ID,
+    build_mlflow_ai_gateway_base_url,
     create_openai_client_for_databricks_gateway,
     make_databricks_gateway_llm_complete,
     require_databricks_token,
     resolve_ai_gateway_base_url,
+    resolve_databricks_workspace_host,
+    resolve_databricks_workspace_id,
     resolve_gateway_model_id,
     wrap_llm_complete_with_retries,
 )
@@ -62,8 +64,8 @@ from .schemas import (
 )
 
 __all__ = [
-    "DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL",
     "DEFAULT_GATEWAY_MODEL_ID",
+    "build_mlflow_ai_gateway_base_url",
     "PIPELINE_HITL_CONFIDENCE_THRESHOLD",
     "IdentityProfilingDatasetResult",
     "identity_profiling_run_to_jsonable",
@@ -100,6 +102,8 @@ __all__ = [
     "run_identity_agents_for_institution_with_hitl",
     "require_databricks_token",
     "resolve_ai_gateway_base_url",
+    "resolve_databricks_workspace_host",
+    "resolve_databricks_workspace_id",
     "resolve_gateway_model_id",
     "strip_json_fences",
 ]

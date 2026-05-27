@@ -21,10 +21,7 @@ from edvise.genai.mapping.shared.utilities import (
     disable_mlflow_side_effects_for_openai_gateway,
 )
 
-# Same default endpoint as ``schema_mapping_agent.manifest.eval`` (MLflow serving / gateway).
-DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL: str = (
-    "https://4437281602191762.ai-gateway.gcp.databricks.com/mlflow/v1"
-)
+MLFLOW_AI_GATEWAY_ON_WORKSPACE_PATH: Final[str] = "/ai-gateway/mlflow/v1"
 
 DEFAULT_GATEWAY_MODEL_ID: str = "claude-sonnet-edvise-genai"
 
@@ -52,10 +49,152 @@ def disable_mlflow_tracing_for_openai_gateway_client() -> None:
     disable_mlflow_side_effects_for_openai_gateway()
 
 
+def _normalize_databricks_host(host: str) -> str:
+    h = host.strip()
+    for prefix in ("https://", "http://"):
+        if h.lower().startswith(prefix):
+            h = h[len(prefix) :]
+            break
+    return h.rstrip("/")
+
+
+def _ai_gateway_cloud_segment_from_host(host: str | None) -> str:
+    """
+    Subdomain segment for ``{workspace_id}.ai-gateway.<segment>.databricks.com``.
+
+    Override with ``AI_GATEWAY_CLOUD_SEGMENT`` when the host does not imply cloud.
+    """
+    explicit = (os.environ.get("AI_GATEWAY_CLOUD_SEGMENT") or "").strip()
+    if explicit:
+        return explicit
+    if not host:
+        return "gcp"
+    h = host.lower()
+    if ".gcp.databricks.com" in h:
+        return "gcp"
+    if ".azuredatabricks.net" in h:
+        return "azure"
+    return "cloud"
+
+
+def build_mlflow_ai_gateway_base_url(
+    *,
+    workspace_id: str,
+    cloud_segment: str,
+) -> str:
+    """MLflow OpenAI-compatible gateway URL for a Databricks workspace org id."""
+    wid = workspace_id.strip()
+    cloud = cloud_segment.strip()
+    if not wid or not cloud:
+        raise ValueError("workspace_id and cloud_segment are required")
+    return f"https://{wid}.ai-gateway.{cloud}.databricks.com/mlflow/v1"
+
+
+def resolve_databricks_workspace_host() -> str | None:
+    """
+    Workspace hostname for the current run (no scheme), if known.
+
+    Uses ``DATABRICKS_HOST``, Databricks SDK default config, then notebook context.
+    """
+    raw = (os.environ.get("DATABRICKS_HOST") or "").strip()
+    if raw:
+        return _normalize_databricks_host(raw)
+
+    try:
+        from databricks.sdk.core import Config
+
+        cfg_host = (Config().host or "").strip()
+        if cfg_host:
+            return _normalize_databricks_host(cfg_host)
+    except Exception as exc:
+        _LOG.debug("Databricks SDK host unavailable (%s)", exc)
+
+    try:
+        from databricks.sdk.runtime import dbutils
+
+        ctx = (
+            dbutils.notebook.entry_point.getDbutils()
+            .notebook()
+            .getContext()
+        )
+        for getter_name in ("browserHostName", "apiUrl"):
+            try:
+                getter = getattr(ctx, getter_name)
+                val = getter()
+                if val is not None and str(val).strip():
+                    return _normalize_databricks_host(str(val))
+            except Exception:
+                continue
+    except Exception as exc:
+        _LOG.debug("dbutils workspace host unavailable (%s)", exc)
+
+    return None
+
+
+def resolve_databricks_workspace_id() -> str | None:
+    """
+    Numeric Databricks workspace / org id for the current job or notebook.
+
+    Matches the id in AI Gateway URLs and ``?o=`` workspace query params.
+    """
+    for key in ("DATABRICKS_WORKSPACE_ID",):
+        raw = (os.environ.get(key) or "").strip()
+        if raw:
+            return raw
+
+    try:
+        from databricks.sdk.runtime import dbutils
+
+        wid = (
+            dbutils.notebook.entry_point.getDbutils()
+            .notebook()
+            .getContext()
+            .workspaceId()
+            .get()
+        )
+        if wid is not None and str(wid).strip():
+            return str(wid).strip()
+    except Exception as exc:
+        _LOG.debug("dbutils workspaceId unavailable (%s)", exc)
+
+    return None
+
+
 def resolve_ai_gateway_base_url() -> str:
-    """``AI_GATEWAY_BASE_URL`` env, else :data:`DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL`."""
-    return os.environ.get(
-        "AI_GATEWAY_BASE_URL", DEFAULT_DATABRICKS_MLFLOW_AI_GATEWAY_URL
+    """Resolve the MLflow AI Gateway OpenAI base URL for the current workspace.
+
+    Precedence: ``AI_GATEWAY_BASE_URL``; then workspace id + cloud from the job;
+    then ``https://<workspace-host>/ai-gateway/mlflow/v1``. No hardcoded org default.
+    """
+    explicit = (os.environ.get("AI_GATEWAY_BASE_URL") or "").strip()
+    if explicit:
+        return explicit.rstrip("/")
+
+    host = resolve_databricks_workspace_host()
+    workspace_id = resolve_databricks_workspace_id()
+
+    if workspace_id:
+        cloud = _ai_gateway_cloud_segment_from_host(host)
+        url = build_mlflow_ai_gateway_base_url(
+            workspace_id=workspace_id,
+            cloud_segment=cloud,
+        )
+        _LOG.debug(
+            "MLflow AI Gateway base URL from workspace_id=%s cloud=%s",
+            workspace_id,
+            cloud,
+        )
+        return url
+
+    if host:
+        url = f"https://{host}{MLFLOW_AI_GATEWAY_ON_WORKSPACE_PATH}"
+        _LOG.debug("MLflow AI Gateway base URL from workspace host=%s", host)
+        return url
+
+    raise ValueError(
+        "Cannot resolve MLflow AI Gateway base URL: run on Databricks compute (job or "
+        "notebook) so workspace id/host are available, set DATABRICKS_HOST for local SDK "
+        "auth, or set AI_GATEWAY_BASE_URL explicitly."
     )
 
 
