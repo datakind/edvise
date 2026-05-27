@@ -93,6 +93,7 @@ def known_onboard_run_artifact_paths(
         ("transform_hooks.py", "transform_hooks.py"),
         ("run_log.json", "SMA run_log.json"),
         ("repair_log.json", "SMA repair_log.json"),
+        ("pandera_validation_errors.json", "Pandera validation errors"),
     ):
         add("Schema mapping agent (onboard run)", label, sma / fn)
 

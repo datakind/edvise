@@ -110,6 +110,7 @@ class SMAPaths:
     transform_hooks: Path  # optional, placeholder
     run_log: Path
     repair_log: Path
+    pandera_validation_errors: Path
 
     # IA outputs this job reads from (same execute or onboard run segment)
     ia_enriched_schema_contract: Path
@@ -178,6 +179,7 @@ def resolve_run_paths(
         transform_hooks=run_root / "transform_hooks.py",
         run_log=run_root / "run_log.json",
         repair_log=run_root / "repair_log.json",
+        pandera_validation_errors=run_root / "pandera_validation_errors.json",
         # IA outputs — same run segment under ``runs/onboard/...`` or ``runs/execute/...``
         ia_enriched_schema_contract=ia_run_root / "enriched_schema_contract.json",
         ia_identity_term_output=ia_run_root / "identity_term_output.json",
@@ -309,53 +311,22 @@ def _write_output_data(
     )
 
 
-def _run_pandera_validation(cohort_result: Any, course_result: Any) -> None:
-    import time
-    import pandera
-
-    from edvise.data_audit.schemas.raw_edvise_course import (
-        RawEdviseCourseDataSchema,
-        course_output_row_uniqueness_violation_message,
-        course_output_uniqueness_key_columns,
+def _run_pandera_validation(
+    cohort_result: Any,
+    course_result: Any,
+    *,
+    report_path: Path,
+) -> None:
+    from edvise.data_audit.schemas.pandera_validation_report import (
+        write_pandera_validation_errors,
     )
-    from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
 
-    def _validate(df: Any, schema: Any, label: str) -> None:
-        start = time.perf_counter()
-        try:
-            schema.validate(df, lazy=True)
-            LOGGER.info(
-                "Pandera [%s]: PASSED (%.2fs)", label, time.perf_counter() - start
-            )
-        except pandera.errors.SchemaErrors as e:
-            LOGGER.warning(
-                "Pandera [%s]: FAILED — %d case(s) (%.2fs)",
-                label,
-                len(e.failure_cases),
-                time.perf_counter() - start,
-            )
-        except Exception:
-            LOGGER.exception("Pandera [%s]: validation error", label)
-
-    _validate(cohort_result.df, RawEdviseStudentDataSchema, "cohort")
-    _validate(course_result.df, RawEdviseCourseDataSchema, "course")
-
-    u_start = time.perf_counter()
-    if (
-        umsg := course_output_row_uniqueness_violation_message(course_result.df)
-    ) is not None:
-        LOGGER.warning(
-            "Course row uniqueness [%s]: FAILED (%.2fs)\n%s",
-            course_output_uniqueness_key_columns(course_result.df),
-            time.perf_counter() - u_start,
-            umsg,
-        )
-    else:
-        LOGGER.info(
-            "Course row uniqueness [%s]: OK (%.2fs)",
-            course_output_uniqueness_key_columns(course_result.df),
-            time.perf_counter() - u_start,
-        )
+    write_pandera_validation_errors(
+        report_path,
+        cohort_result.df,
+        course_result.df,
+        logger=LOGGER,
+    )
 
 
 def _build_openai_client(catalog: str) -> Any:
@@ -1072,7 +1043,9 @@ def run_onboard_gate_2(
 
     # Step 2d — Pandera validation (report only, does not block)
     LOGGER.info("[onboard/gate_2] Step 2d — Pandera validation")
-    _run_pandera_validation(cohort_result, course_result)
+    _run_pandera_validation(
+        cohort_result, course_result, report_path=paths.pandera_validation_errors
+    )
 
     # Write output data
     _write_output_data(paths.output_data, cohort_result, course_result)
@@ -1189,7 +1162,9 @@ def run_execute(
 
     # Pandera validation (report only)
     LOGGER.info("[execute] Pandera validation")
-    _run_pandera_validation(cohort_result, course_result)
+    _run_pandera_validation(
+        cohort_result, course_result, report_path=paths.pandera_validation_errors
+    )
 
     # Write output data
     _write_output_data(paths.output_data, cohort_result, course_result)
