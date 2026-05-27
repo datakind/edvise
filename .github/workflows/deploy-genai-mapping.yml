@@ -17,18 +17,8 @@ name: deploy-genai-mapping
 
 on:
   push:
-    branches:
-      - feat/hitl-ui-production-pipelines
-  workflow_dispatch:
-    inputs:
-      deploy_dev:
-        description: "Deploy to dev_sst_02 (bundle target dev)"
-        type: boolean
-        default: true
-      deploy_staging:
-        description: "Deploy to staging_sst_01 (bundle target prod, git commit)"
-        type: boolean
-        default: false
+    tags:
+      - "v*"
 
 concurrency:
   group: deploy-genai-mapping-${{ github.ref }}

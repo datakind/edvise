@@ -8,23 +8,8 @@ name: deploy-genai-hitl-app
 
 on:
   push:
-    branches:
-      - feat/hitl-ui-production-pipelines
-    paths:
-      - "src/edvise/genai/mapping/streamlit-genai-hitl-app/**"
-      - "src/edvise/utils/institution_naming.py"
-      - ".github/workflows/deploy-genai-hitl-app.yml"
-      - "pyproject.toml"
-  workflow_dispatch:
-    inputs:
-      deploy_dev:
-        description: "Deploy to dev_sst_02 (bundle target dev)"
-        type: boolean
-        default: true
-      deploy_staging:
-        description: "Deploy to staging_sst_01 (bundle target prod)"
-        type: boolean
-        default: false
+    tags:
+      - "v*"
 
 concurrency:
   group: deploy-genai-hitl-app-${{ github.ref }}
