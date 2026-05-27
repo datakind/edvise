@@ -145,7 +145,9 @@ def validate_entity_pandera(
         return out
 
 
-def course_row_uniqueness_report(df: pd.DataFrame, *, logger: logging.Logger | None = None) -> dict[str, Any]:
+def course_row_uniqueness_report(
+    df: pd.DataFrame, *, logger: logging.Logger | None = None
+) -> dict[str, Any]:
     from edvise.data_audit.schemas.raw_edvise_course import (
         course_output_row_uniqueness_violation_message,
         course_output_uniqueness_key_columns,
