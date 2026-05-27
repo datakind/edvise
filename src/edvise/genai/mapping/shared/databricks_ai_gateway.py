@@ -112,11 +112,7 @@ def resolve_databricks_workspace_host() -> str | None:
     try:
         from databricks.sdk.runtime import dbutils
 
-        ctx = (
-            dbutils.notebook.entry_point.getDbutils()
-            .notebook()
-            .getContext()
-        )
+        ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
         for getter_name in ("browserHostName", "apiUrl"):
             try:
                 getter = getattr(ctx, getter_name)
