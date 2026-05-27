@@ -7,9 +7,12 @@ import pandas as pd
 import pytest
 from pandera.errors import SchemaError, SchemaErrors
 
-from edvise.data_audit.schemas import (
+from edvise.data_audit.schemas import RawEdviseStudentDataSchema
+from edvise.data_audit.schemas.raw_edvise_course import (
+    COURSE_MANIFEST_GRAIN_KEYS,
     RawEdviseCourseDataSchema,
-    RawEdviseStudentDataSchema,
+    course_output_row_uniqueness_violation_message,
+    course_output_uniqueness_key_columns,
 )
 
 # All column names from the schemas (for tests that include optional columns).
@@ -34,7 +37,6 @@ COURSE_REQUIRED_COLUMNS = [
     "academic_term",
     "course_prefix",
     "course_number",
-    "course_section_id",
     "grade",
     "course_credits_attempted",
     "course_credits_earned",
@@ -458,7 +460,6 @@ def test_raw_edvise_course_schema_required_columns_only_passes() -> None:
         "academic_term": "Fall",
         "course_prefix": "MATH",
         "course_number": "101",
-        "course_section_id": "001",
         "grade": "B",
         "course_credits_attempted": 3.0,
         "course_credits_earned": 3.0,
@@ -537,12 +538,42 @@ def test_raw_edvise_course_schema_multiple_rows() -> None:
     assert len(validated_df) == 2
 
 
-def test_raw_edvise_course_schema_duplicate_composite_key_fails() -> None:
-    """Duplicate (learner_id, academic_year, academic_term, course_prefix, course_number, course_section_id) fails."""
+def test_raw_edvise_course_schema_duplicate_rows_fail_custom_uniqueness() -> None:
+    """Pandera does not enforce composite course keys; duplicate rows fail custom check."""
     row = _minimal_valid_course_row()
     df = pd.DataFrame([row, row]).reindex(columns=COURSE_COLUMNS)
-    with pytest.raises((SchemaError, SchemaErrors)):
-        RawEdviseCourseDataSchema.validate(df, lazy=True)
+    RawEdviseCourseDataSchema.validate(df, lazy=True)
+    assert course_output_row_uniqueness_violation_message(df) is not None
+
+
+def test_raw_edvise_course_schema_same_course_different_sections_passes() -> None:
+    """Same learner/course/term with different course_section_id passes custom uniqueness."""
+    row_a = _minimal_valid_course_row()
+    row_b = _minimal_valid_course_row()
+    row_b["course_section_id"] = "002"
+    df = pd.DataFrame([row_a, row_b]).reindex(columns=COURSE_COLUMNS)
+    validated_df = RawEdviseCourseDataSchema.validate(df, lazy=True)
+    assert len(validated_df) == 2
+    assert course_output_row_uniqueness_violation_message(df) is None
+
+
+def test_raw_edvise_course_schema_duplicate_same_section_null_fails_custom() -> None:
+    """Two identical rows (null course_section_id) fail custom uniqueness when column exists."""
+    row = _minimal_valid_course_row()
+    row["course_section_id"] = None
+    df = pd.DataFrame([row, row]).reindex(columns=COURSE_COLUMNS)
+    RawEdviseCourseDataSchema.validate(df, lazy=True)
+    assert course_output_row_uniqueness_violation_message(df) is not None
+
+
+def test_course_output_uniqueness_key_columns_optional_grain() -> None:
+    """Uniqueness keys include optional columns only when those columns exist on the frame."""
+    row = _minimal_valid_course_row()
+    df = pd.DataFrame([row]).drop(
+        columns=["course_section_id", "source_term_key"],
+        errors="ignore",
+    )
+    assert course_output_uniqueness_key_columns(df) == list(COURSE_MANIFEST_GRAIN_KEYS)
 
 
 def test_raw_edvise_course_schema_course_section_size_negative_fails() -> None:
