@@ -29,7 +29,8 @@ from edvise.data_audit.standardizer import (
     ESCourseStandardizer,
 )
 from edvise.utils.databricks import get_spark_session
-from edvise.dataio.genai_registry_paths import resolve_genai_schema_mapping_data_dir
+from edvise.dataio.genai_registry_paths import resolve_genai_pipeline_input_dir
+from edvise.dataio.path_management import pick_existing_path
 from edvise.dataio.path_management import path_exists
 from edvise.dataio.read import (
     read_config,
@@ -111,31 +112,37 @@ class ESDataAuditTask:
         except Exception as e:
             LOGGER.exception("Failed to initialize file logging: %s", e)
 
-        # Resolve inputs: GenAI active registry -> runs/onboard/{onboard_run_id}/.../data
-        silver_root = self.args.silver_volume_path.rstrip("/")
-        genai_data_dir = resolve_genai_schema_mapping_data_dir(silver_root)
-        cohort_dataset_raw_path = os.path.join(genai_data_dir, "cohort.parquet")
-        course_dataset_raw_path = os.path.join(genai_data_dir, "course.parquet")
-        require(
-            path_exists(cohort_dataset_raw_path),
-            f"Raw cohort parquet not found at {cohort_dataset_raw_path!r} (from GenAI registry).",
-        )
-        require(
-            path_exists(course_dataset_raw_path),
-            f"Raw course parquet not found at {course_dataset_raw_path!r} (from GenAI registry).",
-        )
-
-        # TODO: fix import when we set up flow
-        # cohort_dataset_raw_path = pick_existing_path(
-        #     self.args.cohort_dataset_validated_path,
-        #     f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
-        #     "cohort",
-        # )
-        # course_dataset_raw_path = pick_existing_path(
-        #     self.args.course_dataset_validated_path,
-        #     f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
-        #     "course",
-        # )
+        # Resolve inputs (GenAI parquets or bronze CSVs) based on config toggle.
+        use_genai = bool(getattr(self.cfg, "use_genai_inputs", True))
+        if use_genai:
+            # GenAI active registry -> runs/onboard/{onboard_run_id}/pipeline_input
+            silver_root = self.args.silver_volume_path.rstrip("/")
+            genai_input_dir = resolve_genai_pipeline_input_dir(silver_root)
+            cohort_dataset_raw_path = os.path.join(genai_input_dir, "cohort.parquet")
+            course_dataset_raw_path = os.path.join(genai_input_dir, "course.parquet")
+            require(
+                path_exists(cohort_dataset_raw_path),
+                f"Raw cohort parquet not found at {cohort_dataset_raw_path!r} (from GenAI registry).",
+            )
+            require(
+                path_exists(course_dataset_raw_path),
+                f"Raw course parquet not found at {course_dataset_raw_path!r} (from GenAI registry).",
+            )
+        else:
+            require(
+                bool(self.args.bronze_volume_path),
+                "bronze_volume_path is required when cfg.use_genai_inputs=false.",
+            )
+            cohort_dataset_raw_path = pick_existing_path(
+                self.args.cohort_dataset_validated_path,
+                f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
+                "cohort",
+            )
+            course_dataset_raw_path = pick_existing_path(
+                self.args.course_dataset_validated_path,
+                f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
+                "course",
+            )
 
         # --- Load RAW datasets w/o schema---
         LOGGER.info(" Loading raw cohort and course datasets:")
