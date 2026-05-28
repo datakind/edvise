@@ -263,12 +263,6 @@ class MappingProjectConfig(StrictBaseModel):
         return cls(schools=schools)
 
 
-class InstitutionIdSection(StrictBaseModel):
-    """``[institution]`` block in per-institution ``inputs.toml`` for IdentityAgent."""
-
-    id: str = Field(..., description="Institution identifier (snake_case)")
-
-
 def _validate_dataset_files_table(field_label: str, v: object) -> object:
     if not isinstance(v, dict):
         raise ValueError(
@@ -298,7 +292,7 @@ class IdentityAgentDatasets(StrictBaseModel):
 
     The bronze volume root is not stored here; :meth:`IdentityAgentInputsConfig.to_school_mapping_config`
     sets :attr:`SchoolMappingConfig.bronze_volumes_path` via :func:`bronze_volume_path_for_institution`
-    from ``[institution].id`` and the caller-supplied Unity Catalog name.
+    from ``institution_id`` and the caller-supplied Unity Catalog name.
 
     TOML example::
 
@@ -343,21 +337,53 @@ class IdentityAgentDatasets(StrictBaseModel):
 
 class IdentityAgentInputsConfig(StrictBaseModel):
     """
-    Per-institution config: ``[institution]`` and ``[datasets]`` with ``onboard_files`` and
-    optional ``execute_files`` (no shared ``files`` table).
+    Per-institution config: top-level ``institution_id``, ``[datasets.onboard_files]``, and
+    optional ``[datasets.execute_files]`` (no shared ``files`` table).
 
     File values may be a single string or a list of strings (e.g. multiple course files).
     Relative paths resolve against :func:`bronze_volume_path_for_institution` for the institution
-    (``/Volumes/<uc_catalog>/<id>_bronze/bronze_volume``). The ``uc_catalog`` argument to
-    :meth:`to_school_mapping_config` sets that catalog segment.
+    (``/Volumes/<uc_catalog>/<institution_id>_bronze/bronze_volume``). The ``uc_catalog`` argument
+    to :meth:`to_school_mapping_config` sets that catalog segment.
     Use absolute paths when reading from outside that layout.
 
     Load with :func:`edvise.dataio.read.read_config` and ``schema=IdentityAgentInputsConfig``,
     then :meth:`to_school_mapping_config` for :class:`SchoolMappingConfig` (``primary_keys`` unset).
+
+    Legacy ``[institution]`` / ``id`` tables are accepted until existing ``inputs.toml`` files are
+    migrated (see :meth:`_coerce_legacy_institution_table`).
     """
 
-    institution: InstitutionIdSection
+    institution_id: str = Field(
+        ...,
+        description=(
+            "Unique (ASCII-only) institution identifier; used in UC volume paths and registry keys "
+            "(same role as PDP/custom ``institution_id``)."
+        ),
+    )
     datasets: IdentityAgentDatasets
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_institution_table(cls, data: object) -> object:
+        """Accept deprecated ``[institution] id = …`` and normalize to ``institution_id``."""
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        inst_id = out.get("institution_id")
+        legacy = out.get("institution")
+        if inst_id is not None and str(inst_id).strip():
+            if isinstance(legacy, dict) and legacy.get("id"):
+                if str(legacy["id"]).strip() != str(inst_id).strip():
+                    raise ValueError(
+                        "institution_id conflicts with deprecated [institution].id"
+                    )
+            out.pop("institution", None)
+            return out
+        if isinstance(legacy, dict) and legacy.get("id"):
+            out["institution_id"] = legacy["id"]
+            out.pop("institution", None)
+            return out
+        return out
 
     def to_school_mapping_config(
         self,
@@ -396,10 +422,10 @@ class IdentityAgentInputsConfig(StrictBaseModel):
         rid = resolve_onboard_run_id(onboard_run_id, create_if_missing=False)
         pv = coerce_pipeline_version(pipeline_version)
         return SchoolMappingConfig(
-            institution_id=self.institution.id,
+            institution_id=self.institution_id,
             datasets=datasets,
             bronze_volumes_path=bronze_volume_path_for_institution(
-                self.institution.id, catalog=uc_catalog
+                self.institution_id, catalog=uc_catalog
             ),
             onboard_run_id=rid,
             pipeline_version=pv,
