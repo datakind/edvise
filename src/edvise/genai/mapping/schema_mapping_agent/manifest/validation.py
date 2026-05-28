@@ -30,7 +30,9 @@ ValidationError groups:
                          (e.g. IA `_edvise_term_*` as a conferral source — invalid
                          regardless of source table, since the executor cannot
                          co-resolve `_edvise_term_season` from the same selected
-                         lookup row alongside `_edvise_term_academic_year`)
+                         lookup row alongside `_edvise_term_academic_year`;
+                         entry/academic term targets must source IA `_edvise_term_*`
+                         from the execution base table when those columns exist)
 
 Usage:
     errors = validate_manifest(manifest, schema_contract)
@@ -101,6 +103,23 @@ COHORT_OUTCOME_CONFERRAL_DATETIME_TARGETS: frozenset[str] = frozenset(
         "certificate3_date",
     }
 )
+
+IA_TERM_ACADEMIC_YEAR_COLUMN = "_edvise_term_academic_year"
+IA_TERM_SEASON_COLUMN = "_edvise_term_season"
+
+# When IdentityAgent materialized term labels on the execution base table, these
+# Edvise targets must source the corresponding IA column (manifest prompt hierarchy (1)).
+TERM_TARGET_TO_IA_COLUMN: dict[str, str] = {
+    "entry_year": IA_TERM_ACADEMIC_YEAR_COLUMN,
+    "entry_term": IA_TERM_SEASON_COLUMN,
+    "academic_year": IA_TERM_ACADEMIC_YEAR_COLUMN,
+    "academic_term": IA_TERM_SEASON_COLUMN,
+}
+
+TERM_TARGET_SCHEMAS: dict[str, frozenset[str]] = {
+    "RawEdviseStudentDataSchema": frozenset({"entry_year", "entry_term"}),
+    "RawEdviseCourseDataSchema": frozenset({"academic_year", "academic_term"}),
+}
 
 
 def _is_identity_agent_edvise_term_column(name: str) -> bool:
@@ -282,6 +301,15 @@ class ManifestValidationErrorCode(str, Enum):
     # Fix: source a true conferral datetime column, or a raw term code column (on the
     # award/degree lookup row or the wide student row) that Step 2b can parse with
     # `coerce_datetime` / conferral utilities (`academic_year_and_canonical_season_to_conferral_date`, etc.)
+
+    TERM_TARGET_SHOULD_USE_IA_NORMALIZED_COLUMN = (
+        "TERM_TARGET_SHOULD_USE_IA_NORMALIZED_COLUMN"
+    )
+    # entry_year / entry_term / academic_year / academic_term mapped to a non-IA source
+    # (e.g. first_enrollment_date, raw term code) while the execution base table already
+    # carries `_edvise_term_academic_year` and/or `_edvise_term_season` from IdentityAgent.
+    # Check: target in TERM_TARGET_TO_IA_COLUMN, expected IA column on inferred base table,
+    # effective source_column differs from the required IA column.
 
 
 class ManifestValidationError(BaseModel):
@@ -705,6 +733,62 @@ def _check_map_unmap_consistency(
         )
 
 
+def _check_term_target_uses_ia_normalized_column(
+    record: FieldMappingRecord,
+    manifest: FieldMappingManifest,
+    schema_contract: EnrichedSchemaContractForSMA,
+    inferred_base_table: str,
+    errors: list[ManifestValidationError],
+) -> None:
+    """
+    SOURCE_SEMANTICS — entry/academic term targets must source IA ``_edvise_term_*``
+    from the execution base table when IdentityAgent materialized those columns there.
+
+    Mirrors manifest prompt hierarchy **(1)** in ``generate.py``: when
+    ``_edvise_term_academic_year`` / ``_edvise_term_season`` exist on the cohort or
+    course base table, ``entry_year`` / ``academic_year`` and ``entry_term`` /
+    ``academic_term`` must map to those columns (Step 2b: strip/cast only).
+
+    Skips unmapped records and targets outside the manifest's schema. Does not fire
+    when the required IA column is absent on the base table (fallback paths **(2)**–**(3)**
+    remain prompt-guided).
+    """
+    allowed_targets = TERM_TARGET_SCHEMAS.get(manifest.target_schema)
+    if allowed_targets is None or record.target_field not in allowed_targets:
+        return
+
+    expected_ia_col = TERM_TARGET_TO_IA_COLUMN.get(record.target_field)
+    if expected_ia_col is None:
+        return
+
+    if not _has_column(schema_contract, inferred_base_table, expected_ia_col):
+        return
+
+    eff = _record_effective_source(record)
+    if eff is None:
+        return
+
+    if eff == expected_ia_col and record.source_table == inferred_base_table:
+        return
+
+    errors.append(
+        ManifestValidationError(
+            target_field=record.target_field,
+            error_code=ManifestValidationErrorCode.TERM_TARGET_SHOULD_USE_IA_NORMALIZED_COLUMN,
+            detail=(
+                f"Target '{record.target_field}' must source IdentityAgent column "
+                f"'{expected_ia_col}' from execution base table '{inferred_base_table}' "
+                f"when that column is present — do not use raw datetimes, term codes, "
+                f"or cross-table lookups for IA-normalized term labels. "
+                f"Got source_column={eff!r}, source_table={record.source_table!r}. "
+                f"Step 2b should only strip_whitespace / cast_string on "
+                f"'{expected_ia_col}'."
+            ),
+            offending_value=eff,
+        )
+    )
+
+
 def _check_conferral_not_ia_term_column(
     record: FieldMappingRecord,
     manifest: FieldMappingManifest,
@@ -890,8 +974,9 @@ def validate_manifest(
         3. ROW_SELECTION     — strategy columns present in schema contract
         4. MAP_UNMAP         — sourcing consistency on mapped/unmapped fields
         5. SOURCE_SEMANTICS  — conferral targets must not source any IA `_edvise_term_*`
-                              column (single-source-column / extra_columns gap; see
-                              ``CONFERRAL_USES_IA_TERM_COLUMN``)
+                              column (``CONFERRAL_USES_IA_TERM_COLUMN``); entry/academic
+                              term targets must source IA columns from the base table when
+                              present (``TERM_TARGET_SHOULD_USE_IA_NORMALIZED_COLUMN``)
         6. ENTITY_GRAIN      — each manifest entity-grain field has a mappable source
 
     Same-table vs cross-table (JOIN_STRUCTURE): when ``join`` is omitted, ``source_table``
@@ -922,6 +1007,9 @@ def validate_manifest(
         _check_map_unmap_consistency(record, errors)
         _check_conferral_not_ia_term_column(record, manifest, errors)
         if inferred_base is not None:
+            _check_term_target_uses_ia_normalized_column(
+                record, manifest, schema_contract, inferred_base, errors
+            )
             _check_same_table_source_matches_base(record, inferred_base, errors)
 
     _check_entity_grain_keys(manifest, errors)
