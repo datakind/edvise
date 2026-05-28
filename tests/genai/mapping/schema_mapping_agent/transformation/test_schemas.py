@@ -196,10 +196,10 @@ def test_hitl_item_rejects_map_values_on_conferred_credential_type():
                     resolution=None,
                 ),
                 TransformationHITLOption(
-                    option_id="unmappable",
-                    label="U",
-                    description="u",
-                    resolution={"steps": [], "output_dtype": None},
+                    option_id="hook_required",
+                    label="H",
+                    description="h",
+                    resolution={"hook_required": True},
                 ),
             ],
         )
@@ -260,10 +260,10 @@ def test_hitl_item_rejects_extract_year_before_compact_term_code_conferral():
                     resolution=None,
                 ),
                 TransformationHITLOption(
-                    option_id="unmappable",
-                    label="U",
-                    description="u",
-                    resolution={"steps": [], "output_dtype": None},
+                    option_id="hook_required",
+                    label="H",
+                    description="h",
+                    resolution={"hook_required": True},
                 ),
             ],
         )
@@ -308,6 +308,31 @@ def test_field_transformation_plan_hook_required():
     assert plan.hook_required is True
 
 
+def test_field_transformation_plan_rejects_hook_and_review_required():
+    with pytest.raises(ValidationError, match="hook_required and review_required"):
+        FieldTransformationPlan(
+            target_field="completion_term",
+            output_dtype="category",
+            confidence=0.5,
+            hook_required=True,
+            review_required=True,
+            steps=[],
+            flagged_steps=[
+                {
+                    "step_index": 0,
+                    "function_name": "cast_string",
+                    "reason": "low_confidence_utility_chain",
+                    "context": {},
+                }
+            ],
+            hitl_options=[
+                {"option_id": "approve", "label": "a", "description": "d"},
+                {"option_id": "correct", "label": "c", "description": "d"},
+                {"option_id": "hook_required", "label": "h", "description": "d"},
+            ],
+        )
+
+
 def test_field_transformation_plan_review_required_requires_hitl_fields():
     opts = [
         TransformationHITLOption(
@@ -323,10 +348,10 @@ def test_field_transformation_plan_review_required_requires_hitl_fields():
             resolution=None,
         ),
         TransformationHITLOption(
-            option_id="unmappable",
-            label="Unmappable",
-            description="Mark field unmappable.",
-            resolution={"steps": [], "output_dtype": None},
+            option_id="hook_required",
+            label="Hook required",
+            description="Custom hook for field.",
+            resolution={"hook_required": True},
         ),
     ]
     FieldTransformationPlan(
