@@ -1,11 +1,9 @@
 import argparse
 import importlib
 import logging
-import json
 import typing as t
 import sys
 import pandas as pd
-import pathlib
 import os
 from functools import partial
 
@@ -31,6 +29,7 @@ from edvise.data_audit.standardizer import (
 from edvise.utils.databricks import get_spark_session
 from edvise.utils.data_cleaning import handling_duplicates
 
+from edvise.dataio.path_management import pick_existing_path
 from edvise.dataio.read import (
     read_config,
     read_raw_pdp_cohort_data,
@@ -39,23 +38,31 @@ from edvise.dataio.read import (
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.data_audit.eda import (
+    check_bias_variables,
     compute_gateway_course_ids_and_cips,
+    log_grade_distribution,
+    log_high_null_columns,
     log_record_drops,
+    log_top_majors,
     log_terms,
     log_misjoined_records,
+    print_credential_and_enrollment_types_and_intensities,
+    print_retention,
 )
 
 from edvise.utils.update_config import update_key_courses_and_cips
 from edvise.utils.data_cleaning import (
-    remove_pre_cohort_courses,
     log_pre_cohort_courses,
+    remove_pre_cohort_courses,
 )
-from edvise.shared.logger import (
-    resolve_run_path,
-    local_fs_path,
-)
+from edvise.shared.logger import init_file_logging, resolve_run_path
 from edvise.shared.validation import require
-from edvise.shared.dashboard_metadata.pipeline_runs import append_pipeline_run_event
+from edvise.data_audit.data_audit_cli import (
+    apply_bronze_training_inputs_sys_path,
+    flush_data_audit_logging,
+    parse_data_audit_args,
+    run_data_audit_with_training_events,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -93,66 +100,6 @@ class PDPDataAuditTask:
         )
         self.cohort_converter_func: t.Optional[ConverterFunc] = cohort_converter_func
 
-    def in_databricks(self) -> bool:
-        return bool(
-            os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER")
-        )
-
-    def _path_exists(self, p: str) -> bool:
-        if not p:
-            return False
-        # DBFS scheme
-        if p.startswith("dbfs:/"):
-            try:
-                from databricks.sdk.runtime import dbutils  # lazy import
-
-                dbutils.fs.ls(p)  # will raise if not found
-                return True
-            except Exception:
-                return False
-        # Local Posix path (Vols are mounted here)
-        return pathlib.Path(p).exists()
-
-    def _pick_existing_path(
-        self,
-        prefer_path: t.Optional[str],
-        fallback_path: str,
-        label: str,
-        use_fallback_on_dbx: bool = True,
-    ) -> str:
-        """
-        prefer_path: inference-provided path (may be None or empty)
-        fallback_path: config path
-        label: 'course' or 'cohort'
-        use_fallback_on_dbx: only fallback to config automatically when on Databricks
-        """
-        prefer = (prefer_path or "").strip()
-        if prefer and self._path_exists(prefer):
-            LOGGER.info("%s: using inference-provided path: %s", label, prefer)
-            return prefer
-
-        if prefer and not self._path_exists(prefer):
-            LOGGER.warning("%s: inference-provided path not found: %s", label, prefer)
-
-        if (
-            use_fallback_on_dbx
-            and self.in_databricks()
-            and self._path_exists(fallback_path)
-        ):
-            LOGGER.info(
-                "%s: utilizing training-config path on Databricks: %s",
-                label,
-                fallback_path,
-            )
-            return fallback_path
-
-        # If we get here, we couldn't find a usable path
-        tried = [p for p in [prefer, fallback_path] if p]
-        raise FileNotFoundError(
-            f"{label}: none of the candidate paths exist. Tried: {tried}. "
-            f"Environment: {'Databricks' if self.in_databricks() else 'non-Databricks'}"
-        )
-
     def run(self):
         """Executes the data preprocessing pipeline."""
         # Ensure correct folder: training or inference
@@ -161,60 +108,24 @@ class PDPDataAuditTask:
         )
         os.makedirs(current_run_path, exist_ok=True)
 
-        # Convert to local filesystem path if using DBFS
-        local_run_path = local_fs_path(current_run_path)
-
-        # Make sure the folder exists on the local FS
-        os.makedirs(local_run_path, exist_ok=True)
-
-        # Build full path (local FS form)
-        log_file_path = os.path.join(local_run_path, "pdp_data_audit.log")
-
-        # Build full path (local FS form)
-        log_file_path = os.path.join(local_run_path, "pdp_data_audit.log")
-        abs_log_file_path = os.path.abspath(log_file_path)
-
+        # Root logger: Databricks-safe console + per-run file (replaces all handlers)
         try:
-            root_logger = logging.getLogger()
-
-            # --- IMPORTANT PART 1: remove any existing handlers for this file ---
-            for h in list(root_logger.handlers):
-                if (
-                    isinstance(h, logging.FileHandler)
-                    and getattr(h, "baseFilename", None) == abs_log_file_path
-                ):
-                    root_logger.removeHandler(h)
-                    try:
-                        h.close()
-                    except Exception:
-                        pass
-
-            # --- IMPORTANT PART 2: open in write mode so we overwrite each run ---
-            file_handler = logging.FileHandler(abs_log_file_path, mode="w")
-            file_handler.setFormatter(
-                logging.Formatter(
-                    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-                )
+            init_file_logging(
+                self.args,
+                self.cfg,
+                logger_name=__name__,
+                log_file_name="pdp_data_audit.log",
             )
-
-            root_logger.addHandler(file_handler)
-            LOGGER.info(
-                "File logging initialized. Logs will be overwritten at: %s",
-                log_file_path,
-            )
-
         except Exception as e:
-            LOGGER.exception(
-                "Failed to initialize file logging at %s: %s", log_file_path, e
-            )
+            LOGGER.exception("Failed to initialize file logging: %s", e)
 
         # Determine file paths
-        cohort_dataset_raw_path = self._pick_existing_path(
+        cohort_dataset_raw_path = pick_existing_path(
             self.args.cohort_dataset_validated_path,
             f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
             "cohort",
         )
-        course_dataset_raw_path = self._pick_existing_path(
+        course_dataset_raw_path = pick_existing_path(
             self.args.course_dataset_validated_path,
             f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
             "course",
@@ -259,17 +170,19 @@ class PDPDataAuditTask:
         LOGGER.info(
             " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
         )
-        log_misjoined_records(df_cohort_raw, df_course_raw)
+        log_misjoined_records(
+            df_cohort_raw,
+            df_course_raw,
+            merge_key=self.cfg.student_id_col_pre_val,
+        )
 
         # Logs cohort year and terms and academic year and terms, grouped and sorted
 
         LOGGER.info(
             " Listing grouped cohort year and terms and academic year and terms for raw cohort and course data files: "
         )
-        log_terms(
-            df_course_raw,
-            df_cohort_raw,
-        )
+        log_terms(df_cohort_raw, "cohort", "cohort_term")
+        log_terms(df_course_raw, "academic_year", "academic_term")
 
         # TODO: we may want to add checks here for expected columns, rows, etc. that could break the schemas
 
@@ -284,8 +197,16 @@ class PDPDataAuditTask:
             spark_session=self.spark,
         )
 
+        # Cohort exploratory EDA (pre-standardize; not part of column transforms)
+        print_credential_and_enrollment_types_and_intensities(df_cohort_validated)
+        print_retention(df_cohort_validated)
+        log_top_majors(df_cohort_validated)
+        check_bias_variables(df_cohort_validated)
+        # Log high null columns
+        log_high_null_columns(df_cohort_validated)
         # Standardize cohort data
         LOGGER.info(" Standardizing cohort data:")
+
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
 
         LOGGER.info(" Cohort data standardized.")
@@ -333,8 +254,13 @@ class PDPDataAuditTask:
         else:
             log_pre_cohort_courses(df_course_validated, self.cfg.student_id_col)
 
+        # Course exploratory EDA (pre-standardize; row prep is still in :class:`PDPCourseStandardizer`)
+        log_grade_distribution(df_course_validated)
+        # Log high null columns
+        log_high_null_columns(df_course_validated)
         # Standardize course data
         LOGGER.info(" Standardizing course data:")
+
         df_course_standardized = self.course_std.standardize(df_course_validated)
 
         LOGGER.info(" Course data standardized.")
@@ -445,22 +371,16 @@ class PDPDataAuditTask:
                 )
 
         # Log changes before and after pre-processing
-        log_record_drops(
-            df_cohort_raw,
-            df_cohort_standardized,
-            df_course_raw,
-            df_course_standardized,
-        )
+        log_record_drops("Cohort", df_cohort_raw, df_cohort_standardized)
+        log_record_drops("Course", df_course_raw, df_course_standardized)
 
         LOGGER.info(
             " Listing grouped cohort year and terms and academic year and terms for *standardized* cohort and course data files: "
         )
 
         # Logs cohort year and terms and academic year and terms, grouped and sorted
-        log_terms(
-            df_course_standardized,
-            df_cohort_standardized,
-        )
+        log_terms(df_cohort_standardized, "cohort", "cohort_term")
+        log_terms(df_course_standardized, "academic_year", "academic_term")
 
         # --- Check that standardized cohort/course files aren't empty ---
         require(len(df_cohort_standardized) > 0, "df_cohort_standardized is empty.")
@@ -477,147 +397,30 @@ class PDPDataAuditTask:
         )
 
 
-def parse_arguments() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Data preprocessing for inference in the SST pipeline."
-    )
-    parser.add_argument(
-        "--course_dataset_validated_path",
-        required=False,
-        help="Name of the course data file during inference with GCS blobs when connected to webapp",
-    )
-    parser.add_argument(
-        "--cohort_dataset_validated_path",
-        required=False,
-        help="Name of the cohort data file during inference with GCS blobs when connected to webapp",
-    )
-    parser.add_argument("--silver_volume_path", type=str, required=True)
-    parser.add_argument("--bronze_volume_path", type=str, required=False)
-    parser.add_argument("--config_file_path", type=str, required=True)
-    parser.add_argument("--DB_workspace", type=str, required=True)
-    parser.add_argument("--job_type", type=str, required=True)
-    parser.add_argument("--db_run_id", type=str, required=False)
-    return parser.parse_args()
-
-
 if __name__ == "__main__":
-    args = parse_arguments()
-    if args.bronze_volume_path:
-        sys.path.append(f"{args.bronze_volume_path}/training_inputs")
+    args = parse_data_audit_args()
+    apply_bronze_training_inputs_sys_path(args)
     try:
-        converter_func = importlib.import_module("dataio")
-        cohort_converter_func = converter_func.converter_func_cohort
+        dataio = importlib.import_module("dataio")
+        cohort_converter_func = dataio.converter_func_cohort
         LOGGER.info("Running task with custom cohort converter func")
     except Exception as e:
         cohort_converter_func = None
         LOGGER.info("Running task with default cohort converter func")
-        LOGGER.warning(f"Failed to load custom converter functions: {e}")
+        LOGGER.warning("Failed to load custom converter functions: %s", e)
     try:
-        converter_func = importlib.import_module("dataio")
-        course_converter_func = converter_func.converter_func_course
+        dataio = importlib.import_module("dataio")
+        course_converter_func = dataio.converter_func_course
         LOGGER.info("Running task with custom course converter func")
     except Exception as e:
         course_converter_func = None
         LOGGER.info("Running task default course converter func")
-        LOGGER.warning(f"Failed to load custom converter functions: {e}")
+        LOGGER.warning("Failed to load custom converter functions: %s", e)
 
     task = PDPDataAuditTask(
         args,
         cohort_converter_func=cohort_converter_func,
         course_converter_func=course_converter_func,
     )
-    # Best-effort: infer databricks_institution_name from volume path like:
-    # /Volumes/<catalog>/<inst>_silver/silver_volume
-    databricks_institution_name = None
-    try:
-        for seg in pathlib.PurePosixPath(args.silver_volume_path).parts:
-            if seg.endswith("_silver"):
-                databricks_institution_name = seg[: -len("_silver")]
-                break
-    except Exception:
-        databricks_institution_name = None
-
-    # We only emit run-level events from this task for TRAINING runs.
-    if getattr(args, "job_type", None) == "training":
-        cohort = None
-        try:
-            modeling_cfg = getattr(task.cfg, "modeling", None)
-            training_cfg = (
-                getattr(modeling_cfg, "training", None)
-                if modeling_cfg is not None
-                else None
-            )
-            cohorts = (
-                getattr(training_cfg, "cohort", None)
-                if training_cfg is not None
-                else None
-            )
-            if cohorts:
-                cohort = json.dumps(cohorts, default=str)
-        except Exception:
-            cohort = None
-        append_pipeline_run_event(
-            catalog=args.DB_workspace,
-            run_id=args.db_run_id,
-            run_type=args.job_type,
-            event="started",
-            institution_id=getattr(task.cfg, "institution_id", None),
-            databricks_institution_name=databricks_institution_name,
-            cohort=cohort,
-            cohort_dataset_name=getattr(
-                getattr(task.cfg, "datasets", None), "raw_cohort", None
-            ),
-            course_dataset_name=getattr(
-                getattr(task.cfg, "datasets", None), "raw_course", None
-            ),
-            payload={
-                "bronze_volume_path": getattr(args, "bronze_volume_path", None),
-                "silver_volume_path": getattr(args, "silver_volume_path", None),
-                "config_file_path": getattr(args, "config_file_path", None),
-            },
-        )
-
-        try:
-            task.run()
-            append_pipeline_run_event(
-                catalog=args.DB_workspace,
-                run_id=args.db_run_id,
-                run_type=args.job_type,
-                event="completed",
-                institution_id=getattr(task.cfg, "institution_id", None),
-                databricks_institution_name=databricks_institution_name,
-                cohort=cohort,
-                cohort_dataset_name=getattr(
-                    getattr(task.cfg, "datasets", None), "raw_cohort", None
-                ),
-                course_dataset_name=getattr(
-                    getattr(task.cfg, "datasets", None), "raw_course", None
-                ),
-            )
-        except Exception as e:
-            append_pipeline_run_event(
-                catalog=args.DB_workspace,
-                run_id=args.db_run_id,
-                run_type=args.job_type,
-                event="failed",
-                institution_id=getattr(task.cfg, "institution_id", None),
-                databricks_institution_name=databricks_institution_name,
-                cohort=cohort,
-                cohort_dataset_name=getattr(
-                    getattr(task.cfg, "datasets", None), "raw_cohort", None
-                ),
-                course_dataset_name=getattr(
-                    getattr(task.cfg, "datasets", None), "raw_course", None
-                ),
-                error_message=str(e),
-            )
-            raise
-    else:
-        task.run()
-    # Ensure all logs are flushed to disk
-    for h in logging.getLogger().handlers:
-        try:
-            h.flush()
-        except Exception:
-            pass
-    logging.shutdown()
+    run_data_audit_with_training_events(args, task)
+    flush_data_audit_logging()

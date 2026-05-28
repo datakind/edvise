@@ -510,125 +510,139 @@ def compute_gateway_course_ids_and_cips(
 
 
 def log_record_drops(
-    df_cohort_before: pd.DataFrame,
-    df_cohort_after: pd.DataFrame,
-    df_course_before: pd.DataFrame,
-    df_course_after: pd.DataFrame,
+    df_name: str,
+    df_before: pd.DataFrame,
+    df_after: pd.DataFrame,
 ) -> None:
     """
     Logs row counts before and after processing for cohort and course data.
     Also logs the number of dropped students and dropped course records.
     """
-    cohort_before = len(df_cohort_before)
-    cohort_after = len(df_cohort_after)
-    cohort_dropped = cohort_before - cohort_after
-
-    course_before = len(df_course_before)
-    course_after = len(df_course_after)
-    course_dropped = course_before - course_after
+    n_rows_before = len(df_before)
+    n_rows_after = len(df_after)
+    n_rows_dropped = n_rows_before - n_rows_after
 
     LOGGER.info(
-        " Cohort file: %d → %d rows (%d total students dropped) after preprocessing",
-        cohort_before,
-        cohort_after,
-        cohort_dropped,
-    )
-    LOGGER.info(
-        " Course file: %d → %d rows (%d total course records dropped) after preprocessing",
-        course_before,
-        course_after,
-        course_dropped,
+        " %s file: %d → %d rows (%d total records dropped) after preprocessing",
+        df_name,
+        n_rows_before,
+        n_rows_after,
+        n_rows_dropped,
     )
 
 
-def log_terms(df_course: pd.DataFrame, df_cohort: pd.DataFrame) -> None:
+def log_terms(df: pd.DataFrame, col_a: str, col_b: str) -> None:
     """
-    Logs ALL cohort year/term pairs and ALL academic year/term pairs,
-    each sorted by year then term, including value counts.
+    Log value counts for every non-null (``col_a``, ``col_b``) pair, sorted by both columns.
     """
-
-    # --- Cohort year/term pairs ---
-    if {"cohort", "cohort_term"}.issubset(df_cohort.columns):
-        cohort_terms_counts = (
-            df_cohort[["cohort", "cohort_term"]]
-            .dropna()
-            .value_counts()
-            .reset_index(name="count")
-            .sort_values(by=["cohort", "cohort_term"])
-        )
-        LOGGER.info(
-            "All cohort year/term pairs with counts:\n%s",
-            cohort_terms_counts.to_string(index=False),
-        )
-    else:
+    if not {col_a, col_b}.issubset(df.columns):
         LOGGER.warning(
-            " ⚠️ Missing fields: 'cohort' or 'cohort_term' in cohort dataframe."
+            " ⚠️ Missing fields: '%s' or '%s' in dataframe.",
+            col_a,
+            col_b,
         )
+        return
+    pair_counts = (
+        df[[col_a, col_b]]
+        .dropna()
+        .value_counts()
+        .reset_index(name="count")
+        .sort_values(by=[col_a, col_b])
+    )
+    LOGGER.info(
+        "All %s / %s pairs with counts:\n%s",
+        col_a,
+        col_b,
+        pair_counts.to_string(index=False),
+    )
 
-    # --- Academic year/term pairs ---
-    if {"academic_year", "academic_term"}.issubset(df_course.columns):
-        academic_terms_counts = (
-            df_course[["academic_year", "academic_term"]]
-            .dropna()
-            .value_counts()
-            .reset_index(name="count")
-            .sort_values(by=["academic_year", "academic_term"])
-        )
+
+def _log_misjoined_value_counts(df: pd.DataFrame, columns: list[str]) -> None:
+    """Log value counts for each column in ``columns`` that is present in ``df``."""
+    for col in columns:
+        if col not in df.columns:
+            continue
+        vc = df[col].value_counts(dropna=False)
         LOGGER.info(
-            "All academic year/term pairs with counts:\n%s",
-            academic_terms_counts.to_string(index=False),
-        )
-    else:
-        LOGGER.warning(
-            " ⚠️ Missing fields: 'academic_year' or 'academic_term' in course dataframe."
+            " Value counts for mismatched records in column '%s' to identify potential trends:\n%s",
+            col,
+            vc.to_string(),
         )
 
 
-def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> None:
+# Defaults for :func:`log_misjoined_records` (PDP-style columns; Edvise can override)
+DEFAULT_MISJOINED_VALUE_COUNT_COLUMNS: tuple[str, ...] = (
+    "enrollment_type",
+    "enrollment_intensity_first_term",
+)
+DEFAULT_MISJOINED_GROUPED_COUNT_COLUMN_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("cohort", "cohort_term"),
+    ("academic_year", "academic_term"),
+)
+
+
+def _log_misjoined_grouped_counts(df: pd.DataFrame, group_cols: list[str]) -> None:
+    """Log group sizes when every column in ``group_cols`` exists in ``df``."""
+    if not group_cols or not all(c in df.columns for c in group_cols):
+        return
+    label = " and ".join(group_cols)
+    counts = df.groupby(group_cols, dropna=False, observed=True).size().sort_index()
+    LOGGER.info(
+        " Grouped counts for mismatched records by %s to identify potential trends:\n%s",
+        label,
+        counts.to_string(),
+    )
+
+
+def log_misjoined_records(
+    df_cohort: pd.DataFrame,
+    df_course: pd.DataFrame,
+    merge_key: str = "study_id",
+    *,
+    value_count_columns: t.Optional[t.Sequence[str]] = None,
+    grouped_count_column_groups: t.Optional[t.Sequence[t.Sequence[str]]] = None,
+) -> None:
     """
     Merges raw cohort and course data, identifies misjoined student records,
     and logs value counts for mismatches to help identify possible trends.
 
     Args:
-        df_cohort (pd.DataFrame): Cohort-level student data
-        df_course (pd.DataFrame): Course-level student data
-
-    Returns:
-        pd.DataFrame: Mismatched records with diagnostic columns.
+        df_cohort: Cohort-level student data
+        df_course: Course-level student data
+        merge_key: Column to join on (excluded from the duplicate-column drop on the
+            course side). For *raw* data, use the project config field
+            ``student_id_col_pre_val``; after schema validation, columns align with
+            ``student_id_col``.
+        value_count_columns: Columns for per-column value counts on misjoined rows.
+            Defaults to :data:`DEFAULT_MISJOINED_VALUE_COUNT_COLUMNS`.
+        grouped_count_column_groups: Each inner sequence is one ``groupby`` key set
+            for size counts; the log label is those names joined with *and*. Defaults
+            to :data:`DEFAULT_MISJOINED_GROUPED_COUNT_COLUMN_GROUPS`.
     """
-    # Merge with indicator
-    df_merged = (
-        pd.merge(
-            df_cohort,
-            df_course,
-            on="study_id",
-            how="outer",
-            suffixes=("_cohort", "_course"),
-            indicator=True,
-        )
-        .rename(
-            columns={
-                "cohort_cohort": "cohort",
-                "cohort_term_cohort": "cohort_term",
-                "student_age_cohort": "student_age",
-                "race_cohort": "race",
-                "ethnicity_cohort": "ethnicity",
-                "gender_cohort": "gender",
-                "institution_id_cohort": "institution_id",
-            }
-        )
-        .drop(
-            columns=[
-                "cohort_course",
-                "cohort_term_course",
-                "student_age_course",
-                "race_course",
-                "ethnicity_course",
-                "gender_course",
-                "institution_id_course",
-            ],
-            errors="ignore",
-        )
+    vcols = (
+        list(value_count_columns)
+        if value_count_columns is not None
+        else list(DEFAULT_MISJOINED_VALUE_COUNT_COLUMNS)
+    )
+    ggroups = (
+        [list(g) for g in grouped_count_column_groups]
+        if grouped_count_column_groups is not None
+        else [list(g) for g in DEFAULT_MISJOINED_GROUPED_COUNT_COLUMN_GROUPS]
+    )
+    # Drop from course any column that also exists on cohort (except the merge key)
+    # so each shared name appears once, from the cohort frame.
+    _overlap = (set(df_cohort.columns) & set(df_course.columns)) - {merge_key}
+    _dropped_from_course = sorted(_overlap)
+    LOGGER.info(
+        "Dropped duplicate fields from course file in the merge: %s",
+        _dropped_from_course,
+    )
+    df_course_slim = df_course.drop(columns=_dropped_from_course, errors="ignore")
+    df_merged = df_cohort.merge(
+        df_course_slim,
+        on=merge_key,
+        how="outer",
+        indicator=True,
     )
 
     # Count merge results
@@ -659,7 +673,7 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
     )
 
     # Print misjoined ids
-    misjoined_ids = df_misjoined["study_id"].dropna().unique().tolist()
+    misjoined_ids = df_misjoined[merge_key].dropna().unique().tolist()
     LOGGER.info(f" Misjoined student IDs: {misjoined_ids}")
 
     # Additional warning if mismatch is significant
@@ -671,60 +685,25 @@ def log_misjoined_records(df_cohort: pd.DataFrame, df_course: pd.DataFrame) -> N
         )
 
     # Log dropped student impact
-    dropped_students = df_misjoined["study_id"].dropna().nunique()
-    total_students = df_merged["study_id"].dropna().nunique()
+    dropped_students = df_misjoined[merge_key].dropna().nunique()
+    total_students = df_merged[merge_key].dropna().nunique()
     pct_dropped = (dropped_students / total_students) * 100 if total_students else 0
 
-    # Log value counts of key fields
-    for col in ["enrollment_type", "enrollment_intensity_first_term"]:
-        if col in df_misjoined.columns:
-            value_counts = df_misjoined[col].value_counts(dropna=False)
-            LOGGER.info(
-                " Value counts for mismatched records in column '%s' to identify potential trends:\n%s",
-                col,
-                value_counts.to_string(),
-            )
+    # Note: PDP has enrollment_intensity_first_term; Edvise may omit — missing cols are skipped.
+    _log_misjoined_value_counts(df_misjoined, vcols)
+    for group_cols in ggroups:
+        _log_misjoined_grouped_counts(df_misjoined, group_cols)
 
-    # Log grouped cohort & cohort_term
-    if "cohort" in df_misjoined.columns and "cohort_term" in df_misjoined.columns:
-        cohort_group_counts = (
-            df_misjoined.groupby(["cohort", "cohort_term"], dropna=False, observed=True)
-            .size()
-            .sort_index()
-        )
-        LOGGER.info(
-            " Grouped counts for mismatched records by cohort and cohort_term to identify potential trends:\n%s",
-            cohort_group_counts.to_string(),
-        )
-
-    # Log grouped academic_year & academic_term
-    if (
-        "academic_year" in df_misjoined.columns
-        and "academic_term" in df_misjoined.columns
-    ):
-        academic_group_counts = (
-            df_misjoined.groupby(
-                ["academic_year", "academic_term"], dropna=False, observed=True
-            )
-            .size()
-            .sort_index()
-        )
-        LOGGER.info(
-            " Grouped counts for mismatched records by academic_year and academic_term to identify potential trends:\n%s",
-            academic_group_counts.to_string(),
-        )
-
-    if pct_dropped < 0.1:
-        LOGGER.warning(
-            " ⚠️ inspect_misjoined_records: These mismatches will later result in dropping %d students (<0.1 percent of all students).",
-            dropped_students,
-        )
-    else:
-        LOGGER.warning(
-            " ⚠️ inspect_misjoined_records: These mismatches will later result in dropping %d students (%.1f%% of all students).",
-            dropped_students,
-            pct_dropped,
-        )
+    pct_rollup = (
+        "<0.1 percent of all students"
+        if pct_dropped < 0.1
+        else f"{pct_dropped:.1f}%% of all students"
+    )
+    LOGGER.warning(
+        " ⚠️ inspect_misjoined_records: These mismatches will later result in dropping %d students (%s).",
+        dropped_students,
+        pct_rollup,
+    )
 
 
 def pct_breakdown(series: pd.Series) -> pd.Series:

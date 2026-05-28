@@ -1,9 +1,18 @@
-import typing as t
+"""Merge checkpoint, selection, and target data; cleanup; splits and sample weights.
+
+Supports PDP and Edvise ES project configs. ``--schema_type`` selects the config
+class (see :mod:`edvise.configs.schema_type`).
+"""
+
+from __future__ import annotations
+
 import argparse
-import pandas as pd
 import logging
 import os
 import sys
+import typing as t
+
+import pandas as pd
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
@@ -19,15 +28,16 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.model_prep import cleanup_features as cleanup, training_params
-from edvise.dataio.read import read_parquet, read_config
+from edvise.configs.schema_type import project_config_class
+from edvise.dataio.read import read_config, read_parquet
 from edvise.dataio.write import write_parquet
-from edvise.configs.pdp import PDPProjectConfig
+from edvise.model_prep import cleanup_features as cleanup, training_params
 from edvise.shared.logger import (
+    init_file_logging,
     local_fs_path,
     resolve_run_path,
-    init_file_logging,
 )
+from edvise.shared.utils import cohort_pair_columns, feature_cleanup_for_schema
 from edvise.shared.validation import require, warn_if
 from edvise.utils.update_config import update_training_cohorts
 
@@ -43,7 +53,9 @@ LOGGER = logging.getLogger(__name__)
 class ModelPrepTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(args.config_file_path, schema=PDPProjectConfig)
+        cfg_cls = project_config_class(args.schema_type)
+        self.cfg = read_config(args.config_file_path, schema=cfg_cls)
+        self.cleaner: cleanup.BaseCleanup = feature_cleanup_for_schema(args.schema_type)
 
     def merge_data(
         self,
@@ -110,8 +122,7 @@ class ModelPrepTask:
         return df_labeled
 
     def cleanup_features(self, df_labeled: pd.DataFrame) -> pd.DataFrame:
-        cleaner = cleanup.PDPCleanup()
-        return cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled)
+        return self.cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled)
 
     def apply_dataset_splits(self, df: pd.DataFrame) -> pd.DataFrame:
         preprocessing_cfg = self.cfg.preprocessing
@@ -218,56 +229,70 @@ class ModelPrepTask:
         # Merge & preprocess
         if target_df is not None:
             df_labeled = self.merge_data(checkpoint_df, target_df, selected_students)
-            cohort_counts = (
-                df_labeled[["cohort", "cohort_term"]]
-                .value_counts(dropna=False)
-                .sort_index()
-            )
-            logging.info(
-                "Cohort & Cohort Term breakdowns (counts):\n%s",
-                cohort_counts.to_string(),
-            )
-            cohort_target_counts = (
-                df_labeled[["cohort", "target"]].value_counts(dropna=False).sort_index()
-            )
-            logging.info(
-                "Cohort Target breakdown (counts):\n%s",
-                cohort_target_counts.to_string(),
-            )
-
-            logging.info("Updating training cohorts in config")
-
-            training_cohorts = (
-                df_labeled[["cohort", "cohort_term"]]
-                .dropna()
-                .astype(str)
-                .agg(" ".join, axis=1)
-                .str.lower()
-                .unique()
-                .tolist()
-            )
-            # TODO: I believe this is going to be added to the config, so update this to use that when we do,
-            # esp for custom schools, less a worry for PDP
-            term_order = {"fall": 1, "winter": 2, "spring": 3, "summer": 4}
-
-            training_cohorts = sorted(
-                training_cohorts,
-                key=lambda x: (
-                    int(x.split()[0].split("-")[0]),
-                    term_order.get(x.split()[1], 99),
-                ),
-            )
-
-            if training_cohorts is not None:
-                update_training_cohorts(
-                    config_path=self.args.config_file_path,
-                    training_cohorts=training_cohorts,
-                    extra_save_paths=[
-                        os.path.join(current_run_path, self.args.config_file_name)
-                    ],
+            cohort_pair = cohort_pair_columns(df_labeled)
+            if cohort_pair is not None:
+                cy, ct = cohort_pair
+                cohort_counts = (
+                    df_labeled[[cy, ct]].value_counts(dropna=False).sort_index()
                 )
+                logging.info(
+                    "Cohort breakdown (%s, %s) (counts):\n%s",
+                    cy,
+                    ct,
+                    cohort_counts.to_string(),
+                )
+                cohort_target_counts = (
+                    df_labeled[[cy, ct, self.cfg.target_col]]
+                    .value_counts(dropna=False)
+                    .sort_index()
+                )
+                logging.info(
+                    "Cohort × target breakdown (counts):\n%s",
+                    cohort_target_counts.to_string(),
+                )
+
+                logging.info("Updating training cohorts in config")
+
+                training_cohorts = (
+                    df_labeled[[cy, ct]]
+                    .dropna()
+                    .astype(str)
+                    .agg(" ".join, axis=1)
+                    .str.lower()
+                    .unique()
+                    .tolist()
+                )
+                # TODO: align with config-driven cohort labels when added (esp. custom schools)
+                term_order = {"fall": 1, "winter": 2, "spring": 3, "summer": 4}
+
+                def _cohort_sort_key(x: str) -> tuple[int, int]:
+                    parts = x.split()
+                    year_part = parts[0].split("-")[0] if parts else "0"
+                    try:
+                        y = int(year_part)
+                    except ValueError:
+                        y = 0
+                    term_key = parts[1].lower() if len(parts) > 1 else ""
+                    return (y, term_order.get(term_key, 99))
+
+                training_cohorts = sorted(training_cohorts, key=_cohort_sort_key)
+
+                if training_cohorts:
+                    update_training_cohorts(
+                        config_path=self.args.config_file_path,
+                        training_cohorts=training_cohorts,
+                        extra_save_paths=[
+                            os.path.join(current_run_path, self.args.config_file_name)
+                        ],
+                    )
+                else:
+                    logging.info("There are no cohorts selected for training.")
             else:
-                logging.info("There are no cohorts selected for training.")
+                LOGGER.warning(
+                    "No PDP (cohort, cohort_term) or Edvise (entry_year, entry_term) "
+                    "columns on labeled frame; skipping cohort logging and training cohort "
+                    "config update."
+                )
 
             df_preprocessed = self.cleanup_features(df_labeled)
             # Splits/weights require targets; only apply when present
@@ -334,10 +359,11 @@ class ModelPrepTask:
                 "preprocessed.parquet with shape %s",
                 getattr(df_preprocessed, "shape", None),
             )
-            target_counts = df_preprocessed["target"].value_counts(dropna=False)
+            tgt = self.cfg.target_col
+            target_counts = df_preprocessed[tgt].value_counts(dropna=False)
             logging.info("Target breakdown (counts):\n%s", target_counts.to_string())
 
-            target_percents = df_preprocessed["target"].value_counts(
+            target_percents = df_preprocessed[tgt].value_counts(
                 normalize=True, dropna=False
             )
             logging.info(
@@ -372,10 +398,16 @@ class ModelPrepTask:
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Model preparation task for SST pipeline."
+        description="Model preparation for SST pipeline (PDP or Edvise ES)."
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument(
+        "--schema_type",
+        type=str,
+        default="pdp",
+        help="pdp | edvise | es — selects PDP vs ES project config schema.",
+    )
     parser.add_argument("--db_run_id", type=str, required=False)
     parser.add_argument(
         "--job_type", type=str, choices=["training", "inference"], required=False
@@ -396,7 +428,7 @@ if __name__ == "__main__":
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_model_prep.log",
+        log_file_name="model_prep.log",
     )
     task.run()
     for h in logging.getLogger().handlers:

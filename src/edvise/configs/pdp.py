@@ -39,6 +39,13 @@ class PDPProjectConfig(pyd.BaseModel):
     )
 
     # shared parameters
+    student_id_col_pre_val: str = pyd.Field(
+        "study_id",
+        description=(
+            "Student identifier column name in *raw* inputs before schema validation; "
+            "e.g. misjoin checks. After validation, data use ``student_id_col``."
+        ),
+    )
     student_id_col: str = "student_id"
     target_col: str = "target"
     split_col: t.Optional[str] = "split"
