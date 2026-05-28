@@ -837,6 +837,7 @@ def run_onboard_gate_2(
         load_hook_specs_from_sma_preview_path,
         write_sma_transform_hook_preview_json,
     )
+
     LOGGER.info("[onboard/gate_2] Transform hook generation (preview)")
     cohort_preview_rows = generate_sma_transform_hook_preview_rows_for_entity(
         transformation_data,
