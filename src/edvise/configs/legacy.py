@@ -152,6 +152,7 @@ class LegacyProjectConfig(pyd.BaseModel):
     preprocessing: t.Optional["PreprocessingConfig"] = None
     modeling: t.Optional["ModelingConfig"] = None
     inference: t.Optional["InferenceConfig"] = None
+    postprocessing: t.Optional["PostprocessingConfig"] = None
 
     @pyd.computed_field  # type: ignore[misc]
     @property
@@ -700,6 +701,15 @@ class BiasMitigationConfig(pyd.BaseModel):
     custom_threshold: float = pyd.Field(
         default=0.5,
         description="Threshold for student group based on bias considerations.",
+    )
+
+
+class PostprocessingConfig(pyd.BaseModel):
+    enabled: bool = pyd.Field(
+        default=False,
+        description=(
+            "When true, legacy inference runs the school's postprocessing.py after inference_h2o."
+        ),
     )
 
 

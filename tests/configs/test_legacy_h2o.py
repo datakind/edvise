@@ -86,6 +86,56 @@ def test_substitute_uc_catalog_in_string():
     assert legacy.substitute_uc_catalog_in_string("unchanged", "x") == "unchanged"
 
 
+def test_postprocessing_config_defaults_false():
+    cfg = legacy.LegacyProjectConfig.model_validate(
+        {
+            "institution_id": "inst_id",
+            "institution_name": "Inst Name",
+            "datasets": {
+                "bronze": {
+                    "raw_cohort": {
+                        "train_file_path": "/tmp/train.csv",
+                    }
+                },
+                "silver": {
+                    "modeling": {"train_table_path": "cat.silver.modeling"},
+                    "model_features": {"predict_table_path": "cat.silver.features"},
+                },
+                "gold": {
+                    "advisor_output": {"predict_table_path": "cat.gold.advisor"},
+                },
+            },
+        }
+    )
+    assert cfg.postprocessing is None or not cfg.postprocessing.enabled
+
+
+def test_postprocessing_config_enabled():
+    cfg = legacy.LegacyProjectConfig.model_validate(
+        {
+            "institution_id": "inst_id",
+            "institution_name": "Inst Name",
+            "datasets": {
+                "bronze": {
+                    "raw_cohort": {
+                        "train_file_path": "/tmp/train.csv",
+                    }
+                },
+                "silver": {
+                    "modeling": {"train_table_path": "cat.silver.modeling"},
+                    "model_features": {"predict_table_path": "cat.silver.features"},
+                },
+                "gold": {
+                    "advisor_output": {"predict_table_path": "cat.gold.advisor"},
+                },
+            },
+            "postprocessing": {"enabled": True},
+        }
+    )
+    assert cfg.postprocessing is not None
+    assert cfg.postprocessing.enabled is True
+
+
 def test_apply_runtime_uc_catalog_on_template():
     template_path = (
         pathlib.Path(__file__).parents[2] / "configs" / "legacy_h2o" / "config-TEMPLATE.toml"

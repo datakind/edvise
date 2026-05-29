@@ -136,3 +136,7 @@ num_top_features = 5
 min_prob_pos_label = 0.5
 background_data_sample = 500
 term = ['fall 2024-25']
+
+# Optional school-specific postprocessing after inference_h2o (SSI postprocessing.py).
+# [postprocessing]
+# enabled = false
