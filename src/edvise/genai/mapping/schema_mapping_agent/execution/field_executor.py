@@ -29,12 +29,17 @@ Key design principles:
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, Optional, Type
 
 import pandas as pd
 
+from edvise.genai.mapping.shared.grain.dedup_execution import (
+    apply_sma_grain_resolution_payload,
+)
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     FieldMappingManifest,
     FieldMappingRecord,
@@ -59,6 +64,125 @@ from .step_dispatcher import (
 logger = logging.getLogger(__name__)
 
 SPARK_THRESHOLD = 500_000
+
+
+class GrainReconciliationRequired(Exception):
+    """Raised when base rows exceed unique manifest-grain entities; caller runs grain HITL gate."""
+
+    def __init__(
+        self,
+        *,
+        institution_id: str,
+        dataset: str,
+        base_rows: int,
+        entity_rows: int,
+        manifest_source_keys: list[str],
+        mapped_source_columns: list[str],
+        ia_source_keys: list[str] | None,
+        hitl_output_path: Path,
+        entity_type: str,
+        sma_manifest_path: Path | None = None,
+        base_df: pd.DataFrame,
+    ) -> None:
+        self.institution_id = institution_id
+        self.dataset = dataset
+        self.base_rows = base_rows
+        self.entity_rows = entity_rows
+        self.manifest_source_keys = manifest_source_keys
+        self.mapped_source_columns = mapped_source_columns
+        self.ia_source_keys = ia_source_keys
+        self.hitl_output_path = hitl_output_path
+        self.entity_type = entity_type
+        self.sma_manifest_path = sma_manifest_path
+        self.base_df = base_df
+        super().__init__(
+            "Grain reconciliation required: "
+            f"{base_rows} base rows vs {entity_rows} unique entities on keys {manifest_source_keys}. "
+            "Run edvise.genai.mapping.schema_mapping_agent.grain_resolution."
+            f"run_grain_reconciliation_gate(...) writing to {hitl_output_path!r}, resolve HITL, "
+            "then re-run with sma_grain_resolution_path when applicable."
+        )
+
+
+# =============================================================================
+# SMA grain resolution (resume after HITL)
+# =============================================================================
+
+
+def _mapped_non_key_source_columns_for_variance(
+    manifest: FieldMappingManifest,
+    entity_keys: list[str],
+    base_table: str,
+) -> list[str]:
+    """Non-key base-table source columns that participate in field mappings (variance scoping)."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for m in manifest.mappings:
+        col = _effective_source_column(m)
+        if not col or not m.source_table:
+            continue
+        if m.source_table != base_table:
+            continue
+        if col in entity_keys:
+            continue
+        if col in seen:
+            continue
+        seen.add(col)
+        out.append(col)
+    return out
+
+
+def _apply_sma_grain_resolution_payload(
+    base_df: pd.DataFrame,
+    entity_keys: list[str],
+    payload: dict[str, Any],
+) -> pd.DataFrame:
+    """Shrink ``base_df`` using a resolver-written ``sma_grain_resolution*.json`` payload."""
+    return apply_sma_grain_resolution_payload(base_df, entity_keys, payload, log=logger)
+
+
+def _maybe_apply_sma_grain_resolution_file(
+    base_df: pd.DataFrame,
+    entity_keys: list[str],
+    *,
+    sma_grain_resolution_path: Path | None,
+    institution_id: str | None,
+    dataset: str,
+) -> pd.DataFrame:
+    if sma_grain_resolution_path is None:
+        return base_df
+    path = Path(sma_grain_resolution_path)
+    if not path.is_file():
+        logger.warning("sma_grain_resolution_path %s not found — skipping", path)
+        return base_df
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("Could not read sma grain resolution %s: %s", path, e)
+        return base_df
+    if institution_id and payload.get("institution_id") not in (None, institution_id):
+        logger.warning(
+            "sma_grain_resolution institution_id mismatch (file=%r run=%r) — skipping",
+            payload.get("institution_id"),
+            institution_id,
+        )
+        return base_df
+    if payload.get("dataset") not in (None, dataset):
+        logger.warning(
+            "sma_grain_resolution dataset mismatch (file=%r run=%r) — skipping",
+            payload.get("dataset"),
+            dataset,
+        )
+        return base_df
+    keys_file = payload.get("manifest_source_keys") or []
+    if keys_file and list(keys_file) != list(entity_keys):
+        logger.warning(
+            "sma_grain_resolution manifest_source_keys %s != executor entity_keys %s — skipping",
+            keys_file,
+            entity_keys,
+        )
+        return base_df
+    return _apply_sma_grain_resolution_payload(base_df, entity_keys, payload)
 
 
 # =============================================================================
@@ -645,14 +769,21 @@ def _apply_grain_reduction(
         return _merge_back(reduced)
 
     if rs.strategy == RowSelectionStrategy.where_not_null:
-        if rs.condition_col not in base_df.columns:
+        assign_df = base_df.assign(_s=s.values)
+        if rs.condition_col in base_df.columns:
+            mask = base_df[rs.condition_col].notna()
+        elif record.join is not None:
+            # Cross-table: condition_col often names a lookup-only column (e.g. terms
+            # pell_awarded) that never exists on the manifest base_df; the resolved
+            # series ``s`` already carries merge-aligned values per base row.
+            mask = pd.notna(s.to_numpy())
+        else:
             raise ExecutionError(
                 f"where_not_null condition_col '{rs.condition_col}' not found "
                 f"in base DataFrame for field '{record.target_field}'"
             )
         reduced = (
-            base_df.assign(_s=s.values)
-            .loc[base_df[rs.condition_col].notna()]
+            assign_df.loc[mask]
             .drop_duplicates(subset=entity_keys, keep="first")[entity_keys + ["_s"]]
             .reset_index(drop=True)
         )
@@ -704,7 +835,13 @@ def _accumulate_required_source_columns_for_plan(
             if rs.order_by:
                 required[lookup_side].add(rs.order_by)
             if rs.strategy == RowSelectionStrategy.where_not_null and rs.condition_col:
-                required[base_side].add(rs.condition_col)
+                # condition_col is a physical column on the lookup table for typical
+                # manifests (source_table == lookup_table). Requiring it on base_table
+                # falsely fails validation (e.g. terms.pell_awarded vs student-only frame).
+                if record.source_table == lookup_side:
+                    required[lookup_side].add(rs.condition_col)
+                else:
+                    required[base_side].add(rs.condition_col)
         return
 
     st = record.source_table
@@ -795,6 +932,13 @@ def execute_transformation_map(
     schema: Type,
     raise_on_gap: bool = False,
     spark_session: Optional[Any] = None,
+    *,
+    institution_id: str | None = None,
+    dataset: str | None = None,
+    hitl_output_path: Path | None = None,
+    ia_source_keys: list[str] | None = None,
+    sma_grain_resolution_path: Path | None = None,
+    sma_manifest_path: Path | None = None,
 ) -> ExecutionResult:
     """
     Execute a TransformationMap against resolved DataFrames.
@@ -819,6 +963,13 @@ def execute_transformation_map(
                 optional targets (see ``_derive_entity_keys``).
         raise_on_gap: If True, raise ExecutionGapError on first plan with hook_required
         spark_session: Optional Spark session (reserved for future use)
+        institution_id: Required when manifest grain is stricter than row count (grain gate).
+        dataset: Logical dataset label for HITL artifacts (defaults to manifest base table).
+        hitl_output_path: Where to write ``sma_grain_hitl.json`` when grain reconciliation triggers.
+        ia_source_keys: IdentityAgent ``post_clean_primary_key`` in source space; when omitted,
+            all grain mismatches are treated as within-grain multiplicity.
+        sma_grain_resolution_path: Optional resolver output to shrink ``base_df`` before execution.
+        sma_manifest_path: Optional path stored into SMA grain HITL metadata (tooling only).
 
     Returns:
         ExecutionResult with assembled target DataFrame and execution metadata
@@ -846,11 +997,51 @@ def execute_transformation_map(
     # required since we use .values to align Series during grain reduction.
     base_df = base_df.dropna(subset=entity_keys).reset_index(drop=True)
 
+    dataset_label = dataset if dataset is not None else base_table
+    base_df = _maybe_apply_sma_grain_resolution_file(
+        base_df,
+        entity_keys,
+        sma_grain_resolution_path=sma_grain_resolution_path,
+        institution_id=institution_id,
+        dataset=dataset_label,
+    )
+
     # Canonical entity order — all strategies merge back to this index so
     # every field's reduced Series has the same row ordering.
     entity_index = base_df.drop_duplicates(subset=entity_keys, keep="first")[
         entity_keys
     ].reset_index(drop=True)
+
+    n_unique = len(entity_index)
+    if n_unique < len(base_df):
+        mapped_source_columns = _mapped_non_key_source_columns_for_variance(
+            manifest, entity_keys, base_table
+        )
+        if not institution_id:
+            raise ValueError(
+                "Grain mismatch detected (more base rows than manifest-grain entities). "
+                "Pass institution_id=... to execute_transformation_map."
+            )
+        if hitl_output_path is None:
+            raise ValueError(
+                "Grain mismatch requires human review. Pass hitl_output_path=Path(...) "
+                "to execute_transformation_map so the caller can write sma_grain_hitl.json "
+                "via edvise.genai.mapping.schema_mapping_agent.grain_resolution.run_grain_reconciliation_gate "
+                "after catching GrainReconciliationRequired."
+            )
+        raise GrainReconciliationRequired(
+            institution_id=institution_id,
+            dataset=dataset_label,
+            base_rows=len(base_df),
+            entity_rows=n_unique,
+            manifest_source_keys=list(entity_keys),
+            mapped_source_columns=mapped_source_columns,
+            ia_source_keys=ia_source_keys,
+            hitl_output_path=Path(hitl_output_path),
+            entity_type=str(transformation_map.entity_type),
+            sma_manifest_path=sma_manifest_path,
+            base_df=base_df.copy(),
+        )
 
     logger.debug(
         f"[{transformation_map.entity_type}] Base table: '{base_table}', "

@@ -58,6 +58,7 @@ class HookSpec(BaseModel):
 class HITLDomain(str, Enum):
     IDENTITY_GRAIN = "identity_grain"
     IDENTITY_TERM = "identity_term"
+    SMA_GRAIN = "sma_grain"
     SCHEMA_MAPPING = "schema_mapping"  # future
     TRANSFORM = "transform"  # future
 

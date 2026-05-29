@@ -14,7 +14,11 @@ from edvise.genai.mapping.shared.token_audit.prompt_token_audit import (
     audit_prompt_sections,
 )
 
-from .schemas import get_transformation_map_schema_context
+from .schemas import (
+    RAW_EDVISE_FIELDS_FORBIDDING_MAP_VALUES,
+    get_transformation_map_schema_context,
+)
+from .utilities import COMPACT_TERM_CODE_SUFFIX_TO_SEASON
 
 from ..manifest.prompts import (
     extract_schema_descriptor,
@@ -102,7 +106,10 @@ Those five are the **only** RawEdvise columns that carry completion **timing** a
 
 def _step2b_cross_table_degree_datetime_rules() -> str:
     """Step 2b: degree conferral / certificate dates from a single source column."""
-    return """
+    _executor_suffix_json = json.dumps(
+        COMPACT_TERM_CODE_SUFFIX_TO_SEASON, sort_keys=True, indent=2
+    )
+    return f"""
 COHORT degree- and certificate-related DATETIME fields
 
 Targets: `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
@@ -138,6 +145,19 @@ the season map covers all observed fragments. Still flag `review_required: true`
 `reason: inferred_season_mapping` when the match between term config and conferral
 column encoding is uncertain. Do NOT apply a season_map from a different encoding
 scheme (e.g. entry term Season_YYYY season_map applied to a YYYYMM conferral column).
+When the plan chains to ``compact_term_code_to_conferral_date``, every **full** token
+after ``map_values`` must be ``YYYY`` + a suffix from the **EXECUTOR SUFFIX TABLE** below
+(IdentityAgent ``season_map`` may use institution-specific spellings — you must **translate**
+those into allowed compact suffixes, e.g. never emit ``MW`` or other codes outside the table).
+
+**EXECUTOR SUFFIX TABLE** for ``compact_term_code_to_conferral_date`` (must match runtime;
+case-insensitive; token = 4-digit calendar year + suffix with **no** separator):
+```json
+{_executor_suffix_json}
+```
+Only these suffix spellings (and their ASCII case variants) parse to a conferral proxy.
+Any other suffix → null at execution. If the institution needs a season outside this set,
+use ``hook_required: true`` with empty ``steps`` rather than inventing suffixes.
 
 This branch applies whether the manifest's `source_table` is an award/degree lookup
 (joined from student) or the wide student row directly. Step 2a handles join + filter +
@@ -415,6 +435,9 @@ def _step2b_utilities() -> str:
 
 
 def _step2b_rules() -> str:
+    _raw_edvise_no_map_values = ", ".join(
+        sorted(RAW_EDVISE_FIELDS_FORBIDDING_MAP_VALUES)
+    )
     return f"""<rules>
 STRUCTURE
 - Match the reference transformation map shape: transformation_maps with cohort + course sections,
@@ -517,10 +540,15 @@ CONSTANT FIELDS
 - The column parameter in fill_constant is used only for length — the value parameter is the constant string
 
 MAP VALUES USAGE
-- map_values is appropriate only for fields whose target schema enforces a constrained
+- **Do not use map_values** on these RawEdvise targets — the pipeline rejects such plans;
+  preserve institution source wording (use strip_whitespace, cast_string, or empty steps only): {_raw_edvise_no_map_values}.
+- Intermediate map_values on **datetime conferral / certificate targets** is allowed when required by
+  **COHORT degree- and certificate-related DATETIME** (token shaping before parsers such as
+  compact_term_code_to_conferral_date). That pattern is not value-remapping of free-text cohort or term-snapshot labels.
+- Otherwise, map_values is appropriate only where the target schema enforces a constrained
   allowed-value set: category fields (academic_term, entry_term, pell_recipient_year1,
   term_pell_recipient), learner_age (isin LEARNER_AGE_BUCKETS), and grade
-  (ALLOWED_LETTER_GRADES or numeric 0.0–4.0). These are the only fields where source
+  (ALLOWED_LETTER_GRADES or numeric 0.0–4.0). These are the main fields where source
   values can violate a schema constraint that map_values can fix.
 - Every other field in RawEdviseStudentDataSchema and RawEdviseCourseDataSchema is either
   free text (StringDtype, nullable=True, no value constraint) or a dtype-only field

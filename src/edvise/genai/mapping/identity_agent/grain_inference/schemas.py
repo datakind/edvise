@@ -24,15 +24,7 @@ from edvise.genai.mapping.identity_agent.utilities import (
 )
 from edvise.utils.data_cleaning import convert_to_snake_case
 
-# Valid `dedup_policy.strategy` values (JSON must use these exact strings).
-DedupStrategy = Literal[
-    "true_duplicate",
-    "temporal_collapse",
-    "categorical_priority",
-    "suffix_identifier",
-    "no_dedup",
-    "policy_required",  # current state only — never a valid resolution target
-]
+from edvise.genai.mapping.shared.grain.dedup_strategies import DedupStrategy
 
 
 class DedupPolicy(BaseModel):
@@ -43,9 +35,10 @@ class DedupPolicy(BaseModel):
     sort_ascending: bool | None = Field(
         default=None,
         description=(
-            "Sort direction for temporal_collapse. "
-            "True = ascending (earliest first), False = descending (latest first). "
-            "Always pair with keep='first'. Never use keep='last'."
+            "Sort direction before keep='first'. For temporal_collapse: True = ascending "
+            "(earliest-first when sort_by is time-like). For first_by_column: True = ascending "
+            "ordinal sort on sort_by before keeping the first row. Always pair with keep='first'. "
+            "Never use keep='last'."
         ),
     )
     keep: Literal["first", "last"] | None = None
@@ -97,10 +90,19 @@ class DedupPolicy(BaseModel):
     def sort_ascending_requires_sort_by(self) -> "DedupPolicy":
         if self.sort_ascending is not None and self.sort_by is None:
             raise ValueError("sort_ascending requires sort_by to be set.")
-        if self.strategy == "temporal_collapse" and self.sort_ascending is None:
+        if (
+            self.strategy in ("temporal_collapse", "first_by_column")
+            and self.sort_ascending is None
+        ):
             raise ValueError(
-                "temporal_collapse requires sort_ascending to be explicitly set — "
-                "True for earliest, False for latest."
+                f"{self.strategy} requires sort_ascending to be explicitly set "
+                "(True/False — which end of the sort order yields keep='first')."
+            )
+        if self.strategy == "first_by_column" and (
+            not self.sort_by or not str(self.sort_by).strip()
+        ):
+            raise ValueError(
+                "first_by_column requires a non-empty sort_by (column to sort on before keep='first')."
             )
         return self
 
@@ -190,7 +192,7 @@ class GrainContract(BaseModel):
         default=None,
         description=(
             "Institution learner/student-identifier column **as shown in the column list** "
-            "(header-normalized, typically snake_case), e.g. student_id_randomized_datakind. "
+            "(header-normalized, typically snake_case), e.g. external_student_id. "
             "Use null when the column is already student_id after normalization, or when this "
             "table's grain has no person identifier. Downstream cleaning maps this to canonical "
             "student_id once (see DatasetConfig.student_id_alias / CleaningConfig.student_id_alias)."
@@ -336,9 +338,12 @@ def build_institution_grain_contracts(
 
 def get_grain_contract_schema_context() -> str:
     """Python source for grain-stage contract models (per-dataset ``GrainContract`` JSON)."""
-    # Module-level ``DedupStrategy`` is the Literal set for ``dedup_policy.strategy``; it is not
-    # included in ``getsource`` of the model classes, so we prepend it for the system prompt.
-    dedup_strategy = get_top_level_assign_source(__file__, "DedupStrategy")
+    # Shared ``DedupPolicyStrategy`` literal is prepended (not part of ``getsource`` on model classes).
+    from edvise.genai.mapping.shared.grain import dedup_strategies as _grain_dedup
+
+    dedup_strategy = get_top_level_assign_source(
+        _grain_dedup.__file__, "DedupPolicyStrategy"
+    )
     rest = concat_model_sources(
         (HookFunctionSpec, HookSpec, DedupPolicy, GrainContract)
     )
