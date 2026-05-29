@@ -192,7 +192,7 @@ class GrainContract(BaseModel):
         default=None,
         description=(
             "Institution learner/student-identifier column **as shown in the column list** "
-            "(header-normalized, typically snake_case), e.g. student_id_randomized_datakind. "
+            "(header-normalized, typically snake_case), e.g. external_student_id. "
             "Use null when the column is already student_id after normalization, or when this "
             "table's grain has no person identifier. Downstream cleaning maps this to canonical "
             "student_id once (see DatasetConfig.student_id_alias / CleaningConfig.student_id_alias)."
