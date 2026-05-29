@@ -1,0 +1,564 @@
+"""
+Shared Streamlit layout for HITL reviewers (IA grain/term, SMA).
+
+CSS uses unified class names: ``hitl-inst``, ``hitl-qpanel``, ``hitl-meta``; options are
+``st.button`` with ``hitl-opt-mark`` + scoped CSS; grain table/variance keep ``.ia-`` names.
+"""
+
+from __future__ import annotations
+
+import html
+from collections.abc import Callable
+from typing import Any, Literal
+
+import streamlit as st
+
+from hitl_reviewer.persistence.hitl_json_batch_commit import (
+    try_approve_uc_after_json_write,
+)
+
+# Survives ``st.rerun()`` so reviewers see confirmation after Save / Approve (otherwise Streamlit
+# redraws and the prior ``st.success`` toast vanishes immediately).
+KEY_HITL_FLASH_BANNER = "hitl_flash_banner"
+
+# One hint everywhere UC approve + optional queue advance can dismiss the editor (pending-only table).
+HITL_FLASH_HINT_AFTER_UC = (
+    "If the row disappeared, the sidebar **status** filter may be **pending** only — set it to **(any)** "
+    "and click **Refresh data** to see **approved**. If the editor closed, the workbench may have advanced to the next pending group."
+)
+
+# Shown while volume JSON I/O and/or ``hitl_reviews`` SQL run (Databricks can take several seconds).
+HITL_SAVE_APPROVE_SPINNER_LABEL = "Saving HITL JSON and approving UC row…"
+HITL_UC_GATE_SPINNER_LABEL = "Updating Unity Catalog review gate…"
+
+
+def set_hitl_flash_banner(
+    kind: Literal["success", "warning", "info"], message: str
+) -> None:
+    st.session_state[KEY_HITL_FLASH_BANNER] = {"kind": kind, "message": message}
+
+
+def render_hitl_flash_banner_if_any() -> None:
+    raw = st.session_state.pop(KEY_HITL_FLASH_BANNER, None)
+    if not isinstance(raw, dict):
+        return
+    msg = str(raw.get("message") or "").strip()
+    if not msg:
+        return
+    kind = raw.get("kind")
+    if kind == "warning":
+        st.warning(msg)
+    elif kind == "info":
+        st.info(msg)
+    else:
+        st.success(msg)
+
+
+def mark_hitl_nav_visit(
+    *, store_key: str, silver_path: str, cur: int, n_items: int
+) -> tuple[int, bool]:
+    """
+    Track which Prev/Next positions (``0 .. n_items-1``) have been displayed for this JSON path.
+
+    Returns ``(opened_count, all_opened)`` where ``opened_count`` is how many distinct positions
+    in range have been visited at least once (session resets per ``silver_path`` key inside ``store_key``).
+    """
+    if n_items <= 1:
+        return (1, True)
+    if store_key not in st.session_state:
+        st.session_state[store_key] = {}
+    by_path: dict[str, set[int]] = st.session_state[store_key]
+    if silver_path not in by_path:
+        by_path[silver_path] = set()
+    by_path[silver_path].add(int(cur))
+    seen = by_path[silver_path]
+    need = set(range(int(n_items)))
+    all_open = need <= seen
+    opened_k = len(seen & need)
+    return (opened_k, all_open)
+
+
+def inject_hitl_css() -> None:
+    st.markdown(
+        """
+<style>
+/* Constrain review card to readable width */
+div[data-testid="stVerticalBlockBorderWrapper"],
+div[data-testid="stVerticalBlock"] {
+  max-width: 900px !important;
+}
+
+/* Tighten candidate keys table (full rule — font/padding in one place) */
+.ia-cand-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin: 0.5rem 0 1rem 0; }
+.ia-cand-table th, .ia-cand-table td { border: 1px solid rgba(0,0,0,0.08); padding: 0.3rem 0.45rem; vertical-align: top; }
+.ia-cand-table th { background: rgba(0,0,0,0.04); text-align: left; }
+.ia-notes { max-width: 28rem; white-space: pre-wrap; word-break: break-word; }
+
+/* Tighten variance panel */
+.ia-variance-panel { padding: 0.5rem 0.75rem; margin: 0.5rem 0 0.75rem 0; border: 1px solid rgba(0,0,0,0.1);
+  border-radius: 10px; background: rgba(0,0,0,0.02);
+}
+.ia-var-line { font-size: 0.85rem; line-height: 1.45; margin: 0.2rem 0 0.4rem 0; }
+.ia-variance-panel h4 { margin: 0 0 0.5rem 0; font-size: 1rem; font-weight: 600; color: rgba(49, 51, 63, 0.95); }
+.ia-variance-explainer { font-size: 0.78rem; line-height: 1.45; color: rgba(49, 51, 63, 0.75);
+  margin: 0 0 0.6rem 0; padding-bottom: 0.45rem; border-bottom: 1px solid rgba(0,0,0,0.07); }
+.ia-var-key { font-weight: 600; font-family: ui-monospace, monospace; }
+
+/* Option card buttons: .hitl-opt-mark in prior block (hidden) + adjacent stButton; avoids action bar */
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button {
+  width: 100% !important;
+  text-align: left !important;
+  white-space: normal !important;
+  height: auto !important;
+  min-height: unset !important;
+  padding: 0.4rem 0.65rem !important;
+  border-radius: 6px !important;
+  font-size: 0.82rem !important;
+  line-height: 1.35 !important;
+  margin-bottom: 0.35rem !important;
+  box-shadow: none !important;
+  display: block !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button p {
+  text-align: left !important;
+  margin: 0 !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button p:first-child {
+  font-weight: 600 !important;
+  font-size: 0.85rem !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button p:last-child {
+  font-size: 0.78rem !important;
+  opacity: 0.75 !important;
+  margin-top: 0.15rem !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button[kind="secondary"] {
+  border: 1px solid rgba(0,0,0,0.12) !important;
+  background: white !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button[kind="primary"] {
+  border: 1px solid rgba(99, 102, 241, 0.7) !important;
+  background: rgba(99, 102, 241, 0.08) !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button[kind="secondary"]:hover:enabled {
+  border-color: rgba(99,102,241,0.5) !important;
+  background: rgba(99,102,241,0.04) !important;
+}
+div[data-testid="stElementContainer"]:has(p.hitl-opt-mark) + div button[kind="primary"]:hover:enabled {
+  border-color: rgba(99, 102, 241, 0.85) !important;
+  background: rgba(99, 102, 241, 0.12) !important;
+}
+p.hitl-opt-mark { display: block; height: 0; margin: 0 !important; padding: 0 !important; font-size: 0; line-height: 0; overflow: hidden; }
+.hitl-inst { font-size: 1.5rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.25rem 0; letter-spacing: -0.02em; }
+.hitl-qpanel { font-size: 1.05rem; line-height: 1.5; font-weight: 500; margin: 0.6rem 0 0.85rem 0;
+  padding: 0.75rem 1rem; background: rgba(99,102,241,0.07); border: 1px solid rgba(99,102,241,0.18);
+  border-radius: 8px; overflow-wrap: anywhere; word-break: break-word; }
+.hitl-meta { font-size: 0.78rem; color: rgba(49, 51, 63, 0.75); margin-bottom: 0.35rem; }
+.hitl-ctx-block { font-size: 0.95rem; line-height: 1.45; color: rgba(49, 51, 63, 0.92); }
+/* SMA/IA: wrap long evidence/rationale. Match Streamlit st.text (pre) feel: mono + subtle well,
+   but white-space: pre-wrap + overflow-wrap so lines wrap instead of a horizontal scrollbar. */
+.hitl-ctx-prose { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.86rem; line-height: 1.45; color: rgba(49, 51, 63, 0.92);
+  margin: 0.15rem 0 0.6rem 0; max-width: 100%; box-sizing: border-box;
+  padding: 0.5rem 0.65rem; border-radius: 0.25rem; background: rgba(250, 250, 250, 1);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.hitl-chip-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.25rem; }
+.hitl-chip { display: inline-block; padding: 0.08rem 0.45rem; border-radius: 999px; font-size: 0.72rem;
+  background: rgba(111, 66, 193, 0.12); border: 1px solid rgba(111, 66, 193, 0.28); }
+.ia-domain-pill {
+  display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
+  background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.35); color: rgb(6, 95, 70);
+}
+.ia-uni-good { color: rgb(5, 122, 85); font-weight: 600; }
+.ia-uni-warn { color: rgb(180, 83, 9); font-weight: 600; }
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+
+
+def render_institution_line(*, inst_raw: str, format_fn: Callable[[str], str]) -> None:
+    st.markdown(
+        f'<p class="hitl-inst">{html.escape(format_fn(inst_raw))}</p>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_sma_status_meta_line(*, prebuilt_line_html: str) -> None:
+    """SMA+nav: run wide pending line (``hitl-meta``) — `prebuilt` is pre-escaped / safe inner HTML."""
+    st.markdown(
+        f'<p class="hitl-meta">{prebuilt_line_html}</p>',
+        unsafe_allow_html=True,
+    )
+
+
+def render_hitl_header(
+    *,
+    inst_raw: str,
+    format_fn: Callable[[str], str],
+    tbl: str,
+    domain_label: str,
+    cur: int,
+    n_items: int,
+    run_total: int | None,
+    item_id: Any,
+    inst_class: str = "hitl-inst",
+) -> None:
+    """
+    One title (institution) and one sub line: table · domain · progress. Does not repeat
+    ``onboard_run_id`` (the parent HITL group already shows run / phase / artifact).
+    """
+    st.markdown(
+        f'<p class="{inst_class}">{html.escape(format_fn(inst_raw))}</p>',
+        unsafe_allow_html=True,
+    )
+    domain_e = html.escape(str(domain_label).strip())
+    table_e = html.escape(str(tbl).strip()) or "—"
+    in_file = f"{cur + 1} of {n_items} in this file"
+    if run_total is not None and int(run_total) != n_items:
+        in_file += f" · {int(run_total)} in this run"
+    _id = str(item_id).strip()
+    item_bit = f" · <code>{html.escape(_id)}</code>" if _id else ""
+    st.markdown(
+        f'<p class="hitl-meta">'
+        f"<strong>{table_e}</strong> · {domain_e} · {in_file}{item_bit}</p>",
+        unsafe_allow_html=True,
+    )
+
+
+def init_sel_key(sel_key: str, choice: Any, n_opt: int) -> None:
+    if n_opt <= 0:
+        return
+
+    def _disk_ix() -> int:
+        if choice is None:
+            return 0
+        try:
+            return max(0, min(int(choice) - 1, n_opt - 1))
+        except (TypeError, ValueError):
+            return 0
+
+    if sel_key not in st.session_state:
+        st.session_state[sel_key] = _disk_ix()
+        return
+    try:
+        cur = int(st.session_state[sel_key])
+    except (TypeError, ValueError):
+        cur = _disk_ix()
+    st.session_state[sel_key] = max(0, min(cur, n_opt - 1))
+
+
+def render_option_cards(
+    *,
+    options: list[Any],
+    sel_key: str,
+    ia_rec_ix: int,
+    json_choice: Any,
+    uc_group_pending: bool,
+    key_prefix: str,
+    sk: str,
+    file_index: int,
+    option_label_format: Literal["raw", "numbered"] = "raw",
+    recommendation_badge_label: str = "IA recommendation",
+) -> None:
+    st.markdown("**Decision**")
+    for j, opt in enumerate(options):
+        if not isinstance(opt, dict):
+            continue
+        lab_raw = str(opt.get("label") or f"Option {j + 1}")
+        if option_label_format == "numbered":
+            lab = f"{j + 1}. {lab_raw}"
+        else:
+            lab = lab_raw
+        desc = str(opt.get("description") or "")
+        selected = int(st.session_state[sel_key]) == j
+        is_rec = j == ia_rec_ix
+        if is_rec and json_choice is not None:
+            badge = " · ✦ Saved in JSON"
+        elif is_rec:
+            badge = f" · ✦ {recommendation_badge_label}"
+        else:
+            badge = ""
+        btn_label = f"**{lab}**{badge}  \n{desc}"
+        st.markdown(
+            f'<p class="hitl-opt-mark" data-opt="{j}">.</p>',
+            unsafe_allow_html=True,
+        )
+        if st.button(
+            btn_label,
+            key=f"{key_prefix}-pick-{sk}-{file_index}-{j}",
+            type="primary" if selected else "secondary",
+            use_container_width=True,
+            disabled=not uc_group_pending,
+        ):
+            st.session_state[sel_key] = j
+            st.rerun()
+
+
+def apply_hitl_nav_delta(
+    *,
+    nav_key: str,
+    n_items: int,
+    delta: int,
+    before_nav_rerun: Callable[[], None] | None = None,
+) -> None:
+    """Prev/Next handler: read current index from session (not caller closure) then clamp."""
+    if before_nav_rerun is not None:
+        before_nav_rerun()
+    try:
+        cur_v = int(st.session_state.get(nav_key, 0))
+    except (TypeError, ValueError):
+        cur_v = 0
+    nmax = max(1, int(n_items))
+    st.session_state[nav_key] = max(0, min(nmax - 1, cur_v + int(delta)))
+
+
+def render_action_bar(
+    *,
+    nav_key: str,
+    cur: int,
+    n_items: int,
+    sk: str,
+    key_prefix: str,
+    file_index: int,
+    include_prev_next: bool,
+    nav_prev_button_key: str | None,
+    nav_next_button_key: str | None,
+    nav_entity_label: str = "item",
+    primary_button_key: str,
+    primary_button_label: str,
+    primary_help: str,
+    pre_bar_caption: str | None,
+    uc_group_pending: bool,
+    primary_extra_disabled: bool = False,
+    show_reject_item: bool,
+    persist_fn: Callable[[], tuple[bool, str]],
+    reject_fn: Callable[[], None] | None,
+    after_persist_success: Callable[[], None],
+    approve_fn: Callable[[], None] | None,
+    after_uc_approve_success: Callable[[], None] | None,
+    success_silver_filename: str | None,
+    before_nav_rerun: Callable[[], None] | None = None,
+    saved_json_description: str = "manifest JSON",
+    reject_uc_fn: Callable[[], None] | None = None,
+    reject_uc_button_key: str | None = None,
+) -> None:
+    if pre_bar_caption is not None:
+        st.caption(pre_bar_caption)
+    ent = str(nav_entity_label).strip() or "item"
+    with st.container(border=True):
+        if include_prev_next and n_items > 1:
+            c_prev, c_next, _nav_pad = st.columns([1, 1, 3], gap="small")
+            with c_prev:
+                pk = (
+                    f"{key_prefix}-prev-{sk}"
+                    if nav_prev_button_key is None
+                    else nav_prev_button_key
+                )
+                st.button(
+                    "◀ Prev",
+                    key=pk,
+                    use_container_width=True,
+                    disabled=cur <= 0,
+                    help=(
+                        f"First {ent} item in this file."
+                        if cur <= 0
+                        else f"Previous {ent} item (another table) in this JSON file."
+                    ),
+                    on_click=apply_hitl_nav_delta,
+                    kwargs={
+                        "nav_key": nav_key,
+                        "n_items": n_items,
+                        "delta": -1,
+                        "before_nav_rerun": before_nav_rerun,
+                    },
+                )
+            with c_next:
+                nk = (
+                    f"{key_prefix}-nxt-{sk}"
+                    if nav_next_button_key is None
+                    else nav_next_button_key
+                )
+                st.button(
+                    "Next ▶",
+                    key=nk,
+                    use_container_width=True,
+                    disabled=cur >= n_items - 1,
+                    help=(
+                        f"Last {ent} item in this file — pick an option below, then use **Save JSON & approve UC**."
+                        if cur >= n_items - 1
+                        else f"Next {ent} item (another table) in this JSON file."
+                    ),
+                    on_click=apply_hitl_nav_delta,
+                    kwargs={
+                        "nav_key": nav_key,
+                        "n_items": n_items,
+                        "delta": 1,
+                        "before_nav_rerun": before_nav_rerun,
+                    },
+                )
+            with _nav_pad:
+                pass
+            st.divider()
+        c_save, c_rej = st.columns([2.6, 1.1], gap="small")
+        with c_save:
+            if st.button(
+                primary_button_label,
+                key=primary_button_key,
+                type="primary",
+                use_container_width=True,
+                disabled=not uc_group_pending or primary_extra_disabled,
+                help=primary_help,
+            ):
+                with st.spinner(HITL_SAVE_APPROVE_SPINNER_LABEL):
+                    if before_nav_rerun is not None:
+                        before_nav_rerun()
+                    ok, err = persist_fn()
+                    ap_ok = True
+                    ap_err: str | None = None
+                    if ok:
+                        after_persist_success()
+                        ap_ok, ap_err = try_approve_uc_after_json_write(
+                            uc_group_pending=uc_group_pending,
+                            approve_uc_if_complete=approve_fn,
+                        )
+                if not ok:
+                    st.error(err)
+                else:
+                    if not ap_ok:
+                        _uc_fail = (ap_err or "").strip() or "Unknown error."
+                        if success_silver_filename is not None:
+                            _lead = f"Silver JSON was saved, but the Unity Catalog gate did not finalize: {_uc_fail}"
+                        else:
+                            _lead = f"JSON was saved, but the Unity Catalog gate did not finalize: {_uc_fail}"
+                        set_hitl_flash_banner(
+                            "warning",
+                            _lead
+                            + " Use **Refresh data** after fixing; you can retry **Save** if silver already looks correct.",
+                        )
+                        st.rerun()
+                    elif success_silver_filename is not None:
+                        if uc_group_pending and approve_fn is not None:
+                            if after_uc_approve_success is not None:
+                                after_uc_approve_success()
+                            st.success(
+                                f"Saved ``{success_silver_filename}`` and approved the UC row."
+                            )
+                            st.toast("JSON + UC complete.", icon="✅")
+                            set_hitl_flash_banner(
+                                "success",
+                                f"Saved `{success_silver_filename}` and approved the UC row. "
+                                + HITL_FLASH_HINT_AFTER_UC,
+                            )
+                        elif not uc_group_pending:
+                            st.success(
+                                f"Saved ``{success_silver_filename}``. UC row was not **pending**, so "
+                                "UC approve was skipped."
+                            )
+                            set_hitl_flash_banner(
+                                "info",
+                                f"Saved `{success_silver_filename}`. UC approve was skipped (row was not pending).",
+                            )
+                        else:
+                            st.warning(
+                                f"Saved ``{success_silver_filename}``, but UC approve was not run "
+                                "(internal: missing approve callback — report this)."
+                            )
+                            set_hitl_flash_banner(
+                                "warning",
+                                f"Saved `{success_silver_filename}` without UC approve (missing callback).",
+                            )
+                        st.rerun()
+                    else:
+                        _doc = (
+                            saved_json_description or "HITL JSON"
+                        ).strip() or "HITL JSON"
+                        if uc_group_pending and approve_fn is not None:
+                            if after_uc_approve_success is not None:
+                                after_uc_approve_success()
+                            st.success(f"Saved {_doc} and approved the UC row.")
+                            st.toast("JSON + UC complete.", icon="✅")
+                            set_hitl_flash_banner(
+                                "success",
+                                f"Saved {_doc} and approved the UC row. "
+                                + HITL_FLASH_HINT_AFTER_UC,
+                            )
+                        elif uc_group_pending:
+                            st.warning(
+                                f"Saved {_doc}, but UC approve was not run "
+                                "(internal: missing approve callback — report this)."
+                            )
+                            set_hitl_flash_banner(
+                                "warning",
+                                f"Saved {_doc} without UC approve (missing callback).",
+                            )
+                        else:
+                            st.success(
+                                f"Saved {_doc}. UC was not pending, so UC approve was skipped."
+                            )
+                            set_hitl_flash_banner(
+                                "info",
+                                f"Saved {_doc}. UC approve was skipped (row was not pending).",
+                            )
+                        st.rerun()
+        with c_rej:
+            if (
+                reject_uc_fn is not None
+                and (reject_uc_button_key or "").strip()
+                and uc_group_pending
+            ):
+                if st.button(
+                    "Reject gate",
+                    key=str(reject_uc_button_key).strip(),
+                    type="secondary",
+                    use_container_width=True,
+                    disabled=not uc_group_pending,
+                    help=(
+                        "Mark this **review gate** rejected in Unity Catalog (``hitl_reviews`` only). "
+                        "Does not edit the silver JSON file."
+                    ),
+                ):
+                    try:
+                        with st.spinner(HITL_UC_GATE_SPINNER_LABEL):
+                            reject_uc_fn()
+                    except Exception as ex:  # noqa: BLE001
+                        st.error(str(ex))
+            if show_reject_item and reject_fn is not None and uc_group_pending:
+                with st.popover("Advanced…", use_container_width=True):
+                    st.caption(
+                        "**Flag current item in silver** clears this item’s ``choice`` and adds a note "
+                        "in the JSON file. The **gate stays pending** in Unity Catalog until you "
+                        "**Save JSON & approve UC** or click **Reject gate**."
+                    )
+                    if st.button(
+                        "Flag current item (silver only)",
+                        key=f"{key_prefix}-reject-item-{sk}-{file_index}",
+                        type="secondary",
+                        use_container_width=True,
+                    ):
+                        reject_fn()
+    if (
+        success_silver_filename is not None
+        and uc_group_pending
+        and (show_reject_item or reject_uc_fn is not None)
+    ):
+        _cap = "**Save JSON & approve UC** writes every item in this file and approves the pending UC row."
+        if primary_extra_disabled:
+            _cap += " It stays disabled until every item in this file has been opened with Prev/Next."
+        if show_reject_item and reject_uc_fn is not None:
+            _cap += (
+                " **Reject gate** updates Unity Catalog only. **Advanced → Flag current item** edits "
+                "silver for the **current** row only and does **not** clear pending by itself."
+            )
+        elif reject_uc_fn is not None:
+            _cap += " **Reject gate** skips silver and only updates ``hitl_reviews``."
+        st.caption(_cap)
+    elif (
+        reject_uc_fn is not None
+        and uc_group_pending
+        and success_silver_filename is None
+    ):
+        st.caption(
+            "**Reject gate** skips silver JSON for this gate and only updates ``hitl_reviews``."
+        )

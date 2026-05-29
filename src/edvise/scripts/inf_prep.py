@@ -19,6 +19,9 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
+from edvise.configs.schema_type import is_edvise_schema, project_config_class
+from edvise.configs.pdp import InferenceConfig as PDPInferenceConfig
+from edvise.configs.es import InferenceConfig as ESInferenceConfig
 from edvise.model_prep import cleanup_features as cleanup
 from edvise.dataio.read import read_parquet, read_config
 from edvise.student_selection.filter_inference import (
@@ -26,8 +29,8 @@ from edvise.student_selection.filter_inference import (
     parse_term_filter_param,
 )
 from edvise.dataio.write import write_parquet
-from edvise.configs.pdp import PDPProjectConfig, InferenceConfig
 from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
+from edvise.shared.utils import cohort_pair_columns
 from edvise.shared.validation import (
     require,
 )
@@ -44,7 +47,13 @@ logging.getLogger("py4j").setLevel(logging.WARNING)
 class InferencePrepTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.cfg = read_config(args.config_file_path, schema=PDPProjectConfig)
+        cfg_cls = project_config_class(args.schema_type)
+        self.cfg = read_config(args.config_file_path, schema=cfg_cls)
+        inference_config_cls = (
+            ESInferenceConfig
+            if is_edvise_schema(args.schema_type)
+            else PDPInferenceConfig
+        )
 
         # Resolve inference cohort from job param or config (term_filter is generic for cohort/graduation)
         if getattr(self.args, "job_type", None) == "inference":
@@ -53,7 +62,7 @@ class InferencePrepTask:
             )
             if param_cohort is not None:
                 if self.cfg.inference is None:
-                    self.cfg.inference = InferenceConfig(cohort=param_cohort)
+                    self.cfg.inference = inference_config_cls(cohort=param_cohort)
                 else:
                     self.cfg.inference.term = param_cohort
                 LOGGER.info(
@@ -100,7 +109,11 @@ class InferencePrepTask:
         return df_inf
 
     def cleanup_features(self, df_labeled: pd.DataFrame) -> pd.DataFrame:
-        cleaner = cleanup.PDPCleanup()
+        cleaner: cleanup.BaseCleanup
+        if is_edvise_schema(self.args.schema_type):
+            cleaner = cleanup.ESCleanup()
+        else:
+            cleaner = cleanup.PDPCleanup()
         return cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled)
 
     def run(self):
@@ -117,11 +130,16 @@ class InferencePrepTask:
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
 
+        log_file_name = (
+            "es_inference_prep.log"
+            if is_edvise_schema(self.args.schema_type)
+            else "pdp_inference_prep.log"
+        )
         log_path = init_file_logging(
             self.args,
             self.cfg,
             logger_name=__name__,
-            log_file_name="pdp_inference_prep.log",
+            log_file_name=log_file_name,
         )
         LOGGER.info("Per-run log file initialized at %s", log_path)
 
@@ -167,15 +185,16 @@ class InferencePrepTask:
         inf_terms = self.cfg.inference.term
         df_selected_terms = filter_inference_term(df_labeled, term_list=inf_terms)
 
-        cohort_counts = (
-            df_selected_terms[["cohort", "cohort_term"]]
-            .value_counts(dropna=False)
-            .sort_index()
-        )
-        logging.info(
-            "Cohort & Cohort Term breakdowns (counts):\n%s",
-            cohort_counts.to_string(),
-        )
+        cohort_pair = cohort_pair_columns(df_selected_terms)
+        if cohort_pair is not None:
+            cy, ct = cohort_pair
+            cohort_counts = (
+                df_selected_terms[[cy, ct]].value_counts(dropna=False).sort_index()
+            )
+            logging.info(
+                "Cohort & Cohort Term breakdowns (counts):\n%s",
+                cohort_counts.to_string(),
+            )
 
         term_counts = (
             df_selected_terms[["academic_year", "academic_term"]]
@@ -205,6 +224,12 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument(
+        "--schema_type",
+        type=str,
+        default="pdp",
+        help="pdp | edvise | es — selects PDP vs ES project config schema.",
+    )
     parser.add_argument("--db_run_id", type=str, required=False)
     parser.add_argument(
         "--term_filter",

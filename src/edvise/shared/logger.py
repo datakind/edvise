@@ -145,6 +145,35 @@ def local_fs_path(p: str) -> str:
     return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
 
+def resolve_genai_segment_log_path(
+    run_root: str | os.PathLike[str],
+    *,
+    mode: str,
+    resume_from: str = "start",
+) -> str:
+    """
+    Per-task log file under ``<run_root>/logs/`` (identity_agent / schema_mapping_agent runs).
+
+    Each Databricks task process should use ``append=False`` with this path so gates
+    (e.g. ``onboard_gate_1``) do not share one file with ``onboard_start``.
+
+    - Execute: ``.../logs/execute.log``
+    - Onboard: ``.../logs/onboard_<resume_from>.log`` (e.g. ``onboard_start.log``)
+    """
+    base = os.fspath(run_root)
+    logs_dir = os.path.join(base, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    mode_l = (mode or "").strip().lower()
+    if mode_l == "execute":
+        return os.path.join(logs_dir, "execute.log")
+    if mode_l == "onboard":
+        rf = (resume_from or "start").strip() or "start"
+        return os.path.join(logs_dir, f"onboard_{rf}.log")
+    raise ValueError(
+        f"Invalid mode={mode!r} for segment log (expected 'onboard' or 'execute')."
+    )
+
+
 def resolve_run_path(
     args: argparse.Namespace,
     cfg: Union[PDPProjectConfig, ESProjectConfig],
@@ -169,6 +198,26 @@ def resolve_run_path(
     return os.path.join(silver_volume_path, run_id, subdir)
 
 
+def _sync_file_log_handlers(root: logging.Logger) -> None:
+    """Best-effort flush + fsync so UC / FUSE-backed paths show up in volume UIs promptly."""
+    for h in root.handlers:
+        if not isinstance(h, logging.FileHandler):
+            continue
+        stream = getattr(h, "stream", None)
+        if stream is None:
+            continue
+        try:
+            stream.flush()
+        except OSError:
+            pass
+        try:
+            fd = stream.fileno()
+            if fd >= 0:
+                os.fsync(fd)
+        except OSError:
+            pass
+
+
 def init_file_logging_at_path(
     log_file_path: str | os.PathLike[str],
     logger_name: str = __name__,
@@ -179,6 +228,10 @@ def init_file_logging_at_path(
     Configure root logging with console + file handlers at a fixed path (Databricks-safe).
 
     Use when the run directory is known without PDPProjectConfig (e.g. genai mapping jobs).
+
+    On Unity Catalog volumes, ``FileHandler(delay=True)`` can defer creating the file and
+    buffered writes may not appear in the catalog file browser until flush/fsync; this
+    function opens the log file immediately (``delay=False``) and syncs after bootstrap lines.
 
     Args:
         append: If True, new log lines are appended to the file (e.g. resume gate_1 after
@@ -209,7 +262,7 @@ def init_file_logging_at_path(
 
     file_mode = "a" if append else "w"
     fh = _FlushTolerantFileHandler(
-        local_path, mode=file_mode, encoding="utf-8", delay=True
+        local_path, mode=file_mode, encoding="utf-8", delay=False
     )
     fh.setFormatter(
         logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -229,6 +282,8 @@ def init_file_logging_at_path(
             "---------- log continues below (prior file size was %d bytes) ----------",
             prior_size,
         )
+
+    _sync_file_log_handlers(root)
 
     return local_path
 

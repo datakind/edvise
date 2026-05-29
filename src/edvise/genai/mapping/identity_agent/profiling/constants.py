@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from edvise.genai.mapping.shared.profiling import variance as _variance_profiling
+
 # --- Raw column / snapshot profiling ---
 UNIQUE_VALUES_MAX_CARDINALITY = 50
 SAMPLE_VALUES_TOP_N = 5
@@ -30,9 +32,9 @@ NEAR_BEST_STOP_DELTA = 0.003
 LARGE_TABLE_KEY_SEARCH_SAMPLE_ROWS = 100_000
 TOP_K_CANDIDATES_LARGE_TABLE = 5
 
-SAMPLE_GROUP_SIZE = 500
-PROFILE_MAX_WORK_ROWS = 150_000
-WITHIN_GROUP_SAMPLE_VALUES = 5
+SAMPLE_GROUP_SIZE = _variance_profiling.SAMPLE_GROUP_SIZE
+PROFILE_MAX_WORK_ROWS = _variance_profiling.PROFILE_MAX_WORK_ROWS
+WITHIN_GROUP_SAMPLE_VALUES = _variance_profiling.WITHIN_GROUP_SAMPLE_VALUES
 
 INDEX_COLUMN_PATTERNS = re.compile(
     r"^(unnamed:\s*[\d.]+|index|row_number|row_num|rownum|row_id|__index_level_\d+__)$",

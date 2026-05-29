@@ -185,7 +185,7 @@ resources:
             - task_key: checkpoint
             - task_key: student_selection
           spark_python_task:
-            python_file: src/edvise/scripts/pdp_inf_prep.py
+            python_file: src/edvise/scripts/inf_prep.py
             source: GIT
             parameters:
               - --silver_volume_path
@@ -196,6 +196,10 @@ resources:
               - "{{job.parameters.term_filter}}"
               - --config_file_path
               - "{{tasks.data_ingestion.values.config_file_path}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
+              - --job_type
+              - "{{job.parameters.job_type}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -242,7 +246,11 @@ resources:
               - --config_file_path
               - "{{tasks.data_ingestion.values.config_file_path}}"
               - --schema_type
+<<<<<<< HEAD
               - "pdp"
+=======
+              - "{{job.parameters.schema_type}}"
+>>>>>>> develop
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:

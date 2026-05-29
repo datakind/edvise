@@ -30,6 +30,12 @@ _IDENTITY_OPTIONAL_ACTIVE: tuple[tuple[str, str], ...] = (
     ("grain_hooks.py", "grain_hooks.py"),
 )
 
+# SMA gate-2 grain resolution sidecars (same basename under ``schema_mapping_agent/`` and ``active/``).
+_SMA_GRAIN_RESOLUTION_FILENAMES: tuple[str, ...] = (
+    "sma_grain_resolution_cohort.json",
+    "sma_grain_resolution_course.json",
+)
+
 
 class _ActivePromotionPaths(Protocol):
     """Subset of :class:`~edvise.genai.mapping.scripts.edvise_genai_sma.SMAPaths` used for promotion."""
@@ -124,6 +130,10 @@ def promote_genai_mapping_to_active(
     ``transformation_map.json``. Optional: ``transform_hooks.py`` if present; identity-agent
     outputs when present; ``identity_hooks/`` subtree when materialized hook modules exist
     (matches :func:`~edvise.genai.mapping.shared.hitl.hook_spec.paths.default_hook_module_relpath`).
+    Optional SMA grain resolution JSON next to the onboard ``manifest_map.json``
+    (``sma_grain_resolution_cohort.json`` / ``sma_grain_resolution_course.json``) — copied into
+    ``active/`` when present so ``mode=execute`` can load them (see
+    :func:`~edvise.genai.mapping.schema_mapping_agent.grain_resolution.runner.execute_transformation_map_for_sma_run`).
 
     Writes :data:`GENAI_ACTIVE_REGISTRY_BASENAME` last (atomic) so ``active/`` records the source
     ``onboard_run_id`` for this promotion.
@@ -153,6 +163,14 @@ def promote_genai_mapping_to_active(
     for src_name, dst_name in _IDENTITY_OPTIONAL_ACTIVE:
         src, dst = ia_root / src_name, paths.active_root / dst_name
         if src.is_file():
+            shutil.copy2(src, dst)
+            LOGGER.info("Promoted %s -> %s", src, dst)
+
+    sma_run_root = paths.manifest_map.parent
+    for fname in _SMA_GRAIN_RESOLUTION_FILENAMES:
+        src = sma_run_root / fname
+        if src.is_file():
+            dst = paths.active_root / fname
             shutil.copy2(src, dst)
             LOGGER.info("Promoted %s -> %s", src, dst)
 

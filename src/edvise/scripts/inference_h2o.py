@@ -18,7 +18,6 @@ import logging
 import os
 import sys
 import typing as t
-from dataclasses import dataclass
 from email.headerregistry import Address
 
 # Go up 3 levels from the current file's directory to reach repo root
@@ -44,7 +43,14 @@ from mlflow.tracking import MlflowClient
 # Project modules
 import edvise.dataio as dataio
 import edvise.modeling as modeling
-from edvise import configs
+from edvise.configs.legacy import LegacyProjectConfig, apply_runtime_uc_catalog
+from edvise.configs.pdp import PDPProjectConfig
+from edvise.configs.es import ESProjectConfig
+from edvise.configs.schema_type import (
+    is_legacy_schema,
+    project_config_class,
+    resolve_features_table_path,
+)
 from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session
 from edvise.modeling.inference import top_n_features, features_box_whiskers_table
@@ -71,52 +77,35 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
 
-@dataclass(frozen=True)
-class SchemaSpec:
-    schema_type: t.Literal["pdp", "legacy"]
-    cfg_schema: type[t.Any]
-    features_table_path: str
-
-
-def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
-    # pdp
-    if args.schema_type == "pdp":
-        return SchemaSpec(
-            schema_type="pdp",
-            cfg_schema=configs.pdp.PDPProjectConfig,
-            features_table_path="shared/assets/pdp_features_table.toml",
-        )
-
-    # legacy (non-PDP)
-    if not args.features_table_path:
-        raise ValueError("--features_table_path required when --schema_type=legacy")
-
-    return SchemaSpec(
-        schema_type="legacy",
-        cfg_schema=configs.legacy.LegacyProjectConfig,
-        features_table_path=args.features_table_path,
-    )
-
-
 class ModelInferenceTask:
     """Encapsulates the model inference logic for the SST pipeline."""
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.spec = resolve_spec(args)
         self.spark_session = get_spark_session()
-        self.cfg = dataio.read.read_config(
-            self.args.config_file_path,
-            schema=self.spec.cfg_schema,
+        cfg_cls = project_config_class(args.schema_type)
+        self.cfg = dataio.read.read_config(self.args.config_file_path, schema=cfg_cls)
+        if is_legacy_schema(args.schema_type):
+            self.cfg = apply_runtime_uc_catalog(self.cfg, self.args.DB_workspace)
+        self.features_table_path = resolve_features_table_path(
+            args.schema_type, args.features_table_path
         )
-        if self.spec.schema_type == "legacy":
-            self.cfg = configs.legacy.apply_runtime_uc_catalog(
-                self.cfg, self.args.DB_workspace
-            )
-        self.features_table_path = self.spec.features_table_path
         # Populated by load_mlflow_model()
         self.model_run_id: str | None = None
         self.model_experiment_id: str | None = None
+
+    def read_config(
+        self, config_file_path: str
+    ) -> PDPProjectConfig | ESProjectConfig | LegacyProjectConfig:
+        cfg_cls = project_config_class(self.args.schema_type)
+        try:
+            return dataio.read.read_config(config_file_path, schema=cfg_cls)
+        except FileNotFoundError:
+            logging.error("Configuration file not found at %s", config_file_path)
+            raise
+        except Exception as e:
+            logging.error("Error reading configuration file: %s", e)
+            raise
 
     def load_mlflow_model_metadata(self) -> None:
         """Discover UC model latest version -> run_id + experiment_id (no model object needed here)."""
@@ -258,7 +247,7 @@ class ModelInferenceTask:
         logging.info("Reading the processed dataset")
 
         # Legacy: read from config-specified path
-        if self.spec.schema_type == "legacy":
+        if is_legacy_schema(self.args.schema_type):
             model_features_dataset = self.cfg.datasets.silver.model_features
             if not model_features_dataset:
                 raise ValueError(
@@ -501,6 +490,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--job_root_dir", type=str, required=True)
     parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument(
+        "--schema_type",
+        type=str,
+        default="pdp",
+        help="pdp | edvise | es | legacy — selects project config schema.",
+    )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--datakind_notification_email", type=str, required=True)
     parser.add_argument("--DK_CC_EMAIL", type=str, required=True)
@@ -508,9 +503,6 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument(
         "--job_type", type=str, choices=["inference"], default="inference"
-    )
-    parser.add_argument(
-        "--schema_type", type=str, choices=["pdp", "legacy"], required=True
     )
     parser.add_argument(
         "--term_filter",
