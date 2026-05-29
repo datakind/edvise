@@ -214,7 +214,7 @@ def run_onboard_start(
     raw_table_profiles_by_table = {
         name: run_by_dataset[name]["raw_table_profile"] for name in run_by_dataset
     }
-    contracts_by_dataset, grain_hitl_items = (
+    contracts_by_dataset, grain_hitl_items, verifications_by_dataset = (
         run_identity_agents_for_institution_with_hitl(
             institution_id=institution_id,
             institution_profiles=institution_profiles,
@@ -225,6 +225,13 @@ def run_onboard_start(
             queue_for_hitl_review=lambda c: log_grain_hitl_queue(c, logger=LOGGER),
             auto_approve_and_apply=lambda c: log_grain_auto_approve(c, logger=LOGGER),
         )
+    )
+    for name, verification in verifications_by_dataset.items():
+        run_by_dataset[name]["grain_verification"] = verification.to_jsonable()
+    write_identity_profiling_artifacts(
+        paths.profiling_output.parent,
+        institution_id,
+        run_by_dataset,
     )
 
     # §5 — Pass 2: Term batch LLM

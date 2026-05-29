@@ -21,7 +21,7 @@ from ..profiling.schemas import RankedCandidateProfiles, RawTableProfile
 from .prompt import build_identity_agent_user_message
 
 
-class IdentityProfilingDatasetResult(TypedDict):
+class IdentityProfilingDatasetResult(TypedDict, total=False):
     """One dataset's profiling output for grain prompt prep (Pass 1)."""
 
     n_rows: int
@@ -29,6 +29,7 @@ class IdentityProfilingDatasetResult(TypedDict):
     key_profile: RankedCandidateProfiles
     raw_table_profile: RawTableProfile
     user_message: str
+    grain_verification: dict[str, object]
 
 
 def build_identity_profiling_run_by_dataset(
@@ -83,13 +84,16 @@ def identity_profiling_run_to_jsonable(
     """
     datasets: dict[str, object] = {}
     for name, row in run_by_dataset.items():
-        datasets[name] = {
+        dataset_payload: dict[str, object] = {
             "n_rows": row["n_rows"],
             "n_cols": row["n_cols"],
             "key_profile": row["key_profile"].model_dump(mode="json"),
             "raw_table_profile": row["raw_table_profile"].model_dump(mode="json"),
             "user_message": row["user_message"],
         }
+        if row.get("grain_verification") is not None:
+            dataset_payload["grain_verification"] = row["grain_verification"]
+        datasets[name] = dataset_payload
     return {"institution_id": institution_id, "datasets": datasets}
 
 
