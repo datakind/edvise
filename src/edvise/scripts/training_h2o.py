@@ -963,6 +963,37 @@ def _apply_legacy_training_workspace_toml_paths(args: argparse.Namespace) -> Non
     )
 
 
+def _try_set_training_postprocess_task_values(
+    *,
+    silver_volume_path: str,
+    config_file_name: str,
+    model_run_id: str,
+) -> None:
+    """Expose updated training config path for downstream legacy_postprocessing."""
+    from edvise.utils.databricks import get_dbutils_or_none
+
+    if not model_run_id:
+        return
+    config_path = os.path.join(
+        silver_volume_path.rstrip("/"),
+        model_run_id,
+        "training",
+        config_file_name,
+    )
+    dbutils = get_dbutils_or_none()
+    if dbutils is None:
+        logging.warning(
+            "dbutils not available; training postprocess task values not set."
+        )
+        return
+    dbutils.jobs.taskValues.set(key="training_config_path", value=config_path)
+    dbutils.jobs.taskValues.set(key="model_run_id", value=model_run_id)
+    logging.info(
+        "Task values set for training postprocessing: training_config_path=%s",
+        config_path,
+    )
+
+
 if __name__ == "__main__":
     args = parse_arguments()
     if not getattr(args, "job_type", None):
@@ -1090,6 +1121,11 @@ if __name__ == "__main__":
                 getattr(task.cfg, "model", None), "experiment_id", None
             ),
             pipeline_version=getattr(args, "pipeline_version", None),
+        )
+        _try_set_training_postprocess_task_values(
+            silver_volume_path=args.silver_volume_path,
+            config_file_name=args.config_file_name,
+            model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", "") or "",
         )
     except Exception as e:
         append_pipeline_run_event(

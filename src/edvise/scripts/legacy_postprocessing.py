@@ -1,5 +1,5 @@
 """
-Run school-specific legacy postprocessing after ``inference_h2o``.
+Run school-specific legacy postprocessing after ``inference_h2o`` or ``training_h2o``.
 
 **SSI workspace layout (fixed)**
 
@@ -12,8 +12,12 @@ Workspace root defaults to ``…/student-success-intervention/pipelines`` (overr
 When ``[postprocessing].enabled`` is false or absent in the project config TOML, or the
 workspace file is missing, this script exits successfully without running school code.
 
-``--config_file_path`` is required (from ``legacy_inference_inputs``).
-``--job_root_dir`` must match the path passed to ``inference_h2o`` (CSV under ``ext/inference_output``).
+``run_type=predict``: ``--config_file_path`` from ``legacy_inference_inputs``;
+``--job_root_dir`` must match ``inference_h2o`` (CSV under ``ext/inference_output``).
+
+``run_type=train``: ``--config_file_path`` from ``training_h2o`` task values (updated
+config under silver volume) or ``--legacy_config_uc_path``; ``--gold_table_path`` points
+at the catalog/schema written by ``training_h2o`` (``{gold_table_path}.advisor_output``).
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from __future__ import annotations
 import argparse
 import inspect
 import logging
+import os
 from pathlib import Path
 
 from edvise import configs, dataio
@@ -30,6 +35,7 @@ from edvise.scripts.legacy_preprocessing import (
     load_module_from_file,
     materialize_legacy_config_with_uc_catalog,
     normalize_fs_path,
+    resolve_legacy_training_toml_paths,
 )
 from edvise.utils.databricks import normalize_legacy_uc_model_short_name
 
@@ -45,6 +51,60 @@ def legacy_postprocessing_enabled(cfg_path: str, *, DB_workspace: str = "") -> b
         schema=configs.legacy.LegacyProjectConfig,
     )
     return bool(cfg.postprocessing is not None and cfg.postprocessing.enabled)
+
+
+def resolve_postprocess_config_path(args: argparse.Namespace) -> str:
+    """
+    Resolve project config TOML for postprocessing.
+
+    Predict jobs pass ``--config_file_path`` from ``legacy_inference_inputs``.
+    Train jobs prefer ``--config_file_path`` from ``training_h2o`` task values, then
+    ``{silver_volume_path}/{model_run_id}/training/{config_file_name}``, then UC/SSI paths.
+    """
+    cfg_path = (args.config_file_path or "").strip()
+    if cfg_path:
+        return cfg_path
+
+    if args.run_type != "train":
+        raise SystemExit("--config_file_path is required.")
+
+    silver = (getattr(args, "silver_volume_path", None) or "").strip()
+    cfg_name = (getattr(args, "config_file_name", None) or "").strip()
+    model_run_id = (getattr(args, "model_run_id", None) or "").strip()
+    if silver and cfg_name and model_run_id:
+        candidate = os.path.join(silver, model_run_id, "training", cfg_name)
+        if os.path.isfile(candidate):
+            LOGGER.info("Resolved training config from silver volume: %s", candidate)
+            return candidate
+
+    inst = (args.databricks_institution_name or "").strip()
+    mn = normalize_legacy_uc_model_short_name(
+        args.model_name or "",
+        workspace=(args.DB_workspace or ""),
+        institution=inst,
+    )
+    uc_c = (getattr(args, "legacy_config_uc_path", None) or "").strip()
+    uc_f = (getattr(args, "legacy_features_uc_path", None) or "").strip()
+    if inst and mn and cfg_name:
+        ws = (args.ssi_pipelines_workspace_root or "").strip() or None
+        try:
+            resolved, _ = resolve_legacy_training_toml_paths(
+                inst,
+                mn,
+                cfg_name,
+                workspace_root=ws,
+                legacy_config_uc_path=uc_c,
+                legacy_features_uc_path=uc_f,
+            )
+            LOGGER.info("Resolved training config from workspace/UC: %s", resolved)
+            return resolved
+        except (FileNotFoundError, ValueError) as exc:
+            raise SystemExit(
+                "Could not resolve training config for postprocessing. "
+                "Pass --config_file_path or --legacy_config_uc_path."
+            ) from exc
+
+    raise SystemExit("--config_file_path is required for train postprocessing.")
 
 
 def resolve_ssi_postprocessing_py(
@@ -144,11 +204,45 @@ def main() -> None:
             "School postprocessing reads ``{job_root_dir}/ext/inference_output``."
         ),
     )
+    parser.add_argument(
+        "--gold_table_path",
+        default="",
+        help=(
+            "Train only: UC gold schema prefix (e.g. dev_sst_02.inst_gold). "
+            "Reads ``{gold_table_path}.advisor_output`` written by training_h2o."
+        ),
+    )
+    parser.add_argument(
+        "--silver_volume_path",
+        default="",
+        help="Train only: fallback path to resolve updated config under model run folder.",
+    )
+    parser.add_argument(
+        "--config_file_name",
+        default="",
+        help="Train only: config TOML basename for silver-volume fallback resolution.",
+    )
+    parser.add_argument(
+        "--model_run_id",
+        default="",
+        help=(
+            "Train only: selected MLflow model run id (folder name under silver volume "
+            "after training_h2o renames the run root)."
+        ),
+    )
+    parser.add_argument(
+        "--legacy_config_uc_path",
+        default="",
+        help="Train only: optional UC config TOML when task-value config path is unavailable.",
+    )
+    parser.add_argument(
+        "--legacy_features_uc_path",
+        default="",
+        help="Train only: pair with --legacy_config_uc_path for workspace resolution.",
+    )
     args = parser.parse_args()
 
-    cfg_path = (args.config_file_path or "").strip()
-    if not cfg_path:
-        raise SystemExit("--config_file_path is required.")
+    cfg_path = resolve_postprocess_config_path(args)
 
     if not legacy_postprocessing_enabled(cfg_path, DB_workspace=args.DB_workspace):
         LOGGER.info(
@@ -193,6 +287,11 @@ def main() -> None:
         raise SystemExit(
             "--job_root_dir is required when run_type=predict and postprocessing runs."
         )
+    gold_table = (args.gold_table_path or "").strip()
+    if args.run_type == "train" and not gold_table:
+        raise SystemExit(
+            "--gold_table_path is required when run_type=train and postprocessing runs."
+        )
 
     effective_config = materialize_legacy_config_with_uc_catalog(
         cfg_path, args.DB_workspace
@@ -217,6 +316,7 @@ def main() -> None:
         "run_type": args.run_type,
         "db_run_id": args.db_run_id,
         "job_root_dir": job_root,
+        "gold_table_path": gold_table,
         "DB_workspace": args.DB_workspace,
     }
     sig = inspect.signature(run)
