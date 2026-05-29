@@ -2,15 +2,10 @@ import logging
 import os
 import mlflow
 import typing as t
-import os
 import pathlib
 from typing import Any
 import pydantic as pyd
-<<<<<<< HEAD
-import re
 from mlflow.tracking import MlflowClient
-=======
->>>>>>> develop
 
 LOGGER = logging.getLogger(__name__)
 

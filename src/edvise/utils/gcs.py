@@ -7,11 +7,7 @@ import os
 from typing import Optional
 from urllib.parse import urlparse
 
-<<<<<<< HEAD
-=======
 import google.auth
-from databricks.sdk.runtime import dbutils  # noqa: F401
->>>>>>> develop
 from google.cloud import storage
 
 from edvise.utils.databricks import get_dbutils_or_none

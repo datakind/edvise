@@ -338,11 +338,7 @@ class TestGetInstitutionIdByName:
 
         # Execute with databricks name
         result = api_requests.get_institution_id_by_name(
-<<<<<<< HEAD
-            "motlow_state_cc", "test-api-key", "dev", is_databricks_name=True
-=======
-            "fixture_alpha_state_cc", "test-api-key", is_databricks_name=True
->>>>>>> develop
+            "fixture_alpha_state_cc", "test-api-key", "dev", is_databricks_name=True
         )
 
         # Assert
