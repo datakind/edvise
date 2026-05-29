@@ -6,7 +6,7 @@
 # Secrets — staging workspace (DATABRICKS_STAGING_HOST):
 #   DATABRICKS_STAGING_HOST, DATABRICKS_STAGING_CLIENT_ID, DATABRICKS_STAGING_CLIENT_SECRET
 #   STAGING_SERVICE_ACCOUNT_EXECUTER (SP run-as uses DATABRICKS_STAGING_CLIENT_ID)
-#   Staging deploy: bundle target prod + git_commit → staging_sst_01 (temporary; see pipelines/genai_mapping/databricks.yml).
+#   Staging deploy: bundle target prod + git_tag → staging_sst_01 (see pipelines/genai_mapping/databricks.yml).
 # Shared: GROUP_TO_MANAGE
 #
 # Auth: set DATABRICKS_AUTH_TYPE=oauth-m2m so the CLI uses the service principal OAuth
@@ -103,11 +103,11 @@ jobs:
           DS_RUN_AS: ${{ secrets.DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID }}
           GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
         run: |
-          echo "Deploying staging_sst_01 with bundle target prod (git commit: ${GITHUB_SHA})"
+          echo "Deploying staging_sst_01 with bundle target prod (git tag: ${GITHUB_REF_NAME})"
           databricks bundle deploy \
             --target=prod \
             --force-lock \
-            --var "git_commit=${GITHUB_SHA}" \
+            --var "git_tag=${GITHUB_REF_NAME}" \
             --var "service_account_executer=$SA_EXECUTER" \
             --var "ds_run_as=$DS_RUN_AS" \
             --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
