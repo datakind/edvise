@@ -32,8 +32,8 @@ def test_promote_genai_mapping_to_active_copies_required_and_optional(
 ) -> None:
     genai = tmp_path / "genai"
     run_id = "school_20260101"
-    ia = genai / "runs" / run_id / "identity_agent"
-    sma = genai / "runs" / run_id / "schema_mapping_agent"
+    ia = genai / "runs" / "onboard" / run_id / "identity_agent"
+    sma = genai / "runs" / "onboard" / run_id / "schema_mapping_agent"
     active = genai / "active"
     ia.mkdir(parents=True)
     sma.mkdir(parents=True)
@@ -42,6 +42,8 @@ def test_promote_genai_mapping_to_active_copies_required_and_optional(
     (sma / "manifest_map.json").write_text('{"m": 1}')
     (sma / "transformation_map.json").write_text('{"t": 1}')
     (sma / "transform_hooks.py").write_text("# hooks")
+    (sma / "sma_grain_resolution_cohort.json").write_text('{"entity": "cohort"}')
+    (sma / "sma_grain_resolution_course.json").write_text('{"entity": "course"}')
     (ia / "identity_grain_output.json").write_text("{}")
     (ia / "identity_term_output.json").write_text("{}")
 
@@ -71,6 +73,12 @@ def test_promote_genai_mapping_to_active_copies_required_and_optional(
     assert paths.active_transform_hooks.read_text() == "# hooks"
     assert (active / "grain_output.json").read_text() == "{}"
     assert (active / "term_output.json").read_text() == "{}"
+    assert (
+        active / "sma_grain_resolution_cohort.json"
+    ).read_text() == '{"entity": "cohort"}'
+    assert (
+        active / "sma_grain_resolution_course.json"
+    ).read_text() == '{"entity": "course"}'
 
     reg = read_genai_active_registry(active)
     assert reg is not None
@@ -88,8 +96,8 @@ def test_promote_genai_mapping_to_active_copies_identity_hooks_subtree(
 ) -> None:
     genai = tmp_path / "genai"
     run_id = "school_hooks"
-    ia = genai / "runs" / run_id / "identity_agent"
-    sma = genai / "runs" / run_id / "schema_mapping_agent"
+    ia = genai / "runs" / "onboard" / run_id / "identity_agent"
+    sma = genai / "runs" / "onboard" / run_id / "schema_mapping_agent"
     active = genai / "active"
     hooks = ia / "identity_hooks" / "test_univ"
     hooks.mkdir(parents=True)
@@ -133,8 +141,8 @@ def test_promote_genai_mapping_to_active_missing_required_raises(
 ) -> None:
     genai = tmp_path / "genai"
     run_id = "r2"
-    ia = genai / "runs" / run_id / "identity_agent"
-    sma = genai / "runs" / run_id / "schema_mapping_agent"
+    ia = genai / "runs" / "onboard" / run_id / "identity_agent"
+    sma = genai / "runs" / "onboard" / run_id / "schema_mapping_agent"
     active = genai / "active"
     ia.mkdir(parents=True)
     sma.mkdir(parents=True)

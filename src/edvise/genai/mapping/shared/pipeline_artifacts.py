@@ -251,6 +251,7 @@ _ARTIFACT_KIND_BY_BASENAME: dict[str, str] = {
     "sma_manifest_output.json": "sma_manifest_output",
     "run_log.json": "run_log",
     "repair_log.json": "repair_log",
+    "pandera_validation_errors.json": "pandera_validation_errors",
     "genai_pipeline_run.json": "pipeline_run_metadata",
 }
 

@@ -13,7 +13,7 @@ SCHEMA_MAPPING and TRANSFORM domains are stubs for future use.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -23,6 +23,9 @@ from edvise.genai.mapping.shared.hitl.hook_spec.schemas import (
     HookSpec,
 )
 from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
+from edvise.genai.mapping.shared.grain.dedup_strategies import (
+    GrainResolutionDedupStrategyAny,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +50,9 @@ class GrainResolution(BaseModel):
     dedup_strategy excludes 'policy_required' — that is the current state that
     triggered the HITL item, never a valid resolution target.
 
+    ``intentional_step_down`` is allowed only for SMA grain HITL (``domain='sma_grain'``); it is not
+    an IdentityAgent grain contract strategy.
+
     When hook_spec is present, :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.resolve_items`
     writes ``dedup_policy.hook_spec`` and sets ``strategy='policy_required'`` (same as
     :func:`~edvise.genai.mapping.identity_agent.hitl.resolver.apply_hook_spec`).
@@ -58,31 +64,27 @@ class GrainResolution(BaseModel):
         default=None,
         description="Reviewer-corrected columns forming the post-clean primary key.",
     )
-    dedup_strategy: (
-        Literal[
-            "true_duplicate",
-            "temporal_collapse",
-            "categorical_priority",
-            "suffix_identifier",
-            "no_dedup",
-        ]
-        | None
-    ) = Field(
+    dedup_strategy: GrainResolutionDedupStrategyAny | None = Field(
         default=None,
         description=(
             "Resolved dedup strategy. 'policy_required' is intentionally excluded — "
-            "it is a flag state, not a resolution."
+            "it is a flag state, not a resolution. "
+            "'intentional_step_down' is allowed only for SMA grain HITL (``domain='sma_grain'``); "
+            "the resolver does not map it onto ``dedup_policy`` for IdentityAgent."
         ),
     )
     dedup_sort_by: str | None = Field(
         default=None,
-        description="Sort column for temporal_collapse strategy.",
+        description=(
+            "Sort column for temporal_collapse or first_by_column (source-side column name)."
+        ),
     )
     dedup_sort_ascending: bool | None = Field(
         default=None,
         description=(
-            "Sort direction for temporal_collapse. True = ascending (earliest first), "
-            "False = descending (latest first). Pair with dedup_keep='first' per contract docs."
+            "Sort direction before dedup_keep. For temporal_collapse (time-like sort_by): "
+            "True = ascending (earliest first). For first_by_column: True = ascending ordinal "
+            "on dedup_sort_by. Pair with dedup_keep='first'."
         ),
     )
     dedup_keep: Literal["first", "last"] | None = Field(
@@ -104,8 +106,9 @@ class GrainResolution(BaseModel):
     suffix_column: str | None = Field(
         default=None,
         description=(
-            "Grain column to suffix for suffix_identifier (append -1, -2, ... within key groups); "
-            "must appear in post_clean_primary_key."
+            "Source column to suffix for suffix_identifier (append -1, -2, … within duplicate "
+            "manifest-key groups). For SMA grain, must be one of the manifest entity grain "
+            "columns (same as execution entity_keys)."
         ),
     )
     hook_spec: HookSpec | None = Field(
@@ -134,23 +137,22 @@ class GrainResolution(BaseModel):
                     "dedup_strategy is required when dedup sort/priority/suffix fields are set."
                 )
             return self
-        if s == "temporal_collapse":
+        if s in ("temporal_collapse", "first_by_column"):
             if self.dedup_sort_by is None or not str(self.dedup_sort_by).strip():
                 raise ValueError(
-                    "dedup_strategy='temporal_collapse' requires a non-empty dedup_sort_by."
+                    f"dedup_strategy={s!r} requires a non-empty dedup_sort_by."
                 )
             if self.dedup_sort_ascending is None:
                 raise ValueError(
-                    "dedup_strategy='temporal_collapse' requires dedup_sort_ascending to be set "
-                    "(True for earliest, False for latest)."
+                    f"dedup_strategy={s!r} requires dedup_sort_ascending to be set."
                 )
             if self.priority_column is not None or self.priority_order is not None:
                 raise ValueError(
-                    "temporal_collapse may not set priority_column or priority_order; "
+                    f"{s} may not set priority_column or priority_order; "
                     "use categorical_priority for explicit value ranking."
                 )
             if self.suffix_column is not None:
-                raise ValueError("temporal_collapse may not set suffix_column.")
+                raise ValueError(f"{s} may not set suffix_column.")
         elif s == "categorical_priority":
             if not self.priority_column or not str(self.priority_column).strip():
                 raise ValueError(
@@ -191,7 +193,7 @@ class GrainResolution(BaseModel):
                 raise ValueError(
                     "suffix_identifier may only set suffix_column; other dedup fields must be null."
                 )
-        elif s in ("true_duplicate", "no_dedup"):
+        elif s in ("true_duplicate", "no_dedup", "intentional_step_down"):
             if any(
                 x is not None
                 for x in (
@@ -535,6 +537,17 @@ class HITLItem(BaseModel):
             "null = no reviewer note provided."
         ),
     )
+    severity: Literal["error", "warning"] = Field(
+        default="error",
+        description=(
+            "Pipeline gate severity: 'error' blocks until reviewed; 'warning' is informational "
+            "for non-blocking SMA grain confirmations (e.g. intentional step-down)."
+        ),
+    )
+    metadata: dict[str, Any] | None = Field(
+        default=None,
+        description="Structured context for tooling (row counts, keys, manifest hints).",
+    )
 
     @field_validator("hook_group_tables", mode="before")
     @classmethod
@@ -577,7 +590,7 @@ class HITLItem(BaseModel):
         for opt in self.options:
             if opt.resolution is None:
                 continue
-            if self.domain == HITLDomain.IDENTITY_GRAIN:
+            if self.domain in (HITLDomain.IDENTITY_GRAIN, HITLDomain.SMA_GRAIN):
                 GrainResolution.model_validate(opt.resolution)
             elif self.domain == HITLDomain.IDENTITY_TERM:
                 TermResolution.model_validate(opt.resolution)
@@ -610,7 +623,7 @@ class InstitutionHITLItems(BaseModel):
     """
 
     institution_id: str
-    domain: Literal["grain", "term"]
+    domain: Literal["grain", "term", "sma_grain"]
     items: list[HITLItem] = Field(default_factory=list)
 
     @model_validator(mode="after")
@@ -625,11 +638,11 @@ class InstitutionHITLItems(BaseModel):
 
     @model_validator(mode="after")
     def items_match_domain(self) -> "InstitutionHITLItems":
-        expected = (
-            HITLDomain.IDENTITY_GRAIN
-            if self.domain == "grain"
-            else HITLDomain.IDENTITY_TERM
-        )
+        expected = {
+            "grain": HITLDomain.IDENTITY_GRAIN,
+            "term": HITLDomain.IDENTITY_TERM,
+            "sma_grain": HITLDomain.SMA_GRAIN,
+        }[self.domain]
         for item in self.items:
             if item.domain != expected:
                 raise ValueError(
@@ -644,9 +657,18 @@ class InstitutionHITLItems(BaseModel):
         return [i for i in self.items if i.choice is None]
 
     @property
+    def blocking_pending(self) -> list[HITLItem]:
+        """Items that block the pipeline until reviewed (excludes severity='warning')."""
+        return [
+            i
+            for i in self.items
+            if i.choice is None and getattr(i, "severity", "error") == "error"
+        ]
+
+    @property
     def is_clear(self) -> bool:
-        """True when all items have a choice set — gate check passes."""
-        return all(i.choice is not None for i in self.items)
+        """True when all blocking items have a choice set — gate check passes."""
+        return all(i.choice is not None for i in self.items if i.severity == "error")
 
 
 def get_grain_hitl_item_schema_context() -> str:

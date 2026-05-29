@@ -1,7 +1,7 @@
 """
 IdentityAgent execution helpers: apply grain and term contracts to DataFrames.
 
-Composes :mod:`edvise.genai.mapping.identity_agent.grain_inference` (dedup, keys) with
+Composes :mod:`edvise.genai.mapping.shared.grain.dedup_execution` (dedup, keys) with
 :mod:`edvise.genai.mapping.identity_agent.term_normalization` (term ordering). For hooks, tests, and notebooks.
 """
 
@@ -15,14 +15,17 @@ from typing import Any, Literal, cast
 
 import pandas as pd
 
-from edvise.genai.mapping.identity_agent.grain_inference.deduplication import (
-    drop_duplicate_keys,
-)
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
 from edvise.genai.mapping.shared.hitl.hook_spec.schemas import HookSpec
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermContract
 from edvise.genai.mapping.identity_agent.term_normalization.term_order import (
     apply_term_order_from_config,
+)
+from edvise.genai.mapping.shared.grain.dedup_execution import (
+    apply_categorical_priority,
+    drop_duplicate_keys,
+    suffix_repeat_course_identifier,
+    validate_grain_key_columns,
 )
 from edvise.utils.data_cleaning import convert_to_snake_case
 
@@ -209,123 +212,6 @@ def _resolve_grain_key_to_existing_column(name: str, columns: list[str]) -> str:
     return best
 
 
-def _validate_key_columns(df: pd.DataFrame, keys: list[str], *, label: str) -> None:
-    missing = [k for k in keys if k not in df.columns]
-    if missing:
-        raise ValueError(f"{label}: missing columns for grain key: {missing}")
-
-
-def suffix_repeat_course_identifier(
-    df: pd.DataFrame,
-    group_by: list[str],
-    suffix_column: str,
-) -> pd.DataFrame:
-    """
-    Within each ``group_by`` key group, append ``-1``, ``-2``, ... to ``suffix_column`` in
-    dataframe row order (no sorting) when the group has more than one row. Single-row groups
-    and all other columns are unchanged. Row count is preserved.
-    """
-    _validate_key_columns(df, group_by, label="suffix_repeat_course_identifier")
-    if suffix_column not in df.columns:
-        raise ValueError(
-            f"suffix_repeat_course_identifier: suffix_column {suffix_column!r} "
-            f"not in dataframe columns{sorted(df.columns)!r}"
-        )
-    out = df.copy()
-    if out.empty or len(out) < 2:
-        return out
-    # Values become strings like "37559-1". Integer (or other non-text) dtypes cannot store
-    # those literals — pandas would coerce and raise (e.g. int("37559-1")).
-    out[suffix_column] = out[suffix_column].astype("string")
-    grp = out.groupby(group_by, dropna=False, sort=False)
-    n_in_group = grp[suffix_column].transform("size")
-    rank_1based = grp.cumcount() + 1
-    should_suffix = n_in_group > 1
-    if not should_suffix.any():
-        return out
-    new_vals = [
-        f"{base}-{r}"
-        for base, r in zip(
-            out.loc[should_suffix, suffix_column].tolist(),
-            rank_1based[should_suffix].tolist(),
-        )
-    ]
-    out.loc[should_suffix, suffix_column] = new_vals
-    return out
-
-
-def _dedup_categorical_values_equal(a: object, b: object) -> bool:
-    if a is b:
-        return True
-    try:
-        if pd.isna(a) and pd.isna(b):
-            return True
-    except (TypeError, ValueError):
-        pass
-    try:
-        return bool(a == b)
-    except (TypeError, ValueError):
-        return False
-
-
-def _categorical_value_rank(value: object, priority_order: list[str]) -> int:
-    for i, p in enumerate(priority_order):
-        if _dedup_categorical_values_equal(value, p):
-            return i
-    if not isinstance(value, str):
-        return len(priority_order)
-    # Substring match, e.g. "B.S." in "Accounting, B.S."
-    # If several tokens match as substrings (e.g. "M.A." in "M.B.A.", "A.S." in "A.A.S."),
-    # use the longest matching token, then the earliest in `priority_order`.
-    best: tuple[int, int] | None = None  # (-len(p), i) minimization
-    for i, p in enumerate(priority_order):
-        if not isinstance(p, str) or not p:
-            continue
-        if p in value:
-            key = (-len(p), i)
-            if best is None or key < best:
-                best = key
-    if best is not None:
-        return best[1]
-    return len(priority_order)
-
-
-def apply_categorical_priority(
-    df: pd.DataFrame,
-    group_by: list[str],
-    priority_column: str,
-    priority_order: list[str],
-) -> pd.DataFrame:
-    """
-    Within each ``group_by`` key group, keep a single row: the one with the best (lowest)
-    rank on ``priority_column``, where ``priority_order`` lists values from highest to
-    lowest priority. A cell is matched by exact equality to an entry in ``priority_order``,
-    or, if there is no exact match, as a **substring** (longest token wins, then
-    first-listed). Values that match nothing are ranked last. Ties in rank resolve to
-    the first row in the sorted order (stable sort).
-    """
-    _validate_key_columns(df, group_by, label="apply_categorical_priority")
-    if priority_column not in df.columns:
-        raise ValueError(
-            f"apply_categorical_priority: priority_column {priority_column!r} not in "
-            f"columns {sorted(df.columns)!r}"
-        )
-    if not priority_order or not len(priority_order):
-        raise ValueError("apply_categorical_priority: priority_order must be non-empty")
-    if df.empty:
-        return df.copy()
-    work = df.copy()
-    work["_categorical_dedup_rank_"] = work[priority_column].map(
-        lambda v: _categorical_value_rank(v, priority_order)
-    )
-    sort_keys = list(group_by) + ["_categorical_dedup_rank_"]
-    work = work.sort_values(by=sort_keys, kind="mergesort")
-    out = work.drop_duplicates(subset=group_by, keep="first").drop(
-        columns=["_categorical_dedup_rank_"]
-    )
-    return out.reset_index(drop=True)
-
-
 def _grain_dedup_function_names(functions: list[Any]) -> list[str]:
     names: list[str] = []
     for f in functions:
@@ -436,10 +322,9 @@ def apply_grain_dedup(
       The callable receives each group's ``DataFrame`` and must return a ``DataFrame``.
     - ``true_duplicate``: ``drop_duplicates`` on the key; contract must not set ``sort_by`` or
       ``keep`` (defaults to first row per key in key order / pandas semantics).
-    - ``temporal_collapse``: sort (when ``sort_by`` is set) then dedupe on the key. **Does not
-      remove any columns** — only rows are collapsed; all original columns remain (Option B:
-      "drop distinctions" = one value per grain per non-key column when applicable, not schema
-      deletion). If ``sort_by`` is omitted, logs a warning and behaves like ``true_duplicate``.
+    - ``temporal_collapse``: time / sequence-like ``sort_by``; sort then dedupe on the key (keep first).
+    - ``first_by_column``: non-time ``sort_by`` (e.g. grades); same mechanics as temporal_collapse but
+      distinct strategy for contracts and analytics.
     - ``categorical_priority``: one row per key, chosen by ranking ``dedup_policy.priority_column``
       values with ``dedup_policy.priority_order`` (highest-priority first in the list; exact
       match, else substring: longest token wins, then first-listed).
@@ -467,7 +352,7 @@ def apply_grain_dedup(
         ]
     except ValueError as e:
         raise ValueError(f"apply_grain_dedup: {e}") from e
-    _validate_key_columns(df, keys, label="apply_grain_dedup")
+    validate_grain_key_columns(df, keys, label="apply_grain_dedup")
 
     if policy.strategy == "no_dedup":
         return df.copy()
@@ -534,9 +419,13 @@ def apply_grain_dedup(
             sort_list = [_resolve_grain_key_to_existing_column(policy.sort_by, cols)]
         except ValueError as e:
             raise ValueError(f"apply_grain_dedup: dedup_policy.sort_by: {e}") from e
-    if policy.strategy == "temporal_collapse" and not policy.sort_by:
+    if (
+        policy.strategy in ("temporal_collapse", "first_by_column")
+        and not policy.sort_by
+    ):
         logger.warning(
-            "temporal_collapse without dedup_policy.sort_by — using key-only dedup (keep=%s)",
+            "%s without dedup_policy.sort_by — using key-only dedup (keep=%s)",
+            policy.strategy,
             policy.keep or "first",
         )
 
