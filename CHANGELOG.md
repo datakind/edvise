@@ -1,3 +1,7 @@
+## 1.1.0 (2026-05-29)
+- feat: genai mapping hitl dashboard, production scripts/DABs, prompt improvements & grain resolution  (#150)
+- feat: config toggle for GenAI parquets vs bronze raw CSV in data_audit (#154)
+
 ## 1.0.0 (2026-05-27)
 - feat: genai edvise core mapping logic; identity agent, schema mapping agent, and hitl defined, implemented, and tested (#128)
 - feat: copy validated/ GCS objects to institution bronze (Databricks job) (#145)
