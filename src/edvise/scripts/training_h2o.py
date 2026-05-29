@@ -27,7 +27,8 @@ from databricks.connect import DatabricksSession
 from pyspark.sql import SparkSession
 from mlflow.tracking import MlflowClient
 
-from edvise import modeling, dataio, configs
+from edvise import modeling, dataio
+from edvise.configs.schema_type import project_config_class
 from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
@@ -117,9 +118,10 @@ class TrainingTask:
         self.args = args
         self.spec = resolve_spec(self.args)
         self.spark_session = self.get_spark_session()
+        cfg_cls = project_config_class(getattr(args, "schema_type", "pdp"))
         self.cfg = dataio.read.read_config(
             self.args.config_file_path,
-            schema=self.spec.cfg_schema,
+            schema=cfg_cls,
         )
         if self.spec.schema_type == "legacy":
             self.cfg = configs.legacy.apply_runtime_uc_catalog(
@@ -538,9 +540,10 @@ class TrainingTask:
         )
 
         # create parameter for updated config post model-selection
+        cfg_cls = project_config_class(getattr(self.args, "schema_type", "pdp"))
         self.cfg = dataio.read.read_config(
             self.args.config_file_path,
-            schema=self.spec.cfg_schema,
+            schema=cfg_cls,
         )
         if self.spec.schema_type == "legacy":
             self.cfg = configs.legacy.apply_runtime_uc_catalog(
@@ -862,6 +865,12 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--gold_table_path", type=str, required=True)
     parser.add_argument("--config_file_name", type=str, required=True)
+    parser.add_argument(
+        "--schema_type",
+        type=str,
+        default="pdp",
+        help="pdp | edvise | es — selects PDP vs ES project config schema.",
+    )
     parser.add_argument("--job_type", type=str, choices=["training"], required=False)
     parser.add_argument(
         "--schema_type", type=str, choices=["pdp", "legacy"], required=True
