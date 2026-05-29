@@ -119,7 +119,7 @@ def test_run_identity_agent_calls_llm_and_parse():
         assert "inst" in user and "students" in user
         return raw
 
-    c, items = run_identity_agent_with_hitl(
+    c, items, _verification = run_identity_agent_with_hitl(
         institution_id="inst",
         dataset_name="students",
         key_profile=_kp(),
@@ -152,7 +152,7 @@ def test_run_identity_agent_retries_on_unknown_learner_id_alias():
         calls["n"] += 1
         return responses[idx]
 
-    c, items = run_identity_agent_with_hitl(
+    c, items, _verification = run_identity_agent_with_hitl(
         institution_id="inst",
         dataset_name="students",
         key_profile=_kp(),
@@ -188,7 +188,7 @@ def test_run_identity_agents_for_institution_with_hitl_routes_callbacks():
     def auto(c):
         calls.append(("auto", c.table))
 
-    out, _hitl = run_identity_agents_for_institution_with_hitl(
+    out, _hitl, _verifications = run_identity_agents_for_institution_with_hitl(
         institution_id="inst",
         institution_profiles=profiles,
         dfs=dfs,
