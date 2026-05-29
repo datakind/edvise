@@ -123,9 +123,10 @@ def test_entry_year_from_edvise_term_on_base_allowed():
         column_aliases=[],
     )
     errors = validate_manifest(manifest, contract)
-    assert ManifestValidationErrorCode.TERM_TARGET_SHOULD_USE_IA_NORMALIZED_COLUMN not in {
-        e.error_code for e in errors
-    }
+    assert (
+        ManifestValidationErrorCode.TERM_TARGET_SHOULD_USE_IA_NORMALIZED_COLUMN
+        not in {e.error_code for e in errors}
+    )
 
 
 def test_datetime_source_allowed_when_ia_columns_absent_on_base():
@@ -146,9 +147,10 @@ def test_datetime_source_allowed_when_ia_columns_absent_on_base():
         column_aliases=[],
     )
     errors = validate_manifest(manifest, contract)
-    assert ManifestValidationErrorCode.TERM_TARGET_SHOULD_USE_IA_NORMALIZED_COLUMN not in {
-        e.error_code for e in errors
-    }
+    assert (
+        ManifestValidationErrorCode.TERM_TARGET_SHOULD_USE_IA_NORMALIZED_COLUMN
+        not in {e.error_code for e in errors}
+    )
 
 
 def test_join_lookup_ia_rejected_when_base_already_has_ia_columns():
@@ -227,7 +229,9 @@ def test_join_lookup_ia_rejected_when_base_already_has_ia_columns():
         if e.error_code
         == ManifestValidationErrorCode.TERM_TARGET_SHOULD_USE_IA_NORMALIZED_COLUMN
     ]
-    assert hit, "cross-table IA lookup should fail when base table already has IA columns"
+    assert hit, (
+        "cross-table IA lookup should fail when base table already has IA columns"
+    )
 
 
 def test_course_academic_term_from_raw_rejected_when_ia_on_base():
