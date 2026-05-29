@@ -72,6 +72,14 @@ def _identity_domain_priors() -> str:
     return """
 ## DOMAIN PRIORS — apply these before reasoning from data
 
+### No institution-specific bias
+- Do **not** name or allude to any **specific institution**, client, or deployment in
+  `reasoning`, `notes`, HITL text, or examples (no school names, no client abbreviations).
+- Use **generic** placeholder column names and value examples in prose; for the contract
+  itself, use **only column names from the current dataset's column list** and values from
+  `raw_table_profile` / key profile evidence — never copy example codes from this prompt
+  into `post_clean_primary_key` or `dedup_policy` unless they appear in the data.
+
 ### Student / demographic tables
 - Expected grain is ONE ROW PER STUDENT after cleaning.
 - If the natural key from profiling includes a non-temporal dimension beyond student_id
@@ -186,10 +194,11 @@ When two or more non-temporal, non-measure columns have variance within the same
 - Prioritize **institutional semantic meaning**:
   - `honors` (Cum Laude, Magna, Summa, etc.) is an **award attribute**, not a grain dimension.
     Collapse on honors (keep highest distinction) rather than including it in the grain.
-  - `sub_plan` (PADHRMGT, PADMGTOP, etc.) is a **program track or concentration**. If students
-    can be enrolled in multiple tracks per program-term, it belongs in the grain. If it's an
-    attribute of a single enrollment, collapse it.
-  - `program` / `acad_prog_primary` (UGRD, GRAD, MPA) — if duplicates differ on this, decide:
+  - `sub_plan` (concentration or track codes from the data, e.g. `TRACK_A`, `CONC_01`) is a
+    **program track or concentration**. If students can be enrolled in multiple tracks per
+    program-term, it belongs in the grain. If it's an attribute of a single enrollment, collapse it.
+  - `program` / career-level columns (e.g. undergraduate vs graduate codes from `unique_values`)
+    — if duplicates differ on this, decide:
     is the grain student-term (collapse to one career) or student-term-career (keep multi-row)?
 - When uncertain about a column's semantic role, **collapse via tiebreak on the highest-priority
   column, flag HITL, and let the reviewer confirm**.
@@ -239,7 +248,7 @@ When collapsing rows that differ on a degree-type or credential column
 The executor: exact match first, then substring for any list entry vs. the cell string; if several entries match as substrings, **longest** wins, then the **earlier** index in `priority_order`.
 If values cannot be mapped to these tiers, use `policy_required` + HITL. Do not use
 `true_duplicate` or `no_dedup` when rows differ on a degree/credential column.
-*Example* (IIT-style all-undergraduate `program_at_graduation`): `["B.S.", "B.A.", "A.S.", "A.A.", "A.A.S."]` only — not every program title.
+*Example*: `["B.S.", "B.A.", "A.S.", "A.A.", "A.A.S."]` only — not every program title.
 
 ### Categorical column variance — categorical_priority strategy
 
@@ -266,7 +275,7 @@ column's variance is NOT acceptable from the kept row alone, flag HITL.
 
 When two columns both have variance, classify each:
 
-- **Dependent** (major is nested under program, sub_plan is nested under acad_plan):
+- **Dependent** (major is nested under program, sub_plan is nested under primary_program):
   Collapsing on the primary column resolves the secondary automatically. Use
   `categorical_priority` on the primary column; note the dependency in `notes`.
 
@@ -334,18 +343,18 @@ schema-narrowing / mapping stages, not grain dedup.
 
   Raw (3 rows per grain):
 
-    (sid=1, plan=MBA, term=Fall2023, honors=Summa,    sub_plan=PADHRMGT)
-    (sid=1, plan=MBA, term=Fall2023, honors=Cum Laude, sub_plan=PADMGTOP)
-    (sid=1, plan=MBA, term=Fall2023, honors=none,      sub_plan=PADISGORG)
+    (sid=1, plan=GRAD_PROG, term=Fall 2023, honors=Summa,    sub_plan=TRACK_A)
+    (sid=1, plan=GRAD_PROG, term=Fall 2023, honors=Cum Laude, sub_plan=TRACK_B)
+    (sid=1, plan=GRAD_PROG, term=Fall 2023, honors=none,      sub_plan=TRACK_C)
 
   After "collapse on honors (keep highest), drop sub_plan distinctions" at grain
   (sid, plan, term, degree):
 
-    (sid=1, plan=MBA, term=Fall2023, honors=Summa, sub_plan=PADHRMGT)
+    (sid=1, plan=GRAD_PROG, term=Fall 2023, honors=Summa, sub_plan=TRACK_A)
 
   ✓ `sub_plan` column still exists  
   ✓ 2a can reference it (it appears in the DataFrame)  
-  ✗ Row diversity on `sub_plan` is lost (only PADHRMGT remains — from the kept row)
+  ✗ Row diversity on `sub_plan` is lost (only TRACK_A remains — from the kept row)
 
 If the intent were to **remove `sub_plan` from the schema entirely**, the option would say so
 explicitly, e.g. "Collapse to grain (sid, plan, term); **remove sub_plan from schema**" — that is
@@ -413,11 +422,13 @@ def _identity_reasoning_steps() -> str:
            **Collision scale** and **Sort column validity and cardinality** (see before step 8)
            before committing.
          - Accept that you're losing the other column's distinctions.
-         - Example: (sid, plan, term, degree) is the grain; collapse on honors descending
-           (keep Summa > Magna > Cum > none); **drop sub_plan distinctions** means one row per grain
-           with **sub_plan still present** as a column (single value per grain from the kept row) — see
-           **TERMINOLOGY: "Drop Distinctions" vs. "Delete Column"**.
-         - Use `temporal_collapse` with `sort_by="honors"`, `sort_ascending=false`.
+         - Example: (sid, plan, term, degree) is the grain; collapse on honors (keep Summa >
+           Magna > Cum > none) via **`categorical_priority`** with `priority_column="honors"` and an
+           explicit `priority_order` — see **Categorical column variance**; **drop sub_plan distinctions**
+           means one row per grain with **sub_plan still present** as a column (single value per grain
+           from the kept row) — see **TERMINOLOGY: "Drop Distinctions" vs. "Delete Column"**.
+         - Use `categorical_priority` for that honors collapse (not lexicographic `first_by_column` on
+           honor text).
 
       **Option ii) One or both columns belong in the grain (table is multi-row by design)**
          - Declare the grain is wider: e.g., (sid, plan, term, degree, sub_plan) where honors
@@ -458,18 +469,28 @@ def _identity_reasoning_steps() -> str:
 
    **Validity check:** If the candidate key has `non_unique_rows` > 0, you CANNOT use `no_dedup`.
    When **Repeat course enrollment** applies (measure-only variance on course grain), you **must**
-   use **`suffix_identifier`** and **must not** use **`temporal_collapse`** or **`true_duplicate`**
-   to shrink row count. Otherwise use `temporal_collapse`, `true_duplicate`, `policy_required`,
+   use **`suffix_identifier`** and **must not** use **`temporal_collapse`**, **`first_by_column`**,
+   **`true_duplicate`**, **`categorical_priority`**, or any other row-dropping dedup
+   to shrink row count. Otherwise use `temporal_collapse`, `first_by_column`, `true_duplicate`, `policy_required`,
    `categorical_priority`, or `suffix_identifier` as DOMAIN PRIORS require.
 
    Use exactly one of these string literals for `dedup_policy.strategy`:
 
    - `"true_duplicate"`: within-group variance = 0 across all columns — drop all but one
-   - `"temporal_collapse"`: collapse to one row per key by sorting on a column and keeping first.
-     Always use `keep="first"` and control direction via `sort_ascending`:
+   - `"temporal_collapse"`: time / sequence-like `sort_by`; collapse to one row per key by sorting
+     and keeping first. Always use `keep="first"` and control direction via `sort_ascending`:
      - Keep **earliest** value: `sort_by="<col>"`, `sort_ascending=true`, `keep="first"`
      - Keep **latest** value: `sort_by="<col>"`, `sort_ascending=false`, `keep="first"`
      Never use `keep="last"`.
+   - `"first_by_column"`: non-time `sort_by` with a **defensible total order** on one column, then
+     `keep="first"` (same mechanics as `temporal_collapse`, not temporal semantics). Use **only**
+     when ascending/descending sort on that column **is** the policy — e.g. numeric **sequence /
+     line id / load order**, integer **priority rank**, **boolean** or 0/1 **primary-row** flags.
+     **Do not** use it to mean “alphabetically first/last” on labels, program names, majors, or
+     honor strings (no institutional meaning) — use **`categorical_priority`** with explicit
+     `priority_order`, or **`policy_required`** + HITL. **Not** for grade/GPA/credits on course
+     enrollment grain (**Repeat course enrollment** → **`suffix_identifier`**). This is **not**
+     `true_duplicate`: you are choosing among differing rows, not asserting they are identical.
    - `"no_dedup"`: table is intentionally multi-row AND has ZERO duplicates on the semantic grain.
      This is only valid when `non_unique_rows` = 0 for the candidate key.
    - `"policy_required"`: grain is ambiguous or collapse rule is unclear; human must decide
@@ -623,7 +644,7 @@ collation and not a partial guess).
      the column stays in the table**.
 
      Option 1 — collapse on column A; drop column B distinctions (Option B: column B retained):
-       - `description` example: `Grain = (sid, acad_plan, compl_term, acad_org, degree). Collapse to one row per grain by keeping the row with highest honors distinction. Sub_plan column is retained, but only one value per grain (row diversity on sub_plan is lost).`
+       - `description` example: `Grain = (sid, program_code, completion_term, org_unit, degree). Collapse to one row per grain by keeping the row with highest honors distinction. Sub_plan column is retained, but only one value per grain (row diversity on sub_plan is lost).`
        - `dedup_strategy: "temporal_collapse"`
        - `dedup_sort_by: "column_A"` (e.g. honors)
        - `dedup_sort_ascending: true/false` (based on semantics)
@@ -638,7 +659,7 @@ collation and not a partial guess).
        - `dedup_sort_ascending` / `dedup_keep: "first"` per semantics
 
      Option 3 (if grain-widening is plausible) — column A is a grain dimension; collapse column B:
-       - `description` example: `Grain = (sid, acad_plan, compl_term, acad_org, degree, sub_plan). Collapse on honors (keep highest distinction). Sub_plan column is preserved as a grain dimension; table remains multi-row with one row per (sid, acad_plan, compl_term, acad_org, degree, sub_plan).`
+       - `description` example: `Grain = (sid, program_code, completion_term, org_unit, degree, sub_plan). Collapse on honors (keep highest distinction). Sub_plan column is preserved as a grain dimension; table remains multi-row with one row per (sid, program_code, completion_term, org_unit, degree, sub_plan).`
        - `candidate_key_override: ["student", "term", ..., "column_A"]` (wider grain)
        - `dedup_strategy: "temporal_collapse"`
        - `dedup_sort_by: "column_B"`
@@ -684,21 +705,21 @@ collation and not a partial guess).
      The Pydantic validator will reject the output if either is missing or if
      `dedup_keep` is not "first".
 
-     Example — keep earliest COHORT_YEAR:
+     Example — keep earliest cohort_year:
      ```json
      {
        "dedup_strategy": "temporal_collapse",
-       "dedup_sort_by": "COHORT_YEAR",
+       "dedup_sort_by": "cohort_year",
        "dedup_sort_ascending": true,
        "dedup_keep": "first"
      }
      ```
 
-     Example — keep latest COHORT_YEAR:
+     Example — keep latest cohort_year:
      ```json
      {
        "dedup_strategy": "temporal_collapse",
-       "dedup_sort_by": "COHORT_YEAR",
+       "dedup_sort_by": "cohort_year",
        "dedup_sort_ascending": false,
        "dedup_keep": "first"
      }
@@ -765,7 +786,7 @@ Distinguish these two ideas:
 
 1. **`learner_id_alias`** — The institution's learner/student-identifier column **as it appears in the
    column list** you receive (header-normalized, typically snake_case). Examples:
-   `student_id_randomized_datakind`, or a normalized form of a raw header like `STUDENT_ID`.
+   `external_student_id`, or a normalized form of a raw header like `STUDENT_ID`.
    Set to JSON `null` when the column list already shows `student_id`, or when this dataset's
    grain does not include a person identifier.
 

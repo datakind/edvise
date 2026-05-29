@@ -614,7 +614,8 @@ def academic_year_and_canonical_season_to_conferral_date(
 
 
 # Suffix after leading calendar year in compact codes like 2025SP, 2024FA, 2015S1.
-_COMPACT_TERM_SUFFIX_TO_SEASON: dict[str, str] = {
+# Public: Step 2b prompts and schema validation must stay aligned with this closed set.
+COMPACT_TERM_CODE_SUFFIX_TO_SEASON: dict[str, str] = {
     "FA": "FALL",
     "FALL": "FALL",
     "SP": "SPRING",
@@ -647,7 +648,7 @@ def compact_term_code_to_conferral_date(s: pd.Series) -> pd.Series:
     parts = str_s.str.extract(r"^(\d{4})([A-Za-z][A-Za-z0-9]*)$", expand=True)
     year_series = parts[0].astype("string")
     suffix = parts[1].astype("string").str.upper()
-    season_series = suffix.map(_COMPACT_TERM_SUFFIX_TO_SEASON)
+    season_series = suffix.map(COMPACT_TERM_CODE_SUFFIX_TO_SEASON)
     return academic_year_and_canonical_season_to_conferral_date(
         year_series, season_series
     )
