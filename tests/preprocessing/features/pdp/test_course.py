@@ -94,6 +94,12 @@ def test_course_id(df, prefix_col, number_col, exp):
             2.0,
             pd.Series([True, False, True, False, True, pd.NA, pd.NA], dtype="boolean"),
         ),
+        (
+            pd.DataFrame({"grade": ["B", "D-", "F", "A", "2.5"]}, dtype="string"),
+            "grade",
+            1.0,
+            pd.Series([True, False, False, True, True], dtype="boolean"),
+        ),
     ],
 )
 def test_course_passed(df, col, min_passing_grade, exp):
@@ -145,12 +151,17 @@ def test_course_level(df, col, pattern, exp):
         (
             pd.DataFrame({"grade": ["4", "2", "P", "F", "1"]}, dtype="string"),
             "grade",
-            pd.Series([4.0, 2.0, pd.NA, pd.NA, 1.0], dtype="Float32"),
+            pd.Series([4.0, 2.0, 4.0, 0.0, 1.0], dtype="Float32"),
         ),
         (
             pd.DataFrame({"grade": ["4.0", "2.5", "I", "W", "1.75"]}, dtype="string"),
             "grade",
             pd.Series([4.0, 2.5, pd.NA, pd.NA, 1.75], dtype="Float32"),
+        ),
+        (
+            pd.DataFrame({"grade": ["A", "B+", "C-", "D"]}, dtype="string"),
+            "grade",
+            pd.Series([4.0, 3.3, 1.7, 1.0], dtype="Float32"),
         ),
     ],
 )
