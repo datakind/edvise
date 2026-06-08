@@ -16,6 +16,8 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
+              - --config_file_name
+              - "{{job.parameters.config_file_name}}"
               - --features_table_name
               - "{{job.parameters.features_table_name}}"
               - --model_name
@@ -65,6 +67,8 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
+              - --config_file_name
+              - "{{job.parameters.config_file_name}}"
               - --model_name
               - "{{job.parameters.model_name}}"
               - --features_table_name
@@ -140,6 +144,8 @@ resources:
               - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
+              - --config_file_name
+              - "{{job.parameters.config_file_name}}"
               - --model_run_id
               - "{{tasks.training_h2o.values.model_run_id}}"
           job_cluster_key: edvise-legacy-training-pipeline-cluster
@@ -197,6 +203,8 @@ resources:
           default: ${var.DB_workspace}
         - name: DK_CC_EMAIL
           default: ${var.datakind_notification_email}
+        - name: config_file_name
+          default: ${var.config_file_name}
         - name: features_table_name
           default: ${var.features_table_name}
         - name: ds_run_as
