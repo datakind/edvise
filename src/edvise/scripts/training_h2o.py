@@ -27,7 +27,7 @@ from databricks.connect import DatabricksSession
 from pyspark.sql import SparkSession
 from mlflow.tracking import MlflowClient
 
-from edvise import modeling, dataio
+from edvise import configs, modeling, dataio
 from edvise.configs.schema_type import project_config_class
 from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.base import ModelCard
@@ -64,14 +64,13 @@ from edvise.scripts.predictions_h2o import (
 
 @dataclass(frozen=True)
 class SchemaSpec:
-    schema_type: t.Literal["pdp", "legacy"]
+    schema_type: t.Literal["pdp", "edvise", "legacy"]
     cfg_schema: type[t.Any]
     model_card_cls: type["ModelCard[t.Any]"]
     features_table_path: str
 
 
 def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
-    # pdp
     if args.schema_type == "pdp":
         return SchemaSpec(
             schema_type="pdp",
@@ -80,7 +79,14 @@ def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
             features_table_path="shared/assets/pdp_features_table.toml",
         )
 
-    # legacy (non-PDP)
+    if args.schema_type == "edvise":
+        return SchemaSpec(
+            schema_type="edvise",
+            cfg_schema=configs.es.ESProjectConfig,
+            model_card_cls=H2OPDPModelCard,
+            features_table_path="shared/assets/pdp_features_table.toml",
+        )
+
     if not args.features_table_path:
         raise ValueError("--features_table_path required when --schema_type=legacy")
 
@@ -877,12 +883,10 @@ def parse_arguments() -> argparse.Namespace:
         "--schema_type",
         type=str,
         default="pdp",
-        help="pdp | edvise | es — selects PDP vs ES project config schema.",
+        choices=["pdp", "edvise", "legacy"],
+        help="pdp | edvise | legacy — selects project config schema.",
     )
     parser.add_argument("--job_type", type=str, choices=["training"], required=False)
-    parser.add_argument(
-        "--schema_type", type=str, choices=["pdp", "legacy"], required=True
-    )
     parser.add_argument(
         "--features_table_path",
         type=str,
@@ -1003,9 +1007,13 @@ if __name__ == "__main__":
         _apply_legacy_training_uc_toml_paths(args)
     else:
         if not (args.config_file_path or "").strip():
-            raise SystemExit("--config_file_path is required when --schema_type=pdp")
+            raise SystemExit(
+                "--config_file_path is required when --schema_type is pdp or edvise"
+            )
         if not (args.config_file_name or "").strip():
-            raise SystemExit("--config_file_name is required when --schema_type=pdp")
+            raise SystemExit(
+                "--config_file_name is required when --schema_type is pdp or edvise"
+            )
     # try:
     #     if args.legacy_schemas_path:
     #         sys.path.append(args.legacy_schemas_path)
