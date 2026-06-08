@@ -16,12 +16,8 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
-              - --config_file_name
-              - "{{job.parameters.config_file_name}}"
-              - --legacy_config_uc_path
-              - "{{job.parameters.legacy_config_uc_path}}"
-              - --legacy_features_uc_path
-              - "{{job.parameters.legacy_features_uc_path}}"
+              - --features_table_name
+              - "{{job.parameters.features_table_name}}"
               - --model_name
               - "{{job.parameters.model_name}}"
           job_cluster_key: edvise-legacy-training-pipeline-cluster
@@ -67,16 +63,12 @@ resources:
               - "{{job.parameters.pipeline_version}}"
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
-              - --config_file_name
-              - "{{job.parameters.config_file_name}}"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
               - --model_name
               - "{{job.parameters.model_name}}"
-              - --legacy_config_uc_path
-              - "{{job.parameters.legacy_config_uc_path}}"
-              - --legacy_features_uc_path
-              - "{{job.parameters.legacy_features_uc_path}}"
+              - --features_table_name
+              - "{{job.parameters.features_table_name}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
               - --ds_run_as
@@ -148,14 +140,8 @@ resources:
               - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
-              - --config_file_name
-              - "{{job.parameters.config_file_name}}"
               - --model_run_id
               - "{{tasks.training_h2o.values.model_run_id}}"
-              - --legacy_config_uc_path
-              - "{{job.parameters.legacy_config_uc_path}}"
-              - --legacy_features_uc_path
-              - "{{job.parameters.legacy_features_uc_path}}"
           job_cluster_key: edvise-legacy-training-pipeline-cluster
           libraries:
             - pypi:
@@ -211,8 +197,8 @@ resources:
           default: ${var.DB_workspace}
         - name: DK_CC_EMAIL
           default: ${var.datakind_notification_email}
-        - name: config_file_name
-          default: ${var.config_file_name}
+        - name: features_table_name
+          default: ${var.features_table_name}
         - name: ds_run_as
           default: ${var.ds_run_as}
         - name: datakind_notification_email
@@ -221,10 +207,6 @@ resources:
           default: ${var.service_account_executer}
         - name: model_name
           default: ${var.model_name}
-        - name: legacy_config_uc_path
-          default: ${var.legacy_config_uc_path}
-        - name: legacy_features_uc_path
-          default: ${var.legacy_features_uc_path}
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
           level: CAN_MANAGE

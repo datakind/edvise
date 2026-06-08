@@ -27,21 +27,13 @@ variables:
     description: "Account to run the pipeline (Databricks SP client/app ID)"
   databricks_institution_name:
     description: "Institution ID for legacy training and inference (SSI pipelines/<this>/)"
-  config_file_name:
+  features_table_name:
     description: >
-      Training only: basename of config TOML under pipelines/<inst>/<model_name>/.
-      Legacy inference resolves config and features_table from the registered model's silver run folder (same as PDP).
-    default: "config.toml"
-  legacy_config_uc_path:
-    description: >
-      Full UC/driver path to legacy config TOML for training (e.g. /Volumes/catalog/.../config.toml).
-      When set, legacy_features_uc_path must also be set; SSI workspace TOML paths are not used.
-    default: ""
-  legacy_features_uc_path:
-    description: >
-      Full UC/driver path to the legacy features TOML (any filename). Pair with legacy_config_uc_path.
-      Inference uses the copy stored under the training run folder, not this variable.
-    default: ""
+      Training only: features TOML basename under
+      /Volumes/<DB_workspace>/<inst>_bronze/bronze_volume/training_inputs/.
+      Config is always config.toml in that folder. Inference resolves artifacts from the
+      registered model's silver run folder (same as PDP).
+    default: "features_table.toml"
   datakind_group_to_manage_workflow:
     description: "Group with permissions to manage the job"
   model_name:
