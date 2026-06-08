@@ -20,6 +20,8 @@ Notes:
   - No categorical vocabulary capture or version fields
 """
 
+from __future__ import annotations
+
 import typing as t
 import logging
 import warnings
@@ -30,13 +32,96 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
+import pydantic as pyd
 from pandas.api import types as ptypes
 
 from edvise.utils.data_cleaning import convert_to_snake_case
 from edvise.feature_generation.term import add_term_order
-from edvise.configs.legacy import LegacyProjectConfig, CleaningConfig
+
+if t.TYPE_CHECKING:
+    from edvise.configs.legacy import LegacyProjectConfig
 
 LOGGER = logging.getLogger(__name__)
+
+
+class CleaningConfig(pyd.BaseModel):
+    schema_contract_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Absolute path on volumes to the schema_contract.json file. "
+            "This file contains the frozen multi-dataset schema contract "
+            "used for schema enforcement for legacy schools. This is needed "
+            "for data reliability and to ensure minimal training–inference skew."
+        ),
+    )
+    student_id_alias: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Optional alternate name for the student_id column. "
+            "E.g., Zogotech uses 'student_id_randomized_datakind'. "
+            "If provided, it will be normalized to 'student_id'."
+        ),
+    )
+    null_tokens: list[str] = pyd.Field(
+        default=["(Blank)"],
+        description=(
+            "Tokens that should be treated as null/NA during cleaning. "
+            "These will be replaced with pandas NA before dtype generation."
+        ),
+    )
+    treat_empty_strings_as_null: bool = pyd.Field(
+        default=True,
+        description=(
+            "If True, whitespace-only and empty strings are treated as null values."
+        ),
+    )
+    date_formats: tuple[str, ...] = pyd.Field(
+        default=("%m/%d/%Y",),
+        description="Candidate date formats to try before falling back to generic parsing.",
+    )
+    dtype_confidence_threshold: float = pyd.Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Minimum fraction of successfully coerced values required to accept a generated dtype."
+        ),
+    )
+    min_non_null: int = pyd.Field(
+        default=10,
+        ge=0,
+        description=(
+            "Minimum number of non-null values required to trust a generated dtype."
+        ),
+    )
+    boolean_map: dict[str, bool] = pyd.Field(
+        default_factory=lambda: {
+            "true": True,
+            "false": False,
+            "yes": True,
+            "no": False,
+            "1": True,
+            "0": False,
+        },
+        description=(
+            "Mapping for interpreting string tokens as booleans during dtype generation."
+        ),
+    )
+    forced_dtypes: dict[str, str] = pyd.Field(
+        default_factory=dict,
+        description=(
+            "Optional mapping of normalized column names → forced pandas nullable dtypes "
+            "(e.g. {'student_id': 'string', 'term_order': 'Int64'}). "
+            "These overrides are applied BEFORE dtype inference across ALL datasets."
+        ),
+    )
+    allow_forced_cast_fallback: bool = pyd.Field(
+        default=True,
+        description=(
+            "If True, failures to cast a forced dtype fall back to inferred dtype with a warning. "
+            "If False, such failures raise an exception."
+        ),
+    )
 
 
 # Type aliases for clarity
@@ -1297,13 +1382,19 @@ def load_schema_contract(path: str) -> dict[str, t.Any]:
 
 
 __all__ = [
+    "CleaningConfig",
+    "TermOrderFn",
+    "DedupeFn",
     "DtypeGenerationOptions",
+    "dtype_opts_from_cleaning_config",
     "generate_column_training_dtype",
     "generate_training_dtypes",
     "rename_student_id_alias_column",
     "rename_learner_id_alias_column",
     "CleanSpec",
     "clean_dataset",
+    "clean_all_datasets_map",
+    "clean_bronze_datasets",
     "SchemaFreezeOptions",
     "freeze_schema",
     "enforce_schema",
@@ -1311,9 +1402,16 @@ __all__ = [
     "SchemaContractMeta",
     "build_schema_contract",
     "enforce_schema_contract",
+    "load_or_build_schema_contract",
     "save_schema_contract",
     "load_schema_contract",
     "normalize_columns",
     "create_datasets",
-    "clean_all_datasets_map",
+    "build_datasets_from_bronze",
+    "attach_cleaning_hooks",
+    "align_and_rank_dataframes",
+    "drop_readmits",
+    "keep_earlier_record",
+    "assign_numeric_grade",
+    "_cast_series_to_nullable_dtype",
 ]

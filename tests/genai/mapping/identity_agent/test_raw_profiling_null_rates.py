@@ -3,7 +3,7 @@
 import pandas as pd
 import pytest
 
-from edvise.configs.custom import CleaningConfig
+from edvise.data_audit.custom_cleaning import CleaningConfig
 from edvise.genai.mapping.identity_agent.profiling.raw_snapshot import profile_raw_table
 
 
