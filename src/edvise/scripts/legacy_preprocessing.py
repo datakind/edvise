@@ -13,7 +13,7 @@ Workspace root defaults to ``…/student-success-intervention/pipelines`` (overr
 
   ``/Volumes/<DB_workspace>/<databricks_institution_name>_bronze/bronze_volume/training_inputs/``
 
-  - Config: ``config.toml`` (fixed basename).
+  - Config: ``<config_file_name>`` (default ``config.toml``).
   - Features: ``<features_table_name>`` (default ``features_table.toml``).
 
   Preprocessing code still loads from the SSI workspace mirror at
@@ -233,19 +233,19 @@ def resolve_legacy_training_toml_paths(
     db_workspace: str,
     institution_id: str,
     *,
+    config_file_name: str = DEFAULT_LEGACY_CONFIG_BASENAME,
     features_table_name: str = DEFAULT_FEATURES_TABLE_NAME,
-    config_basename: str = DEFAULT_LEGACY_CONFIG_BASENAME,
 ) -> tuple[str, str]:
     """
     Resolve training config and features TOML paths on the institution bronze UC volume.
 
-    Layout: ``{training_inputs}/config.toml`` and ``{training_inputs}/{features_table_name}``.
+    Layout: ``{training_inputs}/{config_file_name}`` and ``{training_inputs}/{features_table_name}``.
     """
     base = legacy_training_inputs_uc_dir(db_workspace, institution_id)
-    cfg_name = (config_basename or "").strip() or DEFAULT_LEGACY_CONFIG_BASENAME
+    cfg_name = (config_file_name or "").strip() or DEFAULT_LEGACY_CONFIG_BASENAME
     feat_name = (features_table_name or "").strip() or DEFAULT_FEATURES_TABLE_NAME
     if "/" in cfg_name or "\\" in cfg_name:
-        raise ValueError(f"config_basename must be a single filename: {cfg_name!r}")
+        raise ValueError(f"config_file_name must be a single filename: {cfg_name!r}")
     if "/" in feat_name or "\\" in feat_name:
         raise ValueError(f"features_table_name must be a single filename: {feat_name!r}")
 
@@ -372,6 +372,14 @@ def main() -> None:
         help="Required for run_type=predict. Ignored for train.",
     )
     parser.add_argument(
+        "--config_file_name",
+        default=DEFAULT_LEGACY_CONFIG_BASENAME,
+        help=(
+            "Train only: config TOML basename under "
+            "/Volumes/<DB_workspace>/<inst>_bronze/bronze_volume/training_inputs/."
+        ),
+    )
+    parser.add_argument(
         "--features_table_name",
         default=DEFAULT_FEATURES_TABLE_NAME,
         help=(
@@ -449,6 +457,7 @@ def main() -> None:
         effective_config, effective_features = resolve_legacy_training_toml_paths(
             db_ws,
             inst,
+            config_file_name=args.config_file_name,
             features_table_name=args.features_table_name,
         )
         LOGGER.info(

@@ -868,7 +868,10 @@ def parse_arguments() -> argparse.Namespace:
         "--config_file_name",
         type=str,
         default="",
-        help="PDP: config TOML basename for silver run folder. Legacy: defaults to config.toml.",
+        help=(
+            "Config TOML basename: PDP silver run folder; legacy UC training_inputs "
+            "(default config.toml)."
+        ),
     )
     parser.add_argument(
         "--schema_type",
@@ -932,6 +935,9 @@ def _apply_legacy_training_uc_toml_paths(args: argparse.Namespace) -> None:
         raise SystemExit(
             "--databricks_institution_name is required when --schema_type=legacy"
         )
+    cfg_name = (getattr(args, "config_file_name", None) or "").strip()
+    if not cfg_name:
+        cfg_name = DEFAULT_LEGACY_CONFIG_BASENAME
     feat_name = (getattr(args, "features_table_name", None) or "").strip()
     if not feat_name:
         feat_name = DEFAULT_FEATURES_TABLE_NAME
@@ -939,6 +945,7 @@ def _apply_legacy_training_uc_toml_paths(args: argparse.Namespace) -> None:
         cfg_path, feat_path = resolve_legacy_training_toml_paths(
             args.DB_workspace,
             inst,
+            config_file_name=cfg_name,
             features_table_name=feat_name,
         )
     except (FileNotFoundError, ValueError) as exc:
@@ -948,7 +955,7 @@ def _apply_legacy_training_uc_toml_paths(args: argparse.Namespace) -> None:
 
     args.config_file_path = cfg_path
     args.features_table_path = feat_path
-    args.config_file_name = DEFAULT_LEGACY_CONFIG_BASENAME
+    args.config_file_name = cfg_name
     logging.info(
         "Legacy training: UC config %s (writable copy), features %s",
         cfg_path,

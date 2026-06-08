@@ -16,7 +16,7 @@ workspace file is missing, this script exits successfully without running school
 ``--job_root_dir`` must match ``inference_h2o`` (CSV under ``ext/inference_output``).
 
 ``run_type=train``: ``--config_file_path`` from ``training_h2o`` task values (updated
-config under silver volume) or UC ``training_inputs/config.toml``; ``--gold_table_path``
+config under silver volume) or UC ``training_inputs/{config_file_name}``; ``--gold_table_path``
 points at the catalog/schema written by ``training_h2o`` (``{gold_table_path}.advisor_output``).
 """
 
@@ -60,7 +60,7 @@ def resolve_postprocess_config_path(args: argparse.Namespace) -> str:
 
     Predict jobs pass ``--config_file_path`` from ``legacy_inference_inputs``.
     Train jobs prefer ``--config_file_path`` from ``training_h2o`` task values, then
-    ``{silver_volume_path}/{model_run_id}/training/config.toml``, then UC training_inputs.
+    ``{silver_volume_path}/{model_run_id}/training/{config_file_name}``, then UC training_inputs.
     """
     cfg_path = (args.config_file_path or "").strip()
     if cfg_path:
@@ -71,7 +71,9 @@ def resolve_postprocess_config_path(args: argparse.Namespace) -> str:
 
     silver = (getattr(args, "silver_volume_path", None) or "").strip()
     model_run_id = (getattr(args, "model_run_id", None) or "").strip()
-    cfg_name = DEFAULT_LEGACY_CONFIG_BASENAME
+    cfg_name = (getattr(args, "config_file_name", None) or "").strip()
+    if not cfg_name:
+        cfg_name = DEFAULT_LEGACY_CONFIG_BASENAME
     if silver and model_run_id:
         candidate = os.path.join(silver, model_run_id, "training", cfg_name)
         if os.path.isfile(candidate):
@@ -82,13 +84,15 @@ def resolve_postprocess_config_path(args: argparse.Namespace) -> str:
     db_ws = (args.DB_workspace or "").strip()
     if inst and db_ws:
         try:
-            resolved, _ = resolve_legacy_training_toml_paths(db_ws, inst)
+            resolved, _ = resolve_legacy_training_toml_paths(
+                db_ws, inst, config_file_name=cfg_name
+            )
             LOGGER.info("Resolved training config from UC training_inputs: %s", resolved)
             return resolved
         except (FileNotFoundError, ValueError) as exc:
             raise SystemExit(
                 "Could not resolve training config for postprocessing. "
-                "Pass --config_file_path or ensure UC training_inputs/config.toml exists."
+                f"Pass --config_file_path or ensure UC training_inputs/{cfg_name} exists."
             ) from exc
 
     raise SystemExit("--config_file_path is required for train postprocessing.")
@@ -203,6 +207,11 @@ def main() -> None:
         "--silver_volume_path",
         default="",
         help="Train only: fallback path to resolve updated config under model run folder.",
+    )
+    parser.add_argument(
+        "--config_file_name",
+        default="",
+        help="Train only: config TOML basename for silver-volume and UC fallback resolution.",
     )
     parser.add_argument(
         "--model_run_id",
