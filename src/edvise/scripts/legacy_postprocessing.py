@@ -26,7 +26,15 @@ import argparse
 import inspect
 import logging
 import os
+import sys
 from pathlib import Path
+
+# Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
+script_dir = os.getcwd()
+repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
+src_path = os.path.join(repo_root, "src")
+if os.path.isdir(src_path) and src_path not in sys.path:
+    sys.path.insert(0, src_path)
 
 from edvise import configs, dataio
 from edvise.scripts.legacy_preprocessing import (
