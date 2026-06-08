@@ -106,6 +106,35 @@ def resolve_postprocess_config_path(args: argparse.Namespace) -> str:
     raise SystemExit("--config_file_path is required for train postprocessing.")
 
 
+def _filter_run_kwargs(run: object, run_kwargs: dict[str, object]) -> dict[str, object]:
+    """
+    Pass kwargs through to ``run()`` when it accepts ``**kwargs``.
+
+    Thin school wrappers (e.g. JJC ``postprocessing.py``) delegate with ``**kwargs``; filtering
+    only on ``sig.parameters`` would drop ``gold_table_path`` and other forwarded args.
+    """
+    sig = inspect.signature(run)
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+        return run_kwargs
+    return {k: v for k, v in run_kwargs.items() if k in sig.parameters}
+
+
+def resolve_gold_table_path(args: argparse.Namespace, institution_id: str) -> str:
+    """
+    UC gold schema prefix for training advisor output (``{prefix}.advisor_output``).
+
+    Matches ``training_h2o`` ``--gold_table_path`` (catalog.schema, not a silver volume path).
+    """
+    explicit = (args.gold_table_path or "").strip()
+    if explicit:
+        return explicit
+    db_ws = (args.DB_workspace or "").strip()
+    inst = institution_id.strip()
+    if db_ws and inst:
+        return f"{db_ws}.{inst}_gold"
+    return ""
+
+
 def resolve_ssi_postprocessing_py(
     institution_id: str,
     model_name: str,
@@ -276,10 +305,11 @@ def main() -> None:
         raise SystemExit(
             "--job_root_dir is required when run_type=predict and postprocessing runs."
         )
-    gold_table = (args.gold_table_path or "").strip()
+    gold_table = resolve_gold_table_path(args, inst)
     if args.run_type == "train" and not gold_table:
         raise SystemExit(
-            "--gold_table_path is required when run_type=train and postprocessing runs."
+            "--gold_table_path is required when run_type=train and postprocessing runs "
+            "(or pass --DB_workspace and --databricks_institution_name to derive it)."
         )
 
     effective_config = materialize_legacy_config_with_uc_catalog(
@@ -308,8 +338,7 @@ def main() -> None:
         "gold_table_path": gold_table,
         "DB_workspace": args.DB_workspace,
     }
-    sig = inspect.signature(run)
-    run_kwargs = {k: v for k, v in run_kwargs.items() if k in sig.parameters}
+    run_kwargs = _filter_run_kwargs(run, run_kwargs)
 
     LOGGER.info(
         "Running %s.run(%s)",
