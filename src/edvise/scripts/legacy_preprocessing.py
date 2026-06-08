@@ -9,17 +9,15 @@ Workspace root defaults to ``…/student-success-intervention/pipelines`` (overr
 - **Preprocessing** is always at
   ``<workspace_root>/<databricks_institution_name>/<model_name>/preprocessing.py``.
 
-- **Training** — config and features TOMLs come from either Unity Catalog volumes or the
-  institution folder under the workspace root:
+- **Training** — config and features TOMLs are read from the institution bronze UC volume:
 
-  - **UC (preferred for production):** set both ``--legacy_config_uc_path`` and
-    ``--legacy_features_uc_path`` to full paths (e.g. ``/Volumes/<catalog>/.../config.toml``).
-    SSI-relative parameters are then ignored for locating TOMLs.
+  ``/Volumes/<DB_workspace>/<databricks_institution_name>_bronze/bronze_volume/training_inputs/``
 
-  - **Git / workspace mirror:** if both UC args are empty, TOMLs are read from
-    ``<workspace_root>/<databricks_institution_name>/<model_name>/<config_file_name>`` and
-    ``…/<model_name>/features_table.toml`` (override config basename with
-    ``--config_file_name``). Features basename is fixed unless you use UC paths.
+  - Config: ``config.toml`` (fixed basename).
+  - Features: ``<features_table_name>`` (default ``features_table.toml``).
+
+  Preprocessing code still loads from the SSI workspace mirror at
+  ``<workspace_root>/<databricks_institution_name>/<model_name>/preprocessing.py``.
 
 ``--config_file_path`` is required for ``run_type=predict`` (from ``legacy_inference_inputs``);
 ``run_type=train`` ignores it and uses the workspace paths above.
@@ -155,10 +153,9 @@ DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT = (
 )
 SSI_PIPELINES_WORKSPACE_ROOT = DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
 
-# Basename for features TOML under ``pipelines/<inst>/<model_name>/`` (SSI training only).
-# UC training uses ``legacy_features_uc_path`` (any filename). Inference loads the copy
-# persisted under the training run folder (discovered by ``features_table`` filename keyword).
-DEFAULT_LEGACY_FEATURES_TABLE_BASENAME = "features_table.toml"
+# Fixed basenames under ``…/bronze_volume/training_inputs/`` on UC.
+DEFAULT_LEGACY_CONFIG_BASENAME = "config.toml"
+DEFAULT_FEATURES_TABLE_NAME = "features_table.toml"
 
 logging.basicConfig(level=logging.INFO, force=True)
 LOGGER = logging.getLogger(__name__)
@@ -171,15 +168,6 @@ def normalize_fs_path(raw: str) -> Path:
     elif p.startswith("dbfs:/"):
         p = "/dbfs/" + p[6:].lstrip("/")
     return Path(p)
-
-
-def _normalize_relative_under_institution(rel: str) -> str:
-    rel_norm = rel.strip().replace("\\", "/").lstrip("/")
-    if not rel_norm:
-        raise ValueError("Relative path under institution must not be empty.")
-    if any(p == ".." for p in rel_norm.split("/")):
-        raise ValueError(f"Relative path must not contain '..': {rel!r}")
-    return rel_norm
 
 
 def resolve_ssi_preprocessing_py(
@@ -228,87 +216,53 @@ def resolve_ssi_preprocessing_py(
     return py, institution_base
 
 
-def resolve_ssi_training_workspace_toml_paths(
+def legacy_training_inputs_uc_dir(db_workspace: str, institution_id: str) -> Path:
+    """``/Volumes/<catalog>/<inst>_bronze/bronze_volume/training_inputs``."""
+    ws = (db_workspace or "").strip()
+    inst = (institution_id or "").strip()
+    if not ws:
+        raise ValueError("DB_workspace must be non-empty.")
+    if not inst:
+        raise ValueError("databricks_institution_name must be non-empty.")
+    return normalize_fs_path(
+        f"/Volumes/{ws}/{inst}_bronze/bronze_volume/training_inputs"
+    )
+
+
+def resolve_legacy_training_toml_paths(
+    db_workspace: str,
     institution_id: str,
-    model_name: str,
-    config_file_name: str,
     *,
-    workspace_root: str | None = None,
-    features_table_basename: str = DEFAULT_LEGACY_FEATURES_TABLE_BASENAME,
+    features_table_name: str = DEFAULT_FEATURES_TABLE_NAME,
+    config_basename: str = DEFAULT_LEGACY_CONFIG_BASENAME,
 ) -> tuple[str, str]:
     """
-    Absolute paths to training config and features TOMLs under ``pipelines/<inst>/``.
+    Resolve training config and features TOML paths on the institution bronze UC volume.
 
-    Layout: ``<institution_base>/<model_name>/<config_file_name>`` and
-    ``<institution_base>/<model_name>/<features_table_basename>``.
+    Layout: ``{training_inputs}/config.toml`` and ``{training_inputs}/{features_table_name}``.
     """
-    _, institution_base = resolve_ssi_preprocessing_py(
-        institution_id,
-        model_name,
-        workspace_root=workspace_root,
-    )
-    mn = (model_name or "").strip()
-    cfg_rel = f"{mn}/{config_file_name.strip()}"
-    feat_rel = f"{mn}/{features_table_basename.strip()}"
-    cfg_norm = _normalize_relative_under_institution(cfg_rel)
-    feat_norm = _normalize_relative_under_institution(feat_rel)
+    base = legacy_training_inputs_uc_dir(db_workspace, institution_id)
+    cfg_name = (config_basename or "").strip() or DEFAULT_LEGACY_CONFIG_BASENAME
+    feat_name = (features_table_name or "").strip() or DEFAULT_FEATURES_TABLE_NAME
+    if "/" in cfg_name or "\\" in cfg_name:
+        raise ValueError(f"config_basename must be a single filename: {cfg_name!r}")
+    if "/" in feat_name or "\\" in feat_name:
+        raise ValueError(f"features_table_name must be a single filename: {feat_name!r}")
 
-    inst_r = institution_base.resolve()
-    cfg_p = (inst_r / cfg_norm).resolve()
-    feat_p = (inst_r / feat_norm).resolve()
-    for label, p in (("config", cfg_p), ("features", feat_p)):
-        try:
-            p.relative_to(inst_r)
-        except ValueError as e:
-            raise ValueError(
-                f"{label} path {p} is not under institution directory {inst_r}"
-            ) from e
+    cfg_p = (base / cfg_name).resolve()
+    feat_p = (base / feat_name).resolve()
+    try:
+        cfg_p.relative_to(base.resolve())
+        feat_p.relative_to(base.resolve())
+    except ValueError as e:
+        raise ValueError(
+            f"Resolved TOML path escapes training_inputs directory {base}"
+        ) from e
     if not cfg_p.is_file():
         raise FileNotFoundError(f"Training config TOML not found: {cfg_p}")
     if not feat_p.is_file():
         raise FileNotFoundError(f"Features table TOML not found: {feat_p}")
     return str(cfg_p), str(feat_p)
-
-
-def resolve_legacy_training_toml_paths(
-    institution_id: str,
-    model_name: str,
-    config_file_name: str,
-    *,
-    workspace_root: str | None = None,
-    legacy_config_uc_path: str = "",
-    legacy_features_uc_path: str = "",
-) -> tuple[str, str]:
-    """
-    Resolve training config and features TOML paths for legacy jobs.
-
-    When both ``legacy_config_uc_path`` and ``legacy_features_uc_path`` are set, those
-    UC volume paths are used. Otherwise paths are resolved under the SSI workspace layout.
-    """
-    uc_c = (legacy_config_uc_path or "").strip()
-    uc_f = (legacy_features_uc_path or "").strip()
-    if uc_c and uc_f:
-        cfg_p = normalize_fs_path(uc_c).resolve()
-        feat_p = normalize_fs_path(uc_f).resolve()
-        if not cfg_p.is_file():
-            raise FileNotFoundError(
-                f"legacy_config_uc_path is not a file: {cfg_p}"
-            )
-        if not feat_p.is_file():
-            raise FileNotFoundError(
-                f"legacy_features_uc_path is not a file: {feat_p}"
-            )
-        return str(cfg_p), str(feat_p)
-    if uc_c or uc_f:
-        raise ValueError(
-            "Provide both legacy_config_uc_path and legacy_features_uc_path, or leave both empty."
-        )
-    return resolve_ssi_training_workspace_toml_paths(
-        institution_id,
-        model_name,
-        config_file_name,
-        workspace_root=workspace_root,
-    )
 
 
 def copy_legacy_uc_config_for_training(config_uc_path: str) -> str:
@@ -418,30 +372,17 @@ def main() -> None:
         help="Required for run_type=predict. Ignored for train.",
     )
     parser.add_argument(
-        "--config_file_name",
-        default="config.toml",
-        help="Basename used in default config path <model_name>/<config_file_name> (train).",
+        "--features_table_name",
+        default=DEFAULT_FEATURES_TABLE_NAME,
+        help=(
+            "Train only: features TOML basename under "
+            "/Volumes/<DB_workspace>/<inst>_bronze/bronze_volume/training_inputs/."
+        ),
     )
     parser.add_argument(
         "--ssi_pipelines_workspace_root",
         default="",
         help="Override …/student-success-intervention/pipelines.",
-    )
-    parser.add_argument(
-        "--legacy_config_uc_path",
-        default="",
-        help=(
-            "Train: optional full path to config TOML on UC / driver (e.g. /Volumes/.../config.toml). "
-            "If set, --legacy_features_uc_path must also be set; SSI TOML paths are not used."
-        ),
-    )
-    parser.add_argument(
-        "--legacy_features_uc_path",
-        default="",
-        help=(
-            "Train: optional full path to features_table TOML on UC / driver. "
-            "Pair with --legacy_config_uc_path."
-        ),
     )
     parser.add_argument(
         "--run_type",
@@ -502,16 +443,16 @@ def main() -> None:
     root = ws or DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
 
     if args.run_type == "train":
+        db_ws = (args.DB_workspace or "").strip()
+        if not db_ws:
+            raise SystemExit("--DB_workspace is required when run_type=train.")
         effective_config, effective_features = resolve_legacy_training_toml_paths(
+            db_ws,
             inst,
-            model_name,
-            args.config_file_name,
-            workspace_root=ws,
-            legacy_config_uc_path=args.legacy_config_uc_path,
-            legacy_features_uc_path=args.legacy_features_uc_path,
+            features_table_name=args.features_table_name,
         )
         LOGGER.info(
-            "Training: legacy config %s, features %s",
+            "Training: UC config %s, features %s",
             effective_config,
             effective_features,
         )

@@ -859,12 +859,17 @@ def parse_arguments() -> argparse.Namespace:
         "--config_file_path",
         type=str,
         default="",
-        help="PDP: path to config TOML (typically bronze). Legacy: leave empty; resolved from SSI workspace.",
+        help="PDP: path to config TOML (typically bronze). Legacy: leave empty; resolved from UC training_inputs.",
     )
     parser.add_argument("--db_run_id", type=str, required=False)
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--gold_table_path", type=str, required=True)
-    parser.add_argument("--config_file_name", type=str, required=True)
+    parser.add_argument(
+        "--config_file_name",
+        type=str,
+        default="",
+        help="PDP: config TOML basename for silver run folder. Legacy: defaults to config.toml.",
+    )
     parser.add_argument(
         "--schema_type",
         type=str,
@@ -879,7 +884,13 @@ def parse_arguments() -> argparse.Namespace:
         "--features_table_path",
         type=str,
         default="",
-        help="Legacy: leave empty; resolved from SSI workspace next to preprocessing.py.",
+        help="Legacy: leave empty; resolved from UC bronze training_inputs volume.",
+    )
+    parser.add_argument(
+        "--features_table_name",
+        type=str,
+        default="",
+        help="Legacy only: features TOML basename under bronze training_inputs (default features_table.toml).",
     )
     parser.add_argument(
         "--databricks_institution_name",
@@ -902,73 +913,46 @@ def parse_arguments() -> argparse.Namespace:
         default="",
         help="Legacy only: optional override for .../student-success-intervention/pipelines path.",
     )
-    parser.add_argument(
-        "--legacy_config_uc_path",
-        type=str,
-        default="",
-        help=(
-            "Legacy only: full path to config TOML on UC/driver. "
-            "If set, --legacy_features_uc_path must also be set; SSI TOML resolution is skipped. "
-            "A writable copy is used so run metadata updates do not mutate UC."
-        ),
-    )
-    parser.add_argument(
-        "--legacy_features_uc_path",
-        type=str,
-        default="",
-        help="Legacy only: full path to features_table TOML; pair with --legacy_config_uc_path.",
-    )
-
     return parser.parse_args()
 
 
-def _apply_legacy_training_workspace_toml_paths(args: argparse.Namespace) -> None:
-    """For schema_type=legacy, load config and features TOMLs from UC or SSI workspace."""
+def _apply_legacy_training_uc_toml_paths(args: argparse.Namespace) -> None:
+    """For schema_type=legacy, load config and features TOMLs from UC training_inputs."""
     if args.schema_type != "legacy":
         return
     from edvise.scripts.legacy_preprocessing import (
+        DEFAULT_FEATURES_TABLE_NAME,
+        DEFAULT_LEGACY_CONFIG_BASENAME,
         copy_legacy_uc_config_for_training,
         resolve_legacy_training_toml_paths,
     )
-    from edvise.utils.databricks import normalize_legacy_uc_model_short_name
 
     inst = (args.databricks_institution_name or "").strip()
     if not inst:
         raise SystemExit(
             "--databricks_institution_name is required when --schema_type=legacy"
         )
-    mn = normalize_legacy_uc_model_short_name(
-        args.model_name or "",
-        workspace=(args.DB_workspace or ""),
-        institution=inst,
-    )
-    if not mn:
-        raise SystemExit("--model_name is required when --schema_type=legacy")
-    ws = (args.ssi_pipelines_workspace_root or "").strip() or None
-    uc_c = (getattr(args, "legacy_config_uc_path", None) or "").strip()
-    uc_f = (getattr(args, "legacy_features_uc_path", None) or "").strip()
+    feat_name = (getattr(args, "features_table_name", None) or "").strip()
+    if not feat_name:
+        feat_name = DEFAULT_FEATURES_TABLE_NAME
     try:
         cfg_path, feat_path = resolve_legacy_training_toml_paths(
+            args.DB_workspace,
             inst,
-            mn,
-            args.config_file_name,
-            workspace_root=ws,
-            legacy_config_uc_path=uc_c,
-            legacy_features_uc_path=uc_f,
+            features_table_name=feat_name,
         )
     except (FileNotFoundError, ValueError) as exc:
         raise SystemExit(str(exc)) from exc
 
-    if uc_c and uc_f:
-        cfg_path = copy_legacy_uc_config_for_training(cfg_path)
+    cfg_path = copy_legacy_uc_config_for_training(cfg_path)
 
     args.config_file_path = cfg_path
     args.features_table_path = feat_path
+    args.config_file_name = DEFAULT_LEGACY_CONFIG_BASENAME
     logging.info(
-        "Legacy training: config %s, features %s%s",
+        "Legacy training: UC config %s (writable copy), features %s",
         cfg_path,
         feat_path,
-        " (UC sources; config is a writable copy)" if uc_c and uc_f else "",
     )
 
 
@@ -1009,9 +993,12 @@ if __name__ == "__main__":
         args.job_type = "training"
         logging.info("No --job_type passed; defaulting to job_type='training'.")
     if args.schema_type == "legacy":
-        _apply_legacy_training_workspace_toml_paths(args)
-    elif not (args.config_file_path or "").strip():
-        raise SystemExit("--config_file_path is required when --schema_type=pdp")
+        _apply_legacy_training_uc_toml_paths(args)
+    else:
+        if not (args.config_file_path or "").strip():
+            raise SystemExit("--config_file_path is required when --schema_type=pdp")
+        if not (args.config_file_name or "").strip():
+            raise SystemExit("--config_file_name is required when --schema_type=pdp")
     # try:
     #     if args.legacy_schemas_path:
     #         sys.path.append(args.legacy_schemas_path)
