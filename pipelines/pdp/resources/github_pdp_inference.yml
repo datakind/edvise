@@ -110,7 +110,7 @@ resources:
           depends_on:
             - task_key: feature_generation
           spark_python_task:
-            python_file: src/edvise/scripts/pdp_checkpoints.py
+            python_file: src/edvise/scripts/checkpoints.py
             source: GIT
             parameters:
               - --silver_volume_path
@@ -120,7 +120,9 @@ resources:
               - --job_type
               - "{{job.parameters.job_type}}"
               - --config_file_path
-              - "{{tasks.data_ingestion.values.config_file_path}}"              
+              - "{{tasks.data_ingestion.values.config_file_path}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -145,7 +147,7 @@ resources:
           depends_on:
             - task_key: feature_generation
           spark_python_task:
-            python_file: src/edvise/scripts/pdp_student_selection.py
+            python_file: src/edvise/scripts/student_selection.py
             source: GIT
             parameters:
               - --silver_volume_path
@@ -155,7 +157,9 @@ resources:
               - --job_type
               - "{{job.parameters.job_type}}"
               - --config_file_path
-              - "{{tasks.data_ingestion.values.config_file_path}}"              
+              - "{{tasks.data_ingestion.values.config_file_path}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -181,7 +185,7 @@ resources:
             - task_key: checkpoint
             - task_key: student_selection
           spark_python_task:
-            python_file: src/edvise/scripts/pdp_inf_prep.py
+            python_file: src/edvise/scripts/inf_prep.py
             source: GIT
             parameters:
               - --silver_volume_path
@@ -192,6 +196,10 @@ resources:
               - "{{job.parameters.term_filter}}"
               - --config_file_path
               - "{{tasks.data_ingestion.values.config_file_path}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
+              - --job_type
+              - "{{job.parameters.job_type}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -237,6 +245,8 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
               - --config_file_path
               - "{{tasks.data_ingestion.values.config_file_path}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -314,6 +324,8 @@ resources:
       parameters:
         - name: term_filter
           default: ""
+        - name: schema_type
+          default: ${var.schema_type}
         - name: cohort_file_name
           default: AO1600pdp_AO1600_AR_DEIDENTIFIED_STUDYID_20250618030630.csv
         - name: course_file_name

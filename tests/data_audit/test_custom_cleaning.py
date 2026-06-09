@@ -16,6 +16,7 @@ from edvise.data_audit.custom_cleaning import (
     CleanSpec,
     clean_dataset,
     clean_all_datasets_map,
+    rename_learner_id_alias_column,
     SchemaFreezeOptions,
     freeze_schema,
     enforce_schema,
@@ -210,6 +211,27 @@ def test_clean_dataset_student_id_rename_null_handling_and_pk_uniqueness(caplog)
     assert out["student_id"].is_unique
 
 
+def test_rename_learner_id_alias_column():
+    df = pd.DataFrame({"legacy_sid": ["a", "b"]})
+    out, renamed = rename_learner_id_alias_column(df, "legacy_sid", dataset_label="t")
+    assert renamed
+    assert list(out.columns) == ["learner_id"]
+
+
+def test_clean_dataset_canonical_learner_id_column():
+    df = pd.DataFrame({"student_id_randomized_datakind": ["x", "x"], "term": [1, 2]})
+    spec = CleanSpec(
+        unique_keys=["student_id_randomized_datakind"],
+        student_id_alias="student_id_randomized_datakind",
+    )
+    out = clean_dataset(
+        df, spec, dataset_name="t", canonical_learner_column="learner_id"
+    )
+    assert "learner_id" in out.columns
+    assert "student_id_randomized_datakind" not in out.columns
+    assert len(out) == 1
+
+
 def test_clean_dataset_dedupe_fn_and_pk_dedupe():
     def custom_dedupe(g):
         # keep last occurrence per id
@@ -330,6 +352,15 @@ def test_build_schema_contract_and_enforce_schema_contract_wiring(monkeypatch):
     schema_contract = build_schema_contract(cleaned, specs, meta=meta)
     assert schema_contract["created_at"] == "2024-01-01T00:00:00Z"
     assert set(schema_contract["datasets"].keys()) == {"students", "courses"}
+    assert "student_id_alias" not in schema_contract
+
+    meta_alias = SchemaContractMeta(
+        created_at="2024-01-01T00:00:00Z",
+        null_tokens=["(Blank)"],
+        student_id_alias="raw_student_id_col",
+    )
+    with_alias = build_schema_contract(cleaned, specs, meta=meta_alias)
+    assert with_alias["student_id_alias"] == "raw_student_id_col"
 
     calls = []
 

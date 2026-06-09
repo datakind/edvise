@@ -1,9 +1,9 @@
 import logging
+import os
 import mlflow
 import typing as t
 from typing import Any
 import pydantic as pyd
-import re
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,10 +35,39 @@ def get_spark_session() -> SparkSession:
         raise
 
 
-import logging
-import typing as t
+def in_databricks() -> bool:
+    """
+    Return True when running in a Databricks runtime (``DATABRICKS_RUNTIME_VERSION``)
+    or driver context (``DB_IS_DRIVER``).
+    """
+    return bool(os.getenv("DATABRICKS_RUNTIME_VERSION") or os.getenv("DB_IS_DRIVER"))
 
-LOGGER = logging.getLogger(__name__)
+
+def get_dbutils() -> t.Optional[Any]:
+    """
+    Lazy import of Databricks ``dbutils``; only available on Databricks runtimes.
+    Returns ``None`` when the import fails (e.g. local development).
+    """
+    try:
+        from databricks.sdk.runtime import dbutils  # type: ignore
+
+        return dbutils
+    except Exception:
+        return None
+
+
+def get_spark_session_or_none() -> t.Optional[Any]:
+    """
+    Return an active or new :class:`pyspark.sql.SparkSession` on Databricks; ``None``
+    when not in a DBR context or Spark is unavailable.
+    """
+    if not in_databricks():
+        return None
+    try:
+        return SparkSession.getActiveSession() or SparkSession.builder.getOrCreate()
+    except Exception as e:
+        logging.warning("Spark not available: %s", e)
+        return None
 
 
 def get_db_widget_param(name: str, *, default: t.Optional[object] = None) -> object:
@@ -117,8 +146,16 @@ def mock_pandera():
     m1.check = check  # type: ignore
     m2.Series = Series  # type: ignore
 
+    m3 = types.ModuleType("pandera.errors")
+
+    class SchemaErrors(Exception):
+        """Placeholder so :mod:`edvise.dataio.read` can ``except SchemaErrors``."""
+
+    m3.SchemaErrors = SchemaErrors  # type: ignore[attr-defined]
+
     sys.modules[m1.__name__] = m1
     sys.modules[m2.__name__] = m2
+    sys.modules[m3.__name__] = m3
 
 
 # Schema and volume caches for Databricks catalog operations
@@ -164,10 +201,10 @@ def find_bronze_schema(spark: SparkSession, catalog: str, inst_prefix: str) -> s
     Args:
         spark: Spark session
         catalog: Catalog name
-        inst_prefix: Institution prefix (e.g., "motlow_state_cc")
+        inst_prefix: Institution prefix (e.g., "fixture_alpha_state_cc")
 
     Returns:
-        Bronze schema name (e.g., "motlow_state_cc_bronze")
+        Bronze schema name (e.g., "fixture_alpha_state_cc_bronze")
 
     Raises:
         ValueError: If bronze schema not found
@@ -222,172 +259,4 @@ def find_bronze_volume_name(spark: SparkSession, catalog: str, schema: str) -> s
     )
 
 
-# Compiled regex patterns for reverse transformation (performance optimization)
-_REVERSE_REPLACEMENTS = {
-    "ctc": "community technical college",
-    "cc": "community college",
-    "st": "of science and technology",
-    "uni": "university",
-    "col": "college",
-}
-
-# Pre-compile regex patterns for word boundary matching
-_COMPILED_REVERSE_PATTERNS = {
-    abbrev: re.compile(r"\b" + re.escape(abbrev) + r"\b")
-    for abbrev in _REVERSE_REPLACEMENTS.keys()
-}
-
-
-def _validate_databricks_name_format(databricks_name: str) -> None:
-    """
-    Validate that databricks name matches expected format.
-
-    Args:
-        databricks_name: Name to validate
-
-    Raises:
-        ValueError: If name is empty or contains invalid characters
-    """
-    if not isinstance(databricks_name, str) or not databricks_name.strip():
-        raise ValueError("databricks_name must be a non-empty string")
-
-    pattern = "^[a-z0-9_]*$"
-    if not re.match(pattern, databricks_name):
-        raise ValueError(
-            f"Invalid databricks name format '{databricks_name}'. "
-            "Must contain only lowercase letters, numbers, and underscores."
-        )
-
-
-def _reverse_abbreviation_replacements(name: str) -> str:
-    """
-    Reverse abbreviation replacements in the name.
-
-    Handles the ambiguous "st" abbreviation:
-    - If "st" appears as the first word, it's kept as "st" (abbreviation for Saint)
-      and will be capitalized to "St" by title() case
-    - Otherwise, "st" is treated as "of science and technology"
-
-    Args:
-        name: Name with underscores replaced by spaces
-
-    Returns:
-        Name with abbreviations expanded to full forms
-    """
-    # Split into words to handle "st" at the beginning specially
-    words = name.split()
-
-    # Keep "st" at the beginning as-is (will be capitalized to "St" by title() case)
-    # Don't expand it to "saint" - preserve the abbreviation
-
-    # Replace "st" in remaining positions with "of science and technology"
-    for i in range(len(words)):
-        if words[i] == "st" and i > 0:  # Only replace if not the first word
-            words[i] = "of science and technology"
-
-    # Rejoin and apply other abbreviation replacements
-    name = " ".join(words)
-
-    # Apply other abbreviation replacements (excluding "st" which we handled above)
-    for abbrev, full_form in _REVERSE_REPLACEMENTS.items():
-        if abbrev != "st":  # Skip "st" as we handled it above
-            pattern = _COMPILED_REVERSE_PATTERNS[abbrev]
-            name = pattern.sub(full_form, name)
-
-    return name
-
-
-def databricksify_inst_name(inst_name: str) -> str:
-    """
-    Transform institution name to Databricks-compatible format.
-
-    Follows DK standardized rules for naming conventions used in Databricks:
-    - Lowercases the name
-    - Replaces common phrases with abbreviations (e.g., "community college" → "cc")
-    - Replaces special characters and spaces with underscores
-    - Validates final format contains only lowercase letters, numbers, and underscores
-
-    Args:
-        inst_name: Original institution name (e.g., "Motlow State Community College")
-
-    Returns:
-        Databricks-compatible name (e.g., "motlow_state_cc")
-
-    Raises:
-        ValueError: If the resulting name contains invalid characters
-
-    Example:
-        >>> databricksify_inst_name("Motlow State Community College")
-        'motlow_state_cc'
-        >>> databricksify_inst_name("University of Science & Technology")
-        'uni_of_st_technology'
-    """
-    name = inst_name.lower()
-
-    # Apply abbreviation replacements (most specific first)
-    dk_replacements = {
-        "community technical college": "ctc",
-        "community college": "cc",
-        "of science and technology": "st",
-        "university": "uni",
-        "college": "col",
-    }
-
-    for old, new in dk_replacements.items():
-        name = name.replace(old, new)
-
-    # Replace special characters
-    special_char_replacements = {" & ": " ", "&": " ", "-": " "}
-    for old, new in special_char_replacements.items():
-        name = name.replace(old, new)
-
-    # Replace spaces with underscores
-    final_name = name.replace(" ", "_")
-
-    # Validate format
-    pattern = "^[a-z0-9_]*$"
-    if not re.match(pattern, final_name):
-        raise ValueError(
-            f"Unexpected character found in Databricks compatible name: '{final_name}'"
-        )
-
-    return final_name
-
-
-def reverse_databricksify_inst_name(databricks_name: str) -> str:
-    """
-    Reverse the databricksify transformation to get back the original institution name.
-
-    This function attempts to reverse the transformation done by databricksify_inst_name.
-    Since the transformation is lossy (multiple original names can map to the same
-    databricks name), this function produces the most likely original name.
-
-    Args:
-        databricks_name: The databricks-transformed institution name (e.g., "motlow_state_cc")
-            Case inconsistencies are normalized (input is lowercased before processing).
-
-    Returns:
-        The reversed institution name with proper capitalization (e.g., "Motlow State Community College")
-
-    Raises:
-        ValueError: If the databricks name contains invalid characters
-    """
-    # Normalize to lowercase to handle case inconsistencies
-    # (databricksify_inst_name always produces lowercase output)
-    databricks_name = databricks_name.lower()
-    _validate_databricks_name_format(databricks_name)
-
-    # Step 1: Replace underscores with spaces
-    name = databricks_name.replace("_", " ")
-
-    # Step 2: Reverse the abbreviation replacements
-    # The original replacements were done in this order (most specific first):
-    # 1. "community technical college" → "ctc"
-    # 2. "community college" → "cc"
-    # 3. "of science and technology" → "st"
-    # 4. "university" → "uni"
-    # 5. "college" → "col"
-    name = _reverse_abbreviation_replacements(name)
-
-    # Step 3: Capitalize appropriately (title case)
-    return name.title()
+# Re-export for backward compatibility (importing this module still loads Spark above).

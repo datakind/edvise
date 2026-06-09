@@ -1,0 +1,192 @@
+"""
+HITL JSON on the institution **silver** volume, under ``genai_mapping/``, as produced by
+the Databricks job entry points:
+
+* ``edvise_genai_ia.py`` — :func:`resolve_run_paths` →
+  ``{silver_genai_mapping_root}/runs/{onboard|execute}/{run_id}/identity_agent/`` with
+  ``identity_grain_hitl.json`` and ``identity_term_hitl.json`` (see ``IAPaths``).
+* ``edvise_genai_sma.py`` — :func:`resolve_run_paths` → SMA HITL JSON under
+  ``{silver_genai_mapping_root}/runs/{onboard|execute}/{run_id}/schema_mapping_agent/``;
+  materialized parquet outputs under ``…/{run_id}/pipeline_input/`` (see ``SMAPaths``).
+
+The directory segment ``runs/onboard/{onboard_run_id}/`` (or ``runs/execute/{execute_run_id}/``) is
+part of the full UC path, so the same ``onboard_run_id`` keys ``hitl_reviews`` and appears inside
+``artifact_path`` for standard onboard HITL rows.
+
+``hitl_reviews.artifact_path`` in Unity Catalog is the full ``/Volumes/...`` path written at
+onboard; the Streamlit app reads and writes that same path.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from typing import Any
+
+import pandas as pd
+
+
+def silver_volume_path_session_tag(volume_path: str) -> str:
+    """
+    Stable short token for scoping Streamlit ``session_state`` keys to one silver JSON path.
+
+    The same UC ``hitl_reviews`` group can list multiple ``artifact_path`` values; without this,
+    Prev/Next indices and option selections from one file could bleed into another when paths differ.
+    """
+    raw = str(volume_path or "").strip().encode("utf-8", errors="replace")
+    return hashlib.sha256(raw).hexdigest()[:12]
+
+
+def artifact_path_contains_onboard_run_id(
+    artifact_path: str, onboard_run_id: str
+) -> bool:
+    """
+    Heuristic: onboard HITL file paths from IA/SMA include the run folder segment, so
+    the ``onboard_run_id`` string is usually a substring of ``artifact_path``.
+
+    (Execute-time paths use ``execute_run_id`` in the same slot; those may not match the
+    onboard id string.)
+    """
+    p, r = (artifact_path or "").strip(), (onboard_run_id or "").strip()
+    return bool(p and r and r in p)
+
+
+def set_item_choice(data: dict[str, Any], item_index: int, choice: int | None) -> None:
+    """
+    Set ``data['items'][item_index]['choice']`` to a 1-based index into ``options``,
+    or ``None`` to clear the selection.
+    """
+    items = data.get("items")
+    if not isinstance(items, list) or not (0 <= item_index < len(items)):
+        raise KeyError("Invalid item index for HITL JSON")
+    row = items[item_index]
+    if not isinstance(row, dict):
+        raise TypeError("HITL item is not an object")
+    if choice is None:
+        row["choice"] = None
+    else:
+        row["choice"] = int(choice)
+
+
+def set_item_direct_edit_field_mapping(
+    data: dict[str, Any], item_index: int, mapping: dict[str, Any] | None
+) -> None:
+    """
+    Set ``data['items'][item_index]['direct_edit_field_mapping']`` for SMA HITL when the
+    reviewer selects the ``direct_edit`` option (``None`` when a terminal option is selected).
+    """
+    items = data.get("items")
+    if not isinstance(items, list) or not (0 <= item_index < len(items)):
+        raise KeyError("Invalid item index for HITL JSON")
+    row = items[item_index]
+    if not isinstance(row, dict):
+        raise TypeError("HITL item is not an object")
+    if mapping is None:
+        row["direct_edit_field_mapping"] = None
+    else:
+        row["direct_edit_field_mapping"] = mapping
+
+
+def set_item_reviewer_note(
+    data: dict[str, Any], item_index: int, note: str | None
+) -> None:
+    """Set ``data['items'][item_index]['reviewer_note']`` (IdentityAgent HITL)."""
+    items = data.get("items")
+    if not isinstance(items, list) or not (0 <= item_index < len(items)):
+        raise KeyError("Invalid item index for HITL JSON")
+    row = items[item_index]
+    if not isinstance(row, dict):
+        raise TypeError("HITL item is not an object")
+    if note is None or str(note).strip() == "":
+        row["reviewer_note"] = None
+    else:
+        row["reviewer_note"] = str(note).strip()
+
+
+def validated_season_map_replace_from_dataframe(
+    df: object,
+) -> tuple[list[dict[str, str]] | None, str | None]:
+    """
+    Build and validate ``season_map_replace`` rows from the Streamlit ``data_editor`` dataframe.
+
+    Lives here (not :mod:`hitl_json_batch_commit`) so unit tests avoid a hard dependency on
+    ``streamlit``.
+
+    Returns ``(rows, None)`` on success, or ``(None, error_message)``.
+    """
+    try:
+        from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
+            SeasonMapEntry,
+        )
+    except ImportError:
+        return (
+            None,
+            "``edvise`` SeasonMapEntry schema is not available in this environment.",
+        )
+
+    if df is None:
+        return None, "Season map table is missing — reload the page and try again."
+    if not isinstance(df, pd.DataFrame):
+        return None, "Invalid season map table state."
+
+    rows_out: list[dict[str, str]] = []
+    for _, r in df.iterrows():
+        raw = str(r.get("raw", "")).strip()
+        can = str(r.get("canonical", "")).strip()
+        if not raw and not can:
+            continue
+        if not raw:
+            return None, "Each non-empty season row needs a **raw** token."
+        if not can:
+            return None, f"Season row for raw `{raw}` needs a **canonical** label."
+        try:
+            ent = SeasonMapEntry.model_validate({"raw": raw, "canonical": can.upper()})
+        except Exception as e:  # noqa: BLE001
+            return None, f"Season map row `{raw}` → `{can}`: {e}"
+        rows_out.append(ent.model_dump(mode="json"))
+    return rows_out, None
+
+
+def merge_season_map_replace_into_selected_option(
+    data: dict[str, Any],
+    item_index: int,
+    choice_1_based: int,
+    season_map_replace: list[dict[str, str]],
+) -> None:
+    """
+    Write ``season_map_replace`` onto ``options[choice - 1].resolution`` for term HITL.
+
+    Used when the reviewer selects an option with ``reentry: generate_hook`` and a partial
+    :class:`~edvise.genai.mapping.identity_agent.hitl.schemas.TermResolution` that includes
+    ``season_map_replace`` (no ``hook_spec`` on the option — hook generation fills that later).
+    """
+    items = data.get("items")
+    if not isinstance(items, list) or not (0 <= item_index < len(items)):
+        raise KeyError("Invalid item index for HITL JSON")
+    row = items[item_index]
+    if not isinstance(row, dict):
+        raise TypeError("HITL item is not an object")
+    opts = row.get("options")
+    if not isinstance(opts, list):
+        raise TypeError("HITL item has no options list")
+    ix = int(choice_1_based) - 1
+    if not (0 <= ix < len(opts)):
+        raise KeyError("choice index out of range for options")
+    opt = opts[ix]
+    if not isinstance(opt, dict):
+        raise TypeError("HITL option is not an object")
+    res = opt.get("resolution")
+    if res is None:
+        res = {}
+        opt["resolution"] = res
+    elif not isinstance(res, dict):
+        raise TypeError("option.resolution must be an object or null")
+    res["season_map_replace"] = season_map_replace
+
+
+def ia_term_season_map_session_key(sk: str, file_index: int, sel_j: int) -> str:
+    """
+    Streamlit ``session_state`` key for the term ``season_map_replace`` table.
+
+    Must stay in sync with :func:`hitl_reviewer.persistence.hitl_json_batch_commit.persist_ia_term_hitl_from_session`.
+    """
+    return f"ia-term-smr-{sk}-{file_index}-{sel_j}"

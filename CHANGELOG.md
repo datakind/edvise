@@ -1,3 +1,15 @@
+## 1.1.0 (2026-05-29)
+- feat: genai mapping hitl dashboard, production scripts/DABs, prompt improvements & grain resolution  (#150)
+- feat: config toggle for GenAI parquets vs bronze raw CSV in data_audit (#154)
+
+## 1.0.0 (2026-05-27)
+- feat: genai edvise core mapping logic; identity agent, schema mapping agent, and hitl defined, implemented, and tested (#128)
+- feat: copy validated/ GCS objects to institution bronze (Databricks job) (#145)
+- feat: add edvise schema training pipeline and refactor pdp pipeline to be more generalizable (#147)
+- docs: remove local community health files to inherit from org-wide .github (#149)
+- feat: es inference pipeline .yml setup (#152)
+- feat: create edvise inference tasks (#153)
+
 ## 0.2.1 (2026-05-07)
 - fix: expanding feature name for hybrid courses feature (#131)
 - fix: metadata dashboard deployment (#132)

@@ -285,9 +285,9 @@ def test_add_term_order_with_extended_custom_season_map_sessions():
     assert term_to_order["Summer Session 2 2020"] == 5
     assert term_to_order["Fall 2020"] == 6
 
-    # term_order uses year * 10 + season_order
+    # term_order uses year * 100 + season_order (room for two-digit season_order)
     term_to_term_order = dict(zip(result["term"], result["term_order"]))
-    assert term_to_term_order["Spring 2020"] == 2020 * 10 + 1
-    assert term_to_term_order["Summer Session 1 2020"] == 2020 * 10 + 4
-    assert term_to_term_order["Summer Session 2 2020"] == 2020 * 10 + 5
-    assert term_to_term_order["Fall 2020"] == 2020 * 10 + 6
+    assert term_to_term_order["Spring 2020"] == 2020 * 100 + 1
+    assert term_to_term_order["Summer Session 1 2020"] == 2020 * 100 + 4
+    assert term_to_term_order["Summer Session 2 2020"] == 2020 * 100 + 5
+    assert term_to_term_order["Fall 2020"] == 2020 * 100 + 6

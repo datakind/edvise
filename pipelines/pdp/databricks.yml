@@ -4,7 +4,9 @@ bundle:
 
 include:
   - resources/github_pdp_training.yml
+  - resources/github_es_training.yml
   - resources/github_pdp_inference.yml
+  - resources/github_es_inference.yml
   - resources/synthetic/github_synth_cleanup.yml
 
 variables:
@@ -28,6 +30,9 @@ variables:
     description: "Account to run the pipeline (Databricks SP client/app ID)"
   databricks_institution_name:
     description: "Institution ID to use for the pdp training"
+  schema_type:
+    description: "Schema type: pdp, edvise, etc."
+    default: "pdp"
   config_file_name:
     description: "Name of the config file to use for the pdp training"
     default: "config.toml"
@@ -61,7 +66,20 @@ targets:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_commit: ${var.git_commit}
+        github_sourced_es_training_pipeline:
+          parameters:
+            - name: pipeline_version
+              default: ${var.git_commit}
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
         edvise_github_sourced_pdp_inference_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
+        github_sourced_es_inference_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
@@ -89,7 +107,20 @@ targets:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_tag: ${var.git_tag}
+        github_sourced_es_training_pipeline:
+          parameters:
+            - name: pipeline_version
+              default: ${var.git_tag}
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}
         edvise_github_sourced_pdp_inference_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}
+        github_sourced_es_inference_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub

@@ -5,8 +5,42 @@ import json
 import shutil
 import argparse
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
+from edvise.configs.es import ESProjectConfig
 from edvise.configs.pdp import PDPProjectConfig
+
+
+class _FlushTolerantStreamHandler(logging.StreamHandler):
+    """
+    Console handler that ignores flush failures.
+
+    Databricks notebook / ipykernel stdout can raise ``OSError`` (often errno 95,
+    *Operation not supported*) on ``flush()``, which otherwise surfaces as
+    ``--- Logging error ---`` and noisy tracebacks while the job continues.
+    """
+
+    def flush(self) -> None:
+        try:
+            super().flush()
+        except OSError:
+            pass
+
+
+class _FlushTolerantFileHandler(logging.FileHandler):
+    """
+    File handler that ignores flush failures on unsupported streams.
+
+    Unity Catalog volume / FUSE-backed log paths sometimes raise ``OSError``
+    (e.g. errno 95 *Operation not supported*) on ``flush()`` even when
+    ``write()`` succeeds; the stdlib would then emit ``--- Logging error ---``
+    for every log line.
+    """
+
+    def flush(self) -> None:
+        try:
+            super().flush()
+        except OSError:
+            pass
 
 
 class SimpleLogger:
@@ -111,9 +145,38 @@ def local_fs_path(p: str) -> str:
     return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
 
 
+def resolve_genai_segment_log_path(
+    run_root: str | os.PathLike[str],
+    *,
+    mode: str,
+    resume_from: str = "start",
+) -> str:
+    """
+    Per-task log file under ``<run_root>/logs/`` (identity_agent / schema_mapping_agent runs).
+
+    Each Databricks task process should use ``append=False`` with this path so gates
+    (e.g. ``onboard_gate_1``) do not share one file with ``onboard_start``.
+
+    - Execute: ``.../logs/execute.log``
+    - Onboard: ``.../logs/onboard_<resume_from>.log`` (e.g. ``onboard_start.log``)
+    """
+    base = os.fspath(run_root)
+    logs_dir = os.path.join(base, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    mode_l = (mode or "").strip().lower()
+    if mode_l == "execute":
+        return os.path.join(logs_dir, "execute.log")
+    if mode_l == "onboard":
+        rf = (resume_from or "start").strip() or "start"
+        return os.path.join(logs_dir, f"onboard_{rf}.log")
+    raise ValueError(
+        f"Invalid mode={mode!r} for segment log (expected 'onboard' or 'execute')."
+    )
+
+
 def resolve_run_path(
     args: argparse.Namespace,
-    cfg: PDPProjectConfig,
+    cfg: Union[PDPProjectConfig, ESProjectConfig],
     silver_volume_path: str,
 ) -> str:
     if args.job_type == "training":
@@ -133,6 +196,96 @@ def resolve_run_path(
         raise ValueError(f"Unsupported job_type: {args.job_type}")
 
     return os.path.join(silver_volume_path, run_id, subdir)
+
+
+def _sync_file_log_handlers(root: logging.Logger) -> None:
+    """Best-effort flush + fsync so UC / FUSE-backed paths show up in volume UIs promptly."""
+    for h in root.handlers:
+        if not isinstance(h, logging.FileHandler):
+            continue
+        stream = getattr(h, "stream", None)
+        if stream is None:
+            continue
+        try:
+            stream.flush()
+        except OSError:
+            pass
+        try:
+            fd = stream.fileno()
+            if fd >= 0:
+                os.fsync(fd)
+        except OSError:
+            pass
+
+
+def init_file_logging_at_path(
+    log_file_path: str | os.PathLike[str],
+    logger_name: str = __name__,
+    *,
+    append: bool = False,
+) -> str:
+    """
+    Configure root logging with console + file handlers at a fixed path (Databricks-safe).
+
+    Use when the run directory is known without PDPProjectConfig (e.g. genai mapping jobs).
+
+    On Unity Catalog volumes, ``FileHandler(delay=True)`` can defer creating the file and
+    buffered writes may not appear in the catalog file browser until flush/fsync; this
+    function opens the log file immediately (``delay=False``) and syncs after bootstrap lines.
+
+    Args:
+        append: If True, new log lines are appended to the file (e.g. resume gate_1 after
+            start with the same onboard_run_id). If False, the file is truncated on open.
+
+    Returns:
+        str: local filesystem path to the log file.
+    """
+    log_file_path = os.fspath(log_file_path)
+    local_path = local_fs_path(log_file_path)
+    log_dir = os.path.dirname(local_path)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+
+    prior_size = (
+        os.path.getsize(local_path) if append and os.path.isfile(local_path) else 0
+    )
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+
+    for h in list(root.handlers):
+        root.removeHandler(h)
+
+    console = _FlushTolerantStreamHandler(stream=sys.__stdout__)
+    console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    root.addHandler(console)
+
+    file_mode = "a" if append else "w"
+    fh = _FlushTolerantFileHandler(
+        local_path, mode=file_mode, encoding="utf-8", delay=False
+    )
+    fh.setFormatter(
+        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    )
+    root.addHandler(fh)
+
+    logging.getLogger("py4j").setLevel(logging.WARNING)
+
+    log = logging.getLogger(logger_name)
+    log.info(
+        "File logging initialized → %s (mode=%s)",
+        local_path,
+        "append" if append else "overwrite",
+    )
+    if append and prior_size > 0:
+        log.info(
+            "---------- log continues below (prior file size was %d bytes) ----------",
+            prior_size,
+        )
+
+    _sync_file_log_handlers(root)
+
+    return local_path
 
 
 def init_file_logging(
@@ -156,40 +309,12 @@ def init_file_logging(
     Returns:
         str: local filesystem path to the log file.
     """
-    # Compute local run directory
     current_run_path = resolve_run_path(args, cfg, args.silver_volume_path)
     local_run_path = local_fs_path(current_run_path)
     os.makedirs(local_run_path, exist_ok=True)
 
-    # Choose log filename (default = job_type.log or generic.log)
     job_type = getattr(args, "job_type", None) or "generic"
     log_file_name = log_file_name or f"{job_type}.log"
     log_file_path = os.path.join(local_run_path, log_file_name)
 
-    # Configure root logger
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-
-    # Remove problematic handlers (Databricks attaches an IPython OutStream)
-    for h in list(root.handlers):
-        root.removeHandler(h)
-
-    # Console handler using real stdout (avoids OSError 95 in Databricks)
-    console = logging.StreamHandler(stream=sys.__stdout__)
-    console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-    root.addHandler(console)
-
-    # File handler (create once, safe append)
-    fh = logging.FileHandler(log_file_path, mode="w", encoding="utf-8", delay=True)
-    fh.setFormatter(
-        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    )
-    root.addHandler(fh)
-
-    # Quiet noisy libraries
-    logging.getLogger("py4j").setLevel(logging.WARNING)
-
-    # Log the initialization
-    logging.getLogger(logger_name).info("File logging initialized → %s", log_file_path)
-
-    return log_file_path
+    return init_file_logging_at_path(log_file_path, logger_name)
