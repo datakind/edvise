@@ -373,7 +373,47 @@ def test_submit_versioned_inference_dry_run_with_resolved_parameters(
             "databricks_institution_name": "miles_cc",
             "cohort_file_name": "cohort.csv",
             "schema_type": "pdp",
+            "viewer_user": "alice@example.com",
+            "datakind_group_to_manage_workflow": "edvise-admins",
         },
         dry_run=True,
     )
     assert run_id == 0
+
+
+def test_submit_versioned_inference_applies_launcher_acl_after_param_resolution(
+    tmp_path: Path,
+) -> None:
+    """Launcher-only ACL keys must survive archived parameter resolution."""
+    snap = tmp_path / "databricks_bundle_snapshot" / "resources"
+    snap.mkdir(parents=True)
+    (snap / "github_pdp_inference.yml").write_text(
+        _PARAM_FIXTURE.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "databricks_bundle_snapshot" / "databricks.yml").write_text(
+        "variables:\n  schema_type:\n    default: pdp\n",
+        encoding="utf-8",
+    )
+    job = load_inference_job_definition(snap / "github_pdp_inference.yml")
+    archived = {
+        "databricks_institution_name": "miles_cc",
+        "cohort_file_name": "cohort.csv",
+        "schema_type": "pdp",
+    }
+    body = build_submit_run_body(
+        job,
+        pipeline_version="abc123",
+        git_url="https://github.com/datakind/edvise",
+        run_name="test-run",
+        parameter_overrides=archived,
+        access_control_overrides={
+            **archived,
+            "viewer_user": "bob@example.com",
+            "datakind_group_to_manage_workflow": "edvise-admins",
+        },
+    )
+    assert body["access_control_list"] == [
+        {"group_name": "edvise-admins", "permission_level": "CAN_MANAGE_RUN"},
+        {"user_name": "bob@example.com", "permission_level": "CAN_VIEW"},
+    ]

@@ -536,6 +536,7 @@ def build_submit_run_body(
     git_url: str,
     run_name: str,
     parameter_overrides: dict[str, str],
+    access_control_overrides: dict[str, str] | None = None,
     inference_job_key: str = DEFAULT_INFERENCE_JOB_KEY,
 ) -> dict[str, Any]:
     """
@@ -615,7 +616,9 @@ def build_submit_run_body(
     if run_as:
         body["run_as"] = {"service_principal_name": run_as}
 
-    acl = build_submit_access_control_list(parameter_overrides)
+    acl = build_submit_access_control_list(
+        access_control_overrides if access_control_overrides is not None else parameter_overrides
+    )
     if acl:
         body["access_control_list"] = acl
 
@@ -715,8 +718,19 @@ def submit_versioned_inference_from_bundle(
         git_url=git_url,
         run_name=run_name,
         parameter_overrides=archived_parameters,
+        access_control_overrides=parameter_overrides,
         inference_job_key=inference_job_key,
     )
+    if body.get("access_control_list"):
+        logger.info(
+            "Submit access_control_list entries: %s",
+            len(body["access_control_list"]),
+        )
+    else:
+        logger.warning(
+            "Submit has no access_control_list; child run may only be visible to run_as "
+            "(pass datakind_group_to_manage_workflow / viewer_user on the launcher job)."
+        )
     logger.info(
         "Submitting inference job %r at git commit %s (%s tasks)",
         job.get("name", inference_job_key),
