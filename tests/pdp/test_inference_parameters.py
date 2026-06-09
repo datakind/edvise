@@ -36,6 +36,7 @@ def test_build_parameter_contract_marks_referenced_required() -> None:
     assert by_name["job_type"].required is False
     assert by_name["job_type"].default == "inference"
     assert by_name["databricks_institution_name"].required is False
+    assert by_name["cohort_file_name"].required is False
 
 
 def test_resolve_archived_values_literal_default_and_overrides() -> None:
@@ -159,3 +160,27 @@ def test_resolve_versioned_job_parameters_from_release_dir(tmp_path: Path) -> No
         },
     )
     assert values["cohort_filename"] == "aliased.csv"
+
+
+def test_resolve_schema_type_from_archived_databricks_yml(tmp_path: Path) -> None:
+    snap = tmp_path / "databricks_bundle_snapshot" / "resources"
+    snap.mkdir(parents=True)
+    (snap / "github_pdp_inference.yml").write_text(
+        _FIXTURE.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / "databricks_bundle_snapshot" / "databricks.yml").write_text(
+        "variables:\n  schema_type:\n    default: pdp\n",
+        encoding="utf-8",
+    )
+    job = load_inference_job_definition(snap / "github_pdp_inference.yml")
+    values = resolve_versioned_job_parameters(
+        job,
+        tmp_path,
+        launcher_overrides={
+            "cohort_file_name": "cohort.csv",
+            "databricks_institution_name": "synthetic_integration",
+        },
+    )
+    assert values["schema_type"] == "pdp"
+    assert values["cohort_file_name"] == "cohort.csv"

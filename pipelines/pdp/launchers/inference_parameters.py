@@ -20,8 +20,10 @@ LOGGER = logging.getLogger(__name__)
 PARAMETER_ALIASES_FILENAME = "parameter_aliases.json"
 
 _BUNDLE_VAR = re.compile(r"\$\{var\.[^}]+\}")
+_BUNDLE_VAR_NAME = re.compile(r"^\$\{var\.([^}]+)\}$")
 _JOB_PARAM_REF = re.compile(r"\{\{\s*job\.parameters\.([A-Za-z0-9_]+)\s*\}\}")
 _UNRESOLVED_RUN_ID = "{{job.run_id}}"
+_BUNDLE_SNAPSHOT_YML = "databricks_bundle_snapshot/databricks.yml"
 
 _SENSITIVE_KEY_FRAGMENTS = frozenset(
     {"password", "secret", "token", "credential", "api_key", "apikey"}
@@ -35,6 +37,7 @@ class ParameterSpec:
     name: str
     default: str
     referenced_by_tasks: list[str] = field(default_factory=list)
+    default_explicit: bool = False
 
     @property
     def required(self) -> bool:
@@ -42,6 +45,8 @@ class ParameterSpec:
         if not self.referenced_by_tasks:
             return False
         if self.name == "db_run_id":
+            return False
+        if self.default_explicit and not str(self.default).strip():
             return False
         return not has_concrete_default(self.default)
 
@@ -62,6 +67,56 @@ def has_concrete_default(value: str | None) -> bool:
 
 def _contains_bundle_var(value: str) -> bool:
     return _BUNDLE_VAR.search(value) is not None
+
+
+def resolve_bundle_var_default(default: str, bundle_vars: dict[str, str]) -> str | None:
+    """Resolve ``${var.name}`` using defaults from archived ``databricks.yml``."""
+    match = _BUNDLE_VAR_NAME.match(str(default).strip())
+    if not match:
+        return None
+    resolved = bundle_vars.get(match.group(1))
+    if resolved is None:
+        return None
+    s = str(resolved).strip()
+    return s if s else None
+
+
+def load_bundle_variable_defaults(release_dir: Path) -> dict[str, str]:
+    """
+    Read ``variables.*.default`` from the materialized bundle ``databricks.yml``.
+
+    Used to resolve job-parameter defaults like ``${var.schema_type}`` on ``runs/submit``.
+    """
+    path = release_dir / _BUNDLE_SNAPSHOT_YML
+    if not path.is_file():
+        return {}
+    try:
+        import yaml
+
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        LOGGER.warning("Could not read bundle variable defaults from %s: %s", path, exc)
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    variables = raw.get("variables")
+    if not isinstance(variables, dict):
+        return {}
+    out: dict[str, str] = {}
+    for name, spec in variables.items():
+        if not isinstance(name, str) or not name.strip():
+            continue
+        if not isinstance(spec, dict):
+            continue
+        default = spec.get("default")
+        if default is None:
+            continue
+        if _contains_bundle_var(str(default)):
+            continue
+        s = str(default).strip()
+        if s:
+            out[name.strip()] = s
+    return out
 
 
 def collect_referenced_job_parameters(tasks: list[Any]) -> dict[str, list[str]]:
@@ -114,13 +169,15 @@ def build_parameter_contract(job: dict[str, Any]) -> list[ParameterSpec]:
         if pname in seen:
             continue
         seen.add(pname)
-        default = entry.get("default", "")
+        default_explicit = "default" in entry
+        default = entry.get("default", "") if default_explicit else ""
         default_str = str(default) if default is not None else ""
         specs.append(
             ParameterSpec(
                 name=pname,
                 default=default_str,
                 referenced_by_tasks=list(referenced.get(pname, [])),
+                default_explicit=default_explicit,
             )
         )
 
@@ -271,6 +328,7 @@ def resolve_archived_parameter_values(
     extra_overrides: dict[str, str] | None = None,
     stable_trigger: dict[str, Any] | None = None,
     parameter_aliases: dict[str, str] | None = None,
+    bundle_variable_defaults: dict[str, str] | None = None,
     logger: logging.Logger = LOGGER,
 ) -> dict[str, str]:
     """
@@ -278,19 +336,29 @@ def resolve_archived_parameter_values(
 
     Precedence (lowest → highest):
 
-    1. Concrete defaults from archived YAML
-    2. ``parameter_aliases.json`` (archived name ← launcher key or stable path)
-    3. Direct launcher override when key matches archived name (overrides defaults)
-    4. ``extra_overrides`` (``inference_parameters_json``; archived names only)
+    1. Concrete defaults from archived inference job YAML
+    2. ``${var.*}`` defaults resolved from archived ``databricks.yml`` variables
+    3. Explicit empty archived defaults (e.g. ``term_filter: ""``)
+    4. ``parameter_aliases.json`` (archived name ← launcher key or stable path)
+    5. Direct launcher override when key matches archived name (overrides defaults)
+    6. ``extra_overrides`` (``inference_parameters_json``; archived names only)
     """
     extra = dict(extra_overrides or {})
     aliases = dict(parameter_aliases or {})
+    bundle_vars = dict(bundle_variable_defaults or {})
     validate_extra_overrides(extra, contract)
 
     values: dict[str, str] = {}
     for spec in contract:
         if has_concrete_default(spec.default):
             values[spec.name] = str(spec.default).strip()
+            continue
+        from_bundle = resolve_bundle_var_default(spec.default, bundle_vars)
+        if _non_empty(from_bundle):
+            values[spec.name] = str(from_bundle).strip()
+            continue
+        if spec.default_explicit and not str(spec.default).strip():
+            values[spec.name] = ""
 
     for archived_name, source in aliases.items():
         if _non_empty(values.get(archived_name)):
@@ -399,11 +467,17 @@ def resolve_versioned_job_parameters(
     """Build validated archived-name parameter map for ``build_submit_run_body``."""
     contract = build_parameter_contract(job)
     aliases = load_parameter_aliases(release_dir)
+    bundle_vars = load_bundle_variable_defaults(release_dir)
     if aliases:
         logger.info(
             "Loaded %s parameter alias(es) from %s",
             len(aliases),
             release_dir / PARAMETER_ALIASES_FILENAME,
+        )
+    if bundle_vars:
+        logger.info(
+            "Loaded %s bundle variable default(s) from archived databricks.yml",
+            len(bundle_vars),
         )
     return resolve_archived_parameter_values(
         contract,
@@ -411,5 +485,6 @@ def resolve_versioned_job_parameters(
         extra_overrides=extra_overrides,
         stable_trigger=stable_trigger,
         parameter_aliases=aliases,
+        bundle_variable_defaults=bundle_vars,
         logger=logger,
     )
