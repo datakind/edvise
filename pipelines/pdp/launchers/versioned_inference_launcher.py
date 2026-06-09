@@ -293,6 +293,19 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     LOGGER.info("Runtime bundle compatibility check passed.")
 
+    contract = effective.get("parameter_contract")
+    if isinstance(contract, list) and contract:
+        required = [
+            entry["parameter_name"]
+            for entry in contract
+            if isinstance(entry, dict) and entry.get("required")
+        ]
+        LOGGER.info(
+            "Archived parameter contract: %s declared, %s required by tasks",
+            len(contract),
+            required,
+        )
+
     LOGGER.info(
         "Bundle OK at %s (steps=%s, pipeline_version=%s)",
         release_dir,

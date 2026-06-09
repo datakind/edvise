@@ -22,10 +22,14 @@ from pipelines.pdp.launchers.inference_job_submit import (
     propagate_union_libraries_for_submit,
     render_job_parameter_refs,
     resolve_job_parameter_specs,
+    submit_versioned_inference_from_bundle,
     wait_for_inference_run,
 )
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "inference_job_minimal.yml"
+_PARAM_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "inference_job_parameter_contract.yml"
+)
 _FULL_YML = (
     _REPO_ROOT
     / "pipelines/pdp/examples/versioned_runtime_bundle.example"
@@ -330,3 +334,46 @@ def test_wait_for_inference_run_failure() -> None:
     client = _FakeWorkspaceClient([("TERMINATED", "FAILED")])
     with pytest.raises(RuntimeError, match="run_id=42"):
         wait_for_inference_run(42, workspace_client=client, poll_interval_seconds=0)
+
+
+def test_submit_versioned_inference_validates_required_parameters(
+    tmp_path: Path,
+) -> None:
+    snap = tmp_path / "databricks_bundle_snapshot" / "resources"
+    snap.mkdir(parents=True)
+    (snap / "github_pdp_inference.yml").write_text(
+        _PARAM_FIXTURE.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="schema_type"):
+        submit_versioned_inference_from_bundle(
+            tmp_path,
+            pipeline_version="abc123",
+            parameter_overrides={
+                "databricks_institution_name": "miles_cc",
+                "cohort_file_name": "cohort.csv",
+            },
+            dry_run=True,
+        )
+
+
+def test_submit_versioned_inference_dry_run_with_resolved_parameters(
+    tmp_path: Path,
+) -> None:
+    snap = tmp_path / "databricks_bundle_snapshot" / "resources"
+    snap.mkdir(parents=True)
+    (snap / "github_pdp_inference.yml").write_text(
+        _PARAM_FIXTURE.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    run_id = submit_versioned_inference_from_bundle(
+        tmp_path,
+        pipeline_version="abc123",
+        parameter_overrides={
+            "databricks_institution_name": "miles_cc",
+            "cohort_file_name": "cohort.csv",
+            "schema_type": "pdp",
+        },
+        dry_run=True,
+    )
+    assert run_id == 0

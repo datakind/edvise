@@ -25,6 +25,7 @@ def test_parse_inference_job_minimal() -> None:
     assert parsed["required_runtime"]["databricks_runtime"] == "15.4.x-cpu-ml-scala2.12"
     assert "pandas==2.2.3" in parsed["pypi_packages"]
     assert "databricks_institution_name" in parsed["job_parameters"]
+    assert isinstance(parsed["parameter_contract"], list)
 
 
 def test_build_effective_release(tmp_path: Path) -> None:

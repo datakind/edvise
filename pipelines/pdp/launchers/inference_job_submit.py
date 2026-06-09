@@ -24,6 +24,7 @@ from pipelines.pdp.launchers.bundle_from_dab import (
     inference_yml_path,
     load_inference_job_definition,
 )
+from pipelines.pdp.launchers.inference_parameters import resolve_versioned_job_parameters
 
 LOGGER = logging.getLogger(__name__)
 
@@ -680,6 +681,8 @@ def submit_versioned_inference_from_bundle(
     *,
     pipeline_version: str,
     parameter_overrides: dict[str, str],
+    extra_parameter_overrides: dict[str, str] | None = None,
+    stable_trigger: dict[str, Any] | None = None,
     git_url: str = DEFAULT_GIT_URL,
     inference_job_key: str = DEFAULT_INFERENCE_JOB_KEY,
     inference_yml_relative: str = DEFAULT_INFERENCE_YML,
@@ -693,8 +696,16 @@ def submit_versioned_inference_from_bundle(
     """Load archived inference YAML from ``release_dir``, submit, and optionally wait."""
     yml_path = inference_yml_path(release_dir, inference_yml_relative)
     job = load_inference_job_definition(yml_path, job_key=inference_job_key)
-    inst = parameter_overrides.get("databricks_institution_name", "unknown")
-    model = parameter_overrides.get("model_name", "unknown")
+    archived_parameters = resolve_versioned_job_parameters(
+        job,
+        release_dir,
+        launcher_overrides=parameter_overrides,
+        extra_overrides=extra_parameter_overrides,
+        stable_trigger=stable_trigger,
+        logger=logger,
+    )
+    inst = archived_parameters.get("databricks_institution_name", "unknown")
+    model = archived_parameters.get("model_name", "unknown")
     run_name = (
         f"versioned-inference-{inst}-{model}-{pipeline_version[:12]}"
     )
@@ -703,7 +714,7 @@ def submit_versioned_inference_from_bundle(
         pipeline_version=pipeline_version,
         git_url=git_url,
         run_name=run_name,
-        parameter_overrides=parameter_overrides,
+        parameter_overrides=archived_parameters,
         inference_job_key=inference_job_key,
     )
     logger.info(

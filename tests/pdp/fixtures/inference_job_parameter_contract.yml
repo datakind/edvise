@@ -1,0 +1,44 @@
+resources:
+  jobs:
+    edvise_github_sourced_pdp_inference_pipeline:
+      name: edvise_github_sourced_pdp_inference_pipeline
+      tasks:
+        - task_key: data_ingestion
+          spark_python_task:
+            python_file: src/edvise/scripts/pdp_gcp_databricks_ingestion.py
+            source: GIT
+            parameters:
+              - --cohort_file_name
+              - "{{job.parameters.cohort_file_name}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+        - task_key: inference_h2o
+          depends_on:
+            - task_key: data_ingestion
+          spark_python_task:
+            python_file: src/edvise/scripts/inference_h2o.py
+            source: GIT
+            parameters:
+              - --job_type
+              - "{{job.parameters.job_type}}"
+          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+      job_clusters:
+        - job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          new_cluster:
+            spark_version: 15.4.x-cpu-ml-scala2.12
+      parameters:
+        - name: cohort_file_name
+          default: ""
+        - name: cohort_filename
+          default: ""
+        - name: schema_type
+          default: ${var.schema_type}
+        - name: databricks_institution_name
+          default: miles_cc
+        - name: job_type
+          default: inference
+        - name: DB_workspace
+          default: dev_sst_02

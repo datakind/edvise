@@ -14,6 +14,11 @@ from typing import Any
 
 import yaml
 
+from pipelines.pdp.launchers.inference_parameters import (
+    build_parameter_contract,
+    parameter_contract_as_dicts,
+)
+
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_ENTRYPOINT = "edvise.runtime.inference_driver"
@@ -181,12 +186,14 @@ def parse_inference_job_from_yaml(
     if py_hint:
         required_runtime["python"] = py_hint
 
+    contract = build_parameter_contract(job)
     job_name = job.get("name")
     return {
         "job_key": job_key,
         "job_name": str(job_name) if job_name is not None else job_key,
         "expected_steps": task_keys,
         "job_parameters": job_params,
+        "parameter_contract": parameter_contract_as_dicts(contract),
         "pypi_packages": pypi,
         "required_runtime": required_runtime,
         "inference_yml_path": str(yml_path),

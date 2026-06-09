@@ -51,6 +51,9 @@ from pipelines.pdp.launchers.inference_job_submit import (  # noqa: E402
     DEFAULT_GIT_URL,
     submit_versioned_inference_from_bundle,
 )
+from pipelines.pdp.launchers.inference_parameters import (  # noqa: E402
+    build_stable_trigger_payload,
+)
 from pipelines.pdp.launchers.model_metadata import (  # noqa: E402
     get_spark_session,
     resolve_model_run_and_pipeline_version,
@@ -161,7 +164,19 @@ def _optional_arg(value: str) -> str | None:
     return s if s else None
 
 
-def _build_parameter_overrides(args: argparse.Namespace) -> dict[str, str]:
+def _parse_extra_parameter_overrides(raw: str) -> dict[str, str]:
+    """Parse ``inference_parameters_json`` (archived parameter names only)."""
+    text = (raw or "").strip()
+    if not text:
+        return {}
+    extra = json.loads(text)
+    if not isinstance(extra, dict):
+        msg = "--inference_parameters_json must be a JSON object"
+        raise ValueError(msg)
+    return {str(k): str(v) for k, v in extra.items() if v is not None}
+
+
+def _build_launcher_parameter_overrides(args: argparse.Namespace) -> dict[str, str]:
     overrides: dict[str, str] = {
         "databricks_institution_name": args.databricks_institution_name.strip(),
         "model_name": args.model_name.strip(),
@@ -181,19 +196,26 @@ def _build_parameter_overrides(args: argparse.Namespace) -> dict[str, str]:
         val = _optional_arg(getattr(args, key))
         if val is not None:
             overrides[key] = val
-    raw = (args.inference_parameters_json or "").strip()
-    if raw:
-        extra = json.loads(raw)
-        if not isinstance(extra, dict):
-            msg = "--inference_parameters_json must be a JSON object"
-            raise ValueError(msg)
-        for k, v in extra.items():
-            if v is not None:
-                overrides[str(k)] = str(v)
     out_id = _optional_arg(getattr(args, "inference_output_run_id", ""))
     if out_id is not None:
         overrides["db_run_id"] = out_id
     return overrides
+
+
+def _build_stable_trigger(args: argparse.Namespace) -> dict[str, object]:
+    return build_stable_trigger_payload(
+        institution=args.databricks_institution_name.strip(),
+        model_name=args.model_name.strip(),
+        workspace=args.DB_workspace.strip(),
+        cohort_dataset=args.cohort_file_name.strip(),
+        course_dataset=args.course_file_name.strip(),
+        output_bucket=args.gcp_bucket_name.strip(),
+        notification_to=args.datakind_notification_email.strip(),
+        notification_cc=args.DK_CC_EMAIL.strip(),
+        inference_output_run_id=args.inference_output_run_id.strip(),
+        ds_run_as=args.ds_run_as.strip(),
+        service_account_executer=args.service_account_executer.strip(),
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -213,7 +235,11 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     try:
-        param_overrides = _build_parameter_overrides(args)
+        param_overrides = _build_launcher_parameter_overrides(args)
+        extra_param_overrides = _parse_extra_parameter_overrides(
+            args.inference_parameters_json
+        )
+        stable_trigger = _build_stable_trigger(args)
     except (json.JSONDecodeError, ValueError) as exc:
         LOGGER.error("Invalid inference parameter overrides: %s", exc)
         return 1
@@ -249,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
             release_dir,
             pipeline_version=pipeline_version,
             parameter_overrides=param_overrides,
+            extra_parameter_overrides=extra_param_overrides,
+            stable_trigger=stable_trigger,
             git_url=(args.git_url or DEFAULT_GIT_URL).strip(),
             dry_run=args.dry_run,
             wait_for_completion=not args.no_wait,
