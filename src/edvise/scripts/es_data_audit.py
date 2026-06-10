@@ -1,4 +1,5 @@
 import argparse
+import importlib
 import logging
 import typing as t
 import sys
@@ -362,6 +363,27 @@ class ESDataAuditTask:
 if __name__ == "__main__":
     args = parse_data_audit_args()
     apply_bronze_training_inputs_sys_path(args)
-    task = ESDataAuditTask(args)
+    try:
+        dataio = importlib.import_module("dataio")
+        cohort_converter_func = dataio.converter_func_cohort
+        LOGGER.info("Running task with custom cohort converter func")
+    except Exception as e:
+        cohort_converter_func = None
+        LOGGER.info("Running task with default cohort converter func")
+        LOGGER.warning("Failed to load custom converter functions: %s", e)
+    try:
+        dataio = importlib.import_module("dataio")
+        course_converter_func = dataio.converter_func_course
+        LOGGER.info("Running task with custom course converter func")
+    except Exception as e:
+        course_converter_func = None
+        LOGGER.info("Running task default course converter func")
+        LOGGER.warning("Failed to load custom converter functions: %s", e)
+
+    task = ESDataAuditTask(
+        args,
+        cohort_converter_func=cohort_converter_func,
+        course_converter_func=course_converter_func,
+    )
     run_data_audit_with_training_events(args, task)
     flush_data_audit_logging()
