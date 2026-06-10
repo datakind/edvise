@@ -95,7 +95,9 @@ def resolve_postprocess_config_path(args: argparse.Namespace) -> str:
             resolved, _ = resolve_legacy_training_toml_paths(
                 db_ws, inst, config_file_name=cfg_name
             )
-            LOGGER.info("Resolved training config from UC training_inputs: %s", resolved)
+            LOGGER.info(
+                "Resolved training config from UC training_inputs: %s", resolved
+            )
             return resolved
         except (FileNotFoundError, ValueError) as exc:
             raise SystemExit(
@@ -280,9 +282,7 @@ def main() -> None:
         institution=inst,
     )
     if not model_name:
-        raise SystemExit(
-            "--model_name is required when postprocessing is enabled."
-        )
+        raise SystemExit("--model_name is required when postprocessing is enabled.")
 
     ws = (args.ssi_pipelines_workspace_root or "").strip() or None
     root = ws or DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
@@ -320,7 +320,8 @@ def main() -> None:
         "Loading postprocessing from pipelines/%s/%s/postprocessing.py (root=%s)",
         inst,
         model_name,
-        (args.ssi_pipelines_workspace_root or "").strip() or SSI_PIPELINES_WORKSPACE_ROOT,
+        (args.ssi_pipelines_workspace_root or "").strip()
+        or SSI_PIPELINES_WORKSPACE_ROOT,
     )
     LOGGER.info("Workspace postprocessing file: %s", py_file)
     mod = load_module_from_file(py_file, inst_dir)

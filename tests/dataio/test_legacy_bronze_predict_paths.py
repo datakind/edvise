@@ -47,15 +47,12 @@ def test_resolve_legacy_bronze_predict_file_uses_explicit_path(tmp_path: Path):
     csv = tmp_path / "explicit.csv"
     csv.write_text("data", encoding="utf-8")
     ds = {"predict_file_path": str(csv)}
-    assert (
-        resolve_legacy_bronze_predict_file(
-            ds,
-            dataset_key="raw_student",
-            db_workspace="dev_sst_02",
-            institution_id="inst",
-        )
-        == str(csv)
-    )
+    assert resolve_legacy_bronze_predict_file(
+        ds,
+        dataset_key="raw_student",
+        db_workspace="dev_sst_02",
+        institution_id="inst",
+    ) == str(csv)
 
 
 def test_resolve_legacy_bronze_predict_file_discovers_via_keyword(tmp_path: Path):
@@ -66,15 +63,12 @@ def test_resolve_legacy_bronze_predict_file_discovers_via_keyword(tmp_path: Path
         "predict_file_keyword": "transfer",
         "train_file_path": str(tmp_path / "train.csv"),
     }
-    assert (
-        resolve_legacy_bronze_predict_file(
-            ds,
-            dataset_key="raw_student",
-            db_workspace="dev_sst_02",
-            institution_id="inst",
-        )
-        == str(csv)
-    )
+    assert resolve_legacy_bronze_predict_file(
+        ds,
+        dataset_key="raw_student",
+        db_workspace="dev_sst_02",
+        institution_id="inst",
+    ) == str(csv)
 
 
 def test_resolve_legacy_bronze_predict_file_prefers_keyword_over_stale_explicit(
@@ -91,15 +85,12 @@ def test_resolve_legacy_bronze_predict_file_prefers_keyword_over_stale_explicit(
         "predict_file_keyword": "transfer_advisement",
         "train_file_path": str(tmp_path / "train.csv"),
     }
-    assert (
-        resolve_legacy_bronze_predict_file(
-            ds,
-            dataset_key="raw_cuny_transfer",
-            db_workspace="dev_sst_02",
-            institution_id="john_jay_col",
-        )
-        == str(fresh)
-    )
+    assert resolve_legacy_bronze_predict_file(
+        ds,
+        dataset_key="raw_cuny_transfer",
+        db_workspace="dev_sst_02",
+        institution_id="john_jay_col",
+    ) == str(fresh)
 
 
 def test_materialize_legacy_bronze_predict_paths_writes_temp(

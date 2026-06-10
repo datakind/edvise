@@ -19,6 +19,7 @@ def fetch_iap_token(iap_audience: str) -> str:
     # Uses ADC (same auth mechanism as google.cloud.storage.Client()).
     return id_token.fetch_id_token(Request(), iap_audience)
 
+
 def get_iap_audience() -> str:
     aud = os.getenv("SST_IAP_AUDIENCE")
     if not aud:
@@ -69,7 +70,7 @@ def get_access_tokens(api_key: str, DB_workspace: str) -> str:
 
     headers = {
         "Authorization": f"Bearer {iap_jwt}",  # required by IAP
-        "X-API-KEY": api_key,                  # consumed by your app
+        "X-API-KEY": api_key,  # consumed by your app
         "Accept": "application/json",
     }
 
@@ -163,7 +164,9 @@ def create_legacy_model(
         return resp.text
 
 
-def validate_legacy_institution_exist(inst_id: str, api_key: str, DB_workspace: str) -> t.Any:
+def validate_legacy_institution_exist(
+    inst_id: str, api_key: str, DB_workspace: str
+) -> t.Any:
     if not inst_id or not isinstance(inst_id, str):
         return {
             "ok": False,
@@ -199,7 +202,9 @@ def validate_legacy_institution_exist(inst_id: str, api_key: str, DB_workspace: 
         return resp.text
 
 
-def validate_legacy_model_exist(inst_id: str, model_name: str, api_key: str, DB_workspace: str) -> t.Any:
+def validate_legacy_model_exist(
+    inst_id: str, model_name: str, api_key: str, DB_workspace: str
+) -> t.Any:
     if not isinstance(inst_id, str) or not inst_id.strip():
         raise ValueError("inst_id must be a non-empty string")
     if not isinstance(model_name, str) or not model_name.strip():
@@ -218,7 +223,9 @@ def validate_legacy_model_exist(inst_id: str, model_name: str, api_key: str, DB_
     }
 
     base_url = get_base_url(DB_workspace)
-    read_model_endpoint_url = f"{base_url}/api/v1/institutions/{inst_id}/models/{model_name}"
+    read_model_endpoint_url = (
+        f"{base_url}/api/v1/institutions/{inst_id}/models/{model_name}"
+    )
     resp = session.get(read_model_endpoint_url, headers=legacy_model_headers)
     resp.raise_for_status()
 
@@ -228,7 +235,9 @@ def validate_legacy_model_exist(inst_id: str, model_name: str, api_key: str, DB_
         return resp.text
 
 
-def _fetch_institution_by_name(normalized_name: str, access_token: str, DB_workspace: str) -> t.Any:
+def _fetch_institution_by_name(
+    normalized_name: str, access_token: str, DB_workspace: str
+) -> t.Any:
     """
     Fetch institution data from API by normalized name.
 
@@ -364,7 +373,10 @@ def _parse_institution_response(institution_data: t.Any, institution_name: str) 
 
 
 def get_institution_id_by_name(
-    institution_name: str, api_key: str, DB_workspace: str, is_databricks_name: bool = False
+    institution_name: str,
+    api_key: str,
+    DB_workspace: str,
+    is_databricks_name: bool = False,
 ) -> t.Any:
     """
     Retrieve institution ID by institution name from the API.
@@ -413,7 +425,9 @@ def get_institution_id_by_name(
     # by comparing lowercase(name) == lowercase(input), so we normalize here for consistency
     normalized_name = institution_name.strip().lower()
 
-    institution_data = _fetch_institution_by_name(normalized_name, access_token, DB_workspace)
+    institution_data = _fetch_institution_by_name(
+        normalized_name, access_token, DB_workspace
+    )
     return _parse_institution_response(institution_data, normalized_name)
 
 

@@ -251,7 +251,9 @@ def resolve_legacy_training_toml_paths(
     if "/" in cfg_name or "\\" in cfg_name:
         raise ValueError(f"config_file_name must be a single filename: {cfg_name!r}")
     if "/" in feat_name or "\\" in feat_name:
-        raise ValueError(f"features_table_name must be a single filename: {feat_name!r}")
+        raise ValueError(
+            f"features_table_name must be a single filename: {feat_name!r}"
+        )
 
     cfg_p = (base / cfg_name).resolve()
     feat_p = (base / feat_name).resolve()
@@ -289,7 +291,9 @@ def copy_legacy_uc_config_for_training(config_uc_path: str) -> str:
         except OSError:
             pass
         raise
-    LOGGER.info("Copied UC legacy config %s -> %s (writable training copy)", src, tmp_path)
+    LOGGER.info(
+        "Copied UC legacy config %s -> %s (writable training copy)", src, tmp_path
+    )
     return tmp_path
 
 
@@ -489,7 +493,7 @@ def main() -> None:
         type=str,
         default=None,
         help=(
-            "Predict only: JSON list of term labels (e.g. [\"fall 2025\"]). "
+            'Predict only: JSON list of term labels (e.g. ["fall 2025"]). '
             "Omit or null to use [inference].term from config. Forwarded if "
             "``preprocessing.run`` accepts a ``term_filter`` parameter."
         ),
@@ -498,7 +502,9 @@ def main() -> None:
 
     inst = (args.databricks_institution_name or "").strip()
     if not inst:
-        raise SystemExit("--databricks_institution_name is required when preprocessing runs.")
+        raise SystemExit(
+            "--databricks_institution_name is required when preprocessing runs."
+        )
     model_name = normalize_legacy_uc_model_short_name(
         args.model_name or "",
         workspace=(args.DB_workspace or ""),
@@ -546,7 +552,8 @@ def main() -> None:
         "Loading preprocessing from pipelines/%s/%s/preprocessing.py (root=%s)",
         inst,
         model_name,
-        (args.ssi_pipelines_workspace_root or "").strip() or SSI_PIPELINES_WORKSPACE_ROOT,
+        (args.ssi_pipelines_workspace_root or "").strip()
+        or SSI_PIPELINES_WORKSPACE_ROOT,
     )
     py_file, inst_dir = resolve_ssi_preprocessing_py(
         inst,

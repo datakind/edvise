@@ -61,7 +61,9 @@ def test_resolve_legacy_training_toml_paths_missing_features(training_inputs_dir
         resolve_legacy_training_toml_paths("dev_sst_02", "john_jay_col")
 
 
-def test_resolve_legacy_training_toml_paths_custom_config_name(training_inputs_dir: Path):
+def test_resolve_legacy_training_toml_paths_custom_config_name(
+    training_inputs_dir: Path,
+):
     training_inputs_dir.joinpath("config_primary_n0.toml").write_text(
         "x = 1\n", encoding="utf-8"
     )
@@ -77,7 +79,9 @@ def test_resolve_legacy_training_toml_paths_custom_config_name(training_inputs_d
     assert feat.endswith(DEFAULT_FEATURES_TABLE_NAME)
 
 
-def test_resolve_legacy_training_toml_paths_custom_features_name(training_inputs_dir: Path):
+def test_resolve_legacy_training_toml_paths_custom_features_name(
+    training_inputs_dir: Path,
+):
     training_inputs_dir.joinpath(DEFAULT_LEGACY_CONFIG_BASENAME).write_text(
         "x = 1\n", encoding="utf-8"
     )

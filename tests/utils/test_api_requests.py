@@ -39,7 +39,9 @@ class TestGetInstitutionIdByName:
 
         # Assert
         assert result == "abc123-def456-ghi789"
-        mock_get_tokens.assert_called_once_with(api_key="test-api-key", DB_workspace="dev")
+        mock_get_tokens.assert_called_once_with(
+            api_key="test-api-key", DB_workspace="dev"
+        )
         mock_session.get.assert_called_once()
         call_args = mock_session.get.call_args
         # Name is normalized to lowercase before API call
@@ -170,7 +172,9 @@ class TestGetInstitutionIdByName:
         mock_session_class.return_value = mock_session
 
         with pytest.raises(requests.HTTPError) as exc_info:
-            api_requests.get_institution_id_by_name("Nonexistent University", "api-key", "dev")
+            api_requests.get_institution_id_by_name(
+                "Nonexistent University", "api-key", "dev"
+            )
 
         assert "404" in str(exc_info.value)
         # Verify that the name was normalized to lowercase in the API call
@@ -193,7 +197,9 @@ class TestGetInstitutionIdByName:
         mock_session_class.return_value = mock_session
 
         # Test with mixed case input
-        result = api_requests.get_institution_id_by_name("Test University", "api-key", "dev")
+        result = api_requests.get_institution_id_by_name(
+            "Test University", "api-key", "dev"
+        )
 
         assert result == "test-id-123"
         # Verify that the API was called with lowercase version
@@ -492,7 +498,9 @@ class TestGetInstitutionIdByName:
         mock_session_class.return_value = mock_session
 
         with pytest.raises(ValueError) as exc_info:
-            api_requests.get_institution_id_by_name("My Test University", "api-key", "dev")
+            api_requests.get_institution_id_by_name(
+                "My Test University", "api-key", "dev"
+            )
 
         error_msg = str(exc_info.value)
         # Name is normalized to lowercase in error messages
@@ -516,7 +524,9 @@ class TestGetInstitutionIdByName:
         mock_session_class.return_value = mock_session
 
         with pytest.raises(KeyError) as exc_info:
-            api_requests.get_institution_id_by_name("My Test University", "api-key", "dev")
+            api_requests.get_institution_id_by_name(
+                "My Test University", "api-key", "dev"
+            )
 
         error_msg = str(exc_info.value)
         # Name is normalized to lowercase in error messages

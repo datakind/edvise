@@ -74,15 +74,22 @@ def test_bad_legacy_cfgs(cfg_str, context):
 
 
 def test_substitute_uc_catalog_in_string():
-    assert legacy.substitute_uc_catalog_in_string(
-        "CATALOG.foo.bar", "dev_sst_02"
-    ) == "dev_sst_02.foo.bar"
-    assert legacy.substitute_uc_catalog_in_string(
-        "/Volumes/CATALOG/inst_bronze/x.csv", "dev_sst_02"
-    ) == "/Volumes/dev_sst_02/inst_bronze/x.csv"
-    assert legacy.substitute_uc_catalog_in_string(
-        "dbfs:/Volumes/CATALOG/inst_bronze/x.csv", "dev_sst_02"
-    ) == "dbfs:/Volumes/dev_sst_02/inst_bronze/x.csv"
+    assert (
+        legacy.substitute_uc_catalog_in_string("CATALOG.foo.bar", "dev_sst_02")
+        == "dev_sst_02.foo.bar"
+    )
+    assert (
+        legacy.substitute_uc_catalog_in_string(
+            "/Volumes/CATALOG/inst_bronze/x.csv", "dev_sst_02"
+        )
+        == "/Volumes/dev_sst_02/inst_bronze/x.csv"
+    )
+    assert (
+        legacy.substitute_uc_catalog_in_string(
+            "dbfs:/Volumes/CATALOG/inst_bronze/x.csv", "dev_sst_02"
+        )
+        == "dbfs:/Volumes/dev_sst_02/inst_bronze/x.csv"
+    )
     assert legacy.substitute_uc_catalog_in_string("unchanged", "x") == "unchanged"
 
 
@@ -138,7 +145,10 @@ def test_postprocessing_config_enabled():
 
 def test_apply_runtime_uc_catalog_on_template():
     template_path = (
-        pathlib.Path(__file__).parents[2] / "configs" / "legacy_h2o" / "config-TEMPLATE.toml"
+        pathlib.Path(__file__).parents[2]
+        / "configs"
+        / "legacy_h2o"
+        / "config-TEMPLATE.toml"
     )
     with template_path.open("rb") as f:
         raw = tomllib.load(f)
