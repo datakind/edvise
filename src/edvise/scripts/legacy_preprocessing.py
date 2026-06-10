@@ -22,6 +22,10 @@ Workspace root defaults to ``…/student-success-intervention/pipelines`` (overr
 ``--config_file_path`` is required for ``run_type=predict`` (from ``legacy_inference_inputs``);
 ``run_type=train`` ignores it and uses the workspace paths above.
 
+For ``run_type=predict``, bronze ``predict_file_path`` values may be resolved at runtime
+from ``predict_file_keyword`` when the explicit path is missing (searches institution
+``gcs_uploads`` and the parent of ``train_file_path``; see ``materialize_legacy_bronze_predict_paths``).
+
 For ``run_type=predict``, optional ``--term_filter`` (JSON list of strings) overrides
 ``[inference].term`` in the config when non-empty; omit or null to use the config.
 School ``run()`` may accept ``term_filter`` and apply cohort/term filtering before writing
@@ -362,6 +366,65 @@ def materialize_legacy_config_with_uc_catalog(
     return tmp_path
 
 
+def materialize_legacy_bronze_predict_paths(
+    config_file_path: str, db_workspace: str
+) -> str:
+    """
+    For legacy inference, resolve ``datasets.bronze[*].predict_file_path`` from
+    ``predict_file_keyword`` when the explicit path is missing.
+
+    Writes a temp TOML when any path is resolved or updated; otherwise returns
+    ``config_file_path`` unchanged.
+    """
+    path = Path(config_file_path)
+    data = from_toml_file(str(path.resolve()))
+    institution_id = (data.get("institution_id") or "").strip()
+    if not institution_id:
+        raise ValueError(
+            "institution_id is required in config for bronze predict_file_keyword resolution."
+        )
+    bronze = data.get("datasets", {}).get("bronze")
+    if not isinstance(bronze, dict):
+        return config_file_path
+
+    from edvise.dataio.path_management import resolve_legacy_bronze_predict_file
+
+    changed = False
+    for key, ds in bronze.items():
+        if not isinstance(ds, dict):
+            continue
+        if (ds.get("predict_table_path") or ds.get("table_path") or "").strip():
+            continue
+        resolved = resolve_legacy_bronze_predict_file(
+            ds,
+            dataset_key=str(key),
+            db_workspace=db_workspace,
+            institution_id=institution_id,
+        )
+        if not resolved:
+            continue
+        for field in ("predict_file_path", "file_path"):
+            if ds.get(field) != resolved:
+                ds[field] = resolved
+                changed = True
+
+    if not changed:
+        return config_file_path
+
+    fd, tmp_path = tempfile.mkstemp(
+        prefix="edvise_legacy_bronze_predict_", suffix=".toml"
+    )
+    try:
+        os.write(fd, tomlkit.dumps(data).encode("utf-8"))
+    finally:
+        os.close(fd)
+    LOGGER.info(
+        "Resolved bronze predict_file_path entries; using temp config %s",
+        tmp_path,
+    )
+    return tmp_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Legacy H2O preprocessing via SSI workspace preprocessing.py."
@@ -474,6 +537,10 @@ def main() -> None:
     effective_config = materialize_legacy_config_with_uc_catalog(
         effective_config, args.DB_workspace
     )
+    if args.run_type == "predict":
+        effective_config = materialize_legacy_bronze_predict_paths(
+            effective_config, args.DB_workspace
+        )
 
     LOGGER.info(
         "Loading preprocessing from pipelines/%s/%s/preprocessing.py (root=%s)",

@@ -260,6 +260,15 @@ class DatasetConfig(pyd.BaseModel):
         default=None,
         description="Columns to be validated as non-null, if applicable",
     )
+    predict_file_keyword: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Legacy inference: case-insensitive substring matched against filenames "
+            "under the institution bronze ``gcs_uploads`` folder (and the parent "
+            "directory of ``train_file_path`` when set). Newest match wins. Resolved "
+            "at predict-time in ``legacy_preprocessing``."
+        ),
+    )
 
     @pyd.model_validator(mode="after")
     def validate_paths(self) -> "DatasetConfig":
@@ -271,12 +280,14 @@ class DatasetConfig(pyd.BaseModel):
             self.file_path,  # Legacy, not used in pipeline/DB workflow
             self.table_path,  # Legacy, not used in pipeline/DB workflow
         ]
-        if not any(any_paths):
+        has_predict_discovery = bool((self.predict_file_keyword or "").strip())
+        if not any(any_paths) and not has_predict_discovery:
             raise ValueError(
                 "At least one dataset path must be specified: "
                 "`train_file_path`, `predict_file_path`, "
                 "`train_table_path`, `predict_table_path`, "
-                "`file_path`, or `table_path`"
+                "`file_path`, `table_path`, or legacy inference discovery via "
+                "`predict_file_keyword`."
             )
         return self
 
