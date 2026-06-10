@@ -87,6 +87,8 @@ resources:
               - "{{job.parameters.inference_output_run_id}}"
               - --inference_parameters_json
               - "{{job.parameters.inference_parameters_json}}"
+              - --stable_trigger_json
+              - "{{job.parameters.stable_trigger_json}}"
           job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
       job_clusters:
         - job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
@@ -148,4 +150,6 @@ resources:
         - name: inference_output_run_id
           default: ""
         - name: inference_parameters_json
+          default: ""
+        - name: stable_trigger_json
           default: ""

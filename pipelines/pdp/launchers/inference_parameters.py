@@ -2,12 +2,15 @@
 Version-aware inference job parameter resolution for ``runs/submit``.
 
 The archived inference YAML at ``pipeline_version`` is the contract source of truth.
-Launcher / webapp inputs use current (or stable) names; optional ``parameter_aliases.json``
-in the release bundle maps archived names to launcher or stable-trigger paths.
+The webapp / launcher should prefer the **stable trigger payload** (Layer 1); each release
+may add ``parameter_aliases.json`` (Layer 3) mapping archived parameter names to stable paths
+or launcher flat keys. Renames are never guessed automatically — only explicit mappings,
+exact name matches, archived defaults, and heuristic *suggestions* on failure.
 """
 
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import re
@@ -28,6 +31,26 @@ _BUNDLE_SNAPSHOT_YML = "databricks_bundle_snapshot/databricks.yml"
 _SENSITIVE_KEY_FRAGMENTS = frozenset(
     {"password", "secret", "token", "credential", "api_key", "apikey"}
 )
+
+# Layer 3 defaults: archived inference param name → stable trigger dot path (or flat key).
+# Release ``parameter_aliases.json`` overrides/extends these per pipeline_version.
+DEFAULT_STABLE_PARAMETER_ALIASES: dict[str, str] = {
+    "cohort_file_name": "datasets.cohort",
+    "cohort_filename": "datasets.cohort",
+    "course_file_name": "datasets.course",
+    "course_filename": "datasets.course",
+    "gcp_bucket_name": "outputs.bucket",
+    "bucket_name": "outputs.bucket",
+    "databricks_institution_name": "institution",
+    "model_name": "model",
+    "DB_workspace": "workspace",
+    "db_run_id": "outputs.run_id",
+    "datakind_notification_email": "notifications.to",
+    "DK_CC_EMAIL": "notifications.cc",
+    "ds_run_as": "run_as.ds",
+    "service_account_executer": "run_as.service_account_executer",
+    "schema_type": "schema_type",
+}
 
 
 @dataclass(frozen=True)
@@ -207,6 +230,14 @@ def parameter_contract_as_dicts(contract: list[ParameterSpec]) -> list[dict[str,
     ]
 
 
+def merge_parameter_aliases(release_aliases: dict[str, str] | None) -> dict[str, str]:
+    """Built-in stable mappings, overridden by release ``parameter_aliases.json``."""
+    merged = dict(DEFAULT_STABLE_PARAMETER_ALIASES)
+    if release_aliases:
+        merged.update(release_aliases)
+    return merged
+
+
 def load_parameter_aliases(release_dir: Path) -> dict[str, str]:
     """
     Load optional ``parameter_aliases.json`` from a release bundle directory.
@@ -298,26 +329,159 @@ def validate_extra_overrides(
         raise ValueError(msg)
 
 
+def _normalize_param_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def _collect_alias_sources(merged_aliases: dict[str, str]) -> dict[str, set[str]]:
+    """Map each alias source string to archived param names that use it."""
+    by_source: dict[str, set[str]] = {}
+    for archived, source in merged_aliases.items():
+        by_source.setdefault(source, set()).add(archived)
+    return by_source
+
+
+def suggest_missing_parameter_mappings(
+    missing_param: str,
+    *,
+    launcher_overrides: dict[str, str],
+    merged_aliases: dict[str, str],
+    stable_trigger: dict[str, Any] | None,
+) -> list[str]:
+    """
+    Heuristic suggestions only — never auto-applied.
+
+    Helps operators add ``parameter_aliases.json`` entries or launcher/stable values.
+    """
+    suggestions: list[str] = []
+    norm_missing = _normalize_param_token(missing_param)
+
+    launcher_keys = [k for k in launcher_overrides if _non_empty(launcher_overrides.get(k))]
+    close_launcher = difflib.get_close_matches(
+        missing_param, launcher_keys, n=3, cutoff=0.6
+    )
+    norm_launcher = [
+        k
+        for k in launcher_keys
+        if _normalize_param_token(k) == norm_missing
+        or norm_missing in _normalize_param_token(k)
+        or _normalize_param_token(k) in norm_missing
+    ]
+    for key in dict.fromkeys(close_launcher + norm_launcher):
+        suggestions.append(
+            f"launcher flat key {key!r} (exact-name match or add "
+            f'parameter_aliases.json: {{{missing_param!r}: {key!r}}})'
+        )
+
+    for archived, source in merged_aliases.items():
+        if archived == missing_param:
+            suggestions.append(
+                f"stable/alias source {source!r} (already mapped for {archived!r}; "
+                "ensure stable_trigger or launcher provides a value)"
+            )
+            continue
+        if _normalize_param_token(archived) == norm_missing:
+            suggestions.append(
+                f"similar archived alias {archived!r} → {source!r} "
+                f'(try parameter_aliases.json: {{{missing_param!r}: {source!r}}})'
+            )
+        elif norm_missing and (
+            norm_missing in _normalize_param_token(archived)
+            or _normalize_param_token(archived) in norm_missing
+        ):
+            suggestions.append(
+                f"similar archived alias {archived!r} → {source!r}"
+            )
+
+    if stable_trigger is not None:
+        for source in sorted({s for s in merged_aliases.values() if "." in s}):
+            if resolve_stable_path(stable_trigger, source):
+                suggestions.append(
+                    f"stable path {source!r} has a value "
+                    f'(parameter_aliases.json: {{{missing_param!r}: {source!r}}})'
+                )
+
+    # De-dupe while preserving order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for item in suggestions:
+        if item not in seen:
+            seen.add(item)
+            unique.append(item)
+    return unique[:5]
+
+
+def format_missing_parameter_help(
+    missing_specs: list[ParameterSpec],
+    *,
+    launcher_overrides: dict[str, str],
+    merged_aliases: dict[str, str],
+    stable_trigger: dict[str, Any] | None,
+) -> str:
+    """Build operator-facing hint text; suggestions are not auto-applied."""
+    if not missing_specs:
+        return ""
+    lines = [
+        "",
+        "Mapping hints (suggestions only — not applied automatically):",
+    ]
+    for spec in missing_specs:
+        hints = suggest_missing_parameter_mappings(
+            spec.name,
+            launcher_overrides=launcher_overrides,
+            merged_aliases=merged_aliases,
+            stable_trigger=stable_trigger,
+        )
+        lines.append(f"  - {spec.name!r}:")
+        if hints:
+            for hint in hints:
+                lines.append(f"      • {hint}")
+        else:
+            lines.append(
+                "      • supply via inference_parameters_json (archived name), "
+                "launcher arg, stable_trigger_json, or parameter_aliases.json"
+            )
+    lines.append(
+        "  Release bundle example (per pipeline_version, manual): "
+        '{"parameter_aliases": {"archived_name": "datasets.cohort"}}'
+    )
+    return "\n".join(lines)
+
+
 def validate_referenced_parameters(
     values: dict[str, str],
     contract: list[ParameterSpec],
+    *,
+    launcher_overrides: dict[str, str] | None = None,
+    merged_aliases: dict[str, str] | None = None,
+    stable_trigger: dict[str, Any] | None = None,
 ) -> None:
     """Fail fast when a task-referenced parameter is missing or empty."""
+    missing_specs: list[ParameterSpec] = []
     missing: list[str] = []
     for spec in contract:
         if not spec.required:
             continue
         if _non_empty(values.get(spec.name)):
             continue
+        missing_specs.append(spec)
         tasks = ", ".join(spec.referenced_by_tasks) or "?"
         missing.append(f"{spec.name!r} (referenced by {tasks})")
     if missing:
         msg = (
             "Archived inference job is missing required parameter value(s): "
             + "; ".join(missing)
-            + ". Supply via launcher args, inference_parameters_json, "
-            "parameter_aliases.json, or archived defaults."
+            + ". Supply via exact launcher match, stable_trigger_json, "
+            "inference_parameters_json (archived names), parameter_aliases.json, "
+            "or archived defaults."
         )
+        if launcher_overrides is not None and merged_aliases is not None:
+            msg += format_missing_parameter_help(
+                missing_specs,
+                launcher_overrides=launcher_overrides,
+                merged_aliases=merged_aliases,
+                stable_trigger=stable_trigger,
+            )
         raise ValueError(msg)
 
 
@@ -339,12 +503,13 @@ def resolve_archived_parameter_values(
     1. Concrete defaults from archived inference job YAML
     2. ``${var.*}`` defaults resolved from archived ``databricks.yml`` variables
     3. Explicit empty archived defaults (e.g. ``term_filter: ""``)
-    4. ``parameter_aliases.json`` (archived name ← launcher key or stable path)
+    4. Merged parameter aliases (built-in stable paths + release ``parameter_aliases.json``)
     5. Direct launcher override when key matches archived name (overrides defaults)
     6. ``extra_overrides`` (``inference_parameters_json``; archived names only)
     """
     extra = dict(extra_overrides or {})
-    aliases = dict(parameter_aliases or {})
+    release_aliases = dict(parameter_aliases or {})
+    aliases = merge_parameter_aliases(release_aliases)
     bundle_vars = dict(bundle_variable_defaults or {})
     validate_extra_overrides(extra, contract)
 
@@ -380,7 +545,13 @@ def resolve_archived_parameter_values(
         if val is not None and str(val).strip():
             values[name] = str(val).strip()
 
-    validate_referenced_parameters(values, contract)
+    validate_referenced_parameters(
+        values,
+        contract,
+        launcher_overrides=launcher_overrides,
+        merged_aliases=aliases,
+        stable_trigger=stable_trigger,
+    )
     _log_resolved_parameters(values, contract, logger=logger)
     return values
 
@@ -412,6 +583,33 @@ def _log_resolved_parameters(
     )
 
 
+def deep_merge_stable_dict(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    """Deep-merge ``overlay`` onto ``base`` (overlay wins for scalar values)."""
+    out: dict[str, Any] = dict(base)
+    for key, val in overlay.items():
+        if (
+            key in out
+            and isinstance(out[key], dict)
+            and isinstance(val, dict)
+        ):
+            out[key] = deep_merge_stable_dict(out[key], val)
+        else:
+            out[key] = val
+    return out
+
+
+def parse_stable_trigger_json(raw: str | None) -> dict[str, Any]:
+    """Parse optional webapp ``stable_trigger_json`` (Layer 1 payload)."""
+    text = (raw or "").strip()
+    if not text:
+        return {}
+    data = json.loads(text)
+    if not isinstance(data, dict):
+        msg = "stable_trigger_json must be a JSON object"
+        raise TypeError(msg)
+    return data
+
+
 def build_stable_trigger_payload(
     *,
     institution: str,
@@ -429,12 +627,15 @@ def build_stable_trigger_payload(
     """
     Layer-1 stable trigger shape (webapp / launcher logical schema).
 
-    Maps to archived names via ``parameter_aliases.json`` stable paths over time.
+    Maps to archived names via built-in + release ``parameter_aliases.json`` stable paths.
     """
     payload: dict[str, Any] = {
         "institution": institution.strip(),
         "model": model_name.strip(),
+        "model_name": model_name.strip(),
         "workspace": workspace.strip(),
+        "DB_workspace": workspace.strip(),
+        "schema_type": "pdp",
         "datasets": {
             "cohort": cohort_dataset.strip(),
             "course": course_dataset.strip(),
@@ -455,6 +656,18 @@ def build_stable_trigger_payload(
     return payload
 
 
+def contract_summary_for_log(contract: list[ParameterSpec]) -> dict[str, list[str]]:
+    """Grouped archived parameter names for operator logs."""
+    required = [spec.name for spec in contract if spec.required]
+    optional = [spec.name for spec in contract if spec.referenced_by_tasks and not spec.required]
+    declared = [spec.name for spec in contract if not spec.referenced_by_tasks]
+    return {
+        "required": required,
+        "optional_referenced": optional,
+        "declared_unreferenced": declared,
+    }
+
+
 def resolve_versioned_job_parameters(
     job: dict[str, Any],
     release_dir: Path,
@@ -466,14 +679,27 @@ def resolve_versioned_job_parameters(
 ) -> dict[str, str]:
     """Build validated archived-name parameter map for ``build_submit_run_body``."""
     contract = build_parameter_contract(job)
-    aliases = load_parameter_aliases(release_dir)
+    release_aliases = load_parameter_aliases(release_dir)
+    merged_aliases = merge_parameter_aliases(release_aliases)
     bundle_vars = load_bundle_variable_defaults(release_dir)
-    if aliases:
+    summary = contract_summary_for_log(contract)
+    logger.info(
+        "Archived parameter contract: required=%s optional_referenced=%s",
+        summary["required"],
+        summary["optional_referenced"],
+    )
+    if release_aliases:
         logger.info(
-            "Loaded %s parameter alias(es) from %s",
-            len(aliases),
+            "Loaded %s release parameter alias(es) from %s",
+            len(release_aliases),
             release_dir / PARAMETER_ALIASES_FILENAME,
         )
+    logger.info(
+        "Using %s merged alias mapping(s) (%s built-in stable + %s release)",
+        len(merged_aliases),
+        len(DEFAULT_STABLE_PARAMETER_ALIASES),
+        len(release_aliases),
+    )
     if bundle_vars:
         logger.info(
             "Loaded %s bundle variable default(s) from archived databricks.yml",
@@ -484,7 +710,7 @@ def resolve_versioned_job_parameters(
         launcher_overrides=launcher_overrides,
         extra_overrides=extra_overrides,
         stable_trigger=stable_trigger,
-        parameter_aliases=aliases,
+        parameter_aliases=release_aliases,
         bundle_variable_defaults=bundle_vars,
         logger=logger,
     )

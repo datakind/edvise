@@ -53,6 +53,8 @@ from pipelines.pdp.launchers.inference_job_submit import (  # noqa: E402
 )
 from pipelines.pdp.launchers.inference_parameters import (  # noqa: E402
     build_stable_trigger_payload,
+    deep_merge_stable_dict,
+    parse_stable_trigger_json,
 )
 from pipelines.pdp.launchers.model_metadata import (  # noqa: E402
     get_spark_session,
@@ -138,7 +140,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--inference_parameters_json",
         default="",
-        help="Optional JSON object of extra job parameter overrides.",
+        help="Optional JSON object of archived-name parameter overrides.",
+    )
+    parser.add_argument(
+        "--stable_trigger_json",
+        default="",
+        help=(
+            "Optional Layer-1 stable trigger JSON (institution, datasets, outputs, "
+            "notifications). Merged over launcher flat args; maps to archived names "
+            "via built-in + release parameter_aliases.json."
+        ),
     )
     parser.add_argument(
         "--no-wait",
@@ -203,7 +214,7 @@ def _build_launcher_parameter_overrides(args: argparse.Namespace) -> dict[str, s
 
 
 def _build_stable_trigger(args: argparse.Namespace) -> dict[str, object]:
-    return build_stable_trigger_payload(
+    base = build_stable_trigger_payload(
         institution=args.databricks_institution_name.strip(),
         model_name=args.model_name.strip(),
         workspace=args.DB_workspace.strip(),
@@ -216,6 +227,10 @@ def _build_stable_trigger(args: argparse.Namespace) -> dict[str, object]:
         ds_run_as=args.ds_run_as.strip(),
         service_account_executer=args.service_account_executer.strip(),
     )
+    overlay = parse_stable_trigger_json(getattr(args, "stable_trigger_json", ""))
+    if overlay:
+        return deep_merge_stable_dict(base, overlay)
+    return base
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -240,7 +255,7 @@ def main(argv: list[str] | None = None) -> int:
             args.inference_parameters_json
         )
         stable_trigger = _build_stable_trigger(args)
-    except (json.JSONDecodeError, ValueError) as exc:
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
         LOGGER.error("Invalid inference parameter overrides: %s", exc)
         return 1
 

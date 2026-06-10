@@ -14,9 +14,13 @@ if str(_REPO_ROOT) not in sys.path:
 
 from pipelines.pdp.launchers.bundle_from_dab import load_inference_job_definition
 from pipelines.pdp.launchers.inference_parameters import (
+    DEFAULT_STABLE_PARAMETER_ALIASES,
     build_parameter_contract,
     build_stable_trigger_payload,
+    deep_merge_stable_dict,
     load_parameter_aliases,
+    merge_parameter_aliases,
+    suggest_missing_parameter_mappings,
     resolve_archived_parameter_values,
     resolve_versioned_job_parameters,
 )
@@ -184,3 +188,74 @@ def test_resolve_schema_type_from_archived_databricks_yml(tmp_path: Path) -> Non
     )
     assert values["schema_type"] == "pdp"
     assert values["cohort_file_name"] == "cohort.csv"
+
+
+def test_builtin_stable_aliases_map_from_stable_trigger_only() -> None:
+    job = load_inference_job_definition(_FIXTURE)
+    contract = build_parameter_contract(job)
+    stable = build_stable_trigger_payload(
+        institution="synthetic_integration",
+        model_name="retention_into_year_2_bachelors",
+        workspace="dev_sst_02",
+        cohort_dataset="stable_only.csv",
+        course_dataset="course.csv",
+        output_bucket="my-bucket",
+    )
+    values = resolve_archived_parameter_values(
+        contract,
+        launcher_overrides={},
+        stable_trigger=stable,
+    )
+    assert values["cohort_file_name"] == "stable_only.csv"
+    assert values["course_file_name"] == "course.csv"
+    assert values["gcp_bucket_name"] == "my-bucket"
+    assert values["schema_type"] == "pdp"
+    # Fixture gives databricks_institution_name a concrete archived default (miles_cc).
+    assert values["databricks_institution_name"] == "miles_cc"
+
+
+def test_merge_parameter_aliases_release_overrides_builtin() -> None:
+    merged = merge_parameter_aliases({"schema_type": "institution"})
+    assert merged["cohort_file_name"] == DEFAULT_STABLE_PARAMETER_ALIASES["cohort_file_name"]
+    assert merged["schema_type"] == "institution"
+
+
+def test_missing_required_parameter_includes_mapping_hints() -> None:
+    job = load_inference_job_definition(_FIXTURE)
+    contract = build_parameter_contract(job)
+    with pytest.raises(ValueError, match="Mapping hints"):
+        resolve_archived_parameter_values(
+            contract,
+            launcher_overrides={"cohort_file_name": "c.csv"},
+        )
+
+
+def test_suggest_missing_parameter_mappings_never_auto_applies() -> None:
+    hints = suggest_missing_parameter_mappings(
+        "cohort_filename",
+        launcher_overrides={"cohort_file_name": "x.csv"},
+        merged_aliases=merge_parameter_aliases({}),
+        stable_trigger=build_stable_trigger_payload(
+            institution="a",
+            model_name="m",
+            workspace="w",
+            cohort_dataset="x.csv",
+        ),
+    )
+    assert any("cohort_file_name" in h for h in hints)
+
+
+def test_deep_merge_stable_trigger_json() -> None:
+    base = build_stable_trigger_payload(
+        institution="a",
+        model_name="m",
+        workspace="w",
+        cohort_dataset="old.csv",
+    )
+    merged = deep_merge_stable_dict(
+        base,
+        {"datasets": {"cohort": "new.csv"}, "outputs": {"bucket": "b1"}},
+    )
+    assert merged["datasets"]["cohort"] == "new.csv"
+    assert merged["datasets"]["course"] == ""
+    assert merged["outputs"]["bucket"] == "b1"
