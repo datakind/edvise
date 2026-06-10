@@ -1,8 +1,8 @@
 # Use the literal token CATALOG for the Unity Catalog workspace name; jobs replace it
 # with --DB_workspace (e.g. dev_sst_02, staging_sst_01) in training_h2o / inference_h2o / legacy_preprocessing.
 
-institution_id = "custom_inst_id"
-institution_name = "Custom Institution Name"
+institution_id = "legacy_inst_id"
+institution_name = "Legacy Institution Name"
 
 student_id_col = "student_id"
 target_col = "target"
