@@ -86,7 +86,9 @@ class ModelInferenceTask:
         cfg_cls = project_config_class(args.schema_type)
         self.cfg = dataio.read.read_config(self.args.config_file_path, schema=cfg_cls)
         if is_legacy_schema(args.schema_type):
-            self.cfg = apply_runtime_uc_catalog(self.cfg, self.args.DB_workspace)
+            self.cfg = apply_runtime_uc_catalog(
+                t.cast(LegacyProjectConfig, self.cfg), self.args.DB_workspace
+            )
         self.features_table_path = resolve_features_table_path(
             args.schema_type, args.features_table_path
         )
@@ -248,7 +250,8 @@ class ModelInferenceTask:
 
         # Legacy: read from config-specified path
         if is_legacy_schema(self.args.schema_type):
-            model_features_dataset = self.cfg.datasets.silver.model_features
+            legacy_cfg = t.cast(LegacyProjectConfig, self.cfg)
+            model_features_dataset = legacy_cfg.datasets.silver.model_features
             if not model_features_dataset:
                 raise ValueError(
                     "Legacy inference requires cfg.datasets.silver.model_features to be configured"
@@ -264,6 +267,11 @@ class ModelInferenceTask:
                     model_features_dataset.predict_table_path
                     or model_features_dataset.table_path
                 )
+                if not table_path:
+                    raise ValueError(
+                        "Legacy inference requires a non-empty table path in "
+                        "cfg.datasets.silver.model_features"
+                    )
                 logging.info(
                     "Legacy: loading model_features dataset from Delta table: %s",
                     table_path,
@@ -280,6 +288,11 @@ class ModelInferenceTask:
                     model_features_dataset.predict_file_path
                     or model_features_dataset.file_path
                 )
+                if not file_path:
+                    raise ValueError(
+                        "Legacy inference requires a non-empty file path in "
+                        "cfg.datasets.silver.model_features"
+                    )
                 logging.info(
                     "Legacy: loading model_features dataset from file: %s", file_path
                 )

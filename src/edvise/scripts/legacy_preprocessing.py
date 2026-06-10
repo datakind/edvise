@@ -45,6 +45,7 @@ import os
 import shutil
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 
@@ -302,7 +303,7 @@ def _ensure_edvise_src_on_path() -> None:
     _ensure_edvise_src_on_sys_path()
 
 
-def load_module_from_file(py_file: Path, institution_pipeline_dir: Path):
+def load_module_from_file(py_file: Path, institution_pipeline_dir: Path) -> types.ModuleType:
     _ensure_edvise_src_on_path()
     ssi_root = str(normalize_fs_path(SSI_PIPELINES_WORKSPACE_ROOT).parent)
     if ssi_root not in sys.path:
@@ -382,12 +383,20 @@ def materialize_legacy_bronze_predict_paths(
     """
     path = Path(config_file_path)
     data = from_toml_file(str(path.resolve()))
-    institution_id = (data.get("institution_id") or "").strip()
+    institution_id_raw = data.get("institution_id")
+    institution_id = (
+        institution_id_raw.strip()
+        if isinstance(institution_id_raw, str)
+        else ""
+    )
     if not institution_id:
         raise ValueError(
             "institution_id is required in config for bronze predict_file_keyword resolution."
         )
-    bronze = data.get("datasets", {}).get("bronze")
+    datasets_raw = data.get("datasets")
+    bronze = (
+        datasets_raw.get("bronze") if isinstance(datasets_raw, dict) else None
+    )
     if not isinstance(bronze, dict):
         return config_file_path
 

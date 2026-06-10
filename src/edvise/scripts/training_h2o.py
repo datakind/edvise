@@ -131,7 +131,8 @@ class TrainingTask:
         )
         if self.spec.schema_type == "legacy":
             self.cfg = configs.legacy.apply_runtime_uc_catalog(
-                self.cfg, self.args.DB_workspace
+                t.cast(configs.legacy.LegacyProjectConfig, self.cfg),
+                self.args.DB_workspace,
             )
         self.client = MlflowClient()
         h2o_utils.safe_h2o_init()
@@ -185,7 +186,8 @@ class TrainingTask:
         """
         # Legacy: use config-specified path
         if self.spec.schema_type == "legacy":
-            modeling_dataset = self.cfg.datasets.silver.modeling
+            legacy_cfg = t.cast(configs.legacy.LegacyProjectConfig, self.cfg)
+            modeling_dataset = legacy_cfg.datasets.silver.modeling
             if not modeling_dataset:
                 raise ValueError(
                     "Legacy training requires cfg.datasets.silver.modeling to be configured"
@@ -197,6 +199,11 @@ class TrainingTask:
                 table_path = (
                     modeling_dataset.train_table_path or modeling_dataset.table_path
                 )
+                if not table_path:
+                    raise ValueError(
+                        "Legacy training requires a non-empty table path in "
+                        "cfg.datasets.silver.modeling"
+                    )
                 logging.info(
                     "Legacy: loading modeling dataset from Delta table: %s", table_path
                 )
@@ -208,6 +215,11 @@ class TrainingTask:
                 file_path = (
                     modeling_dataset.train_file_path or modeling_dataset.file_path
                 )
+                if not file_path:
+                    raise ValueError(
+                        "Legacy training requires a non-empty file path in "
+                        "cfg.datasets.silver.modeling"
+                    )
                 logging.info(
                     "Legacy: loading modeling dataset from file: %s", file_path
                 )
@@ -553,10 +565,29 @@ class TrainingTask:
         )
         if self.spec.schema_type == "legacy":
             self.cfg = configs.legacy.apply_runtime_uc_catalog(
-                self.cfg, self.args.DB_workspace
+                t.cast(configs.legacy.LegacyProjectConfig, self.cfg),
+                self.args.DB_workspace,
             )
 
     def make_predictions(self, df_modeling: pd.DataFrame) -> None:
+        if self.cfg.model is None:
+            raise ValueError("cfg.model is required for predictions")
+        if self.cfg.inference is None:
+            raise ValueError("cfg.inference is required for predictions")
+        if self.cfg.pos_label is None:
+            raise ValueError("cfg.pos_label is required for predictions")
+        if self.cfg.random_state is None:
+            raise ValueError("cfg.random_state is required for predictions")
+
+        model_cfg = self.cfg.model
+        inference_cfg = self.cfg.inference
+        min_prob_pos_label = inference_cfg.min_prob_pos_label
+        if min_prob_pos_label is None:
+            min_prob_pos_label = 0.5
+        background_data_sample = inference_cfg.background_data_sample
+        if background_data_sample is None:
+            background_data_sample = 500
+
         # Get threshold from config
         classification_threshold = (
             self.cfg.modeling.training.classification_threshold
@@ -564,14 +595,14 @@ class TrainingTask:
             else 0.5
         )
         cfg = PredConfig(
-            model_run_id=self.cfg.model.run_id,
-            experiment_id=self.cfg.model.experiment_id,
+            model_run_id=model_cfg.run_id,
+            experiment_id=model_cfg.experiment_id,
             split_col=self.cfg.split_col,
             student_id_col=self.cfg.student_id_col,
             pos_label=self.cfg.pos_label,
-            min_prob_pos_label=self.cfg.inference.min_prob_pos_label,
-            background_data_sample=self.cfg.inference.background_data_sample,
-            cfg_inference_params=self.cfg.inference.dict(),
+            min_prob_pos_label=min_prob_pos_label,
+            background_data_sample=background_data_sample,
+            cfg_inference_params=inference_cfg.dict(),
             random_state=self.cfg.random_state,
             classification_threshold=classification_threshold,
         )
@@ -592,29 +623,29 @@ class TrainingTask:
             # write to silver for FE tables
             self.write_delta(
                 df=out.shap_feature_importance,
-                table_name_suffix=f"training_{self.cfg.model.run_id}_shap_feature_importance",
+                table_name_suffix=f"training_{model_cfg.run_id}_shap_feature_importance",
                 label="Training SHAP Feature Importance table",
             )
 
             self.write_delta(
                 df=out.support_score_distribution,
-                table_name_suffix=f"training_{self.cfg.model.run_id}_support_overview",
+                table_name_suffix=f"training_{model_cfg.run_id}_support_overview",
                 label="Training Support Overview table",
             )
 
             # training-only logging
             if mlflow.active_run():
                 mlflow.end_run()
-            with mlflow.start_run(run_id=self.cfg.model.run_id):
+            with mlflow.start_run(run_id=model_cfg.run_id):
                 modeling.evaluation.log_confusion_matrix(
                     catalog=self.args.DB_workspace,
                     institution_id=self.cfg.institution_id,
-                    automl_run_id=self.cfg.model.run_id,
+                    automl_run_id=model_cfg.run_id,
                 )
                 modeling.h2o_ml.evaluation.log_roc_table(
                     catalog=self.args.DB_workspace,
                     institution_id=self.cfg.institution_id,
-                    automl_run_id=self.cfg.model.run_id,
+                    automl_run_id=model_cfg.run_id,
                     modeling_df=df_modeling,
                 )
 

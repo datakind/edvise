@@ -27,7 +27,9 @@ import inspect
 import logging
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 # Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
 script_dir = os.getcwd()
@@ -108,7 +110,9 @@ def resolve_postprocess_config_path(args: argparse.Namespace) -> str:
     raise SystemExit("--config_file_path is required for train postprocessing.")
 
 
-def _filter_run_kwargs(run: object, run_kwargs: dict[str, object]) -> dict[str, object]:
+def _filter_run_kwargs(
+    run: Callable[..., Any], run_kwargs: dict[str, object]
+) -> dict[str, object]:
     """
     Pass kwargs through to ``run()`` when it accepts ``**kwargs``.
 
@@ -328,7 +332,7 @@ def main() -> None:
     label = str(py_file)
 
     run = getattr(mod, "run", None)
-    if run is None:
+    if not callable(run):
         raise RuntimeError(f"{label!r} must define a run() function.")
 
     run_kwargs: dict = {

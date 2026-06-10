@@ -17,7 +17,7 @@ LOGGER = logging.getLogger(__name__)
 
 def fetch_iap_token(iap_audience: str) -> str:
     # Uses ADC (same auth mechanism as google.cloud.storage.Client()).
-    return id_token.fetch_id_token(Request(), iap_audience)
+    return cast(str, id_token.fetch_id_token(Request(), iap_audience))
 
 
 def get_iap_audience() -> str:
@@ -86,7 +86,7 @@ def get_access_tokens(api_key: str, DB_workspace: str) -> str:
     resp.raise_for_status()
     token_json = resp.json()
     access_token = token_json.get("access_token")
-    if not access_token:
+    if not isinstance(access_token, str) or not access_token:
         raise KeyError(f"No 'access_token' in token response: {token_json}")
     return access_token
 
