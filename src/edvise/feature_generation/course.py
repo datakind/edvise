@@ -53,25 +53,6 @@ NON_PASS_FAIL_GRADES = {
 }
 NON_COMPLETE_GRADES = {"I", "W", "WD", "IP"}
 
-# 4.0-scale GPA for RawEdvise letter grades (aligned with assign_numeric_grade).
-LETTER_GRADE_TO_GPA: dict[str, float] = {
-    "A+": 4.0,
-    "A": 4.0,
-    "A-": 3.7,
-    "B+": 3.3,
-    "B": 3.0,
-    "B-": 2.7,
-    "C+": 2.3,
-    "C": 2.0,
-    "C-": 1.7,
-    "D+": 1.3,
-    "D": 1.0,
-    "D-": 0.7,
-    "F": 0.0,
-    "P": 4.0,
-    "PASS": 4.0,
-}
-
 
 def add_features(
     df: pd.DataFrame,
@@ -90,9 +71,11 @@ def add_features(
         cols: Physical column names for the product (default: PDP).
         spec: Which feature columns to add; default is all. ``course_grade`` requires
             ``course_grade_numeric`` in the same run.
-        min_passing_grade: Minimum grade on a 4.0 scale considered "passing".
-            Compared against numeric grade strings and standard letter grades
-            (A+ through F); status codes (I, W, NR, etc.) are excluded (null).
+        min_passing_grade: Minimum numeric grade considered by institution as "passing".
+            Note that this is represented as a float, while grades are strings
+            since the values include both numeric and alpha-categorical values.
+            This value is only compared against numeric grades; relevant categoricals
+            are handled appropriately, e.g. "P" => "Pass" is always considered "passing".
         course_level_pattern: Regex string that extracts a course's level from its number
             (e.g. 1 from "101"). *Must* include exactly one capture group,
             which is taken to be the course level.
@@ -218,10 +201,7 @@ def extract_course_level_from_course_number(num):
 
 
 def course_grade_numeric(df: pd.DataFrame, *, col: str = "grade") -> pd.Series:
-    s = df[col].astype("string")
-    from_letters = s.map(LETTER_GRADE_TO_GPA)
-    from_numeric = pd.to_numeric(s, errors="coerce")
-    return from_letters.combine_first(from_numeric).astype("Float32")
+    return df[col].mask(df[col].isin(NON_NUMERIC_GRADES), pd.NA).astype("Float32")
 
 
 def course_grade(
@@ -257,27 +237,15 @@ def course_grade(
     return non_numeric_grades.combine_first(letter_grades)
 
 
-def _grade_to_gpa(grade: str) -> float | None:
-    """Map a grade token to a 4.0-scale GPA, or None if not comparable."""
-    if grade in LETTER_GRADE_TO_GPA:
-        return LETTER_GRADE_TO_GPA[grade]
-    try:
-        return float(grade)
-    except ValueError:
-        return None
-
-
 def _grade_is_passing(grade: str, min_passing_grade: float) -> bool | None:
-    if grade == "P" or grade == "PASS":
-        return True
-    if grade == "F":
-        return False
-    gpa = _grade_to_gpa(grade)
-    if gpa is not None:
-        return gpa >= min_passing_grade
     if grade in NON_PASS_FAIL_GRADES:
         return None
-    return None
+    elif grade == "P" or grade == "PASS":
+        return True
+    elif grade == "F":
+        return False
+    else:
+        return float(grade) >= min_passing_grade
 
 
 def convert_number_of_courses_cols_to_term_flag_cols(df, col_prefix, orig_col):
