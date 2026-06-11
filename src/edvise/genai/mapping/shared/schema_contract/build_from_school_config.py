@@ -31,7 +31,7 @@ from edvise.data_audit.custom_cleaning import (
 )
 from edvise.dataio.read import from_csv_file
 from edvise.utils.data_cleaning import convert_to_snake_case
-from edvise.configs.custom import CleaningConfig
+from edvise.data_audit.custom_cleaning import CleaningConfig
 from edvise.configs.genai import (
     DatasetConfig,
     SchoolMappingConfig,
