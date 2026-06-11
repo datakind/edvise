@@ -6,7 +6,7 @@ LOGGER = logging.getLogger(__name__)
 
 def register_attribute_sections(card, registry):
     """
-    Registers all attributes or characteristics of a custom model such as its outcome,
+    Registers all attributes or characteristics of a legacy model such as its outcome,
     checkpoint, and target population. All of this information is gathered from the model's
     config.toml file.
     """
@@ -129,7 +129,7 @@ def register_attribute_sections(card, registry):
     @registry.register("checkpoint_section")
     def checkpoint():
         """
-        Produce a section for the custom checkpoint. Also defines an
+        Produce a section for the legacy checkpoint. Also defines an
         ordinal function.
         """
         try:

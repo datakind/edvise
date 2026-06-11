@@ -5,7 +5,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from edvise.configs.custom import CleaningConfig
+from edvise.data_audit.custom_cleaning import CleaningConfig
 
 from .constants import (
     SAMPLE_VALUES_TOP_N,

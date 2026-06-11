@@ -13,7 +13,7 @@ from pydantic import (
     model_validator,
 )
 
-from edvise.configs.custom import CleaningConfig
+from edvise.data_audit.custom_cleaning import CleaningConfig
 from edvise.genai.mapping.shared.pipeline_artifacts import (
     coerce_pipeline_version,
     default_pipeline_version,

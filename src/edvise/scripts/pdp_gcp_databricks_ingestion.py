@@ -5,10 +5,7 @@ import json
 import typing as t
 import importlib
 import pandas as pd
-import pathlib
 import sys
-from mlflow.tracking import MlflowClient
-from google.cloud import storage
 from google.api_core.exceptions import Forbidden, NotFound
 
 # Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
@@ -23,16 +20,18 @@ from edvise.shared.dashboard_metadata.pipeline_runs import (
     parse_timestamp_from_filename,
 )
 from edvise.utils.databricks import (
-    get_dbutils,
+    local_fs_path,
+    get_dbutils_or_none,
+    get_latest_uc_model_run_id,
+    find_file_in_run_folder,
     get_spark_session_or_none,
     in_databricks,
 )
-from edvise.utils.gcs import active_gcp_identity
-
-
-def local_fs_path(p: str) -> str:
-    return p.replace("dbfs:/", "/dbfs/") if p and p.startswith("dbfs:/") else p
-
+from edvise.utils.gcs import (
+    active_gcp_identity,
+    download_gcs_uri_to_filename,
+    get_storage_client,
+)
 
 # Model names from get_model_name() are already UC-compatible
 
@@ -43,10 +42,9 @@ ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
 class DataIngestionTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
-        self.dbutils = get_dbutils()
+        self.dbutils = get_dbutils_or_none()
         self.spark_session = get_spark_session_or_none()
-        self.storage_client = storage.Client()
-        self.bucket = self.storage_client.bucket(self.args.gcp_bucket_name)
+        self.storage_client = get_storage_client()
 
         # Strict would be outside DBR (lenient inside DBR unless overridden via flag)
         # Basically, we don't want to raise google errors when we're only running from backend/DBR
@@ -65,6 +63,8 @@ class DataIngestionTask:
         sst_container_folder = "validated"
         course_blob_name = f"{sst_container_folder}/{self.args.course_file_name}"
         cohort_blob_name = f"{sst_container_folder}/{self.args.cohort_file_name}"
+        course_uri = f"gs://{self.args.gcp_bucket_name}/{course_blob_name}"
+        cohort_uri = f"gs://{self.args.gcp_bucket_name}/{cohort_blob_name}"
 
         course_file_path = os.path.join(
             internal_pipeline_path, self.args.course_file_name
@@ -77,11 +77,19 @@ class DataIngestionTask:
 
         try:
             # course
-            self.bucket.blob(course_blob_name).download_to_filename(course_file_path)
+            download_gcs_uri_to_filename(
+                course_uri,
+                course_file_path,
+                storage_client=self.storage_client,
+            )
             logging.info("Course data downloaded: %s", course_file_path)
 
             # cohort
-            self.bucket.blob(cohort_blob_name).download_to_filename(cohort_file_path)
+            download_gcs_uri_to_filename(
+                cohort_uri,
+                cohort_file_path,
+                storage_client=self.storage_client,
+            )
             logging.info("Cohort data downloaded: %s", cohort_file_path)
 
             return course_file_path, cohort_file_path
@@ -89,7 +97,7 @@ class DataIngestionTask:
         except Forbidden:
             msg = (
                 f"GCS 403 for identity '{ident}' on "
-                f"gs://{self.args.gcp_bucket_name}/{course_blob_name} or /{cohort_blob_name}. "
+                f"{course_uri} or {cohort_uri}. "
                 f"Grant roles/storage.objectViewer at bucket level."
             )
             if self.strict:
@@ -110,62 +118,6 @@ class DataIngestionTask:
                 raise
             self._logging("gcs_not_found", msg, {"bucket": self.args.gcp_bucket_name})
             return None, None
-
-    def get_latest_uc_model_run_id(
-        self,
-        model_name: str,
-        workspace: str,
-        institution: str,
-        registry_uri: str = "databricks-uc",
-    ) -> str:
-        """
-        Returns the run ID of the latest version of a model registered in Unity Catalog (Databricks).
-
-        Args:
-            model_name: Short name of the model (without UC path).
-            workspace: Unity Catalog workspace (e.g. 'edvise').
-            institution: Institution name used in the UC model path (e.g. 'my_school').
-            registry_uri: Registry URI; defaults to 'databricks-uc'.
-
-        Returns:
-            run_id: The run ID associated with the latest version of the model.
-        """
-        client = MlflowClient(registry_uri=registry_uri)
-        # Model name is already UC-compatible (lowercase with underscores)
-        full_model_name = f"{workspace}.{institution}_gold.{model_name}"
-
-        versions = client.search_model_versions(f"name='{full_model_name}'")
-        if not versions:
-            raise ValueError(
-                f"No registered versions found for model: {full_model_name}"
-            )
-
-        latest_version = max(versions, key=lambda v: int(v.version))
-        return str(latest_version.run_id)
-
-    def find_config_file_path(self, run_root: str) -> str:
-        """
-        Finds the first .toml config under the run root, compatible with either:
-          <silver>/<run_id>/ (root)   OR
-          <silver>/<run_id>/{training|inference}/
-        Returns the first match. Raises if none found.
-        """
-        # Search order: run root, then training/, then inference/
-        candidates = [
-            run_root,
-            os.path.join(run_root, "training"),
-            os.path.join(run_root, "inference"),
-        ]
-        for cand in candidates:
-            base = pathlib.Path(local_fs_path(cand))
-            if not base.exists():
-                continue
-            toml_files = list(base.rglob("*.toml"))
-            if toml_files:
-                return str(toml_files[0])
-        raise FileNotFoundError(
-            f"No TOML config file found under: {run_root} (searched run root, training/, inference/)"
-        )
 
     def run(self):
         bronze_root = (
@@ -188,7 +140,7 @@ class DataIngestionTask:
                     key="cohort_dataset_validated_path", value=fpath_cohort
                 )
 
-        model_run_id = self.get_latest_uc_model_run_id(
+        model_run_id = get_latest_uc_model_run_id(
             self.args.model_name,
             self.args.DB_workspace,
             self.args.databricks_institution_name,
@@ -199,7 +151,7 @@ class DataIngestionTask:
             f"/Volumes/{self.args.DB_workspace}/"
             f"{self.args.databricks_institution_name}_silver/silver_volume/{model_run_id}"
         )
-        config_file_path = self.find_config_file_path(silver_run_root)
+        config_file_path = find_file_in_run_folder(silver_run_root)
         self.config_file_path = str(config_file_path)
         logging.info("Using config file path: %s", config_file_path)
         if self.dbutils:
