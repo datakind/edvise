@@ -40,9 +40,7 @@ def bronze_volume_path_for_institution(
 
 def silver_genai_mapping_root(institution_id: str, *, catalog: str) -> str:
     """GenAI mapping run/active folders: ``…/silver_volume/genai_mapping``."""
-    return (
-        f"{_uc_volume_path(institution_id, catalog=catalog, tier='silver')}/genai_mapping"
-    )
+    return f"{_uc_volume_path(institution_id, catalog=catalog, tier='silver')}/genai_mapping"
 
 
 def resolve_genai_inputs_toml_path(

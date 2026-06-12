@@ -133,12 +133,18 @@ def test_bronze_volume_path_for_institution_with_catalog() -> None:
 
 
 def test_resolve_genai_inputs_toml_path_default() -> None:
-    assert resolve_genai_inputs_toml_path(
-        "synthetic_univ_beta", catalog="my_cat", inputs_toml_path=None
-    ) == _DEFAULT_INPUTS_TOML
-    assert resolve_genai_inputs_toml_path(
-        "synthetic_univ_beta", catalog="my_cat", inputs_toml_path="  "
-    ) == _DEFAULT_INPUTS_TOML
+    assert (
+        resolve_genai_inputs_toml_path(
+            "synthetic_univ_beta", catalog="my_cat", inputs_toml_path=None
+        )
+        == _DEFAULT_INPUTS_TOML
+    )
+    assert (
+        resolve_genai_inputs_toml_path(
+            "synthetic_univ_beta", catalog="my_cat", inputs_toml_path="  "
+        )
+        == _DEFAULT_INPUTS_TOML
+    )
 
 
 def test_resolve_genai_inputs_toml_path_relative_under_genai_mapping() -> None:
