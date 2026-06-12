@@ -576,7 +576,6 @@ def build_training_example_from_schema_contract(
         "file_path": file_path,
         "num_rows": original_row_count,
         "num_columns": len(df.columns),
-        "notes": school_config.notes,
         "schema": {
             "normalized_columns": dataset_schema["normalized_columns"],
             "dtypes": dataset_schema["dtypes"],
@@ -1049,7 +1048,6 @@ def _build_enriched_schema_contract(
         "null_tokens": base_contract.get("null_tokens", []),
         "school_id": school_config.institution_id,
         "school_name": school_config.institution_name or school_config.institution_id,
-        "notes": school_config.notes,
         "datasets": merged_datasets,
     }
     lid = base_contract.get("learner_id_alias") or base_contract.get("student_id_alias")
