@@ -4,6 +4,8 @@ import warnings
 
 import pydantic as pyd
 
+from edvise.data_audit.custom_cleaning import CleaningConfig
+
 # allowed primary metrics for h2o
 _ALLOWED_PRIMARY_METRICS = {
     "logloss",
@@ -14,9 +16,78 @@ _ALLOWED_PRIMARY_METRICS = {
     "mean_per_class_error",
 }
 
+# Unity Catalog workspace catalog placeholder in legacy TOMLs (replaced at runtime).
+_UC_CATALOG_PLACEHOLDER = "CATALOG"
 
-class CustomProjectConfig(pyd.BaseModel):
-    """Configuration schema for SST Custom projects."""
+
+def substitute_uc_catalog_in_string(value: str, uc_catalog: str) -> str:
+    """
+    Replace the ``CATALOG`` placeholder with the runtime workspace catalog name.
+
+    Handles:
+
+    - Three-part table names: ``CATALOG.schema.table``
+    - Volume paths: ``/Volumes/CATALOG/...`` and ``dbfs:/Volumes/CATALOG/...``
+    """
+    if _UC_CATALOG_PLACEHOLDER not in value:
+        return value
+    out = value.replace(
+        f"dbfs:/Volumes/{_UC_CATALOG_PLACEHOLDER}/",
+        f"dbfs:/Volumes/{uc_catalog}/",
+    )
+    out = out.replace(f"/Volumes/{_UC_CATALOG_PLACEHOLDER}/", f"/Volumes/{uc_catalog}/")
+    if out.startswith(f"{_UC_CATALOG_PLACEHOLDER}."):
+        out = f"{uc_catalog}.{out[len(_UC_CATALOG_PLACEHOLDER) + 1 :]}"
+    return out
+
+
+def deep_substitute_uc_catalog_placeholders(obj: t.Any, uc_catalog: str) -> t.Any:
+    """Apply :func:`substitute_uc_catalog_in_string` to every string in nested dict/list structures."""
+    if isinstance(obj, str):
+        return substitute_uc_catalog_in_string(obj, uc_catalog)
+    if isinstance(obj, dict):
+        return {
+            k: deep_substitute_uc_catalog_placeholders(v, uc_catalog)
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [deep_substitute_uc_catalog_placeholders(x, uc_catalog) for x in obj]
+    return obj
+
+
+def _strip_computed_fields_for_roundtrip(obj: t.Any) -> t.Any:
+    """Remove pydantic ``computed_field`` keys so ``model_validate`` accepts the dict."""
+    if isinstance(obj, dict):
+        return {
+            k: _strip_computed_fields_for_roundtrip(v)
+            for k, v in obj.items()
+            if k not in ("non_feature_cols", "mlflow_model_uri")
+        }
+    if isinstance(obj, list):
+        return [_strip_computed_fields_for_roundtrip(x) for x in obj]
+    return obj
+
+
+def apply_runtime_uc_catalog(
+    cfg: "LegacyProjectConfig", uc_catalog: str
+) -> "LegacyProjectConfig":
+    """
+    Return a copy of ``cfg`` with ``CATALOG`` placeholders resolved to ``uc_catalog``.
+
+    Typically ``uc_catalog`` is the job's ``--DB_workspace`` (e.g. ``dev_sst_02``).
+    """
+    catalog = uc_catalog.strip()
+    if not catalog:
+        return cfg
+    dumped = deep_substitute_uc_catalog_placeholders(
+        cfg.model_dump(mode="python"), catalog
+    )
+    dumped = _strip_computed_fields_for_roundtrip(dumped)
+    return LegacyProjectConfig.model_validate(dumped)
+
+
+class LegacyProjectConfig(pyd.BaseModel):
+    """Configuration schema for SST legacy (non-PDP) projects."""
 
     institution_id: str = pyd.Field(
         ...,
@@ -83,6 +154,7 @@ class CustomProjectConfig(pyd.BaseModel):
     preprocessing: t.Optional["PreprocessingConfig"] = None
     modeling: t.Optional["ModelingConfig"] = None
     inference: t.Optional["InferenceConfig"] = None
+    postprocessing: t.Optional["PostprocessingConfig"] = None
 
     @pyd.computed_field  # type: ignore[misc]
     @property
@@ -113,7 +185,7 @@ class CustomProjectConfig(pyd.BaseModel):
         return self
 
     @pyd.model_validator(mode="after")
-    def validate_student_group_aliases(self) -> "CustomProjectConfig":
+    def validate_student_group_aliases(self) -> "LegacyProjectConfig":
         missing = [
             col
             for col in (self.student_group_cols or [])
@@ -124,7 +196,7 @@ class CustomProjectConfig(pyd.BaseModel):
         return self
 
     @pyd.model_validator(mode="after")
-    def _normalize_and_validate_primary_metric(self) -> "CustomProjectConfig":
+    def _normalize_and_validate_primary_metric(self) -> "LegacyProjectConfig":
         if (
             self.modeling
             and self.modeling.training
@@ -146,7 +218,7 @@ class CustomProjectConfig(pyd.BaseModel):
         return self
 
     @pyd.model_validator(mode="after")
-    def _validate_inference_background_sample(self) -> "CustomProjectConfig":
+    def _validate_inference_background_sample(self) -> "LegacyProjectConfig":
         if self.inference and self.inference.background_data_sample is not None:
             n = self.inference.background_data_sample
             if not (500 <= n <= 2000):
@@ -188,6 +260,15 @@ class DatasetConfig(pyd.BaseModel):
         default=None,
         description="Columns to be validated as non-null, if applicable",
     )
+    predict_file_keyword: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Legacy inference: case-insensitive substring matched against filenames "
+            "under the institution bronze ``gcs_uploads`` folder (and the parent "
+            "directory of ``train_file_path`` when set). Newest match wins. Resolved "
+            "at predict-time in ``legacy_preprocessing``."
+        ),
+    )
 
     @pyd.model_validator(mode="after")
     def validate_paths(self) -> "DatasetConfig":
@@ -199,12 +280,14 @@ class DatasetConfig(pyd.BaseModel):
             self.file_path,  # Legacy, not used in pipeline/DB workflow
             self.table_path,  # Legacy, not used in pipeline/DB workflow
         ]
-        if not any(any_paths):
+        has_predict_discovery = bool((self.predict_file_keyword or "").strip())
+        if not any(any_paths) and not has_predict_discovery:
             raise ValueError(
                 "At least one dataset path must be specified: "
                 "`train_file_path`, `predict_file_path`, "
                 "`train_table_path`, `predict_table_path`, "
-                "`file_path`, or `table_path`"
+                "`file_path`, `table_path`, or legacy inference discovery via "
+                "`predict_file_keyword`."
             )
         return self
 
@@ -218,9 +301,85 @@ class DatasetConfig(pyd.BaseModel):
             raise ValueError(f"Unknown mode: {mode}")
 
 
+class ModelingDatasetConfig(pyd.BaseModel):
+    """Dataset config for training - only allows train-related paths."""
+
+    train_file_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Absolute path to training dataset on disk.",
+    )
+    train_table_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Unity Catalog table path for training dataset, e.g., 'catalog.schema.table'.",
+    )
+    # Legacy support
+    file_path: t.Optional[str] = None
+    table_path: t.Optional[str] = None
+
+    @pyd.model_validator(mode="after")
+    def validate_paths(self) -> "ModelingDatasetConfig":
+        any_paths = [
+            self.train_file_path,
+            self.train_table_path,
+            self.file_path,
+            self.table_path,
+        ]
+        if not any(any_paths):
+            raise ValueError(
+                "At least one training dataset path must be specified: "
+                "`train_file_path`, `train_table_path`, `file_path`, or `table_path`"
+            )
+        return self
+
+
+class ModelFeaturesDatasetConfig(pyd.BaseModel):
+    """Dataset config for inference - only allows predict-related paths."""
+
+    predict_file_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Absolute path to prediction/inference dataset on disk.",
+    )
+    predict_table_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Unity Catalog table path for prediction/inference dataset.",
+    )
+    # Legacy support
+    file_path: t.Optional[str] = None
+    table_path: t.Optional[str] = None
+
+    @pyd.model_validator(mode="after")
+    def validate_paths(self) -> "ModelFeaturesDatasetConfig":
+        any_paths = [
+            self.predict_file_path,
+            self.predict_table_path,
+            self.file_path,
+            self.table_path,
+        ]
+        if not any(any_paths):
+            raise ValueError(
+                "At least one prediction dataset path must be specified: "
+                "`predict_file_path`, `predict_table_path`, `file_path`, or `table_path`"
+            )
+        return self
+
+
+class SilverDatasetConfig(pyd.BaseModel):
+    """Silver layer datasets with explicit naming for training and inference."""
+
+    modeling: ModelingDatasetConfig = pyd.Field(
+        description="Training dataset with features, target, and split columns"
+    )
+    model_features: ModelFeaturesDatasetConfig = pyd.Field(
+        description="Inference dataset with features only, ready for model predictions"
+    )
+
+    # Allow additional legacy datasets beyond the two required ones
+    model_config = pyd.ConfigDict(extra="allow")
+
+
 class AllDatasetStagesConfig(pyd.BaseModel):
     bronze: dict[str, DatasetConfig]
-    silver: dict[str, DatasetConfig]
+    silver: SilverDatasetConfig
     gold: dict[str, DatasetConfig]
 
 
@@ -267,86 +426,6 @@ class PreprocessingConfig(pyd.BaseModel):
                 f"split fractions must sum up to 1.0, but input sums up to {sum_fracs}"
             )
         return value
-
-
-class CleaningConfig(pyd.BaseModel):
-    schema_contract_path: t.Optional[str] = pyd.Field(
-        default=None,
-        description=(
-            "Absolute path on volumes to the schema_contract.json file. "
-            "This file contains the frozen multi-dataset schema contract "
-            "used for schema enforcement for custom schools. This is needed "
-            "for data reliability and to ensure minimal training–inference skew."
-        ),
-    )
-    student_id_alias: t.Optional[str] = pyd.Field(
-        default=None,
-        description=(
-            "Optional alternate name for the student_id column. "
-            "E.g., Zogotech uses 'student_id_randomized_datakind'. "
-            "If provided, it will be normalized to 'student_id'."
-        ),
-    )
-    null_tokens: list[str] = pyd.Field(
-        default=["(Blank)"],
-        description=(
-            "Tokens that should be treated as null/NA during cleaning. "
-            "These will be replaced with pandas NA before dtype generation."
-        ),
-    )
-    treat_empty_strings_as_null: bool = pyd.Field(
-        default=True,
-        description=(
-            "If True, whitespace-only and empty strings are treated as null values."
-        ),
-    )
-    date_formats: tuple[str, ...] = pyd.Field(
-        default=("%m/%d/%Y",),
-        description="Candidate date formats to try before falling back to generic parsing.",
-    )
-    dtype_confidence_threshold: float = pyd.Field(
-        default=0.75,
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Minimum fraction of successfully coerced values required to accept a generated dtype."
-        ),
-    )
-    min_non_null: int = pyd.Field(
-        default=10,
-        ge=0,
-        description=(
-            "Minimum number of non-null values required to trust a generated dtype."
-        ),
-    )
-    boolean_map: dict[str, bool] = pyd.Field(
-        default_factory=lambda: {
-            "true": True,
-            "false": False,
-            "yes": True,
-            "no": False,
-            "1": True,
-            "0": False,
-        },
-        description=(
-            "Mapping for interpreting string tokens as booleans during dtype generation."
-        ),
-    )
-    forced_dtypes: dict[str, str] = pyd.Field(
-        default_factory=dict,
-        description=(
-            "Optional mapping of normalized column names → forced pandas nullable dtypes "
-            "(e.g. {'student_id': 'string', 'term_order': 'Int64'}). "
-            "These overrides are applied BEFORE dtype inference across ALL datasets."
-        ),
-    )
-    allow_forced_cast_fallback: bool = pyd.Field(
-        default=True,
-        description=(
-            "If True, failures to cast a forced dtype fall back to inferred dtype with a warning. "
-            "If False, such failures raise an exception."
-        ),
-    )
 
 
 class CheckpointConfig(pyd.BaseModel):
@@ -558,10 +637,27 @@ class BiasMitigationConfig(pyd.BaseModel):
     )
 
 
+class PostprocessingConfig(pyd.BaseModel):
+    enabled: bool = pyd.Field(
+        default=False,
+        description=(
+            "When true, legacy inference runs the school's postprocessing.py after inference_h2o."
+        ),
+    )
+
+
 class InferenceConfig(pyd.BaseModel):
     num_top_features: int = pyd.Field(default=5)
     min_prob_pos_label: t.Optional[float] = 0.5
     background_data_sample: t.Optional[int] = 500
+    quartiles_table_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Optional Unity Catalog Delta table (catalog.schema.table) storing "
+            "training-time support_score quartile bin edges per model checkpoint. "
+            "Consumed at inference for advisor risk labels when present."
+        ),
+    )
     term: t.Optional[list[str]] = pyd.Field(
         default=None,
         description="List of terms to use for inference. Students will be selected if they meet the checkpoint in one of these terms. "

@@ -1,6 +1,32 @@
+import json
 import logging
+import typing as t
 
 import pandas as pd
+
+
+def parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
+    """Parse ``--term_filter`` job param (same semantics as PDP ``pdp_inf_prep``).
+
+    Treat ``None``, ``''``, ``'null'`` as not provided (use config). Invalid JSON
+    raises ``ValueError``. After parsing, an empty list means not provided.
+    """
+    if value is None:
+        return None
+    s = value.strip()
+    if s in ("", "null", "None"):
+        return None
+    try:
+        parsed = json.loads(s)
+    except json.JSONDecodeError as e:
+        logging.error("Invalid JSON for term_filter param: %s", value)
+        raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
+    if not isinstance(parsed, list):
+        raise ValueError("--term_filter must be a JSON list of strings")
+    labels = [str(item).strip() for item in parsed if str(item).strip()]
+    if not labels:
+        return None
+    return labels
 
 
 def _filter_by_joined_columns(

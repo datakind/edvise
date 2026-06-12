@@ -93,7 +93,7 @@ except Exception:
 
 # project configuration stored as a config file in TOML format
 cfg = dataio.read.read_config(
-    "./config.toml", schema=configs.custom.CustomProjectConfig
+    "./config.toml", schema=configs.legacy.LegacyProjectConfig
 )
 cfg
 

@@ -2,8 +2,8 @@ import pytest
 from unittest.mock import MagicMock
 from unittest.mock import patch
 from edvise.reporting.sections.registry import SectionRegistry
-from edvise.reporting.sections.custom import (
-    bias_sections as custom_bias_sections,
+from edvise.reporting.sections.legacy import (
+    bias_sections as legacy_bias_sections,
 )
 from edvise.reporting.utils.formatting import Formatting
 
@@ -40,7 +40,7 @@ def test_bias_groups_section_with_valid_aliases(mock_card, registry):
         "demo_race": "Race",
     }
 
-    custom_bias_sections.register_bias_sections(mock_card, registry)
+    legacy_bias_sections.register_bias_sections(mock_card, registry)
 
     rendered = registry.render_all()
     result = rendered["bias_groups_section"]
@@ -63,7 +63,7 @@ def test_bias_groups_section_with_aliases_that_need_friendlycase(mock_card):
     }
 
     registry = SectionRegistry()
-    custom_bias_sections.register_bias_sections(mock_card, registry)
+    legacy_bias_sections.register_bias_sections(mock_card, registry)
 
     rendered = registry.render_all()
     result = rendered["bias_groups_section"]
@@ -78,7 +78,7 @@ def test_bias_groups_section_with_missing_aliases(mock_card, caplog):
     mock_card.format.friendly_case.side_effect = lambda x: x.replace("_", " ").title()
 
     registry = SectionRegistry()
-    custom_bias_sections.register_bias_sections(mock_card, registry)
+    legacy_bias_sections.register_bias_sections(mock_card, registry)
 
     with caplog.at_level("WARNING"):
         rendered = registry.render_all()
@@ -130,7 +130,7 @@ def test_bias_summary_section_uses_aliases(mock_download_artifact, mock_card, tm
 
     # Run
     registry = SectionRegistry()
-    custom_bias_sections.register_bias_sections(mock_card, registry)
+    legacy_bias_sections.register_bias_sections(mock_card, registry)
     rendered = registry.render_all()
     result = rendered["bias_summary_section"]
 

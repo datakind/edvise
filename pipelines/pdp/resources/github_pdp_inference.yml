@@ -280,7 +280,7 @@ resources:
             - task_key: inference_h2o
           run_if: AT_LEAST_ONE_SUCCESS
           spark_python_task: 
-            python_file: src/edvise/scripts/pdp_inference_output_publish.py
+            python_file: src/edvise/scripts/inference_output_publish.py
             source: GIT
             parameters:
               - --DB_workspace
