@@ -12,10 +12,9 @@ import json
 from collections.abc import Mapping
 from pathlib import Path
 
+import pandas as pd
+
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
-from edvise.genai.mapping.identity_agent.grain_inference.contract_validation import (
-    GrainContractVerification,
-)
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
     HITLItem,
     InstitutionHITLItems,
@@ -63,7 +62,7 @@ def write_identity_grain_artifacts(
     hitl_items: list[HITLItem],
     *,
     key_profiles_by_table: Mapping[str, RankedCandidateProfiles] | None = None,
-    verifications_by_table: Mapping[str, GrainContractVerification] | None = None,
+    dfs_by_table: Mapping[str, pd.DataFrame] | None = None,
 ) -> tuple[Path, Path]:
     """
     Write ``identity_grain_output.json`` (resolver config) and ``identity_grain_hitl.json``.
@@ -73,10 +72,9 @@ def write_identity_grain_artifacts(
     values are **re-copied** from the profiler for matching column sets so the written JSON
     does not retain model-invented zeros. Pass the same map used for the grain LLM.
 
-    When ``verifications_by_table`` is set (post-LLM
-    :class:`~edvise.genai.mapping.identity_agent.grain_inference.contract_validation.GrainContractVerification`
-    per dataset), the contract grain's measured uniqueness overwrites rank-matching
-    ``candidate_keys`` after the key-profile pass.
+    When ``dfs_by_table`` is set, every ``candidate_keys`` column set is profiled on the
+    deduped table (same frame as verify) so written uniqueness scores are measured, not
+    LLM-guessed. Applied after the key-profile pass.
 
     Returns
     -------
@@ -92,14 +90,12 @@ def write_identity_grain_artifacts(
         )
 
         to_write = backfill_hitl_uniqueness_scores(to_write, key_profiles_by_table)
-    if verifications_by_table:
+    if dfs_by_table:
         from edvise.genai.mapping.identity_agent.grain_inference.hitl_uniqueness_backfill import (
-            backfill_hitl_uniqueness_scores_from_contract_verifications,
+            backfill_hitl_uniqueness_scores_by_table,
         )
 
-        to_write = backfill_hitl_uniqueness_scores_from_contract_verifications(
-            to_write, contracts_by_dataset, verifications_by_table
-        )
+        to_write = backfill_hitl_uniqueness_scores_by_table(to_write, dfs_by_table)
     cfg = build_grain_config_for_resolver(institution_id, contracts_by_dataset)
     env = InstitutionHITLItems(
         institution_id=institution_id,
