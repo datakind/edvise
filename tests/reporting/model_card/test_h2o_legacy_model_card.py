@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
 
-from edvise.reporting.model_card.h2o_custom import H2OCustomModelCard
+from edvise.reporting.model_card.h2o_legacy import H2OLegacyModelCard
 
 
 @pytest.fixture
@@ -19,9 +19,9 @@ def mock_client():
     return MagicMock()
 
 
-def test_init_with_custom_config(mock_config, mock_client):
-    """Test initialization with CustomProjectConfig."""
-    card = H2OCustomModelCard(
+def test_init_with_legacy_config(mock_config, mock_client):
+    """Test initialization with LegacyProjectConfig."""
+    card = H2OLegacyModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="my_model",
@@ -33,7 +33,7 @@ def test_init_with_custom_config(mock_config, mock_client):
 
 def test_get_plot_config(mock_config, mock_client):
     """Test that plot configuration is correctly defined."""
-    card = H2OCustomModelCard(
+    card = H2OLegacyModelCard(
         config=mock_config,
         catalog="catalog",
         model_name="my_model",
@@ -69,4 +69,4 @@ def test_required_plot_artifacts_list():
         "h2o_feature_importances_by_shap_plot.png",
     ]
 
-    assert H2OCustomModelCard.REQUIRED_PLOT_ARTIFACTS == expected_artifacts
+    assert H2OLegacyModelCard.REQUIRED_PLOT_ARTIFACTS == expected_artifacts

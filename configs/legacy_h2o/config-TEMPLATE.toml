@@ -1,5 +1,8 @@
-institution_id = "custom_inst_id"
-institution_name = "Custom Institution Name"
+# Use the literal token CATALOG for the Unity Catalog workspace name; jobs replace it
+# with --DB_workspace (e.g. dev_sst_02, staging_sst_01) in training_h2o / inference_h2o / legacy_preprocessing.
+
+institution_id = "legacy_inst_id"
+institution_name = "Legacy Institution Name"
 
 student_id_col = "student_id"
 target_col = "target"
@@ -18,23 +21,34 @@ gender = "Gender"
 ethnicity = "Ethnicity"
 disabilityflag = "Disability Status"
 
+# Legacy optional: school-specific preprocessing is a Python module (UC wheel) that
+# materializes bronze paths; training/inference then read datasets.bronze[key].
+# use_bronze_preprocessing = false
+# bronze_preprocessing_module = "pipelines.example_institution.preprocessing"
+# bronze_preprocessing_dataset_key = "raw_student"
+
 [datasets.bronze]
 
 [datasets.bronze.raw_student]
 primary_keys = ["student_id"]
 non_null_cols = ["acad_year"]
 train_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_cohort_train.csv"
+# Explicit path (optional when predict_file_keyword is set):
 predict_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_cohort_inference.csv"
+# Legacy inference discovery (resolved in legacy_preprocessing at predict time):
+# predict_file_keyword = "cohort"
 
 [datasets.bronze.raw_course]
 primary_keys = ["student_id", "course_id"]
 drop_cols = ["timestamp"]
 train_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_course_train.csv"
 predict_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_course_inference.csv"
+# predict_file_keyword = "course"
 
 [datasets.bronze.raw_semester]
 train_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_semester_train.csv"
 predict_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_semester_inference.csv"
+# predict_file_keyword = "semester"
 
 
 [datasets.silver]
@@ -127,3 +141,7 @@ num_top_features = 5
 min_prob_pos_label = 0.5
 background_data_sample = 500
 term = ['fall 2024-25']
+
+# Optional school-specific postprocessing after inference_h2o (SSI postprocessing.py).
+# [postprocessing]
+# enabled = false

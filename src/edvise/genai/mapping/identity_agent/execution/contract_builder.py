@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Literal, Optional
 
 import pandas as pd
 
-from edvise.configs.custom import CleaningConfig
+from edvise.data_audit.custom_cleaning import CleaningConfig
 from edvise.configs.genai import (
     DatasetConfig,
     SchoolMappingConfig,
