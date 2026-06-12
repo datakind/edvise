@@ -9,6 +9,7 @@ from pydantic import (
     Field,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 
 from edvise.configs.custom import CleaningConfig
@@ -102,10 +103,35 @@ class IdentityAgentInputsConfig(StrictBaseModel):
 
     Load with ``read_config(..., schema=IdentityAgentInputsConfig)``, then
     :meth:`to_school_mapping_config` for :class:`SchoolMappingConfig`.
+
+    Legacy ``[institution] id = …`` is accepted and normalized to ``institution_id``.
     """
 
     institution_id: str
     datasets: IdentityAgentDatasets
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_institution_table(cls, data: object) -> object:
+        """Accept deprecated ``[institution] id = …`` and normalize to ``institution_id``."""
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        inst_id = out.get("institution_id")
+        legacy = out.get("institution")
+        if inst_id is not None and str(inst_id).strip():
+            if isinstance(legacy, dict) and legacy.get("id"):
+                if str(legacy["id"]).strip() != str(inst_id).strip():
+                    raise ValueError(
+                        "institution_id conflicts with deprecated [institution].id"
+                    )
+            out.pop("institution", None)
+            return out
+        if isinstance(legacy, dict) and legacy.get("id"):
+            out["institution_id"] = legacy["id"]
+            out.pop("institution", None)
+            return out
+        return out
 
     def to_school_mapping_config(
         self,

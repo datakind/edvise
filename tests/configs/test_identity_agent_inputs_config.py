@@ -176,6 +176,44 @@ def test_resolve_genai_data_path_no_root() -> None:
     assert resolve_genai_data_path(None, "rel/a.csv") == "rel/a.csv"
 
 
+def test_legacy_institution_table_still_loads(tmp_path: Path) -> None:
+    p = tmp_path / "inputs.toml"
+    p.write_text(
+        textwrap.dedent(
+            """
+            [institution]
+            id = "legacy_inst"
+
+            [datasets.onboard_files]
+            student = "a.csv"
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    raw = IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
+    assert raw.institution_id == "legacy_inst"
+
+
+def test_institution_id_conflicts_with_legacy_table(tmp_path: Path) -> None:
+    p = tmp_path / "inputs.toml"
+    p.write_text(
+        textwrap.dedent(
+            """
+            institution_id = "new_id"
+
+            [institution]
+            id = "old_id"
+
+            [datasets.onboard_files]
+            student = "a.csv"
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError, match="conflicts"):
+        IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
+
+
 def test_files_rejects_non_string_list() -> None:
     with pytest.raises(ValidationError):
         IdentityAgentInputsConfig.model_validate(
