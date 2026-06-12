@@ -5,7 +5,7 @@ from itertools import combinations
 
 import pandas as pd
 
-from edvise.configs.custom import CleaningConfig
+from edvise.data_audit.custom_cleaning import CleaningConfig
 
 from edvise.genai.mapping.shared.profiling.variance import compute_within_group_variance
 

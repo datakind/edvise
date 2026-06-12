@@ -43,9 +43,14 @@ from mlflow.tracking import MlflowClient
 # Project modules
 import edvise.dataio as dataio
 import edvise.modeling as modeling
-from edvise.configs.schema_type import project_config_class
+from edvise.configs.legacy import LegacyProjectConfig, apply_runtime_uc_catalog
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.configs.es import ESProjectConfig
+from edvise.configs.schema_type import (
+    is_legacy_schema,
+    project_config_class,
+    resolve_features_table_path,
+)
 from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session
 from edvise.modeling.inference import top_n_features, features_box_whiskers_table
@@ -78,17 +83,23 @@ class ModelInferenceTask:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.spark_session = get_spark_session()
-        cfg_cls = project_config_class(getattr(args, "schema_type", "pdp"))
+        cfg_cls = project_config_class(args.schema_type)
         self.cfg = dataio.read.read_config(self.args.config_file_path, schema=cfg_cls)
-        self.features_table_path = (
-            args.features_table_path or "shared/assets/pdp_features_table.toml"
+        if is_legacy_schema(args.schema_type):
+            self.cfg = apply_runtime_uc_catalog(
+                t.cast(LegacyProjectConfig, self.cfg), self.args.DB_workspace
+            )
+        self.features_table_path = resolve_features_table_path(
+            args.schema_type, args.features_table_path
         )
         # Populated by load_mlflow_model()
         self.model_run_id: str | None = None
         self.model_experiment_id: str | None = None
 
-    def read_config(self, config_file_path: str) -> PDPProjectConfig | ESProjectConfig:
-        cfg_cls = project_config_class(getattr(self.args, "schema_type", "pdp"))
+    def read_config(
+        self, config_file_path: str
+    ) -> PDPProjectConfig | ESProjectConfig | LegacyProjectConfig:
+        cfg_cls = project_config_class(self.args.schema_type)
         try:
             return dataio.read.read_config(config_file_path, schema=cfg_cls)
         except FileNotFoundError:
@@ -105,15 +116,14 @@ class ModelInferenceTask:
         # Assert preprocessing is not None (should be validated by config loading)
         assert self.cfg.preprocessing is not None, "preprocessing config is required"
 
-        model_name = modeling.registration.get_model_name_from_config(
+        self.model_name = modeling.registration.get_model_name_from_config(
             preprocessing=self.cfg.preprocessing,
             institution_id=self.cfg.institution_id,
         )
-
         full_model_name = (
             f"{self.args.DB_workspace}."
             f"{self.args.databricks_institution_name}_gold."
-            f"{model_name}"
+            f"{self.model_name}"
         )
 
         mv = max(
@@ -178,6 +188,31 @@ class ModelInferenceTask:
         )
         logging.info("%s data written to: %s", table_name_suffix, table_path)
 
+    def get_sst_api_key(
+        self,
+        scope: str = "sst",
+        key: str = "SST_API_KEY",
+    ) -> str:
+        """
+        Retrieve SST API key from Databricks Secrets.
+
+        This is required for legacy-school inference runs that interact with FE APIs.
+        """
+        w = WorkspaceClient()
+        api_key = w.dbutils.secrets.get(scope=scope, key=key).strip()
+        logging.info(
+            "Loaded SST API key (masked): len=%d prefix=%s suffix=%s",
+            len(api_key),
+            api_key[:4],
+            api_key[-4:],
+        )
+        if not api_key:
+            raise RuntimeError(
+                f"Missing SST API key in Databricks secrets "
+                f"(scope='{scope}', key='{key}')"
+            )
+        return api_key
+
     def run(self) -> None:
         # Enforce inference mode
         if getattr(self.args, "job_type", "inference") != "inference":
@@ -212,13 +247,76 @@ class ModelInferenceTask:
         assert self.model_run_id and self.model_experiment_id
 
         logging.info("Reading the processed dataset")
-        preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
-        preproc_path_local = local_fs_path(preproc_path)
-        if not os.path.exists(preproc_path_local):
-            raise FileNotFoundError(
-                f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
+
+        # Legacy: read from config-specified path
+        if is_legacy_schema(self.args.schema_type):
+            legacy_cfg = t.cast(LegacyProjectConfig, self.cfg)
+            model_features_dataset = legacy_cfg.datasets.silver.model_features
+            if not model_features_dataset:
+                raise ValueError(
+                    "Legacy inference requires cfg.datasets.silver.model_features to be configured"
+                )
+
+            # Try table paths first (Delta table), then file paths (parquet)
+            # Support both new (predict_*) and legacy (*) field names for inference
+            if (
+                model_features_dataset.table_path
+                or model_features_dataset.predict_table_path
+            ):
+                table_path = (
+                    model_features_dataset.predict_table_path
+                    or model_features_dataset.table_path
+                )
+                if not table_path:
+                    raise ValueError(
+                        "Legacy inference requires a non-empty table path in "
+                        "cfg.datasets.silver.model_features"
+                    )
+                logging.info(
+                    "Legacy: loading model_features dataset from Delta table: %s",
+                    table_path,
+                )
+                df_processed = dataio.read.from_delta_table(
+                    table_path,
+                    spark_session=self.spark_session,
+                )
+            elif (
+                model_features_dataset.file_path
+                or model_features_dataset.predict_file_path
+            ):
+                file_path = (
+                    model_features_dataset.predict_file_path
+                    or model_features_dataset.file_path
+                )
+                if not file_path:
+                    raise ValueError(
+                        "Legacy inference requires a non-empty file path in "
+                        "cfg.datasets.silver.model_features"
+                    )
+                logging.info(
+                    "Legacy: loading model_features dataset from file: %s", file_path
+                )
+                df_processed = dataio.read.read_parquet(file_path)
+            else:
+                raise ValueError(
+                    "Legacy inference requires either table_path or predict_table_path / "
+                    "file_path or predict_file_path in cfg.datasets.silver.model_features"
+                )
+
+            logging.info(
+                "Legacy: using model_features as written by preprocessing "
+                "(apply term/cohort filtering in predict-time preprocessing; "
+                "see legacy_preprocessing --term_filter)."
             )
-        df_processed = dataio.read.read_parquet(preproc_path_local)
+        else:
+            # PDP: use run-specific path
+            preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
+            preproc_path_local = local_fs_path(preproc_path)
+            if not os.path.exists(preproc_path_local):
+                raise FileNotFoundError(
+                    f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
+                )
+            df_processed = dataio.read.read_parquet(preproc_path_local)
 
         logging.info("Sending kickoff email")
         self._send_kickoff_email()
@@ -409,7 +507,7 @@ def parse_arguments() -> argparse.Namespace:
         "--schema_type",
         type=str,
         default="pdp",
-        help="pdp | edvise | es — selects PDP vs ES project config schema.",
+        help="pdp | edvise | es | legacy — selects project config schema.",
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--datakind_notification_email", type=str, required=True)
@@ -419,6 +517,15 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--job_type", type=str, choices=["inference"], default="inference"
     )
+    parser.add_argument(
+        "--term_filter",
+        type=str,
+        default=None,
+        help=(
+            "Ignored by this script. Legacy: set on legacy_preprocessing instead. "
+            "Retained so PDP/older job definitions that pass --term_filter keep parsing."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -427,12 +534,12 @@ if __name__ == "__main__":
 
     # # Optional schema hook (kept from your original)
     # try:
-    #     if args.custom_schemas_path:
-    #         sys.path.append(args.custom_schemas_path)
+    #     if args.legacy_schemas_path:
+    #         sys.path.append(args.legacy_schemas_path)
     #         import importlib
 
     #         _ = importlib.import_module(f"{args.databricks_institution_name}.schemas")
-    #         logging.info("Running task with custom schema")
+    #         logging.info("Running task with legacy schema")
     # except Exception:
     #     logging.info("Running task with default schema")
 
