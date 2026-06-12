@@ -23,6 +23,7 @@ from edvise.genai.mapping.shared.databricks_ai_gateway import (
 from .grain_gateway_logging import log_grain_auto_approve, log_grain_hitl_queue
 from .hitl_uniqueness_backfill import (
     backfill_hitl_uniqueness_scores,
+    backfill_hitl_uniqueness_scores_from_contract_verification,
     backfill_hitl_uniqueness_scores_from_key_profile,
 )
 from .prompt import (
@@ -87,6 +88,7 @@ __all__ = [
     "format_column_list",
     "build_institution_grain_contracts",
     "backfill_hitl_uniqueness_scores",
+    "backfill_hitl_uniqueness_scores_from_contract_verification",
     "backfill_hitl_uniqueness_scores_from_key_profile",
     "build_identity_profiling_run_by_dataset",
     "create_openai_client_for_databricks_gateway",

@@ -19,6 +19,9 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
 )
 from edvise.genai.mapping.identity_agent.profiling import RankedCandidateProfiles
 
+from .contract_validation import GrainContractVerification
+from .schemas import GrainContract
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,6 +42,84 @@ def _profile_uniqueness_by_column_sig(
         sig = column_set_signature(prof.candidate_key.columns)
         m[sig] = prof.candidate_key.uniqueness_score
     return m
+
+
+def backfill_hitl_uniqueness_scores_from_contract_verification(
+    items: list[HITLItem],
+    contract: GrainContract,
+    verification: GrainContractVerification,
+) -> list[HITLItem]:
+    """
+    Overwrite ``hitl_context.candidate_keys[].uniqueness_score`` for the contract grain column
+    set using :attr:`~GrainContractVerification.contract_key_profile` from post-LLM verify.
+
+    Pre-LLM KeyProfiler may omit the semantic grain from its top-k list; the LLM then guesses
+    uniqueness for rank 1. Verify already profiles ``post_clean_primary_key`` — this wires that
+    measured score into HITL JSON for reviewer transparency.
+    """
+    key_profile = verification.contract_key_profile
+    if key_profile is None:
+        return list(items)
+
+    contract_sig = column_set_signature(list(contract.post_clean_primary_key))
+    measured = key_profile.uniqueness_score
+
+    out: list[HITLItem] = []
+    for item in items:
+        if item.domain != HITLDomain.IDENTITY_GRAIN:
+            out.append(item)
+            continue
+        ctx = item.hitl_context
+        if not isinstance(ctx, GrainAmbiguityHITLContext):
+            out.append(item)
+            continue
+        new_keys: list[GrainCandidateKeyEntry] = []
+        for entry in ctx.candidate_keys:
+            sig = column_set_signature(list(entry.columns))
+            if sig == contract_sig and entry.uniqueness_score != measured:
+                logger.info(
+                    "HITL uniqueness backfill (verify): item=%s rank=%d columns=%s %s -> %s",
+                    item.item_id,
+                    entry.rank,
+                    entry.columns,
+                    entry.uniqueness_score,
+                    measured,
+                )
+                new_keys.append(
+                    entry.model_copy(update={"uniqueness_score": measured})
+                )
+            else:
+                new_keys.append(entry)
+        new_ctx = ctx.model_copy(update={"candidate_keys": new_keys})
+        out.append(item.model_copy(update={"hitl_context": new_ctx}))
+    return out
+
+
+def backfill_hitl_uniqueness_scores_from_contract_verifications(
+    items: list[HITLItem],
+    contracts_by_table: Mapping[str, GrainContract],
+    verifications_by_table: Mapping[str, GrainContractVerification],
+) -> list[HITLItem]:
+    """Apply :func:`backfill_hitl_uniqueness_scores_from_contract_verification` per table."""
+    if not verifications_by_table:
+        return list(items)
+
+    by_table: dict[str, list[HITLItem]] = defaultdict(list)
+    for it in items:
+        by_table[str(it.table)].append(it)
+    by_id: dict[str, HITLItem] = {}
+    for table, group in by_table.items():
+        contract = contracts_by_table.get(table)
+        verification = verifications_by_table.get(table)
+        if contract is None or verification is None:
+            for it in group:
+                by_id[it.item_id] = it
+        else:
+            for it in backfill_hitl_uniqueness_scores_from_contract_verification(
+                list(group), contract, verification
+            ):
+                by_id[it.item_id] = it
+    return [by_id[it.item_id] for it in items]
 
 
 def backfill_hitl_uniqueness_scores_from_key_profile(
