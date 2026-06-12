@@ -4,11 +4,8 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from edvise.genai.mapping.identity_agent.grain_inference.contract_validation import (
-    GrainContractVerification,
-)
 from edvise.genai.mapping.identity_agent.grain_inference.hitl_uniqueness_backfill import (
-    backfill_hitl_uniqueness_scores_from_contract_verification,
+    backfill_hitl_uniqueness_scores_from_measured_keys,
     backfill_hitl_uniqueness_scores_from_key_profile,
 )
 from edvise.genai.mapping.identity_agent.grain_inference.prompt import (
@@ -31,12 +28,10 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
 )
 from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
-    DedupPolicy,
     GrainContract,
     InstitutionGrainContract,
     build_institution_grain_contracts,
 )
-from edvise.genai.mapping.shared.profiling.grain_key_profile import KeyProfileSummary
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     TermOrderConfig,
 )
@@ -497,123 +492,13 @@ def test_backfill_hitl_uniqueness_scores_replaces_invented_zero_from_profile():
     assert ctx.candidate_keys[0].uniqueness_score == 0.5244
 
 
-def _grain_hitl_item_with_candidate_keys(
-    *,
-    columns: list[str],
-    uniqueness_score: float,
-) -> HITLItem:
-    return HITLItem(
-        item_id="inst_student_q",
-        institution_id="inst",
-        table="student",
-        domain=HITLDomain.IDENTITY_GRAIN,
-        hitl_question="q",
-        hitl_context=GrainAmbiguityHITLContext(
-            candidate_keys=[
-                GrainCandidateKeyEntry(
-                    rank=1,
-                    columns=columns,
-                    uniqueness_score=uniqueness_score,
-                    notes="",
-                )
-            ],
-            variance_profile={},
-        ),
-        options=[
-            HITLOption(
-                option_id="keep",
-                label="Keep",
-                description="d",
-                resolution=GrainResolution(dedup_strategy="no_dedup").model_dump(
-                    mode="json"
-                ),
-                reentry=ReentryDepth.TERMINAL,
-            ),
-            HITLOption(
-                option_id="custom",
-                label="Custom",
-                description="c",
-                resolution=None,
-                reentry=ReentryDepth.GENERATE_HOOK,
-            ),
-        ],
-        target=HITLTarget(
-            institution_id="inst",
-            table="student",
-            config="grain_contract",
-            field="dedup_policy",
-        ),
-    )
-
-
-def test_backfill_hitl_uniqueness_scores_from_contract_verification() -> None:
-    """Post-LLM verify score replaces LLM-hallucinated rank-1 uniqueness for contract grain."""
-    contract = GrainContract(
-        institution_id="inst",
-        table="student",
-        learner_id_alias=None,
-        post_clean_primary_key=["student_id"],
-        dedup_policy=DedupPolicy(strategy="policy_required", notes=""),
-        row_selection_required=False,
-        join_keys_for_2a=["student_id"],
-        confidence=0.7,
-        hitl_flag=True,
-        reasoning="test",
-    )
-    verification = GrainContractVerification(
-        contract_key_profile=KeyProfileSummary(
-            key_columns=["student_id"],
-            uniqueness_score=0.998,
-            non_unique_rows=28,
-            affected_groups=14,
-            group_size_distribution={2: 14},
-            column_profiles=[],
-            sampled=False,
-        ),
-        dedup_impact=None,
-        coerced=False,
-        coercion_reason=None,
-        categorical_variance_columns=["major_at_graduation"],
-    )
-    item = _grain_hitl_item_with_candidate_keys(
-        columns=["student_id"],
-        uniqueness_score=0.999,
-    )
-    out = backfill_hitl_uniqueness_scores_from_contract_verification(
-        [item], contract, verification
-    )
-    ctx = out[0].hitl_context
-    assert isinstance(ctx, GrainAmbiguityHITLContext)
-    assert ctx.candidate_keys[0].uniqueness_score == 0.998
-
-
-def test_backfill_hitl_uniqueness_scores_from_contract_verification_skips_other_keys() -> None:
-    contract = GrainContract(
-        institution_id="inst",
-        table="student",
-        learner_id_alias=None,
-        post_clean_primary_key=["student_id"],
-        dedup_policy=DedupPolicy(strategy="policy_required", notes=""),
-        row_selection_required=False,
-        join_keys_for_2a=["student_id"],
-        confidence=0.7,
-        hitl_flag=True,
-        reasoning="test",
-    )
-    verification = GrainContractVerification(
-        contract_key_profile=KeyProfileSummary(
-            key_columns=["student_id"],
-            uniqueness_score=0.998,
-            non_unique_rows=28,
-            affected_groups=14,
-            group_size_distribution={2: 14},
-            column_profiles=[],
-            sampled=False,
-        ),
-        dedup_impact=None,
-        coerced=False,
-        coercion_reason=None,
-        categorical_variance_columns=[],
+def test_backfill_hitl_uniqueness_scores_from_measured_keys() -> None:
+    """Every candidate_keys entry gets a measured uniqueness score, not LLM guesses."""
+    df = pd.DataFrame(
+        {
+            "student_id": ["a", "a", "b", "b"],
+            "program_at_graduation": ["BS", "BA", "BS", "BA"],
+        }
     )
     item = HITLItem(
         item_id="inst_student_q",
@@ -663,10 +548,8 @@ def test_backfill_hitl_uniqueness_scores_from_contract_verification_skips_other_
             field="dedup_policy",
         ),
     )
-    out = backfill_hitl_uniqueness_scores_from_contract_verification(
-        [item], contract, verification
-    )
+    out = backfill_hitl_uniqueness_scores_from_measured_keys([item], df)
     ctx = out[0].hitl_context
     assert isinstance(ctx, GrainAmbiguityHITLContext)
-    assert ctx.candidate_keys[0].uniqueness_score == 0.998
-    assert ctx.candidate_keys[1].uniqueness_score == 0.999
+    assert ctx.candidate_keys[0].uniqueness_score == pytest.approx(0.5)
+    assert ctx.candidate_keys[1].uniqueness_score == pytest.approx(1.0)
