@@ -362,6 +362,62 @@ def test_build_sma_grain_hitl_rejects_suffix_not_in_manifest_grain() -> None:
         )
 
 
+def test_build_sma_grain_hitl_items_serializes_timestamp_variance_context() -> None:
+    from edvise.genai.mapping.shared.profiling.variance import (
+        ColumnVarianceProfile,
+        WithinGroupVarianceResult,
+    )
+
+    variance = WithinGroupVarianceResult(
+        non_unique_rows=4,
+        affected_groups=2,
+        group_size_distribution={2: 2},
+        column_profiles=[
+            ColumnVarianceProfile(
+                column="course_begin_date",
+                pct_groups_with_variance=1.0,
+                sample_values=["2024-08-19T00:00:00", "2024-08-20T00:00:00"],
+            ),
+        ],
+        sampled=False,
+    )
+    proposals = [
+        DedupProposalLLM(
+            strategy="true_duplicate",
+            label="Drop identical duplicates",
+            description="Keep one row per manifest key.",
+            reasoning="Fallback.",
+        ),
+        DedupProposalLLM(
+            strategy="suffix_identifier",
+            label="Suffix key ties",
+            description="Append -1, -2 suffixes.",
+            suffix_column="course_section",
+            reasoning="Fallback.",
+        ),
+    ]
+    items = build_sma_grain_hitl_items(
+        institution_id="indiana_institute_of_technology",
+        dataset="course",
+        entity_type="course",
+        scenario="within_grain_multiplicity",
+        base_rows=72669,
+        entity_rows=65176,
+        manifest_source_keys=["learner_id", "course_section"],
+        mapped_source_columns=["course_begin_date"],
+        ia_source_keys=["learner_id", "course_name", "semester"],
+        proposals=proposals,
+        sma_manifest_path=None,
+        variance=variance,
+    )
+    assert items[0].hitl_context is not None
+    ctx = json.loads(items[0].hitl_context)
+    assert ctx["top_column_profiles"][0]["sample_values"] == [
+        "2024-08-19T00:00:00",
+        "2024-08-20T00:00:00",
+    ]
+
+
 def test_write_sma_grain_true_duplicate_resolution_file_shape(tmp_path: Path) -> None:
     from edvise.genai.mapping.schema_mapping_agent.grain_resolution.runner import (
         _write_sma_grain_true_duplicate_resolution_file,

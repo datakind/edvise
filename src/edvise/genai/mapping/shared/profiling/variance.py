@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Any
 
 import pandas as pd
 
@@ -11,6 +13,27 @@ import pandas as pd
 SAMPLE_GROUP_SIZE = 500
 PROFILE_MAX_WORK_ROWS = 150_000
 WITHIN_GROUP_SAMPLE_VALUES = 5
+
+
+def _json_safe_profile_value(val: Any) -> Any:
+    """Normalize a profiler sample value for JSON serialization."""
+    if val is None:
+        return None
+    if isinstance(val, (str, int, float, bool)):
+        return val
+    if isinstance(val, (pd.Timestamp, datetime, date)):
+        return val.isoformat()
+    try:
+        if pd.isna(val):
+            return None
+    except (TypeError, ValueError):
+        pass
+    if hasattr(val, "item"):
+        try:
+            return _json_safe_profile_value(val.item())
+        except (ValueError, AttributeError):
+            pass
+    return str(val)
 
 
 @dataclass(frozen=True)
@@ -83,7 +106,10 @@ def compute_within_group_variance(
     for col in cols_to_profile:
         nunique = work.groupby(key_cols, sort=False)[col].nunique()
         pct_varying = round((nunique > 1).mean(), 4)
-        sample_vals = work[col].dropna().unique()[:WITHIN_GROUP_SAMPLE_VALUES].tolist()
+        sample_vals = [
+            _json_safe_profile_value(v)
+            for v in work[col].dropna().unique()[:WITHIN_GROUP_SAMPLE_VALUES]
+        ]
         variance_profiles.append(
             ColumnVarianceProfile(
                 column=col,

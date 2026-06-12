@@ -1,0 +1,155 @@
+try:
+    import tomllib  # noqa
+except ImportError:  # => PY3.10
+    import tomli as tomllib  # noqa
+
+import pydantic as pyd
+import pathlib
+import pytest
+
+from edvise.configs import legacy
+
+SRC_ROOT = pathlib.Path(__file__).parents[2] / "configs" / "legacy_h2o"
+
+
+@pytest.fixture(scope="module")
+def template_cfg_dict():
+    config_path = SRC_ROOT / "config-TEMPLATE.toml"
+    with config_path.open("rb") as f:
+        return tomllib.load(f)
+
+
+def test_template_legacy_cfgs(template_cfg_dict):
+    result = legacy.LegacyProjectConfig.model_validate(template_cfg_dict)
+    print(result)
+    assert isinstance(result, pyd.BaseModel)
+
+
+@pytest.mark.parametrize(
+    ["cfg_str", "context"],
+    [
+        (
+            'institution_id = "custom_inst_id"',
+            pytest.raises(pyd.ValidationError),
+        ),
+        (
+            """
+            institution_id = "INVALID_IDENTIFIER!"
+            institution_name = "Custom Institution Name"
+            """,
+            pytest.raises(pyd.ValidationError),
+        ),
+        (
+            """
+            institution_id = "custom_inst_id"
+            institution_name = "Custom Institution Name"
+            [datasets.bronze]
+
+            [datasets.bronze.raw_cohort]
+            primary_keys = ["student_id"]
+            non_null_cols = ["acad_year"]
+            train_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_cohort_train.csv"
+            predict_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_cohort_inference.csv"
+            """,
+            pytest.raises(pyd.ValidationError),
+        ),
+        (
+            """
+            institution_id = "inst_id"
+            institution_name = "Inst Name"
+
+            [model]
+            experiment_id = "EXPERIMENT_ID"
+            run_id = "RUN_ID"
+            """,
+            pytest.raises(pyd.ValidationError),
+        ),
+    ],
+)
+def test_bad_legacy_cfgs(cfg_str, context):
+    cfg = tomllib.loads(cfg_str)
+    with context:
+        result = legacy.LegacyProjectConfig.model_validate(cfg)
+        assert isinstance(result, pyd.BaseModel)
+
+
+def test_substitute_uc_catalog_in_string():
+    assert (
+        legacy.substitute_uc_catalog_in_string("CATALOG.foo.bar", "dev_sst_02")
+        == "dev_sst_02.foo.bar"
+    )
+    assert (
+        legacy.substitute_uc_catalog_in_string(
+            "/Volumes/CATALOG/inst_bronze/x.csv", "dev_sst_02"
+        )
+        == "/Volumes/dev_sst_02/inst_bronze/x.csv"
+    )
+    assert (
+        legacy.substitute_uc_catalog_in_string(
+            "dbfs:/Volumes/CATALOG/inst_bronze/x.csv", "dev_sst_02"
+        )
+        == "dbfs:/Volumes/dev_sst_02/inst_bronze/x.csv"
+    )
+    assert legacy.substitute_uc_catalog_in_string("unchanged", "x") == "unchanged"
+
+
+_MINIMAL_LEGACY_CFG = {
+    "institution_id": "inst_id",
+    "institution_name": "Inst Name",
+    "student_group_aliases": {
+        "age_group": "Age Group",
+        "race": "Race",
+        "gender": "Gender",
+    },
+    "datasets": {
+        "bronze": {
+            "raw_cohort": {
+                "train_file_path": "/tmp/train.csv",
+            }
+        },
+        "silver": {
+            "modeling": {"train_table_path": "cat.silver.modeling"},
+            "model_features": {"predict_table_path": "cat.silver.features"},
+        },
+        "gold": {
+            "advisor_output": {"predict_table_path": "cat.gold.advisor"},
+        },
+    },
+}
+
+
+def test_postprocessing_config_defaults_false():
+    cfg = legacy.LegacyProjectConfig.model_validate(_MINIMAL_LEGACY_CFG)
+    assert cfg.postprocessing is None or not cfg.postprocessing.enabled
+
+
+def test_postprocessing_config_enabled():
+    cfg = legacy.LegacyProjectConfig.model_validate(
+        {
+            **_MINIMAL_LEGACY_CFG,
+            "postprocessing": {"enabled": True},
+        }
+    )
+    assert cfg.postprocessing is not None
+    assert cfg.postprocessing.enabled is True
+
+
+def test_apply_runtime_uc_catalog_on_template():
+    template_path = (
+        pathlib.Path(__file__).parents[2]
+        / "configs"
+        / "legacy_h2o"
+        / "config-TEMPLATE.toml"
+    )
+    with template_path.open("rb") as f:
+        raw = tomllib.load(f)
+    cfg = legacy.LegacyProjectConfig.model_validate(raw)
+    resolved = legacy.apply_runtime_uc_catalog(cfg, "dev_sst_02")
+    student = resolved.datasets.bronze["raw_student"]
+    assert student.train_file_path
+    assert "/Volumes/dev_sst_02/" in student.train_file_path
+    assert "CATALOG" not in student.train_file_path
+    mt = resolved.datasets.silver.modeling.train_table_path
+    assert mt is not None
+    assert mt.startswith("dev_sst_02.")
+    assert "CATALOG" not in mt

@@ -2,8 +2,8 @@ import pytest
 import pandas as pd
 from unittest.mock import MagicMock, patch
 from edvise.reporting.sections.registry import SectionRegistry
-from edvise.reporting.sections.custom import (
-    evaluation_sections as custom_evaluation_sections,
+from edvise.reporting.sections.legacy import (
+    evaluation_sections as legacy_evaluation_sections,
 )
 from edvise.reporting.utils.formatting import Formatting
 
@@ -32,9 +32,9 @@ def mock_card_without_aliases(tmp_path):
 
 
 @patch(
-    "edvise.reporting.sections.custom.evaluation_sections.utils.list_paths_in_directory"
+    "edvise.reporting.sections.legacy.evaluation_sections.utils.list_paths_in_directory"
 )
-@patch("edvise.reporting.sections.custom.evaluation_sections.utils.download_artifact")
+@patch("edvise.reporting.sections.legacy.evaluation_sections.utils.download_artifact")
 def test_register_evaluation_sections_with_aliases(
     mock_download, mock_list_paths, mock_card_with_aliases, tmp_path
 ):
@@ -52,7 +52,7 @@ def test_register_evaluation_sections_with_aliases(
     mock_download.return_value = str(csv_path)
 
     registry = SectionRegistry()
-    custom_evaluation_sections.register_evaluation_sections(
+    legacy_evaluation_sections.register_evaluation_sections(
         mock_card_with_aliases, registry
     )
     rendered = registry.render_all()
@@ -65,9 +65,9 @@ def test_register_evaluation_sections_with_aliases(
 
 
 @patch(
-    "edvise.reporting.sections.custom.evaluation_sections.utils.list_paths_in_directory"
+    "edvise.reporting.sections.legacy.evaluation_sections.utils.list_paths_in_directory"
 )
-@patch("edvise.reporting.sections.custom.evaluation_sections.utils.download_artifact")
+@patch("edvise.reporting.sections.legacy.evaluation_sections.utils.download_artifact")
 def test_register_evaluation_sections_fallback_to_friendly_case(
     mock_download, mock_list_paths, mock_card_without_aliases, tmp_path
 ):
@@ -82,7 +82,7 @@ def test_register_evaluation_sections_fallback_to_friendly_case(
     mock_download.return_value = str(csv_path)
 
     registry = SectionRegistry()
-    custom_evaluation_sections.register_evaluation_sections(
+    legacy_evaluation_sections.register_evaluation_sections(
         mock_card_without_aliases, registry
     )
     rendered = registry.render_all()
@@ -94,9 +94,9 @@ def test_register_evaluation_sections_fallback_to_friendly_case(
 
 
 @patch(
-    "edvise.reporting.sections.custom.evaluation_sections.utils.list_paths_in_directory"
+    "edvise.reporting.sections.legacy.evaluation_sections.utils.list_paths_in_directory"
 )
-@patch("edvise.reporting.sections.custom.evaluation_sections.utils.download_artifact")
+@patch("edvise.reporting.sections.legacy.evaluation_sections.utils.download_artifact")
 def test_register_evaluation_sections_handles_download_failure(
     mock_download, mock_list_paths, mock_card_with_aliases
 ):
@@ -107,7 +107,7 @@ def test_register_evaluation_sections_handles_download_failure(
     mock_download.side_effect = Exception("Failed to download")
 
     registry = SectionRegistry()
-    custom_evaluation_sections.register_evaluation_sections(
+    legacy_evaluation_sections.register_evaluation_sections(
         mock_card_with_aliases, registry
     )
     rendered = registry.render_all()

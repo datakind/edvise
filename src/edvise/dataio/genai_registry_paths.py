@@ -1,4 +1,4 @@
-"""Resolve GenAI raw parquet paths from ``genai_active_registry.json`` on a silver volume."""
+"""Resolve GenAI pipeline input paths from ``genai_active_registry.json`` on a silver volume."""
 
 from __future__ import annotations
 
@@ -14,15 +14,18 @@ LOGGER = logging.getLogger(__name__)
 _REGISTRY_REL = ("genai_mapping", "active", "genai_active_registry.json")
 
 
-def resolve_genai_schema_mapping_data_dir(silver_volume_path: str) -> str:
+def resolve_genai_pipeline_input_dir(
+    silver_volume_path: str,
+) -> str:
     """
-    Read ``genai_mapping/active/genai_active_registry.json`` under the silver root,
-    take ``onboard_run_id``, and return::
+    Resolve the GenAI pipeline input directory under a silver volume.
 
-        {silver}/genai_mapping/runs/onboard/{onboard_run_id}/schema_mapping_agent/data
+    Preferred (current) layout::
 
-    Args:
-        silver_volume_path: Root silver volume path (e.g. UC ``/Volumes/.../silver_volume``).
+        {silver}/genai_mapping/runs/onboard/{onboard_run_id}/pipeline_input
+
+    The ``onboard_run_id`` is read from ``genai_mapping/active/genai_active_registry.json``
+    under the silver root.
     """
     silver_root = silver_volume_path.rstrip("/").rstrip(os.sep)
     registry_path = os.path.join(silver_root, *_REGISTRY_REL)
@@ -38,18 +41,20 @@ def resolve_genai_schema_mapping_data_dir(silver_volume_path: str) -> str:
             f"Registry {registry_path!r} must contain a non-empty string "
             f"'onboard_run_id'; got {run_id!r}."
         )
-    data_dir = os.path.join(
+
+    preferred = os.path.join(
         silver_root,
         "genai_mapping",
         "runs",
         "onboard",
         run_id,
-        "schema_mapping_agent",
-        "data",
+        "pipeline_input",
     )
+    if not path_exists(preferred):
+        raise FileNotFoundError(
+            f"GenAI pipeline_input dir not found at {preferred!r} (onboard_run_id={run_id!r})."
+        )
     LOGGER.info(
-        "Resolved GenAI schema_mapping_agent data dir (onboard_run_id=%r) -> %s",
-        run_id,
-        data_dir,
+        "Resolved GenAI pipeline_input dir (onboard_run_id=%r) -> %s", run_id, preferred
     )
-    return data_dir
+    return preferred
