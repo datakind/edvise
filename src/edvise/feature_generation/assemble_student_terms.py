@@ -8,6 +8,7 @@ import typing as t
 import pandas as pd
 
 from edvise import feature_generation, utils
+from edvise.feature_generation.course import GradeSemantics
 from edvise.dataio.read import read_resolved_parquet
 from edvise.feature_generation.column_names import (
     CohortInputColumns,
@@ -88,6 +89,7 @@ def make_student_term_dataset(
     student_term_aggregate_spec: StudentTermAggregateSpec | None = None,
     student_term_add_feature_spec: StudentTermAddFeatureSpec | None = None,
     cumulative_feature_spec: CumulativeFeatureSpec | None = None,
+    grade_semantics: GradeSemantics = "pdp",
 ) -> pd.DataFrame:
     """Generate student-term features from standardized cohort/course dataframes."""
     first_term = utils.infer_data_terms.infer_first_term_of_year(
@@ -108,6 +110,7 @@ def make_student_term_dataset(
             spec=course_feature_spec,
             min_passing_grade=min_passing_grade,
             course_level_pattern=course_level_pattern,
+            grade_semantics=grade_semantics,
         )
         .pipe(
             feature_generation.term.add_features,

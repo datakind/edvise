@@ -256,10 +256,12 @@ class FeaturesConfig(pyd.BaseModel):
     grade_map: t.Optional[dict[str, str]] = pyd.Field(
         default=None,
         description=(
-            "Maps raw grade codes from the institution upload to canonical Edvise grades "
-            "(subset of ALLOWED_LETTER_GRADES) or a numeric string in [0, 4]. "
-            "Applied in ES data audit before course schema validation. "
-            'Example: {"W1": "W", "W2": "W", "OTHER": "O", "NC": "NC"}.'
+            "Institution-specific grade codes merged with platform defaults at ES data audit "
+            "(see edvise.data_audit.default_grade_map.DEFAULT_ES_GRADE_MAP for common "
+            "status/withdrawal tokens). Values must be canonical ALLOWED_LETTER_GRADES "
+            "or a numeric string in [0, 4]. Letter-to-GPA mappings are per-school, e.g. "
+            '{"A": "4", "B": "3", "C": "2", "D": "1", "F": "0"}. '
+            "Do not map pass/fail tokens (P) to GPA. Applied before course schema validation."
         ),
     )
 
