@@ -1,7 +1,10 @@
 """Tests for ES grade_map defaults and merge."""
 
 from edvise.data_audit.default_grade_map import DEFAULT_ES_GRADE_MAP
-from edvise.data_audit.raw_course_grade_map import merge_grade_maps, resolve_es_grade_map
+from edvise.data_audit.raw_course_grade_map import (
+    merge_grade_maps,
+    resolve_es_grade_map,
+)
 
 
 def test_resolve_es_grade_map_includes_defaults() -> None:

@@ -199,9 +199,9 @@ def test_course_grade_es_a_is_letter_not_audit():
     df = pd.DataFrame(
         {
             "grade": ["4", "A"],
-            "grade_num": [4.0, pd.NA],
+            "course_grade_numeric": [4.0, pd.NA],
         }
-    ).astype({"grade": "string", "grade_num": "Float32"})
+    ).astype({"grade": "string", "course_grade_numeric": "Float32"})
     obs = course.course_grade(df, grade_semantics="es")
     pd.testing.assert_series_equal(
         obs, pd.Series(["A", "A"], dtype="string"), check_names=False
