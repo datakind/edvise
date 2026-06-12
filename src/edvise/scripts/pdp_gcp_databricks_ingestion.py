@@ -1,11 +1,9 @@
-import os
 import argparse
-import logging
 import json
-import typing as t
-import importlib
-import pandas as pd
+import logging
+import os
 import sys
+
 from google.api_core.exceptions import Forbidden, NotFound
 
 # Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
@@ -20,12 +18,11 @@ from edvise.shared.dashboard_metadata.pipeline_runs import (
     parse_timestamp_from_filename,
 )
 from edvise.utils.databricks import (
-    local_fs_path,
+    find_file_in_run_folder,
     get_dbutils_or_none,
     get_latest_uc_model_run_id,
-    find_file_in_run_folder,
-    get_spark_session_or_none,
     in_databricks,
+    local_fs_path,
 )
 from edvise.utils.gcs import (
     active_gcp_identity,
@@ -33,23 +30,15 @@ from edvise.utils.gcs import (
     get_storage_client,
 )
 
-# Model names from get_model_name() are already UC-compatible
-
-
-ConverterFunc = t.Callable[[pd.DataFrame], pd.DataFrame]
-
 
 class DataIngestionTask:
+    """Download validated cohort/course files from GCS into bronze inference_inputs."""
+
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.dbutils = get_dbutils_or_none()
-        self.spark_session = get_spark_session_or_none()
         self.storage_client = get_storage_client()
-
-        # Strict would be outside DBR (lenient inside DBR unless overridden via flag)
-        # Basically, we don't want to raise google errors when we're only running from backend/DBR
         self.strict = not in_databricks()
-        # Populated by run() for downstream observability logging
         self.model_run_id: str | None = None
         self.config_file_path: str | None = None
 
@@ -60,40 +49,34 @@ class DataIngestionTask:
     def download_data_from_gcs(
         self, internal_pipeline_path: str
     ) -> tuple[str | None, str | None]:
-        sst_container_folder = "validated"
-        course_blob_name = f"{sst_container_folder}/{self.args.course_file_name}"
-        cohort_blob_name = f"{sst_container_folder}/{self.args.cohort_file_name}"
-        course_uri = f"gs://{self.args.gcp_bucket_name}/{course_blob_name}"
-        cohort_uri = f"gs://{self.args.gcp_bucket_name}/{cohort_blob_name}"
-
+        course_uri = (
+            f"gs://{self.args.gcp_bucket_name}/validated/{self.args.course_file_name}"
+        )
+        cohort_uri = (
+            f"gs://{self.args.gcp_bucket_name}/validated/{self.args.cohort_file_name}"
+        )
         course_file_path = os.path.join(
             internal_pipeline_path, self.args.course_file_name
         )
         cohort_file_path = os.path.join(
             internal_pipeline_path, self.args.cohort_file_name
         )
-
         ident = active_gcp_identity()
 
         try:
-            # course
             download_gcs_uri_to_filename(
                 course_uri,
                 course_file_path,
                 storage_client=self.storage_client,
             )
             logging.info("Course data downloaded: %s", course_file_path)
-
-            # cohort
             download_gcs_uri_to_filename(
                 cohort_uri,
                 cohort_file_path,
                 storage_client=self.storage_client,
             )
             logging.info("Cohort data downloaded: %s", cohort_file_path)
-
             return course_file_path, cohort_file_path
-
         except Forbidden:
             msg = (
                 f"GCS 403 for identity '{ident}' on "
@@ -108,7 +91,6 @@ class DataIngestionTask:
                 {"identity": ident, "bucket": self.args.gcp_bucket_name},
             )
             return None, None
-
         except NotFound:
             msg = (
                 "GCS 404 on one of the paths. "
@@ -119,7 +101,7 @@ class DataIngestionTask:
             self._logging("gcs_not_found", msg, {"bucket": self.args.gcp_bucket_name})
             return None, None
 
-    def run(self):
+    def run(self) -> None:
         bronze_root = (
             f"/Volumes/{self.args.DB_workspace}/"
             f"{self.args.databricks_institution_name}_bronze/bronze_volume"
@@ -129,7 +111,6 @@ class DataIngestionTask:
 
         fpath_course, fpath_cohort = self.download_data_from_gcs(landing_dir)
 
-        # Only set task values if dbutils is available (Databricks context)
         if self.dbutils:
             if fpath_course:
                 self.dbutils.jobs.taskValues.set(
@@ -146,7 +127,6 @@ class DataIngestionTask:
             self.args.databricks_institution_name,
         )
         self.model_run_id = model_run_id
-        # Run root: <silver>/<model_run_id>/  (config may be here or in training/ or inference/)
         silver_run_root = (
             f"/Volumes/{self.args.DB_workspace}/"
             f"{self.args.databricks_institution_name}_silver/silver_volume/{model_run_id}"
@@ -162,7 +142,10 @@ class DataIngestionTask:
 
 def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Ingest course and cohort data for the SST pipeline."
+        description=(
+            "Ingest validated cohort and course files from GCS for SST inference "
+            "(PDP and Edvise pipelines)."
+        )
     )
     parser.add_argument("--DB_workspace", required=True)
     parser.add_argument("--databricks_institution_name", required=True)
@@ -170,10 +153,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--cohort_file_name", required=True)
     parser.add_argument("--db_run_id", required=True)
     parser.add_argument("--gcp_bucket_name", required=True)
-    parser.add_argument("--custom_schemas_path", required=False)
     parser.add_argument("--model_name", required=True)
-    # parser.add_argument("--config_file_path", required=False)
-
     return parser.parse_args()
 
 
@@ -181,7 +161,6 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     args = parse_arguments()
 
-    # Observability: append-only run events
     dataset_ts = parse_timestamp_from_filename(
         args.cohort_file_name
     ) or parse_timestamp_from_filename(args.course_file_name)
@@ -197,30 +176,7 @@ if __name__ == "__main__":
         payload={"gcp_bucket_name": args.gcp_bucket_name},
     )
 
-    # Ensure inference_inputs exists before listdir/imports
-    base_inputs = f"/Volumes/{args.DB_workspace}/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
-    os.makedirs(local_fs_path(base_inputs), exist_ok=True)
-    logging.info(
-        "Files in inference inputs path: %s", os.listdir(local_fs_path(base_inputs))
-    )
-
-    # Optional dynamic imports for converters/schemas
-    for name, attr, desc in [
-        ("dataio", "converter_func_cohort", "custom cohort converter func"),
-        ("dataio", "converter_func_course", "custom course converter func"),
-        ("schemas", None, "custom schema"),
-    ]:
-        try:
-            mod = importlib.import_module(name)
-            if attr:
-                getattr(mod, attr)
-            logging.info("Running task with %s", desc)
-        except Exception:
-            logging.info("Running task with default %s", desc.split(" custom ")[-1])
-
     task = DataIngestionTask(args)
-    if hasattr(args, "strict") and args.strict:
-        task.strict = True
     try:
         task.run()
         append_pipeline_run_event(

@@ -1,5 +1,5 @@
-# Edvise (ES) inference: no data_ingestion task (inputs via GenAI silver parquets and/or bronze).
-# First tasks: es_data_audit -> es_feature_generation; downstream tasks match github_pdp_inference.yml.
+# Edvise (ES) inference: data_ingestion -> es_data_audit -> es_feature_generation;
+# downstream tasks match github_pdp_inference.yml.
 resources:
   jobs:
     github_sourced_es_inference_pipeline:
@@ -9,7 +9,34 @@ resources:
           - id: ${var.inference_slack_webhook_id}
       max_concurrent_runs: 5
       tasks:
+        - task_key: data_ingestion
+          spark_python_task:
+            python_file: src/edvise/scripts/pdp_gcp_databricks_ingestion.py
+            source: GIT
+            parameters:
+              - --cohort_file_name
+              - "{{job.parameters.cohort_file_name}}"
+              - --course_file_name
+              - "{{job.parameters.course_file_name}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --model_name
+              - "{{job.parameters.model_name}}"
+          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: google-cloud-storage==2.19.0
         - task_key: data_audit
+          depends_on:
+            - task_key: data_ingestion
           spark_python_task:
             python_file: src/edvise/scripts/es_data_audit.py
             source: GIT
@@ -20,8 +47,12 @@ resources:
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
+              - --cohort_dataset_validated_path
+              - "{{tasks.data_ingestion.values.cohort_dataset_validated_path}}"
+              - --course_dataset_validated_path
+              - "{{tasks.data_ingestion.values.course_dataset_validated_path}}"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.data_ingestion.values.config_file_path}}"
               - --job_type
               - "{{job.parameters.job_type}}"
               - --db_run_id
@@ -58,7 +89,7 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.data_ingestion.values.config_file_path}}"
               - --job_type
               - "{{job.parameters.job_type}}"
               - --db_run_id
@@ -95,7 +126,7 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.data_ingestion.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
               - --job_type
@@ -134,7 +165,7 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.data_ingestion.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
               - --job_type
@@ -178,7 +209,7 @@ resources:
               - --term_filter
               - "{{job.parameters.term_filter}}"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.data_ingestion.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
               - --job_type
@@ -227,7 +258,7 @@ resources:
               - --job_root_dir  
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.data_ingestion.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
