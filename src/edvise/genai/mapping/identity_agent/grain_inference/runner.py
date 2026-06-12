@@ -18,7 +18,10 @@ from edvise.utils.data_cleaning import convert_to_snake_case
 
 from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
-from .hitl_uniqueness_backfill import backfill_hitl_uniqueness_scores_from_key_profile
+from .hitl_uniqueness_backfill import (
+    backfill_hitl_uniqueness_scores_from_contract_verification,
+    backfill_hitl_uniqueness_scores_from_key_profile,
+)
 from .prompt import (
     IDENTITY_AGENT_SYSTEM_PROMPT,
     build_identity_agent_user_message,
@@ -80,6 +83,9 @@ def run_identity_agent_with_hitl(
         )
         items = backfill_hitl_uniqueness_scores_from_key_profile(items, key_profile)
         contract, verification = verify_grain_contract(contract, df)
+        items = backfill_hitl_uniqueness_scores_from_contract_verification(
+            items, contract, verification
+        )
         return contract, items, verification
 
     return llm_complete_with_parse_retry(
