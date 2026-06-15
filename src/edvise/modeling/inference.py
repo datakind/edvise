@@ -198,6 +198,27 @@ def generate_ranked_feature_table(
     return df.drop(columns=["average_shap_magnitude_raw"])
 
 
+def _lookup_features_table_entry(
+    feature_col: str, features_table: dict[str, dict[str, str]]
+) -> tuple[dict[str, str], re.Match[str] | None] | None:
+    """Return ``(entry, regex_match)`` for an exact or regex features-table key."""
+    feature_col = feature_col.lower()
+    if feature_col in features_table:
+        return features_table[feature_col], None
+    for fkey, fval in features_table.items():
+        if "(" in fkey and ")" in fkey:
+            if match := re.fullmatch(fkey, feature_col):
+                return fval, match
+    return None
+
+
+def _is_feature_defined_in_table(
+    feature_col: str, features_table: dict[str, dict[str, str]]
+) -> bool:
+    """True when ``feature_col`` matches an exact or regex key in ``features_table``."""
+    return _lookup_features_table_entry(feature_col, features_table) is not None
+
+
 def _get_mapped_feature_name(
     feature_col: str, features_table: dict[str, dict[str, str]], metadata: bool = False
 ) -> t.Any:
@@ -209,22 +230,15 @@ def _get_mapped_feature_name(
         long_desc = entry.get("long_desc", entry.get("long_feature_desc"))
         return short_desc, long_desc
 
-    if feature_col in features_table:
-        entry = features_table[feature_col]
-        feature_name = entry["name"]
+    if lookup := _lookup_features_table_entry(feature_col, features_table):
+        entry, match = lookup
+        feature_name = (
+            entry["name"].format(*match.groups()) if match else entry["name"]
+        )
         if metadata:
             short_desc, long_desc = _descs(entry)
             return feature_name, short_desc, long_desc
         return feature_name
-    else:
-        for fkey, fval in features_table.items():
-            if "(" in fkey and ")" in fkey:
-                if match := re.fullmatch(fkey, feature_col):
-                    feature_name = fval["name"].format(*match.groups())
-                    if metadata:
-                        short_desc, long_desc = _descs(fval)
-                        return feature_name, short_desc, long_desc
-                    return feature_name
 
     try:
         for _, fval in features_table.items():
