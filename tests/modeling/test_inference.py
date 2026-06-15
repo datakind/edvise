@@ -383,7 +383,7 @@ def test_get_mapped_feature_name_no_metadata(feature_col, features_table, exp):
         ),
     ],
 )
-def testis_feature_defined_in_table(feature_col, features_table, exp_defined):
+def test_is_feature_defined_in_table(feature_col, features_table, exp_defined):
     assert is_feature_defined_in_table(feature_col, features_table) is exp_defined
 
 
