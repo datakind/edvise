@@ -307,14 +307,10 @@ class TrainingTask:
         1. All features in modeling dataset exist as keys in features_table
         2. All features have at least some non-null values
         """
-        import tomli
-
-        features_table_path = local_fs_path(self.spec.features_table_path)
+        features_table_path = self.spec.features_table_path
         logging.info("Validating features from: %s", features_table_path)
 
-        # Load features_table
-        with open(features_table_path, "rb") as f:
-            features_table = tomli.load(f)
+        features_table = dataio.read.read_features_table(features_table_path)
 
         # Get feature columns from modeling dataset
         non_feature_cols = set(self.cfg.non_feature_cols)
