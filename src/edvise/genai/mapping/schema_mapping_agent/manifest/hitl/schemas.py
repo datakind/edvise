@@ -106,7 +106,7 @@ class SMAFailureMode(str, Enum):
     MAP_UNMAP = "map_unmap"
     # Model mapped a field gold would mark unmappable, or vice versa.
     # Pass 2 options: include both mapped and unmapped terminals (see refinement prompts);
-    # may add further distinct terminals within the 3–5 option envelope.
+    # may add further distinct terminals within the 2–5 option envelope.
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +256,7 @@ class SMAHITLItem(BaseModel):
     options: list[SMAHITLOption] = Field(
         ...,
         description=(
-            "3-5 options (max 4 TERMINAL + direct_edit). Each TERMINAL option is a "
+            "2-5 options (max 4 TERMINAL + direct_edit). Each TERMINAL option is a "
             "complete FieldMappingRecord alternative. Last option is always "
             "option_id='direct_edit' with reentry=DIRECT_EDIT and field_mapping=None."
         ),
@@ -295,8 +295,8 @@ class SMAHITLItem(BaseModel):
     @model_validator(mode="after")
     def validate_options(self) -> "SMAHITLItem":
         n = len(self.options)
-        if n < 3 or n > 5:  # max 4 TERMINAL + direct_edit
-            raise ValueError(f"SMAHITLItem must have 3-5 options, got {n}.")
+        if n < 2 or n > 5:  # min 1 TERMINAL + direct_edit; max 4 TERMINAL + direct_edit
+            raise ValueError(f"SMAHITLItem must have 2-5 options, got {n}.")
         last = self.options[-1]
         if last.option_id != "direct_edit":
             raise ValueError(
