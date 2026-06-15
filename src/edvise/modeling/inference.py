@@ -232,9 +232,7 @@ def _get_mapped_feature_name(
 
     if lookup := _lookup_features_table_entry(feature_col, features_table):
         entry, match = lookup
-        feature_name = (
-            entry["name"].format(*match.groups()) if match else entry["name"]
-        )
+        feature_name = entry["name"].format(*match.groups()) if match else entry["name"]
         if metadata:
             short_desc, long_desc = _descs(entry)
             return feature_name, short_desc, long_desc

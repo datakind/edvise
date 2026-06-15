@@ -319,7 +319,9 @@ class TrainingTask:
 
         # Check 1: All features exist in features_table (exact key or regex pattern)
         undefined_features = [
-            f for f in feature_cols if not _is_feature_defined_in_table(f, features_table)
+            f
+            for f in feature_cols
+            if not _is_feature_defined_in_table(f, features_table)
         ]
         if undefined_features:
             raise ValueError(
