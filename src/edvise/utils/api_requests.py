@@ -1,9 +1,13 @@
 # Standard library imports
 import logging
+import os
 import typing as t
 from dataclasses import dataclass, field
 from typing import Any, cast
 from urllib.parse import quote, urljoin
+
+from google.auth.transport.requests import Request
+from google.oauth2 import id_token
 
 # Third-party imports
 import requests
@@ -11,48 +15,90 @@ import requests
 LOGGER = logging.getLogger(__name__)
 
 
-def get_access_tokens(api_key: str) -> t.Any:
-    if not api_key or not isinstance(api_key, str):
-        return {
-            "ok": False,
-            "stage": "validation",
-            "error": "api_key must be a non-empty string",
-        }
+def fetch_iap_token(iap_audience: str) -> str:
+    # Uses ADC (same auth mechanism as google.cloud.storage.Client()).
+    return cast(str, id_token.fetch_id_token(Request(), iap_audience))
 
-    session = requests.Session()
 
-    # Retrieve API token
-    token_headers = {
-        "X-API-KEY": api_key,
-        "Content-Type": "application/json",
+def get_iap_audience() -> str:
+    aud = os.getenv("SST_IAP_AUDIENCE")
+    if not aud:
+        raise RuntimeError(
+            "Missing SST_IAP_AUDIENCE env var (should be the IAP OAuth client ID / audience, "
+            "like '...apps.googleusercontent.com')."
+        )
+    return aud
+
+
+def get_base_url(DB_workspace: str) -> str:
+    """
+    Map DB_workspace to the appropriate API base URL.
+
+    Args:
+        DB_workspace: The Databricks workspace identifier (e.g., 'dev_sst_02', 'staging_sst_01')
+
+    Returns:
+        Base URL for the API
+
+    Raises:
+        ValueError: If DB_workspace is not recognized
+    """
+    workspace_lower = DB_workspace.lower().strip()
+
+    # Map workspace to base URL based on pattern matching
+    # Dev workspaces (dev_sst_02, etc.)
+    if workspace_lower.startswith("dev"):
+        return "https://dev-sst.datakind.org"
+    # Staging workspaces (staging_sst_01, etc.)
+    elif workspace_lower.startswith("staging"):
+        return "https://staging-sst.datakind.org"
+    else:
+        raise ValueError(
+            f"Unknown DB_workspace '{DB_workspace}'. Must start with 'dev' or 'staging'"
+        )
+
+
+def get_access_tokens(api_key: str, DB_workspace: str) -> str:
+    if not isinstance(api_key, str) or not api_key.strip():
+        raise ValueError("api_key must be a non-empty string")
+
+    api_key = api_key.strip()
+    base_url = get_base_url(DB_workspace)
+    url = f"{base_url}/api/v1/token-from-api-key"
+
+    iap_jwt = fetch_iap_token(get_iap_audience())
+
+    headers = {
+        "Authorization": f"Bearer {iap_jwt}",  # required by IAP
+        "X-API-KEY": api_key,  # consumed by your app
         "Accept": "application/json",
     }
 
-    access_token_url = "https://staging-sst.datakind.org/api/v1/token-from-api-key"
-    token_resp = session.post(access_token_url, headers=token_headers, timeout=15)
-    token_resp.raise_for_status()
+    resp = requests.post(url, headers=headers, timeout=15)
 
-    try:
-        token_json = token_resp.json()
-    except ValueError as e:
-        raise ValueError(f"Token endpoint returned non-JSON: {token_resp.text}") from e
+    # Helpful debug if IAP blocks you again
+    if resp.status_code == 401 and "Invalid IAP credentials" in (resp.text or ""):
+        raise RuntimeError(
+            "Blocked by IAP (Invalid IAP credentials). "
+            "Either SST_IAP_AUDIENCE is wrong, or the Databricks identity lacks IAP access."
+        )
 
-    access_token = (
-        token_json.get("access_token") if isinstance(token_json, dict) else None
-    )
-    if not access_token:
+    resp.raise_for_status()
+    token_json = resp.json()
+    access_token = token_json.get("access_token")
+    if not isinstance(access_token, str) or not access_token:
         raise KeyError(f"No 'access_token' in token response: {token_json}")
-
     return access_token
 
 
-def create_custom_model(
+def create_legacy_model(
     inst_id: str,
     model_name: str,
     api_key: str,
     valid: bool,
+    DB_workspace: str,
 ) -> t.Any:
-    "Retrieve access token and log custom job ids on the GCP Cloud SQL JobTable"
+    "Retrieve access token and log legacy job ids on the GCP Cloud SQL JobTable"
 
     if not inst_id or not isinstance(inst_id, str):
         return {
@@ -76,10 +122,10 @@ def create_custom_model(
         return {"ok": False, "stage": "validation", "error": "valid must be a boolean"}
 
     session = requests.Session()
-    access_token = get_access_tokens(api_key=api_key)
+    access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
-    # Log custom jobs in JobTable
-    custom_model_headers = {
+    # Log legacy jobs in JobTable
+    legacy_model_headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
@@ -105,11 +151,10 @@ def create_custom_model(
         ],
     }
 
-    create_model_endpoint_url = (
-        f"https://staging-sst.datakind.org/api/v1/{inst_id}/models/"
-    )
+    base_url = get_base_url(DB_workspace)
+    create_model_endpoint_url = f"{base_url}/api/v1/{inst_id}/models/"
     resp = session.post(
-        create_model_endpoint_url, json=payload, headers=custom_model_headers
+        create_model_endpoint_url, json=payload, headers=legacy_model_headers
     )
     resp.raise_for_status()
 
@@ -119,7 +164,9 @@ def create_custom_model(
         return resp.text
 
 
-def validate_custom_institution_exist(inst_id: str, api_key: str) -> t.Any:
+def validate_legacy_institution_exist(
+    inst_id: str, api_key: str, DB_workspace: str
+) -> t.Any:
     if not inst_id or not isinstance(inst_id, str):
         return {
             "ok": False,
@@ -135,19 +182,18 @@ def validate_custom_institution_exist(inst_id: str, api_key: str) -> t.Any:
 
     session = requests.Session()
 
-    access_token = get_access_tokens(api_key=api_key)
+    access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
     # Verify institution exists
-    custom_model_headers = {
+    legacy_model_headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
     }
 
-    read_inst_endpoint_url = (
-        f"https://staging-sst.datakind.org/api/v1/institutions/{inst_id}"
-    )
-    resp = session.get(read_inst_endpoint_url, headers=custom_model_headers)
+    base_url = get_base_url(DB_workspace)
+    read_inst_endpoint_url = f"{base_url}/api/v1/institutions/{inst_id}"
+    resp = session.get(read_inst_endpoint_url, headers=legacy_model_headers)
     resp.raise_for_status()
 
     try:
@@ -156,7 +202,9 @@ def validate_custom_institution_exist(inst_id: str, api_key: str) -> t.Any:
         return resp.text
 
 
-def validate_custom_model_exist(inst_id: str, model_name: str, api_key: str) -> t.Any:
+def validate_legacy_model_exist(
+    inst_id: str, model_name: str, api_key: str, DB_workspace: str
+) -> t.Any:
     if not isinstance(inst_id, str) or not inst_id.strip():
         raise ValueError("inst_id must be a non-empty string")
     if not isinstance(model_name, str) or not model_name.strip():
@@ -165,17 +213,20 @@ def validate_custom_model_exist(inst_id: str, model_name: str, api_key: str) -> 
         raise ValueError("api_key must be a non-empty string")
 
     session = requests.Session()
-    access_token = get_access_tokens(api_key=api_key)
+    access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
     # Verify institution exists
-    custom_model_headers = {
+    legacy_model_headers = {
         "Accept": "application/json",
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
     }
 
-    read_model_endpoint_url = f"https://staging-sst.datakind.org/api/v1/institutions/{inst_id}/models/{model_name}"
-    resp = session.get(read_model_endpoint_url, headers=custom_model_headers)
+    base_url = get_base_url(DB_workspace)
+    read_model_endpoint_url = (
+        f"{base_url}/api/v1/institutions/{inst_id}/models/{model_name}"
+    )
+    resp = session.get(read_model_endpoint_url, headers=legacy_model_headers)
     resp.raise_for_status()
 
     try:
@@ -184,13 +235,16 @@ def validate_custom_model_exist(inst_id: str, model_name: str, api_key: str) -> 
         return resp.text
 
 
-def _fetch_institution_by_name(normalized_name: str, access_token: str) -> t.Any:
+def _fetch_institution_by_name(
+    normalized_name: str, access_token: str, DB_workspace: str
+) -> t.Any:
     """
     Fetch institution data from API by normalized name.
 
     Args:
         normalized_name: Institution name normalized to lowercase
         access_token: Bearer token for authentication
+        DB_workspace: The Databricks workspace identifier
 
     Returns:
         JSON response data from API
@@ -207,9 +261,8 @@ def _fetch_institution_by_name(normalized_name: str, access_token: str) -> t.Any
 
     # URL-encode the institution name to handle spaces, special chars, unicode, etc.
     encoded_name = quote(normalized_name, safe="")
-    institution_endpoint_url = (
-        f"https://staging-sst.datakind.org/api/v1/institutions/name/{encoded_name}"
-    )
+    base_url = get_base_url(DB_workspace)
+    institution_endpoint_url = f"{base_url}/api/v1/institutions/name/{encoded_name}"
     resp = session.get(
         institution_endpoint_url, headers=institution_headers, timeout=15
     )
@@ -320,7 +373,10 @@ def _parse_institution_response(institution_data: t.Any, institution_name: str) 
 
 
 def get_institution_id_by_name(
-    institution_name: str, api_key: str, is_databricks_name: bool = False
+    institution_name: str,
+    api_key: str,
+    DB_workspace: str,
+    is_databricks_name: bool = False,
 ) -> t.Any:
     """
     Retrieve institution ID by institution name from the API.
@@ -362,21 +418,23 @@ def get_institution_id_by_name(
     if validation_error is not None:
         return validation_error
 
-    access_token = get_access_tokens(api_key=api_key)
+    access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
     # Look up institution by name
     # Normalize to lowercase - the API endpoint performs case-insensitive matching
     # by comparing lowercase(name) == lowercase(input), so we normalize here for consistency
     normalized_name = institution_name.strip().lower()
 
-    institution_data = _fetch_institution_by_name(normalized_name, access_token)
+    institution_data = _fetch_institution_by_name(
+        normalized_name, access_token, DB_workspace
+    )
     return _parse_institution_response(institution_data, normalized_name)
 
 
-def log_custom_job(
-    inst_id: str, job_run_id: str, model_name: str, api_key: str
+def log_legacy_job(
+    inst_id: str, job_run_id: str, model_name: str, api_key: str, DB_workspace: str
 ) -> t.Any:
-    "Retrieve access token and log custom job ids on the GCP Cloud SQL JobTable"
+    "Retrieve access token and log legacy job ids on the GCP Cloud SQL JobTable"
     if not isinstance(inst_id, str) or not inst_id.strip():
         raise ValueError("inst_id must be a non-empty string")
     if not isinstance(job_run_id, str) or not job_run_id.strip():
@@ -387,16 +445,17 @@ def log_custom_job(
         raise ValueError("api_key must be a non-empty string")
 
     session = requests.Session()
-    access_token = get_access_tokens(api_key=api_key)
+    access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
-    # Log custom jobs in JobTable
-    custom_job_headers = {
+    # Log legacy jobs in JobTable
+    legacy_job_headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
     }
 
-    custom_job_endpoint_url = f"https://staging-sst.datakind.org/api/v1/{inst_id}/add-custom-school-job/{job_run_id}?model_name={model_name}"
-    resp = session.post(custom_job_endpoint_url, headers=custom_job_headers)
+    base_url = get_base_url(DB_workspace)
+    legacy_job_endpoint_url = f"{base_url}/api/v1/{inst_id}/add-custom-school-job/{job_run_id}?model_name={model_name}"
+    resp = session.post(legacy_job_endpoint_url, headers=legacy_job_headers)
     resp.raise_for_status()
 
     try:

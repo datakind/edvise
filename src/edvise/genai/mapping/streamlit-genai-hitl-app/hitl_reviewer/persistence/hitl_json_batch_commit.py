@@ -305,7 +305,8 @@ def persist_sma_transformation_review_from_session(
 ) -> tuple[bool, str]:
     """
     Write ``choice`` (1-based), sync ``status`` from the selected option's ``option_id``, and
-    when **correct** is selected merge ``steps`` from session key ``tr-steps-{sk}-{i}-{item_id}``.
+    when **correct** is selected merge ``steps`` from session key ``tr-steps-{sk}-{i}-{item_id}``;
+    when **hook_required** is selected merge ``reviewer_note`` from ``tr-hook-note-{sk}-{i}-{item_id}``.
 
     Used by :mod:`hitl_reviewer.ui.sma.transformation_review_ui`.
     """
@@ -322,9 +323,14 @@ def persist_sma_transformation_review_from_session(
     _status_from_option_id = {
         "approve": "approved",
         "correct": "corrected",
-        "unmappable": "unmappable",
+        "hook_required": "hook_required",
+        "unmappable": "hook_required",  # legacy option_id
     }
-    _status_from_choice_index = {1: "approved", 2: "corrected", 3: "unmappable"}
+    _status_from_choice_index = {
+        1: "approved",
+        2: "corrected",
+        3: "hook_required",
+    }
 
     for i in option_item_indices:
         if not (0 <= i < len(items)):
@@ -409,6 +415,12 @@ def persist_sma_transformation_review_from_session(
                     f"Item ``{row.get('item_id', i)!s}``: step validation failed: {e}",
                 )
             row["steps"] = parsed
+
+        if oid in ("hook_required", "unmappable") or choice_1 == 3:
+            note_key = f"tr-hook-note-{sk}-{i}-{row.get('item_id', i)}"
+            note_txt = (st.session_state.get(note_key) or "").strip()
+            if note_txt:
+                row["reviewer_note"] = note_txt
 
     try:
         out = json.dumps(fresh, indent=2, ensure_ascii=False) + "\n"

@@ -1,0 +1,25 @@
+# Per-institution Identity Agent inputs (schema: IdentityAgentInputsConfig).
+#
+# Deploy default path on UC:
+#   /Volumes/<CATALOG>/<institution_id>_bronze/bronze_volume/genai_mapping/inputs.toml
+#
+# CSV paths are relative to:
+#   /Volumes/<CATALOG>/<institution_id>_bronze/bronze_volume
+# unless you use a full /Volumes/... path.
+
+institution_id = "inst_id"
+
+[datasets.onboard_files]
+student = "genai_mapping/onboard/FILE_NAME_students.csv"
+course = "genai_mapping/onboard/FILE_NAME_courses.csv"
+# semester = "genai_mapping/onboard/FILE_NAME_terms.csv"
+
+# course = [
+#   "genai_mapping/onboard/FILE_NAME_courses_2005_2013.csv",
+#   "genai_mapping/onboard/FILE_NAME_courses_2014_2025.csv",
+# ]
+
+# Uncomment when wiring the execute pipeline (onboard-only can omit this block):
+# [datasets.execute_files]
+# student = "genai_mapping/execute/FILE_NAME_students.csv"
+# course = "genai_mapping/execute/FILE_NAME_courses.csv"
