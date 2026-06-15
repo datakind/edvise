@@ -9,12 +9,14 @@ messages plus :class:`~profiling.schemas.RankedCandidateProfiles`. Step 1 stats 
 from ..dataset_io import load_school_dataset_dataframe
 from . import deduplication
 from edvise.genai.mapping.shared.databricks_ai_gateway import (
+    DEFAULT_COLUMN_ROLES_GATEWAY_MODEL_ID,
     DEFAULT_GATEWAY_MODEL_ID,
     build_mlflow_ai_gateway_base_url,
     create_openai_client_for_databricks_gateway,
     make_databricks_gateway_llm_complete,
     require_databricks_token,
     resolve_ai_gateway_base_url,
+    resolve_column_roles_gateway_model_id,
     resolve_databricks_workspace_host,
     resolve_databricks_workspace_id,
     resolve_gateway_model_id,
@@ -66,6 +68,7 @@ from .schemas import (
 )
 
 __all__ = [
+    "DEFAULT_COLUMN_ROLES_GATEWAY_MODEL_ID",
     "DEFAULT_GATEWAY_MODEL_ID",
     "build_mlflow_ai_gateway_base_url",
     "PIPELINE_HITL_CONFIDENCE_THRESHOLD",
@@ -108,6 +111,7 @@ __all__ = [
     "resolve_ai_gateway_base_url",
     "resolve_databricks_workspace_host",
     "resolve_databricks_workspace_id",
+    "resolve_column_roles_gateway_model_id",
     "resolve_gateway_model_id",
     "strip_json_fences",
 ]

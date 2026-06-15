@@ -14,6 +14,8 @@ from typing import TypedDict
 
 from edvise.configs.genai import SchoolMappingConfig
 
+from edvise.genai.mapping.identity_agent.column_roles.schemas import ColumnRolesResult
+
 from edvise.genai.mapping.identity_agent.dataset_io import load_school_dataset_dataframe
 
 from ..profiling.candidate_keys import profile_candidate_keys
@@ -30,16 +32,22 @@ class IdentityProfilingDatasetResult(TypedDict, total=False):
     raw_table_profile: RawTableProfile
     user_message: str
     grain_verification: dict[str, object]
+    column_roles: dict[str, object]
+    profiler_warnings: list[str]
 
 
 def build_identity_profiling_run_by_dataset(
     *,
     institution_id: str,
     school: SchoolMappingConfig,
+    column_roles_by_dataset: Mapping[str, ColumnRolesResult] | None = None,
 ) -> dict[str, IdentityProfilingDatasetResult]:
     """
     For each dataset on ``school``, load CSVs, run ``profile_candidate_keys``,
     and build the grain user message via ``build_identity_agent_user_message``.
+
+    When ``column_roles_by_dataset`` is provided (from ColumnRolesAgent), semantic grain
+    keys are guaranteed in the key profile before grain LLM inference.
 
     Returns a mapping ``dataset_name ->`` :class:`IdentityProfilingDatasetResult` (same keys
     as the ``ia_dev`` notebook ``run_by_dataset``).
@@ -49,11 +57,15 @@ def build_identity_profiling_run_by_dataset(
 
     for name in school.datasets.keys():
         df = load_school_dataset_dataframe(school, name)
+        column_roles = (
+            column_roles_by_dataset.get(name) if column_roles_by_dataset else None
+        )
         kp_result = profile_candidate_keys(
             df,
             institution_id=institution_id,
             dataset=name,
             cleaning=cleaning,
+            column_roles=column_roles,
         )
         key_profile = kp_result.key_profile
         rtp = kp_result.raw_table_profile
@@ -64,13 +76,17 @@ def build_identity_profiling_run_by_dataset(
             df=df,
             raw_table_profile=rtp,
         )
-        results[name] = {
+        row: IdentityProfilingDatasetResult = {
             "n_rows": len(df),
             "n_cols": len(df.columns),
             "key_profile": key_profile,
             "raw_table_profile": rtp,
             "user_message": user_msg,
         }
+        if column_roles is not None:
+            row["column_roles"] = column_roles.to_jsonable()
+            row["profiler_warnings"] = list(column_roles.profiler_warnings)
+        results[name] = row
     return results
 
 
@@ -93,6 +109,10 @@ def identity_profiling_run_to_jsonable(
         }
         if row.get("grain_verification") is not None:
             dataset_payload["grain_verification"] = row["grain_verification"]
+        if row.get("column_roles") is not None:
+            dataset_payload["column_roles"] = row["column_roles"]
+        if row.get("profiler_warnings"):
+            dataset_payload["profiler_warnings"] = row["profiler_warnings"]
         datasets[name] = dataset_payload
     return {"institution_id": institution_id, "datasets": datasets}
 
