@@ -54,6 +54,7 @@ from edvise.shared.validation import (
 )
 
 
+from edvise.modeling.inference import is_feature_defined_in_table
 from edvise.scripts.predictions_h2o import (
     PredConfig,
     PredPaths,
@@ -304,25 +305,24 @@ class TrainingTask:
     def _validate_features_in_ft(self, df_modeling: pd.DataFrame) -> None:
         """
         Validate that:
-        1. All features in modeling dataset exist as keys in features_table
+        1. All features in modeling dataset match an exact or regex key in features_table
         2. All features have at least some non-null values
         """
-        import tomli
-
-        features_table_path = local_fs_path(self.spec.features_table_path)
+        features_table_path = self.spec.features_table_path
         logging.info("Validating features from: %s", features_table_path)
 
-        # Load features_table
-        with open(features_table_path, "rb") as f:
-            features_table = tomli.load(f)
+        features_table = dataio.read.read_features_table(features_table_path)
 
         # Get feature columns from modeling dataset
         non_feature_cols = set(self.cfg.non_feature_cols)
         feature_cols = [c for c in df_modeling.columns if c not in non_feature_cols]
 
-        # Check 1: All features exist in features_table
-        features_table_keys = set(features_table.keys())
-        undefined_features = [f for f in feature_cols if f not in features_table_keys]
+        # Check 1: All features exist in features_table (exact key or regex pattern)
+        undefined_features = [
+            f
+            for f in feature_cols
+            if not is_feature_defined_in_table(f, features_table)
+        ]
         if undefined_features:
             raise ValueError(
                 f"Features in modeling dataset but not defined in features_table: {undefined_features}"
