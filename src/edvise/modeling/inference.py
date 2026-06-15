@@ -212,7 +212,7 @@ def _lookup_features_table_entry(
     return None
 
 
-def _is_feature_defined_in_table(
+def is_feature_defined_in_table(
     feature_col: str, features_table: dict[str, dict[str, str]]
 ) -> bool:
     """True when ``feature_col`` matches an exact or regex key in ``features_table``."""

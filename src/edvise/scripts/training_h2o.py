@@ -54,7 +54,7 @@ from edvise.shared.validation import (
 )
 
 
-from edvise.modeling.inference import _is_feature_defined_in_table
+from edvise.modeling.inference import is_feature_defined_in_table
 from edvise.scripts.predictions_h2o import (
     PredConfig,
     PredPaths,
@@ -321,7 +321,7 @@ class TrainingTask:
         undefined_features = [
             f
             for f in feature_cols
-            if not _is_feature_defined_in_table(f, features_table)
+            if not is_feature_defined_in_table(f, features_table)
         ]
         if undefined_features:
             raise ValueError(

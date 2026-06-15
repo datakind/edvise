@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from edvise.modeling.inference import (
     _get_mapped_feature_name,
-    _is_feature_defined_in_table,
+    is_feature_defined_in_table,
     select_top_features_for_display,
     generate_ranked_feature_table,
     top_shap_features,
@@ -383,8 +383,8 @@ def test_get_mapped_feature_name_no_metadata(feature_col, features_table, exp):
         ),
     ],
 )
-def test_is_feature_defined_in_table(feature_col, features_table, exp_defined):
-    assert _is_feature_defined_in_table(feature_col, features_table) is exp_defined
+def testis_feature_defined_in_table(feature_col, features_table, exp_defined):
+    assert is_feature_defined_in_table(feature_col, features_table) is exp_defined
 
 
 @pytest.mark.parametrize(
