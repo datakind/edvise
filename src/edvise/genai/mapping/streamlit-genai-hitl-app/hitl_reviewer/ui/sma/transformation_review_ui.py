@@ -265,16 +265,36 @@ def render_sma_transformation_review_cards(
             else:
                 st.session_state[steps_edit_key] = "[]"
 
-        if oid == "correct" or sel_j == 1:
+        hook_note_key = f"tr-hook-note-{psk}-{i}-{item.get('item_id', i)}"
+        if hook_note_key not in st.session_state:
+            existing_note = item.get("reviewer_note")
+            st.session_state[hook_note_key] = (
+                str(existing_note or "").strip() if existing_note else ""
+            )
+
+        if oid == "correct":
             st.markdown("**Correct — edit steps (JSON array)**")
             st.caption(
-                "Each element must be a valid transformation step object (`function_name`, `column`, …). "
+                "Fix the flagged step(s) (usually `map_values.mapping`) in the proposed chain. "
                 "Required when **Correct** is selected before Save."
             )
             st.text_area(
                 "steps_json",
                 height=280,
                 key=steps_edit_key,
+                disabled=not uc_group_pending,
+                label_visibility="collapsed",
+            )
+        elif oid in ("hook_required", "unmappable"):
+            st.markdown("**Hook required — describe the transform**")
+            st.caption(
+                "Confirm what the custom hook must do (encoding rules, STRM/term mapping, etc.). "
+                "Hook code is generated and reviewed in the next gate after you save."
+            )
+            st.text_area(
+                "hook_intent",
+                height=160,
+                key=hook_note_key,
                 disabled=not uc_group_pending,
                 label_visibility="collapsed",
             )
@@ -301,8 +321,8 @@ def render_sma_transformation_review_cards(
         sma_approve_blocked = not sma_all_seen
 
     _help_base = (
-        "Writes ``choice`` (1-based option index), syncs ``status``, and — when **Correct** is chosen — "
-        "writes ``steps`` from the JSON editor. Then approves the UC row when pending."
+        "Writes ``choice`` (1-based option index), syncs ``status``, merges **Correct** ``steps`` or "
+        "**Hook required** ``reviewer_note``, then approves the UC row when pending."
     )
     _help = _help_base
     if sma_approve_blocked:
