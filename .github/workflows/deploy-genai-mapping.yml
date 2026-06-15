@@ -19,7 +19,6 @@ on:
   push:
     tags:
       - "v*"
-
 concurrency:
   group: deploy-genai-mapping-${{ github.ref }}
   cancel-in-progress: true
